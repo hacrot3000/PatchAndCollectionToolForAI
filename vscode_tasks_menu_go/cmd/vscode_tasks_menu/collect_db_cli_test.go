@@ -2,6 +2,7 @@ package main
 
 import (
     "bytes"
+    "errors"
     "encoding/json"
     "os"
     "path/filepath"
@@ -121,5 +122,31 @@ func TestCollectDBLegacyUTF8StringLiterals(t *testing.T) {
     p.Options["charset"] = "utf8mb4"
     if x := rewriteCollectLegacyCharset(sql, p); x != sql {
         t.Fatalf("modern MySQL SQL unexpectedly changed: %s", x)
+    }
+}
+
+func TestLegacyCollectFallbackTriggeredOnlyByTransactionVariable1193(t *testing.T) {
+    matching := []string{
+        "database adapter connect failed: CONNECT_FAILED: MySQL client failed: ERROR 1193 (HY000): Unknown system variable 'TRANSACTION'",
+        "ERROR 1193 (HY000): Unknown system variable \"TRANSACTION\"",
+    }
+    for _, line := range matching {
+        if !isLegacyReadOnlyUnsupported(errors.New(line)) {
+            t.Fatalf("expected legacy fallback for %q", line)
+        }
+    }
+    for _, line := range []string{
+        "ERROR 1045 (28000): Access denied for user",
+        "ERROR 1193 (HY000): Unknown system variable 'sql_mode'",
+        "ERROR 1193 (HY000): Unknown column TRANSACTION",
+        "ERROR 1064 (42000): You have an error in your SQL syntax",
+        "Unknown system variable 'TRANSACTION'",
+    } {
+        if isLegacyReadOnlyUnsupported(errors.New(line)) {
+            t.Fatalf("unexpected insecure downgrade for %q", line)
+        }
+    }
+    if isLegacyReadOnlyUnsupported(nil) {
+        t.Fatal("nil error must not trigger legacy fallback")
     }
 }

@@ -23,6 +23,9 @@ type Config struct {
 	Database              string
 	Secret                string
 	ReadOnly              bool
+	// CollectLegacyReadOnly skips unsupported server transaction initialization,
+	// but still requires ReadOnly and the adapter's SELECT-only SQL gate.
+	CollectLegacyReadOnly bool
 	Charset               string
 	ConnectTimeoutSeconds int
 }
@@ -35,8 +38,12 @@ func ConfigFromConnectPayload(payload dbadapter.ConnectPayload) (Config, error) 
 		Database:              strings.TrimSpace(payload.Database),
 		Secret:                payload.Secret,
 		ReadOnly:              payload.ReadOnly,
+		CollectLegacyReadOnly: payload.CollectLegacyReadOnly,
 		Charset:               defaultCharset,
 		ConnectTimeoutSeconds: defaultConnectTimeout,
+	}
+	if config.CollectLegacyReadOnly && !config.ReadOnly {
+		return Config{}, fmt.Errorf("legacy COLLECT mode requires ReadOnly=true")
 	}
 	if config.Host == "" {
 		config.Host = defaultHost
@@ -114,7 +121,7 @@ func clientArgs(config Config, credentials *credentialFile) []string {
 	if config.Database != "" {
 		args = append(args, "--database="+config.Database)
 	}
-	if config.ReadOnly {
+	if config.ReadOnly && !config.CollectLegacyReadOnly {
 		args = append(args, "--init-command=SET SESSION TRANSACTION READ ONLY")
 	}
 	return args

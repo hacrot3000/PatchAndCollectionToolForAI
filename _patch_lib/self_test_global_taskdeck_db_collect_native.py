@@ -45,6 +45,14 @@ def run():
             '#!/bin/sh\n'
             'if [ "$1" = "--version" ]; then echo "mysql fake 5.5"; exit 0; fi\n'
             'printf "%s\\n" "$@" >> "$TASKDECK_NATIVE_COLLECT_ARGS_LOG"\n'
+            'if [ "$TASKDECK_NATIVE_COLLECT_LEGACY_SERVER" = "1" ]; then\n'
+            '  for arg in "$@"; do\n'
+            '    case "$arg" in\n'
+            '      "--init-command=SET SESSION TRANSACTION READ ONLY")\n'
+            '        echo "ERROR 1193 (HY000): Unknown system variable \'TRANSACTION\'" >&2; exit 1 ;;\n'
+            '    esac\n'
+            '  done\n'
+            'fi\n'
             'sql=$(cat)\n'
             'case "$sql" in *utf8mb4*) echo "ERROR 1115 Unknown character set utf8mb4" >&2; exit 1 ;; esac\n'
             'case "$sql" in\n'
@@ -77,6 +85,24 @@ def run():
         assert result["engine"] == "mysql" and result["transport"] == "direct", result
         assert result["columns"] == ["id", "csv_index"], result
         assert result["rows"] == [["1", "0"]], result
+        assert result["read_only_enforcement"] == "server_transaction", result
+
+        # Simulated MySQL 5.5 rejects the normal session readonly setting.
+        # The bridge must retry with SQL-level gates, *never* as read/write UI.
+        legacy_env = dict(env)
+        legacy_env["TASKDECK_NATIVE_COLLECT_LEGACY_SERVER"] = "1"
+        args_before_legacy = args_log.read_text()
+        legacy = subprocess.run(cmd, input=json.dumps(req), text=True,
+                                capture_output=True, env=legacy_env,
+                                timeout=60, check=False)
+        if legacy.returncode != 0:
+            raise AssertionError(f"legacy MySQL 1193 fallback failed: {legacy.stderr[-1500:]}")
+        legacy_result = json.loads(legacy.stdout)
+        assert legacy_result["rows"] == [["1", "0"]], legacy_result
+        assert legacy_result["read_only_enforcement"] == "collect_sql_only", legacy_result
+        additional_args = args_log.read_text()[len(args_before_legacy):]
+        assert "--init-command=SET SESSION TRANSACTION READ ONLY" in additional_args
+        assert "--default-character-set=utf8" in additional_args
         # The Python AST compiler emits UTF-8 hex values using utf8mb4;
         # the native profile bridge must adapt only that conversion for old DBs.
         bound = dict(req)

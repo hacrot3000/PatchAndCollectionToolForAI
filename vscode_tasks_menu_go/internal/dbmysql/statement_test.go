@@ -3,6 +3,9 @@ package dbmysql
 import (
 	"strings"
 	"testing"
+    "context"
+
+    "bletonfc/vscode_tasks_menu/internal/dbadapter"
 )
 
 func TestNormalizeSingleStatementAllowsQuotedSemicolonAndTrailingTerminator(t *testing.T) {
@@ -95,4 +98,30 @@ func TestWrapReadOnlyStatementUsesReadOnlyTransaction(t *testing.T) {
 			t.Fatalf("wrapped statement missing %q: %q", want, got)
 		}
 	}
+}
+
+func TestLegacyCollectReadOnlyRejectsNonSelectAdapterOperations(t *testing.T) {
+    h := &Handler{
+        connected: true,
+        config: Config{ReadOnly: true, CollectLegacyReadOnly: true},
+    }
+    for _, operation := range []dbadapter.Operation{
+        dbadapter.OpMutateRows, dbadapter.OpObjectAction, dbadapter.OpImportSQL,
+        dbadapter.OpBegin, dbadapter.OpCommit, dbadapter.OpRollback,
+        dbadapter.OpListObjects, dbadapter.OpBrowseRows, dbadapter.OpDescribeObject,
+    } {
+        _, failure := h.Handle(context.Background(), dbadapter.Envelope{Operation: operation})
+        if failure == nil || failure.Code != "READ_ONLY" {
+            t.Fatalf("legacy COLLECT operation %s must be denied, got %v", operation, failure)
+        }
+    }
+    for _, sql := range []string{
+        "DELETE FROM buff_columns", "UPDATE buff_columns SET csv_index=0",
+        "SELECT * FROM buff_columns FOR UPDATE",
+        "SELECT * INTO OUTFILE '/tmp/bad' FROM buff_columns",
+    } {
+        if err := readOnlyStatement(sql); err == nil {
+            t.Fatalf("legacy COLLECT must reject unsafe SQL %q", sql)
+        }
+    }
 }
