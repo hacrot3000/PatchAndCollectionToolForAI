@@ -22,8 +22,8 @@ const trustedGUIHTML = `<!doctype html>
     <button type="button" class="nav" id="nav-project" aria-current="false"><span>02</span> Dự án · chỉ đọc</button>
     <button type="button" class="nav" id="nav-tasks" aria-current="false"><span>03</span> Task · chạy có điều kiện</button>
     <button type="button" class="nav" id="nav-git" aria-current="false"><span>04</span> Git · chỉ đọc</button>
-    <div class="nav muted"><span>05</span> Git Push <em>Chưa bật</em></div>
-    <div class="nav muted"><span>06</span> Terminal <em>Chưa bật</em></div>
+    <div class="nav muted"><span>05</span> Terminal <em>Chưa bật</em></div>
+    <div class="nav muted"><span>06</span> Các lệnh Git khác <em>Chưa bật</em></div>
     <div class="nav muted"><span>07</span> Editor / Files <em>Chưa bật</em></div>
    </nav>
    <div class="rail-note">Mật khẩu TaskDeck chỉ nhập trong client CLI đáng tin cậy, không nhập tại PHP Portal hoặc trang web khác.</div>
@@ -41,7 +41,7 @@ const trustedGUIHTML = `<!doctype html>
     </div>
     <p>Trang này chạy tại 127.0.0.1. Mã chỉ được gửi về client native trên máy của bạn, không gửi tới PHP/Relay.</p>
    </div>
-   <div class="view-head" aria-live="polite"><h2 id="view-title">Tổng quan</h2><p id="view-hint">Xem task và Git Status chỉ đọc; Git pull/commit cần opt-in riêng. Đổi tab không gửi thêm yêu cầu E2EE.</p></div>
+   <div class="view-head" aria-live="polite"><h2 id="view-title">Tổng quan</h2><p id="view-hint">Xem task và Git Status chỉ đọc; Git pull/commit/push cần opt-in riêng. Đổi tab không gửi thêm yêu cầu E2EE.</p></div>
    <section class="quick-actions" aria-label="Thao tác nhanh đã giới hạn">
     <strong>Thao tác nhanh · Không phải Terminal</strong>
     <p>Chỉ những yêu cầu đọc cố định đã được host phê duyệt. Không chấp nhận đường dẫn, đối số, lệnh shell hoặc Git ghi.</p>
@@ -146,8 +146,8 @@ const trustedGUIHTML = `<!doctype html>
     <article class="tile">
      <div class="tile-heading"><span class="dot"></span><h2>Git Status</h2></div>
      <p>Đọc trạng thái repository gốc trên máy TaskDeck. Chỉ hoạt động khi host bật riêng quyền đọc Git.</p>
-     <div class="actions"><button type="button" id="git">Đọc trạng thái Git</button><button type="button" id="git-pull" disabled>Git pull (fast-forward)</button></div>
-      <p>Git pull chỉ chạy khi host bật quyền riêng, worktree sạch, có upstream và người dùng xác nhận. Không chọn branch hoặc lệnh tùy ý.</p>
+     <div class="actions"><button type="button" id="git">Đọc trạng thái Git</button><button type="button" id="git-pull" disabled>Git pull (fast-forward)</button><button type="button" id="git-push" disabled>Git push (không force)</button></div>
+      <p>Git pull yêu cầu worktree sạch. Git push chỉ đẩy commit HEAD lên upstream cùng tên nhánh, không force, không đẩy tags; mọi thao tác yêu cầu quyền riêng trên host và xác nhận.</p>
       <div class="git-commit-form"><label for="git-commit-message">Commit message (tối đa 120 byte UTF-8)</label>
        <input id="git-commit-message" type="text" maxlength="120" spellcheck="false" autocomplete="off" placeholder="Nội dung commit, một dòng" disabled>
        <button type="button" id="git-commit" disabled>Commit các thay đổi đã stage</button>
@@ -240,6 +240,7 @@ const trustedGUIJavaScript = `'use strict';
   const git=document.getElementById('git');
   const gitPull=document.getElementById('git-pull');
   const gitCommit=document.getElementById('git-commit');
+  const gitPush=document.getElementById('git-push');
   const gitCommitMessage=document.getElementById('git-commit-message');
   const project=document.getElementById('project');
   const tasksPreview=document.getElementById('tasks-preview');
@@ -693,7 +694,7 @@ const trustedGUIJavaScript = `'use strict';
   let sessionStatusEpoch=0;
   let featuresKnown=false;
   let available={session_ping:false,project_info:false,tasks_preview:false,
-    task_run:false,task_long:false,git_status:false,git_pull:false,git_commit:false};
+    task_run:false,task_long:false,git_status:false,git_pull:false,git_commit:false,git_push:false};
   let expiresAt=0,expiredByClock=false;
   function clockText(ms){
     if(ms<=0)return 'Hết hạn';
@@ -788,7 +789,7 @@ const trustedGUIJavaScript = `'use strict';
     targetUser.textContent='';
     pingLatency.textContent='Chưa đo';
     featuresKnown=false;
-    available={session_ping:false,project_info:false,tasks_preview:false,task_run:false,task_long:false,git_status:false,git_pull:false,git_commit:false};
+    available={session_ping:false,project_info:false,tasks_preview:false,task_run:false,task_long:false,git_status:false,git_pull:false,git_commit:false,git_push:false};
     featureSummary.textContent='Phiên đã đóng. Đăng nhập lại bằng client TaskDeck tin cậy.';
   }
   function render(){
@@ -807,8 +808,9 @@ const trustedGUIJavaScript = `'use strict';
       (featuresKnown&&!available.session_ping);
     features.disabled=busy||closed||!verified||budget<=0;
     git.disabled=busy||closed||!verified||budget<=0||!featuresKnown||!available.git_status;
-    gitPull.disabled=busy||closed||!verified||budget<=0||!featuresKnown||!available.git_pull;
-    gitCommit.disabled=busy||closed||!verified||budget<=0||!featuresKnown||!available.git_commit;
+    gitPull.disabled=busy||closed||!verified||budget<=0||longTaskID!==0||!featuresKnown||!available.git_pull;
+    gitCommit.disabled=busy||closed||!verified||budget<=0||longTaskID!==0||!featuresKnown||!available.git_commit;
+    gitPush.disabled=busy||closed||!verified||budget<=0||longTaskID!==0||!featuresKnown||!available.git_push;
     gitCommitMessage.disabled=gitCommit.disabled;
     project.disabled=busy||closed||!verified||budget<=0||!featuresKnown||!available.project_info;
     tasksPreview.disabled=busy||closed||!verified||budget<=0||!featuresKnown||!available.tasks_preview;
@@ -953,7 +955,8 @@ const trustedGUIJavaScript = `'use strict';
             (data.task_run!==undefined&&typeof data.task_run!=='boolean')||
             (data.task_long!==undefined&&typeof data.task_long!=='boolean')||
             (data.git_pull!==undefined&&typeof data.git_pull!=='boolean')||
-            (data.git_commit!==undefined&&typeof data.git_commit!=='boolean')){
+            (data.git_commit!==undefined&&typeof data.git_commit!=='boolean')||
+            (data.git_push!==undefined&&typeof data.git_push!=='boolean')){
             throw new Error('Phản hồi khả năng GUI không hợp lệ');
           }
           available={session_ping:data.session_ping,
@@ -961,7 +964,7 @@ const trustedGUIJavaScript = `'use strict';
             tasks_preview:data.tasks_preview,task_run:data.task_run===true,
             task_long:data.task_long===true,
             git_status:data.git_status,git_pull:data.git_pull===true,
-            git_commit:data.git_commit===true};
+            git_commit:data.git_commit===true,git_push:data.git_push===true};
           featuresKnown=true;
           featureSummary.textContent=
             'Ping: '+(available.session_ping?'Được phép':'Thiếu quyền')+
@@ -970,6 +973,7 @@ const trustedGUIJavaScript = `'use strict';
             ' · Git: '+(available.git_status?'Được phép':'Chưa bật hoặc thiếu quyền')+
             ' · Git pull: '+(available.git_pull?'Được phép (ff-only)':'Chưa bật hoặc thiếu quyền')+
             ' · Git commit: '+(available.git_commit?'Được phép (staged)':'Chưa bật hoặc thiếu quyền')+
+            ' · Git push: '+(available.git_push?'Được phép (upstream)':'Chưa bật hoặc thiếu quyền')+
             ' · Chạy task: '+(available.task_run?'Được phép (task ngắn)':'Chưa bật hoặc thiếu quyền')+
             ' · Job dài: '+(available.task_long?'Được phép (Unix, giới hạn)':'Chưa bật hoặc thiếu quyền');
           if(!taskPreviewSection.hidden)renderTaskPage();
@@ -1239,7 +1243,7 @@ const trustedGUIJavaScript = `'use strict';
     verified=true;
     featuresKnown=false;
     available={session_ping:false,project_info:false,tasks_preview:false,
-      task_run:false,task_long:false,git_status:false,git_pull:false,git_commit:false};
+      task_run:false,task_long:false,git_status:false,git_pull:false,git_commit:false,git_push:false};
     featureSummary.textContent='Chưa kiểm tra. Bấm Kiểm tra chức năng để biết những chức năng được cấp phép.';
     activation.hidden=true;
     closed=false;terminated=false;closing=false;
