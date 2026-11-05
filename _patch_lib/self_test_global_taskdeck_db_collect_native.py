@@ -23,7 +23,7 @@ def run():
         workspace.mkdir()
         (workspace / ".vscode").mkdir()
         (workspace / ".vscode" / "vscode_tasks_menu.ini").write_text(
-            "shared_server.enabled = false\n", encoding="utf-8"
+            "[shared_server]\nenabled = false\n", encoding="utf-8"
         )
         (workspace / ".python_patch_tool.json").write_text(json.dumps({
             "project": {"key": "ss_tool", "id": "2a94ed57-5587-480b-adae-7c5c720f84f1"}
