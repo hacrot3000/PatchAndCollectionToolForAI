@@ -19,6 +19,7 @@ on:
       - 'remote_portal/tests/native_gui_interactions.test.cjs'
       - 'remote_portal/tests/native_gui_bulk_task_pages.test.cjs'
       - 'remote_portal/tests/native_gui_git_commit.test.cjs'
+      - 'remote_portal/tests/native_gui_git_push.test.cjs'
       - 'vscode_tasks_menu_go/internal/config/**'
       - 'vscode_tasks_menu_go/internal/server/**'
       - 'vscode_tasks_menu_go/cmd/vscode_tasks_menu/**'
@@ -37,6 +38,7 @@ on:
     paths:
       - 'vscode_tasks_menu_go/**'
       - 'remote_portal/tests/native_gui_git_commit.test.cjs'
+      - 'remote_portal/tests/native_gui_git_push.test.cjs'
       - 'deploy/remote/verify_client.sh'
       - 'tests/test_remote_client_provenance.sh'
       - '.github/workflows/taskdeck_remote_client_provenance.yml'
@@ -90,6 +92,8 @@ jobs:
         run: node remote_portal/tests/native_gui_bulk_task_pages.test.cjs
       - name: Verify bounded native Git commit message and explicit confirmation
         run: node remote_portal/tests/native_gui_git_commit.test.cjs
+      - name: Verify opt-in, no-force native Git push confirmation
+        run: node remote_portal/tests/native_gui_git_push.test.cjs
       - name: Test Go-Agent-to-browser E2EE interoperability
         run: node remote_portal/tests/browser_crypto.test.cjs
       - name: Test bidirectional Go-Agent/WebCrypto echo protocol
