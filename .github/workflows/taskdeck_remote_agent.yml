@@ -122,6 +122,9 @@ jobs:
         run: node remote_portal/tests/browser_login_crypto.test.cjs
       - name: Ensure PHP page cannot render a TaskDeck password entry form
         run: node remote_portal/tests/credential_boundary.test.cjs
+      - name: Verify fixed Git branches protocol and real-repository safeguards first
+        working-directory: vscode_tasks_menu_go
+        run: go test -race ./internal/remotetransport ./internal/server -run 'TestRemoteGitBranches' -count=1 -timeout=90s
       - name: Verify bounded Git pull, commit, push, fetch, branches, per-file index, log and diff
         working-directory: vscode_tasks_menu_go
         run: go test -race ./internal/remotetransport ./internal/server -run 'TestRemoteGit(Pull|Commit|Push|Fetch|Branches|Index|File|Stage|Log|Diff)' -count=1 -timeout=3m
