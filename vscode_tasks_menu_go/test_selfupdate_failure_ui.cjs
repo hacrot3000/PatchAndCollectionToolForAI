@@ -51,12 +51,14 @@ function harness(){
  return {
   async poll(){await intervals[0]();},
   fail(id,error='go not found',error_code=''){request={id,status:'failed',revision:'abc123',error,error_code};},
+  update(id,status,error='',error_code='',message=''){request={id,status,revision:'abc123',error,error_code,message};},
   close:nodes.find(node=>node.textContent==='Close'),
   overlay:nodes.find(node=>node.className==='self-update-overlay'),
   check:nodes.find(node=>node.id==='self-update-check'),
   title:nodes.find(node=>node.tag==='h3'),
   intro:nodes.find(node=>node.tag==='p'),
   goGuide:nodes.find(node=>node.className==='self-update-go-guide'),
+  style:nodes.find(node=>node.tag==='style')?.textContent||'',
   copyError:nodes.find(node=>node.textContent==='Copy error details'),
   acks,errors
  };
@@ -131,4 +133,60 @@ test('normal Go build/test failure is not mistaken for Go installation failure',
  h.fail('test','go test failed: undefined: missingSymbol');
  await h.poll();
  assert.equal(h.goGuide.hidden,true,'reused error dialog must clear the previous Go-specific guide');
+});
+
+
+test('Go installation guide is fully hidden during a successful dry-run, even with stale Go error metadata',async()=>{
+ const h=harness();
+ assert.equal(h.goGuide.hidden,true);
+ assert.equal(h.goGuide.style.display,'none','CSS-independent initial visibility');
+ assert.match(h.style,/\.self-update-go-guide\[hidden\]\{display:none!important\}/,
+   'author stylesheet must not override the HTML hidden attribute');
+
+ for(const phase of ['confirmed','downloading','testing','building','installing','ready_restart','restarting']){
+  h.update('running-1',phase,
+    'Go toolchain not found for self-update','GO_TOOLCHAIN_MISSING',
+    'Dry-run: building and validating candidate binary…');
+  await h.poll();
+  assert.equal(h.goGuide.hidden,true,'guide hidden in '+phase);
+  assert.equal(h.goGuide.style.display,'none','guide display:none in '+phase);
+  assert.equal(h.title.textContent,'TaskDeck update','regular title in '+phase);
+  assert.equal(h.overlay.classList.contains('visible'),true,'progress visible in '+phase);
+  assert.equal(h.copyError.style.display,'none','no error copy action in '+phase);
+ }
+ h.update('running-1','completed','', 'GO_TOOLCHAIN_MISSING');
+ await h.poll();
+ assert.equal(h.goGuide.hidden,true,'success never shows Go-install instructions');
+ assert.equal(h.goGuide.style.display,'none');
+ assert.equal(h.title.textContent,'TaskDeck update');
+});
+
+test('a missing-Go failure displays the guide, then a new active update hides it again',async()=>{
+ const h=harness();
+ h.fail('old-failed','go build failed: exec: "go": executable file not found in $PATH');
+ await h.poll();
+ assert.equal(h.goGuide.hidden,false);
+ assert.equal(h.goGuide.style.display,'');
+ assert.match(h.title.textContent,/Thiếu Go/);
+
+ h.update('new-running','building');
+ await h.poll();
+ assert.equal(h.goGuide.hidden,true);
+ assert.equal(h.goGuide.style.display,'none','old error guide must not leak into a new update');
+ assert.equal(h.title.textContent,'TaskDeck update');
+ assert.equal(h.overlay.classList.contains('visible'),true);
+
+ h.fail('different-failure','go build failed: undefined: symbol');
+ await h.poll();
+ assert.equal(h.goGuide.hidden,true);
+ assert.equal(h.goGuide.style.display,'none');
+ assert.equal(h.title.textContent,'TaskDeck update');
+
+ h.fail('real-missing','Go toolchain not found for self-update');
+ await h.poll();
+ assert.equal(h.goGuide.hidden,false);
+ assert.equal(h.goGuide.style.display,'');
+ h.close.onclick();
+ assert.equal(h.goGuide.hidden,true,'dismissal must hide the Go guide immediately');
+ assert.equal(h.goGuide.style.display,'none');
 });
