@@ -37,7 +37,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v6
         with:
-          go-version: \${{ matrix.go-version }}
+          go-version: ${{ matrix.go-version }}
           cache: false
       - name: Validate broker source formatting and syntax
         run: |
