@@ -114,6 +114,20 @@ func(f *fakeGUIActions)GitFetch(ctx context.Context)(remotetransport.RemoteGitFe
   After:"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",Updated:true,
  },nil
 }
+func(f *fakeGUIActions)GitStageTracked(ctx context.Context)(remotetransport.RemoteGitIndexResult,error){
+ f.gitCount.Add(1)
+ return remotetransport.RemoteGitIndexResult{
+  Operation:remotetransport.RemoteActionGitStageTracked,
+  Head:"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+ },nil
+}
+func(f *fakeGUIActions)GitUnstageAll(ctx context.Context)(remotetransport.RemoteGitIndexResult,error){
+ f.gitCount.Add(1)
+ return remotetransport.RemoteGitIndexResult{
+  Operation:remotetransport.RemoteActionGitUnstageAll,
+  Head:"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+ },nil
+}
 
 
 func(f *fakeGUIActions)TerminalOpen(ctx context.Context)(remotetransport.RemoteTerminalProgress,error){
@@ -1080,5 +1094,49 @@ func TestTrustedGUIGitFetchFixedRouteRejectsSmuggledArguments(t *testing.T){
  ui.ServeHTTP(body,req)
  if body.Code==http.StatusOK||fake.gitCount.Load()!=1{
   t.Fatal("GitFetch endpoint accepted a JSON argument body")
+ }
+}
+
+func TestTrustedGUIGitIndexMutationsRequireFixedLocalRoutes(t *testing.T){
+ fake:=&fakeGUIActions{}
+ ui,_:=newUITest(t,fake)
+ cases:=map[string]string{
+  "/api/git-stage-tracked":`"operation":"git.stage_tracked"`,
+  "/api/git-unstage-all":`"operation":"git.unstage_all"`,
+ }
+ for path,want:=range cases{
+  rr:=httptest.NewRecorder()
+  ui.ServeHTTP(rr,localRequest("POST",path,uiTestOrigin,uiTestToken))
+  if rr.Code!=http.StatusOK||!strings.Contains(rr.Body.String(),want)||
+   !strings.Contains(rr.Body.String(),`"remote_control_available":false`){
+   t.Fatalf("invalid native Git index route %s: %d %s",path,rr.Code,rr.Body.String())
+  }
+ }
+ if fake.gitCount.Load()!=2{t.Fatal("wrong number of typed index mutations")}
+ for _,path:=range []string{
+  "/api/git-stage-tracked?path=secret","/api/git-stage-tracked/all",
+  "/api/git-unstage-all?branch=main","/api/git-unstage-all/force",
+ }{
+  rr:=httptest.NewRecorder()
+  ui.ServeHTTP(rr,localRequest("POST",path,uiTestOrigin,uiTestToken))
+  if rr.Code==http.StatusOK||fake.gitCount.Load()!=2{
+   t.Fatalf("Git index accepted caller-selected path %s",path)
+  }
+ }
+ for _,path:=range []string{"/api/git-stage-tracked","/api/git-unstage-all"}{
+  req:=httptest.NewRequest("POST",path,strings.NewReader(`{"path":"README.md"}`))
+  req.Host="127.0.0.1:49237"
+  req.Header.Set("Origin",uiTestOrigin)
+  req.Header.Set("X-TaskDeck-Local-Capability",uiTestToken)
+  rr:=httptest.NewRecorder()
+  ui.ServeHTTP(rr,req)
+  if rr.Code==http.StatusOK||fake.gitCount.Load()!=2{
+   t.Fatalf("Git index accepted arbitrary file body %s",path)
+  }
+  cross:=httptest.NewRecorder()
+  ui.ServeHTTP(cross,localRequest("POST",path,"https://portal.invalid",uiTestToken))
+  if cross.Code==http.StatusOK||fake.gitCount.Load()!=2{
+   t.Fatalf("untrusted Portal reached Git index %s",path)
+  }
  }
 }
