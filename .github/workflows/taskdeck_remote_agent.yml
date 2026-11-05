@@ -18,6 +18,9 @@ on:
       - 'remote_portal/tests/native_gui_assets.test.cjs'
       - 'remote_portal/tests/native_gui_interactions.test.cjs'
       - 'remote_portal/tests/native_gui_bulk_task_pages.test.cjs'
+      - 'remote_portal/tests/native_gui_task_*.test.cjs'
+      - 'remote_portal/tests/native_gui_two_picks.test.cjs'
+      - 'remote_portal/tests/native_gui_long_task*.test.cjs'
       - 'remote_portal/tests/native_gui_git_commit.test.cjs'
       - 'remote_portal/tests/native_gui_git_push.test.cjs'
       - 'remote_portal/tests/native_gui_git_fetch.test.cjs'
@@ -44,6 +47,9 @@ on:
   pull_request:
     paths:
       - 'vscode_tasks_menu_go/**'
+      - 'remote_portal/tests/native_gui_task_*.test.cjs'
+      - 'remote_portal/tests/native_gui_two_picks.test.cjs'
+      - 'remote_portal/tests/native_gui_long_task*.test.cjs'
       - 'remote_portal/tests/native_gui_git_commit.test.cjs'
       - 'remote_portal/tests/native_gui_git_push.test.cjs'
       - 'remote_portal/tests/native_gui_git_fetch.test.cjs'
