@@ -1319,8 +1319,8 @@ const trustedGUIJavaScript = `'use strict';
           output.textContent='Task ID '+String(id)+' đã kết thúc, mã thoát: '+
             String(data.exit_code)+(data.truncated?' (output bị cắt)':'')+
             '\n'+data.output;
-          rememberTaskRun(id,'ngắn','completed',data.exit_code,
-            data.output,data.truncated);
+          rememberTaskRun(id,'ngắn',data.exit_code===0?'completed':'failed',
+            data.exit_code,data.output,data.truncated);
         }
         if(isLongAction){
           let prefix='';
