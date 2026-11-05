@@ -112,3 +112,19 @@ func TestRemoteFeaturesFileFlagsIndependent(t *testing.T){
   }
  }
 }
+
+func TestRemoteFeaturesGitBranchesDoesNotGrantWrite(t *testing.T){
+ for _,enabled:=range []bool{false,true}{
+  want:=RemoteFeatures{GitStatus:true,GitBranches:enabled}
+  c,a,_:=participants(t)
+  frame,err:=SealRemoteActionFeaturesResult(a,testActionID,want)
+  if err!=nil{t.Fatal(err)}
+  got,err:=OpenRemoteActionFeaturesResult(c,frame,testActionID)
+  if err!=nil||got!=want{
+   t.Fatalf("GitBranches independent flag %+v, want %+v: %v",got,want,err)
+  }
+  if got.GitCommit||got.GitPush||got.GitPull||got.GitStageFile{
+   t.Fatal("read-only GitBranches escalated to mutation")
+  }
+ }
+}
