@@ -206,12 +206,19 @@ func TestRemoteWorkflowExecutableAliasesAndPermissions(t *testing.T){
  shellAlias:=filepath.Join(root,"trusted-looking-shell")
  missing:=filepath.Join(root,"missing")
  noExec:=filepath.Join(root,"not-executable")
+ script:=filepath.Join(root,"trusted-native-name")
+ scriptAlias:=filepath.Join(root,"script-symlink")
+ textExec:=filepath.Join(root,"executable-text")
+ if err:=os.WriteFile(script,[]byte("#!/bin/sh\necho should-not-run\n"),0700);err!=nil{t.Fatal(err)}
+ if err:=os.Symlink(script,scriptAlias);err!=nil{t.Fatal(err)}
+ if err:=os.WriteFile(textExec,[]byte("just text, not native executable"),0700);err!=nil{t.Fatal(err)}
  if err:=os.Symlink("/bin/echo",trusted);err!=nil{t.Fatal(err)}
  if err:=os.Symlink("/bin/sh",shellAlias);err!=nil{t.Fatal(err)}
  if err:=os.WriteFile(noExec,[]byte("nothing"),0600);err!=nil{t.Fatal(err)}
  for _,tc:=range []struct{path string;safe bool}{
   {"/bin/echo",true},{trusted,true},{shellAlias,false},
-  {missing,false},{noExec,false},{"/bin/sh",false},
+  {missing,false},{noExec,false},{script,false},{scriptAlias,false},
+  {textExec,false},{"/bin/sh",false},
   {"/bin/echo\x00ignored",false},
  }{
   task:=tasks.Task{Type:"process",Command:tc.path}
@@ -233,6 +240,11 @@ func TestRemoteWorkflowGUIRunAvailableMatchesExecutablePreflight(t *testing.T){
   "nonexecutable":func(t *testing.T)string{
    path:=filepath.Join(t.TempDir(),"tool")
    if err:=os.WriteFile(path,[]byte("data"),0600);err!=nil{t.Fatal(err)}
+   return path
+  },
+  "script-executable":func(t *testing.T)string{
+   path:=filepath.Join(t.TempDir(),"looks-like-binary")
+   if err:=os.WriteFile(path,[]byte("#!/bin/sh\necho never\n"),0700);err!=nil{t.Fatal(err)}
    return path
   },
  }{

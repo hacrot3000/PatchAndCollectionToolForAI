@@ -4,6 +4,7 @@ import(
  "context"
  "errors"
  "fmt"
+ "io"
  "os"
  "os/exec"
  "path/filepath"
@@ -24,6 +25,34 @@ const remoteWorkflowMaxSteps=4
 
 type remoteWorkflowStep struct{ taskID int }
 
+// Process workflows intentionally exclude executable scripts, including
+// shebang files with innocuous names. Check native object headers rather than
+// trusting only executable mode and a command basename.
+func remoteWorkflowNativeExecutable(path string)bool{
+ file,err:=os.Open(path)
+ if err!=nil{return false}
+ defer file.Close()
+ var magic [4]byte
+ if _,err:=io.ReadFull(file,magic[:]);err!=nil{return false}
+ switch runtime.GOOS{
+ case "linux":
+  return magic==[4]byte{0x7f,'E','L','F'}
+ case "darwin":
+  switch magic{
+  case [4]byte{0xfe,0xed,0xfa,0xce}, // Mach-O 32-bit
+       [4]byte{0xce,0xfa,0xed,0xfe},
+       [4]byte{0xfe,0xed,0xfa,0xcf}, // Mach-O 64-bit
+       [4]byte{0xcf,0xfa,0xed,0xfe},
+       [4]byte{0xca,0xfe,0xba,0xbe}, // FAT/universal
+       [4]byte{0xbe,0xba,0xfe,0xca},
+       [4]byte{0xca,0xfe,0xba,0xbf}, // FAT64
+       [4]byte{0xbf,0xba,0xfe,0xca}:
+   return true
+  }
+ }
+ return false
+}
+
 // Resolve executable aliases before checking for interpreters. Looking only
 // at the user-supplied basename allowed a symlink called "safe-tool" to
 // bypass the workflow's explicit shell/interpreter denylist.
@@ -33,9 +62,8 @@ func remoteWorkflowResolvedExecutable(command string)(string,bool){
  resolved,err:=filepath.EvalSymlinks(command)
  if err!=nil||!filepath.IsAbs(resolved){return "",false}
  info,err:=os.Stat(resolved)
- if err!=nil||!info.Mode().IsRegular()||info.Mode().Perm()&0111==0{
-  return "",false
- }
+ if err!=nil||!info.Mode().IsRegular()||info.Mode().Perm()&0111==0||
+  !remoteWorkflowNativeExecutable(resolved){return "",false}
  switch strings.ToLower(filepath.Base(resolved)){
  case "bash","sh","dash","zsh","ksh","fish","csh","tcsh","pwsh","powershell",
       "python","python3","perl","ruby","node","php","env","sudo","su":

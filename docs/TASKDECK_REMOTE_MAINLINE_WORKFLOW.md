@@ -157,6 +157,11 @@ real-host testing are considered **code complete**.
   Tests exercise E2EE-only start, topology/bounds, source drift, opt-out,
   execution ordering, fail-fast, process cancellation, audits and UI
   confirmation and logout.
+- Security hardening: workflow process steps now require native ELF
+  (Linux) or Mach-O/universal (macOS) executable headers. A file with
+  executable mode but a script shebang, an executable text wrapper, or
+  a symlink to either is denied in both the GUI RunAvailable preflight and
+  actual execution. Regression tests cover these cases.
 - Not yet supported: branching DAG, parallelism, workflow secret inputs,
   retry/condition policies, per-node output exports, workflow resume,
   persistent step-by-step result pagination and Windows execution.
