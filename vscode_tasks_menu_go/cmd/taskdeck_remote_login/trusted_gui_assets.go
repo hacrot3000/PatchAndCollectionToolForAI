@@ -121,7 +121,7 @@ const trustedGUIHTML = `<!doctype html>
      <div class="tile-heading"><span class="dot"></span><h2>Task của workspace</h2></div>
      <p>Xem task qua E2EE. Khi host bật quyền, chạy task ngắn hoặc job dài có giới hạn; hỗ trợ các input process token/pickString đã xác minh. Không nhập lệnh shell tùy ý từ client.</p>
      <div class="actions">
-      <button type="button" id="tasks-preview">Xem trước task</button>
+      <button type="button" id="tasks-preview">Xem trước task</button><button type="button" id="tasks-report" disabled>Xem báo cáo task gần đây</button>
       <button type="button" id="task-run-stop" hidden>Dừng task và ngắt phiên</button>
      </div>
      <div class="actions" id="long-task-controls" hidden>
@@ -130,7 +130,7 @@ const trustedGUIHTML = `<!doctype html>
       <button type="button" id="long-task-cancel">Hủy job (giữ phiên)</button>
       <button type="button" id="long-task-clear">Dọn job đã kết thúc</button>
      </div>
-     <pre id="long-task-output" hidden aria-live="polite"></pre>
+     <pre id="long-task-output" hidden aria-live="polite"></pre><pre id="tasks-report-output" hidden aria-label="Báo cáo kết quả task E2EE"></pre>
      <section class="task-run-history" id="task-run-history" hidden aria-label="Kết quả chạy task trong phiên hiện tại">
       <div class="task-run-history-head"><strong>Kết quả chạy task gần đây · chỉ lưu trong phiên</strong><button type="button" id="task-run-history-clear">Xóa kết quả</button></div>
       <ol id="task-run-history-list"></ol>
@@ -354,6 +354,8 @@ const trustedGUIJavaScript = `'use strict';
   const terminalRows=document.getElementById('terminal-rows');
   const project=document.getElementById('project');
   const tasksPreview=document.getElementById('tasks-preview');
+  const tasksReport=document.getElementById('tasks-report');
+  const tasksReportOutput=document.getElementById('tasks-report-output');
   const taskRunStop=document.getElementById('task-run-stop');
   const longTaskControls=document.getElementById('long-task-controls');
   const longTaskPoll=document.getElementById('long-task-poll');
@@ -990,6 +992,7 @@ const trustedGUIJavaScript = `'use strict';
   // Authenticated data must not remain displayed after logout, expiration
   // or revocation. Do not persist previous remote metadata in the browser.
   function clearPrivateViews(){
+    tasksReportOutput.textContent='';tasksReportOutput.hidden=true;
     gitSwitchPreview=null;gitSwitchPending=null;
     gitDeletePreview=null;gitDeletePending=null;
     longTaskID=0;longTaskState='';longTaskText='';
@@ -1164,6 +1167,7 @@ const trustedGUIJavaScript = `'use strict';
     filesReadStart.disabled=filesRootButton.disabled;
     filesReadNext.disabled=filesReadStart.disabled||!filesReadMore;
     tasksPreview.disabled=busy||closed||!verified||budget<=0||maintenanceOnly||!featuresKnown||!available.tasks_preview;
+    tasksReport.disabled=tasksPreview.disabled;
     taskRunStop.hidden=!taskRunning||closed;
     taskRunStop.disabled=!taskRunning||!verified||closed||closing||terminated;
     longTaskControls.hidden=longTaskID===0||closed;
@@ -1565,7 +1569,30 @@ const trustedGUIJavaScript = `'use strict';
           hostOS.textContent=data.host_os;
           projectOverview.hidden=false;
         }
-        if(endpoint==='/api/tasks-preview'||endpoint==='/api/tasks-preview-next'){
+        if(endpoint==='/api/tasks-report'){
+          if(data.remote_control_available!==false||!Array.isArray(data.items)||
+            data.items.length>3||data.items.some((item,i)=>
+              !item||typeof item!=='object'||
+              !Number.isInteger(item.task_id)||item.task_id<1||item.task_id>2147483647||
+              !['completed','failed','cancelled','timed_out'].includes(item.status)||
+              !Number.isInteger(item.exit_code)||item.exit_code<(-1)||item.exit_code>255||
+              !Number.isInteger(item.duration_ms)||item.duration_ms<0||item.duration_ms>86400000||
+              !Number.isInteger(item.timestamp)||item.timestamp<1577836800||
+              item.timestamp>Math.floor(Date.now()/1000)+300||
+              (i>0&&item.timestamp>data.items[i-1].timestamp)||
+              Object.keys(item).sort().join(',')!=='duration_ms,exit_code,status,task_id,timestamp')){
+            throw new Error('Báo cáo task E2EE không hợp lệ');
+          }
+          tasksReportOutput.textContent=data.items.length===0?
+            'Chưa có kết quả task được lưu cho tài khoản này.':
+            data.items.map(item=>{
+              const when=new Date(item.timestamp*1000).toLocaleString('vi-VN');
+              return when+' · Task #'+item.task_id+' · '+item.status+
+                ' · exit '+item.exit_code+' · '+item.duration_ms+' ms';
+            }).join('\n');
+          tasksReportOutput.hidden=false;
+         }
+         if(endpoint==='/api/tasks-preview'||endpoint==='/api/tasks-preview-next'){
           const appendPage=endpoint==='/api/tasks-preview-next';
           const previousVisible=appendPage?
             filteredTaskLabels().slice(taskPage*taskPageSize,(taskPage+1)*taskPageSize):null;
@@ -2478,6 +2505,7 @@ const trustedGUIJavaScript = `'use strict';
     if(filesRootMore)invoke('/api/files-root-next');
   });
   tasksPreview.addEventListener('click',()=>invoke('/api/tasks-preview'));
+  tasksReport.addEventListener('click',()=>invoke('/api/tasks-report'));
   taskFetchNext.addEventListener('click',()=>{
     if(!canFetchTaskNext||bulkLoading||closed||busy||budget<=0)return;
     invoke('/api/tasks-preview-next');
