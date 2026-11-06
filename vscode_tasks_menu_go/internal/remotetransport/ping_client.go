@@ -220,6 +220,10 @@ func (p *PingClient) TerminalClose(ctx context.Context)(RemoteTerminalProgress,e
 
 // ProjectInfo retrieves only bounded display metadata for the single
 // locally authorized TaskDeck project. No remote-selected project key or path.
+func (p *PingClient) FilesReadSelect(ctx context.Context,index int)(RemoteFilesReadPage,error){
+ reply,err:=p.exchangeFileAction(ctx,RemoteActionFilesReadSelect,index,"")
+ return reply.filesRead,err
+}
 func (p *PingClient) FilesReadStart(ctx context.Context)(RemoteFilesReadPage,error){
  reply,err:=p.exchangeAction(ctx,RemoteActionFilesReadStart)
  return reply.filesRead,err
@@ -446,7 +450,7 @@ func (p *PingClient) exchangePayloadAction(ctx context.Context,operation string,
   result.info,err=OpenRemoteActionProjectInfoResult(channel,reply,id)
  case RemoteActionFilesRoot,RemoteActionFilesRootNext:
   result.filesRoot,err=OpenRemoteFilesRoot(channel,reply,id)
- case RemoteActionFilesReadStart,RemoteActionFilesReadNext:
+ case RemoteActionFilesReadStart,RemoteActionFilesReadNext,RemoteActionFilesReadSelect:
   result.filesRead,err=OpenRemoteFilesReadPage(channel,reply,id)
  case RemoteActionTasksPreview,RemoteActionTasksPreviewNext:
   result.preview,err=OpenRemoteActionTasksPreviewResult(channel,reply,id)

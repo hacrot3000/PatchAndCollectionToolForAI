@@ -153,7 +153,7 @@ func remoteTaskInputOperation(op string)bool{
 }
 func validRemoteOperation(op string)bool{
  return terminalOperation(op)||op==RemoteActionSessionPing || op==RemoteActionSessionFeatures ||
-  op==RemoteActionGitStatus || op==RemoteActionGitRemotes || op==RemoteActionGitTrackingStart || op==RemoteActionGitTrackingNext || op==RemoteActionGitLog || op==RemoteActionGitBranches || op==RemoteActionGitBranchCreate || op==RemoteActionGitSwitchReview || op==RemoteActionGitSwitchSameHead || op==RemoteActionGitBranchDeleteReview || op==RemoteActionGitBranchDelete || op==RemoteActionGitDiff || op==RemoteActionGitPatchStart || op==RemoteActionGitPatchNext || op==RemoteActionGitPatchCachedStart || op==RemoteActionGitPatchCachedNext || op==RemoteActionGitFetch || op==RemoteActionGitStageTracked || op==RemoteActionGitUnstageAll || op==RemoteActionGitStageFile || op==RemoteActionGitUnstageFile || op==RemoteActionGitPull || op==RemoteActionGitPullReview || op==RemoteActionGitPullChanges || op==RemoteActionGitCommit || op==RemoteActionGitPush || op==RemoteActionProjectInfo || op==RemoteActionFilesRoot || op==RemoteActionFilesRootNext || op==RemoteActionFilesReadStart || op==RemoteActionFilesReadNext ||
+  op==RemoteActionGitStatus || op==RemoteActionGitRemotes || op==RemoteActionGitTrackingStart || op==RemoteActionGitTrackingNext || op==RemoteActionGitLog || op==RemoteActionGitBranches || op==RemoteActionGitBranchCreate || op==RemoteActionGitSwitchReview || op==RemoteActionGitSwitchSameHead || op==RemoteActionGitBranchDeleteReview || op==RemoteActionGitBranchDelete || op==RemoteActionGitDiff || op==RemoteActionGitPatchStart || op==RemoteActionGitPatchNext || op==RemoteActionGitPatchCachedStart || op==RemoteActionGitPatchCachedNext || op==RemoteActionGitFetch || op==RemoteActionGitStageTracked || op==RemoteActionGitUnstageAll || op==RemoteActionGitStageFile || op==RemoteActionGitUnstageFile || op==RemoteActionGitPull || op==RemoteActionGitPullReview || op==RemoteActionGitPullChanges || op==RemoteActionGitCommit || op==RemoteActionGitPush || op==RemoteActionProjectInfo || op==RemoteActionFilesRoot || op==RemoteActionFilesRootNext || op==RemoteActionFilesReadStart || op==RemoteActionFilesReadNext || op==RemoteActionFilesReadSelect ||
   op==RemoteActionTasksPreview || op==RemoteActionTasksPreviewNext ||
   op==RemoteActionTasksInspect || op==RemoteActionTasksRun ||
   op==RemoteActionTasksStart || op==RemoteActionTasksPoll ||
@@ -182,6 +182,19 @@ func validateActionRequest(clear []byte) (RemoteAction,error){
  var denied RemoteAction
  // The only accepted file selection contains an index and an expected
  // status snapshot. No caller path, repo URL or Git argument is possible.
+ if fields,err:=decodeActionObject(clear,"type","request_id","operation","file_index");err==nil{
+  var typ,id,op string
+  var index int
+  if json.Unmarshal(fields["type"],&typ)!=nil||
+   json.Unmarshal(fields["request_id"],&id)!=nil||
+   json.Unmarshal(fields["operation"],&op)!=nil||
+   json.Unmarshal(fields["file_index"],&index)!=nil||
+   typ!=RemoteActionProtocol||!validActionID(id)||
+   op!=RemoteActionFilesReadSelect||!ValidRemoteFilesSelectIndex(index){
+   return denied,ErrInvalidRemoteAction
+  }
+  return RemoteAction{RequestID:id,Operation:op,FileIndex:index},nil
+ }
  if fields,err:=decodeActionObject(clear,"type","request_id","operation","file_index","snapshot");err==nil{
   var typ,id,op,snapshot string
   var index int
@@ -287,8 +300,10 @@ func SealRemoteAction(ch *Channel,action RemoteAction)([]byte,error){
   action.Choice<0 || action.Choice>MaxRemoteTaskCombinedChoices ||
   (action.Operation==RemoteActionGitCommit)!=(action.Message!="") ||
   (RemoteGitFileOperation(action.Operation)!=((action.FileIndex!=0)||(action.Snapshot!=""))) ||
+  ((action.Operation==RemoteActionFilesReadSelect)!=(action.FileIndex!=0&&action.Snapshot=="")) ||
+  (action.Operation==RemoteActionFilesReadSelect&&!ValidRemoteFilesSelectIndex(action.FileIndex)) ||
   (RemoteGitFileOperation(action.Operation)&&!ValidRemoteGitFileSelection(action.FileIndex,action.Snapshot)) ||
-  (!RemoteGitFileOperation(action.Operation)&&(action.FileIndex!=0||action.Snapshot!="")) ||
+  (!RemoteGitFileOperation(action.Operation)&&action.Operation!=RemoteActionFilesReadSelect&&(action.FileIndex!=0||action.Snapshot!="")) ||
   (action.Operation==RemoteActionTerminalWrite)!=(action.TerminalInput!="") ||
   (action.TerminalInput!=""&&!ValidRemoteTerminalInput(action.TerminalInput)) ||
   (action.Operation==RemoteActionTerminalResize)!=((action.Cols!=0)||(action.Rows!=0)) ||

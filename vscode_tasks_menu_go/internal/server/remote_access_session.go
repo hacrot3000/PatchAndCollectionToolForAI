@@ -81,6 +81,9 @@ type remoteTaskDeckSession struct {
  fileReadReady bool
  fileReadDigest [32]byte
  fileReadName string
+ fileReadSelected bool
+ fileReadSelectedIndex int
+ fileReadRootDigest [32]byte
  fileReadOffset int
  fileReadPage int
  // Root Files cursor is E2EE-session scoped, never client-chosen and
