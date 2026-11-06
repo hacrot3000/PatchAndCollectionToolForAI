@@ -110,8 +110,13 @@ const flush=async()=>{for(let i=0;i<45;i++)await Promise.resolve()};
  assert.match(get('long-task-output').textContent,/cancelled/);
  assert.match(get('task-run-history-list').children[0].children[0].textContent,
   /Task 123 .* dài .* cancelled/);
- assert.equal(get('task-run-history-list').children[0].children.length,1,
-  'long job history must not duplicate captured output');
+ const historyEntry=get('task-run-history-list').children[0];
+ assert.equal(historyEntry.children.length,2,
+  'long job history must retain a single bounded output preview');
+ assert.equal(historyEntry.children[1].textContent,'safe <script>alert(1)</script>',
+  'history must capture exactly the authenticated output once');
+ assert.equal(historyEntry.children[1].children.length,0,
+  'history output must be textContent, never injected as HTML');
  assert.equal(get('long-task-clear').disabled,false);
  get('long-task-clear').click();await flush();
  assert.equal(get('long-task-controls').hidden,true);
