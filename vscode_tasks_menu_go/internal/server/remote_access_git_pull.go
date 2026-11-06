@@ -53,6 +53,9 @@ func (s *Server) executeRemoteGitPull(
   "GIT_TERMINAL_PROMPT=0","GCM_INTERACTIVE=never",
   "GIT_CONFIG_NOSYSTEM=1","GIT_CONFIG_GLOBAL="+os.DevNull,
   "GIT_PROTOCOL_FROM_USER=0",
+  // Ignore repo-supplied core.sshCommand for this fixed, noninteractive
+  // operation; the host's approved SSH agent may still authenticate.
+  "GIT_SSH_COMMAND=ssh -oBatchMode=yes",
  }
  run:=func(ctx context.Context,limit int,args ...string)(string,error){
   if ctx.Err()!=nil{return "",denied}
@@ -89,10 +92,27 @@ func (s *Server) executeRemoteGitPull(
  if err!=nil{return empty,denied}
  canonicalTop,err=filepath.Abs(canonicalTop)
  if err!=nil||filepath.Clean(canonicalTop)!=filepath.Clean(root){return empty,denied}
- branch,err:=read(ctx,"symbolic-ref","-q","--short","HEAD")
- if err!=nil||branch==""{return empty,denied}
- upstream,err:=read(ctx,"rev-parse","--abbrev-ref","--symbolic-full-name","@{upstream}")
- if err!=nil||upstream==""{return empty,denied}
+ // Enforce the same single, host-configured SSH/HTTPS upstream as the
+ // existing Git fetch/push controls. An arbitrary local/file/ext remote,
+ // multi-URL config or differently named tracking branch is not pullable.
+ localRef,err:=read(ctx,"symbolic-ref","-q","HEAD")
+ if err!=nil||!strings.HasPrefix(localRef,"refs/heads/"){return empty,denied}
+ branch:=strings.TrimPrefix(localRef,"refs/heads/")
+ if branch==""||len(branch)>180||strings.ContainsAny(branch,"\r\n"){
+  return empty,denied
+ }
+ remote,err:=read(ctx,"config","--get","branch."+branch+".remote")
+ if err!=nil||!remoteGitPushName.MatchString(remote){return empty,denied}
+ merge,err:=read(ctx,"config","--get","branch."+branch+".merge")
+ if err!=nil||merge!=localRef{return empty,denied}
+ upstream,err:=read(ctx,"rev-parse","--symbolic-full-name","@{upstream}")
+ if err!=nil||upstream!="refs/remotes/"+remote+"/"+branch{
+  return empty,denied
+ }
+ fetchURL,err:=run(ctx,1024,
+  "-c","core.fsmonitor=false","-C",root,
+  "remote","get-url","--all",remote)
+ if err!=nil||!validRemoteGitPushURL(fetchURL){return empty,denied}
  // A clean tree is a strict prerequisite, including untracked files.
  // Reject >256 bytes rather than trusting a truncated clean indication.
  dirty,err:=read(ctx,"--no-optional-locks","status","--porcelain=v1","--untracked-files=normal")
@@ -108,10 +128,14 @@ func (s *Server) executeRemoteGitPull(
  _,err=run(pullCtx,0,
   "-c","core.hooksPath="+os.DevNull,
   "-c","core.fsmonitor=false",
+  "-c","protocol.allow=never",
+  "-c","protocol.ssh.allow=always",
+  "-c","protocol.https.allow=always",
   "-c","protocol.ext.allow=never",
   "-c","protocol.file.allow=never",
   "-c","submodule.recurse=false",
   "-c","fetch.recurseSubmodules=false",
+  "-c","pull.rebase=false",
   "-C",root,"pull","--ff-only","--no-recurse-submodules","--no-edit")
  if err!=nil||pullCtx.Err()!=nil||session.closed.Load(){return empty,denied}
  after,err:=read(ctx,"rev-parse","--verify","HEAD")

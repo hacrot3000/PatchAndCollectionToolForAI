@@ -5,6 +5,8 @@ import (
  "os"
  "os/exec"
  "path/filepath"
+ "strconv"
+ "strings"
  "runtime"
  "testing"
 
@@ -34,6 +36,27 @@ func TestRemoteGitPullRequiresHostOptInAndConfiguredUpstream(t *testing.T){
  if _,err:=s.executeRemoteGitPull(context.Background(),session);err==nil {
   t.Fatal("Git pull without configured upstream was accepted")
  }
+ branchCommand:=exec.Command("git","-C",s.Workspace,"symbolic-ref","--short","HEAD")
+ rawBranch,err:=branchCommand.Output()
+ if err!=nil{t.Fatal(err)}
+ branch:=strings.TrimSpace(string(rawBranch))
+ run("remote","add","origin",filepath.Join(s.Workspace,".git"))
+ run("config","branch."+branch+".remote","origin")
+ run("config","branch."+branch+".merge","refs/heads/"+branch)
+ run("update-ref","refs/remotes/origin/"+branch,"HEAD")
+ if _,err:=s.executeRemoteGitPull(context.Background(),session);err==nil {
+  t.Fatal("Git pull accepted a local filesystem remote")
+ }
+ run("remote","set-url","origin","ssh://git@example.invalid/team/repo.git")
+ run("config","branch."+branch+".merge","refs/heads/different")
+ if _,err:=s.executeRemoteGitPull(context.Background(),session);err==nil {
+  t.Fatal("Git pull accepted a different upstream branch")
+ }
+ run("config","branch."+branch+".merge","refs/heads/"+branch)
+ run("remote","set-url","--add","origin","ssh://git@other.invalid/team/repo.git")
+ if _,err:=s.executeRemoteGitPull(context.Background(),session);err==nil {
+  t.Fatal("Git pull accepted multiple fetch destinations")
+ }
  // A user-controlled project directory cannot make a parent Git repository
  // a valid TaskDeck workspace repository. No attempted pull is allowed.
  nested:=filepath.Join(s.Workspace,"nested")
@@ -56,5 +79,57 @@ func TestRemoteGitPullRejectsViewerAtE2EEAdmission(t *testing.T){
  response,err:=s.executeRemoteE2EEPing(context.Background(),session,agent,request)
  if err==nil||len(response)>0{
   t.Fatal("Portal viewer became authorized Git writer by presenting a GitPull AEAD action")
+ }
+}
+
+func TestRemoteGitPullFastForwardFromSingleSSHUpstream(t *testing.T){
+ requireGit(t)
+ if runtime.GOOS=="windows"{t.Skip("Unix-only bounded Git pull")}
+ t.Setenv("TASKDECK_REMOTE_GIT_PULL","1")
+ s,session,_,_:=remoteDispatchFixture(t)
+ gitInitRemoteTest(t,s.Workspace)
+ gitPath,err:=exec.LookPath("git")
+ if err!=nil{t.Fatal(err)}
+ run:=func(dir string,args ...string)string{
+  t.Helper()
+  cmd:=exec.Command(gitPath,append([]string{"-C",dir},args...)...)
+  result,err:=cmd.CombinedOutput()
+  if err!=nil{t.Fatalf("git %v: %v: %s",args,err,result)}
+  return strings.TrimSpace(string(result))
+ }
+ run(s.Workspace,"config","user.name","Remote CI")
+ run(s.Workspace,"config","user.email","remote@example.invalid")
+ if err:=os.WriteFile(filepath.Join(s.Workspace,"pull.txt"),[]byte("base\n"),0600);err!=nil{t.Fatal(err)}
+ run(s.Workspace,"add","-A")
+ run(s.Workspace,"commit","-qm","Base")
+ branch:=run(s.Workspace,"symbolic-ref","--short","HEAD")
+ before:=run(s.Workspace,"rev-parse","HEAD")
+ bare:=filepath.Join(t.TempDir(),"bare.git")
+ run(s.Workspace,"init","--bare","-q",bare)
+ run(s.Workspace,"push",bare,"HEAD:refs/heads/"+branch)
+ run(s.Workspace,"--git-dir",bare,"symbolic-ref","HEAD","refs/heads/"+branch)
+ other:=filepath.Join(t.TempDir(),"other")
+ run(s.Workspace,"clone","-q",bare,other)
+ run(other,"config","user.name","Remote author")
+ run(other,"config","user.email","author@example.invalid")
+ if err:=os.WriteFile(filepath.Join(other,"pull.txt"),[]byte("updated\n"),0600);err!=nil{t.Fatal(err)}
+ run(other,"add","pull.txt")
+ run(other,"commit","-qm","Update")
+ run(other,"push","-q","origin","HEAD:refs/heads/"+branch)
+ want:=run(other,"rev-parse","HEAD")
+ run(s.Workspace,"remote","add","origin","ssh://git@example.invalid/repo.git")
+ run(s.Workspace,"config","branch."+branch+".remote","origin")
+ run(s.Workspace,"config","branch."+branch+".merge","refs/heads/"+branch)
+ run(s.Workspace,"update-ref","refs/remotes/origin/"+branch,before)
+ mockBin:=t.TempDir()
+ script:="#!/bin/sh\nexec "+strconv.Quote(gitPath)+" upload-pack "+strconv.Quote(bare)+"\n"
+ if err:=os.WriteFile(filepath.Join(mockBin,"ssh"),[]byte(script),0700);err!=nil{t.Fatal(err)}
+ t.Setenv("PATH",mockBin+string(os.PathListSeparator)+os.Getenv("PATH"))
+ result,err:=s.executeRemoteGitPull(context.Background(),session)
+ if err!=nil||!result.Updated||result.Before!=before||result.After!=want{
+  t.Fatalf("fixed fast-forward pull failed: %+v %v, want %s",result,err,want)
+ }
+ if got:=run(s.Workspace,"rev-parse","HEAD");got!=want{
+  t.Fatalf("pulled HEAD %s != %s",got,want)
  }
 }
