@@ -1364,6 +1364,7 @@ const trustedGUIJavaScript = `'use strict';
           if(data.remote_control_available!==false||!Array.isArray(data.items)||data.items.length>8||
             typeof data.more!=='boolean'||(data.more&&data.items.length===0)||
             (!first&&!filesRootMore)||
+            (!first&&filesRootNames.length+data.items.length>128)||
             data.items.some((v,i)=>typeof v!=='string'||
               !/^[FD]:[A-Za-z0-9][A-Za-z0-9_.-]{0,31}$/.test(v)||
               (i>0&&data.items[i-1].slice(2)>=v.slice(2)))||
