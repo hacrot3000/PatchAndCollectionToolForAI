@@ -64,6 +64,24 @@ func(s *Server)remoteGitBranchDelete(ctx context.Context,
  if _,err:=os.Lstat(filepath.Join(gitDir,"worktrees"));err==nil||!os.IsNotExist(err){
   return empty,denied
  }
+ // Reject symlinked ref/reflog ancestor directories; Lstat of the final
+ // branch leaf alone would not detect an escaping parent symlink.
+ for _,dir:=range []string{
+  filepath.Join(gitDir,"refs"),filepath.Join(gitDir,"refs","heads"),
+  filepath.Join(gitDir,"refs","heads","taskdeck"),
+ }{
+  fi,e:=os.Lstat(dir)
+  if e!=nil||!fi.IsDir()||fi.Mode()&os.ModeSymlink!=0{return empty,denied}
+ }
+ for _,dir:=range []string{
+  filepath.Join(gitDir,"logs"),filepath.Join(gitDir,"logs","refs"),
+  filepath.Join(gitDir,"logs","refs","heads"),
+  filepath.Join(gitDir,"logs","refs","heads","taskdeck"),
+ }{
+  fi,e:=os.Lstat(dir)
+  if os.IsNotExist(e){break}
+  if e!=nil||!fi.IsDir()||fi.Mode()&os.ModeSymlink!=0{return empty,denied}
+ }
  executable:=""
  for _,candidate:=range []string{
   "/usr/bin/git","/bin/git","/opt/homebrew/bin/git","/usr/local/bin/git",
