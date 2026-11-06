@@ -46,7 +46,7 @@ func TestRemoteFilesReadStrictTypedE2EE(t *testing.T){
   "duplicate":strings.Replace(string(raw),"}",`,"name":"secrets.txt"}`,1),
   "unknown":strings.Replace(string(raw),"}",`,"path":"../../secret"}`,1),
   "remote-control":strings.Replace(string(raw),`"remote_control_available":false`,`"remote_control_available":true`,1),
-  "invalid-nul":strings.Replace(string(raw),`"text":"safe"`,`"text":"\\u0000"`,1),
+  "invalid-nul":strings.Replace(string(raw),`"text":"safe"`,`"text":"\u0000"`,1),
  }{
   t.Run(name,func(t *testing.T){
    c,a,_:=participants(t)
