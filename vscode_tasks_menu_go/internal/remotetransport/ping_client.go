@@ -273,6 +273,10 @@ func (p *PingClient) TasksPreviewNext(ctx context.Context)(RemoteTasksPreview,er
 
 // InspectTask verifies a previously published, host-owned task snapshot.
 // It never requests task content, commands, environment or execution.
+func (p *PingClient) TaskDependencies(ctx context.Context,taskID int)(RemoteTaskDependencies,error){
+ reply,err:=p.exchangeSelectedAction(ctx,RemoteActionTasksDependencies,taskID)
+ return reply.dependencies,err
+}
 func (p *PingClient) InspectTask(ctx context.Context,taskID int)(RemoteTaskInspect,error){
  reply,err:=p.exchangeSelectedAction(ctx,RemoteActionTasksInspect,taskID)
  return reply.inspect,err
@@ -334,6 +338,7 @@ type remoteActionReply struct {
  preview RemoteTasksPreview
  taskReport RemoteTaskReport
  inspect RemoteTaskInspect
+ dependencies RemoteTaskDependencies
  run RemoteTaskRun
  long RemoteLongTaskProgress
  features RemoteFeatures
@@ -471,6 +476,8 @@ func (p *PingClient) exchangePayloadAction(ctx context.Context,operation string,
   result.taskReport,err=OpenRemoteTaskReport(channel,reply,id)
  case RemoteActionTasksInspect:
   result.inspect,err=OpenRemoteActionTasksInspectResult(channel,reply,id,taskID)
+ case RemoteActionTasksDependencies:
+  result.dependencies,err=OpenRemoteTaskDependencies(channel,reply,id,taskID)
  case RemoteActionTasksRun:
   result.run,err=OpenRemoteActionTaskRunResult(channel,reply,id,taskID)
  case RemoteActionTasksStart,RemoteActionTasksPoll,RemoteActionTasksCancel,RemoteActionTasksClear:

@@ -146,7 +146,7 @@ func decodeActionObjectWithOptionals(clear []byte,required,optional []string)(ma
 func validSelectedTaskID(id int)bool{return id>0 && id<=0x7fffffff}
 
 func selectedRemoteTaskOperation(op string)bool{
- return op==RemoteActionTasksInspect||op==RemoteActionTasksRun||
+ return op==RemoteActionTasksInspect||op==RemoteActionTasksDependencies||op==RemoteActionTasksRun||
   op==RemoteActionTasksStart||op==RemoteActionTasksPoll||
   op==RemoteActionTasksCancel||op==RemoteActionTasksClear
 }
@@ -157,7 +157,7 @@ func validRemoteOperation(op string)bool{
  return terminalOperation(op)||op==RemoteActionSessionPing || op==RemoteActionSessionFeatures ||
   op==RemoteActionGitStatus || op==RemoteActionGitRemotes || op==RemoteActionGitTrackingStart || op==RemoteActionGitTrackingNext || op==RemoteActionGitLog || op==RemoteActionGitBranches || op==RemoteActionGitBranchCreate || op==RemoteActionGitSwitchReview || op==RemoteActionGitSwitchSameHead || op==RemoteActionGitBranchDeleteReview || op==RemoteActionGitBranchDelete || op==RemoteActionGitDiff || op==RemoteActionGitPatchStart || op==RemoteActionGitPatchNext || op==RemoteActionGitPatchCachedStart || op==RemoteActionGitPatchCachedNext || op==RemoteActionGitFetch || op==RemoteActionGitStageTracked || op==RemoteActionGitUnstageAll || op==RemoteActionGitStageFile || op==RemoteActionGitUnstageFile || op==RemoteActionGitPull || op==RemoteActionGitPullReview || op==RemoteActionGitPullChanges || op==RemoteActionGitCommit || op==RemoteActionGitPush || op==RemoteActionProjectInfo || op==RemoteActionFilesRoot || op==RemoteActionFilesRootNext || op==RemoteActionFilesReadStart || op==RemoteActionFilesReadNext || op==RemoteActionFilesReadSelect || op==RemoteActionFilesDirSelect || op==RemoteActionFilesDirNext ||
   op==RemoteActionTasksPreview || op==RemoteActionTasksPreviewNext || op==RemoteActionTasksReport ||
-  op==RemoteActionTasksInspect || op==RemoteActionTasksRun ||
+  op==RemoteActionTasksInspect || op==RemoteActionTasksDependencies || op==RemoteActionTasksRun ||
   op==RemoteActionTasksStart || op==RemoteActionTasksPoll ||
   op==RemoteActionTasksCancel || op==RemoteActionTasksClear
 }
