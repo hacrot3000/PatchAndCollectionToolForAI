@@ -26,7 +26,7 @@ const get=id=>{
  return elements.get(id);
 };
 const token='0123456789abcdef'.repeat(4);
-let remaining=16,reads=0;
+let remaining=16,reads=0,inventoryReads=0;
 const head='a'.repeat(40),upstream='b'.repeat(40);
 const fetch=async(path,options)=>{
  assert.equal(options.method,'POST');
@@ -49,6 +49,13 @@ const fetch=async(path,options)=>{
   reads++;
   return {ok:true,json:async()=>({
    ok:true,head,upstream_head:upstream,status:'fast-forward',
+   remote_control_available:false,remaining:--remaining,
+  })};
+ }
+ if(path==='/api/git-pull-changes'){
+  inventoryReads++;
+  return {ok:true,json:async()=>({
+   ok:true,head,upstream_head:upstream,files:['A:README.md','M:src/main.go'],
    remote_control_available:false,remaining:--remaining,
   })};
  }
@@ -78,7 +85,15 @@ const flush=async()=>{for(let i=0;i<90;i++)await Promise.resolve()};
  assert.ok(get('output').textContent.includes(head.slice(0,12)));
  assert.ok(get('output').textContent.includes(upstream.slice(0,12)));
  assert.ok(get('output').textContent.includes('Chỉ xem trước'));
+ assert.equal(get('git-pull-changes').disabled,false,'file review should use GitStatus read gate');
+ get('git-pull-changes').click();await flush();
+ assert.equal(inventoryReads,1,'file review must use one fixed local endpoint');
+ assert.ok(get('output').textContent.includes('Thêm: README.md'));
+ assert.ok(get('output').textContent.includes('Sửa: src/main.go'));
+ assert.ok(get('output').textContent.includes('Chỉ xem trước'));
+ assert.equal(get('git-pull').disabled,true,'file review must not escalate to Git write');
  get('disconnect').click();await flush();
  assert.equal(get('git-pull-review').disabled,true,'read persisted beyond logout');
+ assert.equal(get('git-pull-changes').disabled,true,'file preview survived logout');
  console.log('PASS: read-only Git pull review, no arguments, no permission escalation');
 })().catch(err=>{console.error(err);process.exitCode=1});
