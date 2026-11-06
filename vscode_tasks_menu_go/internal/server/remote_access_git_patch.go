@@ -24,6 +24,9 @@ const remoteGitPatchDeadline=7*time.Second
 func (s *Server) readRemoteGitPatchPage(
  ctx context.Context,session *remoteTaskDeckSession,first bool,requestID string,
 )(remotetransport.RemoteGitPatchPage,error){
+ return s.readRemoteGitPatchPageMode(ctx,session,first,requestID,false)
+}
+func (s *Server) readRemoteGitPatchPageMode(ctx context.Context,session *remoteTaskDeckSession,first bool,requestID string,cached bool)(remotetransport.RemoteGitPatchPage,error){
  denied:=remotetransport.ErrRemoteActionDenied
  var empty remotetransport.RemoteGitPatchPage
  if s==nil||session==nil||ctx==nil||ctx.Err()!=nil||
@@ -39,13 +42,14 @@ func (s *Server) readRemoteGitPatchPage(
  if !first&&!session.gitPatchReady{return empty,denied}
  // Read and cap before returning even the first byte. Refuse any diff over
  // 4 KiB; streaming an unbounded diff or silently clipping it is forbidden.
- patch,root,err:=s.readRemoteGitPatchSnapshot(ctx)
+ patch,root,err:=s.readRemoteGitPatchSnapshotMode(ctx,cached)
  if err!=nil||ctx.Err()!=nil||session.closed.Load(){
   session.gitPatchReady=false
   return empty,denied
  }
  h:=sha256.New()
  _,_=h.Write([]byte(root))
+ if cached{_,_=h.Write([]byte{0,1})}
  _,_=h.Write([]byte{0})
  _,_=h.Write([]byte(patch))
  var digest [32]byte
@@ -79,6 +83,9 @@ func (s *Server) readRemoteGitPatchPage(
 }
 
 func (s *Server) readRemoteGitPatchSnapshot(ctx context.Context)(string,string,error){
+ return s.readRemoteGitPatchSnapshotMode(ctx,false)
+}
+func (s *Server) readRemoteGitPatchSnapshotMode(ctx context.Context,cached bool)(string,string,error){
  denied:=remotetransport.ErrRemoteActionDenied
  if s==nil||ctx==nil||ctx.Err()!=nil||s.Workspace==""{
   return "","",denied
@@ -130,10 +137,13 @@ func (s *Server) readRemoteGitPatchSnapshot(ctx context.Context)(string,string,e
  if err!=nil||!remoteGitObjectID.MatchString(strings.TrimSpace(head)){
   return "","",denied
  }
- data,err:=run(remoteGitPatchMaxBytes,
-  "--no-pager","diff","--no-ext-diff","--no-textconv","--no-color",
-  "--no-renames","--ignore-submodules=all","--unified=1","HEAD","--")
+ args:=[]string{"--no-pager","diff","--no-ext-diff","--no-textconv","--no-color","--no-renames","--ignore-submodules=all","--unified=1"}
+ if cached{args=append(args,"--cached")}else{args=append(args,"HEAD")}
+ args=append(args,"--")
+ data,err:=run(remoteGitPatchMaxBytes,args...)
  if err!=nil{return "","",denied}
- if data==""{data="(no tracked changes)\n"}
+ if data==""{
+  if cached{data="(no staged changes)\n"}else{data="(no tracked changes)\n"}
+ }
  return data,root,nil
 }

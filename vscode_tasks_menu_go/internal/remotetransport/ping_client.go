@@ -117,6 +117,14 @@ func (p *PingClient) GitPatchNext(ctx context.Context)(RemoteGitPatchPage,error)
  reply,err:=p.exchangeAction(ctx,RemoteActionGitPatchNext)
  return reply.gitPatch,err
 }
+func (p *PingClient) GitPatchCachedStart(ctx context.Context)(RemoteGitPatchPage,error){
+ reply,err:=p.exchangeAction(ctx,RemoteActionGitPatchCachedStart)
+ return reply.gitPatch,err
+}
+func (p *PingClient) GitPatchCachedNext(ctx context.Context)(RemoteGitPatchPage,error){
+ reply,err:=p.exchangeAction(ctx,RemoteActionGitPatchCachedNext)
+ return reply.gitPatch,err
+}
 
 // GitPull requests a fixed host-only fast-forward operation. There is no
 // remote-selected branch, remote name, path, command or arbitrary argument.
@@ -370,7 +378,8 @@ func (p *PingClient) exchangePayloadAction(ctx context.Context,operation string,
   result.gitBranchCreate,err=OpenRemoteGitBranchCreateResult(channel,reply,id)
  case RemoteActionGitDiff:
   result.gitDiff,err=OpenRemoteGitDiffResult(channel,reply,id)
- case RemoteActionGitPatchStart,RemoteActionGitPatchNext:
+ case RemoteActionGitPatchStart,RemoteActionGitPatchNext,
+  RemoteActionGitPatchCachedStart,RemoteActionGitPatchCachedNext:
   result.gitPatch,err=OpenRemoteGitPatchPage(channel,reply,id)
  case RemoteActionGitPull:
   result.gitPull,err=OpenRemoteGitPullResult(channel,reply,id)

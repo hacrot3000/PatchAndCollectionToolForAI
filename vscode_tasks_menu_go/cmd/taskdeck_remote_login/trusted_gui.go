@@ -246,7 +246,7 @@ func (ui *trustedGUI) ServeHTTP(w http.ResponseWriter,r *http.Request){
   if r.Method!=http.MethodGet{http.Error(w,"method not allowed",405);return}
   w.Header().Set("Content-Type","text/css; charset=utf-8")
   _,_=io.WriteString(w,trustedGUICSS)
- case "/api/ping","/api/features","/api/git-status","/api/git-log","/api/git-branches","/api/git-remotes","/api/git-tracking-start","/api/git-tracking-next","/api/git-branch-create","/api/git-diff","/api/git-patch-start","/api/git-patch-next","/api/git-pull","/api/git-pull-review","/api/git-commit","/api/git-push","/api/git-fetch","/api/git-stage-tracked","/api/git-unstage-all","/api/git-stage-file","/api/git-unstage-file","/api/terminal-open","/api/terminal-poll","/api/terminal-write","/api/terminal-resize","/api/terminal-close","/api/project-info","/api/tasks-preview","/api/tasks-preview-next","/api/close","/api/session":
+ case "/api/git-patch-cached-start","/api/git-patch-cached-next","/api/ping","/api/features","/api/git-status","/api/git-log","/api/git-branches","/api/git-remotes","/api/git-tracking-start","/api/git-tracking-next","/api/git-branch-create","/api/git-diff","/api/git-patch-start","/api/git-patch-next","/api/git-pull","/api/git-pull-review","/api/git-commit","/api/git-push","/api/git-fetch","/api/git-stage-tracked","/api/git-unstage-all","/api/git-stage-file","/api/git-unstage-file","/api/terminal-open","/api/terminal-poll","/api/terminal-write","/api/terminal-resize","/api/terminal-close","/api/project-info","/api/tasks-preview","/api/tasks-preview-next","/api/close","/api/session":
   ui.action(w,r)
  default:
   _,inspect:=selectedTaskFromPath(r.URL.Path)
@@ -582,13 +582,21 @@ func (ui *trustedGUI) action(w http.ResponseWriter,r *http.Request){
    }
   }
  }else if r.URL.Path=="/api/git-patch-start" ||
-  r.URL.Path=="/api/git-patch-next" {
+  r.URL.Path=="/api/git-patch-next" ||
+  r.URL.Path=="/api/git-patch-cached-start" ||
+  r.URL.Path=="/api/git-patch-cached-next" {
   var page remotetransport.RemoteGitPatchPage
   if r.URL.Path=="/api/git-patch-start"{
    page,err=ui.actions.GitPatchStart(ctx)
-  }else{
+  }else if r.URL.Path=="/api/git-patch-next"{
    page,err=ui.actions.GitPatchNext(ctx)
-  }
+  }else if cached,ok:=ui.actions.(interface{
+   GitPatchCachedStart(context.Context)(remotetransport.RemoteGitPatchPage,error)
+   GitPatchCachedNext(context.Context)(remotetransport.RemoteGitPatchPage,error)
+  });ok{
+   if r.URL.Path=="/api/git-patch-cached-start"{page,err=cached.GitPatchCachedStart(ctx)
+   }else{page,err=cached.GitPatchCachedNext(ctx)}
+  }else{err=remotetransport.ErrRemoteActionDenied}
   if err==nil&&ctx.Err()==nil{
    ui.mu.Lock()
    stillOpen:=!ui.closed

@@ -150,8 +150,8 @@ const trustedGUIHTML = `<!doctype html>
     <article class="tile">
      <div class="tile-heading"><span class="dot"></span><h2>Git Status</h2></div>
      <p>Đọc trạng thái repository gốc trên máy TaskDeck. Chỉ hoạt động khi host bật riêng quyền đọc Git.</p>
-     <div class="actions"><button type="button" id="git">Đọc trạng thái Git</button><button type="button" id="git-log" disabled>Git log (3 commit)</button><button type="button" id="git-branches" disabled>Nhánh Git cục bộ</button><button type="button" id="git-remotes" disabled>Git remote (chỉ tên)</button><button type="button" id="git-tracking-start" disabled>Tracking refs cục bộ</button><button type="button" id="git-tracking-next" disabled>Trang tracking tiếp</button><button type="button" id="git-branch-create" disabled>Tạo nhánh đã cấu hình trên host</button><button type="button" id="git-diff" disabled>Git diff --stat</button><button type="button" id="git-patch-start" disabled>Xem diff chi tiết</button><button type="button" id="git-patch-next" disabled>Trang diff tiếp</button><button type="button" id="git-fetch" disabled>Git fetch (upstream)</button><button type="button" id="git-pull-review" disabled>Xem trước Pull (offline)</button><button type="button" id="git-pull" disabled>Git pull (fast-forward)</button><button type="button" id="git-push" disabled>Git push (không force)</button></div>
-      <p>Diff chi tiết chỉ đọc tối đa 4 KiB thay đổi tracked, chia trang E2EE; khi thay đổi nội dung giữa các trang sẽ từ chối đọc tiếp.</p><pre id="git-patch-output" class="git-patch-output" aria-label="Git diff chi tiết" hidden></pre>
+     <div class="actions"><button type="button" id="git">Đọc trạng thái Git</button><button type="button" id="git-log" disabled>Git log (3 commit)</button><button type="button" id="git-branches" disabled>Nhánh Git cục bộ</button><button type="button" id="git-remotes" disabled>Git remote (chỉ tên)</button><button type="button" id="git-tracking-start" disabled>Tracking refs cục bộ</button><button type="button" id="git-tracking-next" disabled>Trang tracking tiếp</button><button type="button" id="git-branch-create" disabled>Tạo nhánh đã cấu hình trên host</button><button type="button" id="git-diff" disabled>Git diff --stat</button><button type="button" id="git-patch-start" disabled>Xem diff chi tiết</button><button type="button" id="git-patch-cached-start" disabled>Review staged diff</button><button type="button" id="git-patch-next" disabled>Trang diff tiếp</button><button type="button" id="git-fetch" disabled>Git fetch (upstream)</button><button type="button" id="git-pull-review" disabled>Xem trước Pull (offline)</button><button type="button" id="git-pull" disabled>Git pull (fast-forward)</button><button type="button" id="git-push" disabled>Git push (không force)</button></div>
+      <p>Diff chi tiết chỉ đọc tối đa 4 KiB thay đổi tracked, chia trang E2EE; Review staged diff chỉ xem thay đổi đã stage. Snapshot thay đổi giữa các trang sẽ bị từ chối.</p><pre id="git-patch-output" class="git-patch-output" aria-label="Git diff chi tiết" hidden></pre>
       <p>Git fetch chỉ cập nhật upstream tracking, không đổi HEAD; Git pull yêu cầu worktree sạch. Git push chỉ đẩy commit HEAD lên upstream cùng tên nhánh, không force, không đẩy tags; mọi thao tác yêu cầu quyền riêng trên host và xác nhận.</p>
       <div class="actions git-index-actions"><button type="button" id="git-stage-tracked" disabled>Stage file đã theo dõi</button><button type="button" id="git-unstage-all" disabled>Unstage toàn bộ</button></div>
       <p>Stage chỉ lấy thay đổi của file đã theo dõi (kể cả file bị xoá), không thêm file mới. Unstage xóa toàn bộ staging nhưng không thay đổi working tree.</p>
@@ -290,6 +290,7 @@ const trustedGUIJavaScript = `'use strict';
   const gitBranchCreate=document.getElementById('git-branch-create');
   const gitDiff=document.getElementById('git-diff');
   const gitPatchStart=document.getElementById('git-patch-start');
+   const gitPatchCachedStart=document.getElementById('git-patch-cached-start');
   const gitPatchNext=document.getElementById('git-patch-next');
   const gitPatchOutput=document.getElementById('git-patch-output');
   const gitFetch=document.getElementById('git-fetch');
@@ -880,7 +881,7 @@ const trustedGUIJavaScript = `'use strict';
   let longTaskID=0,longTaskState='',longTaskText='',longTaskMore=false;
   let longTaskAuto=false,longTaskPollScheduled=false;
   let terminalState='closed',terminalTranscript='';
-  let gitPatchText='',gitPatchPage=0,gitPatchMore=false;
+  let gitPatchText='',gitPatchPage=0,gitPatchMore=false,gitPatchMode='head';
   let gitTrackingText='',gitTrackingPage=0,gitTrackingMore=false,gitTrackingLast='';
   let actionEpoch=0;
   // Only the newest initiated localhost status poll may alter the GUI.
@@ -1036,6 +1037,7 @@ const trustedGUIJavaScript = `'use strict';
     gitBranchCreate.disabled=busy||closed||!verified||budget<=0||gitWorkspaceBusy||!featuresKnown||!available.git_branch_create;
     gitDiff.disabled=busy||closed||!verified||budget<=0||maintenanceOnly||!featuresKnown||!available.git_diff;
     gitPatchStart.disabled=busy||closed||!verified||budget<=0||maintenanceOnly||!featuresKnown||!available.git_patch;
+     gitPatchCachedStart.disabled=gitPatchStart.disabled;
     gitPatchNext.disabled=busy||closed||!verified||budget<=0||maintenanceOnly||!featuresKnown||!available.git_patch||!gitPatchMore;
     gitFetch.disabled=busy||closed||!verified||budget<=0||gitWorkspaceBusy||!featuresKnown||!available.git_fetch;
     gitStageTracked.disabled=busy||closed||!verified||budget<=0||gitWorkspaceBusy||!featuresKnown||!available.git_stage_tracked;
@@ -1528,8 +1530,11 @@ const trustedGUIJavaScript = `'use strict';
           gitPatchOutput.textContent='';gitPatchOutput.hidden=true;
         }
         if(endpoint==='/api/git-status'){renderGit(data.status);}
-        if(endpoint==='/api/git-patch-start'||endpoint==='/api/git-patch-next'){
-          const fresh=endpoint==='/api/git-patch-start';
+        if(['/api/git-patch-start','/api/git-patch-next',
+           '/api/git-patch-cached-start','/api/git-patch-cached-next'].includes(endpoint)){
+          const fresh=endpoint.endsWith('-start');
+          const mode=endpoint.includes('-cached-')?'cached':'head';
+          if(!fresh&&mode!==gitPatchMode)throw new Error('Trang diff sai loại');
           if(data.remote_control_available!==false||
             !Number.isInteger(data.page)||data.page<1||data.page>256||
             data.page!==(fresh?1:gitPatchPage+1)||
@@ -1544,10 +1549,11 @@ const trustedGUIJavaScript = `'use strict';
             throw new Error('Trang Git diff E2EE không hợp lệ');
           }
           gitPatchText=fresh?data.patch:gitPatchText+data.patch;
+          gitPatchMode=mode;
           gitPatchPage=data.page;gitPatchMore=data.more;
           gitPatchOutput.hidden=false;
           gitPatchOutput.textContent=gitPatchText;
-          output.textContent='Git diff trang '+String(data.page)+
+          output.textContent=(mode==='cached'?'Staged Git diff':'Git diff')+' trang '+String(data.page)+
             (data.more?' · Còn trang tiếp theo.':' · Đã đọc hết diff.');
         }
         if(endpoint==='/api/git-diff'){
@@ -1957,8 +1963,10 @@ const trustedGUIJavaScript = `'use strict';
   });
   gitDiff.addEventListener('click',()=>invoke('/api/git-diff'));
   gitPatchStart.addEventListener('click',()=>invoke('/api/git-patch-start'));
+   gitPatchCachedStart.addEventListener('click',()=>invoke('/api/git-patch-cached-start'));
   gitPatchNext.addEventListener('click',()=>{
-    if(gitPatchMore&&gitPatchPage>0)invoke('/api/git-patch-next');
+    if(gitPatchMore&&gitPatchPage>0)invoke(gitPatchMode==='cached'?
+      '/api/git-patch-cached-next':'/api/git-patch-next');
   });
   function chosenGitFile(){
     const index=Number(gitFileSelect.value);

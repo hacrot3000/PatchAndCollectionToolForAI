@@ -27,6 +27,8 @@ func (s *Server) auditRemoteReadOnlyAction(session *remoteTaskDeckSession, opera
     operation!=remotetransport.RemoteActionGitDiff &&
     operation!=remotetransport.RemoteActionGitPatchStart &&
     operation!=remotetransport.RemoteActionGitPatchNext &&
+    operation!=remotetransport.RemoteActionGitPatchCachedStart &&
+    operation!=remotetransport.RemoteActionGitPatchCachedNext &&
     operation!=remotetransport.RemoteActionProjectInfo &&
     operation!=remotetransport.RemoteActionTasksPreview &&
     operation!=remotetransport.RemoteActionTasksPreviewNext &&
@@ -48,7 +50,7 @@ func (s *Server) auditRemoteReadOnlyAction(session *remoteTaskDeckSession, opera
  userID:=session.userID
  projectID:=project.ID
  resourceType:="session"
- if operation==remotetransport.RemoteActionGitStatus||operation==remotetransport.RemoteActionGitLog||operation==remotetransport.RemoteActionGitBranches||operation==remotetransport.RemoteActionGitRemotes||operation==remotetransport.RemoteActionGitTrackingStart||operation==remotetransport.RemoteActionGitTrackingNext||operation==remotetransport.RemoteActionGitPullReview||operation==remotetransport.RemoteActionGitDiff||operation==remotetransport.RemoteActionGitPatchStart||operation==remotetransport.RemoteActionGitPatchNext {resourceType="git"}
+ if operation==remotetransport.RemoteActionGitStatus||operation==remotetransport.RemoteActionGitLog||operation==remotetransport.RemoteActionGitBranches||operation==remotetransport.RemoteActionGitRemotes||operation==remotetransport.RemoteActionGitTrackingStart||operation==remotetransport.RemoteActionGitTrackingNext||operation==remotetransport.RemoteActionGitPullReview||operation==remotetransport.RemoteActionGitDiff||operation==remotetransport.RemoteActionGitPatchStart||operation==remotetransport.RemoteActionGitPatchNext||operation==remotetransport.RemoteActionGitPatchCachedStart||operation==remotetransport.RemoteActionGitPatchCachedNext {resourceType="git"}
  if operation==remotetransport.RemoteActionProjectInfo {resourceType="project"}
  if operation==remotetransport.RemoteActionTasksPreview || operation==remotetransport.RemoteActionTasksPreviewNext || operation==remotetransport.RemoteActionTasksInspect ||
   operation==remotetransport.RemoteActionTasksPoll || operation==remotetransport.RemoteActionTasksClear {resourceType="tasks"}
@@ -163,7 +165,8 @@ func (s *Server) executeRemoteE2EEPing(
  case remotetransport.RemoteActionGitBranchCreate:
   permission=identity.PermissionGitWrite
  case remotetransport.RemoteActionGitDiff,
-  remotetransport.RemoteActionGitPatchStart,remotetransport.RemoteActionGitPatchNext:
+  remotetransport.RemoteActionGitPatchStart,remotetransport.RemoteActionGitPatchNext,
+  remotetransport.RemoteActionGitPatchCachedStart,remotetransport.RemoteActionGitPatchCachedNext:
   permission=identity.PermissionGitDiff
  case remotetransport.RemoteActionGitPull,remotetransport.RemoteActionGitCommit,
   remotetransport.RemoteActionGitFetch,
@@ -275,10 +278,15 @@ func (s *Server) executeRemoteE2EEPing(
     var diffErr error
     gitDiff,diffErr=s.readRemoteGitDiff(actionCtx)
     return diffErr
-   case remotetransport.RemoteActionGitPatchStart,remotetransport.RemoteActionGitPatchNext:
+   case remotetransport.RemoteActionGitPatchStart,remotetransport.RemoteActionGitPatchNext,
+    remotetransport.RemoteActionGitPatchCachedStart,remotetransport.RemoteActionGitPatchCachedNext:
     var patchErr error
-    gitPatch,patchErr=s.readRemoteGitPatchPage(actionCtx,session,
-     request.Operation==remotetransport.RemoteActionGitPatchStart,request.RequestID)
+    gitPatch,patchErr=s.readRemoteGitPatchPageMode(actionCtx,session,
+     request.Operation==remotetransport.RemoteActionGitPatchStart||
+     request.Operation==remotetransport.RemoteActionGitPatchCachedStart,
+     request.RequestID,
+     request.Operation==remotetransport.RemoteActionGitPatchCachedStart||
+     request.Operation==remotetransport.RemoteActionGitPatchCachedNext)
     return patchErr
    case remotetransport.RemoteActionGitPullReview:
     var reviewErr error
@@ -461,7 +469,8 @@ func (s *Server) executeRemoteE2EEPing(
   sealed,err=remotetransport.SealRemoteGitBranchCreateResult(channel,request.RequestID,gitBranchCreate)
  case remotetransport.RemoteActionGitDiff:
   sealed,err=remotetransport.SealRemoteGitDiffResult(channel,request.RequestID,gitDiff)
- case remotetransport.RemoteActionGitPatchStart,remotetransport.RemoteActionGitPatchNext:
+ case remotetransport.RemoteActionGitPatchStart,remotetransport.RemoteActionGitPatchNext,
+  remotetransport.RemoteActionGitPatchCachedStart,remotetransport.RemoteActionGitPatchCachedNext:
   sealed,err=remotetransport.SealRemoteGitPatchPage(channel,request.RequestID,gitPatch)
  case remotetransport.RemoteActionGitPullReview:
   sealed,err=remotetransport.SealRemoteGitPullReviewResult(channel,request.RequestID,gitPullReview)

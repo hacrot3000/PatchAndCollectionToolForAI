@@ -9,6 +9,8 @@ import (
 
 const RemoteActionGitPatchStart="git.patch.start"
 const RemoteActionGitPatchNext="git.patch.next"
+const RemoteActionGitPatchCachedStart="git.patch.cached.start"
+const RemoteActionGitPatchCachedNext="git.patch.cached.next"
 const RemoteGitPatchPageProtocol="taskdeck-e2ee-git-patch-page-v1"
 const MaxRemoteGitPatchPageBytes=320
 
