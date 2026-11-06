@@ -144,6 +144,10 @@ func (s *Server) executeRemoteE2EEPing(
       if remotetransport.AuthorizeAction(true,session.role,
        &principal,session.projectKey,permission)!=nil {
        permission=identity.PermissionTerminalCreate
+       if remotetransport.AuthorizeAction(true,session.role,
+        &principal,session.projectKey,permission)!=nil {
+        permission=identity.PermissionFilesRead
+       }
       }
      }
     }
