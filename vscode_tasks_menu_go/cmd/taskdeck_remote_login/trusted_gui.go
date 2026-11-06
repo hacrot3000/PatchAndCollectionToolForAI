@@ -246,7 +246,7 @@ func (ui *trustedGUI) ServeHTTP(w http.ResponseWriter,r *http.Request){
   if r.Method!=http.MethodGet{http.Error(w,"method not allowed",405);return}
   w.Header().Set("Content-Type","text/css; charset=utf-8")
   _,_=io.WriteString(w,trustedGUICSS)
- case "/api/files-read-start","/api/files-read-next","/api/git-branch-delete-review","/api/git-branch-delete","/api/git-switch-review","/api/git-switch-same-head","/api/git-pull-changes","/api/files-root","/api/files-root-next","/api/git-patch-cached-start","/api/git-patch-cached-next","/api/ping","/api/features","/api/git-status","/api/git-log","/api/git-branches","/api/git-remotes","/api/git-tracking-start","/api/git-tracking-next","/api/git-branch-create","/api/git-diff","/api/git-patch-start","/api/git-patch-next","/api/git-pull","/api/git-pull-review","/api/git-commit","/api/git-push","/api/git-fetch","/api/git-stage-tracked","/api/git-unstage-all","/api/git-stage-file","/api/git-unstage-file","/api/terminal-open","/api/terminal-poll","/api/terminal-write","/api/terminal-resize","/api/terminal-close","/api/project-info","/api/tasks-preview","/api/tasks-preview-next","/api/close","/api/session":
+ case "/api/files-read-select","/api/files-read-start","/api/files-read-next","/api/git-branch-delete-review","/api/git-branch-delete","/api/git-switch-review","/api/git-switch-same-head","/api/git-pull-changes","/api/files-root","/api/files-root-next","/api/git-patch-cached-start","/api/git-patch-cached-next","/api/ping","/api/features","/api/git-status","/api/git-log","/api/git-branches","/api/git-remotes","/api/git-tracking-start","/api/git-tracking-next","/api/git-branch-create","/api/git-diff","/api/git-patch-start","/api/git-patch-next","/api/git-pull","/api/git-pull-review","/api/git-commit","/api/git-push","/api/git-fetch","/api/git-stage-tracked","/api/git-unstage-all","/api/git-stage-file","/api/git-unstage-file","/api/terminal-open","/api/terminal-poll","/api/terminal-write","/api/terminal-resize","/api/terminal-close","/api/project-info","/api/tasks-preview","/api/tasks-preview-next","/api/close","/api/session":
   ui.action(w,r)
  default:
   _,inspect:=selectedTaskFromPath(r.URL.Path)
@@ -273,6 +273,7 @@ func (ui *trustedGUI) authorizedPost(r *http.Request)bool{
  expectedType:=""
  if textInput||longText||r.URL.Path=="/api/git-commit"||
   r.URL.Path=="/api/git-stage-file"||r.URL.Path=="/api/git-unstage-file"||
+  r.URL.Path=="/api/files-read-select"||
   r.URL.Path=="/api/terminal-write"||r.URL.Path=="/api/terminal-resize"{
   expectedType="application/json"
  }
@@ -316,6 +317,24 @@ func decodeTrustedGUIGitCommitMessage(data []byte)(string,bool){
  if err!=nil||end!=json.Delim('}'){return "",false}
  if _,err:=decoder.Token();err!=io.EOF{return "",false}
  return message,remotetransport.ValidRemoteGitCommitMessage(message)
+}
+
+// The only Files selection field is an index into an already-issued,
+// authenticated root listing. No filename, cursor, offset or snapshot is
+// accepted from localhost or forwarded to E2EE.
+func decodeTrustedGUIFilesSelect(data []byte)(int,bool){
+ if len(data)==0||len(data)>trustedGUIBodyLimit{return 0,false}
+ dec:=json.NewDecoder(bytes.NewReader(data))
+ token,err:=dec.Token()
+ if err!=nil||token!=json.Delim('{'){return 0,false}
+ key,err:=dec.Token()
+ if err!=nil||key!="index"{return 0,false}
+ var index int
+ if dec.Decode(&index)!=nil||dec.More(){return 0,false}
+ end,err:=dec.Token()
+ if err!=nil||end!=json.Delim('}'){return 0,false}
+ if _,err:=dec.Token();err!=io.EOF{return 0,false}
+ return index,remotetransport.ValidRemoteFilesSelectIndex(index)
 }
 
 // Git file input is a status-snapshot row, never a free-form filename.
@@ -384,11 +403,18 @@ func (ui *trustedGUI) action(w http.ResponseWriter,r *http.Request){
  _,longText:=selectedStartLongTaskTextFromPath(r.URL.Path)
  gitCommit:=r.URL.Path=="/api/git-commit"
  gitFile:=r.URL.Path=="/api/git-stage-file"||r.URL.Path=="/api/git-unstage-file"
+ filesSelect:=r.URL.Path=="/api/files-read-select"
  termWrite:=r.URL.Path=="/api/terminal-write"
  termResize:=r.URL.Path=="/api/terminal-resize"
  if err!=nil||len(data)>trustedGUIBodyLimit||
-  (!textInput&&!longText&&!gitCommit&&!gitFile&&!termWrite&&!termResize&&len(data)!=0) {
+  (!textInput&&!longText&&!gitCommit&&!gitFile&&!filesSelect&&!termWrite&&!termResize&&len(data)!=0) {
   http.Error(w,"unexpected request body",400);return
+ }
+ var filesSelectIndex int
+ if filesSelect{
+  var valid bool
+  filesSelectIndex,valid=decodeTrustedGUIFilesSelect(data)
+  if !valid{http.Error(w,"invalid Files selection",400);return}
  }
  var gitFileIndex int
  var gitFileSnapshot string
@@ -843,6 +869,24 @@ func (ui *trustedGUI) action(w http.ResponseWriter,r *http.Request){
     return
    }
   }
+ }else if r.URL.Path=="/api/files-read-select" {
+  if selected,ok:=ui.actions.(interface{
+   FilesReadSelect(context.Context,int)(remotetransport.RemoteFilesReadPage,error)
+  });ok{
+   page,readErr:=selected.FilesReadSelect(ctx,filesSelectIndex)
+   err=readErr
+   if err==nil&&ctx.Err()==nil{
+    ui.mu.Lock();open:=!ui.closed;ui.mu.Unlock()
+    if open{
+     _=json.NewEncoder(w).Encode(map[string]any{
+      "ok":true,"page":page.Page,"name":page.Name,
+      "text":page.Text,"more":page.More,
+      "remote_control_available":false,"remaining":remaining,
+     })
+     return
+    }
+   }
+  }else{err=remotetransport.ErrRemoteActionDenied}
  }else if r.URL.Path=="/api/files-read-start" || r.URL.Path=="/api/files-read-next" {
   var page remotetransport.RemoteFilesReadPage
   if r.URL.Path=="/api/files-read-start"{
