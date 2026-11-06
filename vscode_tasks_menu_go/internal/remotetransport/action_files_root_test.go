@@ -61,3 +61,39 @@ func TestRemoteFilesRootNativeNoArguments(t *testing.T){
   }
  }
 }
+
+func TestRemoteFilesRootNextNoArguments(t *testing.T){
+ c,a,_:=participants(t)
+ exchanged:=0
+ exchange:=pingExchangeFunc(func(ctx context.Context,frame []byte)([]byte,error){
+  request,err:=OpenRemoteAction(a,frame)
+  if err!=nil||request.Operation!=RemoteActionFilesRootNext||
+   request.TaskID!=0||request.Choice!=0||request.Text!=""||
+   request.Message!=""||request.Snapshot!=""||request.FileIndex!=0||
+   request.TerminalInput!=""||request.Cols!=0||request.Rows!=0{
+   return nil,ErrInvalidRemoteAction
+  }
+  exchanged++
+  return SealRemoteFilesRoot(a,request.RequestID,RemoteFilesRoot{
+   Items:[]string{"F:second.go"},More:false,
+  })
+ })
+ native,err:=NewPingClient(c,exchange)
+ if err!=nil{t.Fatal(err)}
+ defer native.Close()
+ result,err:=native.FilesRootNext(context.Background())
+ if err!=nil||exchanged!=1||len(result.Items)!=1||result.Items[0]!="F:second.go"{
+  t.Fatalf("typed Files next reply invalid: %+v %v",result,err)
+ }
+ for _,request:=range []RemoteAction{
+  {RequestID:testActionID,Operation:RemoteActionFilesRootNext,TaskID:2},
+  {RequestID:testActionID,Operation:RemoteActionFilesRootNext,Text:"../"},
+  {RequestID:testActionID,Operation:RemoteActionFilesRootNext,FileIndex:2},
+  {RequestID:testActionID,Operation:RemoteActionFilesRootNext,Snapshot:"secret"},
+ }{
+  c,_,_:=participants(t)
+  if _,err:=SealRemoteAction(c,request);!errors.Is(err,ErrInvalidRemoteAction){
+   t.Fatalf("accepted client pagination offset/path: %+v",request)
+  }
+ }
+}
