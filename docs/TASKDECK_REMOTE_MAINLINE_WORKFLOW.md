@@ -109,3 +109,56 @@ real-host testing are considered **code complete**.
   logout cleanup. The next workflow milestone is a separately reviewed
   host-owned, cancelable DAG executor with per-step rights and audit; it
   must not reuse this preview action as an execution capability.
+
+## 2026-11-06 — Opt-in linear Task workflow execution
+
+- `tasks.workflow.start` is a **separate**, authenticated E2EE mutation,
+  not an extension of the read-only `tasks.dependencies` privilege.
+  Native client sends only an already-issued root Task.ID. Every start
+  requires a live TaskDeck `tasks.run` permission, current approved
+  client-key proof, password, project grant and uncached Portal
+  authorization, plus explicit host opt-ins:
+
+  ```shell
+  TASKDECK_REMOTE_TASKS_PREVIEW=1
+  TASKDECK_REMOTE_TASKS_DEPS=1
+  TASKDECK_REMOTE_TASKS_RUN=1
+  TASKDECK_REMOTE_TASKS_LONG=1
+  TASKDECK_REMOTE_TASKS_WORKFLOW_RUN=1
+  ```
+
+- This first executor is intentionally conservative: exactly **2–4**
+  sequential `process` tasks in one linear dependency chain. It rejects
+  branching/parallel graphs, scripts/shell interpreters, hidden inputs,
+  secret environment values, arbitrary command templates, host workflow
+  retry/output/policy metadata and workflows containing extra nodes.
+  All `tasks.run` and `tasks.start` single-task paths **still reject
+  dependsOn**. A DAG preview alone never authorizes mutation.
+- The host builds and validates the exact pinned `.vscode/tasks.json`
+  graph and each Task.ID before accepting the start. Every step
+  independently re-checks the approved client credentials/RBAC, live
+  Portal grant and the original source hash; changes or revocation
+  fail closed before launching the next process.
+- The Agent retains the exclusive long-task/terminal execution slot for
+  the whole workflow; a single cancelable 90-second host job executes
+  the steps in order. The **existing** `tasks.poll`, `tasks.cancel`
+  and `tasks.clear` actions work with the root Task.ID. Standard
+  process-group cleanup terminates children when canceled, disconnected
+  or expired. Execution stops on the first nonzero exit code.
+- Durable TaskDeck-local audit records a root workflow attempt before
+  any execution plus **attempted and completed/failed/cancelled/timed_out**
+  outcome events for each step, followed by the aggregate root outcome.
+  Audits carry only numeric IDs, step count, exit code and status;
+  never commands, paths, inputs, credentials or output.
+- Native trusted GUI activates **Chạy workflow đã kiểm tra** only after
+  authenticated DAG review and task-long/run capabilities, and always
+  requires a confirmation. No user-entered shell command or arguments
+  are accepted; ordinary long-task progress and cancellation are reused.
+  Tests exercise E2EE-only start, topology/bounds, source drift, opt-out,
+  execution ordering, fail-fast, process cancellation, audits and UI
+  confirmation and logout.
+- Not yet supported: branching DAG, parallelism, workflow secret inputs,
+  retry/condition policies, per-node output exports, workflow resume,
+  persistent step-by-step result pagination and Windows execution.
+  Those require separate reviewed contracts rather than silently relaxing
+  this conservative host gate.
