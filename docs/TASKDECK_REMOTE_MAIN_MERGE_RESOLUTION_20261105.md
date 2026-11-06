@@ -181,3 +181,32 @@ loopback-route and browser GUI tests.
   restore the general Editor, binary transfer, upload/download,
   arbitrary file reads or file mutations from main: those require
   independent typed E2EE operations, authorization and regression tests.
+
+## 2026-11-06 — offline changed-file Pull review
+
+- Ported main's separate changed-file inventory into the current native
+  `git.pull_changes` E2EE dispatcher; no main-only HTTP command protocol,
+  project path, Git arguments, remote URL or caller-selected ref is restored.
+- The host requires current `git.status` permission and both
+  `TASKDECK_REMOTE_GIT_PULL_REVIEW=1` and
+  `TASKDECK_REMOTE_GIT_PULL_CHANGES=1` (default disabled). It reuses
+  the existing read-only clean-worktree, non-shallow, fast-forward ancestry
+  and tracking-ref checks and repeats them after generating a result.
+- Only local, previously fetched commit trees are compared with a fixed
+  trusted Git executable, isolated environment, disabled external diff,
+  hooks and protocol network helpers. No fetch, checkout, merge, file
+  modification or Git ref update occurs.
+- Output is a bounded, strict, sorted inventory of at most six
+  safe ASCII `A:/M:/D:` paths, otherwise the complete request is denied.
+  Both old and target commit OIDs are authenticated inside the existing
+  512-byte per-action AEAD plaintext limit. A clean already-equal upstream
+  returns an empty inventory. The host's audit records the local principal.
+- Native GUI offers **Xem file sẽ thay đổi** alongside offline Pull
+  preflight, with text-only output and no caller-supplied parameters.
+- This is NOT a Pull approval or a guarantee that later Pull will change
+  exactly those paths; Git Pull independently revalidates its own state.
+  Larger, unusual, renamed, binary or non-ASCII path inventories fail closed
+  pending a separate structured paged design.
+- Tests cover native transport injection denial, strict result schema,
+  change detection, large/unsafe path refusal, host opt-in, no network/write,
+  local principal/audit and GUI read-only behavior.
