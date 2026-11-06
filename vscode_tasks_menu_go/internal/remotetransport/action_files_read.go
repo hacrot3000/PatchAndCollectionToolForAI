@@ -7,6 +7,9 @@ import (
  "unicode/utf8"
 )
 
+const RemoteActionFilesReadSelect="files.read.select"
+const MaxRemoteFilesSelectIndex=128
+func ValidRemoteFilesSelectIndex(index int)bool{return index>=1&&index<=MaxRemoteFilesSelectIndex}
 const RemoteActionFilesReadStart="files.read.start"
 const RemoteActionFilesReadNext="files.read.next"
 const RemoteFilesReadPageProtocol="taskdeck-e2ee-files-read-page-v1"
