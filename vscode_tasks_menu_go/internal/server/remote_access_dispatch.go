@@ -42,6 +42,7 @@ func (s *Server) auditRemoteReadOnlyAction(session *remoteTaskDeckSession, opera
     operation!=remotetransport.RemoteActionFilesDirNext &&
     operation!=remotetransport.RemoteActionTasksPreview &&
     operation!=remotetransport.RemoteActionTasksPreviewNext &&
+    operation!=remotetransport.RemoteActionTasksReport &&
     operation!=remotetransport.RemoteActionTasksInspect &&
     operation!=remotetransport.RemoteActionTasksPoll &&
     operation!=remotetransport.RemoteActionTasksClear &&
@@ -63,7 +64,7 @@ func (s *Server) auditRemoteReadOnlyAction(session *remoteTaskDeckSession, opera
  if operation==remotetransport.RemoteActionGitStatus||operation==remotetransport.RemoteActionGitLog||operation==remotetransport.RemoteActionGitBranches||operation==remotetransport.RemoteActionGitRemotes||operation==remotetransport.RemoteActionGitTrackingStart||operation==remotetransport.RemoteActionGitTrackingNext||operation==remotetransport.RemoteActionGitPullReview||operation==remotetransport.RemoteActionGitSwitchReview||operation==remotetransport.RemoteActionGitBranchDeleteReview||operation==remotetransport.RemoteActionGitPullChanges||operation==remotetransport.RemoteActionGitDiff||operation==remotetransport.RemoteActionGitPatchStart||operation==remotetransport.RemoteActionGitPatchNext||operation==remotetransport.RemoteActionGitPatchCachedStart||operation==remotetransport.RemoteActionGitPatchCachedNext {resourceType="git"}
  if operation==remotetransport.RemoteActionProjectInfo {resourceType="project"}
  if operation==remotetransport.RemoteActionFilesRoot||operation==remotetransport.RemoteActionFilesRootNext||operation==remotetransport.RemoteActionFilesReadStart||operation==remotetransport.RemoteActionFilesReadNext||operation==remotetransport.RemoteActionFilesReadSelect||operation==remotetransport.RemoteActionFilesDirSelect||operation==remotetransport.RemoteActionFilesDirNext{resourceType="files"}
- if operation==remotetransport.RemoteActionTasksPreview || operation==remotetransport.RemoteActionTasksPreviewNext || operation==remotetransport.RemoteActionTasksInspect ||
+ if operation==remotetransport.RemoteActionTasksPreview || operation==remotetransport.RemoteActionTasksPreviewNext || operation==remotetransport.RemoteActionTasksReport || operation==remotetransport.RemoteActionTasksInspect ||
   operation==remotetransport.RemoteActionTasksPoll || operation==remotetransport.RemoteActionTasksClear {resourceType="tasks"}
  if operation==remotetransport.RemoteActionSessionFeatures {resourceType="session"}
  if operation==remotetransport.RemoteActionTerminalPoll {resourceType="terminal"}
@@ -198,7 +199,7 @@ func (s *Server) executeRemoteE2EEPing(
   remotetransport.RemoteActionFilesReadSelect,remotetransport.RemoteActionFilesDirSelect,remotetransport.RemoteActionFilesDirNext:
   permission=identity.PermissionFilesRead
  case remotetransport.RemoteActionTasksPreview,remotetransport.RemoteActionTasksPreviewNext,
-  remotetransport.RemoteActionTasksInspect:
+  remotetransport.RemoteActionTasksReport,remotetransport.RemoteActionTasksInspect:
   permission=identity.PermissionTasksView
  case remotetransport.RemoteActionTasksRun,remotetransport.RemoteActionTasksStart,
   remotetransport.RemoteActionTasksPoll,remotetransport.RemoteActionTasksCancel,
@@ -233,6 +234,7 @@ func (s *Server) executeRemoteE2EEPing(
  var filesRead remotetransport.RemoteFilesReadPage
  var projectInfo remotetransport.RemoteProjectInfo
  var tasksPreview remotetransport.RemoteTasksPreview
+ var taskReport remotetransport.RemoteTaskReport
  var inspected remotetransport.RemoteTaskInspect
  var taskRun remotetransport.RemoteTaskRun
  var longTask remotetransport.RemoteLongTaskProgress
@@ -386,6 +388,10 @@ func (s *Server) executeRemoteE2EEPing(
     var projectErr error
     projectInfo,projectErr=s.readRemoteProjectInfo(actionCtx,session)
     return projectErr
+   case remotetransport.RemoteActionTasksReport:
+    var reportErr error
+    taskReport,reportErr=s.readRemoteTaskReport(actionCtx,session)
+    return reportErr
    case remotetransport.RemoteActionTasksPreview:
     var previewErr error
     tasksPreview,nextTaskCursor,taskPageHash,previewErr=
@@ -569,6 +575,8 @@ func (s *Server) executeRemoteE2EEPing(
   sealed,err=remotetransport.SealRemoteFilesReadPage(channel,request.RequestID,filesRead)
  case remotetransport.RemoteActionTasksPreview,remotetransport.RemoteActionTasksPreviewNext:
   sealed,err=remotetransport.SealRemoteActionTasksPreviewResult(channel,request.RequestID,tasksPreview)
+ case remotetransport.RemoteActionTasksReport:
+  sealed,err=remotetransport.SealRemoteTaskReport(channel,request.RequestID,taskReport)
  case remotetransport.RemoteActionTasksInspect:
   sealed,err=remotetransport.SealRemoteActionTasksInspectResult(channel,request.RequestID,inspected)
  case remotetransport.RemoteActionTasksRun:

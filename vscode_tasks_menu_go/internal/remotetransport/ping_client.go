@@ -262,6 +262,10 @@ func (p *PingClient) TasksPreview(ctx context.Context)(RemoteTasksPreview,error)
 
 // TasksPreviewNext requests the next host-maintained page. The native client
 // has no selected offset, task ID, command, or generic RPC args.
+func (p *PingClient) TasksReport(ctx context.Context)(RemoteTaskReport,error){
+ reply,err:=p.exchangeAction(ctx,RemoteActionTasksReport)
+ return reply.taskReport,err
+}
 func (p *PingClient) TasksPreviewNext(ctx context.Context)(RemoteTasksPreview,error){
  reply,err:=p.exchangeAction(ctx,RemoteActionTasksPreviewNext)
  return reply.preview,err
@@ -328,6 +332,7 @@ type remoteActionReply struct {
  filesRoot RemoteFilesRoot
  filesRead RemoteFilesReadPage
  preview RemoteTasksPreview
+ taskReport RemoteTaskReport
  inspect RemoteTaskInspect
  run RemoteTaskRun
  long RemoteLongTaskProgress
@@ -462,6 +467,8 @@ func (p *PingClient) exchangePayloadAction(ctx context.Context,operation string,
   result.filesRead,err=OpenRemoteFilesReadPage(channel,reply,id)
  case RemoteActionTasksPreview,RemoteActionTasksPreviewNext:
   result.preview,err=OpenRemoteActionTasksPreviewResult(channel,reply,id)
+ case RemoteActionTasksReport:
+  result.taskReport,err=OpenRemoteTaskReport(channel,reply,id)
  case RemoteActionTasksInspect:
   result.inspect,err=OpenRemoteActionTasksInspectResult(channel,reply,id,taskID)
  case RemoteActionTasksRun:
