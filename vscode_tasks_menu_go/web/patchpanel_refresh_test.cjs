@@ -162,6 +162,7 @@ const emptyPromptBegin=source.indexOf('    if(!runnableItems.length){');
 const emptyPromptEnd=source.indexOf("    summary.classList.add('prompt-active');",emptyPromptBegin);
 assert.ok(emptyPromptBegin>=0&&emptyPromptEnd>emptyPromptBegin,'empty queue branch exists');
 const emptyPromptBlock=source.slice(emptyPromptBegin,emptyPromptEnd);
+assert.ok(emptyPromptBlock.includes('promptItems.replaceChildren()'),'empty queue removes hidden selector rows');
 assert.ok(emptyPromptBlock.includes('promptButtons.replaceChildren()'),'empty queue removes old actions');
 assert.ok(emptyPromptBlock.includes('delete promptButtons.dataset.patchButtonsSignature'),'empty queue invalidates cached buttons');
 assert.ok(source.includes('promptButtons.children.length===expectedButtons'),'returning items must recreate missing action buttons');
