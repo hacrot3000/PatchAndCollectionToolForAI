@@ -26,11 +26,20 @@ func (s *Server) remoteFilesRootSnapshot(ctx context.Context)([]string,string,er
  if err!=nil{return nil,"",denied}
  root,err=filepath.Abs(root)
  if err!=nil{return nil,"",denied}
- info,err:=os.Stat(root)
- if err!=nil||!info.IsDir(){return nil,"",denied}
- handle,err:=os.Open(root)
+ info,err:=os.Lstat(root)
+ if err!=nil||!info.IsDir()||info.Mode()&os.ModeSymlink!=0{
+  return nil,"",denied
+ }
+ // Pin an actual directory descriptor to the already canonical root.
+ // On Linux this uses openat from the parent with O_NOFOLLOW; on macOS
+ // the final component is opened O_NOFOLLOW and checked by inode.
+ handle,err:=openRemoteFileNoFollow(filepath.Dir(root),filepath.Base(root))
  if err!=nil{return nil,"",denied}
  defer handle.Close()
+ opened,err:=handle.Stat()
+ if err!=nil||!opened.IsDir()||!os.SameFile(info,opened){
+  return nil,"",denied
+ }
  // Reject directories with more than 128 entries instead of reading a
  // potentially unbounded tree or disclosing a misleading partial snapshot.
  entries,err:=handle.ReadDir(129)
@@ -48,6 +57,19 @@ func (s *Server) remoteFilesRootSnapshot(ctx context.Context)([]string,string,er
   if fi.IsDir(){kind="D:"}
   if kind==""{continue} // Never follow a symlink or report sockets/devices.
   names=append(names,kind+name)
+ }
+ after,err:=os.Lstat(root)
+ if err!=nil||!after.IsDir()||!os.SameFile(info,after)||
+  !os.SameFile(opened,after)||info.ModTime()!=after.ModTime(){
+  return nil,"",denied
+ }
+ // A replaced root path must not silently become another source during
+ // a read or while the client is paging the E2EE snapshot.
+ latest,err:=filepath.EvalSymlinks(s.Workspace)
+ if err!=nil{return nil,"",denied}
+ latest,err=filepath.Abs(latest)
+ if err!=nil||filepath.Clean(latest)!=filepath.Clean(root)||ctx.Err()!=nil{
+  return nil,"",denied
  }
  sort.Slice(names,func(i,j int)bool{return names[i][2:]<names[j][2:]})
  return names,root,nil
