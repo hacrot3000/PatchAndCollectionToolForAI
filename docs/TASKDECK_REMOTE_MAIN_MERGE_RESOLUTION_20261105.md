@@ -339,3 +339,41 @@ loopback-route and browser GUI tests.
   control/binary/symlink denial, oversized files, stale snapshots,
   permission/audit and GUI logout cleanup. Real-device-only verification
   does not count as remaining code work; LIVE authorization remains separate.
+
+## 2026-11-06 — Select a host-approved root file by E2EE-issued index
+
+- Added `files.read.select` as an independently authenticated
+  **read-only** E2EE operation. Its sole request argument is a strict
+  1-based integer `file_index` between 1 and 128; all file paths,
+  filenames, shell commands, Git refs, offsets, raw content and arbitrary
+  JSON fields remain forbidden at both the native GUI and E2EE codec.
+- Selection requires the host to opt into `TASKDECK_REMOTE_FILES_ROOT=1`,
+  `TASKDECK_REMOTE_FILES_READ=1`,
+  `TASKDECK_REMOTE_FILES_SELECT=1` and configure
+  `TASKDECK_REMOTE_FILES_SELECT_NAMES=README.md,notes.txt` (example).
+  The list contains up to eight distinct root-only safe ASCII names,
+  without slashes, hidden names, duplicates or traversal. The host must
+  explicitly enumerate EVERY file that may disclose content.
+- Only entries actually issued by `files.root` / `files.root.next`
+  over this **same authenticated session** may be selected. The Agent
+  independently rebuilds and fingerprints the complete sorted directory
+  listing. A guessed later-page index, changed root snapshot, non-file
+  item or name absent from the host allowlist is denied before any bytes
+  of file content are returned.
+- Subsequent text pages re-check the allowlist, root fingerprint, pinned
+  source name and full file-content fingerprint. A different selected
+  file or stale directory cannot be silently spliced into an earlier
+  file's E2EE stream. The same 2 KiB whole-file, UTF-8, symlink,
+  control-character and 512-byte AEAD message limits remain in force.
+- Native Files GUI offers a select list populated ONLY from authenticated
+  listing entries. It sends a JSON integer index to the trusted local
+  client, which forwards no name/path to PHP/Relay. The GUI checks
+  returned names and page numbers and scrubs options and content on logout.
+  The existing host-fixed `files.read.start` operation is preserved.
+- Test coverage includes forged/duplicate E2EE JSON, invalid index,
+  pre-list index denial, host-name allowlist, unpublished next-page
+  selection, stale root changes, typed native client, local principal
+  audit and exact-index native GUI behavior.
+- This is **not** yet a recursive File Explorer, editor, upload/download,
+  binary transfer, file write, folder navigation or generic remote FS RPC.
+  These require separately reviewed transport and permission contracts.
