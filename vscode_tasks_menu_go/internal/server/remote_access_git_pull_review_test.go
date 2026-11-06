@@ -102,6 +102,12 @@ func TestRemoteGitPullReviewE2EEViewerAndAudit(t *testing.T){
  if checkErr!=nil||direct.Head!=head||direct.Status!="up-to-date"{
   t.Fatalf("host-only read preflight failed before authenticated action: %+v %v",direct,checkErr)
  }
+ if err:=s.authorizeRemoteTransportAction(context.Background(),session,agent,identity.PermissionGitStatus);err!=nil{
+  t.Fatalf("GitStatus principal verification failed before Pull review: %v",err)
+ }
+ if err:=s.auditRemoteReadOnlyAction(session,remotetransport.RemoteActionGitPullReview);err!=nil{
+  t.Fatalf("read-only Git Pull review audit rejected: %v",err)
+ }
  request,err:=remotetransport.SealRemoteAction(client,remotetransport.RemoteAction{
   RequestID:remoteDispatchTestID,Operation:remotetransport.RemoteActionGitPullReview,
  })
