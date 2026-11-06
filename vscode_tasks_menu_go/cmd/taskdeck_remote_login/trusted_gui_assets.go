@@ -90,7 +90,14 @@ const trustedGUIHTML = `<!doctype html>
       <button type="button" id="files-root-next" disabled>Trang tiếp</button>
      </div>
      <pre class="git-patch-output" id="files-root-output" hidden aria-label="Danh sách Files chỉ đọc"></pre>
-     <p>Chưa hỗ trợ mở/sửa file, upload, download hoặc duyệt thư mục con. Không có đường dẫn nào được gửi tới PHP Portal; mọi quyền đọc đều do Agent kiểm tra.</p>
+     <div class="tile-heading"><span class="dot"></span><h2>Đọc file văn bản host phê duyệt</h2></div>
+     <p>Chỉ đọc một file gốc được cấu hình trên Agent. Không có ô nhập đường dẫn và không cung cấp quyền tải xuống hoặc sửa.</p>
+     <div class="actions">
+      <button type="button" id="files-read-start" disabled>Đọc nội dung</button>
+      <button type="button" id="files-read-next" disabled>Đọc phần tiếp</button>
+     </div>
+     <pre class="git-patch-output" id="files-read-output" hidden aria-label="Nội dung file host chỉ định"></pre>
+     <p>Chưa hỗ trợ chọn file tùy ý, sửa file, upload, download hoặc duyệt thư mục con. Tất cả đường dẫn do host quyết định, PHP Portal không nhận dữ liệu file ở dạng rõ.</p>
     </article>
    </section>
    <section class="gui-panel" id="panel-tasks" hidden>
@@ -705,6 +712,9 @@ const trustedGUIJavaScript = `'use strict';
   const filesRootButton=document.getElementById('files-root');
   const filesRootNext=document.getElementById('files-root-next');
   const filesRootOutput=document.getElementById('files-root-output');
+  const filesReadStart=document.getElementById('files-read-start');
+  const filesReadNext=document.getElementById('files-read-next');
+  const filesReadOutput=document.getElementById('files-read-output');
   const projectOverview=document.getElementById('project-overview');
   const projectName=document.getElementById('project-name');
   const workspaceName=document.getElementById('workspace-name');
@@ -908,6 +918,7 @@ const trustedGUIJavaScript = `'use strict';
   let gitSwitchPreview=null,gitSwitchPending=null;
   let gitDeletePreview=null,gitDeletePending=null;
   let filesRootNames=[],filesRootMore=false;
+  let filesReadName='',filesReadText='',filesReadPage=0,filesReadMore=false;
   let gitTrackingText='',gitTrackingPage=0,gitTrackingMore=false,gitTrackingLast='';
   let actionEpoch=0;
   // Only the newest initiated localhost status poll may alter the GUI.
@@ -998,6 +1009,8 @@ const trustedGUIJavaScript = `'use strict';
     projectOverview.hidden=true;
     filesRootOutput.hidden=true;filesRootOutput.textContent='';
     filesRootNames=[];filesRootMore=false;
+    filesReadName='';filesReadText='';filesReadPage=0;filesReadMore=false;
+    filesReadOutput.textContent='';filesReadOutput.hidden=true;
     projectName.textContent='';
     workspaceName.textContent='';
     hostOS.textContent='';
@@ -1105,6 +1118,10 @@ const trustedGUIJavaScript = `'use strict';
     project.disabled=busy||closed||!verified||budget<=0||maintenanceOnly||!featuresKnown||!available.project_info;
     filesRootButton.disabled=busy||closed||!verified||budget<=0||maintenanceOnly||!featuresKnown||!available.files_root;
     filesRootNext.disabled=filesRootButton.disabled||!filesRootMore;
+    // This is only an affordance; the Agent independently checks
+    // files.read and both opt-ins before opening a host-chosen file.
+    filesReadStart.disabled=filesRootButton.disabled;
+    filesReadNext.disabled=filesReadStart.disabled||!filesReadMore;
     tasksPreview.disabled=busy||closed||!verified||budget<=0||maintenanceOnly||!featuresKnown||!available.tasks_preview;
     taskRunStop.hidden=!taskRunning||closed;
     taskRunStop.disabled=!taskRunning||!verified||closed||closing||terminated;
@@ -1373,7 +1390,37 @@ const trustedGUIJavaScript = `'use strict';
              (priorTaskRun!==available.task_run||
               priorTaskLong!==available.task_long))renderTaskPage();
         }
-        if(endpoint==='/api/files-root'||endpoint==='/api/files-root-next'){
+        if(endpoint==='/api/files-read-start'||endpoint==='/api/files-read-next'){
+          const first=endpoint==='/api/files-read-start';
+          const safeName=typeof data.name==='string'&&
+            /^[A-Za-z0-9][A-Za-z0-9_.-]{0,31}$/.test(data.name);
+          if(data.remote_control_available!==false||
+            !safeName||!Number.isInteger(data.page)||data.page<1||data.page>16||
+            typeof data.more!=='boolean'||typeof data.text!=='string'||
+            data.text.length>220||(data.more&&data.text.length===0)||
+            data.text.length===0&&!first||
+            !first&&(!filesReadMore||filesReadName!==data.name||
+              data.page!==filesReadPage+1)||
+            first&&data.page!==1||
+            (!first&&filesReadText.length+data.text.length>2048)||
+            Array.from(data.text).some(ch=>{
+              const cp=ch.codePointAt(0);
+              return cp!==9&&cp!==10&&(cp<32||
+                (cp>=127&&cp<=159)||(cp>=0x200b&&cp<=0x200f)||
+                (cp>=0x202a&&cp<=0x202e)||
+                (cp>=0x2060&&cp<=0x206f));
+            })){
+            throw new Error('Trang nội dung file E2EE không hợp lệ');
+          }
+          filesReadName=data.name;
+          filesReadPage=data.page;
+          filesReadText=first?data.text:filesReadText+data.text;
+          filesReadMore=data.more;
+          filesReadOutput.textContent='File: '+filesReadName+' (chỉ đọc)\n'+
+            filesReadText+(filesReadMore?'\n[Còn nội dung chưa nhận]':'');
+          filesReadOutput.hidden=false;
+         }
+         if(endpoint==='/api/files-root'||endpoint==='/api/files-root-next'){
           const first=endpoint==='/api/files-root';
           if(data.remote_control_available!==false||!Array.isArray(data.items)||data.items.length>8||
             typeof data.more!=='boolean'||(data.more&&data.items.length===0)||
@@ -2282,6 +2329,14 @@ const trustedGUIJavaScript = `'use strict';
     invoke('/api/terminal-close');
   });
   project.addEventListener('click',()=>invoke('/api/project-info'));
+  filesReadStart.addEventListener('click',()=>{
+    filesReadName='';filesReadText='';filesReadPage=0;filesReadMore=false;
+    filesReadOutput.textContent='';filesReadOutput.hidden=true;
+    invoke('/api/files-read-start');
+  });
+  filesReadNext.addEventListener('click',()=>{
+    if(filesReadMore)invoke('/api/files-read-next');
+  });
   filesRootButton.addEventListener('click',()=>invoke('/api/files-root'));
   filesRootNext.addEventListener('click',()=>{
     if(filesRootMore)invoke('/api/files-root-next');
