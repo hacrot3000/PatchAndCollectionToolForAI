@@ -3744,9 +3744,12 @@ function installPatchPanel(){
       renderParallelCollectRuns();
       if(parallelCollectRuns.size)void pollParallelCollectRuns();
     }catch(error){
+      // Keep the existing Queue controls and selection visible when the
+      // replacement Python session fails. The prompt-ownership gate below
+      // independently refuses execution against a stale session, so
+      // clearing the DOM here would only lose user selection/focus.
       queueSilentRefreshPending=false;
       queuePromptLoadPending=false;
-      if(activeQueuePromptSessionId!==activeSessionId)clearPrompt();
       refreshActionDisabledState();
       throw error;
     }
