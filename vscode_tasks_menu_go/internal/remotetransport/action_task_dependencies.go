@@ -38,14 +38,7 @@ func ValidRemoteTaskDependencies(result RemoteTaskDependencies)bool{
  }
  if result.RunAvailable{
   if len(result.Order)<2||len(result.Order)>4||
-   len(result.Edges)!=len(result.Order)-1{return false}
-  expected:=make(map[[2]int]bool,len(result.Edges))
-  for i:=1;i<len(result.Order);i++{
-   expected[[2]int{result.Order[i-1],result.Order[i]}]=true
-  }
-  for _,e:=range result.Edges{
-   if !expected[e]{return false}
-  }
+   len(result.Edges)<len(result.Order)-1{return false}
  }
  if len(result.Order)==0||result.Order[len(result.Order)-1]!=result.TaskID{
   return false
@@ -64,6 +57,18 @@ func ValidRemoteTaskDependencies(result RemoteTaskDependencies)bool{
    return false
   }
   seen[edge]=true
+ }
+ if result.RunAvailable{
+  // An executable response must form a single rooted dependency DAG.
+  // A disconnected or forged node is never independently runnable.
+  reachable:=map[int]bool{result.TaskID:true}
+  for i:=len(result.Order)-1;i>=0;i--{
+   if !reachable[result.Order[i]]{continue}
+   for _,edge:=range result.Edges{
+    if edge[1]==result.Order[i]{reachable[edge[0]]=true}
+   }
+  }
+  if len(reachable)!=len(result.Order){return false}
  }
  return true
 }

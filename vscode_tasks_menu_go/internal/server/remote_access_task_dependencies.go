@@ -109,29 +109,21 @@ func (s *Server)readRemoteTaskDependencies(ctx context.Context,
  if os.Getenv("TASKDECK_REMOTE_TASKS_WORKFLOW_RUN")=="1"&&
   os.Getenv("TASKDECK_REMOTE_TASKS_RUN")=="1"&&
   os.Getenv("TASKDECK_REMOTE_TASKS_LONG")=="1"&&
-  len(result.Order)>=2&&len(result.Order)<=remoteWorkflowMaxSteps&&
-  len(result.Edges)==len(result.Order)-1{
-  linear:=true
-  expected:=make(map[[2]int]bool,len(result.Edges))
-  for i:=1;i<len(result.Order);i++{
-   expected[[2]int{result.Order[i-1],result.Order[i]}]=true
-  }
-  for _,e:=range result.Edges{
-   if !expected[e]{linear=false}
-  }
-  for _,n:=range graph.Nodes{
-   item,found:=tasks.TaskByLabel(list,n.Label)
-   if !found||!remoteWorkflowSafeProcess(item){linear=false;break}
-   // The GUI must not offer Start unless every step passes the same
-   // host-owned snapshot/execution preflight as the real start path.
-   spec,_,prepErr:=prepareRemoteTaskExecutionInputMode(
-    ctx,s.Workspace,session.taskPageHash,item.ID,0,false,"",true)
-   if prepErr!=nil||spec.TaskID!=item.ID||
-    validateRemoteWorkflowStepCwd(root,spec.Cwd)!=nil{
-    linear=false;break
+  len(result.Order)>=2&&len(result.Order)<=remoteWorkflowMaxSteps{
+  sequential:=remoteWorkflowSafeSequentialGraph(list,result.Order,result.Edges)
+  if sequential{
+   for _,n:=range graph.Nodes{
+    // The GUI must not offer Start unless every step passes the same
+    // host-owned snapshot/execution preflight as the actual start path.
+    spec,_,prepErr:=prepareRemoteTaskExecutionInputMode(
+     ctx,s.Workspace,session.taskPageHash,n.ID,0,false,"",true)
+    if prepErr!=nil||spec.TaskID!=n.ID||
+     validateRemoteWorkflowStepCwd(root,spec.Cwd)!=nil{
+     sequential=false;break
+    }
    }
   }
-  if linear{
+  if sequential{
    principal,authErr:=s.verifyRemoteSessionLocalPrincipal(ctx,session)
    if authErr==nil&&remotetransport.AuthorizeAction(true,
     session.role,&principal,session.projectKey,

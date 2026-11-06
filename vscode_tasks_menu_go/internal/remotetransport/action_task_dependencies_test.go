@@ -97,3 +97,33 @@ func TestRemoteTaskDependenciesFixedNativeIDOnly(t *testing.T){
   }
  }
 }
+
+func TestRemoteTaskDependenciesSequentialDAGCodecBounds(t *testing.T){
+ valid:=RemoteTaskDependencies{
+  TaskID:17,Available:true,RunAvailable:true,
+  Order:[]int{2,11,13,17},
+  Edges:[][2]int{{2,11},{2,13},{11,17},{13,17}},
+ }
+ client,agent,_:=participants(t)
+ frame,err:=SealRemoteTaskDependencies(agent,testActionID,valid)
+ if err!=nil{t.Fatal(err)}
+ got,err:=OpenRemoteTaskDependencies(client,frame,testActionID,17)
+ if err!=nil||!got.RunAvailable||len(got.Edges)!=4{
+  t.Fatalf("sequential DAG E2EE codec: %+v %v",got,err)
+ }
+ cases:=[]RemoteTaskDependencies{
+  {TaskID:17,Available:true,RunAvailable:true,
+   Order:[]int{2,11,17},Edges:[][2]int{{2,11},{2,17}}},
+  {TaskID:17,Available:true,RunAvailable:true,
+   Order:[]int{2,11,17},Edges:[][2]int{{2,17}}},
+  {TaskID:17,Available:true,RunAvailable:true,
+   Order:[]int{2,11,17},Edges:[][2]int{{2,17},{2,17}}},
+  {TaskID:17,Available:false,RunAvailable:true,
+   Order:[]int{},Edges:[][2]int{}},
+ }
+ for i,bad:=range cases{
+  if ValidRemoteTaskDependencies(bad){
+   t.Fatalf("invalid runnable graph %d accepted: %+v",i,bad)
+  }
+ }
+}

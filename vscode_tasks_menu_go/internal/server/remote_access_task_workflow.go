@@ -16,9 +16,10 @@ import(
  "bletonfc/vscode_tasks_menu/internal/tasks"
 )
 
-// Intentionally small first executor: exactly one linear dependency chain
-// with 2..4 fixed, non-interactive process tasks. DAGs with branches,
-// shell tasks, workflow policies, secrets or interpolated input are denied.
+// Bounded workflow executor: two to four fixed, non-interactive process
+// tasks. In addition to linear chains it accepts explicitly sequential DAG
+// joins; implicit parallel joins, shell tasks, policies, secrets and
+// interpolated inputs remain denied. No browser-supplied graph or command.
 const remoteWorkflowMaxSteps=4
 
 type remoteWorkflowStep struct{ taskID int }
@@ -62,6 +63,63 @@ func remoteWorkflowSafeProcess(task tasks.Task)bool{
  return true
 }
 
+
+// A shared HOST-ONLY gate for both GUI RunAvailable and actual execution.
+// A multi-parent join is admitted only when the author explicitly set
+// dependsOrder:"sequence"; the usual TaskDeck parallel join is denied.
+// All nodes execute once in topological order, and any nonzero exit stops
+// before later nodes. This is intentionally NOT parallel execution.
+func remoteWorkflowSafeSequentialGraph(items []tasks.Task,
+ order []int,edges [][2]int)bool{
+ if len(order)<2||len(order)>remoteWorkflowMaxSteps||
+  len(edges)<len(order)-1||
+  len(edges)>remotetransport.MaxRemoteTaskDependencyEdges{return false}
+ byID:=make(map[int]tasks.Task,len(items))
+ byLabel:=make(map[string]tasks.Task,len(items))
+ for _,task:=range items{
+  if _,duplicate:=byID[task.ID];duplicate{return false}
+  if _,duplicate:=byLabel[task.Label];duplicate{return false}
+  byID[task.ID]=task
+  byLabel[task.Label]=task
+ }
+ positions:=make(map[int]int,len(order))
+ for i,id:=range order{
+  task,exists:=byID[id]
+  if !exists||!remoteWorkflowSafeProcess(task){return false}
+  if _,duplicate:=positions[id];duplicate{return false}
+  positions[id]=i
+ }
+ expected:=make(map[[2]int]bool,len(edges))
+ for _,id:=range order{
+  task:=byID[id]
+  node:=tasks.WorkflowNodeForTask(task)
+  if len(node.DependsOn)>1&&node.DependsOrder!="sequence"{return false}
+  for _,parentLabel:=range node.DependsOn{
+   parent,exists:=byLabel[parentLabel]
+   parentIndex,inPlan:=positions[parent.ID]
+   if !exists||!inPlan||parentIndex>=positions[id]{return false}
+   expected[[2]int{parent.ID,id}]=true
+  }
+ }
+ if len(expected)!=len(edges){return false}
+ seen:=make(map[[2]int]bool,len(edges))
+ for _,edge:=range edges{
+  if !expected[edge]||seen[edge]{return false}
+  seen[edge]=true
+ }
+ // No unrelated process can be executed by adding it to the response:
+ // every published node must be a transitive dependency of the root.
+ reachable:=map[int]bool{order[len(order)-1]:true}
+ for i:=len(order)-1;i>=0;i--{
+  id:=order[i]
+  if !reachable[id]{continue}
+  for edge:=range expected{
+   if edge[1]==id{reachable[edge[0]]=true}
+  }
+ }
+ return len(reachable)==len(order)
+}
+
 func(s *Server)prepareRemoteLinearWorkflow(ctx context.Context,
  session *remoteTaskDeckSession,rootTaskID int,
 )([]remoteWorkflowStep,[32]byte,error){
@@ -79,15 +137,7 @@ func(s *Server)prepareRemoteLinearWorkflow(ctx context.Context,
  }
  deps,err:=s.readRemoteTaskDependencies(ctx,session,rootTaskID)
  if err!=nil||!deps.Available||len(deps.Order)<2||
-  len(deps.Order)>remoteWorkflowMaxSteps||
-  len(deps.Edges)!=len(deps.Order)-1{return nil,hash,denied}
- expectedEdges:=make(map[[2]int]bool,len(deps.Edges))
- for i:=1;i<len(deps.Order);i++{
-  expectedEdges[[2]int{deps.Order[i-1],deps.Order[i]}]=true
- }
- for _,edge:=range deps.Edges{
-  if !expectedEdges[edge]{return nil,hash,denied}
- }
+  len(deps.Order)>remoteWorkflowMaxSteps{return nil,hash,denied}
  hash=session.taskPageHash
  root,err:=filepath.EvalSymlinks(s.Workspace)
  if err!=nil{return nil,hash,denied}
@@ -95,22 +145,11 @@ func(s *Server)prepareRemoteLinearWorkflow(ctx context.Context,
  if err!=nil{return nil,hash,denied}
  list,err:=tasks.Load(root)
  if err!=nil||len(list)>remotetransport.MaxRemoteTasksCount{return nil,hash,denied}
- byID:=make(map[int]tasks.Task,len(list))
- for _,t:=range list {
-  if _,dup:=byID[t.ID];dup{return nil,hash,denied}
-  byID[t.ID]=t
+ if !remoteWorkflowSafeSequentialGraph(list,deps.Order,deps.Edges){
+  return nil,hash,denied
  }
  plan:=make([]remoteWorkflowStep,0,len(deps.Order))
- for i,id:=range deps.Order{
-  task,ok:=byID[id]
-  if !ok||!remoteWorkflowSafeProcess(task){return nil,hash,denied}
-  node:=tasks.WorkflowNodeForTask(task)
-  if i==0{
-   if len(node.DependsOn)!=0{return nil,hash,denied}
-  }else if len(node.DependsOn)!=1||
-   node.DependsOn[0]!=byID[deps.Order[i-1]].Label{
-   return nil,hash,denied
-  }
+ for _,id:=range deps.Order{
   // Reuse the existing, separately tested single-task source/inode,
   // workspace boundary and stable-ID preflight, with the ONLY exception
   // that the host-owned dependency label is now allowed.

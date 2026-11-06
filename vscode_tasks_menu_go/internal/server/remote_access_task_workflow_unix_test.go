@@ -264,3 +264,59 @@ func TestRemoteWorkflowGUIRunAvailableMatchesExecutablePreflight(t *testing.T){
   }
  })
 }
+
+func TestRemoteWorkflowExplicitSequentialDiamondRunAndParallelDenial(t *testing.T){
+ remoteWorkflowHostFlags(t)
+ source:=`{"tasks":[
+  {"label":"A","type":"process","command":"/bin/echo","args":["FIRST"]},
+  {"label":"B","type":"process","command":"/bin/echo","args":["SECOND"],"dependsOn":"A"},
+  {"label":"C","type":"process","command":"/bin/echo","args":["THIRD"],"dependsOn":"A"},
+  {"label":"D","type":"process","command":"/bin/echo","args":["FOURTH"],
+   "dependsOn":["B","C"],"dependsOrder":"sequence"}
+ ]}`
+ t.Run("explicit sequence",func(t *testing.T){
+  s,session,client,agent:=remoteTaskOperatorFixture(t)
+  root:=remoteWorkflowIssuedRoot(t,s,session,client,agent,source,"D")
+  info,err:=s.readRemoteTaskDependencies(context.Background(),session,root)
+  if err!=nil||!info.RunAvailable||len(info.Order)!=4||
+   len(info.Edges)!=4{
+   t.Fatalf("explicit sequential diamond not offered: %+v %v",info,err)
+  }
+  started,err:=longTaskE2EEAction(t,s,session,client,agent,
+   remotetransport.RemoteActionTasksWorkflowStart,root,0,"",
+   "22222222222222222222222222222222")
+  if err!=nil||started.Status!="started"{t.Fatalf("start: %+v %v",started,err)}
+  if got:=awaitRemoteWorkflow(t,session);got!="completed"{
+   t.Fatalf("sequential diamond failed: %s",got)
+  }
+  job:=session.longTask
+  output,_,_,_:=job.capture.next(0)
+  // Chunks are capped; read full host capture only inside this test.
+  job.capture.mu.Lock()
+  complete:=string(append([]byte(nil),job.capture.data...))
+  job.capture.mu.Unlock()
+  if !strings.Contains(output,"Step 1/4")||
+   !strings.Contains(complete,"FIRST")||
+   !strings.Contains(complete,"SECOND")||
+   !strings.Contains(complete,"THIRD")||
+   !strings.Contains(complete,"FOURTH")||
+   strings.Index(complete,"FIRST")>strings.Index(complete,"SECOND")||
+   strings.Index(complete,"SECOND")>strings.Index(complete,"THIRD")||
+   strings.Index(complete,"THIRD")>strings.Index(complete,"FOURTH"){
+   t.Fatalf("expected each dependency exactly once, in serial order: %q",complete)
+  }
+ })
+ t.Run("implicit parallel join",func(t *testing.T){
+  s,session,client,agent:=remoteTaskOperatorFixture(t)
+  unsafe:=strings.Replace(source,`,"dependsOrder":"sequence"`,"",1)
+  root:=remoteWorkflowIssuedRoot(t,s,session,client,agent,unsafe,"D")
+  info,err:=s.readRemoteTaskDependencies(context.Background(),session,root)
+  if err!=nil||!info.Available||info.RunAvailable{
+   t.Fatalf("parallel join marked executable: %+v %v",info,err)
+  }
+  if err:=s.startRemoteLinearWorkflow(context.Background(),session,root);err==nil{
+   t.Fatal("implicit parallel join was silently serialized")
+  }
+  if session.longTask!=nil{t.Fatal("rejected graph reserved a job slot")}
+ })
+}
