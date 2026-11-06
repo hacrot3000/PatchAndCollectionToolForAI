@@ -170,7 +170,7 @@ func (s *Server) executeRemoteE2EEPing(
   remotetransport.RemoteActionGitPullReview,remotetransport.RemoteActionGitPullChanges,
   remotetransport.RemoteActionGitTrackingStart,remotetransport.RemoteActionGitTrackingNext:
   permission=identity.PermissionGitStatus
- case remotetransport.RemoteActionGitBranchCreate:
+ case remotetransport.RemoteActionGitBranchCreate,remotetransport.RemoteActionGitSwitchSameHead:
   permission=identity.PermissionGitWrite
  case remotetransport.RemoteActionGitDiff,
   remotetransport.RemoteActionGitPatchStart,remotetransport.RemoteActionGitPatchNext,
@@ -206,6 +206,7 @@ func (s *Server) executeRemoteE2EEPing(
  var gitRemotes string
  var gitTracking remotetransport.RemoteGitTrackingPage
  var gitBranchCreate remotetransport.RemoteGitBranchCreateResult
+ var gitSwitch remotetransport.RemoteGitSwitchResult
  var gitDiff string
  var gitPatch remotetransport.RemoteGitPatchPage
  var gitPull remotetransport.RemoteGitPullResult
@@ -286,6 +287,10 @@ func (s *Server) executeRemoteE2EEPing(
     var branchErr error
     gitBranchCreate,branchErr=s.executeRemoteGitBranchCreate(actionCtx,session)
     return branchErr
+   case remotetransport.RemoteActionGitSwitchSameHead:
+    var switchErr error
+    gitSwitch,switchErr=s.executeRemoteGitSwitchSameHead(actionCtx,session)
+    return switchErr
    case remotetransport.RemoteActionGitDiff:
     var diffErr error
     gitDiff,diffErr=s.readRemoteGitDiff(actionCtx)
@@ -444,6 +449,7 @@ func (s *Server) executeRemoteE2EEPing(
   request.Operation!=remotetransport.RemoteActionGitPush &&
   request.Operation!=remotetransport.RemoteActionGitFetch &&
   request.Operation!=remotetransport.RemoteActionGitBranchCreate &&
+   request.Operation!=remotetransport.RemoteActionGitSwitchSameHead &&
   request.Operation!=remotetransport.RemoteActionGitStageTracked &&
   request.Operation!=remotetransport.RemoteActionGitUnstageAll &&
   request.Operation!=remotetransport.RemoteActionGitStageFile &&
@@ -488,6 +494,8 @@ func (s *Server) executeRemoteE2EEPing(
   sealed,err=remotetransport.SealRemoteGitTrackingPage(channel,request.RequestID,gitTracking)
  case remotetransport.RemoteActionGitBranchCreate:
   sealed,err=remotetransport.SealRemoteGitBranchCreateResult(channel,request.RequestID,gitBranchCreate)
+ case remotetransport.RemoteActionGitSwitchSameHead:
+  sealed,err=remotetransport.SealRemoteGitSwitchResult(channel,request.RequestID,gitSwitch)
  case remotetransport.RemoteActionGitDiff:
   sealed,err=remotetransport.SealRemoteGitDiffResult(channel,request.RequestID,gitDiff)
  case remotetransport.RemoteActionGitPatchStart,remotetransport.RemoteActionGitPatchNext,
