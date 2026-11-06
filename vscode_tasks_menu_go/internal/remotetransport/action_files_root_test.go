@@ -16,6 +16,9 @@ func TestRemoteFilesRootStrictEnvelope(t *testing.T){
  if err!=nil||len(got.Items)!=2||got.Items[0]!="D:docs"||!got.More{
   t.Fatalf("roundtrip: %+v %v",got,err)
  }
+ c,_,_ = participants(t)
+ if _,err:=SealRemoteFilesRoot(c,testActionID,RemoteFilesRoot{Items:[]string{},More:true});
+  !errors.Is(err,ErrInvalidRemoteAction){t.Fatal("empty continuation page accepted")}
  for _,invalid:=range [][]string{
   {"F:.secret"},{"F:../secret"},{"F:hello world"},{"F:ab","D:ab"},
   {"F:zz","F:aa"},{"F:bad/name"},{"D:bad\\name"},
