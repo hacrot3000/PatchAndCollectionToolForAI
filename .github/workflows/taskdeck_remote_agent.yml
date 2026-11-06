@@ -30,6 +30,7 @@ on:
       - 'remote_portal/tests/native_gui_git_remotes.test.cjs'
       - 'remote_portal/tests/native_gui_git_tracking.test.cjs'
       - 'remote_portal/tests/native_gui_git_pull_review.test.cjs'
+      - 'remote_portal/tests/native_gui_files_root.test.cjs'
       - 'remote_portal/tests/native_gui_git_patch.test.cjs'
       - 'remote_portal/tests/native_gui_git_branch_create.test.cjs'
       - 'remote_portal/tests/native_gui_terminal.test.cjs'
@@ -62,6 +63,7 @@ on:
       - 'remote_portal/tests/native_gui_git_remotes.test.cjs'
       - 'remote_portal/tests/native_gui_git_tracking.test.cjs'
       - 'remote_portal/tests/native_gui_git_pull_review.test.cjs'
+      - 'remote_portal/tests/native_gui_files_root.test.cjs'
       - 'remote_portal/tests/native_gui_git_patch.test.cjs'
       - 'remote_portal/tests/native_gui_git_branch_create.test.cjs'
       - 'remote_portal/tests/native_gui_terminal.test.cjs'
@@ -137,6 +139,8 @@ jobs:
         run: node remote_portal/tests/native_gui_git_tracking.test.cjs
       - name: Verify offline Git Pull review is not a Git write permission
         run: node remote_portal/tests/native_gui_git_pull_review.test.cjs
+      - name: Verify paged Files root native E2EE GUI and logout cleanup
+        run: node remote_portal/tests/native_gui_files_root.test.cjs
       - name: Verify bounded Git patch pagination native GUI
         run: node remote_portal/tests/native_gui_git_patch.test.cjs
       - name: Verify host-fixed Git branch create native GUI confirmation
