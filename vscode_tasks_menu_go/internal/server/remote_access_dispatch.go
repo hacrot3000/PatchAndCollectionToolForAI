@@ -37,6 +37,7 @@ func (s *Server) auditRemoteReadOnlyAction(session *remoteTaskDeckSession, opera
     operation!=remotetransport.RemoteActionFilesRootNext &&
     operation!=remotetransport.RemoteActionFilesReadStart &&
     operation!=remotetransport.RemoteActionFilesReadNext &&
+    operation!=remotetransport.RemoteActionFilesReadSelect &&
     operation!=remotetransport.RemoteActionTasksPreview &&
     operation!=remotetransport.RemoteActionTasksPreviewNext &&
     operation!=remotetransport.RemoteActionTasksInspect &&
@@ -59,7 +60,7 @@ func (s *Server) auditRemoteReadOnlyAction(session *remoteTaskDeckSession, opera
  resourceType:="session"
  if operation==remotetransport.RemoteActionGitStatus||operation==remotetransport.RemoteActionGitLog||operation==remotetransport.RemoteActionGitBranches||operation==remotetransport.RemoteActionGitRemotes||operation==remotetransport.RemoteActionGitTrackingStart||operation==remotetransport.RemoteActionGitTrackingNext||operation==remotetransport.RemoteActionGitPullReview||operation==remotetransport.RemoteActionGitSwitchReview||operation==remotetransport.RemoteActionGitBranchDeleteReview||operation==remotetransport.RemoteActionGitPullChanges||operation==remotetransport.RemoteActionGitDiff||operation==remotetransport.RemoteActionGitPatchStart||operation==remotetransport.RemoteActionGitPatchNext||operation==remotetransport.RemoteActionGitPatchCachedStart||operation==remotetransport.RemoteActionGitPatchCachedNext {resourceType="git"}
  if operation==remotetransport.RemoteActionProjectInfo {resourceType="project"}
- if operation==remotetransport.RemoteActionFilesRoot||operation==remotetransport.RemoteActionFilesRootNext||operation==remotetransport.RemoteActionFilesReadStart||operation==remotetransport.RemoteActionFilesReadNext{resourceType="files"}
+ if operation==remotetransport.RemoteActionFilesRoot||operation==remotetransport.RemoteActionFilesRootNext||operation==remotetransport.RemoteActionFilesReadStart||operation==remotetransport.RemoteActionFilesReadNext||operation==remotetransport.RemoteActionFilesReadSelect{resourceType="files"}
  if operation==remotetransport.RemoteActionTasksPreview || operation==remotetransport.RemoteActionTasksPreviewNext || operation==remotetransport.RemoteActionTasksInspect ||
   operation==remotetransport.RemoteActionTasksPoll || operation==remotetransport.RemoteActionTasksClear {resourceType="tasks"}
  if operation==remotetransport.RemoteActionSessionFeatures {resourceType="session"}
@@ -191,7 +192,8 @@ func (s *Server) executeRemoteE2EEPing(
  case remotetransport.RemoteActionProjectInfo:
   permission=identity.PermissionTasksView
  case remotetransport.RemoteActionFilesRoot,remotetransport.RemoteActionFilesRootNext,
-  remotetransport.RemoteActionFilesReadStart,remotetransport.RemoteActionFilesReadNext:
+  remotetransport.RemoteActionFilesReadStart,remotetransport.RemoteActionFilesReadNext,
+  remotetransport.RemoteActionFilesReadSelect:
   permission=identity.PermissionFilesRead
  case remotetransport.RemoteActionTasksPreview,remotetransport.RemoteActionTasksPreviewNext,
   remotetransport.RemoteActionTasksInspect:
@@ -358,6 +360,11 @@ func (s *Server) executeRemoteE2EEPing(
     gitIndex,fileErr=s.executeRemoteGitFileIndex(actionCtx,session,
      request.Operation,request.FileIndex,request.Snapshot)
     return fileErr
+   case remotetransport.RemoteActionFilesReadSelect:
+    var selectErr error
+    filesRead,selectErr=s.readRemoteFileTextSelected(actionCtx,session,
+     request.FileIndex,request.RequestID)
+    return selectErr
    case remotetransport.RemoteActionFilesReadStart,remotetransport.RemoteActionFilesReadNext:
     var readErr error
     filesRead,readErr=s.readRemoteFileTextPage(actionCtx,session,
@@ -550,7 +557,7 @@ func (s *Server) executeRemoteE2EEPing(
   sealed,err=remotetransport.SealRemoteActionProjectInfoResult(channel,request.RequestID,projectInfo)
  case remotetransport.RemoteActionFilesRoot,remotetransport.RemoteActionFilesRootNext:
   sealed,err=remotetransport.SealRemoteFilesRoot(channel,request.RequestID,filesRoot)
- case remotetransport.RemoteActionFilesReadStart,remotetransport.RemoteActionFilesReadNext:
+ case remotetransport.RemoteActionFilesReadStart,remotetransport.RemoteActionFilesReadNext,remotetransport.RemoteActionFilesReadSelect:
   sealed,err=remotetransport.SealRemoteFilesReadPage(channel,request.RequestID,filesRead)
  case remotetransport.RemoteActionTasksPreview,remotetransport.RemoteActionTasksPreviewNext:
   sealed,err=remotetransport.SealRemoteActionTasksPreviewResult(channel,request.RequestID,tasksPreview)
