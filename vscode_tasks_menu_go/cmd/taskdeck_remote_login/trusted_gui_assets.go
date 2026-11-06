@@ -150,7 +150,7 @@ const trustedGUIHTML = `<!doctype html>
     <article class="tile">
      <div class="tile-heading"><span class="dot"></span><h2>Git Status</h2></div>
      <p>Đọc trạng thái repository gốc trên máy TaskDeck. Chỉ hoạt động khi host bật riêng quyền đọc Git.</p>
-     <div class="actions"><button type="button" id="git">Đọc trạng thái Git</button><button type="button" id="git-log" disabled>Git log (3 commit)</button><button type="button" id="git-branches" disabled>Nhánh Git cục bộ</button><button type="button" id="git-remotes" disabled>Git remote (chỉ tên)</button><button type="button" id="git-tracking-start" disabled>Tracking refs cục bộ</button><button type="button" id="git-tracking-next" disabled>Trang tracking tiếp</button><button type="button" id="git-branch-create" disabled>Tạo nhánh đã cấu hình trên host</button><button type="button" id="git-diff" disabled>Git diff --stat</button><button type="button" id="git-patch-start" disabled>Xem diff chi tiết</button><button type="button" id="git-patch-cached-start" disabled>Review staged diff</button><button type="button" id="git-patch-next" disabled>Trang diff tiếp</button><button type="button" id="git-fetch" disabled>Git fetch (upstream)</button><button type="button" id="git-pull-review" disabled>Xem trước Pull (offline)</button><button type="button" id="git-pull" disabled>Git pull (fast-forward)</button><button type="button" id="git-push" disabled>Git push (không force)</button></div>
+     <div class="actions"><button type="button" id="git">Đọc trạng thái Git</button><button type="button" id="git-log" disabled>Git log (3 commit)</button><button type="button" id="git-branches" disabled>Nhánh Git cục bộ</button><button type="button" id="git-remotes" disabled>Git remote (chỉ tên)</button><button type="button" id="git-tracking-start" disabled>Tracking refs cục bộ</button><button type="button" id="git-tracking-next" disabled>Trang tracking tiếp</button><button type="button" id="git-branch-create" disabled>Tạo nhánh đã cấu hình trên host</button><button type="button" id="git-diff" disabled>Git diff --stat</button><button type="button" id="git-patch-start" disabled>Xem diff chi tiết</button><button type="button" id="git-patch-cached-start" disabled>Review staged diff</button><button type="button" id="git-patch-next" disabled>Trang diff tiếp</button><button type="button" id="git-fetch" disabled>Git fetch (upstream)</button><button type="button" id="git-pull-review" disabled>Xem trước Pull (offline)</button><button type="button" id="git-pull-changes" disabled>Xem file sẽ thay đổi</button><button type="button" id="git-pull" disabled>Git pull (fast-forward)</button><button type="button" id="git-push" disabled>Git push (không force)</button></div>
       <p>Diff chi tiết chỉ đọc tối đa 4 KiB thay đổi tracked, chia trang E2EE; Review staged diff chỉ xem thay đổi đã stage. Snapshot thay đổi giữa các trang sẽ bị từ chối.</p><pre id="git-patch-output" class="git-patch-output" aria-label="Git diff chi tiết" hidden></pre>
       <p>Git fetch chỉ cập nhật upstream tracking, không đổi HEAD; Git pull yêu cầu worktree sạch. Git push chỉ đẩy commit HEAD lên upstream cùng tên nhánh, không force, không đẩy tags; mọi thao tác yêu cầu quyền riêng trên host và xác nhận.</p>
       <div class="actions git-index-actions"><button type="button" id="git-stage-tracked" disabled>Stage file đã theo dõi</button><button type="button" id="git-unstage-all" disabled>Unstage toàn bộ</button></div>
@@ -297,6 +297,7 @@ const trustedGUIJavaScript = `'use strict';
   const gitStageTracked=document.getElementById('git-stage-tracked');
   const gitUnstageAll=document.getElementById('git-unstage-all');
   const gitPullReview=document.getElementById('git-pull-review');
+   const gitPullChanges=document.getElementById('git-pull-changes');
   const gitPull=document.getElementById('git-pull');
   const gitCommit=document.getElementById('git-commit');
   const gitPush=document.getElementById('git-push');
@@ -1054,6 +1055,7 @@ const trustedGUIJavaScript = `'use strict';
       !['M','A','D'].includes(selectedFile?.code?.[0]);
     gitUnstageAll.disabled=busy||closed||!verified||budget<=0||gitWorkspaceBusy||!featuresKnown||!available.git_unstage_all;
     gitPullReview.disabled=busy||closed||!verified||budget<=0||maintenanceOnly||!featuresKnown||!available.git_status;
+     gitPullChanges.disabled=gitPullReview.disabled;
     gitPull.disabled=busy||closed||!verified||budget<=0||gitWorkspaceBusy||!featuresKnown||!available.git_pull;
     gitCommit.disabled=busy||closed||!verified||budget<=0||gitWorkspaceBusy||!featuresKnown||!available.git_commit;
     gitPush.disabled=busy||closed||!verified||budget<=0||gitWorkspaceBusy||!featuresKnown||!available.git_push;
@@ -1712,7 +1714,31 @@ const trustedGUIJavaScript = `'use strict';
             'Upstream không đổi ('+data.after.slice(0,12)+
               '). HEAD cục bộ vẫn là '+data.head.slice(0,12)+'.';
         }
-        if(endpoint==='/api/git-pull-review'){
+        if(endpoint==='/api/git-pull-changes'){
+          const oid=/^[0-9a-f]{40}$/;
+          if(data.remote_control_available!==false||
+            typeof data.head!=='string'||!oid.test(data.head)||
+            typeof data.upstream_head!=='string'||!oid.test(data.upstream_head)||
+            !Array.isArray(data.files)||data.files.length>6||
+            (data.head===data.upstream_head&&data.files.length!==0)||
+            data.files.some((v,i)=>{
+              if(typeof v!=='string'||v.length<4||v.length>50||
+                !['A:','M:','D:'].includes(v.slice(0,2)))return true;
+              const segments=v.slice(2).split('/');
+              if(segments.length>4||segments.some(seg=>
+                !/^[A-Za-z0-9][A-Za-z0-9_.-]*$/.test(seg)))return true;
+              return i>0&&data.files[i-1].slice(2)>=v.slice(2);
+            })){
+            throw new Error('Danh sách file Git Pull E2EE không hợp lệ');
+          }
+          output.textContent='Review file fast-forward cục bộ (chỉ đọc): '+
+            data.head.slice(0,12)+' → '+data.upstream_head.slice(0,12)+'\n'+
+            (data.files.length?data.files.map(v=>
+              (v[0]==='A'?'Thêm: ':v[0]==='M'?'Sửa: ':'Xóa: ')+v.slice(2)).join('\n'):
+              'Không có file thay đổi trong tree.')+
+            '\nChỉ xem trước, chưa fetch/pull hay thay đổi Git.';
+         }
+         if(endpoint==='/api/git-pull-review'){
           const sha=/^[0-9a-f]{40}$/;
           if(data.remote_control_available!==false||
             typeof data.head!=='string'||!sha.test(data.head)||
@@ -2027,6 +2053,7 @@ const trustedGUIJavaScript = `'use strict';
     invoke('/api/git-fetch');
   });
   gitPullReview.addEventListener('click',()=>invoke('/api/git-pull-review'));
+   gitPullChanges.addEventListener('click',()=>invoke('/api/git-pull-changes'));
   gitPull.addEventListener('click',()=>{
     if(busy||closed||!verified||longTaskID!==0||!featuresKnown||!available.git_pull||budget<=0)return;
     if(!window.confirm('Thực hiện Git pull --ff-only trên repository gốc của host? Worktree phải sạch và đã cấu hình upstream.'))return;
