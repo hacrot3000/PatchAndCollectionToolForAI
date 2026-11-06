@@ -116,3 +116,46 @@ bound to the same client key, local password and current live Portal grant.
 The existing 512-byte E2EE envelope and `session.features` shape are
 preserved. Added typed codec/forgery, real Git repository/TOCTOU, RBAC,
 loopback-route and browser GUI tests.
+
+## 2026-11-06 — bounded staged-only Git patch review
+
+- The merge had excluded main's incompatible commit-review transport. The
+  current Remote E2EE dispatcher now exposes two fixed authenticated actions:
+  `git.patch.cached.start` and `git.patch.cached.next`. They read only
+  `git diff --cached` for the host's exact workspace Git root. The existing
+  `git.patch.start/next` continue to read tracked changes against HEAD.
+- Both views reuse the current `git.diff` RBAC, independent
+  `TASKDECK_REMOTE_GIT_PATCH=1` host opt-in (default disabled), durable
+  TaskDeck-local audit, live Portal grant and 512-byte per-action mailbox.
+  They accept no paths, arguments, commit message, diff target or command.
+- The entire diff must fit the existing 4-KiB bound and is sent in paged,
+  text-only responses. The host fingerprints the workspace and complete diff,
+  including **which view** it is reading, on every next page. Switching
+  from staged to HEAD mode while a cursor is in progress fails closed.
+- The trusted native GUI includes a separate **Review staged diff** button.
+  Its Next control follows the selected view without copying a client page
+  number or path into any E2EE action.
+- This is a **read-only informational preview**, not a commit authorization,
+  conflict resolution, full repository editor, immutable commit attestation
+  or file-transfer implementation. `git.commit` independently rechecks
+  host permissions and its staging state at mutation time.
+- Regression coverage targets staged/unstaged isolation, stale index denial,
+  view mixing, strict no-argument envelopes, UI page routing and logout.
+  No Windows-specific behavior is introduced.
+
+### Work remaining from main's incompatible remote APIs
+
+- Compare task report/managed process features against the current
+  session-owned long-job lifecycle; do not restore duplicate protocols merely
+  because their old files disappeared. Host secrets, dependency execution and
+  arbitrary free-form task arguments remain out of scope.
+- Port remaining Git interaction/review operations selectively with
+  independent typed E2EE schemas and per-action RBAC.
+- Add read-only Files discovery, scoped file reading and later explicitly
+  approved editing/transfer under `files.read/write/download/upload`
+  permissions. Never tunnel the old generic HTTP/API transport via PHP.
+- Add native GUI Editor/Files screens only after their matching Agent
+  dispatch actions and regression tests exist; no inert remote buttons.
+- Production LIVE remains NO-GO until all existing security release gates
+  pass. Tests running in CI are code-validation gates, not device test
+  requirements for marking an implemented code feature complete.
