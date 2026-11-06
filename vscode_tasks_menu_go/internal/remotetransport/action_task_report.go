@@ -8,7 +8,6 @@ import (
 // This argument-free read-only operation returns only sanitized outcome
 // metadata for the current principal; no command, arguments, output,
 // environment, file path, portal token or audit detail is transported.
-const RemoteActionTasksReport="tasks.report"
 const RemoteTaskReportProtocol="taskdeck-e2ee-task-report-v1"
 const MaxRemoteTaskReportEntries=3
 
