@@ -66,10 +66,12 @@ func(s *Server)prepareRemoteLinearWorkflow(ctx context.Context,
  if err!=nil||!deps.Available||len(deps.Order)<2||
   len(deps.Order)>remoteWorkflowMaxSteps||
   len(deps.Edges)!=len(deps.Order)-1{return nil,hash,denied}
- for i,edge:=range deps.Edges{
-  if edge[0]!=deps.Order[i]||edge[1]!=deps.Order[i+1]{
-   return nil,hash,denied
-  }
+ expectedEdges:=make(map[[2]int]bool,len(deps.Edges))
+ for i:=1;i<len(deps.Order);i++{
+  expectedEdges[[2]int{deps.Order[i-1],deps.Order[i]}]=true
+ }
+ for _,edge:=range deps.Edges{
+  if !expectedEdges[edge]{return nil,hash,denied}
  }
  hash=session.taskPageHash
  root,err:=filepath.EvalSymlinks(s.Workspace)

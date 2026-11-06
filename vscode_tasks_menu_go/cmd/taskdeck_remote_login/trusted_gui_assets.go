@@ -1631,7 +1631,8 @@ const trustedGUIJavaScript = `'use strict';
           taskWorkflowReadyID=data.available&&data.run_available&&
             order.length>=2&&order.length<=4&&
             edges.length===order.length-1&&
-            edges.every((edge,i)=>edge[0]===order[i]&&edge[1]===order[i+1])?
+            edges.every(edge=>order.some((id,i)=>i>0&&
+              edge[0]===order[i-1]&&edge[1]===id))?
              id:0;
           taskDepsPendingID=0;
          }

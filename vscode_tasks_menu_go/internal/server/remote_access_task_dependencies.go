@@ -112,8 +112,12 @@ func (s *Server)readRemoteTaskDependencies(ctx context.Context,
   len(result.Order)>=2&&len(result.Order)<=remoteWorkflowMaxSteps&&
   len(result.Edges)==len(result.Order)-1{
   linear:=true
-  for i,e:=range result.Edges{
-   if e[0]!=result.Order[i]||e[1]!=result.Order[i+1]{linear=false}
+  expected:=make(map[[2]int]bool,len(result.Edges))
+  for i:=1;i<len(result.Order);i++{
+   expected[[2]int{result.Order[i-1],result.Order[i]}]=true
+  }
+  for _,e:=range result.Edges{
+   if !expected[e]{linear=false}
   }
   for _,n:=range graph.Nodes{
    item,found:=tasks.TaskByLabel(list,n.Label)

@@ -39,8 +39,12 @@ func ValidRemoteTaskDependencies(result RemoteTaskDependencies)bool{
  if result.RunAvailable{
   if len(result.Order)<2||len(result.Order)>4||
    len(result.Edges)!=len(result.Order)-1{return false}
-  for i,e:=range result.Edges{
-   if e[0]!=result.Order[i]||e[1]!=result.Order[i+1]{return false}
+  expected:=make(map[[2]int]bool,len(result.Edges))
+  for i:=1;i<len(result.Order);i++{
+   expected[[2]int{result.Order[i-1],result.Order[i]}]=true
+  }
+  for _,e:=range result.Edges{
+   if !expected[e]{return false}
   }
  }
  if len(result.Order)==0||result.Order[len(result.Order)-1]!=result.TaskID{
