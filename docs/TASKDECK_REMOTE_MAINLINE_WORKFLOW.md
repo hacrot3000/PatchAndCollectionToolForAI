@@ -46,3 +46,31 @@ implementation.
 
 Features whose code and automated checks are complete but only need
 real-host testing are considered **code complete**.
+
+## 2026-11-06 — Read-only, principal-scoped task outcome report
+
+- Added `tasks.report` as an argument-free, explicitly whitelisted E2EE
+  action, separately gated by the current TaskDeck user's project-scoped
+  `tasks.view` permission and the LIVE authenticated Portal/client-key
+  grant. The trusted host must enable BOTH
+  `TASKDECK_REMOTE_TASKS_PREVIEW=1` and
+  `TASKDECK_REMOTE_TASKS_REPORT=1`; report reads fail closed by default.
+- The Agent reads only the local TaskDeck `remote.action.tasks_run_finished`
+  audit rows filtered by the exact authenticated `user_id` AND
+  `project_id`. It enforces known schema and `transport=e2ee` and returns
+  at most three recent entries (task ID, completed/failed/cancelled/timed_out,
+  exit code, duration and UTC timestamp), never raw audit text, command,
+  argv, cwd, task input, output, environment, credentials or other users'
+  records. Invalid/malicious legacy audit entries are skipped.
+- A fully typed strict JSON parser and the existing 512-byte AEAD plaintext
+  ceiling bind every E2EE response. The browser cannot supply task ID,
+  username, project, filters or pagination offsets. The native GUI shows a
+  names-free outcome summary via `textContent` and scrubs it on logout.
+- The server appends a TaskDeck-local audit event for each authorized
+  `tasks.report` action. Focused Go race/Node tests cover principal
+  isolation, host opt-in, malformed/forged JSON, quotas, native no-argument
+  requests and display cleanup.
+- This adds **historical run results**, not dependency execution, queued
+  workflow orchestration, persisted output or arbitrary report export.
+  These are separate unfinished functionality and require new explicit
+  E2EE contracts; do not use a generic remote audit/file API.
