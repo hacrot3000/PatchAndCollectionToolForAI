@@ -799,16 +799,14 @@ func (ui *trustedGUI) action(w http.ResponseWriter,r *http.Request){
     listing,err=scoped.FilesRootNext(ctx)
    }else{err=remotetransport.ErrRemoteActionDenied}
   }
-  {
-   if err==nil&&ctx.Err()==nil{
-    ui.mu.Lock();open:=!ui.closed;ui.mu.Unlock()
-    if open{
+  if err==nil&&ctx.Err()==nil{
+   ui.mu.Lock();open:=!ui.closed;ui.mu.Unlock()
+   if open{
      _=json.NewEncoder(w).Encode(map[string]any{
       "ok":true,"items":listing.Items,"more":listing.More,
       "remote_control_available":false,"remaining":remaining,
      })
      return
-    }
    }
   }
  }else if r.URL.Path=="/api/project-info" {
