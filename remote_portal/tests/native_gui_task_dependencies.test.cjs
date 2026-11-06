@@ -23,7 +23,7 @@ const nodes=new Map();
 const get=id=>{if(!nodes.has(id))nodes.set(id,new Element(id));return nodes.get(id)};
 const token='0123456789abcdef'.repeat(4);
 const calls=[];let remaining=16;
-let available=true;
+let available=true,confirmAccept=false;
 const fetch=async(path,opt)=>{
  calls.push({path,body:opt.body});
  assert.equal(opt.method,'POST');
@@ -34,7 +34,7 @@ const fetch=async(path,opt)=>{
  })};
  if(path==='/api/features')return {ok:true,json:async()=>({
   ok:true,session_ping:true,project_info:false,tasks_preview:true,
-  git_status:false,task_run:false,remote_control_available:false,
+  git_status:false,task_run:true,task_long:true,remote_control_available:false,
   remaining:--remaining,
  })};
  if(path==='/api/tasks-preview')return {ok:true,json:async()=>({
@@ -46,11 +46,16 @@ const fetch=async(path,opt)=>{
   order:available?[44,55]:[],edges:available?[[44,55]]:[],
   remote_control_available:false,remaining:--remaining,
  })};
+ if(path==='/api/tasks-workflow-start/55')return {ok:true,json:async()=>({
+  ok:true,task_id:55,status:'started',exit_code:-1,
+  more:false,output:'',truncated:false,
+  remote_control_available:false,remaining:--remaining,
+ })};
  if(path==='/api/close')return {ok:true,json:async()=>({ok:true,closed:true})};
  throw Error('unexpected endpoint '+path);
 };
 const scope={document:{getElementById:get,createElement:x=>new Element(x)},
- window:{addEventListener(){},confirm(){return false}},history:{replaceState(){}},
+ window:{addEventListener(){},confirm(){return confirmAccept}},history:{replaceState(){}},
  location:{hash:'#'+token,pathname:'/'},fetch,Date,Number,String,Promise,setInterval(){}};
 vm.createContext(scope);
 new vm.Script(match[1],{filename:'native-task-dependencies.js'}).runInContext(scope);
@@ -73,6 +78,18 @@ const flush=async()=>{for(let i=0;i<70;i++)await Promise.resolve()};
  assert.match(get('task-deps-output').textContent,/Task #44/);
  assert.match(get('task-deps-output').textContent,/Build <b>safe<\/b>/);
  assert.equal(get('task-deps-output').children.length,0,'HTML from a task label executed');
+ assert.equal(get('task-workflow-start').disabled,false,
+  'reviewed linear workflow did not enable host-gated button');
+ get('task-workflow-start').click();await flush();
+ assert.equal(calls.filter(x=>x.path==='/api/tasks-workflow-start/55').length,0,
+  'workflow launched without confirmation');
+ confirmAccept=true;
+ get('task-workflow-start').click();await flush();
+ assert.deepEqual(calls.filter(x=>x.path==='/api/tasks-workflow-start/55'),
+  [{path:'/api/tasks-workflow-start/55',body:undefined}],
+  'workflow start must send only authenticated root ID');
+ assert.equal(get('task-workflow-start').disabled,true,
+  'second workflow run was allowed while one job owns the session');
  available=false;
  get('task-deps-view').click();await flush();
  assert.match(get('task-deps-output').textContent,/Host chưa bật/);
@@ -81,5 +98,7 @@ const flush=async()=>{for(let i=0;i<70;i++)await Promise.resolve()};
  assert.equal(get('task-deps-select').children.length,0,'issued IDs persisted after logout');
  assert.equal(get('task-deps-output').textContent,'','dependency graph persisted after logout');
  assert.equal(get('task-deps-output').hidden,true,'graph visible after logout');
+ assert.equal(get('task-workflow-start').disabled,true,
+  'workflow start button persisted after logout');
  console.log('PASS: native E2EE workflow DAG preview and content-free opt-out, scrubbed on logout');
 })().catch(err=>{console.error(err);process.exitCode=1});
