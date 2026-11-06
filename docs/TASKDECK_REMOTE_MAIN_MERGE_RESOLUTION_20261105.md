@@ -269,3 +269,38 @@ loopback-route and browser GUI tests.
 - This does **not** yet restore arbitrary branch switching, branch deletion
   or any operation that changes checked-out file content. Such operations
   require independent, individually reviewed E2EE schemas and safety gates.
+
+## 2026-11-06 — TaskDeck-owned redundant branch deletion
+
+- New typed E2EE operations `git.branch_delete.review` (read-only
+  `git.status` permission) and `git.branch_delete` (separate
+  `git.write` permission) restore a **restricted**, non-force version of
+  main's interactive branch-delete review using the current dispatcher.
+- The host must explicitly enable `TASKDECK_REMOTE_GIT_BRANCH_DELETE=1`
+  and set `TASKDECK_REMOTE_GIT_BRANCH_DELETE_NAME=<safe-slug>`. Only the
+  literal loose ref `refs/heads/taskdeck/<safe-slug>` is eligible, and it
+  must point to **exactly the same commit** as HEAD. The currently checked
+  out branch, missing refs, non-loose/packed refs, linked worktrees, dirty
+  index/worktree, symlinks in ref/reflog ancestry and protected names fail
+  closed. No `-D`, force, file deletion, checkout or network I/O.
+- Preview returns only `{current,branch,head}` inside authenticated E2EE
+  and is stored in the current session. The user must confirm the literal
+  source branch, target and HEAD through native GUI; the Agent consumes the
+  preview before checking all preconditions again.
+- After acquiring an exclusive `.git/HEAD.lock`, the host rechecks HEAD,
+  index, root status and loose target and uses a Git update-ref
+  **compare-and-delete** transaction with the expected OID. A concurrent
+  target ref modification fails, rather than deleting a different commit.
+  The lockfile is removed only if the host still owns that inode.
+- TaskDeck-local audit is mandatory before deletion; logs contain no
+  target ref name or credentials. Browser/Relay supply no branch, file path,
+  SHA, command, URL, overwrite flag or permission token. The existing
+  512-byte E2EE mailbox and current session limit remain unchanged.
+- Regression tests cover no-argument codec, hostile/ref injection, review
+  and confirmation, opt-in, same-HEAD deletion, stale previews, untracked
+  and staged work, linked worktrees, lockfiles, symlinked reflogs, viewer
+  RBAC and native GUI state cleanup.
+- Remaining Git work includes safe branch deletion beyond this narrowly
+  redundant TaskDeck-owned class, higher-volume diff and file inventories,
+  and any interactive operations that would change checked-out file content.
+  The old main protocol must NOT be wired directly into E2EE.
