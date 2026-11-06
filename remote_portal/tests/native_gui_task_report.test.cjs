@@ -34,7 +34,7 @@ const fetch=async(path,opt)=>{
   device_id:'a'.repeat(64),username:'alice',
  })};
  if(path==='/api/features')return {ok:true,json:async()=>({
-  ok:true,session_ping:true,project_info:false,tasks_preview:true,task_run:false,
+  ok:true,session_ping:true,project_info:false,tasks_preview:true,task_run:false,git_status:false,
   remote_control_available:false,remaining:--remaining,
  })};
  if(path==='/api/tasks-report')return {ok:true,json:async()=>({
