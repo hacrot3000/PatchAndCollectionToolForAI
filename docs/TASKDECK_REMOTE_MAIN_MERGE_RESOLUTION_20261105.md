@@ -210,3 +210,25 @@ loopback-route and browser GUI tests.
 - Tests cover native transport injection denial, strict result schema,
   change detection, large/unsafe path refusal, host opt-in, no network/write,
   local principal/audit and GUI read-only behavior.
+
+## 2026-11-06 — E2EE Files root pagination and native Files screen
+
+- Added fixed `files.root.next` as a separate **argument-free** E2EE
+  operation; it reuses `files.read` RBAC, live local-password/client-key/
+  Portal-grant checks and `TASKDECK_REMOTE_FILES_ROOT=1` opt-in.
+- The Agent owns the cursor and SHA-256 fingerprint of the full canonical
+  workspace root listing. Each next-page request rebuilds the bounded
+  source listing and refuses changed names, changed item types, moved
+  workspace roots, missing first page, exhausted cursor or revoked session.
+  No path, index, offset or cursor token is supplied by the browser/Relay.
+- The existing 128-entry source bound and eight displayed items per page
+  remain, with the shared 512-byte AEAD action mailbox and 16-round session
+  budget. Large roots refuse the request rather than returning partial
+  information marked complete.
+- The native GUI now has a dedicated **Files · chỉ đọc** navigation page,
+  initial list and Next buttons, ordered text-only append, and logout
+  cleanup. This screen cannot open/edit contents, follow symlinks, delete
+  files, transfer binaries or upload/download; it is NOT a full Explorer.
+- Go/Node regression tests cover unordered/forged results, next-before-
+  first, cursor exhaustion, stale snapshot denial, TaskDeck audit and GUI
+  per-page gating. This is code-only implementation, not LIVE approval.
