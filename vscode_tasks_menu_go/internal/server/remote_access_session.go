@@ -65,6 +65,12 @@ type remoteTaskDeckSession struct {
  gitPatchCursor int
  gitPatchPage int
  gitPatchDigest [32]byte
+ // Local host-owned tracking-ref cursor, never a transferable token.
+ gitTrackingMu sync.Mutex
+ gitTrackingReady bool
+ gitTrackingCursor int
+ gitTrackingPage int
+ gitTrackingDigest [32]byte
  // Only these stable IDs were actually published by E2EE task preview.
  // A guessed ID from PHP/Relay cannot be inspected or used as authority.
  taskIssuedIDs map[int]bool

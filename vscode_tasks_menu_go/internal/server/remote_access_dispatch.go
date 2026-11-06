@@ -21,6 +21,8 @@ func (s *Server) auditRemoteReadOnlyAction(session *remoteTaskDeckSession, opera
     operation!=remotetransport.RemoteActionGitLog &&
     operation!=remotetransport.RemoteActionGitBranches &&
     operation!=remotetransport.RemoteActionGitRemotes &&
+    operation!=remotetransport.RemoteActionGitTrackingStart &&
+    operation!=remotetransport.RemoteActionGitTrackingNext &&
     operation!=remotetransport.RemoteActionGitDiff &&
     operation!=remotetransport.RemoteActionGitPatchStart &&
     operation!=remotetransport.RemoteActionGitPatchNext &&
@@ -45,7 +47,7 @@ func (s *Server) auditRemoteReadOnlyAction(session *remoteTaskDeckSession, opera
  userID:=session.userID
  projectID:=project.ID
  resourceType:="session"
- if operation==remotetransport.RemoteActionGitStatus||operation==remotetransport.RemoteActionGitLog||operation==remotetransport.RemoteActionGitBranches||operation==remotetransport.RemoteActionGitRemotes||operation==remotetransport.RemoteActionGitDiff||operation==remotetransport.RemoteActionGitPatchStart||operation==remotetransport.RemoteActionGitPatchNext {resourceType="git"}
+ if operation==remotetransport.RemoteActionGitStatus||operation==remotetransport.RemoteActionGitLog||operation==remotetransport.RemoteActionGitBranches||operation==remotetransport.RemoteActionGitRemotes||operation==remotetransport.RemoteActionGitTrackingStart||operation==remotetransport.RemoteActionGitTrackingNext||operation==remotetransport.RemoteActionGitDiff||operation==remotetransport.RemoteActionGitPatchStart||operation==remotetransport.RemoteActionGitPatchNext {resourceType="git"}
  if operation==remotetransport.RemoteActionProjectInfo {resourceType="project"}
  if operation==remotetransport.RemoteActionTasksPreview || operation==remotetransport.RemoteActionTasksPreviewNext || operation==remotetransport.RemoteActionTasksInspect ||
   operation==remotetransport.RemoteActionTasksPoll || operation==remotetransport.RemoteActionTasksClear {resourceType="tasks"}
@@ -153,7 +155,8 @@ func (s *Server) executeRemoteE2EEPing(
   permission=identity.PermissionGitStatus
  case remotetransport.RemoteActionGitLog:
   permission=identity.PermissionGitLog
- case remotetransport.RemoteActionGitBranches,remotetransport.RemoteActionGitRemotes:
+ case remotetransport.RemoteActionGitBranches,remotetransport.RemoteActionGitRemotes,
+  remotetransport.RemoteActionGitTrackingStart,remotetransport.RemoteActionGitTrackingNext:
   permission=identity.PermissionGitStatus
  case remotetransport.RemoteActionGitBranchCreate:
   permission=identity.PermissionGitWrite
@@ -186,6 +189,7 @@ func (s *Server) executeRemoteE2EEPing(
  var gitLog string
  var gitBranches string
  var gitRemotes string
+ var gitTracking remotetransport.RemoteGitTrackingPage
  var gitBranchCreate remotetransport.RemoteGitBranchCreateResult
  var gitDiff string
  var gitPatch remotetransport.RemoteGitPatchPage
@@ -255,6 +259,11 @@ func (s *Server) executeRemoteE2EEPing(
     var remotesErr error
     gitRemotes,remotesErr=s.readRemoteGitRemotes(actionCtx)
     return remotesErr
+   case remotetransport.RemoteActionGitTrackingStart,remotetransport.RemoteActionGitTrackingNext:
+    var trackingErr error
+    gitTracking,trackingErr=s.readRemoteGitTrackingPage(actionCtx,session,
+     request.Operation==remotetransport.RemoteActionGitTrackingStart,request.RequestID)
+    return trackingErr
    case remotetransport.RemoteActionGitBranchCreate:
     var branchErr error
     gitBranchCreate,branchErr=s.executeRemoteGitBranchCreate(actionCtx,session)
@@ -439,6 +448,8 @@ func (s *Server) executeRemoteE2EEPing(
   sealed,err=remotetransport.SealRemoteGitBranchesResult(channel,request.RequestID,gitBranches)
  case remotetransport.RemoteActionGitRemotes:
   sealed,err=remotetransport.SealRemoteGitRemotesResult(channel,request.RequestID,gitRemotes)
+ case remotetransport.RemoteActionGitTrackingStart,remotetransport.RemoteActionGitTrackingNext:
+  sealed,err=remotetransport.SealRemoteGitTrackingPage(channel,request.RequestID,gitTracking)
  case remotetransport.RemoteActionGitBranchCreate:
   sealed,err=remotetransport.SealRemoteGitBranchCreateResult(channel,request.RequestID,gitBranchCreate)
  case remotetransport.RemoteActionGitDiff:

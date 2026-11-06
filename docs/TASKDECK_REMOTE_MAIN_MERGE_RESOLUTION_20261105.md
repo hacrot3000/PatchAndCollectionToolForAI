@@ -73,3 +73,22 @@ compatibility which could not compile.
 - Added focused Go E2EE/host/audit tests, a local-browser no-args/no-URL
   test and CI steps. This does not imply that other main-only remote file
   and interactive APIs are already compatible or ported.
+
+## 2026-11-06 — offline remote-tracking refs (paged)
+
+- Ported the main branch's offline remote-tracking ref/OID view into the
+  working Remote E2EE architecture with native GUI buttons for first and next
+  pages. Uses fixed `git for-each-ref refs/remotes` and no network activity,
+  client path/remote name/Git arguments or ref mutation.
+- Requires the existing `git.status` TaskDeck-local RBAC and audit,
+  authenticated E2EE possession, live grant and
+  `TASKDECK_REMOTE_GIT_TRACKING_REFS=1` (default disabled).
+- A canonical snapshot is bounded to 4 KiB and 32 sorted ASCII ref names
+  with lowercase 40/64-hex OIDs, excluding symbolic remote HEAD aliases.
+  Separate strictly typed pages fit the existing 512-byte E2EE plaintext
+  limit; the host owns the cursor and recomputes the complete snapshot on
+  every next-page action. A changed snapshot fails closed. The browser
+  renders only checked, textContent-only output.
+- No changes to session.features wire schema or agent encryption frame limits.
+  The pre-existing session quota may prevent reading all pages of an unusually
+  verbose snapshot. No client-controlled offsets or reusable bearer tokens.

@@ -150,7 +150,7 @@ const trustedGUIHTML = `<!doctype html>
     <article class="tile">
      <div class="tile-heading"><span class="dot"></span><h2>Git Status</h2></div>
      <p>Đọc trạng thái repository gốc trên máy TaskDeck. Chỉ hoạt động khi host bật riêng quyền đọc Git.</p>
-     <div class="actions"><button type="button" id="git">Đọc trạng thái Git</button><button type="button" id="git-log" disabled>Git log (3 commit)</button><button type="button" id="git-branches" disabled>Nhánh Git cục bộ</button><button type="button" id="git-remotes" disabled>Git remote (chỉ tên)</button><button type="button" id="git-branch-create" disabled>Tạo nhánh đã cấu hình trên host</button><button type="button" id="git-diff" disabled>Git diff --stat</button><button type="button" id="git-patch-start" disabled>Xem diff chi tiết</button><button type="button" id="git-patch-next" disabled>Trang diff tiếp</button><button type="button" id="git-fetch" disabled>Git fetch (upstream)</button><button type="button" id="git-pull" disabled>Git pull (fast-forward)</button><button type="button" id="git-push" disabled>Git push (không force)</button></div>
+     <div class="actions"><button type="button" id="git">Đọc trạng thái Git</button><button type="button" id="git-log" disabled>Git log (3 commit)</button><button type="button" id="git-branches" disabled>Nhánh Git cục bộ</button><button type="button" id="git-remotes" disabled>Git remote (chỉ tên)</button><button type="button" id="git-tracking-start" disabled>Tracking refs cục bộ</button><button type="button" id="git-tracking-next" disabled>Trang tracking tiếp</button><button type="button" id="git-branch-create" disabled>Tạo nhánh đã cấu hình trên host</button><button type="button" id="git-diff" disabled>Git diff --stat</button><button type="button" id="git-patch-start" disabled>Xem diff chi tiết</button><button type="button" id="git-patch-next" disabled>Trang diff tiếp</button><button type="button" id="git-fetch" disabled>Git fetch (upstream)</button><button type="button" id="git-pull" disabled>Git pull (fast-forward)</button><button type="button" id="git-push" disabled>Git push (không force)</button></div>
       <p>Diff chi tiết chỉ đọc tối đa 4 KiB thay đổi tracked, chia trang E2EE; khi thay đổi nội dung giữa các trang sẽ từ chối đọc tiếp.</p><pre id="git-patch-output" class="git-patch-output" aria-label="Git diff chi tiết" hidden></pre>
       <p>Git fetch chỉ cập nhật upstream tracking, không đổi HEAD; Git pull yêu cầu worktree sạch. Git push chỉ đẩy commit HEAD lên upstream cùng tên nhánh, không force, không đẩy tags; mọi thao tác yêu cầu quyền riêng trên host và xác nhận.</p>
       <div class="actions git-index-actions"><button type="button" id="git-stage-tracked" disabled>Stage file đã theo dõi</button><button type="button" id="git-unstage-all" disabled>Unstage toàn bộ</button></div>
@@ -285,6 +285,8 @@ const trustedGUIJavaScript = `'use strict';
   const gitLog=document.getElementById('git-log');
   const gitBranches=document.getElementById('git-branches');
   const gitRemotes=document.getElementById('git-remotes');
+  const gitTrackingStart=document.getElementById('git-tracking-start');
+  const gitTrackingNext=document.getElementById('git-tracking-next');
   const gitBranchCreate=document.getElementById('git-branch-create');
   const gitDiff=document.getElementById('git-diff');
   const gitPatchStart=document.getElementById('git-patch-start');
@@ -874,6 +876,7 @@ const trustedGUIJavaScript = `'use strict';
   let longTaskAuto=false,longTaskPollScheduled=false;
   let terminalState='closed',terminalTranscript='';
   let gitPatchText='',gitPatchPage=0,gitPatchMore=false;
+  let gitTrackingText='',gitTrackingPage=0,gitTrackingMore=false,gitTrackingLast='';
   let actionEpoch=0;
   // Only the newest initiated localhost status poll may alter the GUI.
   let sessionStatusEpoch=0;
@@ -1023,6 +1026,8 @@ const trustedGUIJavaScript = `'use strict';
     gitLog.disabled=busy||closed||!verified||budget<=0||maintenanceOnly||!featuresKnown||!available.git_log;
     gitBranches.disabled=busy||closed||!verified||budget<=0||maintenanceOnly||!featuresKnown||!available.git_branches;
     gitRemotes.disabled=busy||closed||!verified||budget<=0||maintenanceOnly||!featuresKnown||!available.git_status;
+    gitTrackingStart.disabled=busy||closed||!verified||budget<=0||maintenanceOnly||!featuresKnown||!available.git_status;
+    gitTrackingNext.disabled=busy||closed||!verified||budget<=0||maintenanceOnly||!featuresKnown||!available.git_status||!gitTrackingMore;
     gitBranchCreate.disabled=busy||closed||!verified||budget<=0||gitWorkspaceBusy||!featuresKnown||!available.git_branch_create;
     gitDiff.disabled=busy||closed||!verified||budget<=0||maintenanceOnly||!featuresKnown||!available.git_diff;
     gitPatchStart.disabled=busy||closed||!verified||budget<=0||maintenanceOnly||!featuresKnown||!available.git_patch;
@@ -1296,6 +1301,7 @@ const trustedGUIJavaScript = `'use strict';
             ' · Git log: '+(available.git_log?'Được phép (3 commit)':'Chưa bật hoặc thiếu quyền')+
             ' · Nhánh cục bộ: '+(available.git_branches?'Được phép (tối đa 4)':'Chưa bật hoặc thiếu quyền')+
              ' · Git remotes: '+(available.git_status?'Chỉ tên · cần opt-in riêng tại host':'Thiếu quyền đọc Git')+
+            ' · Tracking refs: '+(available.git_status?'Chỉ đọc · cần opt-in tại host':'Thiếu quyền đọc Git')+
             ' · Tạo nhánh host: '+(available.git_branch_create?'Được phép (từ HEAD)':'Chưa bật hoặc thiếu quyền')+
             ' · Git diff: '+(available.git_diff?'Được phép (--stat)':'Chưa bật hoặc thiếu quyền')+
             ' · Diff chi tiết: '+(available.git_patch?'Được phép (4 KiB)':'Chưa bật hoặc thiếu quyền')+
@@ -1558,6 +1564,40 @@ const trustedGUIJavaScript = `'use strict';
           gitPatchOutput.textContent='';gitPatchOutput.hidden=true;
           output.textContent='Đã tạo nhánh cục bộ '+data.branch+
             ' tại '+data.head.slice(0,12)+'. HEAD hiện tại không đổi.';
+        }
+        if(endpoint==='/api/git-tracking-start'||endpoint==='/api/git-tracking-next'){
+          const fresh=endpoint==='/api/git-tracking-start';
+          const header='GIT_TRACKING_V1\n';
+          if(data.remote_control_available!==false||
+            !Number.isInteger(data.page)||data.page!==(fresh?1:gitTrackingPage+1)||
+            data.page>32||typeof data.refs!=='string'||data.refs.length>360||
+            typeof data.more!=='boolean'||
+            (fresh?!data.refs.startsWith(header):!gitTrackingMore||data.refs.startsWith(header))||
+            !data.refs.endsWith('\n')||gitTrackingText.length+data.refs.length>4096){
+            throw new Error('Trang Git tracking không hợp lệ');
+          }
+          const body=fresh?data.refs.slice(header.length):data.refs;
+          const lines=body===''?[]:body.slice(0,-1).split('\n');
+          if((body===''&&!fresh)||(!lines.length&&data.more)){
+            throw new Error('Trang Git tracking rỗng hoặc không hoàn chỉnh');
+          }
+          let prev=fresh?'':gitTrackingLast;
+          for(const line of lines){
+            const at=line.lastIndexOf(' '),name=line.slice(0,at),oid=line.slice(at+1);
+            const parts=name.split('/');
+            if(at<=0||parts.length<2||parts.length>7||name.length>160||
+              name.endsWith('/HEAD')||!/^([0-9a-f]{40}|[0-9a-f]{64})$/.test(oid)||
+              parts.some(p=>!(/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(p))||
+                /[._-]$/.test(p)||p.includes('..')||p.endsWith('.lock'))||
+              (prev!==''&&prev>=name)){
+              throw new Error('Tên Git tracking hoặc commit OID không hợp lệ');
+            }
+            prev=name;
+          }
+          gitTrackingLast=prev;
+          gitTrackingText=fresh?data.refs:gitTrackingText+data.refs;
+          gitTrackingPage=data.page;gitTrackingMore=data.more;
+          output.textContent=gitTrackingText+(data.more?'(còn trang tiếp theo)':'');
         }
         if(endpoint==='/api/git-remotes'){
           if(data.remote_control_available!==false||!validGitRemotesReport(data.remotes)){
@@ -1882,6 +1922,10 @@ const trustedGUIJavaScript = `'use strict';
   gitLog.addEventListener('click',()=>invoke('/api/git-log'));
   gitBranches.addEventListener('click',()=>invoke('/api/git-branches'));
   gitRemotes.addEventListener('click',()=>invoke('/api/git-remotes'));
+  gitTrackingStart.addEventListener('click',()=>invoke('/api/git-tracking-start'));
+  gitTrackingNext.addEventListener('click',()=>{
+    if(gitTrackingMore&&gitTrackingPage>0)invoke('/api/git-tracking-next');
+  });
   gitBranchCreate.addEventListener('click',()=>{
     if(busy||closed||!verified||longTaskID!==0||!featuresKnown||
       !available.git_branch_create||budget<=0)return;

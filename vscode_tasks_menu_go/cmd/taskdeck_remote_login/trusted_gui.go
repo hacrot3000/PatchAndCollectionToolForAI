@@ -35,6 +35,8 @@ type trustedGUIActions interface {
  GitLog(context.Context) (string,error)
  GitBranches(context.Context) (string,error)
  GitRemotes(context.Context) (string,error)
+ GitTrackingStart(context.Context) (remotetransport.RemoteGitTrackingPage,error)
+ GitTrackingNext(context.Context) (remotetransport.RemoteGitTrackingPage,error)
  GitBranchCreate(context.Context) (remotetransport.RemoteGitBranchCreateResult,error)
  GitDiff(context.Context) (string,error)
  GitPatchStart(context.Context) (remotetransport.RemoteGitPatchPage,error)
@@ -243,7 +245,7 @@ func (ui *trustedGUI) ServeHTTP(w http.ResponseWriter,r *http.Request){
   if r.Method!=http.MethodGet{http.Error(w,"method not allowed",405);return}
   w.Header().Set("Content-Type","text/css; charset=utf-8")
   _,_=io.WriteString(w,trustedGUICSS)
- case "/api/ping","/api/features","/api/git-status","/api/git-log","/api/git-branches","/api/git-remotes","/api/git-branch-create","/api/git-diff","/api/git-patch-start","/api/git-patch-next","/api/git-pull","/api/git-commit","/api/git-push","/api/git-fetch","/api/git-stage-tracked","/api/git-unstage-all","/api/git-stage-file","/api/git-unstage-file","/api/terminal-open","/api/terminal-poll","/api/terminal-write","/api/terminal-resize","/api/terminal-close","/api/project-info","/api/tasks-preview","/api/tasks-preview-next","/api/close","/api/session":
+ case "/api/ping","/api/features","/api/git-status","/api/git-log","/api/git-branches","/api/git-remotes","/api/git-tracking-start","/api/git-tracking-next","/api/git-branch-create","/api/git-diff","/api/git-patch-start","/api/git-patch-next","/api/git-pull","/api/git-commit","/api/git-push","/api/git-fetch","/api/git-stage-tracked","/api/git-unstage-all","/api/git-stage-file","/api/git-unstage-file","/api/terminal-open","/api/terminal-poll","/api/terminal-write","/api/terminal-resize","/api/terminal-close","/api/project-info","/api/tasks-preview","/api/tasks-preview-next","/api/close","/api/session":
   ui.action(w,r)
  default:
   _,inspect:=selectedTaskFromPath(r.URL.Path)
@@ -522,6 +524,17 @@ func (ui *trustedGUI) action(w http.ResponseWriter,r *http.Request){
      "ok":true,"branch":result.Branch,"head":result.Head,
      "remote_control_available":false,"remaining":remaining,
     })
+    return
+   }
+  }
+ }else if r.URL.Path=="/api/git-tracking-start" || r.URL.Path=="/api/git-tracking-next" {
+  var page remotetransport.RemoteGitTrackingPage
+  if r.URL.Path=="/api/git-tracking-start"{page,err=ui.actions.GitTrackingStart(ctx)}else{page,err=ui.actions.GitTrackingNext(ctx)}
+  if err==nil&&ctx.Err()==nil{
+   ui.mu.Lock();stillOpen:=!ui.closed;ui.mu.Unlock()
+   if stillOpen{
+    _=json.NewEncoder(w).Encode(map[string]any{"ok":true,"page":page.Page,"refs":page.Refs,"more":page.More,
+     "remote_control_available":false,"remaining":remaining})
     return
    }
   }

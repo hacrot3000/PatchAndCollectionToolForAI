@@ -83,6 +83,14 @@ func(f *fakeGUIActions)GitLog(ctx context.Context)(string,error){
  f.gitCount.Add(1)
  return "abcd123 recent commit",nil
 }
+func(f *fakeGUIActions)GitTrackingStart(ctx context.Context)(remotetransport.RemoteGitTrackingPage,error){
+ f.gitCount.Add(1)
+ return remotetransport.RemoteGitTrackingPage{Page:1,Refs:"GIT_TRACKING_V1\norigin/main "+strings.Repeat("a",40)+"\n",More:true},nil
+}
+func(f *fakeGUIActions)GitTrackingNext(ctx context.Context)(remotetransport.RemoteGitTrackingPage,error){
+ f.gitCount.Add(1)
+ return remotetransport.RemoteGitTrackingPage{Page:2,Refs:"origin/topic "+strings.Repeat("b",40)+"\n",More:false},nil
+}
 func(f *fakeGUIActions)GitRemotes(ctx context.Context)(string,error){
  f.gitCount.Add(1)
  return "GIT_REMOTES_V1\norigin\nupstream\n",nil
@@ -1229,6 +1237,33 @@ func TestTrustedGUIPerFileSelectionExactLocalJSON(t *testing.T){
 }
 
 
+
+func TestTrustedGUIGitTrackingPagedRoutesRequireNoArguments(t *testing.T){
+ fake:=&fakeGUIActions{}
+ ui,_:=newUITest(t,fake)
+ for i,path:=range []string{"/api/git-tracking-start","/api/git-tracking-next"}{
+  rr:=httptest.NewRecorder()
+  ui.ServeHTTP(rr,localRequest("POST",path,uiTestOrigin,uiTestToken))
+  if rr.Code!=http.StatusOK||fake.gitCount.Load()!=int32(i+1)||
+   !strings.Contains(rr.Body.String(),`"remote_control_available":false`)||
+   !strings.Contains(rr.Body.String(),`"page":`+fmt.Sprint(i+1)){
+   t.Fatalf("bad tracking page response: %s %d",rr.Body.String(),rr.Code)
+  }
+ }
+ for _,path:=range []string{"/api/git-tracking-start?ref=origin/main",
+  "/api/git-tracking-next?offset=1","/api/git-tracking-next/foo"}{
+  rr:=httptest.NewRecorder()
+  ui.ServeHTTP(rr,localRequest("POST",path,uiTestOrigin,uiTestToken))
+  if rr.Code==http.StatusOK||fake.gitCount.Load()!=2{
+   t.Fatalf("caller-selected tracking cursor accepted: %s",path)
+  }
+ }
+ rr:=httptest.NewRecorder()
+ ui.ServeHTTP(rr,localRequest("POST","/api/git-tracking-start","https://portal.invalid",uiTestToken))
+ if rr.Code==http.StatusOK||fake.gitCount.Load()!=2{
+  t.Fatal("untrusted Portal invoked Git tracking read")
+ }
+}
 func TestTrustedGUIGitRemotesNamesOnlyFixedRoute(t *testing.T){
  fake:=&fakeGUIActions{}
  ui,_:=newUITest(t,fake)
