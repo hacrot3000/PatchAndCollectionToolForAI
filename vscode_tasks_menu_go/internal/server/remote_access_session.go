@@ -75,6 +75,14 @@ type remoteTaskDeckSession struct {
  gitDeleteMu sync.Mutex
  gitDeletePreviewReady bool
  gitDeletePreview remotetransport.RemoteGitBranchDeleteResult
+ // Authenticated read-only file-content paging. No path or content is
+ // saved to the Portal; only a 32-byte snapshot hash and cursor remain.
+ fileReadMu sync.Mutex
+ fileReadReady bool
+ fileReadDigest [32]byte
+ fileReadName string
+ fileReadOffset int
+ fileReadPage int
  // Root Files cursor is E2EE-session scoped, never client-chosen and
  // never persisted in the untrusted PHP Portal or Relay.
  rootFilesMu sync.Mutex
