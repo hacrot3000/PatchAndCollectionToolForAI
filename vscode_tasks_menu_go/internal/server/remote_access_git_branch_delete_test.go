@@ -83,7 +83,8 @@ func TestRemoteGitBranchDeleteRequiresPreviewAndAudit(t *testing.T){
 func TestRemoteGitBranchDeleteRefusesUnsafeStates(t *testing.T){
  for _,kind:=range []string{
   "untracked","staged","other-tip","current","linked-worktree","head-lock",
-  "reflog-symlink","target-lock","changed-host-target",
+  "reflog-symlink","ref-parent-symlink","reflog-parent-symlink",
+  "target-lock","changed-host-target",
  }{
   t.Run(kind,func(t *testing.T){
    s,session,git,current,head:=setupRemoteGitBranchDelete(t)
@@ -108,6 +109,16 @@ func TestRemoteGitBranchDeleteRefusesUnsafeStates(t *testing.T){
     leaf:=filepath.Join(gitDir,"logs","refs","heads","taskdeck","safe-target")
     _=os.Remove(leaf)
     if err:=os.Symlink(filepath.Join(t.TempDir(),"outside"),leaf);err!=nil{t.Fatal(err)}
+   case "ref-parent-symlink":
+    dir:=filepath.Join(gitDir,"refs","heads","taskdeck")
+    moved:=filepath.Join(gitDir,"refs","heads","taskdeck-original")
+    if err:=os.Rename(dir,moved);err!=nil{t.Fatal(err)}
+    if err:=os.Symlink(moved,dir);err!=nil{t.Fatal(err)}
+   case "reflog-parent-symlink":
+    dir:=filepath.Join(gitDir,"logs","refs","heads","taskdeck")
+    moved:=filepath.Join(gitDir,"logs","refs","heads","taskdeck-original")
+    if err:=os.Rename(dir,moved);err!=nil{t.Fatal(err)}
+    if err:=os.Symlink(moved,dir);err!=nil{t.Fatal(err)}
    case "target-lock":
     if err:=os.WriteFile(filepath.Join(gitDir,"refs","heads","taskdeck","safe-target.lock"),
       []byte("busy"),0600);err!=nil{t.Fatal(err)}
@@ -159,4 +170,23 @@ func TestRemoteGitBranchDeleteViewerCannotMutate(t *testing.T){
  if err==nil||len(reply)!=0{t.Fatal("viewer escalated to destructive git.write")}
  leaf:=filepath.Join(s.Workspace,".git","refs","heads","taskdeck","safe-target")
  if _,err:=os.Lstat(leaf);err!=nil{t.Fatalf("viewer removed existing reviewed ref: %v",err)}
+}
+
+func TestRemoteGitBranchDeletePinsGitWorktreeConfig(t *testing.T){
+ s,session,git,_,_:=setupRemoteGitBranchDelete(t)
+ if _,err:=s.readRemoteGitBranchDeleteReview(context.Background(),session);err!=nil{
+  t.Fatalf("valid before config change: %v",err)
+ }
+ // A malicious checked-in or externally edited repository config may
+ // redirect git's worktree even when TaskDeck root has an ordinary .git.
+ // The Agent must refuse, never operate in the redirected worktree.
+ outside:=t.TempDir()
+ git("config","core.worktree",outside)
+ if _,err:=s.executeRemoteGitBranchDelete(context.Background(),session);err==nil{
+  t.Fatal("ref deletion followed configured worktree outside workspace")
+ }
+ leaf:=filepath.Join(s.Workspace,".git","refs","heads","taskdeck","safe-target")
+ if _,err:=os.Lstat(leaf);err!=nil{
+  t.Fatalf("changed core.worktree deleted ref: %v",err)
+ }
 }
