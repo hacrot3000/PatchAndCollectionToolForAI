@@ -66,9 +66,17 @@ func TestRemoteTaskReportPrincipalIsolationAndOptIn(t *testing.T){
  if err!=nil||len(decoded.Items)!=2||decoded.Items[0].TaskID!=11{
   t.Fatalf("E2EE outcome report: %+v %v",decoded,err)
  }
- if strings.Contains(fmt.Sprintf("%+v",decoded),"99")||
-  strings.Contains(fmt.Sprintf("%+v",decoded),"SHOULD NEVER"){
-  t.Fatal("report leaked another user's run or raw audit data")
+ // Check structured task IDs rather than matching "99" in the entire
+ // formatted report: Unix timestamps legitimately contain those digits.
+ // The typed response cannot carry raw command/output fields; validate
+ // the actual decoded schema and the exact principal-owned entries.
+ for _,item:=range decoded.Items{
+  if item.TaskID!=11&&item.TaskID!=12{
+   t.Fatalf("report leaked an unexpected task ID: %+v",item)
+  }
+ }
+ if strings.Contains(fmt.Sprintf("%+v",decoded),"SHOULD NEVER"){
+  t.Fatal("report unexpectedly contained raw audit output")
  }
  audit,err:=s.Identity.ListAudit(context.Background(),identity.AuditQuery{
   ProjectID:project.ID,UserID:userID,Action:"remote.action.tasks_report",Limit:5,
