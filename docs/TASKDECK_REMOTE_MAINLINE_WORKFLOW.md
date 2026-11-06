@@ -74,3 +74,38 @@ real-host testing are considered **code complete**.
   workflow orchestration, persisted output or arbitrary report export.
   These are separate unfinished functionality and require new explicit
   E2EE contracts; do not use a generic remote audit/file API.
+
+## 2026-11-06 — Read-only dependency graph for issued Task IDs
+
+- Added the **read-only** `tasks.dependencies` E2EE action. The request
+  carries exactly one stable numeric Task.ID **already issued by the same
+  authenticated session's `tasks.preview` pages**. Client/PHP/Relay cannot
+  select a tasks.json path, workspace, command, arguments, edges or executor.
+- This check requires the existing `tasks.view` RBAC and
+  `TASKDECK_REMOTE_TASKS_PREVIEW=1`. Enable dependency graph content with
+  `TASKDECK_REMOTE_TASKS_DEPS=1` on the host; absent this opt-in the
+  authenticated response is **content-free** `available=false`, not a
+  failed login or a session-killing permission downgrade.
+- Agent reads only the canonical host workspace's
+  `.vscode/tasks.json`, verifies the task-source SHA-256 bound to the
+  session's issued preview, rejects changed source/inode, and delegates
+  graph correctness (missing dependencies, duplicate labels, cycles and
+  topological ordering) to the existing TaskDeck
+  `tasks.BuildWorkflowGraph`.
+- The response returns only a bounded topological array of Task IDs and
+  prerequisite edges (at most 8 nodes and 8 edges, inside the existing
+  **512-byte AEAD plaintext**). No labels, commands, secrets, input values,
+  workflow scripts or raw task configurations are sent to the Relay.
+  The local GUI displays known labels from the previously authenticated
+  preview using text-only rendering, otherwise displays just `Task #ID`.
+- Every action is checked again for local identity, project permission,
+  live Portal grant and E2EE; TaskDeck audits authorized reads. Graph
+  inspection **never** starts a process, never schedules dependencies and
+  does not grant `tasks.run`. The old task execution preflight still
+  rejects `dependsOn` and other unapproved workflows.
+- Tests cover malformed/duplicate/wrong-task E2EE replies, topological
+  validation, unissued ID attempts, source changes, missing/cyclic
+  dependencies, host opt-out, unchanged `tasks.run` block, and native GUI
+  logout cleanup. The next workflow milestone is a separately reviewed
+  host-owned, cancelable DAG executor with per-step rights and audit; it
+  must not reuse this preview action as an execution capability.
