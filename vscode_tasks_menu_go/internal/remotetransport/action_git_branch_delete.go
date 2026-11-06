@@ -3,10 +3,11 @@ package remotetransport
 import (
  "encoding/json"
  "regexp"
+ "strings"
 )
 
-// Two separate, argument-free E2EE actions. Only an existing TaskDeck-owned
-// loose ref at the exact, host configured name is eligible for deletion.
+// Two separate argument-free E2EE actions for exactly one host selected
+// redundant TaskDeck-owned loose ref, never arbitrary Git arguments.
 const RemoteActionGitBranchDeleteReview="git.branch_delete.review"
 const RemoteActionGitBranchDelete="git.branch_delete"
 const RemoteGitBranchDeleteProtocol="taskdeck-e2ee-git-delete-result-v1"
@@ -15,36 +16,14 @@ var remoteGitDeleteSlug=regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,39}$`)
 
 func ValidRemoteGitBranchDeleteName(value string)bool{
  const prefix="taskdeck/"
- if len(value)<=len(prefix)||value[:len(prefix)]!=prefix{return false}
+ if len(value)<=len(prefix)||!strings.HasPrefix(value,prefix){return false}
  slug:=value[len(prefix):]
  return remoteGitDeleteSlug.MatchString(slug)&&
-  slug!="HEAD"&&slug!="main"&&slug!="master"&&slug!="develop"&&
-  slug!="trunk"&&slug!="release"&&
-  slug[len(slug)-1]!='.'&&
-  !regexp.MustCompile(`\\.lockpackage remotetransport
-
-import (
- "encoding/json"
- "regexp"
-)
-
-// Two separate, argument-free E2EE actions. Only an existing TaskDeck-owned
-// loose ref at the exact, host configured name is eligible for deletion.
-const RemoteActionGitBranchDeleteReview="git.branch_delete.review"
-const RemoteActionGitBranchDelete="git.branch_delete"
-const RemoteGitBranchDeleteProtocol="taskdeck-e2ee-git-delete-result-v1"
-
-var remoteGitDeleteSlug=regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,39}$`)
-
-func ValidRemoteGitBranchDeleteName(value string)bool{
- const prefix="taskdeck/"
- if len(value)<=len(prefix)||value[:len(prefix)]!=prefix{return false}
- slug:=value[len(prefix):]
- return remoteGitDeleteSlug.MatchString(slug)&&
-  slug!="HEAD"&&slug!="main"&&slug!="master"&&slug!="develop"&&
-  slug!="trunk"&&slug!="release"&&
-).MatchString(slug)&&
-  len(slug)>0
+  slug!="HEAD"&&slug!="main"&&slug!="master"&&
+  slug!="develop"&&slug!="trunk"&&slug!="release"&&
+  !strings.HasSuffix(slug,".")&&
+  !strings.HasSuffix(slug,".lock")&&
+  !strings.Contains(slug,"..")
 }
 
 // No path, offset, expected OID, workspace, ref, shell command or force
