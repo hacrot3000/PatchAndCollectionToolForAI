@@ -12,6 +12,8 @@ const RemoteLongTaskProgressProtocol="taskdeck-e2ee-task-progress-v1"
 const MaxRemoteLongTaskOutputBytes=128
 
 const RemoteActionTasksStart="tasks.start"
+// Separately opted-in, ID-only, host-constrained linear dependency workflow.
+const RemoteActionTasksWorkflowStart="tasks.workflow.start"
 const RemoteActionTasksPoll="tasks.poll"
 const RemoteActionTasksCancel="tasks.cancel"
 const RemoteActionTasksClear="tasks.clear"

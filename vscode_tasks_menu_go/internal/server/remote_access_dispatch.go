@@ -119,6 +119,7 @@ func (s *Server) executeRemoteE2EEPing(
  if paging || request.Operation==remotetransport.RemoteActionTasksInspect ||
   request.Operation==remotetransport.RemoteActionTasksRun ||
   request.Operation==remotetransport.RemoteActionTasksStart ||
+  request.Operation==remotetransport.RemoteActionTasksWorkflowStart ||
   request.Operation==remotetransport.RemoteActionTasksPoll ||
   request.Operation==remotetransport.RemoteActionTasksCancel ||
   request.Operation==remotetransport.RemoteActionTasksClear {
@@ -204,7 +205,7 @@ func (s *Server) executeRemoteE2EEPing(
   remotetransport.RemoteActionTasksDependencies:
   permission=identity.PermissionTasksView
  case remotetransport.RemoteActionTasksRun,remotetransport.RemoteActionTasksStart,
-  remotetransport.RemoteActionTasksPoll,remotetransport.RemoteActionTasksCancel,
+  remotetransport.RemoteActionTasksWorkflowStart,remotetransport.RemoteActionTasksPoll,remotetransport.RemoteActionTasksCancel,
   remotetransport.RemoteActionTasksClear:
   permission=identity.PermissionTasksRun
  default:
@@ -409,6 +410,14 @@ func (s *Server) executeRemoteE2EEPing(
      s.readRemoteTaskPage(actionCtx,session,session.taskPageCursor,
       &session.taskPageHash,request.RequestID)
     return previewErr
+   case remotetransport.RemoteActionTasksWorkflowStart:
+    startErr:=s.startRemoteLinearWorkflow(actionCtx,session,request.TaskID)
+    if startErr!=nil{return startErr}
+    startedLongTask=true
+    longTask=remotetransport.RemoteLongTaskProgress{
+     TaskID:request.TaskID,Status:"started",ExitCode:-1,
+    }
+    return nil
    case remotetransport.RemoteActionTasksStart:
     startErr:=s.startRemoteLongTask(actionCtx,session,request.TaskID,request.Choice,request.Text)
     if startErr!=nil{return startErr}
@@ -511,6 +520,7 @@ func (s *Server) executeRemoteE2EEPing(
   request.Operation!=remotetransport.RemoteActionGitUnstageFile &&
   request.Operation!=remotetransport.RemoteActionTasksRun &&
   request.Operation!=remotetransport.RemoteActionTasksStart &&
+  request.Operation!=remotetransport.RemoteActionTasksWorkflowStart &&
   request.Operation!=remotetransport.RemoteActionTasksCancel &&
   request.Operation!=remotetransport.RemoteActionTasksPoll &&
   request.Operation!=remotetransport.RemoteActionTasksClear {
@@ -590,7 +600,8 @@ func (s *Server) executeRemoteE2EEPing(
   sealed,err=remotetransport.SealRemoteTaskDependencies(channel,request.RequestID,dependencies)
  case remotetransport.RemoteActionTasksRun:
   sealed,err=remotetransport.SealRemoteActionTaskRunResult(channel,request.RequestID,taskRun)
- case remotetransport.RemoteActionTasksStart,remotetransport.RemoteActionTasksPoll,
+ case remotetransport.RemoteActionTasksStart,remotetransport.RemoteActionTasksWorkflowStart,
+  remotetransport.RemoteActionTasksPoll,
   remotetransport.RemoteActionTasksCancel,remotetransport.RemoteActionTasksClear:
   sealed,err=remotetransport.SealRemoteLongTaskProgress(channel,request.RequestID,longTask)
  default:

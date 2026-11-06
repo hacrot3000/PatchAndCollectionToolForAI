@@ -291,6 +291,10 @@ func (p *PingClient) RunTaskChoice(ctx context.Context,taskID,choice int)(Remote
  return reply.run,err
 }
 
+func (p *PingClient) StartWorkflowTask(ctx context.Context,taskID int)(RemoteLongTaskProgress,error){
+ reply,err:=p.exchangeSelectedAction(ctx,RemoteActionTasksWorkflowStart,taskID)
+ return reply.long,err
+}
 func (p *PingClient) StartLongTask(ctx context.Context,taskID,choice int,value string)(RemoteLongTaskProgress,error){
  reply,err:=p.exchangeInputAction(ctx,RemoteActionTasksStart,taskID,choice,value)
  return reply.long,err
@@ -480,7 +484,7 @@ func (p *PingClient) exchangePayloadAction(ctx context.Context,operation string,
   result.dependencies,err=OpenRemoteTaskDependencies(channel,reply,id,taskID)
  case RemoteActionTasksRun:
   result.run,err=OpenRemoteActionTaskRunResult(channel,reply,id,taskID)
- case RemoteActionTasksStart,RemoteActionTasksPoll,RemoteActionTasksCancel,RemoteActionTasksClear:
+ case RemoteActionTasksStart,RemoteActionTasksWorkflowStart,RemoteActionTasksPoll,RemoteActionTasksCancel,RemoteActionTasksClear:
   result.long,err=OpenRemoteLongTaskProgress(channel,reply,id,taskID)
  default:
   err=ErrInvalidRemoteAction
