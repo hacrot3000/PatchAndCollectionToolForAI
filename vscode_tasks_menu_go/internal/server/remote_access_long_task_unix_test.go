@@ -5,6 +5,7 @@ package server
 import (
  "context"
  "errors"
+ "fmt"
  "os"
  "path/filepath"
  "strings"
@@ -149,6 +150,50 @@ func TestRemoteLongTaskCaptureBoundedAndUtf8Safe(t *testing.T){
  }
 }
 
+
+// Completed jobs can be polled concurrently by browser actions. Each
+// successful reply must consume a distinct output window, never replay it.
+func TestRemoteLongTaskConcurrentPollsHaveDistinctCursors(t *testing.T){
+ capture:=newRemoteLongTaskCapture()
+ var output strings.Builder
+ for i:=0;i<128;i++{
+  output.WriteString(fmt.Sprintf("%04d%s",i,strings.Repeat("x",124)))
+ }
+ raw:=[]byte(output.String())
+ if n,err:=capture.Write(raw);err!=nil||n!=len(raw){t.Fatal("capture setup failed")}
+ job:=&remoteLongTaskJob{
+  taskID:77,status:"completed",done:make(chan struct{}),
+  capture:capture,exitCode:0,
+ }
+ close(job.done)
+ session:=&remoteTaskDeckSession{longTask:job}
+ start:=make(chan struct{})
+ type pollResult struct{chunk string;err error}
+ results:=make(chan pollResult,64)
+ for i:=0;i<64;i++{
+  go func(){
+   <-start
+   got,err:=session.pollRemoteLongTask(context.Background(),77)
+   results<-pollResult{chunk:got.Output,err:err}
+  }()
+ }
+ close(start)
+ seen:=make(map[string]bool,64)
+ for i:=0;i<64;i++{
+  result:=<-results
+  if result.err!=nil||len(result.chunk)!=remoteLongTaskMaxChunkBytes{
+   t.Fatalf("concurrent poll %d returned an invalid window: %q %v",i,result.chunk,result.err)
+  }
+  if seen[result.chunk]{t.Fatalf("concurrent polls replayed the same output chunk: %q",result.chunk[:4])}
+  seen[result.chunk]=true
+ }
+ job.mu.Lock()
+ cursor:=job.outputCursor
+ job.mu.Unlock()
+ if cursor!=64*remoteLongTaskMaxChunkBytes{
+  t.Fatalf("concurrent polls lost progress: cursor=%d",cursor)
+ }
+}
 
 func TestRemoteLongTaskClearRestoresBoundedExecution(t *testing.T){
  t.Setenv("TASKDECK_REMOTE_TASKS_PREVIEW","1")

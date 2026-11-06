@@ -157,6 +157,9 @@ real-host testing are considered **code complete**.
   Tests exercise E2EE-only start, topology/bounds, source drift, opt-out,
   execution ordering, fail-fast, process cancellation, audits and UI
   confirmation and logout.
+- Long task GUI polling now consumes each bounded output window under a
+  single per-job cursor lock. Simultaneous polls cannot replay a chunk or
+  roll back a later cursor; a 64-request concurrency regression covers this.
 - Security hardening: workflow process steps now require native ELF
   (Linux) or Mach-O/universal (macOS) executable headers. A file with
   executable mode but a script shebang, an executable text wrapper, or

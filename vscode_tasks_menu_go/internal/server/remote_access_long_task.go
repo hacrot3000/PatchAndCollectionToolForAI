@@ -218,13 +218,16 @@ func (session *remoteTaskDeckSession) pollRemoteLongTask(
  deadlineCtx,cancel:=context.WithTimeout(ctx,remoteLongTaskPollWait)
  defer cancel()
  for{
+  // Serialize snapshot and cursor consumption. Two concurrent native GUI
+  // polls must not both send the same chunk or rewind an advanced cursor.
   job.mu.Lock()
   status,exit,cursor:=job.status,job.exitCode,job.outputCursor
-  job.mu.Unlock()
   chunk,next,truncated,more:=job.capture.next(cursor)
   if chunk!=""||status!="running"{
-   if ctx.Err()!=nil||session.closed.Load(){return denied,remotetransport.ErrRemoteActionDenied}
-   job.mu.Lock()
+   if ctx.Err()!=nil||session.closed.Load(){
+    job.mu.Unlock()
+    return denied,remotetransport.ErrRemoteActionDenied
+   }
    job.outputCursor=next
    job.mu.Unlock()
    return remoteLongTaskSnapshot{
@@ -232,6 +235,7 @@ func (session *remoteTaskDeckSession) pollRemoteLongTask(
     Output:chunk,Truncated:truncated,More:more,
    },nil
   }
+  job.mu.Unlock()
   select{
   case <-deadlineCtx.Done():
    if ctx.Err()!=nil||session.closed.Load(){return denied,remotetransport.ErrRemoteActionDenied}
