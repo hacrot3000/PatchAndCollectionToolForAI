@@ -696,6 +696,8 @@ function installPatchPanel(){
   let queueSummaryView='queue';
   let queueSearchQuery='';
   let activeQueuePrompt=null;
+  let activeQueuePromptSessionId='';
+  let queuePromptLoadPending=false;
   let latestResumeSnapshot=null;
   let activeResumePrompt=null;
   let resumeBusy=false;
@@ -946,7 +948,10 @@ function installPatchPanel(){
     },Math.max(0,Number(delay)||0));
   }
   function queueSessionSnapshotSettled(){
-    return !activeSessionId||lastQueueSnapshotSessionId===activeSessionId;
+    // A snapshot can arrive before Python has emitted its actionable prompt.
+    // Do not stop/restart that session while it is still preparing the prompt.
+    return !queuePromptLoadPending&&!queueSilentRefreshPending
+      &&(!activeSessionId||lastQueueSnapshotSessionId===activeSessionId);
   }
   // The refresh starts a new Python queue session; do not terminate the
   // prompt while the pointer is on an actionable item or just pressed it.
@@ -2410,11 +2415,19 @@ function installPatchPanel(){
     return new Set(Array.isArray(activeQueuePrompt?.queue_actions)?activeQueuePrompt.queue_actions.map(String):[]).has(action);
   }
 
+  function queuePromptSessionReady(sessionId=activeSessionId,prompt=activeQueuePrompt){
+    return Boolean(sessionId&&sessionId===activeSessionId
+      &&activeQueuePromptSessionId===sessionId
+      &&prompt&&prompt===activeQueuePrompt
+      &&!queuePromptLoadPending&&!queueSilentRefreshPending);
+  }
+
   function refreshActionDisabledState(){
     const busy=actionBusy||queueMutationBusy||parallelCollectBusy;
     // Background polling must not disable a button under the pointer.
-    const promptActionBusy=busy;
-    summaryRefresh.disabled=promptActionBusy;
+    const promptActionBusy=busy||queuePromptLoadPending||queueSilentRefreshPending
+      ||Boolean(activeQueuePrompt&&activeQueuePromptSessionId!==activeSessionId);
+    summaryRefresh.disabled=busy||queuePromptLoadPending;
     for(const button of summaryList.querySelectorAll('.task-patch-item-action,.task-patch-queue-delete'))button.disabled=promptActionBusy;
     for(const button of promptItems.querySelectorAll('.task-patch-prompt-delete'))button.disabled=promptActionBusy||button.dataset.patchLocked==='1';
     for(const button of promptButtons.querySelectorAll('button'))button.disabled=promptActionBusy;
@@ -2468,7 +2481,7 @@ function installPatchPanel(){
   }
 
   async function submitQueueDelete(item,promptItem){
-    if(actionBusy||queueMutationBusy||!activeSessionId||!activeQueuePrompt)return null;
+    if(!queuePromptSessionReady()||actionBusy||queueMutationBusy)return null;
     if(!queueActionAllowed('delete'))throw new Error('Queue delete is not advertised by the active Python prompt');
     const index=Number(promptItem?.index);
     if(!Number.isInteger(index)||index<1)throw new Error('Patch Queue delete index is unavailable');
@@ -2508,7 +2521,7 @@ function installPatchPanel(){
   }
 
   async function submitItemAction(item,promptItem,action){
-    if(actionBusy||queueMutationBusy||!activeSessionId||!activeQueuePrompt)return null;
+    if(!queuePromptSessionReady()||actionBusy||queueMutationBusy)return null;
     if(!actionAllowed(action))throw new Error(`Patch action ${action} is not advertised by the active Python prompt`);
     const index=Number(promptItem?.index);
     if(!Number.isInteger(index)||index<1)throw new Error('Patch item action index is unavailable');
@@ -3423,6 +3436,7 @@ function installPatchPanel(){
 
   function clearPrompt(){
     activeQueuePrompt=null;
+    activeQueuePromptSessionId='';
     summary.classList.remove('prompt-active');
     promptBox.hidden=true;
     promptTitle.textContent='';
@@ -3430,6 +3444,8 @@ function installPatchPanel(){
     promptTools.replaceChildren();
     promptItems.replaceChildren();
     promptButtons.replaceChildren();
+    delete promptTools.dataset.patchToolsSignature;
+    delete promptButtons.dataset.patchButtonsSignature;
     renderQueueRows();
   }
 
@@ -3729,6 +3745,8 @@ function installPatchPanel(){
       if(parallelCollectRuns.size)void pollParallelCollectRuns();
     }catch(error){
       queueSilentRefreshPending=false;
+      queuePromptLoadPending=false;
+      if(activeQueuePromptSessionId!==activeSessionId)clearPrompt();
       refreshActionDisabledState();
       throw error;
     }
@@ -3902,6 +3920,7 @@ function installPatchPanel(){
   }
 
   async function submitPromptResponse(sessionId,prompt,action){
+    if(!queuePromptSessionReady(sessionId,prompt))return null;
     const payload={prompt_id:String(prompt?.prompt_id||''),action};
     let selectedDescriptor=null;
     if(action==='select'){
@@ -3933,6 +3952,40 @@ function installPatchPanel(){
     }
   }
 
+
+  // Rebind even when the DOM buttons are intentionally reused across refreshes.
+  // Their old closures must never submit against a stopped Python session.
+  function bindQueuePromptButtonHandlers(sessionId){
+    const select=promptButtons.querySelector('[data-patch-prompt-action="select"]');
+    if(select)select.onclick=()=>{
+      if(!queuePromptSessionReady(sessionId,activeQueuePrompt)){
+        promptNote.textContent='Queue is refreshing. Please retry when the actions are available.';
+        return;
+      }
+      const indexes=selectedPromptIndexes();
+      if(!indexes.length){
+        promptNote.textContent='Select at least one item, or Cancel.';
+        return;
+      }
+      const kinds=selectedPromptKinds();
+      if(new Set(kinds).size!==1||kinds.some(kind=>queueKindBlocked(kind))){
+        promptNote.textContent='PATCH and COLLECT cannot run at the same time. Select only the active work type.';
+        return;
+      }
+      const parallel=parallelCollectCapability(activeQueuePrompt);
+      if(parallel&&kinds.every(kind=>kind==='COLLECT')&&(indexes.length>1||activeRunningRunCount()>0)){
+        launchParallelCollect(sessionId,activeQueuePrompt,indexes).catch(app.showError);
+        return;
+      }
+      submitPromptResponse(sessionId,activeQueuePrompt,'select').catch(app.showError);
+    };
+    const cancel=promptButtons.querySelector('[data-patch-prompt-action="cancel"]');
+    if(cancel)cancel.onclick=()=>{
+      if(!queuePromptSessionReady(sessionId,activeQueuePrompt))return;
+      submitPromptResponse(sessionId,activeQueuePrompt,'cancel').catch(app.showError);
+    };
+  }
+
   function renderQueuePrompt(sessionId,prompt){
     if(prompt?.type!=='prompt'||prompt?.prompt_kind!=='queue_selection'||!prompt?.prompt_id)return false;
     const incremental=queueSilentRefreshPending&&activeQueuePrompt&&activeSessionId===sessionId;
@@ -3943,11 +3996,19 @@ function installPatchPanel(){
     const actionsAllowed=new Set(Array.isArray(prompt.actions)?prompt.actions.map(String):[]);
     if(!incremental)clearPrompt();
     activeQueuePrompt=prompt;
+    activeQueuePromptSessionId=sessionId;
+    queuePromptLoadPending=false;
 
     // SKIPPED entries stay inside the Python-owned prompt only as hidden
     // mutation identities for safe Delete. They are rendered once in the
     // Queue warning list, never duplicated in the runnable work selector.
     if(!runnableItems.length){
+      // A prior prompt may have buttons with a matching capabilities signature.
+      // Empty queues must invalidate them so the next nonempty queue creates actions.
+      promptTools.replaceChildren();
+      promptButtons.replaceChildren();
+      delete promptTools.dataset.patchToolsSignature;
+      delete promptButtons.dataset.patchButtonsSignature;
       summary.classList.remove('prompt-active');
       promptBox.hidden=true;
       if(latestQueueSnapshot)renderQueueSnapshot(latestQueueSnapshot);else renderQueueRows();
@@ -4051,36 +4112,26 @@ function installPatchPanel(){
     }
     const buttonsSignature=patchRowStable([Array.from(actionsAllowed).sort(),
       Boolean(parallelCollect),[...activeKinds].sort()]);
-    const keepButtons=incremental&&promptButtons.dataset.patchButtonsSignature===buttonsSignature;
-    if(!keepButtons)promptButtons.replaceChildren();
+    const expectedButtons=Number(actionsAllowed.has('select'))+Number(actionsAllowed.has('cancel'));
+    const keepButtons=incremental&&promptButtons.dataset.patchButtonsSignature===buttonsSignature
+      &&promptButtons.children.length===expectedButtons
+      &&(!actionsAllowed.has('select')||Boolean(promptButtons.querySelector('[data-patch-prompt-action="select"]')))
+      &&(!actionsAllowed.has('cancel')||Boolean(promptButtons.querySelector('[data-patch-prompt-action="cancel"]')));
+    if(!keepButtons){
+      promptButtons.replaceChildren();
+      if(actionsAllowed.has('select')){
+        const select=document.createElement('button');select.type='button';select.textContent='Run selected';
+        select.dataset.patchPromptAction='select';
+        promptButtons.append(select);
+      }
+      if(actionsAllowed.has('cancel')){
+        const cancel=document.createElement('button');cancel.type='button';cancel.textContent='Cancel';
+        cancel.dataset.patchPromptAction='cancel';
+        promptButtons.append(cancel);
+      }
+    }
     promptButtons.dataset.patchButtonsSignature=buttonsSignature;
-    if(!keepButtons&&actionsAllowed.has('select')){
-      const select=document.createElement('button');select.type='button';select.textContent='Run selected';
-      select.onclick=()=>{
-        const indexes=selectedPromptIndexes();
-        if(!indexes.length){
-          promptNote.textContent='Select at least one item, or Cancel.';
-          return;
-        }
-        const kinds=selectedPromptKinds();
-        if(new Set(kinds).size!==1||kinds.some(kind=>queueKindBlocked(kind))){
-          promptNote.textContent='PATCH and COLLECT cannot run at the same time. Select only the active work type.';
-          return;
-        }
-        const parallel=parallelCollectCapability(activeQueuePrompt);
-        if(parallel&&kinds.every(kind=>kind==='COLLECT')&&(indexes.length>1||activeRunningRunCount()>0)){
-          launchParallelCollect(sessionId,activeQueuePrompt,indexes).catch(app.showError);
-          return;
-        }
-        submitPromptResponse(sessionId,activeQueuePrompt,'select').catch(app.showError);
-      };
-      promptButtons.append(select);
-    }
-    if(!keepButtons&&actionsAllowed.has('cancel')){
-      const cancel=document.createElement('button');cancel.type='button';cancel.textContent='Cancel';
-      cancel.onclick=()=>submitPromptResponse(sessionId,activeQueuePrompt,'cancel').catch(app.showError);
-      promptButtons.append(cancel);
-    }
+    bindQueuePromptButtonHandlers(sessionId);
     if(latestQueueSnapshot)renderQueueSnapshot(latestQueueSnapshot);else renderQueueRows();
     if(preservedInteraction)restoreQueueInteractionState(preservedInteraction,prompt);
     queueSilentRefreshPending=false;
@@ -4090,6 +4141,7 @@ function installPatchPanel(){
 
   async function pollProtocol(sessionId,expectPrompt=false,followLifecycle=false){
     const generation=++protocolPollGeneration;
+    try{
     const preserveQueueUI=queueSilentRefreshPending&&activePatchMode==='queue';
     if(!preserveQueueUI){
       resetSummary('Loading…');
@@ -4113,6 +4165,8 @@ function installPatchPanel(){
         summaryWarnings.textContent='Patch protocol state unavailable. Open terminal evidence/fallback if needed.';
         return;
       }
+      // A superseded refresh cannot repaint controls using its old prompt.
+      if(generation!==protocolPollGeneration||lifecycleSuspended||sessionId!==activeSessionId)return;
       if(state?.available===false){
         if(healthMode){
           healthStatus.textContent='PTY fallback';
@@ -4222,6 +4276,19 @@ function installPatchPanel(){
     if(sessionId===activeSessionId&&!runningMode&&!historyMode){
       summaryWarnings.textContent='Native state timed out. Open terminal evidence/fallback if needed.';
     }
+    }finally{
+      if(generation===protocolPollGeneration&&sessionId===activeSessionId
+          &&activePatchMode==='queue'&&queuePromptLoadPending){
+        queuePromptLoadPending=false;
+        if(queueSilentRefreshPending){
+          queueSilentRefreshPending=false;
+          if(activeQueuePromptSessionId!==sessionId)clearPrompt();
+          summaryStatus.textContent='Queue actions unavailable · retrying refresh';
+        }
+        refreshActionDisabledState();
+        scheduleQueueAutoRefresh(queueAutoRefreshRetryMS);
+      }
+    }
   }
 
   async function assertHeadlessNativeSession(meta){
@@ -4256,6 +4323,7 @@ function installPatchPanel(){
       activePatchMode=mode;
       if(mode!=='queue')cancelQueueAutoRefreshTimer();
       activeSessionId=meta.id;
+      queuePromptLoadPending=mode==='queue';
       actionPollGeneration+=1;
       queueMutationPollGeneration+=1;
       queueMutationBusy=false;
