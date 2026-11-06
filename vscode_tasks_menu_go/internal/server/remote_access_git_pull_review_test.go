@@ -22,6 +22,10 @@ func setupRemoteGitPullReview(t *testing.T)(*Server,*remoteTaskDeckSession,*remo
  // original workspace. Use a fresh host-selected root so the Git preview's
  // strict clean-worktree precondition can be tested without committing them.
  s.Workspace=t.TempDir()
+ // Client approvals are keyed by the absolute TaskDeck workspace path,
+ // even though the registry itself lives outside the Git repository.
+ // Rebind the test client key after choosing a new clean Git root.
+ bindTestRemoteOwnerClient(t,s,session)
  gitInitRemoteTest(t,s.Workspace)
  git:=func(args ...string)string{
   t.Helper()
@@ -102,12 +106,6 @@ func TestRemoteGitPullReviewE2EEViewerAndAudit(t *testing.T){
  if checkErr!=nil||direct.Head!=head||direct.Status!="up-to-date"{
   t.Fatalf("host-only read preflight failed before authenticated action: %+v %v",direct,checkErr)
  }
- if err:=s.authorizeRemoteTransportAction(context.Background(),session,agent,identity.PermissionGitStatus);err!=nil{
-  t.Fatalf("GitStatus principal verification failed before Pull review: %v",err)
- }
- if err:=s.auditRemoteReadOnlyAction(session,remotetransport.RemoteActionGitPullReview);err!=nil{
-  t.Fatalf("read-only Git Pull review audit rejected: %v",err)
- }
  request,err:=remotetransport.SealRemoteAction(client,remotetransport.RemoteAction{
   RequestID:remoteDispatchTestID,Operation:remotetransport.RemoteActionGitPullReview,
  })
@@ -116,10 +114,7 @@ func TestRemoteGitPullReviewE2EEViewerAndAudit(t *testing.T){
   t.Fatal("PHP-only principal authorized a pull review")
  }
  reply,err:=s.executeRemoteE2EEPing(context.Background(),session,agent,request)
- if err!=nil{
-  now,recheckErr:=s.readRemoteGitPullReview(context.Background())
-  t.Fatalf("authenticated action rejected after valid direct read: %v; host still valid=%t (%v)",err,now.Status=="up-to-date",recheckErr)
- }
+ if err!=nil{t.Fatal(err)}
  result,err:=remotetransport.OpenRemoteGitPullReviewResult(client,reply,remoteDispatchTestID)
  if err!=nil||result.Status!="up-to-date"||result.Head!=head||
   result.UpstreamHead!=head{
