@@ -90,6 +90,15 @@ const trustedGUIHTML = `<!doctype html>
       <button type="button" id="files-root-next" disabled>Trang tiếp</button>
      </div>
      <pre class="git-patch-output" id="files-root-output" hidden aria-label="Danh sách Files chỉ đọc"></pre>
+     <div class="tile-heading"><span class="dot"></span><h2>Duyệt thư mục con · chỉ đọc</h2></div>
+     <p>Chọn thư mục xuất hiện trong danh sách gốc đã xác thực. Agent chỉ liệt kê mục con trực tiếp của thư mục được host cho phép.</p>
+     <label for="files-dir-select">Thư mục gốc đã nhận qua E2EE</label>
+     <select id="files-dir-select" disabled><option value="">Chọn thư mục</option></select>
+     <div class="actions">
+      <button type="button" id="files-dir-open" disabled>Xem thư mục</button>
+      <button type="button" id="files-dir-next" disabled>Trang thư mục tiếp</button>
+     </div>
+     <pre class="git-patch-output" id="files-dir-output" hidden aria-label="Mục con một cấp"></pre>
      <label for="files-select">Chọn file đã được liệt kê</label>
      <select id="files-select" disabled aria-label="File văn bản gốc">
       <option value="">Chọn file từ danh sách đã nhận</option>
@@ -719,6 +728,10 @@ const trustedGUIJavaScript = `'use strict';
   const filesRootNext=document.getElementById('files-root-next');
   const filesRootOutput=document.getElementById('files-root-output');
   const filesSelect=document.getElementById('files-select');
+  const filesDirSelect=document.getElementById('files-dir-select');
+  const filesDirOpen=document.getElementById('files-dir-open');
+  const filesDirNext=document.getElementById('files-dir-next');
+  const filesDirOutput=document.getElementById('files-dir-output');
   const filesReadSelected=document.getElementById('files-read-selected');
   const filesReadStart=document.getElementById('files-read-start');
   const filesReadNext=document.getElementById('files-read-next');
@@ -926,6 +939,7 @@ const trustedGUIJavaScript = `'use strict';
   let gitSwitchPreview=null,gitSwitchPending=null;
   let gitDeletePreview=null,gitDeletePending=null;
   let filesRootNames=[],filesRootMore=false;
+  let filesDirNames=[],filesDirMore=false,filesDirChosen='';
   let filesReadName='',filesReadText='',filesReadPage=0,filesReadMore=false;
   let filesPendingSelectedName='';
   let gitTrackingText='',gitTrackingPage=0,gitTrackingMore=false,gitTrackingLast='';
@@ -1022,6 +1036,9 @@ const trustedGUIJavaScript = `'use strict';
     filesPendingSelectedName='';
     filesSelect.replaceChildren();
     filesSelect.value='';
+    filesDirNames=[];filesDirMore=false;filesDirChosen='';
+    filesDirSelect.replaceChildren();filesDirSelect.value='';
+    filesDirOutput.textContent='';filesDirOutput.hidden=true;
     filesReadOutput.textContent='';filesReadOutput.hidden=true;
     projectName.textContent='';
     workspaceName.textContent='';
@@ -1131,6 +1148,12 @@ const trustedGUIJavaScript = `'use strict';
     filesRootButton.disabled=busy||closed||!verified||budget<=0||maintenanceOnly||!featuresKnown||!available.files_root;
     filesRootNext.disabled=filesRootButton.disabled||!filesRootMore;
     filesSelect.disabled=filesRootButton.disabled||filesRootNames.every(x=>!x.startsWith('F:'));
+    filesDirSelect.disabled=filesRootButton.disabled||filesRootNames.every(x=>!x.startsWith('D:'));
+    const dirIndex=Number(filesDirSelect.value);
+    filesDirOpen.disabled=filesDirSelect.disabled||
+      !Number.isInteger(dirIndex)||dirIndex<1||
+      dirIndex>filesRootNames.length||!filesRootNames[dirIndex-1].startsWith('D:');
+    filesDirNext.disabled=filesRootButton.disabled||!filesDirMore;
     const selectedIndex=Number(filesSelect.value);
     filesReadSelected.disabled=filesSelect.disabled||
       !Number.isInteger(selectedIndex)||selectedIndex<1||
@@ -1264,7 +1287,7 @@ const trustedGUIJavaScript = `'use strict';
       endpoint.startsWith('/api/tasks-clear/');
     const isCommit=endpoint==='/api/git-commit';
     const isGitFile=endpoint==='/api/git-stage-file'||endpoint==='/api/git-unstage-file';
-    const isFilesSelect=endpoint==='/api/files-read-select';
+    const isFilesSelect=endpoint==='/api/files-read-select'||endpoint==='/api/files-dir-select';
     const isTerminalWrite=endpoint==='/api/terminal-write';
     const isTerminalResize=endpoint==='/api/terminal-resize';
     if(payload!==undefined){
@@ -1278,7 +1301,9 @@ const trustedGUIJavaScript = `'use strict';
         if(Object.keys(payload).length!==1||!Number.isInteger(payload.index)||
           payload.index<1||payload.index>128||
           payload.index>filesRootNames.length||
-          !filesRootNames[payload.index-1].startsWith('F:'))return;
+          !(endpoint==='/api/files-dir-select'?
+            filesRootNames[payload.index-1].startsWith('D:'):
+            filesRootNames[payload.index-1].startsWith('F:')))return;
       }else if(isGitFile){
         if(Object.keys(payload).length!==2||!Number.isInteger(payload.index)||
           payload.index<1||payload.index>12||typeof payload.snapshot!=='string'||
@@ -1448,6 +1473,28 @@ const trustedGUIJavaScript = `'use strict';
             filesReadText+(filesReadMore?'\n[Còn nội dung chưa nhận]':'');
           filesReadOutput.hidden=false;
          }
+         if(endpoint==='/api/files-dir-select'||endpoint==='/api/files-dir-next'){
+          const first=endpoint==='/api/files-dir-select';
+          if(data.remote_control_available!==false||!Array.isArray(data.items)||
+            data.items.length>8||typeof data.more!=='boolean'||
+            (data.more&&data.items.length===0)||
+            (!first&&!filesDirMore)||
+            (!first&&filesDirNames.length+data.items.length>128)||
+            (first&&!filesDirChosen)||
+            data.items.some((v,i)=>typeof v!=='string'||
+              !/^[FD]:[A-Za-z0-9][A-Za-z0-9_.-]{0,31}$/.test(v)||
+              (i>0&&data.items[i-1].slice(2)>=v.slice(2)))||
+            (!first&&data.items.length>0&&filesDirNames.length>0&&
+              filesDirNames[filesDirNames.length-1].slice(2)>=data.items[0].slice(2))){
+            throw new Error('Trang thư mục con E2EE không hợp lệ');
+          }
+          filesDirNames=first?data.items.slice():filesDirNames.concat(data.items);
+          filesDirMore=data.more;
+          filesDirOutput.textContent='Thư mục: '+filesDirChosen+' (chỉ liệt kê tên)\n'+
+            filesDirNames.map(x=>(x.startsWith('D:')?'[DIR] ':'[FILE] ')+x.slice(2)).join('\n')+
+            (filesDirMore?'\n[Còn mục tiếp]':'');
+          filesDirOutput.hidden=false;
+         }
          if(endpoint==='/api/files-root'||endpoint==='/api/files-root-next'){
           const first=endpoint==='/api/files-root';
           if(data.remote_control_available!==false||!Array.isArray(data.items)||data.items.length>8||
@@ -1463,6 +1510,25 @@ const trustedGUIJavaScript = `'use strict';
           }
           filesRootNames=first?data.items.slice():filesRootNames.concat(data.items);
           filesRootMore=data.more;
+          const previousDirChoice=first?'':filesDirSelect.value;
+          filesDirSelect.replaceChildren();
+          const firstDir=document.createElement('option');
+          firstDir.value='';firstDir.textContent='Chọn thư mục đã nhận qua E2EE';
+          filesDirSelect.append(firstDir);
+          filesRootNames.forEach((v,i)=>{
+            if(!v.startsWith('D:'))return;
+            const option=document.createElement('option');
+            option.value=String(i+1);
+            option.textContent=v.slice(2);
+            filesDirSelect.append(option);
+          });
+          filesDirSelect.value=(previousDirChoice&&
+            filesRootNames[Number(previousDirChoice)-1]?.startsWith('D:'))?
+            previousDirChoice:'';
+          if(first){
+            filesDirNames=[];filesDirMore=false;filesDirChosen='';
+            filesDirOutput.textContent='';filesDirOutput.hidden=true;
+          }
           const previousChoice=first?'':filesSelect.value;
           filesSelect.replaceChildren();
           const initial=document.createElement('option');
@@ -2376,6 +2442,19 @@ const trustedGUIJavaScript = `'use strict';
     invoke('/api/terminal-close');
   });
   project.addEventListener('click',()=>invoke('/api/project-info'));
+  filesDirSelect.addEventListener('change',()=>{if(!closed)render();});
+  filesDirOpen.addEventListener('click',()=>{
+    const index=Number(filesDirSelect.value);
+    if(busy||closed||!verified||!Number.isInteger(index)||index<1||
+      index>filesRootNames.length||!filesRootNames[index-1].startsWith('D:'))return;
+    filesDirNames=[];filesDirMore=false;
+    filesDirChosen=filesRootNames[index-1].slice(2);
+    filesDirOutput.textContent='';filesDirOutput.hidden=true;
+    invoke('/api/files-dir-select',{index});
+  });
+  filesDirNext.addEventListener('click',()=>{
+    if(filesDirMore)invoke('/api/files-dir-next');
+  });
   filesSelect.addEventListener('change',()=>{if(!closed)render();});
   filesReadSelected.addEventListener('click',()=>{
     const index=Number(filesSelect.value);
