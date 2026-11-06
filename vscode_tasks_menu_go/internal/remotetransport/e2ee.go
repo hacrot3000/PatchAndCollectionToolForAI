@@ -342,16 +342,8 @@ func (ch *Channel) Close() {
 // Seal sends a bounded, strictly ordered AEAD record; the Relay cannot read,
 // modify, reorder or replay the payload without authentication failure.
 func (ch *Channel) Seal(clear []byte) ([]byte,error) {
- return ch.sealBounded(clear,MaxPlaintext)
-}
-// Large plaintext is admitted ONLY by a strictly typed file.block codec.
-// Generic login/commands and 4KiB chunk remain on MaxPlaintext.
-func (ch *Channel) sealFileBlock(clear []byte)([]byte,error){
- return ch.sealBounded(clear,RemoteBlockMaxPlaintext)
-}
-func (ch *Channel) sealBounded(clear []byte,maxBytes int)([]byte,error){
 	if ch==nil {return nil,errors.New("no secure channel")}
-	if maxBytes>RemoteBlockMaxPlaintext||len(clear)>maxBytes {return nil,errors.New("plaintext frame too large")}
+	if len(clear)>MaxPlaintext {return nil,errors.New("plaintext frame too large")}
 	ch.mu.Lock()
 	defer ch.mu.Unlock()
 	if ch.poisoned || ch.send==nil {return nil,errors.New("encrypted channel closed")}
@@ -367,12 +359,6 @@ func (ch *Channel) sealBounded(clear []byte,maxBytes int)([]byte,error){
 }
 
 func (ch *Channel) Open(frame []byte) ([]byte,error) {
- return ch.openBounded(frame,MaxPlaintext)
-}
-func (ch *Channel) openFileBlock(frame []byte)([]byte,error){
- return ch.openBounded(frame,RemoteBlockMaxPlaintext)
-}
-func (ch *Channel) openBounded(frame []byte,maxBytes int)([]byte,error){
 	if ch==nil {return nil,errors.New("no secure channel")}
 	ch.mu.Lock()
 	defer ch.mu.Unlock()
@@ -382,7 +368,7 @@ func (ch *Channel) openBounded(frame []byte,maxBytes int)([]byte,error){
 	// Any malformed, tampered, replayed or reordered inbound record
 	// permanently invalidates the connection. A later legitimate record
 	// cannot revive a session after an authentication failure.
-	if maxBytes>RemoteBlockMaxPlaintext||len(frame)<frameHeader+16 || len(frame)>frameHeader+maxBytes+16 {
+	if len(frame)<frameHeader+16 || len(frame)>frameHeader+MaxPlaintext+16 {
 		ch.poisonLocked()
 		return nil,errors.New("invalid encrypted frame length")
 	}

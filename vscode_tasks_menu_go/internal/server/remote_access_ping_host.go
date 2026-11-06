@@ -9,7 +9,8 @@ import (
 
 // Host-only adapter. No TaskDeck principal, password or session token crosses
 // the Relay: a successful login returns only encrypted Boolean data while the
-// process retains an in-memory authority and checks RBAC for EVERY ping.
+// process retains an in-memory authority and checks RBAC for EVERY action.
+ // The only actions currently accepted are session.ping and git.status.
 type encryptedRemotePingHost struct {
  server *Server
  session *remoteTaskDeckSession
@@ -21,18 +22,12 @@ func (h *encryptedRemotePingHost) ExecutePing(ctx context.Context,encrypted []by
  }
  return h.server.executeRemoteE2EEPing(ctx,h.session,h.channel,encrypted)
 }
-// Optional host-only evidence for a signed Agent->Relay quota upgrade.
-// The host sets this only after the FilesRead chunk is authorized and
-// irrevocably scopes the TaskDeck principal to the same file.
-func (h *encryptedRemotePingHost) ScopedFileTransferActive()bool {
- return h!=nil&&h.session!=nil&&h.session.fileTransferActive()
-}
 func (h *encryptedRemotePingHost) Close(){
  if h!=nil&&h.session!=nil{h.session.Close()}
 }
 
 // StartEncryptedRemotePingHost is a private-functionality gateway, not
-// generic proxy/terminal access. Admission is exactly the already-reviewed
+// generic proxy/terminal/write-Git access. Admission is exactly the already-reviewed
 // StartEncryptedRemoteSession (local TaskDeck password, host-approved client
 // Ed25519 proof, immutable user ID, live Portal grant, TaskDeck permission).
 func (s *Server) StartEncryptedRemotePingHost(ctx context.Context,

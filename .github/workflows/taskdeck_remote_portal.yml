@@ -53,6 +53,10 @@ on:
       - 'tests/test_remote_client_provenance.sh'
       - '.github/workflows/taskdeck_remote_agent.yml'
       - '.github/workflows/taskdeck_remote_portal.yml'
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   php-validation:
     runs-on: ubuntu-latest

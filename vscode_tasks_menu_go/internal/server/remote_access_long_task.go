@@ -1,0 +1,269 @@
+package server
+
+import (
+ "context"
+ "errors"
+ "os"
+ "os/exec"
+ "path/filepath"
+ "runtime"
+ "strings"
+ "sync"
+ "time"
+ "unicode"
+ "unicode/utf8"
+
+ "bletonfc/vscode_tasks_menu/internal/remotetransport"
+)
+
+const remoteLongTaskMaxDuration=90*time.Second
+const remoteLongTaskMaxCaptureBytes=16*1024
+const remoteLongTaskMaxChunkBytes=128
+const remoteLongTaskPollWait=7*time.Second
+
+// One job per authenticated TaskDeck E2EE session. No background work is
+// transferred to PHP/Relay; all execution state, output and cancellation
+// remain on the Agent. Start/poll/cancel are staged host primitives until
+// individually permission-gated E2EE actions and native GUI land.
+type remoteLongTaskJob struct {
+ taskID int
+ started time.Time
+ cancel context.CancelFunc
+ done chan struct{}
+ capture *remoteLongTaskCapture
+ mu sync.Mutex
+ status string
+ exitCode int
+ outputCursor int
+}
+
+type remoteLongTaskCapture struct {
+ mu sync.Mutex
+ data []byte
+ truncated bool
+ notify chan struct{}
+}
+func newRemoteLongTaskCapture()*remoteLongTaskCapture{
+ return &remoteLongTaskCapture{data:make([]byte,0,512),notify:make(chan struct{},1)}
+}
+func (c *remoteLongTaskCapture)Write(p []byte)(int,error){
+ n:=len(p)
+ c.mu.Lock()
+ space:=remoteLongTaskMaxCaptureBytes-len(c.data)
+ if space>0{
+  if space>len(p){space=len(p)}
+  c.data=append(c.data,p[:space]...)
+ }
+ if space<n{c.truncated=true}
+ c.mu.Unlock()
+ select{case c.notify<-struct{}{}:default:}
+ return n,nil // always drain the command's stdout/stderr
+}
+
+func sanitizeLongTaskOutput(raw []byte)string{
+ clear:=strings.ToValidUTF8(string(raw),"")
+ return strings.Map(func(r rune)rune{
+  if r=='\n'||r=='\t'{return r}
+  if unicode.IsControl(r)||unicode.In(r,unicode.Cf,unicode.Zl,unicode.Zp){return -1}
+  return r
+ },clear)
+}
+func validLongTaskStatus(status string)bool{
+ return status=="running"||status=="completed"||status=="failed"||
+  status=="cancelled"||status=="timed_out"
+}
+
+// Output chunks are each bounded, text-only, and start at a Unicode
+// boundary. Each poll consumes the next chunk; a full capture drops new
+// bytes rather than allocating unbounded memory. Nothing is logged in DB.
+func (c *remoteLongTaskCapture)next(cursor int)(string,int,bool,bool){
+ c.mu.Lock()
+ defer c.mu.Unlock()
+ clean:=sanitizeLongTaskOutput(c.data)
+ if cursor<0||cursor>len(clean){cursor=len(clean)}
+ end:=cursor
+ for index,r:=range clean[cursor:]{
+  width:=utf8.RuneLen(r)
+  if width<1||index+width>remoteLongTaskMaxChunkBytes{break}
+  end=cursor+index+width
+ }
+ return clean[cursor:end],end,c.truncated,end<len(clean)
+}
+
+type remoteLongTaskSnapshot struct {
+ TaskID int
+ Status string
+ ExitCode int
+ Output string
+ Truncated bool
+ More bool // Captured output still unread in the host-owned cursor.
+}
+
+// Must be entered only from TaskDeck's verified tasks.run role, live
+// uncached Portal authorization, approved native key and E2EE dispatcher.
+// It is not a generic HTTP command runner. Even then, the host re-verifies
+// the previously published Task.ID and exact .vscode/tasks.json bytes.
+func (s *Server) startRemoteLongTask(
+ ctx context.Context,session *remoteTaskDeckSession,
+ taskID,choice int,textInput string,
+)error{
+ denied:=remotetransport.ErrRemoteActionDenied
+ if s==nil||ctx==nil||ctx.Err()!=nil||session==nil||
+  runtime.GOOS=="windows"||
+  os.Getenv("TASKDECK_REMOTE_TASKS_PREVIEW")!="1"||
+  os.Getenv("TASKDECK_REMOTE_TASKS_RUN")!="1"||
+  os.Getenv("TASKDECK_REMOTE_TASKS_LONG")!="1"||
+  session.closed.Load()||session.channel==nil||!session.channel.Established()||
+  !session.taskPageReady||!session.taskIssuedIDs[taskID]{
+  return denied
+ }
+ // Match the PTY lock order (terminalMu -> longTaskMu). A terminal
+ // opened in this authenticated session must exclude task execution in
+ // both directions, including a concurrent terminal-open request.
+ session.terminalMu.Lock()
+ defer session.terminalMu.Unlock()
+ if session.terminal!=nil{return denied}
+ session.longTaskMu.Lock()
+ defer session.longTaskMu.Unlock()
+ if session.longTask!=nil{return denied} // one job, never auto-overwrite
+ spec,_,err:=prepareRemoteTaskExecutionInput(
+  ctx,s.Workspace,session.taskPageHash,taskID,choice,false,textInput)
+ if err!=nil||spec.TaskID!=taskID{return denied}
+ root,err:=filepath.EvalSymlinks(s.Workspace)
+ if err!=nil{return denied}
+ root,err=filepath.Abs(root)
+ if err!=nil{return denied}
+ cwd,err:=filepath.EvalSymlinks(spec.Cwd)
+ if err!=nil{return denied}
+ rel,err:=filepath.Rel(root,cwd)
+ if err!=nil||filepath.IsAbs(rel)||rel==".."||
+  strings.HasPrefix(rel,".."+string(filepath.Separator)){return denied}
+ if ctx.Err()!=nil||session.closed.Load(){return denied}
+ // The irreversible attempted audit is always BEFORE cmd.Start.
+ if err:=s.auditRemoteTaskRunAttempt(ctx,session,taskID);err!=nil{return denied}
+ jobCtx,cancel:=context.WithTimeout(context.Background(),remoteLongTaskMaxDuration)
+ capture:=newRemoteLongTaskCapture()
+ command:=exec.CommandContext(jobCtx,spec.Command,spec.Args...)
+ command.Dir=cwd
+ command.Env=spec.Env
+ command.Stdout=capture
+ command.Stderr=capture
+ prepareGitJobProcess(command)
+ command.Cancel=func()error{killGitJobProcess(command);return nil}
+ command.WaitDelay=time.Second
+ if ctx.Err()!=nil||session.closed.Load()||session.portalGrant==nil||
+  !session.portalGrant.ActiveForSession(session.channel){
+  cancel();return denied
+ }
+ if err:=command.Start();err!=nil{
+  cancel()
+  s.auditRemoteTaskRunFinish(session,taskID,"failed",-1,0)
+  return denied
+ }
+ job:=&remoteLongTaskJob{
+  taskID:taskID,started:time.Now(),cancel:cancel,
+  done:make(chan struct{}),capture:capture,status:"running",exitCode:-1,
+ }
+ session.longTask=job
+ go func(){
+  select{
+  case <-session.lifetimeDone:cancel()
+  case <-session.portalGrant.Done():cancel()
+  case <-session.channel.Done():cancel()
+  case <-job.done:
+  }
+ }()
+ go func(){
+  processErr:=command.Wait()
+  killGitJobProcess(command)
+  exitCode:=0
+  if processErr!=nil {
+   var exit *exec.ExitError
+   if errors.As(processErr,&exit)&&exit.ExitCode()>=0&&exit.ExitCode()<=255{
+    exitCode=exit.ExitCode()
+   }else{exitCode=-1}
+  }
+  status:="completed"
+  if errors.Is(jobCtx.Err(),context.DeadlineExceeded){
+   status="timed_out"
+  }else if jobCtx.Err()!=nil||session.closed.Load(){status="cancelled"
+  }else if processErr!=nil{status="failed"}
+  // A revocation cannot prevent a host-local final audit attempt.
+  s.auditRemoteTaskRunFinish(session,taskID,status,exitCode,time.Since(job.started))
+  job.mu.Lock()
+  job.status=status
+  job.exitCode=exitCode
+  job.mu.Unlock()
+  close(job.done)
+  select{case capture.notify<-struct{}{}:default:}
+  cancel()
+ }()
+ return nil
+}
+
+// Polling never starts a process or accepts an offset/filename from client.
+// One bounded output chunk is delivered per read, and a subsequent poll may
+// retrieve the next. A done job remains available until explicit cleanup.
+func (session *remoteTaskDeckSession) pollRemoteLongTask(
+ ctx context.Context,taskID int,
+)(remoteLongTaskSnapshot,error){
+ denied:=remoteLongTaskSnapshot{}
+ if session==nil||ctx==nil||ctx.Err()!=nil||session.closed.Load(){
+  return denied,remotetransport.ErrRemoteActionDenied
+ }
+ session.longTaskMu.Lock()
+ job:=session.longTask
+ session.longTaskMu.Unlock()
+ if job==nil||job.taskID!=taskID{return denied,remotetransport.ErrRemoteActionDenied}
+ deadlineCtx,cancel:=context.WithTimeout(ctx,remoteLongTaskPollWait)
+ defer cancel()
+ for{
+  job.mu.Lock()
+  status,exit,cursor:=job.status,job.exitCode,job.outputCursor
+  job.mu.Unlock()
+  chunk,next,truncated,more:=job.capture.next(cursor)
+  if chunk!=""||status!="running"{
+   if ctx.Err()!=nil||session.closed.Load(){return denied,remotetransport.ErrRemoteActionDenied}
+   job.mu.Lock()
+   job.outputCursor=next
+   job.mu.Unlock()
+   return remoteLongTaskSnapshot{
+    TaskID:taskID,Status:status,ExitCode:exit,
+    Output:chunk,Truncated:truncated,More:more,
+   },nil
+  }
+  select{
+  case <-deadlineCtx.Done():
+   if ctx.Err()!=nil||session.closed.Load(){return denied,remotetransport.ErrRemoteActionDenied}
+   return remoteLongTaskSnapshot{TaskID:taskID,Status:"running",ExitCode:-1},nil
+  case <-job.capture.notify:
+  case <-job.done:
+  }
+ }
+}
+
+func (session *remoteTaskDeckSession) cancelRemoteLongTask(taskID int)error{
+ if session==nil||session.closed.Load(){return remotetransport.ErrRemoteActionDenied}
+ session.longTaskMu.Lock()
+ defer session.longTaskMu.Unlock()
+ job:=session.longTask
+ if job==nil||job.taskID!=taskID{return remotetransport.ErrRemoteActionDenied}
+ job.cancel()
+ return nil
+}
+
+func (session *remoteTaskDeckSession) clearRemoteLongTask(taskID int)error{
+ if session==nil||session.closed.Load(){return remotetransport.ErrRemoteActionDenied}
+ session.longTaskMu.Lock()
+ defer session.longTaskMu.Unlock()
+ job:=session.longTask
+ if job==nil||job.taskID!=taskID{return remotetransport.ErrRemoteActionDenied}
+ select{
+ case <-job.done:
+  job.cancel()
+  session.longTask=nil
+  return nil
+ default:
+  return remotetransport.ErrRemoteActionDenied
+ }
+}

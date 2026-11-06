@@ -95,7 +95,7 @@ func decodeAgentRelayFrame(raw []byte) (agentRelayFrame, error) {
     var f agentRelayFrame
     allowed := []string{"type", "probe_id", "client_nonce", "public_key",
         "signature", "crypto", "ciphertext", "device_lease", "relay_id"}
-    values, err := relayExactObject(raw, 65536, allowed...)
+    values, err := relayExactObject(raw, 4096, allowed...)
     if err != nil { return f, errAgentFrame }
     f.Type, err = relayString(values["type"], 40)
     if err != nil { return agentRelayFrame{}, errAgentFrame }
@@ -110,7 +110,7 @@ func decodeAgentRelayFrame(raw []byte) (agentRelayFrame, error) {
             "client_nonce", "public_key", "signature", "crypto"}
     case "login_ack", "echo_ack":
         required = []string{"type", "device_lease", "probe_id", "ciphertext"}
-    case "app_ready", "app_transfer_ready":
+    case "app_ready":
         // The signed Agent may only open a bounded opaque ping mailbox;
         // the Relay itself can never assert a TaskDeck login or RBAC role.
         required = []string{"type", "device_lease", "probe_id", "public_key", "signature"}
@@ -128,7 +128,7 @@ func decodeAgentRelayFrame(raw []byte) (agentRelayFrame, error) {
         {"client_nonce", 32, &f.ClientNonce},
         {"public_key", 64, &f.PublicKey},
         {"signature", 128, &f.Signature},
-        {"ciphertext", MaxEncodedAppCiphertext, &f.Ciphertext},
+        {"ciphertext", 2048, &f.Ciphertext},
         {"relay_id", 32, &f.RelayID},
     }
     for _, field := range targets {
@@ -136,11 +136,6 @@ func decodeAgentRelayFrame(raw []byte) (agentRelayFrame, error) {
             *field.target, err = relayString(value, field.max)
             if err != nil { return agentRelayFrame{}, errAgentFrame }
         }
-    }
-    // Only a previously authorized app_ping_ack may use the large envelope.
-    // Never silently expand encrypted login or key-check frame limits.
-    if f.Type!="app_ping_ack" && len(f.Ciphertext)>2048 {
-        return agentRelayFrame{},errAgentFrame
     }
     if f.Type == "probe_ack" {
         fields := []string{"identity", "ephemeral", "signature", "encrypted_ready"}

@@ -42,30 +42,81 @@ type remoteTaskDeckSession struct {
 	localUserUpdatedAt time.Time
 	createdAt time.Time
 	expiresAt time.Time
- // File-read-only mode is a one-way capability REDUCTION once the first
- // FilesRead E2EE chunk succeeds. A PHP/Relay-controlled quota cannot grant
- // any additional local TaskDeck operation or change file identity.
- transferMu sync.Mutex
- transferActive bool
- transferPath string
- transferOperation string
- transferNext int64
- transferSize int64
- transferSHA string
- transferRounds int
 	closed atomic.Bool
 	// Lock protects admission of one bounded action against concurrent Close.
 	// activeActionCancel is NEVER a serializable bearer/Portal credential.
 	executionMu sync.Mutex
 	activeActionCancel context.CancelFunc
- // Only one host-owned managed short task per exact E2EE login. This is
- // never serialized to PHP/Relay or used as a transferable TaskDeck handle.
- managedMu sync.Mutex
- managedTask *remoteManagedTask
 	// Local-only lifetime cancellation signal. No cookie/token is issued.
 	lifetimeDone chan struct{}
 	portalGrant *remoteportal.AgentGrant
 	portalCheckMu sync.RWMutex
+ // Task pagination is purely in-memory, scoped to this authenticated E2EE
+ // session. No client/PHP-selected offset, project ID, filename or command.
+ // Lock excludes competing page operations; Close never waits on it.
+ taskPageMu sync.Mutex
+ taskPageReady bool
+ taskPageCursor int
+ taskPageHash [32]byte
+ // Authenticated, host-owned Git patch cursor: no PHP-controlled offset,
+ // bearer continuation token, file path, or diff bytes are persisted.
+ gitPatchMu sync.Mutex
+ gitPatchReady bool
+ gitPatchCursor int
+ gitPatchPage int
+ gitPatchDigest [32]byte
+ // One authenticated read-only switch preview at a time. This never
+ // travels through PHP/Relay; no bearer preview token is issued.
+ gitSwitchMu sync.Mutex
+ gitSwitchPreviewReady bool
+ gitSwitchPreview remotetransport.RemoteGitSwitchResult
+ // One locally owned delete preview. It cannot be supplied by PHP or
+ // transferred to a different authenticated E2EE session.
+ gitDeleteMu sync.Mutex
+ gitDeletePreviewReady bool
+ gitDeletePreview remotetransport.RemoteGitBranchDeleteResult
+ // Authenticated read-only file-content paging. No path or content is
+ // saved to the Portal; only a 32-byte snapshot hash and cursor remain.
+ fileReadMu sync.Mutex
+ fileReadReady bool
+ fileReadDigest [32]byte
+ fileReadName string
+ fileReadSelected bool
+ fileReadSelectedIndex int
+ fileReadRootDigest [32]byte
+ fileReadOffset int
+ fileReadPage int
+ // Selected one-level directory cursor, bound to the issued root listing
+ // and its name allowlist. Never serialized or passed to PHP/Relay.
+ dirFilesMu sync.Mutex
+ dirFilesReady bool
+ dirFilesIndex int
+ dirFilesName string
+ dirFilesCursor int
+ dirFilesDigest [32]byte
+ dirFilesRootDigest [32]byte
+ // Root Files cursor is E2EE-session scoped, never client-chosen and
+ // never persisted in the untrusted PHP Portal or Relay.
+ rootFilesMu sync.Mutex
+ rootFilesReady bool
+ rootFilesCursor int
+ rootFilesDigest [32]byte
+ // Local host-owned tracking-ref cursor, never a transferable token.
+ gitTrackingMu sync.Mutex
+ gitTrackingReady bool
+ gitTrackingCursor int
+ gitTrackingPage int
+ gitTrackingDigest [32]byte
+ // Only these stable IDs were actually published by E2EE task preview.
+ // A guessed ID from PHP/Relay cannot be inspected or used as authority.
+ taskIssuedIDs map[int]bool
+ // One bounded in-memory long task, never a transferable Portal job ID.
+ // Protected independently of executionMu so logout remains nonblocking.
+ longTaskMu sync.Mutex
+ longTask *remoteLongTaskJob
+ // One host PTY, bound to this exact authenticated session; never a token.
+ terminalMu sync.Mutex
+ terminal *remoteTerminalJob
 	// No live Portal authorizer means NO TaskDeck application permission.
 	// Never substitute a cached Portal role or the original signed ticket.
 	livePortalCheck func(context.Context,*remoteportal.AgentGrant) error

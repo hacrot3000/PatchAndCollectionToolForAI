@@ -12,6 +12,10 @@ style.textContent=`
 .remote-workspace-files{overflow:auto;border-right:1px solid #303843}.remote-workspace-side{overflow:auto;padding:9px}
 .remote-workspace-table{width:100%;border-collapse:collapse;font-size:11px}.remote-workspace-table th,.remote-workspace-table td{padding:6px 8px;border-bottom:1px solid #252c35;text-align:left}.remote-workspace-table tr:hover{background:#28313e}.remote-workspace-table td:first-child{cursor:pointer}.remote-workspace-kind{font-size:9px;opacity:.65;text-transform:uppercase}
 .remote-workspace-section{border:1px solid #303843;border-radius:7px;padding:8px;margin-bottom:8px}.remote-workspace-section strong{display:block;margin-bottom:6px}.remote-workspace-actions{display:flex;gap:5px;flex-wrap:wrap}.remote-workspace-output{white-space:pre-wrap;overflow:auto;max-height:190px;font:10px/1.4 ui-monospace,monospace;background:#0b0f14;border:1px solid #303843;border-radius:5px;padding:7px;margin-top:6px}.remote-workspace-meta{font-size:10px;opacity:.68;overflow-wrap:anywhere}.remote-workspace-empty{padding:26px;text-align:center;opacity:.6}
+.remote-workspace-git-inputs{display:grid;grid-template-columns:minmax(0,1fr);gap:6px;margin:8px 0}
+.remote-workspace-git-inputs input{width:100%;box-sizing:border-box;min-width:0}
+.remote-workspace-git-inputs label{font-size:10px;opacity:.8}
+.remote-workspace-git-note{font-size:10px;opacity:.67;margin:5px 0}
 .remote-workspace-form{display:grid;grid-template-columns:150px minmax(220px,1fr);gap:7px 9px;padding:10px}.remote-workspace-form input,.remote-workspace-form select{min-width:0}.remote-workspace-form .wide{grid-column:1/-1}.remote-workspace-form-actions{display:flex;justify-content:flex-end;gap:6px;padding:8px 10px;border-top:1px solid #303843}
 html[data-taskmenu-theme="light"] .remote-workspace-dialog{background:#fff;border-color:#b9c0c8}html[data-taskmenu-theme="light"] .remote-workspace-table th,html[data-taskmenu-theme="light"] .remote-workspace-table td{border-color:#d0d7de}html[data-taskmenu-theme="light"] .remote-workspace-output{background:#f6f8fa;border-color:#d0d7de}
 `;
@@ -69,6 +73,10 @@ function syncPermissionControls(){
   upButton.disabled=busy||!selectedWorkspace()||!remoteCanRead();
   pathInput.disabled=busy||!selectedWorkspace()||!remoteCanRead();
   goButton.disabled=busy||!selectedWorkspace()||!remoteCanRead();
+  for(const button of side.querySelectorAll('[data-remote-git-action]')){
+    button.disabled=busy||!selectedWorkspace()||!gitAllowed(button.dataset.remoteGitAction);
+  }
+  for(const input of side.querySelectorAll('[data-remote-git-input]'))input.disabled=busy;
 }
 function selectedWorkspace(){return workspaces.find(item=>String(item.id)===String(workspaceSelect.value))||null;}
 function basename(value){const parts=String(value||'').split('/');return parts[parts.length-1]||value;}
@@ -134,7 +142,7 @@ function renderFiles(){
   if(!selectedWorkspace()){const empty=document.createElement('div');empty.className='remote-workspace-empty';empty.textContent='Create or select a Remote Workspace';files.append(empty);return;}
   const table=document.createElement('table');table.className='remote-workspace-table';
   const thead=document.createElement('thead');const hr=document.createElement('tr');
-  for(const name of ['Name','Type','Size','Modified']){const th=document.createElement('th');th.textContent=name;hr.append(th);}thead.append(hr);table.append(thead);
+  for(const name of ['Name','Type','Size','Modified','Git']){const th=document.createElement('th');th.textContent=name;hr.append(th);}thead.append(hr);table.append(thead);
   const tbody=document.createElement('tbody');
   const sorted=[...currentEntries].sort((a,b)=>Number(entryIsDir(b))-Number(entryIsDir(a))||String(a.name||'').localeCompare(String(b.name||'')));
   for(const entry of sorted){
@@ -143,7 +151,20 @@ function renderFiles(){
     const type=document.createElement('td');type.className='remote-workspace-kind';type.textContent=String(entry.type||'file');
     const size=document.createElement('td');size.textContent=entryIsDir(entry)?'—':formatBytes(entry.size);
     const modified=document.createElement('td');modified.textContent=entryModified(entry)||'—';
-    tr.append(name,type,size,modified);
+    const gitFile=document.createElement('td');
+    if(!entryIsDir(entry)&&gitAllowed('stage')){
+      const useButton=document.createElement('button');useButton.type='button';
+      useButton.textContent='Select';useButton.title='Use this relative file path for Git staging';
+      useButton.disabled=busy;
+      useButton.onclick=event=>{
+        event.stopPropagation();
+        const input=side.querySelector('[data-remote-git-input="path"]');
+        if(input){input.value=joinRelative(currentPath,String(entry.name||''));input.focus();}
+      };
+      useButton.ondblclick=event=>event.stopPropagation();
+      gitFile.append(useButton);
+    }
+    tr.append(name,type,size,modified,gitFile);
     tr.ondblclick=()=>openEntry(entry).catch(app.showError);
     name.onclick=()=>openEntry(entry).catch(app.showError);
     tbody.append(tr);
@@ -187,14 +208,43 @@ async function openTerminalHere(){
 }
 async function runGit(action){
   const workspace=selectedWorkspace();if(!workspace)throw new Error('Choose a Remote Workspace');
+  if(!gitAllowed(action))throw new Error('Git permission is required');
   const output=side.querySelector('.remote-workspace-output');
+  const payload={workspace_id:workspace.id,action};
+  if(action==='stage'||action==='unstage'){
+    payload.path=String(side.querySelector('[data-remote-git-input="path"]')?.value||'').trim();
+    if(!payload.path)throw new Error('Enter a repository-relative file path to stage or unstage');
+  }
+  if(action==='commit'){
+    payload.message=String(side.querySelector('[data-remote-git-input="message"]')?.value||'').trim();
+    if(!payload.message)throw new Error('Enter a commit message');
+  }
+  if(['commit','push','pull'].includes(action)){
+    const description=action==='commit'?'Commit staged changes with message: '+payload.message:action.toUpperCase()+' on '+workspace.name;
+    if(!window.confirm(description+'?'))return;
+  }
   setBusy(true,'Git '+action+'…');
   try{
     const data=await app.jsonFetch('/api/remote-workspace-git',{
       method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({workspace_id:workspace.id,action})
+      body:JSON.stringify(payload)
     });
-    if(output)output.textContent=String(data?.output||'(no output)');
+    if(output)output.textContent='['+action+']\n'+String(data?.output||'(completed without output)');
+    if(['stage','unstage','commit'].includes(action)&&gitAllowed('status')){
+      try{
+        const updated=await app.jsonFetch('/api/remote-workspace-git',{
+          method:'POST',headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({workspace_id:workspace.id,action:'status'})
+        });
+        if(output)output.textContent+='\n\n[Git status]\n'+String(updated?.output||'(clean)');
+      }catch(error){
+        if(output)output.textContent+='\n\n[Git status unavailable; mutation was completed]';
+      }
+    }
+    if(action==='commit'){
+      const messageInput=side.querySelector('[data-remote-git-input="message"]');
+      if(messageInput)messageInput.value='';
+    }
   }finally{setBusy(false,'');}
 }
 function renderSide(){
@@ -208,12 +258,31 @@ function renderSide(){
 
   const git=document.createElement('div');git.className='remote-workspace-section';
   const gitTitle=document.createElement('strong');gitTitle.textContent='Git on remote host';
+  const gitNote=document.createElement('div');gitNote.className='remote-workspace-git-note';
+  gitNote.textContent='SSH/SFTP Remote Workspace · local TaskDeck permissions apply (not the PHP Relay).';
+  const gitInputs=document.createElement('div');gitInputs.className='remote-workspace-git-inputs';
+  const fileLabel=document.createElement('label');fileLabel.textContent='File path relative to repository root';
+  const gitPath=document.createElement('input');gitPath.type='text';gitPath.placeholder='e.g. src/main.go';
+  gitPath.dataset.remoteGitInput='path';gitPath.maxLength=2048;gitPath.autocomplete='off';
+  const commitLabel=document.createElement('label');commitLabel.textContent='Commit message (staged files only)';
+  const commitMessage=document.createElement('input');commitMessage.type='text';commitMessage.placeholder='Describe the change';
+  commitMessage.dataset.remoteGitInput='message';commitMessage.maxLength=2000;commitMessage.autocomplete='off';
+  gitInputs.append(fileLabel,gitPath,commitLabel,commitMessage);
   const gitActions=document.createElement('div');gitActions.className='remote-workspace-actions';
-  for(const [action,label] of [['status','Status'],['branches','Branches'],['log','Log'],['diff','Diff'],['fetch','Fetch'],['pull','Pull'],['push','Push']]){
-    const button=document.createElement('button');button.type='button';button.textContent=label;button.disabled=!gitAllowed(action);button.onclick=()=>runGit(action).catch(app.showError);gitActions.append(button);
+  for(const [action,label] of [
+    ['status','Status'],['branches','Branches'],['log','Log'],
+    ['diff','Diff'],['diff_staged','Staged diff'],
+    ['stage','Stage file'],['unstage','Unstage file'],['commit','Commit'],
+    ['fetch','Fetch'],['pull','Pull'],['push','Push']
+  ]){
+    const button=document.createElement('button');button.type='button';button.textContent=label;
+    button.dataset.remoteGitAction=action;button.disabled=busy||!gitAllowed(action);
+    button.onclick=()=>runGit(action).catch(app.showError);gitActions.append(button);
   }
-  const output=document.createElement('pre');output.className='remote-workspace-output';output.textContent='Run a Git action to see output.';
-  git.append(gitTitle,gitActions,output);side.append(git);
+  const output=document.createElement('pre');output.className='remote-workspace-output';
+  output.setAttribute('role','status');output.setAttribute('aria-live','polite');
+  output.textContent='Run a Git action to see output.';
+  git.append(gitTitle,gitNote,gitInputs,gitActions,output);side.append(git);
 
   const db=document.createElement('div');db.className='remote-workspace-section';
   const dbTitle=document.createElement('strong');dbTitle.textContent='Linked databases';

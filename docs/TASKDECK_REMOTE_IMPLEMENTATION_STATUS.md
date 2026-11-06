@@ -1364,1687 +1364,1122 @@ No change to `main`, no deployed live control and `remote_control_available=fals
 
 **Production Remote Control release remains NO-GO.** A working general TaskDeck Remote UI/API/Terminal/Files/Git/Patch transport is still NOT implemented, tested or deployed. Successful diagnostics cannot prove security of data and actions that do not yet traverse the network. Physical Firefox/macOS/Linux/NAT deployment, client provenance and live compromised-PHP rehearsal remain outstanding. `remote_control_available=false`, command/file transport disabled, no `main` merge, no release tag and no live deployment. Scope remains the THREE user security conditions; no unrelated features should be added.
 
-## Main re-audit 2026-10-30 — chỉ 3 bất biến bảo mật
-
-Đã tra soát lại HEAD `70a06b246eb87ba3b70994832a013bba9a9672f9` sau merge PR #15: Go Agent/Relay và PHP Portal CI đều PASS (runs 41044342534 / 41044342522). Kết quả phân tích, đường E2EE, tests và các giới hạn loại trừ được ghi tại [TASKDECK_REMOTE_MAIN_SECURITY_REAUDIT_20261030.md](TASKDECK_REMOTE_MAIN_SECURITY_REAUDIT_20261030.md). Bảo mật login/`session.ping` đã kiểm thử **không** được quảng bá thành remote Terminal/Files/Git/Patch an toàn: production command dispatcher chưa được triển khai. **REMOTE CONTROL LIVE = NO-GO**, vẫn `remote_control_available=false`. Không đổi logic hoặc triển khai tính năng ngoài ba yêu cầu.
-
-    
-## 2026-10-30 — first real protected workspace read, still NO-GO for live
-
-On `main`, introduced a narrow E2EE operation `project.file.read` in
-`internal/remotetransport/action.go`, using the existing host-only authenticated
-application session, server-side `PermissionFilesRead` and the pinned workspace
-file opener. Only at most 192 bytes of valid UTF-8 from a workspace-relative
-regular file may be returned, under AEAD with an exact request ID and SHA-256.
-The native independent client offers `-read-file=path/to/text.txt` in the
-explicit `-allow-app-ping` / `TASKDECK_REMOTE_APP_PING=1` test mode.
-
-The regression suite now covers a true TLS/WSS client→Relay→Agent→TaskDeck
-file read while PHP is fully attacker-controlled, plus forged shell operations,
-path traversal, duplicate action fields, replay, oversized files and missing
-host-approved client-key possession. Results are never sent as PHP plaintext
-or relayed TaskDeck HTTP sessions.
-
-**Audited code SHA:** `ed538359510f7bdf991308b93a39166cd35e7288`.
-**Go Agent/Relay CI:** [#41047511747](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/41047511747) **SUCCESS**.
-
-**PRODUCTION REMOTE CONTROL remains NO-GO:** no authenticated streaming, terminal,
-file write/editor, Git/Patch/Collection control, deployable end-user browser UI
-or staged hostile-PHP deployment test is implemented. Never interpret a
-bounded 192-byte authenticated file preview as full TaskDeck remote service.
-`remote_control_available=false`; no live release/tag/deployment.
-
-## Remote read-only integration verification — 2026-10-30
-
-**Exact tested source:** [`2b747a93c9b53988a0bb51c2e62bfad9538a8463`](https://github.com/hacrot3000/PatchAndCollectionToolForAI/commit/2b747a93c9b53988a0bb51c2e62bfad9538a8463).
-- [Go Agent/Relay CI #41048405356](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/41048405356): **COMPLETED / SUCCESS**, including real WSS/TLS encrypted workspace text read, compromised-PHP signed-ticket scenario, TaskDeck `FilesRead` authorization, local owner-approved client proof, duplicate/forged action JSON, replay rejection, symlink escape and wrong-response/capability-forgery denial, Go race/security tests and builds.
-- [PHP Portal CI #41048405613](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/41048405613): **COMPLETED / SUCCESS**, same code SHA.
-
-**Function now demonstrably implemented:** opt-in native trusted client `-read-file=workspace-relative/path.txt` using signed Agent + AEAD, host's in-process TaskDeck principal, local `FilesRead` and audit, <=192 bytes UTF-8, no PHP plaintext. This is **not** a generic TaskDeck HTTP proxy, file browser, write/editor, shell or long-lived terminal.
-
-**Three-invariant conclusion:** PHP/Relay cannot, by merely controlling PHP signing/account/grants or forged socket messages, obtain this file's content or execute a command in the covered integration tests. The additional read path is bounded, host RBAC-checked and encrypted. **This narrow PASS is NOT proof for the missing production command and data flows.**
-
-**LIVE NO-GO:** Terminal/session control, file transfer/edit/write, Git/Patch/Collection, browser Remote UI/stream multiplexing, release-binary provenance validation and actual external deployment/penetration tests remain absent. No production Remote Control release/tag/server deployment has been performed. `remote_control_available=false`; opt-in dev flags default OFF. Do not claim completion merely from a green CI on a preview operation.
-
-
-## 30/10/2026 — Git status + narrow optimistic file replacement on main
-
-Reviewed additional typed, authenticated AEAD operations:
-`git.status` (read-only; max 192-byte response, local `PermissionGitStatus`,
-fixed `git` arguments, bounded subprocess, TaskDeck audit) and
-`project.file.replace` (max 96-byte UTF-8 text, existing regular file
-inside workspace, client-supplied original SHA-256 optimistic compare,
-local `PermissionFilesWrite`, pinned file commit, live Portal/grant recheck,
-TaskDeck audit and shared editor workspace mutation lock).
-No Portal/Relay PHP service handles TaskDeck plaintext.
-No remote shell, HTTP session proxy, arbitrary Git/terminal/Patch operation
-or externally supplied command string is accepted.
-
-**Host-only capability gate:** `TASKDECK_REMOTE_FILE_REPLACE=1` must
-be enabled explicitly in the TaskDeck daemon. Default OFF even when
-`TASKDECK_REMOTE_APP_PING=1` and Portal issues admin tickets.
-Native independent CLI has `-git-status` / `-replace-file`.
-
-**Status:** additional tests include PHP fully compromised, wrong/stale
-SHA, symlink/parent escape, missing client private-key proof, output caps,
-replayed AEAD action, conflicting native editor lock, signed Agent identity.
-**Not a production Remote Control launch.** Terminal, streaming, full
-Files/Git/Patch/Collection, signed verified client distribution and
-independent live deployment acceptance remain unresolved.
-Retain `remote_control_available=false`; LIVE NO-GO.
-**Source under test:** `f126cc2c93824e817d46977e15c0c0e2b5800a9b`, CI pending when note authored.
-
-
-## 2026-10-30 — opt-in host-allowlisted task.run (not production Remote)
-
-Source progress on `main`: implemented a new, strictly typed AEAD
-`task.run` that accepts ONLY a stable integer TaskDeck task ID, **not**
-client-supplied shell code/arguments/env. The TaskDeck host must independently
-set `TASKDECK_REMOTE_TASK_RUN=1` and mark the exact task with
-`taskdeckRemoteAllowed:true` in its local `tasks.json`. Sensitive tasks
-(requiring deploy approval, inputs, secretEnv, custom environment, shell
-override, dependencies or cwd outside this workspace) are denied. Only the
-local password-authenticated, client-private-key-verified, portal-grant
-checked TaskDeck `TasksRun` principal can start the task. The host audits
-before process launch; runtime capped at ~7 seconds, process stopped on
-session cancellation/close, output at most 192 UTF-8 bytes encrypted with
-AES-GCM. Current Relay WSS app quota remains bounded to 6 operations.
-
-Host and real WSS compromised-PHP negative tests verify the TaskDeck
-principal, host allowlist, default-off task gate, denial of deploy approval,
-command injection/replay, and lack of direct PHP command authority.
-**CI is pending for latest code SHA `b961213b11f9baaceec3e88a09de26fd090e8908` at the time of this note.**
-
-This provides a narrow usable task action, **NOT** the required production
-Remote Control: interactive Terminal/PTY and streams, full file transfer/
-editor, Git/Patch/Collection, trusted end-user Remote UI, independently
-verified signed client distribution, actual PHP shared host + external Relay
-deployment and physical E2E compromised-PHP test remain open.
-Keep `remote_control_available=false`, do not tag/deploy live.
-
-
-## 2026-10-30 — independent host task allowlist (security hardening)
-
-A workspace `.vscode/tasks.json` can be edited by an account with FilesWrite; therefore its `taskdeckRemoteAllowed:true` flag is **NOT** an independently controlled owner authorization. The host TaskDeck process now additionally requires `TASKDECK_REMOTE_APPROVED_TASK_IDS` listing the exact approved numeric TaskDeck task IDs (comma-separated). The existing `TASKDECK_REMOTE_TASK_RUN=1` and `taskdeckRemoteAllowed:true` checks also remain mandatory; **all three** must agree before execution. Empty/malformed operator allowlists fail closed. PHP controls none of these daemon env values, so a hacked Portal cannot approve a new task by editing Portal grants; a file-editing client cannot approve a task merely by changing workspace JSON.
-
-Go and PHP CI on this change must PASS on the same source SHA before release decisions. This is protection for the existing experimental task-run path, **NOT production Remote Control**: full interactive Terminal, file transfer/streaming, Git/Patch/Collection and verified Internet deployment are still unresolved. Do not flip `remote_control_available`, create a production tag or deploy based only on this gate.
-
-## 2026-10-31 — remote task definition integrity and daemon secret isolation
-
-The earlier remote task allowlist used only TaskDeck's **31-bit menu ID**, a
-truncated SHA-256 selector designed for UI stability, not as a cryptographic
-authorization boundary. An adversary able to edit tasks.json could search for
-a colliding ID and attempt to reuse a previously approved command.
-
-The experimental `task.run` route now **fails closed** unless the locally
-configured daemon variable `TASKDECK_REMOTE_APPROVED_TASKS` contains the
-exact `ID@64-lowercase-hex-SHA256` token for the current canonical JSON task
-definition. Old `TASKDECK_REMOTE_APPROVED_TASK_IDS` values are intentionally
-ignored (breaking change for the default-OFF experimental task operation).
-The new offline-only host CLI `taskdeck remote-task --workspace PATH list`
-prints candidate tokens; it never changes approvals or contacts PHP/Relay.
-Every edit to the task definition invalidates the pinned token.
-
-Remote execution additionally requires exactly `type:"process"`, refuses
-`${env:...}` interpolation in commands/arguments, and runs with an explicit
-minimal `PATH/HOME/LANG/TERM` environment rather than inheriting daemon
-secrets. Existing host-only opt-in, signed Agent/E2EE, approved client private
-key, TaskDeck password, per-operation RBAC, audit, Portal recheck, task
-timeout and cancellation remain mandatory.
-
-Go regression tests cover full-token parsing/downgrade, changed task
-definition, forbidden shell/ambient interpolation, child environment
-isolation and an actual WSS host-approved task action. CI remains to be
-verified against the exact commit before considering merge. This is
-security hardening of a narrow experimental operation, **NOT proof of
-production Remote Control**. Keep `remote_control_available=false`;
-no Terminal, PTY, arbitrary command proxy or live deployment is enabled.
-
-### 2026-10-31 — mandatory real WSS test: exact fixture failure identified and corrected
-
-The mandatory Go CI gate now executes the actual encrypted
-Browser→TLS/WSS Relay→Agent→host-local TaskDeck login, protected workspace
-read/write, Git status and host-approved `task.run`, including negative
-command-shaped ciphertext under an attacker-controlled PHP signer.
-
-The initial generic `WSS reply: EOF` was **mistakenly attributed to the
-first Agent proof**. The test reused one `receive()` error location for
-eight different responses. Sanitized instrumentation confirmed that Agent
-attestation, E2EE readiness and client-key approval all succeeded; the EOF
-occurred at the **application TaskDeck login**. The local TaskDeck callback
-correctly refused that login because the test fixture never set
-`taskdeck.Config.RemotePortalURL`. The independent
-`remoteWorkspaceAgentMatches` security gate MUST reject a local TaskDeck
-instance that has no owner-pinned Portal origin or one that differs from the
-Agent's configured HTTPS Portal. No production authentication check was
-relaxed to correct this test bug.
-
-The integration fixture now pins the exact `httptest.NewTLSServer` Portal
-origin in the host configuration, and each WSS response records a distinct
-test stage. Temporary Relay tracing and modifications to the runtime
-handshake were removed. The new host-approved `ID@SHA256` task allowlist,
-minimal child environment and all E2EE authentication requirements remain.
-
-**Verified 2026-10-31 evidence, code SHA**
-[`a25a1c6c2ca059ace9fc4fe055c9d0161b5af451`](https://github.com/hacrot3000/PatchAndCollectionToolForAI/commit/a25a1c6c2ca059ace9fc4fe055c9d0161b5af451):
-
-- [Go Remote Agent run #41161610396](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/41161610396):
-  the new mandatory full-digest/secret-isolation/**real WSS compromised-PHP**
-  gate completed **SUCCESS** and the complete workflow finished
-  **COMPLETED / SUCCESS** on the same reviewed implementation.
-- [PHP Remote Portal run #41161610504](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/41161610504):
-  **COMPLETED / SUCCESS**.
-
-Both CI workflows passed on the reviewed implementation. This is a security-hardening
-milestone for restricted, explicitly enabled native operations, **not** a
-production Remote Control UI or Terminal/PTY/Files/Git/Patch service.
-`remote_control_available=false` and LIVE **NO-GO** remain unchanged.
-
-
-## 2026-10-31 — harden authenticated remote GitStatus against daemon process environment injection
-
-Security development based on `main` commit `1cfd12f` after successful
-Go/PHP test and merge of PR #17. Existing E2EE `git.status` used
-`exec.CommandContext(ctx, "git")`, which resolves `git` using the
-**daemon's PATH**. It also sent `os.Environ()` into the child. A malicious
-workspace/daemon environment could therefore execute a substituted binary or
-inherit TaskDeck private HOME, Git configuration injection or dynamic loader
-variables despite the caller holding only `GitStatus` permission.
-
-The new branch `security/remote-git-status-process-isolation-20261031`
-enforces a fixed trusted executable search, validates real executable paths,
-runs Git with an explicitly isolated environment and includes an encrypted
-authenticated GitStatus regression with a forged `git` at the front of
-daemon PATH. Read the focused
-[TASKDECK_REMOTE_GIT_STATUS_ISOLATION_20261031.md](TASKDECK_REMOTE_GIT_STATUS_ISOLATION_20261031.md).
-PHP/Relay still receive only ciphertext. No Terminal or arbitrary command
-is mounted. Both Go + PHP same-SHA CI and physical deployment/security
-sign-off remain mandatory; this note is not a production PASS.
-
-**Remote Control remains OFF**, `remote_control_available=false`, live **NO-GO**.
-
-
-## 2026-10-31 — read-only bounded directory inspection, staged
-
-Added `project.dir.list` as a versioned, strict AEAD application action
-using the existing real WSS client→Relay→Agent authenticated principal.
-Host enforces independent approved-client-key proof, local TaskDeck
-password, `FilesRead` RBAC, uncached live Portal grant, audit, cancellation,
-expiry and channel binding. It resolves visible workspace-relative paths
-using the existing restricted source canonical/pinned file-open boundary.
-Only immediate visible regular files and directories are listed; no hidden
-names, symlinks, special files, recursion, arbitrary OS paths, HTTP handlers
-or shell invocations. Output is strictly limited to 64 raw entries and
-192 UTF-8 bytes, returned AES-GCM with a matching request ID and SHA-256.
-The trusted native CLI adds `-list-dir=.` / `-list-dir=docs`.
-Protocol tests reject malicious keys, ambiguous JSON, forged capabilities,
-wrong reply types, path escape and replay; host integration tests check
-negative authorization, revoked key, symlink escape and resource caps.
-
-**NOT release authorization:** stage only. Both mandatory Go/PHP same-SHA CI,
-real Internet + physical Linux/macOS validation, independent security review
-and the broader Remote Control feature gates remain outstanding.
-`remote_control_available=false`, **LIVE NO-GO**.
-
-
-### 31/10/2026 — nghiệm thu CI và merge bản liệt kê thư mục giới hạn
-
-Đã hợp nhất [PR #19](https://github.com/hacrot3000/PatchAndCollectionToolForAI/pull/19)
-từ commit nguồn `09c7e288f837ef1b12619d4e5169eb2aadb3a3ee`
-vào `main` tại commit
-[`12810a1b8225d43babc3b7f3368d3e7be8ea8ccd`](https://github.com/hacrot3000/PatchAndCollectionToolForAI/commit/12810a1b8225d43babc3b7f3368d3e7be8ea8ccd).
-
-- [Go Agent/Relay CI #41174706525](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/41174706525):
-  **COMPLETED / SUCCESS** trên đúng source SHA; gồm test `project.dir.list`
-  có phân quyền FilesRead và parser AEAD, real TLS/WSS integration, replay,
-  giới hạn thư mục, symlink escape, key revoke, kịch bản PHP bị hack và build.
-- [PHP Portal CI #41174706532](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/41174706532):
-  **COMPLETED / SUCCESS** trên cùng source SHA; PHP vẫn chỉ cấp ticket/grant.
-- Bug phát hiện trong CI: khi mở thư mục bằng descriptor, `DirEntry.Info`
-  có thể dùng sai cwd để đọc file con. Đã sửa thành truy vấn metadata
-  tương đối với descriptor đã ghim trên Linux, dùng `os.Root` với đối chiếu
-  inode thư mục trên macOS Go 1.25+. Không nới lỏng kiểm tra đường dẫn.
-- Đã loại bỏ log debug kiểm thử tạm thời. Không đưa key, password hoặc
-  đường dẫn nội bộ vào bản tin từ chối E2EE.
-
-**Giới hạn chứng cứ:** CI Linux đã chạy real WSS, nhưng chưa có thử nghiệm
-host/client vật lý trên macOS, NAT/CGNAT thật, PHP shared hosting thật và
-security review độc lập cho toàn bộ Remote Control. Bản thử nghiệm liệt kê
-thư mục tối đa 64 mục/192 byte không phải trình duyệt file hoàn chỉnh.
-`remote_control_available=false`, Remote Control **LIVE NO-GO**.
-
-
-## 2026-10-31 — staged E2EE binary file window
-
-Added a typed `project.file.window` action for one `offset`-selected
-128-byte window of a regular primary-workspace file up to 2 MiB.
-Host uses its descriptor-pinned file reader and computes a full-file SHA-256;
-client verifies `offset`, size, digest syntax, canonical Base64 and a strict
-AEAD result type, preventing silent splicing of different file versions.
-Per-action TaskDeck password/session, approved client-key proof, local
-`FilesRead` RBAC, uncached live Portal grant and TaskDeck audit still apply.
-The native, independently trusted CLI accepts `-read-window` + `-offset`.
-No Portal-based password UI, terminal, shell, HTTP proxy, file write,
-generic data stream or extra Relay quota was added.
-
-Security details: [TASKDECK_REMOTE_FILE_WINDOW_HANDOFF_20261031.md](TASKDECK_REMOTE_FILE_WINDOW_HANDOFF_20261031.md).
-Go and PHP CI and physical Mac/Linux Internet deployment remain release
-gates. **Remote Control is still NO-GO, remote_control_available=false.**
-
-
-### 31/10/2026 — nghiệm thu PR #20: E2EE binary file windows
-
-Đã hợp nhất [PR #20](https://github.com/hacrot3000/PatchAndCollectionToolForAI/pull/20)
-từ source SHA `104f570634bb1e7a626cd166c1b73846b8aabf5b` vào
-`main` tại commit
-[`3b5b1f46d2c570b1c14fe98a63bc1d99501842aa`](https://github.com/hacrot3000/PatchAndCollectionToolForAI/commit/3b5b1f46d2c570b1c14fe98a63bc1d99501842aa).
-
-- [Go Agent/Relay CI #41175708840](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/41175708840):
-  **COMPLETED / SUCCESS** (same SHA): new file-window strict AEAD
-  codec, binary version SHA, workspace path/symlink bounds, capped file size,
-  revoked approved key and real native authenticated E2EE roundtrips; all
-  existing Go/Relay, compromised-PHP security tests and cross-compilation
-  for macOS/Linux completed successfully.
-- [PHP Portal CI #41175708926](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/41175708926):
-  **COMPLETED / SUCCESS** on the identical source SHA.
-- Trusted native CLI exposes `-read-window=relative/file -offset=128`.
-  It returns base64 encoded **one 128-byte window**, full-file
-  SHA-256 and size; file max 2 MiB. A complete file transfer and resumable
-  streaming are not present. Six stop-and-wait actions per WSS login remain.
-- No new PHP authority, shell, HTTP proxy or browser password form.
-  Login still requires host-approved client key, real TaskDeck password and
-  `FilesRead` local RBAC with uncached grant rechecks, plus local audit.
-
-**Release is still NO-GO:** CI cannot substitute for actual physical
-Linux/macOS, Internet shared-host PHP, trusted-client provenance verification
-and independent penetration tests of full remote features. General
-Terminal/PTy, large transfers, Patch/Collection, and interactive remote UI
-are not implemented by this PR. Keep `remote_control_available=false`.
-
-
-## 2026-10-31 — native resumable file assembly (staging)
-
-Added an independently built native-client `-download-file` +
-`-download-to` workflow. It reuses the existing `project.file.window`
-AEAD action and **does not change Relay quota, app protocol or host RBAC**.
-Each session downloads no more than six 128-byte windows (768 bytes).
-Only a local owner-only, nofollow, exclusively locked checkpoint stores
-unverified data. Its canonical binary header pins the Device ID, file path,
-full-file SHA-256 and size; mismatched windows or changed remote versions
-refuse continuation. A verified full-file SHA-256 is mandatory before an
-atomic no-overwrite final-path publish. A fresh independent
-Portal ticket + approved key + local TaskDeck password is still required
-for each subsequent login; no bearer token is persisted on the client.
-The result stays in a user-chosen private canonical local directory.
-
-Tests include crash/resume, 0600 mode, strict window offsets and lengths,
-concurrent lock, source/device mismatch, local symlink/hardlink attacks,
-tampered staged bytes, changed server versions, empty-file handling
-and local output no-clobber. Work in this branch MUST pass Go/PHP same-SHA
-CI before merge. Real macOS and PHP shared-host Internet testing remains
-mandatory. This adds *safe checkpointing*, not high-throughput streaming.
-**Remote Control remains NO-GO and remote_control_available=false**.
-
-
-### 31/10/2026 — CI và merge PR #21: tải file E2EE tiếp tục sau gián đoạn
-
-Đã hợp nhất [PR #21](https://github.com/hacrot3000/PatchAndCollectionToolForAI/pull/21)
-từ source SHA `94a65858398c856056bb0f388a4f63220b4073fe` vào
-`main` tại
-[`4bb8455685672404a67d622464c3b40bb439d9dd`](https://github.com/hacrot3000/PatchAndCollectionToolForAI/commit/4bb8455685672404a67d622464c3b40bb439d9dd).
-
-- [Go Agent/Relay CI #41176515230](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/41176515230): **SUCCESS**, 29 successful workflow steps on exact source SHA. Includes new `-race` native staging/resume tests, existing TaskDeck-local FilesRead, E2EE, key approval, compromised-PHP red-team, build trusted client and cross-compile macOS/Linux ARM.
-- [PHP Portal CI #41176515253](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/41176515253): **SUCCESS** on identical source SHA.
-- The native independently trusted CLI now supports `-download-file=relative/path -download-to=/absolute/local/path` and up to six 128-byte file windows per login. A private `0600` local checkpoint and SHA-256 of the entire remote version are used; an atomic no-clobber final file appears only after full integrity verification. The checkpoint pins Device ID, remote source path, file SHA-256 and size; a changed file cannot be quietly resumed. Users must obtain a **new Portal ticket** and re-enter TaskDeck password for each additional session. The owner-approved client key remains mandatory.
-- **No PHP plaintext, no PHP-initiated TaskDeck command, no bypass of TaskDeck login or project FilesRead, no bearer token in checkpoint, no increase of Relay's six-round quota.**
-
-**Release status NO-GO.** This is safe integrity/checkpoint infrastructure but not a high-throughput file transfer: 768 bytes maximum per login, at most a 2 MiB source. No physical macOS deployment or shared-host Internet end-to-end penetration test was performed; the complete Terminal/PTY, remote interaction UI, Patch/Collection and practical streaming remain unimplemented. Keep `remote_control_available=false`, all experimental flags default OFF and no production live release.
-
-
-## 2026-10-31 — PR #23: exact authenticated E2EE file-window lengths (merged)
-
-- Source PR: [#23](https://github.com/hacrot3000/PatchAndCollectionToolForAI/pull/23), reviewed source head `163e78f4a19017a0f8dba65250de9e0aec66bea9`. Merged source code to `main` as [bdc7133e1363228798cd00b4726bd075262a1abc](https://github.com/hacrot3000/PatchAndCollectionToolForAI/commit/bdc7133e1363228798cd00b4726bd075262a1abc).
-- Exact-head Go Agent/Relay CI [#41178773268](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/41178773268): **completed SUCCESS**. PHP Portal CI [#41178773307](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/41178773307): **completed SUCCESS** on the same source head.
-- The `project.file.window` E2EE result codec now demands **exactly min(128, file_size - offset) bytes** at both host sealing and native-client decoding. A shorter non-EOF payload is no longer a successful `ReadFileWindow` result; the decoding boundary closes the AEAD channel. Regression tests cover malformed short first/middle/final windows, tampered authenticated ciphertext, valid short EOF and empty EOF, and wrong offset. This aligns the raw native window API with the stricter resumable-download Append contract.
-- This commit does **not** expand Relay action quotas, introduce HTTP/PTY/shell forwarding, relax TaskDeck owner-approved client key or local password/RBAC, or give PHP/Relay application plaintext. The preexisting six 128-byte window cap and default-OFF experimental flags remain.
-- **Remote Control = NO-GO**. Production acceptance still needs practical throughput, full authorized app transport where required, real Linux/macOS device tests via shared-host PHP and public Relay, independent artifact provenance verification, and independent security review. CI success of this bounded safety patch is not a live deployment approval.
-
-
-## 31/10/2026 — E2EE 4 KiB binary chunks with bounded relay frames (staging)
-
-A distinct `project.file.chunk` AEAD action returns a window of up to
-4,096 bytes, a full-file SHA-256 and exact offset/size over the trusted
-native client. Existing 128-byte `project.file.window` stays available.
-The host reuses pinned workspace-only FilesRead, snapshot stability, local
-TaskDeck password + host-approved client key, uncached Portal grant before
-AND after each action, audit, no command/PTY/HTTP proxy. The Relay is still
-blind to E2EE application plaintext and applies a strict opaque frame cap
-(< 8.3 KiB encoded), one outstanding request, **6 requests/login**,
-a 5-minute session and a bounded 20s reply wait. The native CLI opts in
-using `-download-fast` alongside `-download-file` and `-download-to`.
-This improves from 768 bytes to **24,576 bytes max per login** while
-retaining the private SHA-pinned resume/atomic no-overwrite destination.
-
-Strict protocol and host tests cover malformed/duplicate JSON, binary
-integrity, exact 4096-byte boundaries, version changes, corrupted Base64,
-forged capabilities, hidden paths/symlinks, revoked local key and E2EE
-replay. A separate REAL TLS/WSS test checks the full path with a PHP
-ticket signer and grant responder that always allow access, while TaskDeck
-independently authenticates the local principal before disclosing bytes.
-
-**Still experimental**: whole-file source cap 2 MiB; native client does NOT
-store credentials or refresh Portal tickets; large files require repeated
-signed Portal tickets and TaskDeck password re-entry. Physical macOS +
-Linux real-Internet shared hosting integration, independent security review,
-interactive trusted client UI, Terminal/PTY and Patch/Collection are still
-open. **NO-GO for live; `remote_control_available=false` remains.**
-
-
-### 31/10/2026 — nghiệm thu PR #24: 4 KiB E2EE file chunks
-
-Đã hợp nhất [PR #24](https://github.com/hacrot3000/PatchAndCollectionToolForAI/pull/24)
-từ source `4e14b9dceb8ccc15aa247b6f1b35eeb6b164dc09`
-vào `main` tại commit
-[`8b2c12fe2d40061d3d6ea782ded1350ec4e2e8ad`](https://github.com/hacrot3000/PatchAndCollectionToolForAI/commit/8b2c12fe2d40061d3d6ea782ded1350ec4e2e8ad).
-
-- [Go Agent/Relay CI #41181201012](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/41181201012):
-  **COMPLETED / SUCCESS** trên đúng source SHA; 30 bước PASS, gồm
-  `project.file.chunk` AES-GCM 4 KiB, full-file SHA-256, client checkpoint,
-  real TLS/WSS test với PHP cấp ticket/grant luôn allow nhưng không bypass
-  mật khẩu/key/phân quyền trên TaskDeck, red-team PHP/Relay, kiểm thử
-  HTTP/UI và build cross-platform.
-- [PHP Portal CI #41181201076](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/41181201076):
-  **COMPLETED / SUCCESS**, cùng source SHA.
-- `taskdeck_remote_login -download-file=relative/file -download-to=/absolute/path -download-fast`
-  cho phép tối đa 6 đoạn x 4096 byte = 24 KiB mỗi lần đăng nhập.
-  Phải dùng ticket mới và xác thực TaskDeck lại khi tiếp tục; phiên cũ
-  không thể chuyển thành token vĩnh viễn.
-- Mặc định không đổi: sáu lượt/phiên, timeout/expiry, one-in-flight,
-  `FilesRead`, client-key host allowlist, mật khẩu TaskDeck, audit và
-  grant Portal tái kiểm tra. PHP/Relay chỉ vận chuyển bản mã. Không
-  phát sinh shell, Terminal/PTY, file write, reverse HTTP hay upload.
-
-**Giới hạn:** file nguồn tối đa 2 MiB, tải 24 KiB/phiên vẫn là bước thử nghiệm,
-chưa có streaming hiệu quả/renewal an toàn, giao diện remote tương tác
-hay kiểm thử độc lập macOS/Linux qua PHP shared hosting trên Internet thật.
-`remote_control_available=false` và **LIVE NO-GO**, không tạo release.
-
-
-## 2026-10-31 — signed Agent scoped file-only E2EE transfer (staging)
-
-Implemented a one-way TaskDeck host session reduction after the first fully
-authenticated `project.file.chunk`: the local in-memory principal is
-locked to a single visible relative filename, immutable complete-file
-SHA-256 and size, sequential byte offsets and **64 total chunks**.
-No other operations, including writes, Git and host-allowlisted tasks, may
-execute in that session after transition. Each chunk still undergoes
-TaskDeck-local password/key/RBAC and uncached Portal grant checks before
-and after execution, and local audit before plaintext is sealed.
-
-Only the pinned Agent may sign
-`taskdeck-e2ee-scoped-file-transfer-v1` with active device nonce and
-probe ID after the host's first successful chunk. The Relay verifies
-this proof and MAY raise its opaque per-login quota from six actions to
-64 **only for this file-only mode**. The Relay cannot decrypt paths,
-passwords or file data. Even a compromised Relay is independently bounded
-by the TaskDeck host's own monotonic 64-chunk check. The six-round default
-continues for all generic and privileged action sessions. Session lifetime
-still five minutes, one-in-flight action, short reply deadline.
-
-The trusted native `-download-file ... -download-to ... -download-fast`
-uses up to 64 4096-byte windows, i.e. **256 KiB maximum per login**,
-with an existing SHA-pinned, private 0600 checkpoint to resume on fresh
-login. Whole-file cap remains 2 MiB. If the Relay or PHP is compromised,
-availability is not guaranteed; authorization and confidentiality remain
-separate host/AEAD checks. This is NOT a general purpose Terminal, HTTP
-proxy, upload or unattended credential/ticket renewal. Physical Internet
-integration, independent audit and full remote UI remain release gates;
-`remote_control_available=false`, LIVE NO-GO.
-
-Mandatory same-SHA Go/PHP CI must pass prior to merge.
-
-
-### 31/10/2026 — nghiệm thu PR #25: Agent-signed file-only E2EE transfer session
-
-Đã hợp nhất [PR #25](https://github.com/hacrot3000/PatchAndCollectionToolForAI/pull/25)
-từ source SHA `87733d1b669739589f24743191a0b3a28f4f54cf`
-vào `main` tại commit
-[`149c0e0abbc5323efec3dba0a673472461240355`](https://github.com/hacrot3000/PatchAndCollectionToolForAI/commit/149c0e0abbc5323efec3dba0a673472461240355).
-
-- [Go Agent/Relay CI #41184648329](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/41184648329):
-  **COMPLETED / SUCCESS** trên đúng SHA; 31 bước PASS gồm chứng thực
-  Agent signed file-only proof, TaskDeck host-local one-file/offset/complete-SHA lock,
-  64-round bound independent of Relay, PHP-compromise red-team, TLS/WSS
-  transmission of seven consecutive 4KiB chunks (> six generic actions),
-  client checkpoint, HTTP/UI, key revocation and cross-compile macOS/Linux.
-- [PHP Portal CI #41184648330](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/41184648330):
-  **COMPLETED / SUCCESS** trên cùng SHA.
-- Agent's authenticated socket uses a modest faster token refill **only after**
-  the Relay verified the Agent-signed file-only claim; the default heartbeat
-  and flood budget continue unchanged for non-file sessions.
-- Native CLI `-download-file=... -download-to=/absolute/file -download-fast`
-  can request at most 64 * 4096 bytes = **256 KiB per five-minute login**,
-  without storing passwords/tickets or adding a privilege. The source file
-  is still bounded at 2 MiB, and a verified whole-file SHA is required
-  before atomic no-clobber output.
-- Even with hacked PHP/Relay, local TaskDeck still requires approved client
-  private-key possession, password, current local RBAC, fresh signed Portal
-  grant and local per-action audit. PHP/Relay cannot decrypt application data
-  or invoke arbitrary tasks/shell; file-transfer mode excludes all other operations.
-
-**LIVE remains NO-GO**: 256 KiB/session is a bounded staging capability,
-not unlimited remote control. Real shared-host Internet and macOS/Linux
-on-device penetration testing, trusted interactive client, Terminal/PTY,
-large streaming and full Patch/Collection workflows are not completed.
-`remote_control_available=false`; no production release is authorized.
-
-
-## 2026-10-31 — typed 32 KiB file blocks, complete 2 MiB in at most 64 actions (staging)
-
-Added the separately opt-in `project.file.block` AEAD protocol, retaining
-the existing 128 B `project.file.window` and 4 KiB `project.file.chunk`
-without changing their typed response-size limits. Only the authenticated
-block response may carry a bounded 32,768 B binary payload (strict 45 KiB
-plaintext cap; 64 KiB WSS envelope read cap). The Agent-signed scope
-transition from PR #25 is reused unchanged: the host locks its TaskDeck
-password/key/RBAC principal to **one exact action type**, visible file path,
-full-file SHA-256, source size and sequential offset. Local TaskDeck
-independently caps the session to **64 blocks**; the opaque Relay still
-requires the original Agent's verified Ed25519 proof to raise its own quota
-above six. Non-file actions retain the legacy six-round limit.
-
-The native `taskdeck_remote_login -download-file=<source> -download-to=<target>
--download-full` command reads up to 64 * 32768 = **2,097,152 bytes** per
-newly authenticated session, subject to the original 5-minute TTL and
-per-action local/Portal authorization, short cancellation deadlines and
-one-in-flight request. Owner-only resumable `0600` checkpoint and
-SHA-256-verified atomic no-clobber final publication remain mandatory.
-No long-term token or TaskDeck password is stored in PHP or Relay.
-Previous fast (4 KiB) and tiny (128 B) modes remain independent.
-
-CI acceptance must verify separate AEAD schemas, tampering and oversized
-rejection, unchanged file-only TaskDeck local authorization, exact 64-block
-2 MiB native assembly, and live TLS/WSS delivery of authenticated 32KiB
-blocks with a compromised PHP Portal. No high-throughput bypass is ever
-sufficient grounds for LIVE. Full remote control/UI, Terminal/PTY,
-Patch/Collection, real shared-host Internet deployments and independent
-security audit remain required; **LIVE NO-GO; remote_control_available=false**.
-
-
-### 31/10/2026 — nghiệm thu và merge PR #26: tải E2EE hoàn chỉnh 2 MiB
-
-Đã hợp nhất [PR #26](https://github.com/hacrot3000/PatchAndCollectionToolForAI/pull/26)
-từ source SHA `2155455e510542d51cd62510f9d17a316b4b6121`
-vào `main` tại commit
-[`6de51d7cc124fac2b6e83dba84e86b027dd23422`](https://github.com/hacrot3000/PatchAndCollectionToolForAI/commit/6de51d7cc124fac2b6e83dba84e86b027dd23422).
-
-- [Go Agent/Relay CI #41186906717](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/41186906717):
-  **COMPLETED / SUCCESS**, 32 bước PASS trên đúng SHA, gồm
-  `project.file.block` 32 KiB AES-GCM, test native `0600` checkpoint và
-  SHA-256 toàn file chính xác 2 MiB/64 block, chống giả mạo dữ liệu và
-  lệch offset, TaskDeck FilesRead/per-action RBAC, khóa file-only, thử
-  nghiệm 9 block 32 KiB qua TLS/WSS với PHP signer/grant giả định bị hack,
-  red-team PHP/Relay, kiểm thử HTTP/UI và build macOS/Linux.
-- [PHP Portal CI #41186906718](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/41186906718):
-  **COMPLETED / SUCCESS** trên cùng SHA.
-- AES-GCM `Channel.Seal/Open` mặc định **không tăng** trần 32 KiB;
-  `file.block` dùng phương thức nội bộ tách riêng với bản rõ giới hạn 45 KiB.
-  File-window 128 B, file-chunk 4 KiB và mọi login/task/generic action
-  tiếp tục có giới hạn và schema đã kiểm thử từ trước.
-- Native CLI có `-download-full` (không dùng chung `-download-fast`);
-  tối đa `64 * 32768 = 2,097,152` byte trong một phiên 5 phút khi
-  đủ tốc độ mạng và mọi quyền vẫn còn hiệu lực. Nếu phiên hết hạn hoặc
-  ngắt giữa chừng, cần ticket mới và xác thực lại; dữ liệu cũ chỉ được
-  nối tiếp khi cùng Device ID, đường dẫn, toàn-file SHA và size.
-- PHP/Relay không nhìn thấy bản rõ; chữ ký nâng quota chỉ do Agent phát
-  sau một FilesRead hợp lệ, và host vẫn tự thực thi giới hạn 64 block.
-  Tải file không cấp Terminal/PTY, arbitrary task, HTTP proxy hay
-  quyền FilesWrite.
-
-**Release vẫn NO-GO.** Đây là chế độ tải file đã được kiểm thử tự động, không
-đồng nghĩa Remote Control đầy đủ sẵn sàng sản xuất. Vẫn cần kiểm thử
-độc lập thực tế trên macOS/Linux, Internet qua shared-host PHP/WSS,
-khả năng thu hồi phiên trong mạng bất ổn, client tương tác đầy đủ và
-kiểm toán bảo mật độc lập. Tiếp tục `remote_control_available=false`;
-không phát hành live.
-
-
-## 2026-10-31 — interactive native E2EE console, view/edit/Git and host-approved Terminal tasks (staging)
-
-Implemented opt-in `taskdeck_remote_login -interactive` on top of the
-**existing real** Agent-signed TLS/WSS and in-process TaskDeck password,
-owner-approved client-key and RBAC session. A native console can invoke
-`ls`, `view`, optimistic SHA-confirmed `edit`, `git status`,
-new read-only `git diff <visible-file>`, and
-`terminal task <host-allowlisted-ID>` within **one six-action session**.
-PHP only transports opaque ciphertext; the trusted native client shows
-results in TTY-safe escaped form and never sends arbitrary command strings.
-
-New `git.diff` E2EE protocol has exact action/result type, 4096-byte
-UTF-8 maximum, a full SHA-256 of the bounded diff response, strict
-duplicate/unknown JSON field rejection and no silently truncated output.
-It requires both the local GitStatus and FilesRead permissions plus uncached Portal
-grant before/after the operation, and the local audit entry `git_diff`.
-The host runs only a trusted executable with fixed `git diff --no-ext-diff
---no-textconv --no-color -- <pinned visible file>`, isolated environment,
-no Git hooks/shell/user flags or workspace-local Git binary.
-
-`edit` still requires an explicit host opt-in, FilesWrite permission,
-read-before-write and SHA-256 CAS, and deliberate native user confirmation.
-`terminal task` is only the already reviewed host-allowlisted TasksRun
-adapter; it is *not* an arbitrary command interpreter. The console cannot
-provide new PHP-side key material, cookie/session token or an unauthorized
-shell/PTY.
-
-**Not yet completed:** real PTY and interactive command streaming,
-multi-kilobyte editor read/write with complete conflict handling,
-Git staging/commit/discard, full Browser/UI, and real Internet/
-macOS/Linux security acceptance. Keep `remote_control_available=false`,
-LIVE NO-GO pending complete review and same-head Go/PHP CI.
-
-
-### 31/10/2026 — nghiệm thu và merge PR #27: trusted interactive E2EE console, Git diff
-
-Đã hợp nhất [PR #27](https://github.com/hacrot3000/PatchAndCollectionToolForAI/pull/27)
-từ source SHA `64066a9b5f8d27a8ba7d1218981d488f9e5b0b7c` vào `main`
-tại commit [`fda82e34a4d1e01f102ccc7b6f2a542e1f042ded`](https://github.com/hacrot3000/PatchAndCollectionToolForAI/commit/fda82e34a4d1e01f102ccc7b6f2a542e1f042ded).
-
-- [Go Agent/Relay CI #41200465569](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/41200465569):
-  **COMPLETED / SUCCESS**, 33 bước PASS trên đúng source SHA, gồm parser
-  console native, optimistic edit confirmation, E2EE Git diff 4 KiB,
-  checked workspace path, host TaskDeck FilesRead+GitStatus, full
-  compatibility/red-team PHP/Relay, HTTP/UI, cross-compile Linux/macOS.
-- [PHP Portal CI #41200465497](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/41200465497):
-  **COMPLETED / SUCCESS** trên cùng source SHA.
-- Console `taskdeck_remote_login -interactive` dùng TTY native độc lập,
-  khóa public client do TaskDeck host phê duyệt và mật khẩu TaskDeck; mỗi
-  thao tác gọi API E2EE typed và kiểm tra lại quyền. Tối đa 6 thao tác
-  trong 5 phút. `view` ≤192B, `edit` CAS ≤96B bắt buộc `YES`, `git
-  status`, `git diff <file>` ≤4096B, và `terminal task <ID>` chỉ cho
-  chạy task đã được host allowlist cùng quyền TasksRun.
-- `git diff` kiểm tra đồng thời **GitStatus và FilesRead** trước và sau
-  subprocess vì diff chứa nội dung file; không có hooks, external diff,
-  textconv, shell hay tham số Git do remote nhập tùy ý.
-
-**LIVE NO-GO**: đây là native typed command console, chưa phải full terminal
-PTY, trình edit/view file lớn hoặc Git stage/commit. Vẫn phải xây dựng và
-kiểm thử các luồng trên cùng mô hình auth/cancel/E2EE, kiểm thử Mac/Linux
-trên Internet thật với shared-host PHP và rà soát bảo mật độc lập.
-`remote_control_available=false` không thay đổi.
-
-
-## 2026-10-31 — interactive console navigation and bounded TTY input (main, staging)
-
-Follow-up to the merged trusted native console: `pwd` and `cd` now provide
-a **client-side** workspace-relative navigation context reused by `ls`,
-`view`, `edit`, and `git diff`. File names containing spaces are handled
-as literal remote paths (never passed to a shell). `cd` does not create a
-remote process or consume a Relay application action. Paths cannot climb
-above the workspace root; absolute or unsafe paths are locally refused.
-Each input is length-capped before copying it into a string, including
-multi-kilobyte pastes at prompts, and native EOF closes the console cleanly.
-Added `TestInteractiveConsoleWorkspaceNavigationAndSpaces`,
-`TestInteractiveConsoleNavigationNeverEscapesProjectRoot`,
-`TestInteractiveConsoleBoundsTTYLinesBeforeRemoteDispatch` and
-`TestInteractiveConsoleCleanExitAtEOF`.
-
-Main commits: [console implementation](https://github.com/hacrot3000/PatchAndCollectionToolForAI/commit/3c1583dab1545d753e1b5d95f3663765d74b9c7f)
-and [focused regression tests](https://github.com/hacrot3000/PatchAndCollectionToolForAI/commit/a076f860c0ed016468eeecc3e03b29db558240b1).
-
-**No scope change to privileged remote capability:** Git is still
-read-only status/diff; terminal remains host-approved TaskDeck tasks, not
-PTY; edit is still tiny SHA-CAS, and view is still 192B. No file downloading
-was added. The compromised-PHP threat model, host-only credential/key
-authority, Agent-pinned E2EE and per-action RBAC remain mandatory.
-Pending fresh same-head CI and real-network acceptance, **LIVE NO-GO**;
-`remote_control_available=false`.
-
-
-## 2026-10-31 — full 4KiB authenticated text preview for interactive view (staging)
-
-Added a **distinct** fixed `project.file.preview` operation for the trusted
-native `view` command, with a different E2EE reply type from `git.diff`.
-Previously `view` could read at most 192 bytes, making ordinary source
-files unusable. The host now reads only a *complete*, visible, regular,
-pinned UTF-8 file at most **4096 bytes** and performs TaskDeck FilesRead,
-live Portal grant, local client-key and password reauthorization, and
-host-only `remote.action.project_file_preview` audit. The native client
-performs strict exact-key JSON verification, type and request-ID matching,
-authenticated SHA-256 and 4KiB bounds before displaying escaped text.
-
-**Not a download:** no file chunks, binary window, destination creation,
-partial-file response or scoped transfer promotion; a valid preview leaves
-the original six-action app session available for further typed operations.
-Git still allows status/diff only. `edit` still reads at most 192B before
-a confirmed 96B SHA-CAS replacement, and Terminal remains the host
-approved task adapter rather than PTY.
-
-Regression tests cover 4096B success, 4097B denial, type swapping with
-Git diff, unsafe paths, required TaskDeck-local audit and another E2EE
-operation after preview. Added to `main`; fresh same-source Go/PHP CI and
-real Internet/shared-host, macOS/Linux and external security acceptance
-must be checked before any production claim. Keep
-`remote_control_available=false`; **LIVE NO-GO**.
-
-
-## 2026-10-31 — fixed Git metadata and 4KiB optimistic multiline edit (staging)
-
-Added authenticated native E2EE `git.log` and `git.branches` with
-separate 4KiB schemas; the host uses the `GitLog` local permission,
-uncached grant recheck, identity audit, bounded isolated read-only Git
-process and no attacker-supplied arguments. Tests cover exact schemas,
-reply type swaps, PHP-only session denial and host audits.
-
-Added distinct `project.file.replace_text` for complete **up to 4KiB**
-UTF-8 SHA-CAS editing (unlike legacy 96B edit). The native multiline
-console requires a complete `project.file.preview` and explicit `YES`.
-Host requires BOTH `TASKDECK_REMOTE_FILE_REPLACE=1` and
-`TASKDECK_REMOTE_TEXT_EDIT=1`, FilesWrite, fresh TaskDeck password/key
-and Portal authorization, the shared editor mutation lock, pinned
-existing regular file, stale-SHA denial, pre-commit audit and atomic
-anchored rename. `project.file.replace` remains 96B; the dedicated
-4KiB request has a strict 6144B plaintext envelope, and the typed
-response is independent of the legacy result type. No binary upload or
-file download is added to the interactive console.
-
-Targeted protocol/client/host regressions and CI workflow were updated.
-**Validation at this documentation point is not complete**: an initial
-host-side 4KiB positive test returned an authorization-denied error,
-under investigation. This task must not be called verified or LIVE
-until a same-source Go and PHP CI run passes and external acceptance
-checks are completed. Terminal PTY, Git stage/commit, editing larger than
-4KiB and full remote UI remain incomplete.
-
-**LIVE NO-GO** and `remote_control_available=false` unchanged.
-
-
-### 31/10/2026 — correction of write test role, host policy unchanged
-
-The initially failing 4KiB positive edit regression was using the
-`remoteDispatchFixture` default Portal **viewer** grant. This role
-deliberately has no `FilesWrite` permission, so the denial was expected.
-Positive tests now use the explicit Portal **admin** grant intersected with
-the real local TaskDeck FilesWrite principal. Tests also assert that a
-viewer remains unable to edit even if BOTH host write flags are on.
-Existing small-file CAS, stale-hash and editor-lock tests were corrected
-to exercise the real write boundary instead of accidentally passing from
-an earlier viewer-role denial.
-
-The exact new Git metadata and 4KiB edit test step passed on source
-[`fabb9358`](https://github.com/hacrot3000/PatchAndCollectionToolForAI/commit/fabb9358b3e98cddd00149aeb0514f3026acba81),
-[Go CI run](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/41213930437)
-(after the targeted step completed, while other steps were still running).
-The PHP Portal pipeline on that source also succeeded:
-[PHP CI](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/41213930455).
-Later changes only expand required tests and remove diagnostic scaffolding;
-check exact-release-commit CI before treating the full suite as verified.
-
-**Security policy was NOT weakened:** Portal viewer still cannot write,
-Portal admin cannot bypass TaskDeck password, approved client private key,
-local RBAC, protected E2EE channel or host write flags. Remote Control
-remains staging/no-go; `remote_control_available=false`.
-
-
-## 2026-10-31 — remote task discovery, complete output, staged Git review (staging)
-
-Continued implementation of the original **native trusted E2EE interactive**
-console, without new file downloading or PHP permissions.
-
-- `task.list`: a typed read-only 4KiB E2EE catalogue containing just
-  task IDs/labels. Host checks the exact task definition approval digest,
-  `taskdeckRemoteAllowed`, input-free process execution constraints,
-  executable/root validation, `TASKDECK_REMOTE_TASK_RUN=1`, local
-  `TasksRun`, approved client key and live Portal role; the TaskDeck audit
-  names `remote.action.task_list`. Viewer and disabled host flag are denied.
-- `task.run_text`: a separate authenticated response type and execution
-  path for **complete** output ≤4096 UTF-8 bytes; no silent 192B tail
-  truncation. The original `task.run` remains unchanged for old callers.
-  Host-only process approval/audit occurs before launch; timeout ≤7s,
-  cancellation on lost connection, no arbitrary command, input or PTY.
-- `git.diff_staged`: read-only `git diff --cached` of one visible pinned
-  regular file, with a fixed command (no external diff/textconv/shell),
-  **GitStatus + FilesRead** RBAC, host audit, complete 4KiB E2EE result
-  in a distinct non-swappable type.
-- Updated native command parser, path/flag guard, Type-only AEAD regression
-  tests, host positive/negative access tests and mandatory Go CI steps.
-
-No browser-served TaskDeck credentials or executable commands, no new
-Portal-side decryption, no staging/commit writes. Unmodified protections:
-password + host-approved client key + fixed Agent E2EE, independent
-per-action TaskDeck authorization, uncached Portal grants and host audit.
-Production security and live Internet acceptance are **not finished**;
-the revised same-head CI must be checked. Keep **LIVE NO-GO** and
-`remote_control_available=false`.
-
- 
-## 2026-10-31 — full interactive Git status, legacy schema intact
-
-Added dedicated `git.status_full` with complete at-most-4096-byte
-authenticated text and a separate E2EE result type (not confused with
-the old 192-byte Git status). Uses read-only, argument-fixed,
-environment-isolated Git, host TaskDeck `GitStatus`, live Portal grant,
-local user audit and the same six-action/five-minute quota.
-The native `git status` command now calls this new operation.
-Legacy diagnostics remain unchanged. Regression tests include a repository
-with enough tracked changes to exceed 192 bytes, E2EE type-swap rejection
-and PHP-only principal denial. Scoped file downloads, Git stage/commit and
-unrestricted PTY remain outside this increment. Full CI still must be
-verified on the final code commit; LIVE NO-GO.
-
-
-## 2026-11-02 — Git GUI local diff search pagination (feature branch; CI pending)
-
-Added native-only Previous/Next navigation for authenticated Git diff search,
-32 matching lines/page, with explicit page number and total. Navigation is
-strictly local and does not make E2EE calls, execute Git commands, request
-additional authority, or stage changes. The full Agent-verified diff remains
-visible for review. Page state and detached row handles are invalidated on
-file, filter, query, snapshot, render and native session close.
-
-Pending same-head Go/PHP/native Linux+macOS CI, PR review and merge.
-Remaining priority work: Git fetch/push/pull/merge/rebase/cherry-pick/conflicts,
-Git GUI multi-file operations and proper conflict resolution; interactive
-Terminal PTY with stdin/out/err, resize, stop/reconnect and robust session
-recovery; full GUI parity and real compromised-PHP/network security tests.
-No change to host-only TaskDeck login, allowlisted keys, anti-bruteforce,
-E2EE/PHP data blindness, host per-action RBAC, audit and default-OFF
-write flags. **LIVE NO-GO; `remote_control_available=false`.**
-
-## 2026-11-02 — Git GUI sequential multi-file review (staging, CI pending)
-
-Native Git GUI has a local, bounded review queue of up to eight visible
-changed files originating from the last fully authenticated Git Status.
-The user can move between selected files and explicitly request a fresh
-Git diff, Git two-way review or independently host-confirmed stage/unstage
-action. Queue selection and navigation themselves perform **zero**
-E2EE requests or Git writes, and no arbitrary Git arguments or commands
-can be supplied through the Portal.
-
-The queue is invalidated at the start of every new Git Status, on any
-possibly committed host mutation (including uncertain transport result),
-and on local native session close. Detached old status cards are refused
-even if a filter redraws the same snapshot. Host one-use SHA-CAS,
-password/approved client key, local RBAC, live Portal grant, E2EE and
-default-OFF write flags remain authoritative.
-
-Remaining P0: production-grade Git fetch/push/pull, merge/rebase/conflict
-operations and safely reviewed multi-file staging; true interactive
-Terminal PTY with stdin/output/resize/cancel/reconnect; complete native
-GUI parity; independent real Internet NAT/CGNAT and compromised-PHP
-post-enrollment security acceptance. This release increment **does not**
-complete those features. Keep `remote_control_available=false` and
-Remote Control **LIVE NO-GO** until verified.
-
-## 2026-11-02 — Git GUI reviewed-result progress for queued files (staging)
-
-The native trusted GUI now supports adding all matching **already
-authenticated** status-file paths to its bounded eight-file queue,
-atomically refusing overflow. It can advance to the next queued path
-without a complete two-way Git result. Once an operator expressly
-requests and receives a well-formed bounded two-way Git review from
-the E2EE Agent, the queue marks that file only as *result loaded*.
-It is not a user acknowledgement, host SHA-CAS review token, sign-off
-to mutate the Git index or proof the remote filesystem has remained
-unchanged. New status/uncertain mutations/native close invalidate all
-review markers.
-
-No extra PHP-side capabilities, transparent payloads, arbitrary
-commands or network Git operations have been added. Status is staging,
-pending same-commit Linux/macOS GUI, Go Agent and PHP Portal CI.
-Outstanding priority remains safely authorized Git fetch/pull/push,
-merge/rebase/conflict handling, multi-file staging, interactive PTY
-with live input/streaming/resize/reconnect, full GUI and external
-compromised-PHP plus NAT/CGNAT security acceptance.
-**LIVE NO-GO** and `remote_control_available=false`.
-
-## 2026-11-03 — Git diff hunk navigator (staged behind CI)
-
-Added a read-only, local hunk list for existing authenticated native Git
-diff previews. All unified-diff headers are discoverable across 16-item
-pages; selecting an item displays its bounded original hunk text. The
-full E2EE-authenticated diff remains available and is not replaced by
-a hunk excerpt for Git write review. This does not trigger any network
-request, remote command, Git index mutation or new host-side authority.
-
-New authenticated snapshots, invalidated status after host mutations,
-filter changes and native session close reject stale hunk cards and
-clear private previews. Six DOM tests cover navigation, hostile text,
-view changes, stale cards and close. Go/PHP/native GUI CI and independent
-real Internet / PHP-Relay compromise security verification remain
-required. Keep `remote_control_available=false` and LIVE NO-GO.
-
-## 2026-11-03 — Git conflict visibility, upstream-tracking inspection and Console shortcuts (staging)
-
-Added in trusted native client:
-- Git status parses seven Git unmerged XY pairs, makes them selectable
-  with conflict-only scope and a local Next Conflict picker, without
-  dispatching Git writes or implicitly obtaining additional E2EE results.
-- The GUI displays upstream branch and ahead/behind counters **only
-  when authenticated Git Status provides a structurally valid local
-  tracking header**. These counters are derived from local tracking
-  refs, can be out of date relative to the server, and must not be
-  interpreted as a fresh remote fetch.
-- Local-only Console commands `git tracking` and `git conflicts`
-  reuse that successful Git Status snapshot. They never cross the
-  transport layer and refuse stale/absent/malformed or revoked snapshots.
-- On new status, possibly committed host mutation or session end,
-  metadata and conflict navigation are cleared. Git stage/unstage
-  and commit retain per-action host authorization + one-use SHA-CAS.
-
-This is a strictly read-only, native-GUI-only increment. Not yet
-implemented: authenticated network Git fetch/pull/push; merge/rebase/
-conflict-resolution operations; staged multi-file Git writes; real
-interactive PTY with stdin/resize/reconnect; full Remote GUI parity;
-real compromised-PHP post-enrollment and Internet/NAT/CGNAT acceptance.
-`remote_control_available=false`; **LIVE NO-GO**.
-
-## 2026-11-03 — Trusted Console transcript search (staged)
-
-Native Remote GUI Console now lets the operator find a bounded, literal,
-case-insensitive substring within **only the last four text-only Console
-results already held in native RAM**. Filtering changes no network,
-E2EE, TaskDeck task, host command or Git working tree state. It does
-not persist any history outside the native process.
-
-All Console output remains escaped and shown only through textContent;
-search queries must fit 96 UTF-8 bytes and reject controls, Unicode
-format/bidi and leading/trailing whitespace. New authenticated results
-refresh the local view; clear and native session close scrub filter
-and transcript content. The exact authenticated response remains in
-the existing result pane, subject to the existing native session
-controls. Five Node DOM regressions cover search, four-entry bounded
-retention, Unicode rejection, new result, clear/close.
-
-This is not a true Terminal PTY, shell or arbitrary remote command
-executor, and does not change default-OFF host action privileges,
-PHP ciphertext-only transport, E2EE RBAC or LIVE NO-GO.
-
-## 2026-11-03 — Authenticated conflict marker navigation (staging)
-
-Added a read-only conflict helper to the trusted native Git GUI. Once an
-authenticated `git.status_full` proves a file has an unmerged XY code,
-the operator can explicitly request its existing `file_view` over E2EE.
-The native GUI displays complete, structurally valid Git conflict marker
-blocks from the **complete <=4KiB** text. No implicit host request,
-automatic conflict choice, Git stage/commit, shell, or file write occurs.
-
-All marker previews and selected blocks are invalidated on new Git Status,
-selected-file changes, uncertain host mutation, response races and native
-close. Nested/incomplete/unsupported diff3-style markers fail closed, and
-untrusted content is rendered only via textContent. File edits and Stage
-still use the existing **separate one-use host-approved SHA-CAS review**;
-fresh Git Status is required after writes. Seven DOM regressions added.
-
-Pending: merge after same-SHA Go/PHP/Linux+macOS CI; real field acceptance
-for NAT/CGNAT and post-enrollment PHP/Relay compromise; properly reviewed
-Git network operations, merge/rebase, conflict resolution writes and
-interactive Terminal PTY. Keep `remote_control_available=false` and
-**LIVE NO-GO**.
-
-## 2026-11-03 — Native Console command history, explicit selection (staging)
-
-Added a local, bounded command history list to the trusted native
-Console, with literal search over up to 16 previously accepted
-read/review commands. Clicking a history entry only populates the
-command input; a subsequent explicit Enter/Read remains necessary
-to invoke the current typed E2EE allowlist action. Shell/Git network
-writes/PTY and arbitrary command execution remain unavailable.
-
-Privacy hardening: `clear` now wipes command history and both local
-search fields in addition to transcript display. On a new search,
-existing cards become stale. Native session close scrubs all data,
-and hostile/control/Bidi query strings never create selectable cards.
-Six Node DOM regressions added.
-
-Merge only after all same-HEAD Go/PHP/Linux+macOS CI pass. Keep
-`remote_control_available=false`, **LIVE NO-GO** pending NAT/CGNAT,
-post-enrollment PHP/Relay compromise and per-host security acceptance.
-
-## 2026-11-03 — Guided Git conflict draft via existing reviewed Files editor (staging)
-
-For a Git conflict file previously authenticated by Git Status and
-`file_view`, the native GUI can locally select either OURS or THEIRS
-for a single strict conflict block, retaining all other code untouched.
-This is a local draft, not a Git mutation or confirmation of resolution.
-
-The **separate** draft-review action calls the existing Agent E2EE
-`file_edit_review` and accepts the result only if its complete source
-content exactly equals the original authenticated conflict file.
-Mismatch, stale status, changed target, exhausted 2-round quota or
-late responses reject the draft. On acceptance, the existing Files
-editor receives the draft with an empty confirmation field, and
-the existing one-use host SHA-CAS `file_edit_execute` remains
-mandatory. A different block/choice/status change revokes the prior
-review; writes invalidate cached Git information.
-
-Nine DOM regressions added. No PHP plaintext, host privilege change,
-arbitrary terminal, Stage/Commit bypass or auto-conflict resolution.
-Before merge require exact-head Go Agent, PHP Portal, Linux/macOS
-Native GUI PASS. LIVE NO-GO until external PHP-compromise and NAT/CGNAT
-security acceptance and real-host operations verification.
-
-## 2026-11-03 — Bounded managed task output visible in native Console (staging)
-
-Console now has explicit buttons to inspect a host-approved managed
-task's authenticated output and request the next verified 2 KiB byte
-window, mirroring the existing Tasks view without additional reads.
-The action is routed exclusively through the existing typed and
-allowlisted `tasks output` / `tasks next` Console commands and
-host-side task handle authorization. A valid 32-lowercase-hex handle
-and the last E2EE-proven cursor are mandatory; forged offsets, bad
-response lengths, changed handles and EOF fail closed. No auto-polling,
-arbitrary command, shell, stdin or PTY is added.
-
-Native GUI clears output and disables next on malformed/late reply or
-session close, and retains no more than four verified windows.
-Seven DOM regressions added. This improvement does **not** complete
-the planned interactive Terminal PTY. Release gates remain exact-head
-Linux/macOS GUI, Go, PHP CI plus real NAT/CGNAT/post-enrollment PHP
-compromise acceptance. LIVE NO-GO and remote_control_available=false.
-
-## 2026-11-03 — Per-file Git Stage/Unstage review from authenticated queue (pending CI)
-
-The trusted native Git GUI now offers explicit per-file **Review Stage**
-and **Review Unstage** controls integrated with its eight-file review
-queue. Buttons require an authenticated Git Status, a selected
-non-conflict tracked path and a structurally valid loaded two-way review.
-Selection or local navigation alone still makes no E2EE request or write.
-
-Review invokes only the existing host `git_write_review` and expires
-if its originating queue/status/selected file changes before Agent
-response. The unchanged separate manual confirmation and one-use
-host-side SHA-CAS `git_write_execute` are still required to mutate
-the index, and possible writes discard all cached Git status/reviews.
-Malformed/late reviews, conflicts, untracked paths and insufficient
-2-round budget fail closed. Nine Node DOM regressions added.
-
-This is not multi-file staging, automatic conflict resolution,
-network Git fetch/pull/push or an interactive PTY. Keep host write
-flags OFF by default and `remote_control_available=false`.
-LIVE NO-GO until exact-head CI and independent post-pair PHP compromise,
-real NAT/CGNAT and owner-approved host acceptance are complete.
-
-## 2026-11-03 — Typed E2EE Git remote-name metadata (staging)
-
-Added a bounded, fixed-argument, **offline** read of Git remote names on
-the host via the existing trusted Git executable. It never retrieves
-remote URLs or credentials, never runs remote helpers, network commands
-or user-supplied Git argv, and is subject to the existing independent
-TaskDeck credential/client-key login, RBAC, local audit and safe-read
-repository config preflight.
-
-The Agent returns only \`GIT_REMOTES_V1\` and up to 16 strict ASCII
-names. A distinct authenticated E2EE result type and native GUI/Console
-parser refuse malformed or credential-bearing data; the browser never
-obtains remote config values. The trusted GUI has an explicit **Remotes
-(chỉ tên)** read button and the native Console supports \`git remotes\`.
-Failures and native close scrub stale values.
-
-Testing includes host offline credential-redaction and count limits,
-clean-filter guard, E2EE type/confusion tests, native HTTP request
-smuggling and Console allowlist, and DOM races/close. Merge requires
-same-HEAD Go Agent, PHP Portal and Linux/macOS Native GUI CI PASS.
-
-Git Fetch/Pull/Push, remote URLs, network credentials/authorization,
-server-side per-remote allowlisting and interactive PTY are NOT built.
-\`remote_control_available=false\` and LIVE NO-GO remain in force.
-
-## 2026-11-03 — Offline local Git remote-tracking refs via E2EE (staging)
-
-Native Git GUI and Console now request **git.tracking_refs**, an
-independent read-only E2EE operation with no arbitrary input. The host
-returns only a versioned bounded list of \`refs/remotes/*\` identifiers
-and OIDs already present in the local clone. It does **not** contact
-Git servers or authenticate to a remote. Returned values may be stale.
-
-Security: fixed host Git command, existing trusted Git path/environment
-and untrusted clean/process/smudge filter denial; \`GitLog\` RBAC and
-TaskDeck password/approved client-key identity; per-request audit,
-distinct AEAD result type, ≤32 strict ref paths/OIDs, fail-closed
-validation by Agent, native client and GUI; no URL or credentials ever
-returned. Explicit initial read; no automatic refresh or shell/PTY.
-Native close, failures and host mutations invalidate GUI metadata.
-
-Host and E2EE/CLI/GUI/DOM regressions added. Merge only after exact-head
-Go Agent, PHP Portal and Linux/macOS GUI CI PASS. New typed data does not
-enable Fetch/Pull/Push, branch rewrites, force-updates or remote code
-execution. Keep \`remote_control_available=false\`, LIVE NO-GO pending
-independent PHP-compromise and real NAT/CGNAT security acceptance.
-
-
-## 2026-11-03 — Trusted Remote GUI: approved task catalogue local search (feature branch)
-
-- Native Remote GUI Tasks now includes a **client-side filter** by task name
-  or `#ID`, a clear-filter action and explicit selected-task identity. Filtering
-  is performed exclusively on a validated, bounded host-E2EE task catalogue
-  already received by the client. Typing, filtering and choosing a card
-  never send a command or consume another E2EE action.
-- All malformed, duplicate, oversized, rejected and failed catalogue refreshes
-  discard the previous selectable list and its selected-label attribution.
-  Native GUI close scrubs the filter and catalogue and disables its controls.
-- Task execution is unchanged: host-local approval, TaskDeck login and
-  client-key authorization, explicit review, exact one-use confirmation,
-  task digest / allowlist checks and safe managed execution remain mandatory.
-  Search does not enable arbitrary task IDs, shell or PTY commands.
-- Seven new Node DOM regressions cover filtered selection, literal untrusted
-  names, malformed refresh, empty-approved-list response, revoked read, separate review/execute and
-  session-close scrubbing.
-- Branch: `feature/remote-gui-task-catalog-search-20261103`. Require same
-  source revision Linux/macOS native GUI, Go Agent/Relay and PHP CI before
-  merging. **This is a staged native UX change, not a LIVE release.**
-- Still outstanding in requested priority order: extended Remote GUI task
-  operability/physical acceptance; reviewed network Git Pull/Commit/Push
-  semantics and host authorization (Commit remains local SHA-CAS only);
-  other Git actions; safe interactive Terminal; other Remote GUI panels;
-  remaining remote features and independent post-enrollment compromised
-  PHP, data confidentiality, login-bypass and NAT/CGNAT validation.
-  Keep `remote_control_available=false`, LIVE NO-GO.
-
-
-
-## 2026-11-04 — Native Remote GUI task status and exit-code interpretation (staging)
-
-- Trusted Native GUI Tasks now presents a separate status/result panel
-  for host-authenticated `StartManagedTask`, `StatusManagedTask`,
-  `CancelManagedTask` and synchronous task reports. The parser accepts
-  only the complete typed PingClient envelope, strict handle and
-  state/exit-code invariants; stdout is treated only as escaped text,
-  not as a status authority.
-- Start binds the actual host-issued handle to the Task panel after
-  review and the operator's separate exact confirmation. Status is an
-  explicit one-round E2EE read; a handle swap before the response
-  invalidates the result. The Console's existing `tasks status` command
-  mirrors the same validated information without a duplicate request.
-- Cancel uses existing native human confirmation, checks for handle races
-  before and after the Agent request, displays `cancel_requested` as
-  pending rather than claiming the task has stopped, and refuses implicit
-  retries after uncertain results. Output remains bounded, and GUI
-  session close scrubs status and task text.
-- Thirteen new DOM regressions include managed start, verified exit code,
-  output spoof/control sanitization, forged envelopes, late handle races,
-  nonzero synchronous exit, malformed reports, cancellation pending vs
-  stopped, cancellation race/denial, Console reuse, handle-switch output invalidation, and close scrubbing.
-- This change does **not** add arbitrary task execution, shell/PTY,
-  credentials via PHP, new host permissions, Git network commands, or
-  polling. Merge only after exact-head Linux/macOS GUI, Go Agent/Relay
-  and PHP Portal CI are green.
-- Remaining priorities: physical trusted GUI task-run acceptance,
-  Git Pull then Commit then Push (with separately designed safe network
-  authorization); other Git operations; interactive Terminal PTY;
-  other Remote GUI panels and remaining remote features.
-  Independent compromised PHP/Relay and NAT/CGNAT tests are still
-  required. `remote_control_available=false`; LIVE NO-GO.
-
-
-## 2026-11-04 — Tasks GUI local output search and stale-response protection (staged)
-
-- Added a bounded, literal local search to the trusted native Tasks view:
-  the last four authenticated managed task output windows and one
-  authenticated completed/status report, up to 24 displayed matched
-  lines. The search does not reach PHP, Relay or Agent and consumes zero
-  E2EE action quota; original unfiltered output stays available.
-- Search rejects control/invisible/bidi characters, padded and overly
-  long UTF-8 queries. It renders solely escaped textContent, never HTML,
-  regex expressions or terminal escape sequences, and scrubs on native
-  session close.
-- Closed previously unhandled late-response races for the direct Task
-  Output button and authenticated Next-page button: both compare the
-  selected 32-hex handle and byte offset at response time. A changed
-  target, revoked continuation or uncertain response resets the old
-  paginated cursor. A synchronous Run result cannot be mixed with
-  another managed task handle's output.
-- Fifteen new synthetic DOM regressions were added. CI gates: Linux
-  native GUI, macOS native GUI, Go Agent/Relay and PHP Portal, all
-  validated against the exact PR head before merging.
-- Priority after this increment: validate full remote task execution
-  live on real trusted hosts; then Git Pull, existing Git Commit
-  acceptance, Git Push, interactive Terminal, remaining Git commands,
-  other GUI functionality, and final security release gates.
-  `remote_control_available=false`; LIVE NO-GO.
-
-
-## 2026-11-04 — Managed task large-log terminal receipt (staging)
-
-Problem: a host-approved managed process could exit normally yet produce
-more than the 3,200-byte authenticated final-result cap. The old
-`task.managed_status` path denied the terminal receipt entirely and
-left the one-managed-task slot occupied until the session ended.
-
-Mitigation:
-- Preserve separately authenticated terminal state and exit code for
-  oversized or invalid UTF-8 output with `OutputOmitted=true` and
-  **zero** stdout bytes; never send a misleading retained suffix.
-- E2EE wire format validates the typed omission boolean and denies an
-  omitted-but-nonempty output, an omitted live-process receipt, or a
-  forged inconsistent state. The trusted client renders an explicit
-  `TASK_OUTPUT_OMITTED yes` text header only when the host sent it.
-- A terminal receipt releases the TaskDeck-owned handle and host
-  per-session managed slot. GUI keeps previously verified local log
-  pages but disables paging or redundant requests on the retired
-  handle. The UI explains that large logs should be paged **before**
-  terminal Status and that the final receipt does not contain a complete
-  transcript. The old complete-output path stays unchanged.
-- Added real approved-process host test and protocol/DOM regressions.
-  The result **does not** add PTY, arbitrary shell, new host permissions,
-  network Git, HTTP/PHP command endpoints, background polling or retries.
-- Next priority remains remote GUI task execution real-host acceptance,
-  followed by E2EE Git Pull, Git Commit/Push, Terminal, other Git, other
-  GUI and remaining functions. Compromised-PHP and NAT/CGNAT live drills
-  remain mandatory; `remote_control_available=false`, LIVE NO-GO.
-
-
-Mixed-version compatibility: standard (non-omitted) terminal receipts retain
-the original exact E2EE JSON field set; a new client validates both the
-legacy exact schema and the new exact omitted-output schema. Unknown fields,
-duplicates, invalid output-omitted types and mismatched states are rejected.
-An old client may fail closed on a new explicit omitted-output receipt; no
-silent downgrade, network retry or alternative PHP authority is attempted.
-
-
-Terminal metadata also survives scrollback prefix eviction: when the optional
-local OutputWindowReader can no longer return a complete zero-based window,
-the host omits **all** program output while retaining the separately verified
-exit status. Contradictory successful offset accounting still fails closed.
-This does not relax task ownership checks or authorize reading another
-process. A synthetic host test uses a 128-byte bounded scrollback to verify
-this case and retired-handle denial.
-
-
-## 2026-11-04 — Task GUI terminal handle protection (staging)
-
-- The host retires the exact managed task handle after the authenticated
-  terminal Status receipt. Native Tasks UI no longer calls Agent again
-  for Status or Cancel of that handle; it keeps the verified state, exit
-  code and complete/incomplete-output indicator visible instead of
-  clearing them on a guaranteed-denied request.
-- A `cancel_requested` receipt means **not yet stopped**; a redundant
-  Cancel attempt will not be sent. Explicit Status may still confirm
-  STOPPED/EXITED with a separately validated E2EE response.
-- Managed Start rejects any non-`running` reply; Cancel rejects a
-  `running` reply without the required terminal/cancellation state.
-  Unrelated handles are not blocked by a retired task.
-- Added six synthetic native DOM regressions. No host RBAC, task
-  digest whitelist, sealed response domain, queue budget, or release
-  gate was weakened. Next code priority is safe E2EE Git Pull then
-  Git Commit/Push, Terminal, other Git and remaining GUI.
-
-
-## 2026-11-04 — Synchronous approved Run output omission (staging)
-
-- A 7-second synchronous approved Run now preserves host-certified exit
-  metadata even if the full output exceeds 3,500 bytes, is evicted from
-  TaskDeck scrollback, or is not valid UTF-8. Omission is an explicit
-  typed E2EE boolean; the output field must be completely empty.
-- Host uses exact sequential OutputWindowReader offsets and validates
-  total/length before declaring a transcript complete. Contradictory
-  successful cursor accounting fails closed. Existing complete reports
-  retain the original wire format; new clients accept only two exact
-  schemas and reject corrupted omission flags.
-- Native GUI shows exit status and "output không đầy đủ" separately,
-  never promises a full log from a truncated tail, and does not run
-  the task again or fabricate a managed handle. Documents the
-  existing `Start` + 2 KiB paged output as the long-log path.
-- Added E2EE strict-wire, real short-process host and Native GUI
-  regression tests. Remaining next code priority: Git Pull via
-  pinned Agent E2EE, then existing Git Commit acceptance / Git Push,
-  interactive Terminal, other Git, other GUI, remaining features.
-  LIVE stays NO-GO until external compromised-PHP and NAT acceptance.
-
-
-## 2026-11-04 — Git Pull preflight via Native E2EE (phase 1, staging)
-
-New `git.pull_review`: bounded, read-only encrypted report on the current
-host-selected upstream ref that was previously fetched. It proves
-local HEAD/upstream relationship through Git commit ancestry and refuses
-dirty, diverged, detached, shallow, unexpected names, executable filter
-configs, invalid OIDs, and conflicting re-reads. Host GitStatus/GitLog
-RBAC, taskdeck password principal, grant checks and local audit are
-required; PHP sees only AEAD frames.
-
-Native GUI shows clean workspace, original HEAD, local upstream OID and
-the `fast-forward`/`up-to-date` result but **never** enables Pull
-execution from the read-only review. No network connection, fetch,
-merge, ref update, shell, extra Git argv or credential is permitted.
-A stale tracking ref is not proof of a fresh remote state. Review output
-is discarded when the user initiates another GUI action.
-
-Added Go real local-Git tests with unreachable remote URL (must not
-connect), clean/dirty/diverged/missing-upstream/executable-filter
-checks, typed E2EE validation/tests and native GUI regressions.
-Not complete: HTTPS fetch, one-use exact-digest approval, guarded
-fast-forward application and all real-host release acceptance.
-Remaining priority: Git Pull execution, Git Commit, Push, Terminal,
-other Git, other GUI, remaining functions. LIVE NO-GO.
-
-
-Additional network hardening: all host-side isolated Git subprocesses set
-`GIT_NO_LAZY_FETCH=1`. Git may otherwise silently contact a promisor
-remote while rev-parsing, traversing ancestry or checking status in a
-partial clone, even though no explicit fetch command was issued. Missing
-objects now cause an ordinary fail-closed preflight rather than hidden
-network activity. The real-Git regression asserts this environment gate.
-
-
-## 2026-11-04 — Cached tree-identical Git FF execution (phase 2, staging)
-
-Implemented a restricted actual branch-ref advance from the locally
-available, previously fetched upstream, gated by two host-only settings
-and the authenticated TaskDeck GitWrite + GitStatus + GitLog RBAC.
-
-Native GUI obtains an independent `GIT_PULL_CACHED_V1` review only
-when the full commit ancestry supports fast-forward, the working tree
-and index are clean, and HEAD/upstream Git tree OIDs match. A 45-second,
-single-use user confirmation binds SHA-256 over branch, head, upstream,
-target and exact index hash. The E2EE execution request carries only
-that digest; Agent rechecks every condition under index.lock while Git's
-own update-ref transaction acquires HEAD/ref locks and verifies
-upstream plus expected-old-OID branch CAS.
-No file checkout, fetch, shell, runtime Git argv, URL or credential
-transfer. The post-update response is an authenticated OID.
-
-This is **not full Git Pull**. It permits metadata-only FF, not
-updates touching file trees or retrieving remote commits. Still
-pending: safe configured network fetch, full-worktree FF with file
-changes, Git Commit real-host acceptance, Git Push, Terminal and other
-features. External live-release gates remain unpassed; LIVE NO-GO.
-
-
-## 2026-11-04 — Native Tasks GUI synchronous completion target isolation
-
-- Fixed a local native GUI confusion case: after a host-authenticated
-  synchronous Run finished, selecting a *different* Task ID previously
-  left the prior task's exit code and stdout visible under the new task
-  selection. Completed Run receipts are now explicitly bound to their
-  reviewed numeric Task ID. A manual ID edit, authenticated catalogue
-  card selection, or allowlisted Console task-review selection clears
-  that old receipt and its local search hits before showing another task.
-- Re-selecting the same Task ID preserves its verified result. Managed
-  task status/output remains bound to its independent 32-hex host-issued
-  handle; selecting an unrelated task for possible future execution
-  does not erase a still-useful managed-process status.
-- Four Node DOM regressions cover manual selection and switch-back,
-  catalogue card selection, Console selection without auto-execute, and
-  managed handle preservation. These paths send no new E2EE read or
-  task execution. No change to host auth, review tokens, E2EE transport,
-  PHP/Relay permissions, task catalogue authority or session budget.
-- This is a staging fix. Real trusted-host GUI task execution/cancel/log
-  acceptance is still required, then reviewed Git Pull/Commit/Push,
-  interactive Terminal, other Git actions and GUI panels. The independent
-  compromised-PHP, confidentiality, login-bypass and NAT/CGNAT gates
-  remain mandatory; `remote_control_available=false`, LIVE NO-GO.
-
-
-## 2026-11-04 — Remote GUI disconnect revokes in-flight task without waiting for Agent
-
-- Fixed a critical native GUI close/deadlock risk: the old `close()`
-  waited on the same mutex held across synchronous approved Run, managed
-  Start, and remote E2EE reads. A stalled Agent/Relay could delay browser
-  Disconnect until the request timed out.
-- The trusted native GUI now publishes an atomic session revocation,
-  cancels a separate lifecycle context and directly closes the already
-  authenticated E2EE PingClient without waiting for the dispatch mutex.
-  Idle one-time approvals are scrubbed immediately; if a dispatch remains
-  busy, its deferred unlock path scrubs those approvals after it unwinds.
-  Even a late remote success cannot become an OK local GUI response.
-- Added real loopback HTTP-handler regressions for blocked reviewed Run,
-  blocked managed Start, malicious late success, one-time confirmation
-  replay after close, and idempotent idle close. No new task authority,
-  CLI/shell, Git network operation, PHP credential material, or background
-  polling is added.
-- This guarantees **native client/session cancellation**, not that a
-  previously admitted task on the remote Agent was synchronously killed.
-  Verify host-managed cancellation and terminal status separately; never
-  claim remote STOPPED based solely on local Disconnect. Real-device and
-  compromised-PHP/NAT acceptance remains outstanding.
-- Keep `remote_control_available=false`. LIVE remains NO-GO.
-
-
-## 2026-11-04 — Managed Remote Tasks reserve Cancel/Status E2EE rounds (staging)
-
-- The trusted native task dispatcher now demands at least four
-  remaining authenticated application rounds before approving a managed
-  Start: one Review, one confirmed Start, one Cancel and one independent
-  Status verification. Synchronous Run still needs two. A managed task
-  already active in that native session cannot open a second task review.
-- After a verified host-issued 32-hex handle is received, the native
-  client tracks it under the action mutex. With exactly two remaining
-  rounds, it permits only the matching explicit Cancel, then reserves
-  the final round for Status. One `git_review` costs two E2EE actions
-  and cannot spend protected quota. A duplicate Cancel cannot bypass
-  the reservation. A terminal receipt releases this local reservation;
-  a `cancel_requested` response is **not** considered STOPPED.
-- The native GUI and allowlisted Console also enforce these budgets,
-  disable unsuitable buttons and display the remaining protected slots.
-  The GUI preserves a host-authenticated Start handle if the operator
-  changes the selected task/handle while waiting for the response.
-  Neither the browser nor PHP can create handles or grant task rights.
-- The Go client checks the canonical separately AEAD-decoded managed
-  receipt, including optional explicitly omitted output, before
-  assigning local handle ownership. Invalid receipts close the native
-  E2EE session rather than risking ambiguous task ownership. The host
-  still independently authorizes every action and confirms termination.
-- Existing at-most-six-round session bound is **unchanged**. If the last
-  Status still reports `cancel_requested`, a new authorized native
-  session or host-side verification may be required. No automatic
-  polling, retries or unapproved task launch is introduced.
-- Go native quota/receipt tests and native DOM task/Console tests cover
-  reserve accounting, late selector edits, session cleanup, optional
-  output-omitted terminal receipts and fail-closed re-review. The Tasks
-  pane also provides offline restoration of its active authenticated handle.
-  Real-device approval/cancellation, malicious-PHP and NAT/CGNAT
-  acceptance are still required. `remote_control_available=false`:
-  LIVE NO-GO.
-
-
-## 2026-11-04 — Cached Pull integration review: locks and metadata safety
-
-- Rebased restricted offline cached fast-forward onto the current main
-  without reverting the native Tasks GUI lifecycle/Cancel safeguards.
-  The older competing PR #112/#113 variants must not both be merged.
-- Diagnosed Go fast-forward failures: Git update-ref must acquire
-  HEAD.lock internally, so pre-acquiring it causes transaction prepare
-  to fail. The fixed path holds **index.lock only**, disables optional
-  Git status index refresh, lets Git lock HEAD and refs itself, and
-  retains exact upstream verification and old-OID compare-and-swap.
-  An existing foreign HEAD.lock causes fail-closed denial.
-- Added real-Git tests for the held index lock, foreign HEAD lock,
-  symlinked .git/branch/reflog ancestry and symlinked upstream tracking
-  directories/leaves. This first writable stage requires a normal
-  .git directory and loose upstream ref, not a linked worktree.
-- No network fetch, file-changing fast-forward, merge, push, arbitrary
-  Git argv, remote URL, or PHP authority is added. Exact-head CI and
-  host-device/compromised-PHP/CGNAT acceptance remain required.
-  `remote_control_available=false`; LIVE NO-GO.
-
-
-### Read-only Git Pull changed-path manifest (2026-11-04; staging)
-
-The Native Git tab now has **File sẽ đổi khi Pull (offline)**,
-distinct from the regular ancestry preflight and the separately
-confirmed cached tree-identical ref-only update. The new fixed
-`git.pull_changes_review` E2EE action returns an authenticated
-`GIT_PULL_CHANGES_V1` report containing the local branch/HEAD, already
-fetched upstream/commit, exact count and up to 32 sorted complete
-A/M/D file paths. It is intentionally not a write token.
-
-The host checks fast-forward ancestry and a clean worktree before
-enumeration, uses only an OS-owned Git executable with isolated
-environment, no lazy fetch, hooks, textconv, renames or external diff
-helpers, and rechecks the exact upstream/HEAD/worktree snapshot after
-enumeration. Both GitStatus/GitLog and FilesRead are necessary: path
-names are sensitive workspace metadata. The client cannot specify a
-remote URL, Git argv, branch, file or command.
-
-To avoid partial or misleading results, this first phase refuses
-manifests exceeding 32 entries/4 KiB, hidden/dot-prefix paths,
-unsafe ASCII/control/traversal characters, unexpected statuses,
-duplicates or unsorted paths. Unsupported repositories require a
-future protocol extension; the UI never displays a truncated list
-as complete. Results are plain text only and scrubbed on native Close.
-The UI invalidates an earlier manifest after other actions; no
-background polling or automatic retries are introduced.
-
-This helps the operator understand *what would change* during a
-future tree-changing Pull, but **cannot** yet fetch or apply those
-file changes. The existing cached tree-identical ref-only fast-forward
-remains the only remote Pull-related mutation, with host flags default
-OFF. LIVE remains NO-GO pending independent real-device, compromised
-PHP/Relay and NAT/CGNAT acceptance.
-
-### Remote Git Commit: protect writable branch/ref and reflog metadata (2026-11-04)
-
-The existing Git Commit flow remains Review → SHA-pinned, one-use
-confirmation → host-owned Git plumbing with a fixed author → atomic
-expected-old-commit compare-and-swap. It never uses a remote-supplied
-Git command, editor, hook, ref or arbitrary executable.
-
-Before creating the commit tree and again immediately before the final
-ref update under index.lock, the host now verifies that the .git
-directory, refs/heads parent directories, branch ref leaf, HEAD,
-HEAD reflog, branch reflog, packed-refs file and their ancestors are
-ordinary in-repository filesystem entries rather than symlinks.
-Redirected or unsupported layouts fail closed; no foreign lock is
-removed. Git still owns the branch and HEAD locks for update-ref
-because holding HEAD.lock externally would break the transaction.
-
-Real Git tests exercise symlinked HEAD, branch ref, ref directories,
-HEAD/branch reflogs and packed-refs, while preserving successful
-ordinary reviewed commit with unchanged worktree/index and CAS.
-This is host-side hardening only: no extra PHP authority, no new
-Git command, no Git Push and no automatic commit is enabled.
-LIVE remains NO-GO pending independent physical acceptance.
-
-### Git Pull phase 3 — host-approved, offline fast-forward with regular file changes (2026-11-04)
-
-The Native Git tab has **Review FF file đã fetch**: this is deliberately
-distinct from the read-only path inventory and the existing cached
-**tree-identical** ref update. It obtains a fresh E2EE
-`GIT_PULL_CHANGES_V1` manifest of a previously fetched, provable
-fast-forward: exact current HEAD, upstream and new commit with at most
-32 complete, sorted A/M/D paths. A separate `git.pull_apply_files`
-request carries only SHA-256 of that full host-authenticated review,
-never Git argv, URL, path, refspec, credentials or source data.
-
-The host requires both `TASKDECK_REMOTE_GIT_WRITE=1` and a distinct
-`TASKDECK_REMOTE_GIT_PULL_FILES=1` (both **OFF by default**), real TaskDeck
-principal, current signed Portal grant, audited action, GitWrite,
-GitStatus/GitLog and FilesRead/FilesWrite. The native GUI requires a
-second E2EE action and exact one-time confirmation within 45 seconds.
-
-Before applying, the Agent rechecks the full change report and index
-bytes, verifies each path and the corresponding old/target Git tree
-objects. Only ordinary 100644/100755 Git blobs, safe ASCII paths and
-in-workspace regular file destinations may change: no symlinks, gitlinks,
-submodules, symlink parents, hidden paths, unknown statuses or partial
-lists. Git metadata must have regular refs and reflogs, an unchanged
-symbolic HEAD, a canonical loose tracking ref and no unsafe ancillary
-merge metadata. Existing foreign index/HEAD locks force denial.
-
-The only mutation is one trusted OS Git `merge --ff-only` pinned to the
-reviewed commit OID, with hooks, signing, optional filters, lazy fetch,
-submodule recursion and user Git config disabled. This performs normal
-Git-managed ref/index/worktree updates. Afterward the host verifies the
-exact branch/HEAD and a clean, now-up-to-date local checkout before
-authenticating the new commit ID. On failure or uncertain outcome
-TaskDeck **never retries, silently rolls back, or claims success**:
-the operator must separately re-read Git Status.
-
-This is still **offline**: it does not contact GitHub or any other
-remote, fetch a commit, read token or run arbitrary SSH/credential
-helpers. It can only apply objects already present on the host. A
-dedicated future review is required for secure network Fetch and Push.
-Real-host Git concurrency and compromised-PHP/Relay / NAT/CGNAT
-acceptance remain pending; `remote_control_available=false`, LIVE NO-GO.
-
-
-#### Directory pinning and malicious local Git metadata hardening
-
-A local repository can set `core.worktree` to redirect an otherwise
-ordinary `git -C <workspace> merge` into a different filesystem
-directory. TaskDeck now rejects any local/included `core.worktree`
-setting and sets `GIT_DIR` and `GIT_WORK_TREE` explicitly to the
-approved host project for both the Git-tree validation and ff-only
-checkout. A repository with a linked `commondir`, separate
-`config.worktree`, alternate Git object store, symlinked `.git/config`
-or symlinked Git object metadata is refused, not silently followed.
-Dedicated real-Git tests cover the outside-worktree and redirected
-metadata paths, with assertions that the original loose HEAD ref and
-external sentinel files remain unchanged after denial.
-
-
-### Host-pinned, credentialless HTTPS Git Fetch — first network stage (2026-11-05)
-
-Native Git adds a separate **Review HTTPS Fetch (host)** action.
-Its E2EE review is offline: it verifies the local clean branch, current
-upstream, normal Git metadata, safe transport configuration, and a
-*host-only* HTTPS URL exactly matching `remote.origin.url`. It returns
-an authenticated `GIT_FETCH_HTTPS_REVIEW_V1` report containing the
-canonical branch, old HEAD/upstream OIDs, public HTTPS hostname, URL
-SHA-256 and complete local Git config SHA-256. **No URL, token, secret,
-HTTP request or Git fetch is sent during Review.** A remote client cannot
-specify any URL, remote name, refspec, Git argv, credential, output path
-or executable.
-
-Execution requires the host's `TASKDECK_REMOTE_GIT_WRITE=1` AND
-`TASKDECK_REMOTE_GIT_FETCH_HTTPS=1` (both default OFF), plus
-`TASKDECK_REMOTE_GIT_FETCH_URL=https://github.com/OWNER/REPO.git`
-(or canonical public gitlab.com/bitbucket.org URL). The host URL must
-be public, credentialless HTTPS, with an exact approved hostname and
-safe ASCII path; private Git repositories, SSH, alternate ports, local
-IP/loopback URLs, URL credentials, query strings and redirects are
-intentionally unsupported. Git config must contain the identical
-`origin` URL; changes require another review.
-
-The authenticated native operator separately reviews, types the exact
-45-second one-use confirmation, and spends a second E2EE round carrying
-only SHA-256 of the full reviewed metadata. Agent checks the real local
-TaskDeck principal, live signed Portal grant, local audit,
-GitWrite/GitStatus/GitLog, session epoch and host opt-in. Before
-networking it revalidates all inputs. Git is executed from a trusted
-OS-managed binary, with isolated HOME/environment and a fixed,
-noninteractive Git HTTPS command and exact source:remote-tracking
-refspec: no URL rewriting, user credential helper, TLS verification
-disable, HTTP proxy, redirect, hooks, submodule recursion, tags,
-unrelated ref pruning, FETCH_HEAD write, maintenance or lazy fetch.
-The command is bounded by a context deadline. Failures/uncertain
-results are never automatically retried or represented as success.
-
-A successful Fetch updates only the approved *local remote-tracking
-ref* and Git object store, **never HEAD/index/worktree**, and returns
-an E2EE-authenticated target OID after rechecking configuration,
-metadata, current branch, checkout cleanliness and index bytes.
-Next, the operator must use a **new** offline Pull review and
-separate explicit FF Apply. A force-pushed or divergent upstream does
-not authorize the local merge.
-
-The first network phase intentionally rejects repository-local config
-keys outside a narrow safe allowlist: URL rewrite `insteadOf`,
-`http.*` overrides, credentials, proxy, includes and arbitrary
-helpers are not accepted. It requires ordinary single-worktree,
-non-sparse Git metadata and loose tracking refs. Users with private
-repositories or custom enterprise config must continue to fetch
-locally until a separately designed host-only credential workflow is
-reviewed. No TaskDeck password or software key is ever stored on PHP.
-
-**Release limitation:** Static Git policy, E2EE, disabled-by-default
-host gates and native GUI confirmation have automated regression
-tests, but independently verify a real public HTTPS Fetch, local
-network egress, lock races and compromised-PHP/Relay / NAT/CGNAT
-before enabling LIVE. `remote_control_available=false` remains
-unchanged.
-
-
-### Host-only approved HTTPS Git Push (2026-11-05; code review)
-
-The Native Git panel adds **Review HTTPS Push (không force)**. A fresh,
-strict E2EE `GIT_PUSH_HTTPS_REVIEW_V1` report includes exact local
-branch/HEAD, existing origin tracking ref/OID, public HTTPS hostname,
-URL/config/index SHA-256, OS credential-helper SHA-256 and a locally
-proven fast-forward-only ancestry statement. Review is OFFLINE and
-never reads the credential helper's stored secret or contacts any
-external server. Native client requires exact human confirmation within
-45 seconds; a second E2EE action carries **only** SHA-256 of the
-complete host-authenticated review.
-
-The Agent must have `TASKDECK_REMOTE_GIT_WRITE=1` AND
-`TASKDECK_REMOTE_GIT_PUSH_HTTPS=1` (both default OFF), plus the same
-host-pinned `TASKDECK_REMOTE_GIT_FETCH_URL` as Fetch and an installed
-approved OS-only credential helper designated by
-`TASKDECK_REMOTE_GIT_PUSH_HELPER` (explicit allowlist of standard
-Git Credential Manager, libsecret and macOS Keychain executable paths).
-There is NO support for PHP-stored credentials, supplied bearer token,
-user credentials in remote URL, user-provided helper, shell, SSH, Git
-args or browser-controlled refspec. Host also requires real TaskDeck
-password principal, current Agent grant, GitWrite + GitStatus/GitLog
-permissions, local audit and uncached post-operation authorization.
-
-A Push is allowed ONLY when the checked-out branch has an EXISTING
-upstream `refs/remotes/origin/<branch>`, the repository is clean,
-Git config and object metadata are standard, the pinned local tracking
-OID is a proven ancestor of HEAD, and source/remote names are canonical.
-At Apply, the host first reads the actual remote branch OID using
-`ls-remote` and demands that it match the approved tracking OID.
-Only then does it attempt fixed OS Git
-`push --porcelain --no-force --no-verify --no-follow-tags --no-signed`
-of the **exact** reviewed commit OID to the one approved branch.
-No force-with-lease, force, branch creation, delete, tags, mirror or
-all-branches operations are permitted. In particular,
-`--force-with-lease` combined with `--no-force` CAN STILL rewrite
-history, as demonstrated with a real divergent Git regression, and
-must never be added.
-
-A final `ls-remote` verifies the actual server OID equals the reviewed
-source. Host branch, checked-out worktree and index must remain intact.
-On error, failed authentication, stale remote ref, timeout or uncertain
-network result, the client is told the outcome is UNKNOWN/DENIED,
-no automatic retry, no rollback and no false success. A new, independent
-review is mandatory; a separate HTTPS Fetch may update the local
-tracking ref. The 15-second existing E2EE action deadline limits this
-first-phase network Push; large repositories/slow connections do not
-yet have a resumable protocol.
-
-This only supports credentialless canonical HTTPS URLs plus an
-operator-installed OS-managed credential store on the host. It
-does NOT implement SSH, force Push, newly created remote branches,
-ref deletion or arbitrary custom Git helpers. LIVE remains NO-GO,
-`remote_control_available=false`, until independent physical,
-concurrency, compromised-PHP/Relay and NAT/CGNAT acceptance.
-
-
-### Remote PTY E2EE binary framing groundwork (2026-11-05)
-
-A dedicated `remotetransport/pty_frame.go` codec defines three
-typed, authenticated encrypted records for future interactive
-terminal sessions: bounded `input` (<=256 bytes of printable
-UTF-8, with at most one final CR), `output` (<=2048 raw bytes) and
-`resize` (10–120 rows, 20–240 columns). Every record has a
-32-hex opaque session handle, positive sequence number, its own
-protocol domain and a bound E2EE request ID. Invalid dimensions,
-noncanonical fields, duplicate/unknown JSON keys, mixed frame types,
-wrong request IDs and ciphertext replays fail closed. Remote Control
-availability remains false in all frame envelopes.
-
-**Crucial security boundary:** This codec is NOT a registered
-`RemoteAction`, is not wired into native GUI, Agent action dispatch,
-browser, PHP Portal or Relay, and does not enable a shell or input
-to existing managed tasks. Calling `OpenRemoteAction` on a valid
-PTY envelope is explicitly tested to deny it. Session-scoped
-monotonic sequence validation, backpressure, arbitrary binary input,
-TerminalCreate / TerminalControlOwn RBAC, TTL, explicit host opt-in,
-revocation/cancellation, managed handle/output quotas, keyboard UI
-and PTY lifecycle must be implemented and audited separately before
-activating interactive Remote Terminal. The present 6-round E2EE
-quota reserves Cancel and Status for running tasks, so those safety
-slots must never be spent on PTY input without a revised lifecycle.
-
-Automated focused CI tests frame encoding/decoding, encryption,
-limits, rejection of control/ANSI injection from the input direction,
-unknown/duplicate keys, wrong role, replay and action confusion.
-This is code progress, **not** a completed remote terminal or
-LIVE release. `remote_control_available=false` remains unchanged.
-
-
-### Remote PTY per-direction session sequence gate (2026-11-05)
-
-The next *internal-only*, not-yet-exposed PTY component is
-`BoundedRemotePTYSessionGate`. It binds one opaque approved handle
-and maintains separate exact +1 frame sequences for client→host
-(input/resize) and host→client (output). Each direction admits at most
-1024 frames per session, starting from sequence 1, without sequence
-wrap or unbounded buffering. Duplicate, skipped, wrong-handle,
-wrong-direction, malformed or over-quota records retire the logical
-session fail closed. `Close()` immediately disallows further frames,
-and a mutex serializes competing senders to prevent concurrent
-duplicate input. The E2EE transport still authenticates record
-ordering independently.
-
-Focused Go `-race` tests verify both directions, resize, post-close
-rejection, concurrent duplicated input and fixed quota exhaustion.
-This is **only** protocol/lifecycle groundwork: there is still NO
-registered remote PTY action, shell launch, keyboard UI, new HTTP
-endpoint or PHP authority. Before exposing terminal execution, the
-Agent must implement privileged TerminalCreate/ControlOwn consent,
-host-only explicit opt-in, PTY lifetime/cancellation and revocation,
-backpressure + partial output reads and a proper streaming E2EE budget
-that does not consume emergency managed-task Cancel/Status rounds.
-LIVE remains NO-GO.
+
+## 2026-11-03 — SSH Remote Workspace Git workflow (NOT PHP Relay Remote Control)
+
+Implementation commits on `feature/taskdeck-remote-access-architecture`:
+- `4f27afe3`: server-side `stage`, `unstage`, `commit`, `diff_staged` with per-action Git permissions, canonical relative file paths, Git literal pathspecs, POSIX shell-quoted arguments and strict single-object JSON input.
+- `fe05c41b`, `e6b497fc`: Remote Workspace browser UI exposes staged Git actions, commit messages and confirmations, selectable Git paths from the remote file list, and optional status refresh after mutation.
+- `b0c18fbe`, `620f5685`, `ac706516`: Git validation and local temporary-repository integration tests plus GUI contract checks.
+- `05e41c80`: CI now syntax-checks `remote_workspace.js` alongside Remote Access browser code.
+
+Scope: **These features use the pre-existing SSH/SFTP Remote Workspace and TaskDeck's ordinary local shared-mode permissions**. They are NOT reachable via the PHP Portal / Go Relay application E2EE link. The associated `/api/remote-workspace-git` local HTTP route resolves only an administrator-configured SFTP profile linked to its SSH identity, and cannot be treated as a PHP Remote Control route.
+
+The TaskDeck PHP/Relay Remote Control security gate remains unchanged: `remote_control_available=false`; the production-style authenticated E2EE application path is limited to `session.ping`. No arbitrary HTTP/WS endpoint or Git/terminal/file operation has been mounted on the Relay. The TaskDeck native client key, TaskDeck-local password, live Portal grant and per-action RBAC MUST remain mandatory if future operations cross that boundary.
+
+### Still incomplete (ordered by user priority)
+
+1. **Git over PHP Relay:** define narrow authenticated E2EE Git operation contracts, map every action to per-project Git permissions, enforce host-approved client-key proof, protect repo worktree scope, cancellation, command output limits, replay and audit, test a compromised PHP/Relay and an expired/revoked TaskDeck principal. Do NOT forward raw SSH commands through Relay.
+2. **Full browser/native Remote GUI:** trusted independently pinned client delivery, actual remote TaskDeck login and session lifecycle, non-execution navigation/editor/task views with approved permissions and ciphertext-only app framing, then audited UI action handling. Browser content served by a compromised PHP Portal must not gain TaskDeck execution authority.
+3. **Terminal over PHP Relay:** independently authorized PTY session creation, stream key binding, bounded bidirectional encrypted frames, resize, process cancellation and close, per-command/session policy, multiplexer quotas and real disconnect/revocation races. Do not expose existing local terminal WS directly.
+4. **Security/release:** physical multi-device Firefox/macOS/Linux/NAT and shared PHP hosting test, negative compromised-PHP trials, remote revocation/disconnect/race checks, external security review and confirmed same-source CI. No production release approval from SSH Workspace tests alone.
+5. **Secondary capabilities:** remote file transfer, editor write, Patch/Collection and other workflows should follow the trusted remote-control protocol after Git/GUI/Terminal; do not expand these ahead of the stated priorities.
+
+CI outcomes for the latest source must be checked separately; do not infer PASS from commits alone. No main-branch merge or LIVE deployment was requested by this SSH Workspace change.
+
+
+## 2026-11-03 — First real E2EE Git operation: host-root git.status (EXPERIMENTAL)
+
+**Scope:** The independently installed native TaskDeck CLI has a new
+`-test-git-status` operation. It retains the proven Agent Ed25519
+identity pin, client private-key proof approved via host CLI, TaskDeck
+username/password and live project RBAC. Only after authenticating
+locally does it send the fixed, encrypted `git.status` action through the
+real Browser-WSS → Go Relay → Agent → TaskDeck Host → Relay → native
+client application mailbox. The Go Relay only sees opaque base64
+ciphertext. This is separate from the existing SSH/SFTP Remote Workspace.
+
+Security controls:
+- The daemon must explicitly start with
+  `TASKDECK_REMOTE_LOGIN_PROBE=1 TASKDECK_REMOTE_APP_PING=1 TASKDECK_REMOTE_GIT_STATUS=1`
+  and Relay `-allow-app-ping`. The new Git environment switch defaults
+  OFF independently of the old ping switch.
+- The typed AEAD request admits `session.ping` and `git.status` only.
+  Neither client nor Portal may supply a command, shell argument,
+  repository path or Git option. Every action requires the exact
+  in-process TaskDeck local principal, approved client private-key proof,
+  fresh Portal grant, and distinct `git.status` RBAC.
+- The Git subprocess receives fixed safe arguments, a minimal
+  environment and no shell. The canonical Git top-level MUST equal the
+  TaskDeck workspace root (no parent-repo traversal). Output is at most
+  256 bytes. Excess, malformed text, control characters, duplicate
+  JSON fields and replayed or tampered ciphertext fail closed.
+- TaskDeck stores the `remote.action.git_status` audit event under
+  the verified local user and project. An audit failure denies success.
+- The existing bounded app mailbox retains four stop-and-wait turns
+  and a 537-byte ciphertext maximum. No shell, PTY, Git write,
+  arbitrary HTTP, file or editor operation is routed.
+
+Source milestones: `8bec1945`, `57677a7a`, `1a8474e6`,
+`e5df3558`, `26009e48`, `003a6007`, `1c677f11`,
+`1f09c9df`, `00551b3a`, `5470d9ce`,
+`687062a8`, `6f141110`, `53739b68`.
+Security checks cover E2EE/native decode, replay, oversized frames,
+terminal-control injection, host-only opt-in, unauthorized client identity,
+Git project-root isolation and a real TLS/WSS compromised-PHP integration
+including the resulting local TaskDeck user audit. This is still a
+developer opt-in, not a production penetration test.
+
+**Unfinished, in priority order:**
+1. Full Git operation coverage: branch/log/diff previews, staged
+   changes, add/restore/commit, fetch/pull/push with explicit independent
+   host scopes, cancellation, rollback/confirmation and permission
+   checks on every side effect.
+2. Trusted Remote GUI served from independently verified client code,
+   never a compromised Portal's dynamic JavaScript; secure session
+   navigation and end-to-end encrypted UI data, then bounded interactions.
+3. Remote Terminal: authenticated bounded PTY lifecycle, resize,
+   encrypted streaming/flow-control, close/revoke, cross-platform
+   cancellation and audit; no generic shell route from the Relay.
+4. End-to-end security evidence on actual deployments under NAT/CGNAT,
+   shared PHP hosting, Firefox/Linux/macOS, external compromise trials
+   and independent review. Repeat same-source Go/PHP CI.
+5. Remote Editor, file transfer and Patch/Collection only after the
+   higher-priority operations are safe and stable.
+
+**RELEASE:** `remote_control_available=false`, no live production
+remote control, no main merge. CI run final status is tracked in GitHub
+Actions; do not claim passing until the exact tested SHA shows SUCCESS.
+
+
+## 2026-11-03 — Priority change: trusted Remote GUI first
+
+User priority order is now **Remote GUI → Git Pull → Commit → Push**
+(the wording "put" was interpreted as `push`) → Remote Terminal →
+other Git commands → other remote features.
+
+### Implemented in this round
+
+- `444b8954`: a LOCAL, 127.0.0.1-only native GUI HTTP host bundled
+  into `cmd/taskdeck_remote_login`, with an unpredictable 256-bit
+  URL-fragment capability, strict Host/Origin/CSRF and Fetch Metadata
+  checks, a restrictive CSP, zero allowed operation arguments, no CORS,
+  no cookies and no remote PHP/Relay UI code.
+- `293e5767`, `da5d2ca7`, `252a725d`: responsive Vietnamese
+  trusted dashboard with fixed read-only `session.ping` and
+  `git.status`, a changed-files Git table using safe text-only DOM
+  APIs, visible quota, explicit Disconnect, and clearly disabled
+  placeholders for unsafe/unfinished Git/Terminal/Files functions.
+- `e31a2bf4`: new `-gui` switch on independently built trusted
+  client, reusing the SAME independently pinned Agent E2EE login,
+  approved private client key, TaskDeck password and live local RBAC
+  as the existing CLI diagnostics. Browser GUI opens only AFTER
+  authentication, and the encrypted WSS channel stays inside the
+  native binary. No TaskDeck HTTP/session token or PHP-hosted code is
+  given to the browser or Relay. Bound by the existing four-action
+  app mailbox and the five-minute TaskDeck host session deadline.
+- `87f898b4`, `fcb841dc`: regression tests for DNS rebinding,
+  cross-origin submission, bearer capability, action quota,
+  revoked sessions, single-flight concurrency, CSP and local asset
+  constraints. Test request fixture uses origin-form URLs, matching
+  real Go HTTP server requests; the production Host guard was NOT
+  relaxed.
+- `0cd87d58`, `96b34cf2`: independent Node parsing and trust
+  boundary checks of the JavaScript EMBEDDED in the native Go client,
+  invoked in Go Remote Agent CI.
+- README and trusted native client installation documentation updated
+  with the new `-gui` mode and limits.
+
+The native GUI is currently **functional only for E2EE session
+verification and small Git Status**, NOT a full remote TaskDeck
+desktop GUI. The PHP Portal has no mechanism to replace the trusted
+local HTML/JS; the local token must never be copied into Portal pages.
+No privileged arbitrary command, Git mutation, file or PTY route
+was mounted. `remote_control_available=false`, and all experimental
+flags remain OFF by default. No merge to main and no LIVE release.
+
+### Remaining (strict priority)
+
+1. **Remote GUI:** richer independently verified client navigation,
+   permission-aware read-only TaskDeck project/dashboard data through
+   additional reviewed E2EE schemas, session renewal, app errors,
+   reconnect/revoke UX, multi-machine live tests, and full remote
+   interaction pathways. Never use Portal-delivered JS for login or
+   remote authority.
+2. **Git Pull:** separate host-opt-in, exact repository identity,
+   origin restrictions, fixed command shape (no shell/URL/path from
+   Portal), Git write RBAC, confirmation and cancellation; do not
+   claim safe rollback for a partially executed pull.
+3. **Git Commit:** stage/unstage workflow, message/path validation,
+   explicit local Git write authorization and signed user intent;
+   no unattended remote Git hooks or GPG prompts by default.
+4. **Git Push** (interpreted from "put"): remote allowlist, branch
+   protection, confirmation, credentials isolation, retries/timeouts,
+   independent TaskDeck `git.push` permission, and race tests.
+5. **Remote Terminal:** independently authorized encrypted PTY
+   lifecycle/streaming, resizing, byte quotas, backpressure, close,
+   disconnect and revocation. Never tunnel TaskDeck's local WS.
+6. Remaining Git operations and then Remote Editor/Files/Patch.
+7. Production security gate: real shared PHP compromise, Firefox
+   GUI, Linux/macOS clients, NAT/CGNAT, cancellation/race stress,
+   independently verified client distributions, same-source Go/PHP
+   CI and external review.
+
+CI status is maintained in the actual GitHub Actions runs; successful
+source commits are not the same as completed passing CI or physical
+LIVE testing.
+
+
+## 2026-11-03 — Trusted Remote GUI session hardening (subsequent iteration)
+
+**Priority remains:** Remote GUI → Git Pull → Git Commit → Git Push →
+Remote Terminal → other Git actions → other modules.
+
+The locally bundled, independently verified GUI now enforces the
+following additional **native session invariants**:
+
+- `b8ed82e6`, `4b1dc4e7`: `Disconnect` closes the actual
+  E2EE AEAD client and cancels an in-flight operation, not just
+  its local HTTP listener. The authenticated channel is poisoned
+  exactly once on denial/revocation. A pending read can never
+  return a successful UI action after logout. A local
+  `/api/session` endpoint exposes only the client-side deadline,
+  current operation state and remaining quota, guarded by
+  the exact loopback Origin, Host and 256-bit capability. It never
+  spends a Relay/TaskDeck action.
+- `6e7efaa9`: the native GUI displays the local five-minute
+  expiration countdown, in-progress state and four-operation
+  E2EE budget. Actions are disabled on expiration without
+  trying to renew credentials via a PHP-hosted page.
+- `b8df9f2e`, `bea5dfd2`, `f63f171b`, `03a6fd88`:
+  the dashboard binds and displays the independently pinned
+  Agent Device ID and locally authenticated TaskDeck username,
+  *not* an identity supplied by the Portal; malformed identities
+  fail closed before starting the native browser listener.
+  Read-only local metadata are delivered through authenticated
+  `/api/session` and rendered using `textContent`.
+- `d4de3f39`, `7cc9abd3`: display measured E2EE ping
+  round-trip latency as a bounded, local metric (not a
+  guessed Relay/network performance guarantee).
+- `742a4fff`, `214d2aa5`, `2deffabe`: Disconnect remains
+  available while a read-only E2EE request is blocked. The
+  browser ignores any stale success arriving after logout;
+  a Node VM interaction test exercises that ordering.
+- `2f631647`, `ce309f72`: best-effort `pagehide`
+  sends a loopback-only authenticated session-close request.
+  Browser crashes cannot guarantee the request is sent; native
+  session deadlines and host revocation remain mandatory.
+- Existing red-team limits are unchanged: Portal/Relay cannot
+  serve UI JavaScript to this trusted client, choose a command,
+  bypass the host-approved client software key, read AEAD
+  plaintext or obtain a TaskDeck-local principal.
+
+**Release constraints unchanged:** `remote_control_available=false`,
+no Git write route, no Terminal/PTY, no TaskDeck HTTP proxy,
+no main merge or production LIVE release. Check the GitHub
+Actions run on the source commit itself for final test status.
+
+**Still incomplete, in order:**
+1. Complete Remote GUI navigation and authenticated project/task
+   views; real cross-platform usability/reconnect testing and
+   independently pinned client release. This currently remains
+   a session/Git-status-only GUI.
+2. Git Pull via narrow reviewed AEAD protocol, explicit host opt-in,
+   per-project Git write permission, Git remote allowlist and
+   cancellation/confirmation safeguards.
+3. Git Commit via reviewed stage/unstage and commit transaction,
+   sanitized messages, Git hook policy and host-side auditing.
+4. Git Push with distinct `git.push` permission, guarded
+   target/branch, confirmation, key isolation and race testing.
+5. Terminal: fully authorized E2EE PTY, resize, backpressure,
+   terminal close/revoke and output quota.
+6. Other Git operations, then remote files/editor/Patch.
+7. Same-source CI, real compromised-PHP/shared-host,
+   CGNAT and Firefox/macOS/Linux security and usability
+   validation before LIVE.
+
+
+### 2026-11-03 — Local GUI activation-token process-list disclosure eliminated
+
+The earlier native GUI opener passed `http://127.0.0.1:<port>/#<token>`
+directly to `xdg-open`/`open`. URL fragments are not sent over HTTP,
+but **they remain observable in OS process arguments**, potentially to
+other local users. This is no longer the default design.
+
+- `80bdf705`: open only the nonsecret `http://127.0.0.1:<port>/`;
+  print the randomly generated 256-bit activation code exclusively
+  to the trusted native CLI terminal.
+- `4b426819`: first-party, bundled GUI accepts the manually copied
+  activation code through the local 127.0.0.1 page; only then may
+  it call the already-protected `/api/session` and read-only
+  E2EE actions. No capability is stored in browser cookies,
+  localStorage or sent to PHP/Relay.
+- `13b2791e`, `6256d32b`, `5be9e51a`: real loopback
+  network tests ensure the browser opener gets no secret, and
+  JavaScript tests ensure no action can occur before activation
+  and that tab closure requests local-only cleanup.
+- CLI README and installation instructions updated to require
+  a verified locally displayed origin and local code entry.
+
+**Security note:** A malicious actor with full control over the
+client OS account can still capture local input/TTY/process memory.
+This remains out of scope for the post-pairing PHP compromise threat
+model. Remote GUI / write-Git / Terminal are NOT LIVE.
+
+
+## 2026-11-03 — Remote GUI: authenticated project overview over real E2EE
+
+**User priority continues:** Remote GUI → Git Pull → Commit → Push →
+Terminal → remaining Git → other modules.
+
+Implemented this iteration on `feature/taskdeck-remote-access-architecture`:
+
+- `07deb5b1`, `02f72e24`: new strictly typed `project.info`
+  AEAD application request and response. The request has **no path,
+  project ID, command, generic args, URL or shell string**. Response
+  is capped by the existing 512-byte cleartext / 537-byte ciphertext
+  mailbox, has exact JSON field validation (duplicate/unknown keys
+  denied), authenticated request IDs and replay protection.
+- `19589b30`, `344aeb9e`: the host obtains **only the current,
+  TaskDeck-enabled shared project's display name**, canonical
+  workspace basename (not absolute path) and host OS. This is
+  gated by a new independent **host-only**
+  `TASKDECK_REMOTE_PROJECT_INFO=1` startup opt-in. Every action
+  rechecks approved client-key possession, local TaskDeck password
+  principal, `tasks.view` permission, live PHP grant and session
+  expiration before and after reading. Successful authorization
+  is audited under `remote.action.project_info` with the real
+  local TaskDeck account ID. No cross-project enumeration.
+- `5e3ba3b9`, `4643e260`, `20799383`: the trusted native
+  client verifies/decrypts `project.info`, exposes a fixed local
+  `/api/project-info` endpoint guarded by exact loopback
+  Host/Origin + 256-bit local capability, and renders an actual
+  Project / Workspace / Host OS overview in the bundled
+  responsive Vietnamese dashboard. Read-only project info
+  consumes one of the Relay's four strictly bounded app rounds.
+- `5cd6686d`, `a43d8731`, `d828cf2f`, `9d0e189d`,
+  `a39ccb9c`, `f82af550`, `2bf4e240`:
+  tests cover AEAD confidentiality, failed replay, malformed
+  metadata, host opt-in off, project isolation, local user audit,
+  native E2EE client codec, actual TLS/WSS through a compromised
+  PHP test environment, real local HTTP and safe DOM text rendering
+  of hostile HTML-looking display names.
+- README and remote installation guide updated.
+
+**Boundary:** This is a REAL host-derived single-project overview,
+not a full project listing, task editor or general TaskDeck REST
+proxy. `remote_control_available=false`; Git Pull/Commit/Push and
+Terminal remain deliberately unauthorized until distinct
+host-side approval / RBAC / security review. No main merge,
+no LIVE release. Confirm each Go/PHP CI result using the
+actual source commit; do not equate successful pushes with
+passing tests.
+
+**Remaining in requested order:**
+1. Finish Remote GUI with task list/dashboard read-only
+   metadata, session recovery and explicit, host-approved
+   navigation/actions (still avoid PHP-supplied JS);
+   on-device macOS/Linux/Firefox verification.
+2. Git Pull: fixed authorized command, remote/branch allowlist,
+   host opt-in, `git.write` permission, conflict-safe handling,
+   explicit user confirmation, no arbitrary shell.
+3. Git Commit: approved stage/unstage/commit, message/path
+   validation, hooks policy and audit.
+4. Git Push: separate `git.push` RBAC, target/branch confirmation,
+   credentials isolation and replay/cancellation tests.
+5. Terminal PTY E2EE streaming/lifecycle/flow-control.
+6. Remaining Git, then Editor/Files/Patch.
+7. Full CI, compromised shared PHP, NAT/CGNAT, client pin/provenance
+   and real installation/LIVE security checks.
+
+
+## 2026-11-03 — Trusted GUI read-only task preview milestone
+
+Priority remains **Remote GUI → Git Pull → Commit → Push → Terminal →
+remaining Git → remaining features**.
+
+New reviewed code, staged on `feature/taskdeck-remote-access-architecture`:
+
+- `f439922e`, `88468511`: fixed `tasks.preview` no-argument E2EE
+  action and exact-key response. Output is bounded to **task count and
+  at most three short menu labels** (64 bytes each), with 512-byte
+  authenticated-plaintext and 537-byte opaque Relay frame caps. No
+  task IDs, commands, arguments, shell strings, paths, task source JSON,
+  secret references, generic routes, execution token or run permission.
+- `0cfdbe9d`: host reads ONLY its own `.vscode/tasks.json` after
+  canonical workspace selection; rejects symlinked task config and
+  oversized source (over 1 MiB). Uses existing TaskDeck parser, counts
+  tasks, sanitizes UTF-8 labels, does not expose task commands or
+  tasks.json content. Requires *separate host-only* opt-in
+  `TASKDECK_REMOTE_TASKS_PREVIEW=1`.
+- `4d005a36`, `3ef16223`: host demands fresh TaskDeck `tasks.view`
+  RBAC, approved key, password principal, live signed Portal grant,
+  consistent project and session; records `remote.action.tasks_preview`
+  to local audit before sealing. Native client validates typed AEAD
+  output with replay/cancellation semantics.
+- `b2392132`, `1234a6d1`: trusted native localhost-only
+  `/api/tasks-preview` endpoint and GUI card showing current
+  workspace task count / first three display labels. Render with
+  `textContent` and no execution buttons.
+- `6ccdf867`, `ac490707`, `6ad1e6d8`, `14aff9d1`,
+  `00f3425f`, `72cb1d21`: tests cover strict E2EE schemas,
+  no command injection, replay, host opt-in off, workspace symlink,
+  malformed/oversized file, host TaskDeck-local identity audit,
+  local HTTP 4-action quota, and safe text-only browser DOM.
+- `64c9436c`: fix JS character-class escaping found by the real
+  workflow run on an HTML-looking (but harmless) task label.
+- CI narrowed preflight includes `RemoteTasksPreview`; client and
+  installer READMEs document the new host opt-in and limitation.
+
+**Security boundary:** Task preview is NOT TaskDeck remote task
+execution. The host must NEVER turn a preview label into a command,
+or accept a task ID/command from PHP/Relay. Only 4 short,
+independently authorized E2EE operations are allowed per session,
+no generic TaskDeck HTTP proxy, `remote_control_available=false`.
+Neither Git write nor PTY is opened. No main merge and no LIVE
+release. Confirm final CI result from the actual GitHub Action run.
+
+**Remaining in required priority order:**
+1. Remote GUI: full TaskDeck task list/navigation, project dashboards,
+   errors and reconnection, independently verified client releases,
+   real browser/macOS/Linux use.
+2. Git Pull: narrow allowlisted host mutation, `git.write`
+   permission, explicit confirmation, conflict detection, cancellation.
+3. Git Commit: staged changes, safe message, hook and key policies.
+4. Git Push: remote and branch allowlists, separate `git.push`
+   authorization, credentials isolation, confirmation, audit.
+5. Terminal PTY: E2EE bidirectional lifecycle, output flow control,
+   resizing, revocation and disconnect.
+6. Other Git commands; then Files/Editor/Patch; LIVE security validation.
+
+
+### Follow-up security verification: real WSS task preview + empty workspace
+
+- `e3d78a77`, `d1e7611f`: A verified, opted-in host
+  with no `.vscode/tasks.json` returns a valid `0 / 0` preview
+  rather than revoking the authenticated session; explicit
+  symlinked, oversized and malformed files still fail closed.
+- `69a445a2`: The compromised-PHP integration test runs
+  distinct real TLS/WSS subcases: (a) deliberately malformed
+  shell command must never gain authority, and (b) fourth
+  E2EE application operation `tasks.preview` must return
+  only the expected first three menu labels and be audited
+  against the TaskDeck-local user. These use separate
+  authenticated channels and do not increase the Relay's
+  four-round limit.
+- The next release gate is **completed PASS** on the
+  Go Remote Agent and PHP Portal workflows for the exact
+  implementation commit. Physical Linux/macOS remote
+  GUI acceptance is still pending; no LIVE release.
+
+
+## 2026-11-03 — Remote GUI availability discovery (read-only E2EE)
+
+User-prioritized sequence remains **Remote GUI → Git Pull → Commit →
+Push → Terminal → remaining Git → remaining remote features**.
+
+### Source changes committed
+
+- `1b2c678f`, `8c3b8517`: new exact, no-arguments
+  `session.features` AEAD request/response. Data are only
+  booleans for already-reviewed `project.info`, `tasks.preview`
+  and `git.status`, with `remote_control_available=false`.
+  Plaintext is bounded, exact-key JSON; duplicate/unknown
+  fields, wrong IDs, unauthorized actions and replay are fatal
+  to the E2EE session. No passwords, paths, commands, user
+  tokens, project contents or privileges cross the Relay.
+- `b6ffac0f`, `c7fdc3eb`: TaskDeck host derives the
+  availability snapshot by intersecting **current** host
+  opt-in flags with actual TaskDeck project RBAC and the
+  Portal role. The admission path still checks the
+  host-approved client software key, real local password
+  principal and live Portal grant before/after the action;
+  successful scans are audited as
+  `remote.action.session_features` under the real user.
+  This is an **advisory snapshot only**. Git/task/project
+  reads remain independently authorized on execution.
+- `7ec94817`, `f8515eb0`: verified native E2EE
+  client and fixed local `/api/features` endpoint.
+  The localhost origin, 256-bit capability, single-flight,
+  cancellation and four-action quota are unchanged.
+- `e565b741`: Native GUI has a visible
+  **Kiểm tra chức năng** button. Project/task/Git buttons
+  stay disabled until the host's signed E2EE availability
+  result arrives; unavailable features remain disabled,
+  preventing unnecessary rejected requests and poisoned
+  sessions. The user triggers the scan explicitly, so the
+  four-round budget is not silently consumed.
+- `df580803`, `acde7298`, `61ec8263`,
+  `3ee85f03`, `3d8e6ff7`, `7d914aa2`:
+  tests cover AEAD confidentiality, replay and malformed
+  JSON, host opt-in changes during a session, local
+  principal/key/project rejection, native endpoint
+  Origin enforcement and simulated browser availability
+  gating. The Go null-boolean decoding edge case found
+  in CI was corrected before release.
+- `01c99511`: dedicated **real TLS/WSS** malicious
+  PHP Portal subtest verifies the fourth encrypted
+  `session.features` response and its real TaskDeck
+  user audit without adding another Relay app round.
+- README and native-client setup instructions describe
+  the explicit scan, the one-round cost, compatibility
+  requirement, and continued server-side per-action
+  authorization; the CI preflight explicitly runs
+  `RemoteFeatures` tests.
+
+### Not released
+
+This is **not yet** general TaskDeck remote interaction.
+The E2EE mailbox still permits only four read-only
+requests, including a capability scan; no task execution,
+Git Pull/Commit/Push, Terminal, editor, file or generic
+TaskDeck HTTP proxy. `remote_control_available=false`.
+No merge to `main`, no LIVE release. A feature-scan
+failure/old Agent may close the AEAD session fail-closed;
+matching independently trusted client/host versions
+are required. Feature flags do not guarantee Git
+repository presence or override later revocations.
+
+### Unfinished in priority order
+
+1. Remote GUI full project/task navigation, read-only
+   dashboard data, session renewal/reconnect, cross-platform
+   native client verification, usability and security tests.
+2. Git Pull, with distinct host opt-in, repository/remote
+   allowlist, user confirmation, Git write RBAC and robust
+   failure semantics.
+3. Git Commit, including staging and controlled hooks.
+4. Git Push, with explicit target, separate `git.push`
+   permission and credential isolation.
+5. Terminal: bounded authenticated PTY streaming, resize,
+   backpressure, cancellation and full revocation.
+6. Other Git operations, then Editor/File/Patch and
+   physical LIVE acceptance with compromised PHP.
+
+
+### 2026-11-03 — Permission parity for Git-only TaskDeck principals
+
+After adding the read-only GUI `session.features` availability
+discovery, an additional RBAC corner case was found:
+`system:restricted-developer` legitimately owns `git.status`
+without `tasks.view`. Denying `session.features` for such a
+principal would hide an already-authorized read-only Git capability.
+
+- `5ec9f04d`: The Agent selects **one** of two exact read
+  permissions (`tasks.view` if the current verified TaskDeck
+  principal has it; otherwise `git.status`). The existing
+  `executeRemoteAuthenticatedAction` still rechecks the
+  selected permission and the live signed Portal grant
+  before and after operation; the selection cannot grant
+  either permission.
+- `f6a8e368`, `4a28e3e2`, `80160e52`, `1b9e09a9`:
+  the AEAD result now separately carries the genuine
+  `session_ping` permission bit; a Git-only account sees
+  Git status enabled but Ping/project/tasks disabled.
+- `e442dd53`: an actual TaskDeck SQLite project member
+  is switched to `RestrictedDeveloperRoleID` in tests;
+  a feature scan must succeed with `GitStatus=true`
+  and all `tasks.view`-dependent flags false. A new
+  browser VM test `12384d42` asserts identical UI gating.
+- Feature discovery remains one of the four bounded
+  read-only E2EE calls, never a generic role switch,
+  TaskDeck API proxy or Git write permission.
+
+**Release state unchanged:** no main merge, no LIVE release,
+`remote_control_available=false`. Read-only progress must
+pass the exact-source Go and PHP GitHub workflows before
+counting as verified; real Linux/macOS/Firefox usability
+and compromised-host security testing remain outstanding.
+
+**Still unfinished, by user priority:** Remote GUI full task
+navigation and stateful interactions; Git Pull; Git Commit;
+Git Push; Terminal PTY; other Git; then Files/Editor/Patch,
+followed by final security and live release checks.
+
+
+## 2026-11-03 — Native Remote GUI navigation and expanded bounded task view
+
+**User priority unchanged:** Remote GUI → Git Pull → Git Commit → Git
+Push → Terminal → other Git commands → other modules.
+
+Implemented on `feature/taskdeck-remote-access-architecture`:
+
+- `c7bd1c7c`: split the native bundled localhost GUI into four
+  keyboard-accessible, separate panels: **Overview**, **TaskDeck
+  Project**, **Workspace Tasks**, **Git Status**. Buttons are local
+  HTML controls with explicit `aria-current`, not navigation to
+  a PHP-hosted dashboard. Git write / Terminal / Editor / Files
+  remain explicitly unavailable.
+- `55f161f4`: JavaScript navigation is local and costs **zero**
+  E2EE application rounds. Project, task and Git snapshots remain
+  visible between tabs after an authorized read, without caching
+  them in persistent browser storage or re-fetching via Relay.
+- `d76e1f9c`: logout, expiry or revoked/failed native E2EE
+  clears previous displayed Project/Task/Git data, Agent identity,
+  latency and feature flags immediately. `clearPrivateViews`
+  runs on the closed session's render; old data cannot be
+  revived by changing tabs.
+- `acce92d4`, `cb060c7e`, `cdcda46b`, `8b7271f1`:
+  browser VM tests exercise tabs, ARIA state, zero network
+  requests on navigation, preservation of authenticated
+  data, HTML-looking Git paths rendered using `textContent`,
+  and logout wiping. A fixture newline escaping error in the
+  first regression was corrected.
+- `94f90508`, `e0681645`: the existing fixed
+  `tasks.preview` operation may carry up to **8** menu labels
+  (instead of 3) while still using **exactly the same**
+  512-byte authenticated plaintext maximum and Relay
+  envelope bounds. The transport computes the **actual JSON
+  encoding size**, including `\u003c` escaping, and removes
+  trailing labels when necessary. It never extends the Relay
+  mailbox or accepts caller-provided paths/commands/task IDs.
+- `5a353f33`, `01860dd2`, `5daeae90`: local host and
+  real TLS/WSS compromised-PHP test expectations updated for
+  four real fixture task labels, plus transport tests for
+  eight short labels and adversarial long HTML-escaped labels.
+  Intermediate CI failures were stale three-label expectations;
+  source tests have been revised.
+- `63b7a6d5`, `041eb486`, `3d21f754`: the client
+  paginates up to eight authenticated, bounded task labels
+  **entirely in memory**, four per page. Page switching is
+  not a TaskDeck/Relay operation; no task execution controls,
+  secrets, commands or direct PHP API calls were added.
+- Native README and top-level README updated with the new
+  snapshot and bounded paging behavior.
+
+**What these features do NOT mean:** this remains a
+**read-only limited preview**, not a full remote TaskDeck
+task browser, editable workspace, terminal, or remote desktop.
+Four independent authenticated E2EE app rounds, strict
+TaskDeck account/key/RBAC/live Portal checks, and
+`remote_control_available=false` remain unchanged.
+No production merge or LIVE release. Check completed Go
+and PHP CI results on the corresponding code commit;
+do not count only an in-progress run as PASS.
+
+**Unfinished, in required priority order:**
+1. Remote GUI: complete task list and project navigation,
+   reconnect/renewal, real interaction flows, real
+   Linux/macOS/Firefox accessibility and usability tests.
+2. Git Pull: narrow fixed host action, allowlisted branch
+   and remote, user confirmation, local `git.write` RBAC,
+   no arbitrary shell or PHP commands.
+3. Git Commit: staging and safe commit message / hooks policy.
+4. Git Push: separate `git.push` permission, branch
+   confirmation, remote allowlist, key isolation.
+5. Terminal: E2EE PTY lifecycle, resize, backpressure,
+   revoke/disconnect handling.
+6. Other Git commands, then file/editor/Patch and LIVE
+   compromised-Portal, NAT/CGNAT and physical-client tests.
+
+
+## 2026-11-03 — Native Remote GUI task search and idle E2EE session monitoring
+
+Priority remains **GUI → Git Pull → Git Commit → Git Push →
+Terminal → other Git → remaining features**.
+
+### Implemented in this iteration
+
+- `d39b0edd`: the fixed `tasks.preview` response accepts
+  **up to 24 short labels**, but the actual serialized result
+  still obeys the ORIGINAL 512-byte plaintext / bounded
+  Relay ciphertext envelope. For long JSON-escaped labels,
+  trailing labels are dropped; arbitrary commands, task IDs,
+  arguments, source files or host paths remain prohibited.
+  No new remote operation or authorization route.
+- `965af7f1`: native GUI provides a text-only, case-insensitive
+  **search box** over the already authenticated task labels.
+  The filter and four-item local paging do **not** call the
+  PHP Portal or Relay, consume E2EE rounds, invoke tasks
+  or place credentials into storage. Clearing the session
+  wipes the in-memory labels, filter and visible task list.
+- `86552a9f`, `0aadd193`: tests exercise the 24-label
+  hard limit, strict malformed-reply rejection, adaptive
+  frame-sized trimming, and 24 short labels fitting in one
+  unchanged AEAD envelope. Intermediate CI runs failed
+  on stale 8-label test assumptions; the fixture was updated.
+- `e4f4410b`, `310ec9ae`: Node browser VM and bundle
+  guards exercise filter results (including HTML-looking
+  labels rendered as plaintext) and verify search/page
+  navigation costs zero network/E2EE requests.
+- `9989f4c7`: while the browser remains open, the
+  client periodically requests ONLY `/api/session` from
+  127.0.0.1 at a 15-second cadence. A native-closed,
+  failed or expired session clears sensitive UI state;
+  this is not a Relay query and never reauthenticates.
+  A local monotonically increasing `actionEpoch` means
+  late local status replies cannot overwrite the
+  remaining E2EE action quota or revive logout.
+- `c076c11f`, `79a845bf`, `c4f129b5`,
+  `136a7dfe`: browser tests simulate native session
+  closure, stop further polling and ensure a delayed
+  status reply cannot restore an already-spent E2EE
+  operation. Embedded JavaScript assertions ensure
+  polling remains local and race-safe.
+- Native client README, installation guide and project
+  README updated with the current adaptive 24-label
+  preview and client-side task search/paging behavior.
+
+**Security constraints unchanged:** A post-pairing
+compromised PHP Portal or Relay does not become the
+TaskDeck principal, receive the client private key,
+TaskDeck password or encrypted action contents.
+No TaskDeck HTTP proxy, Git mutating action or PTY.
+`remote_control_available=false`, max four E2EE
+read-only rounds, no merge into `main`, no LIVE
+release. Source commit's Go Agent and PHP Portal
+workflows must both complete successfully before
+calling this iteration CI-verified; client machine
+and shared-host compromise tests still required.
+
+### Not finished, in requested priority order
+
+1. **Remote GUI**: complete task browsing rather than
+   a bounded preview, project switching, reconnect/
+   explicit renewal and real Linux/macOS/Firefox
+   installation + accessibility testing.
+2. **Git Pull**: distinct reviewed write permission,
+   branch/remote allowlist, explicit user confirmation
+   and fail-closed repository conflict handling.
+3. **Git Commit**: reviewed stage/unstage and commit
+   transaction, sanitized messages and hook controls.
+4. **Git Push**: separate `git.push` RBAC, checked
+   target branch, credentials isolation, confirmation.
+5. **Remote Terminal**: E2EE PTY streaming, resize,
+   backpressure, cancellation and immediate revocation.
+6. **Other Git**, then File/Editor/Patch/Collection.
+7. Real compromised-PHP/shared-host, relay/NAT and
+   TaskDeck host-client security validation before LIVE.
+
+
+## 2026-11-03 — Remote GUI: host-owned encrypted task pages
+
+Priority: Remote GUI → Git Pull → Commit → Push → Terminal → other Git → other features.
+
+Implemented:
+- Fixed tasks.preview.next AEAD action. It has no remote-selected offset,
+  task ID, filename, project, command or shell argument. The strict request
+  envelope rejects unknown and duplicate fields, including injected offsets.
+- Host-owned next-page cursor lives only in the authenticated E2EE TaskDeck
+  session. It is bound to SHA-256 of the canonical host workspace root and
+  tasks.json source. Read-once page state, source edits, workspace switches,
+  symlinks and oversized task files fail closed. Page advancement is based
+  on labels actually sealed within the unchanged 512-byte AEAD limit.
+- Next-page calls repeat current TaskDeck local tasks.view RBAC, approved
+  Ed25519 client key, actual password principal and live signed Portal grant.
+  Each successful request is audited against the real TaskDeck user.
+- Trusted localhost GUI exposes fixed POST /api/tasks-preview-next under
+  Origin/Host/capability checks. A separate Load More button appends up to
+  24 display-only task labels per E2EE round; local search and local page
+  switches do not contact PHP or Relay. One load-more consumes one of the
+  existing four permitted application rounds per five-minute session.
+- New E2EE, host RBAC, changed-source, cross-workspace, unauthorized-first-next,
+  native localhost HTTP, browser DOM and real compromised-PHP TLS/WSS
+  integration tests. Mandatory Go preflight includes paging negative tests.
+- Installation and native-client README documentation updated.
+
+Security boundary: Remote Control is still DISABLED. PHP/Relay carry only
+ciphertext, and no generic TaskDeck API, remote task execution, shell, PTY,
+file write or Git mutation is authorized. No main merge, no LIVE release.
+Inspect the completed Go/PHP CI status for the implementation commit before
+asserting verification. This stage does NOT provide unlimited tasks.
+
+Unfinished in order:
+1. Remote GUI: unrestricted task/project navigation subject to RBAC, explicit
+   native re-login/reconnect, complete UI interaction and real device tests.
+2. Git Pull: fixed safe mutating action, branch/remote restrictions,
+   local Git write permission and explicit confirmation.
+3. Git Commit: staged-file workflow, commit message and hooks policy.
+4. Git Push: separate push permission, credential isolation, confirmation.
+5. Terminal: E2EE PTY transport, backpressure, resize, cancellation.
+6. Other Git commands; then Files, Editor and Patch/Collection.
+7. Real Linux/macOS/Firefox, NAT/CGNAT and compromised PHP release gates.
+
+
+## 2026-11-03 — Remote GUI: complete/partial task coverage and bfcache safety
+
+The priority remains Remote GUI, then Git Pull, Commit, Push,
+Terminal, the remaining Git operations, and finally other modules.
+
+Implemented on feature/taskdeck-remote-access-architecture:
+- A read-only local task progress indicator now displays downloaded
+  labels / authorized displayable labels from the authenticated host.
+  The GUI distinguishes a complete snapshot from a partial snapshot
+  with no remaining E2EE app rounds. When four rounds are exhausted,
+  the still-partial list remains available for local viewing, but
+  the Load More button is disabled with explicit native re-login
+  guidance. This does not create an E2EE session or persist credentials.
+- Local Vietnamese-aware A–Z and Z–A label sorting is available
+  alongside existing local search and four-item paging. Sorting
+  reorders only the currently downloaded in-memory label array
+  for display; it never changes the host-owned cursor or calls PHP.
+- An empty workspace and a locally filtered list without matches
+  have distinct messages. The browser rejects authenticated pages
+  with total greater than zero but zero new labels; such a malformed
+  page closes the local E2EE GUI instead of pretending loading ended.
+- Closing, revoking or expiring a session clears all visible cached
+  project/Task/Git labels, feature metadata and newly added progress
+  state. In addition, pagehide now synchronously scrubs the cached
+  content before the browser can put the page into back-forward
+  cache (e.g. Firefox); the native session is still revoked.
+- Browser VM tests verify sorting and empty search are purely
+  local, exact task-coverage and remaining E2EE budget, refusal to
+  send a fifth task request, partial-vs-complete status, safe empty
+  workspace, malformed zero-progress page, and synchronous pagehide
+  scrubbing. Native asset tests require the controls and callback.
+
+There are NO NEW remote permissions or PHP/Relay operations. The
+pre-existing bounded tasks.preview / tasks.preview.next actions
+continue to use strictly typed and authenticated E2EE with host-side
+RBAC, source fingerprint, audit and opt-in checks. Git writing,
+terminal, arbitrary task execution and file editing remain disabled.
+remote_control_available=false. Do not merge to main or release LIVE
+without complete Go Agent/PHP Portal CI plus real-device and
+compromised-host validation.
+
+Still incomplete, in user-prioritized order:
+1. Remote GUI: full unbounded task/project navigation, explicit
+   trusted native re-login/reconnect, complete interactive flows,
+   physical Linux/macOS/Firefox acceptance testing.
+2. Git Pull: safe fixed mutation with remote/branch restrictions,
+   local write permission, confirmation, cancellation and audit.
+3. Git Commit: stage/unstage, safe commit messages and hooks policy.
+4. Git Push: separate push permission, target and credential checks.
+5. Terminal: authenticated E2EE PTY streaming, resize, backpressure,
+   disconnection/revocation.
+6. Other Git; then remote Editor/Files/Patch/Collection.
+7. End-to-end LIVE release security tests and main merge.
+
+
+## 2026-11-03 — Bounded 16-round read-only Remote GUI browsing
+
+**User priority:** Remote GUI → Git Pull → Commit → Push →
+Terminal → other Git → other modules.
+
+### Source changes
+
+- New internal/remotelimits package owns the single Go quota constant
+  MaxReadOnlyAppRounds=16. The Go Relay's MaxAppPingRounds and the
+  independently installed native client's trustedGUIMaxActions
+  BOTH reference this shared constant. CI watches the shared package.
+- The native localhost GUI now supports up to 16 authenticated,
+  read-only application requests per five-minute session, instead
+  of four. This allows a user to scan features, inspect a project,
+  read Git status and paginate considerably more host task labels.
+  PHP never learns plaintext actions or acquires an authorization role.
+- Stop-and-wait single in-flight exchange, existing Agent/device
+  binding, per-action live Portal grant, TaskDeck account/password
+  generation, locally approved Ed25519 software key, project RBAC,
+  replay guards, audit, 512-byte AEAD plaintext and bounded
+  deadline are unchanged. There are NO new operations or mutations.
+- Native GUI and Relay unit tests enforce the shared quota and deny
+  request 17. Browser tests simulate 16 successful reads and prohibit
+  a 17th request even if a disabled button is invoked directly;
+  partial task coverage explains when the quota is exhausted.
+  Native localhost session metadata exposes remaining counts up
+  to 16 and polling remains free of E2EE requests.
+- Client/Relay must be updated together for full 16-round
+  functionality. An older 4-round Agent/Relay/client may reject a
+  later request fail closed; no automatic fallback or PHP-hosted
+  reauthentication is permitted.
+- README and Remote setup guide updated to state the 16-round
+  read-only limit and its security constraints.
+
+**Status:** Experimental feature branch only, no main merge or
+LIVE release. remote_control_available=false. Verify final
+source-equivalent Go Remote Agent and PHP Portal workflows before
+calling this CI-passed. Compromised PHP remains only ciphertext
+transit, not a TaskDeck login or shell.
+
+### Remaining work, in required order
+
+1. Remote GUI: full TaskDeck task/project navigation, trusted
+   terminal-based manual reauthentication, reconnect behavior,
+   practical interactive management, Linux/macOS/Firefox field tests.
+2. Git Pull: host-scoped allowlisted repository/branch/remote,
+   explicit confirmation, git.write RBAC, conflict and cancellation.
+3. Git Commit: stage, unstage, commit message and hooks policy.
+4. Git Push: distinct permission, destination and credential checks.
+5. Terminal: encrypted PTY lifecycle, stream flow control, resize,
+   command cancellation and revocation.
+6. Other Git commands, then Files/Editor/Patch/Collection.
+7. Final security testing against hacked PHP, broken networks,
+   NAT/CGNAT and physical clients before LIVE.
+
+## 2026-11-03 — Remote GUI explicit bounded bulk task pagination and cancellation
+
+User priority remains **Remote GUI → Git Pull → Git Commit → Git Push →
+Terminal → other Git commands → other modules**.
+
+### Source changes committed
+
+- Added an opt-in **Tải các trang còn lại** native GUI control.
+  It sends the existing **fixed and authenticated** `tasks.preview.next`
+  request ONE AT A TIME, waiting for each response before starting the
+  next. It never sends an offset, task ID, command, path, credential or
+  arbitrary HTTP/PHP action; no new remote operation has been authorized.
+- Added separate **Dừng tải sau lượt đang xử lý** control. Stopping
+  prevents subsequent E2EE rounds but does not cancel the already
+  authenticated in-flight action. Existing **Ngắt phiên** remains
+  available even when the native request is pending and immediately
+  destroys the E2EE channel, clears labels and prevents stale results
+  from repopulating GUI data.
+- The bulk action never starts until a previous `tasks.preview` page
+  has been authenticated and `session.features` explicitly authorizes
+  `tasks.view`. It never retries errors or reauthenticates, and its
+  loop and native/Relay independently cap the session at 16 short-lived,
+  E2EE-authenticated read-only actions. A dedicated status line
+  reports downloaded pages and partial/completed/stopped/quota states.
+  The GUI supports manual stop and explicit resume from the next
+  host-maintained cursor without any browser-controlled offsets.
+- Browser tests assert that Stop leaves one pending response to finish
+  without initiating another, explicit Resume subsequently obtains
+  all 56 fixture labels, a 500-task list stops at precisely the
+  16-round quota (no 17th request), Disconnect while a page is
+  outstanding closes the GUI before a late reply can re-enable it,
+  and Firefox pagehide synchronously clears all read-only data.
+- Added a mandatory GitHub Go Agent CI step to run the new native
+  browser bulk security test, plus embedded-asset integrity checks
+  for the local controls and bounded loop.
+- README, setup instructions, CLI `-gui` help and implementation status
+  record that bulk downloading is explicitly initiated by a trusted
+  local user and can consume all remaining E2EE rounds.
+
+### Release constraints remain unchanged
+
+**Not a production release.** `remote_control_available=false`.
+No TaskDeck task execution, Git mutation, PTY, arbitrary shell,
+remote editor or file write. PHP Portal/Relay still have no
+TaskDeck password/client private key or decrypted application data.
+No main merge and no LIVE. Go Agent plus PHP Portal CI must pass
+for code-equivalent HEAD; real Linux/macOS/Firefox and compromised
+shared-PHP deployment validation remain required.
+
+### Not complete (user order)
+
+1. **Remote GUI:** complete TaskDeck project/task navigation,
+   interactive task controls, trusted native re-login/reconnection
+   and physical Linux/macOS/Firefox acceptance tests. Current task
+   browsing is limited by the 16 E2EE rounds and five-minute session.
+2. **Git Pull:** reviewed fixed host-scoped operation, remote and
+   branch allowlist, confirmed user intent, Git write RBAC and safe
+   conflict/revocation handling.
+3. **Git Commit:** stage/unstage and safe commit message/hooks.
+4. **Git Push:** separately authorized destination/branch confirmation
+   and credential isolation.
+5. **Terminal:** bounded two-way E2EE PTY, resize, backpressure,
+   cancellation and immediate revocation.
+6. **Other Git operations**, followed by Files/Editor/Patch/Collection.
+7. Final end-to-end security, NAT/CGNAT and physical client LIVE gate.
+
+## 2026-11-03 — Trusted Remote GUI: Git Status snapshot inspector (staging)
+
+- Implemented local-only text search and staged/unstaged/untracked/conflict
+  classification over one already authenticated E2EE Git Status snapshot;
+  no new host RPC, request arguments, PHP call, Git mutation or extra AEAD
+  round occurs when a filter is changed.
+- Added safe text-only rendering of path/status, counts and empty results.
+  Enforced expected Git porcelain branch/line format in the native GUI;
+  malformed text fails closed and clears the authenticated view. User
+  logout, session expiration and Firefox pagehide scrub all local Git
+  filter state, paths and counts. Native browser regression tests cover
+  script-like filenames, filtering without Relay traffic, malformed
+  records and logout scrubbing.
+- Clarified an important existing host limitation: Git Status uses
+  \`--untracked-files=no\` and accepts only up to 256 bytes of output.
+  Therefore an empty snapshot NEVER establishes that the whole working
+  tree is clean, and exceeding the limit is an error, not successful
+  truncation. No Git writes or fetching have been enabled.
+- Remaining priority: richer fully authenticated native GUI navigation
+  and action workflows, then independently reviewed Git Pull, Commit,
+  Push, encrypted interactive terminal, other Git commands, and
+  additional modules. Security deployment gate remains
+  \`remote_control_available=false\`; main/LIVE NO-GO until CI and
+  real-world compromised PHP/Relay, Linux/macOS, Firefox and NAT/CGNAT
+  testing pass.
+
+## 2026-11-03 — Trusted GUI Git Status comparison across two E2EE reads
+
+- A new, local-only difference panel compares two consecutive, explicitly
+  requested and independently authenticated Git Status snapshots (appearing
+  paths, changed index/worktree status and paths absent from the latest
+  snapshot). Comparison and navigation never contact PHP/Relay or spend
+  additional AEAD rounds. Re-reading Git Status costs one existing round.
+- On an exact branch/tracking header mismatch, the UI refuses stale
+  comparison and resets its baseline. Reject duplicate/malformed Git paths,
+  render only textContent, and wipe both snapshots on logout, expiry and
+  Firefox pagehide. Native browser and embedded-asset regression tests
+  cover these lifecycle and forged-data scenarios.
+- The host still excludes untracked files, enforces 256-byte status output,
+  and provides no Git writes. \`remote_control_available=false\`;
+  no main merge or LIVE before exact-SHA CI and independent compromised
+  PHP/Relay + physical NAT/CGNAT acceptance.
+
+## 2026-11-03 — Out-of-order trusted localhost status polling (staging)
+
+- Multiple simultaneous local \`/api/session\` reads can finish in a
+  different order from issuance. A new in-memory poll generation guards
+  both normal and error paths, preventing older results from restoring
+  consumed E2EE quota or closing a newer accepted GUI observation.
+- Browser regression tests reproduce stale successful 16-round status
+  arriving after a 7-round result, and stale HTTP 410 arriving after a
+  5-round result. Existing authenticated action epochs, one-in-flight
+  E2EE request, TaskDeck per-action RBAC, fail-closed revocation,
+  expiry and 16-round host/Relay caps are unchanged. No PHP calls.
+- Live and main merge remain blocked: \`remote_control_available=false\`.
+
+
+## 2026-11-03 — Trusted Remote GUI bounded quick-actions palette (staging)
+
+- Added a keyboard-friendly quick-action palette to the local,
+  independently bundled native GUI. It supports only nine exact local
+  verbs: \`help\`, \`clear\`, \`features\`, \`ping\`, \`project\`,
+  \`tasks\`, \`tasks next\`, \`git status\`, \`disconnect\`.
+  The only network routes are the SAME previously reviewed fixed
+  localhost-only endpoints, with no new E2EE operation, argument,
+  path, command, task execution, Git write or terminal API.
+- Exact allowlist and advisory feature checks deny unknown shell/Git
+  commands before HTTP; the trusted native host still enforces the
+  independent TaskDeck principal, key, RBAC and live Portal grant for
+  every permitted E2EE action. No command history, HTML insertion,
+  PHP code-loading, persistent storage or credential collection.
+- \`help\` and \`clear\` are local-only and do not consume the 16
+  AEAD rounds. Existing single-flight/bulk-loader and logout checks
+  are retained; quick input and status are wiped on close, expiry
+  and Firefox pagehide. Browser tests cover malicious commands,
+  pre-feature denial, keyboard Enter, allowed task/Git-only RBAC,
+  exact request counts and scrubbing.
+- Security gate unchanged: \`remote_control_available=false\`,
+  LIVE NO-GO pending exact-source CI and independent real-world
+  compromised PHP/Relay, NAT/CGNAT, Linux/macOS/Firefox acceptance.
+
+
+## 2026-11-03 — Remote GUI quick-action cross-tab navigation
+
+- Moved the trusted native quick-action palette outside the tab-specific
+  panels so it stays reachable while viewing project/task/Git data.
+- On an explicitly admitted \`project\`, \`tasks\`, \`tasks next\`, or
+  \`git status\` command, the local GUI navigates to that result panel
+  immediately. No navigation occurs on denied or unsupported commands;
+  a later E2EE response cannot steal focus from subsequent user tab
+  navigation. No extra host E2EE request or new operation added.
+- Extended browser and bundled-asset regressions for tab visibility,
+  per-feature RBAC, and no privilege expansion. LIVE still NO-GO.
+
+## 2026-11-03 — Complete remote task label snapshot diff (staging)
+
+- Native GUI now compares two complete authenticated task-label
+  inventories, counting duplicate labels correctly. Incomplete reads
+  NEVER present missing labels as actual deletions, especially when the
+  original source contains more labels than the 16-round session can load.
+- It displays at most 20 safe text-only differences; no task ID,
+  command, arguments, path, shell, Git write or fresh Relay call is
+  introduced for comparison. Existing host-owned, hash-verified cursor
+  and E2EE permissions remain the authority.
+- Tests cover incomplete refresh, duplicate multiset semantics,
+  successive complete refresh, local sorting, script-like labels
+  and pagehide wiping both cached source and comparison.
+- LIVE remains NO-GO; remote_control_available stays false.
+
+
+## 2026-11-03 — Native Remote GUI one-use activation, local secret cleanup
+
+- Enforced **at most one locally trusted activation per GUI document**.
+  An expired, denied, closed or bfcache-restored document cannot set
+  \`closed=false\` to appear authenticated again by re-entering a
+  previously accepted bearer code. Fresh sessions require a new
+  trusted CLI handshake and new native listener/capability.
+- Definitive Disconnect and Firefox pagehide erase the private token
+  from the GUI's JS memory and activation form. A request-local
+  capability is captured BEFORE cleanup solely for the fixed
+  \`/api/close\` operation, preserving prompt host revocation and
+  cancellation. Revoked E2EE sessions continue to permit only a final
+  authenticated Disconnect rather than accidentally losing the
+  ability to stop the native listener.
+- Browser and bundled-source tests cover one-time activation, close
+  during an in-flight E2EE read, pagehide/bfcache non-reactivation,
+  malformed Git E2EE closure, and correct safe handling of Git
+  porcelain \`T\` (type-change) records.
+- No new E2EE op or general TaskDeck command. PHP/Relay cannot read
+  or select these native assets; \`remote_control_available=false\`;
+  main/LIVE remain NO-GO pending exact HEAD CI and compromised
+  PHP/Relay real-world security acceptance.
+
+
+## 2026-11-03 — Hard native GUI lifetime and idle E2EE revocation (staging)
+
+- Closed a lifecycle gap: prior expiration checks depended on another
+  localhost HTTP request, while a sleeping or abandoned browser could
+  suppress its own poll after rendering the expired state. Native
+  \`runTrustedRemoteGUIWithIdentityAndOpener\` now uses
+  \`context.WithTimeout\` with the unchanged five-minute lifetime,
+  independently of Firefox and PHP. It closes the E2EE action channel
+  and loopback listener with no browser activity.
+- Added a deferred \`ui.stop()\` for **all** exit paths, including
+  unexpected HTTP Serve failure, parent cancellation, and deadline.
+  Existing close-once synchronization prevents duplicate channel
+  revocation. Invalid test-only lifetime overrides fail before
+  starting a local listener; production always uses the fixed bound.
+- On the browser side, local countdown expiry immediately submits one
+  fixed localhost \`/api/close\`, retaining capability only for that
+  already-authorized request; server deadline remains authoritative.
+  No new E2EE/Relay round, TaskDeck command, PHP dependency or
+  unrestricted remote procedure. Browser and native Go tests verify
+  expiry closure, one-shot revocation, no socket after idle deadline,
+  parent cancel, invalid timeouts, no duplicate browser close and
+  no ability to reuse the expired activation token.
+- No changes to Git write/terminal or permission scope.
+  \`remote_control_available=false\`, main/LIVE still NO-GO until
+  exact-HEAD CI, physical Linux/macOS/Firefox tests and independent
+  compromised-PHP, NAT and CGNAT acceptance.
+
+## 2026-11-04 — Stage host-only task execution snapshot admission (NOT an executable remote task)
+
+- Added `prepareRemoteTaskExecutionFromSnapshot` as an **unmounted host-only prerequisite**, never a network/API entrypoint. It selects a single positive stable Task.ID from a host-owned snapshot and denies stale workspace/source hashes, symlinked task files, invalid/cancelled contexts, ambiguous duplicate IDs, tasks requiring inputs/secrets/dependencies and hidden/unsafe menu labels.
+- Preparation reads the trusted host workspace, resolves only local task definitions, double-checks the exact source bytes/inode and returns an internal execution specification. It **does not execute a process**, serialize the command/environment or extend an authenticated E2EE action. Existing `tasks.preview` paging, AEAD 512-byte record limits, 16-round quota and permission gates are unchanged.
+- Added negative tests covering stale snapshots, edited task definitions, cancelled requests, duplicate task definitions, inputs/secrets/dependencies, unsafe label and matching-hash symlink replacement.
+- Next stage: separately reviewed `tasks.run` protocol with explicit verified selection, TaskDeck `tasks.run` permission, local owner approval or opt-in, cancellable task lifecycle/streaming and host audit; then trusted native GUI execution. Until that work is wired and verified, `remote_control_available=false`, main/LIVE NO-GO. Git pull/commit/push, terminal and other operations stay pending in the agreed priority order.
+
+## 2026-11-05 — Git pull, commit and push reject active task/PTY on Agent
+
+- The native GUI had already disabled the core Git write controls while
+  a session-owned long task was active, but their Agent handlers still
+  omitted that execution exclusion. A separate authenticated E2EE action
+  could bypass the browser-only block after `tasks.start` had returned.
+- Each of Git pull, commit and push now reserves the existing
+  `terminalMu -> longTaskMu` host locks for the entire bounded operation.
+  Busy task, open PTY, concurrent operation, cancelled context or revoked
+  session fail closed without waiting. A short task and PTY-open request
+  cannot interleave with an in-progress Git mutation on the same session.
+- Tests cover the reservation lifecycle and an otherwise-valid staged
+  commit blocked by both synthetic active-task and active-PTY states,
+  followed by a successful ordinary commit after release.
+- This is per-session execution exclusion, not a cross-session workspace
+  mutex. Existing authorization and production NO-GO remain unchanged.
+
+## 2026-11-05 — Native Git controls honor open PTY
+
+- The native GUI now disables fixed Git mutation controls for a session
+  owning a long job or unclosed Terminal PTY; Git read controls stay
+  available within their separate grants and quotas.
+- A central native `invoke()` check rejects the mutation routes even if
+  button handlers are activated programmatically. Host RBAC and
+  lock-based exclusion remain authoritative.
+- Extended the executable Terminal GUI fixture to assert disabled Git
+  pull/commit/push while PTY is open and their restoration after closure.
+  No new E2EE operations, commands, privileges or production enablement.
+
+## 2026-11-05 — Shared host Git mutation exclusion for remaining fixed operations
+
+- Extended the same host-side `reserveRemoteGitMutation` guard from
+  pull/commit/push to remote fetch, stage-tracked/unstage-all, per-file
+  stage/unstage, and branch-create. Fetch modifies local remote-tracking
+  refs, so it must not interleave with a running host task or opened PTY.
+- The older index, file-index and branch-create handlers checked active
+  long-job and terminal states under separate short locks, released them,
+  and only then started Git. Replaced those check-then-act races with
+  one prompt, held reservation across preflight, audit and mutation.
+- The host still performs all existing snapshot checks, local RBAC,
+  user confirmation, fixed argv, credential isolation, command timeouts
+  and audit. No additional commands, E2EE rounds, PHP authority,
+  Windows-specific features or production enablement were added.

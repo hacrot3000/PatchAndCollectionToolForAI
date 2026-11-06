@@ -11,7 +11,6 @@ import (
  "context"
  "crypto/ed25519"
  "crypto/rand"
- "crypto/sha256"
  "encoding/base64"
  "encoding/hex"
  "encoding/json"
@@ -29,8 +28,6 @@ import (
  "syscall"
  "time"
 
- "bletonfc/vscode_tasks_menu/internal/remoteclientfile"
- "bletonfc/vscode_tasks_menu/internal/remoterelay"
  "bletonfc/vscode_tasks_menu/internal/remotetransport"
  "bletonfc/vscode_tasks_menu/internal/remoteclientkey"
  "github.com/coder/websocket"
@@ -104,9 +101,7 @@ func boundedRead(conn *websocket.Conn,ctx context.Context) ([]byte,error) {
  kind,body,err:=conn.Read(ctx)
  if err!=nil{return nil,err}
  if kind!=websocket.MessageText{return nil,errors.New("unexpected binary WebSocket message")}
- // A single authenticated file.block response is at most 45KiB plus
- // the Relay's small JSON envelope; no unbounded streaming frames.
- if len(body)>65536{return nil,errors.New("oversized Relay response")}
+ if len(body)>12288{return nil,errors.New("oversized Relay response")}
  return body,nil
 }
 
@@ -248,119 +243,38 @@ func probe(ctx context.Context,s clientSettings,ticket,nonce,username string,
 func probeWithAppPing(ctx context.Context,s clientSettings,ticket,nonce,username string,
  browser *remotetransport.Ephemeral,client remoteclientkey.ClientIdentity,
  readPassword func()(string,error),appPing bool)(bool,error){
- return probeWithAppAction(ctx,s,ticket,nonce,username,browser,client,readPassword,appPing,"")
+ return probeWithReadOnlyGitStatus(ctx,s,ticket,nonce,username,browser,client,
+  readPassword,appPing,false,nil)
 }
-func probeWithAppAction(ctx context.Context,s clientSettings,ticket,nonce,username string,
+
+func probeWithReadOnlyGitStatus(ctx context.Context,s clientSettings,ticket,nonce,username string,
  browser *remotetransport.Ephemeral,client remoteclientkey.ClientIdentity,
- readPassword func()(string,error),appPing bool,readFile string)(bool,error){
- return probeWithAppCommand(ctx,s,ticket,nonce,username,browser,client,
-  readPassword,appPing,readFile,false)
+ readPassword func()(string,error),appPing,gitStatus bool,report func(string))(bool,error){
+ return probeWithTrustedGUISession(ctx,s,ticket,nonce,username,browser,client,
+  readPassword,appPing,gitStatus,report,nil)
 }
-func probeWithAppCommand(ctx context.Context,s clientSettings,ticket,nonce,username string,
+
+// Shared native login and E2EE channel, with a trusted local GUI callback.
+// The callback can only use the pre-authenticated fixed-operation client;
+// it cannot introduce arbitrary Git, shell, file or HTTP capabilities.
+func probeWithTrustedGUISession(ctx context.Context,s clientSettings,ticket,nonce,username string,
  browser *remotetransport.Ephemeral,client remoteclientkey.ClientIdentity,
- readPassword func()(string,error),appPing bool,readFile string,gitStatus bool)(bool,error){
- return probeWithReplaceAction(ctx,s,ticket,nonce,username,browser,client,
-  readPassword,appPing,readFile,gitStatus,"","")
-}
-func probeWithReplaceAction(ctx context.Context,s clientSettings,ticket,nonce,username string,
- browser *remotetransport.Ephemeral,client remoteclientkey.ClientIdentity,
- readPassword func()(string,error),appPing bool,readFile string,gitStatus bool,
- replaceFile,replacement string)(bool,error){
- return probeWithTaskAction(ctx,s,ticket,nonce,username,browser,client,
-  readPassword,appPing,readFile,gitStatus,replaceFile,replacement,0)
-}
-func probeWithTaskAction(ctx context.Context,s clientSettings,ticket,nonce,username string,
- browser *remotetransport.Ephemeral,client remoteclientkey.ClientIdentity,
- readPassword func()(string,error),appPing bool,readFile string,gitStatus bool,
- replaceFile,replacement string,taskID int)(bool,error){
- return probeWithTaskActionAndDirectory(ctx,s,ticket,nonce,username,browser,client,
-  readPassword,appPing,readFile,gitStatus,replaceFile,replacement,taskID,"")
-}
-func probeWithTaskActionAndDirectory(ctx context.Context,s clientSettings,ticket,nonce,username string,
- browser *remotetransport.Ephemeral,client remoteclientkey.ClientIdentity,
- readPassword func()(string,error),appPing bool,readFile string,gitStatus bool,
- replaceFile,replacement string,taskID int,listDir string)(bool,error){
- return probeWithWindowAction(ctx,s,ticket,nonce,username,browser,client,
-  readPassword,appPing,readFile,gitStatus,replaceFile,replacement,taskID,listDir,"",0)
-}
-func probeWithWindowAction(ctx context.Context,s clientSettings,ticket,nonce,username string,
- browser *remotetransport.Ephemeral,client remoteclientkey.ClientIdentity,
- readPassword func()(string,error),appPing bool,readFile string,gitStatus bool,
- replaceFile,replacement string,taskID int,listDir,windowPath string,windowOffset int64)(bool,error){
- return probeWithDownloadAction(ctx,s,ticket,nonce,username,browser,client,
-  readPassword,appPing,readFile,gitStatus,replaceFile,replacement,taskID,
-  listDir,windowPath,windowOffset,"","")
-}
-func probeWithDownloadAction(ctx context.Context,s clientSettings,ticket,nonce,username string,
- browser *remotetransport.Ephemeral,client remoteclientkey.ClientIdentity,
- readPassword func()(string,error),appPing bool,readFile string,gitStatus bool,
- replaceFile,replacement string,taskID int,listDir,windowPath string,
- windowOffset int64,downloadSource,downloadTarget string)(bool,error){
- return probeWithDownloadMode(ctx,s,ticket,nonce,username,browser,client,
-  readPassword,appPing,readFile,gitStatus,replaceFile,replacement,taskID,listDir,
-  windowPath,windowOffset,downloadSource,downloadTarget,false)
-}
-func probeWithDownloadMode(ctx context.Context,s clientSettings,ticket,nonce,username string,
- browser *remotetransport.Ephemeral,client remoteclientkey.ClientIdentity,
- readPassword func()(string,error),appPing bool,readFile string,gitStatus bool,
- replaceFile,replacement string,taskID int,listDir,windowPath string,
- windowOffset int64,downloadSource,downloadTarget string,fastDownload bool)(bool,error){
- return probeWithDownloadBlockMode(ctx,s,ticket,nonce,username,browser,client,
-  readPassword,appPing,readFile,gitStatus,replaceFile,replacement,taskID,
-  listDir,windowPath,windowOffset,downloadSource,downloadTarget,fastDownload,false)
-}
-func probeWithDownloadBlockMode(ctx context.Context,s clientSettings,ticket,nonce,username string,
- browser *remotetransport.Ephemeral,client remoteclientkey.ClientIdentity,
- readPassword func()(string,error),appPing bool,readFile string,gitStatus bool,
- replaceFile,replacement string,taskID int,listDir,windowPath string,
- windowOffset int64,downloadSource,downloadTarget string,fastDownload,fullDownload bool)(bool,error){
- return probeWithInteractiveMode(ctx,s,ticket,nonce,username,browser,client,
-  readPassword,appPing,readFile,gitStatus,replaceFile,replacement,taskID,
-  listDir,windowPath,windowOffset,downloadSource,downloadTarget,fastDownload,fullDownload,false)
-}
-func probeWithInteractiveMode(ctx context.Context,s clientSettings,ticket,nonce,username string,
- browser *remotetransport.Ephemeral,client remoteclientkey.ClientIdentity,
- readPassword func()(string,error),appPing bool,readFile string,gitStatus bool,
- replaceFile,replacement string,taskID int,listDir,windowPath string,
- windowOffset int64,downloadSource,downloadTarget string,fastDownload,fullDownload,interactive bool)(bool,error){
- return probeWithDesktopMode(ctx,s,ticket,nonce,username,browser,client,readPassword,
-  appPing,readFile,gitStatus,replaceFile,replacement,taskID,listDir,windowPath,
-  windowOffset,downloadSource,downloadTarget,fastDownload,fullDownload,interactive,false)
-}
-func probeWithDesktopMode(ctx context.Context,s clientSettings,ticket,nonce,username string,
- browser *remotetransport.Ephemeral,client remoteclientkey.ClientIdentity,
- readPassword func()(string,error),appPing bool,readFile string,gitStatus bool,
- replaceFile,replacement string,taskID int,listDir,windowPath string,
- windowOffset int64,downloadSource,downloadTarget string,fastDownload,fullDownload,interactive,gui bool)(bool,error){
- if (interactive||gui)&&!appPing{return false,errors.New("native GUI/console requires authenticated E2EE application login")}
- if fullDownload&&(downloadSource==""||fastDownload){return false,errors.New("download-full requires a source and cannot combine with download-fast")}
- if fastDownload&&downloadSource==""{return false,errors.New("download-fast requires download-file and download-to")}
+ readPassword func()(string,error),appPing,gitStatus bool,report func(string),
+ onSession func(context.Context,*remotetransport.PingClient)error)(bool,error){
+ if onSession!=nil && (!appPing || gitStatus) {
+  return false,errors.New("trusted GUI requires application E2EE session mode")
+ }
+ if gitStatus && (!appPing || report==nil) {
+  return false,errors.New("Git status requires authenticated E2EE application mode and an output sink")
+ }
  if err:=s.validate();err!=nil{return false,err}
- if taskID<0||taskID>0x7fffffff{return false,errors.New("invalid TaskDeck task ID")}
- if (interactive||gui)&&(taskID>0||gitStatus||readFile!=""||replaceFile!=""||listDir!=""||windowPath!=""||downloadSource!=""){
-  return false,errors.New("GUI/console must be the only selected remote action")
- }
- if interactive&&gui{return false,errors.New("choose native GUI or interactive console, not both")}
- if (replaceFile!=""&&(gitStatus||readFile!=""||taskID>0||listDir!=""||windowPath!=""||downloadSource!=""))||
-  (taskID>0&&(gitStatus||readFile!=""||listDir!=""||windowPath!=""||downloadSource!=""))||
-  (listDir!=""&&(gitStatus||readFile!=""||windowPath!=""||downloadSource!=""))||
-  (windowPath!=""&&(gitStatus||readFile!=""||downloadSource!=""))||
-  (downloadSource!=""&&(gitStatus||readFile!=""))||
-  (gitStatus&&readFile!="")||(downloadSource=="")!=(downloadTarget==""){
-  return false,errors.New("choose one E2EE operation and specify both download-file and download-to")
- }
- if windowOffset<0||windowOffset>remotetransport.RemoteFileWindowMaxSize||
-  (windowOffset!=0&&windowPath==""){return false,errors.New("invalid file window offset")}
- if downloadSource!=""&&(!filepath.IsAbs(downloadTarget)||filepath.Clean(downloadTarget)!=downloadTarget){
-  return false,errors.New("download-to must be an absolute canonical local path")
- }
  if len(ticket)<100 || len(ticket)>4096 || len(username)==0 || len(username)>128 ||
   readPassword==nil {return false,errors.New("invalid ticket or TaskDeck login input")}
  conn,_,err:=websocket.Dial(ctx,strings.Replace(s.Relay,"https://","wss://",1)+"/v1/browser",
   &websocket.DialOptions{HTTPHeader:http.Header{"Origin":[]string{s.Portal}}})
  if err!=nil{return false,err}
  defer conn.CloseNow()
- conn.SetReadLimit(65536)
+ conn.SetReadLimit(12288)
  first,err:=json.Marshal(map[string]string{
   "ticket":ticket,"client_nonce":nonce,
   "browser_key":base64.StdEncoding.EncodeToString(browser.Public),
@@ -423,104 +337,28 @@ func probeWithDesktopMode(ctx context.Context,s clientSettings,ticket,nonce,user
  clientPing,err:=remotetransport.NewPingClient(ch,&wssAppPingExchange{connection:conn})
  if err!=nil{return false,err}
  defer clientPing.Close()
- if interactive||gui{
-   tty,err:=os.OpenFile("/dev/tty",os.O_RDWR,0)
-   if err!=nil{return false,errors.New("trusted GUI/console requires independent local TTY")}
-   defer tty.Close()
-   if gui{
-    if err:=runNativeGUI(ctx,clientPing,tty);err!=nil&&ctx.Err()==nil{
-     return false,err
-    }
-   }else if err:=runNativeInteractiveConsole(ctx,clientPing,bufio.NewReader(tty),tty);err!=nil{
-    return false,err
-   }
-  } else if taskID>0{
-  output,err:=clientPing.RunTask(ctx,taskID)
-  if err!=nil{return false,fmt.Errorf("host refused E2EE TaskDeck task %d: %w",taskID,err)}
-  fmt.Printf("TaskDeck E2EE approved task %d output: %q\n",taskID,output)
- } else if replaceFile!=""{
-  original,err:=clientPing.ReadFile(ctx,replaceFile)
-  if err!=nil{return false,fmt.Errorf("authenticated file preview before edit denied: %w",err)}
-  originalHash:=sha256.Sum256([]byte(original))
-  newHash,err:=clientPing.ReplaceFile(ctx,replaceFile,replacement,hex.EncodeToString(originalHash[:]))
-  if err!=nil{return false,fmt.Errorf("host rejected E2EE optimistic file replacement: %w",err)}
-  fmt.Printf("TaskDeck E2EE file %q replaced; committed SHA-256: %s\n",replaceFile,newHash)
- } else if gitStatus{
-  content,err:=clientPing.GitStatus(ctx)
-  if err!=nil{return false,fmt.Errorf("authenticated E2EE Git status denied: %w",err)}
-  fmt.Printf("TaskDeck E2EE Git status: %q\n",content)
- } else if downloadSource!=""{
-  // All local I/O is performed by independently built native client code:
-  // the PHP-hosted browser controls neither the output path nor file data.
-  dl,err:=remoteclientfile.Open(downloadTarget,s.DeviceID,downloadSource)
-  if err!=nil{return false,fmt.Errorf("local resumable destination denied: %w",err)}
-  defer dl.Close()
-  progress:=dl.Progress()
-  // A signed Agent upgrade is necessary for rounds 7..64; a compromised
-  // Relay/Portal cannot authorize them, and TaskDeck is file-only.
-  maxRounds:=remoterelay.MaxAppPingRounds
-  if fastDownload||fullDownload{maxRounds=remotetransport.MaxScopedFileTransferRounds}
-  for round:=0;round<maxRounds;round++{
-   if ctx.Err()!=nil{return false,ctx.Err()}
-   var window remotetransport.FileWindow
-   var readErr error
-   if fullDownload{
-    window,readErr=clientPing.ReadFileBlock(ctx,downloadSource,progress.Offset)
-   }else if fastDownload {
-    window,readErr=clientPing.ReadFileChunk(ctx,downloadSource,progress.Offset)
-   } else {
-    window,readErr=clientPing.ReadFileWindow(ctx,downloadSource,progress.Offset)
-   }
-   if readErr!=nil{return false,fmt.Errorf("authenticated E2EE download window denied: %w",readErr)}
-   if fullDownload{
-    progress,err=dl.AppendBlock(window)
-   }else if fastDownload{
-    progress,err=dl.AppendChunk(window)
-   }else{
-    progress,err=dl.Append(window)
-   }
-   if err!=nil{return false,fmt.Errorf("remote version or local checkpoint rejected: %w",err)}
-   if progress.Complete{break}
+ if onSession!=nil {
+  if err:=onSession(ctx,clientPing);err!=nil {
+   return false,fmt.Errorf("trusted native GUI ended unexpectedly: %w",err)
   }
-  if progress.Complete{
-   fmt.Printf("TaskDeck E2EE verified download saved to %q (size=%d sha256=%s)\n",
-    downloadTarget,progress.Size,progress.SHA256)
-  }else{
-   fmt.Printf("TaskDeck E2EE download staged locally at offset %d/%d (sha256=%s); "+
-    "resume using a NEW Portal ticket if the file remains incomplete.\n",
-    progress.Offset,progress.Size,progress.SHA256)
-  }
- } else if windowPath!=""{
-  window,err:=clientPing.ReadFileWindow(ctx,windowPath,windowOffset)
-  if err!=nil{return false,fmt.Errorf("authenticated E2EE file window denied: %w",err)}
-  // Output base64 only, never terminal controls from binary file content.
-  fmt.Printf("TaskDeck E2EE file %q window offset=%d size=%d file_sha256=%s base64=%s\n",
-   windowPath,window.Offset,window.Size,window.FileSHA256,
-   base64.StdEncoding.EncodeToString(window.Data))
- } else if listDir!=""{
-  listing,err:=clientPing.ListDirectory(ctx,listDir)
-  if err!=nil{return false,fmt.Errorf("authenticated E2EE directory list denied: %w",err)}
-  fmt.Printf("TaskDeck E2EE directory %q: %q\n",listDir,listing)
- } else if readFile!=""{
-  // Print only escaped UTF-8, never untrusted terminal escape/control bytes.
-  content,err:=clientPing.ReadFile(ctx,readFile)
-  if err!=nil{return false,fmt.Errorf("authenticated E2EE workspace file read rejected: %w",err)}
-  fmt.Printf("TaskDeck E2EE file %q: %q\n",readFile,content)
- } else {
-  if err:=clientPing.Ping(ctx);err!=nil {
-   return false,fmt.Errorf("authenticated E2EE session.ping rejected: %w",err)
-  }
+ } else if gitStatus {
+  status,err:=clientPing.GitStatus(ctx)
+  if err!=nil{return false,fmt.Errorf("authenticated E2EE git.status rejected: %w",err)}
+  report(status) // Decrypted locally from verified Agent, never from PHP.
+ } else if err:=clientPing.Ping(ctx);err!=nil {
+  return false,fmt.Errorf("authenticated E2EE session.ping rejected: %w",err)
  }
  return true,nil
 }
 
-// The ONLY exposed native application transport is opaque session.ping.
+// The only exposed native application transport permits session.ping and
+// exact host-root read-only git.status, both as bounded opaque AEAD frames.
 // Relay and compromised PHP see base64 ciphertext, not local login data
 // or a serialized TaskDeck principal.
 type wssAppPingExchange struct{ connection *websocket.Conn }
 func (w *wssAppPingExchange) ExchangePing(ctx context.Context, encrypted []byte)([]byte,error){
  if w==nil||w.connection==nil||ctx==nil||ctx.Err()!=nil||
-  len(encrypted)<25||len(encrypted)>remotetransport.MaxEncryptedTextEditFrame{
+  len(encrypted)<25||len(encrypted)>remotetransport.MaxEncryptedPingFrame{
   return nil,remotetransport.ErrRemoteActionDenied
  }
  request,err:=json.Marshal(map[string]string{
@@ -539,7 +377,7 @@ func (w *wssAppPingExchange) ExchangePing(ctx context.Context, encrypted []byte)
  if reply.Type!="e2ee_app_ping_result"||reply.RemoteControlAvailable {
   return nil,remotetransport.ErrRemoteActionDenied
  }
- sealed,err:=decodeBoundedBase64(reply.Ciphertext,remotetransport.MaxEncryptedAppFrame)
+ sealed,err:=decodeBoundedBase64(reply.Ciphertext,remotetransport.MaxEncryptedPingFrame)
  if err!=nil||len(sealed)<25{return nil,remotetransport.ErrRemoteActionDenied}
  return sealed,nil
 }
@@ -574,111 +412,22 @@ func run() error {
  var pinPath string
  var appPing bool
  var gitStatus bool
- var interactive bool
- var nativeGUI bool
- flag.BoolVar(&nativeGUI,"gui",false,
-  "trusted local browser GUI embedded in verified native client: Files, read-only Git and host-approved Tasks; no PHP HTML")
- flag.BoolVar(&interactive,"interactive",false,
-  "trusted native E2EE console: view/edit, git status/diff and approved terminal task; no PTY")
- var listDir string
- var windowPath string
- var windowOffset int64
- var downloadSource,downloadTarget string
- var downloadFast bool
- var downloadFull bool
- flag.BoolVar(&downloadFull,"download-full",false,
-  "read one visible file up to 2MiB over 64 strict 32768-byte E2EE blocks")
- flag.BoolVar(&downloadFast,"download-fast",false,
-  "use up to six 4096-byte E2EE file chunks per login (experimental; verified native client only)")
- flag.StringVar(&downloadSource,"download-file","",
-  "resume download of one visible remote file, up to six 128-byte AEAD chunks per login")
- flag.StringVar(&downloadTarget,"download-to","",
-  "absolute local final filename in a private owned directory, never overwritten")
- flag.StringVar(&windowPath,"read-window","",
-  "read one 128-byte binary window of a visible file <=2MiB via E2EE FilesRead")
- flag.Int64Var(&windowOffset,"offset",0,
-  "byte offset for -read-window (0..2097152)")
- flag.StringVar(&listDir,"list-dir","",
-  "list up to 64 visible entries, 192 bytes, within a workspace directory via FilesRead E2EE; use '.' for workspace root")
- flag.BoolVar(&gitStatus,"git-status",false,
-  "read a bounded Git status from the TaskDeck workspace via E2EE, requires host GitStatus permission")
- var taskID int
- flag.IntVar(&taskID,"run-task",0,
-  "run one host-marked taskdeckRemoteAllowed TaskDeck task ID for at most 7 seconds via E2EE")
- var replaceFile string
- flag.StringVar(&replaceFile,"replace-file","",
-  "replace one existing small workspace file via authenticated E2EE using locally typed text")
- var readFile string
- flag.StringVar(&readFile,"read-file","",
-  "read at most 192 UTF-8 bytes of one workspace-relative text file via E2EE; no edits or shell")
+ var gui bool
  flag.BoolVar(&appPing,"test-app-ping",false,
   "opt-in E2EE session.ping through real WSS; no remote commands, files or terminal")
+ flag.BoolVar(&gitStatus,"test-git-status",false,
+  "read-only E2EE Git status of the exact host TaskDeck workspace root after local RBAC checks")
+ flag.BoolVar(&gui,"gui",false,
+  "open trusted LOCAL browser GUI after pinned-Agent TaskDeck E2EE login (read-only, max 16 actions)")
  flag.StringVar(&pinPath,"pin-file","","Absolute path to owner-only (0600) Device ID pin verified outside Portal")
  flag.StringVar(&s.Relay,"relay","","Trusted Relay HTTPS origin")
  flag.StringVar(&s.Portal,"portal","","Portal HTTPS origin (for Relay Origin header only)")
  flag.StringVar(&s.DeviceID,"device","","Owner-verified TaskDeck Device ID (64 hex characters)")
  flag.Parse()
+ if (appPing && gitStatus) || (gui && (appPing || gitStatus)) {
+  return errors.New("choose exactly one remote mode: login, test-app-ping, test-git-status or gui")
+ }
  if err:=s.validate();err!=nil{return err}
- count:=0
- if gitStatus{count++}
- if downloadSource!=""{count++}
- if windowPath!=""{count++}
- if listDir!=""{count++}
- if readFile!=""{count++}
- if replaceFile!=""{count++}
- if taskID>0{count++}
- if taskID<0||taskID>0x7fffffff{return errors.New("invalid TaskDeck task ID")}
- if nativeGUI&&interactive{return errors.New("-gui and -interactive cannot be combined")}
- if (interactive||nativeGUI)&&(count>0||downloadFast||downloadFull){
-  return errors.New("-interactive cannot combine with any single-shot action or download")
- }
- if count>1||(downloadSource=="")!=(downloadTarget=="")||
-  (downloadFast&&downloadSource=="")||
-  (downloadFull&&(downloadSource==""||downloadFast)){
-  return errors.New("choose only one: -download-file and -download-to, -read-window, -list-dir, -git-status, -read-file, -replace-file or -run-task")
- }
- if taskID>0||interactive||nativeGUI{appPing=true}
- if windowOffset<0||windowOffset>remotetransport.RemoteFileWindowMaxSize||
-  (windowOffset!=0&&windowPath==""){return errors.New("-offset requires -read-window, range 0..2097152")}
- if downloadSource!=""{
-  if len(downloadSource)>180||downloadSource=="."||strings.HasPrefix(downloadSource,"/")||
-   strings.Contains(downloadSource,"..")||strings.ContainsAny(downloadSource,"\\\r\n\x00:")||
-   !filepath.IsAbs(downloadTarget)||filepath.Clean(downloadTarget)!=downloadTarget {
-   return errors.New("download-file must be a safe relative source and download-to an absolute local filename")
-  }
-  appPing=true
- }
- if windowPath!=""{
-  if len(windowPath)>180||windowPath=="."||strings.HasPrefix(windowPath,"/")||
-   strings.Contains(windowPath,"..")||strings.ContainsAny(windowPath,"\\\r\n\x00:"){
-   return errors.New("read-window requires a safe workspace-relative file path")
-  }
-  appPing=true
- }
- if replaceFile!=""{
-  if len(replaceFile)>120 || replaceFile=="." ||
-   strings.Contains(replaceFile,"..") || strings.HasPrefix(replaceFile,"/")||
-   strings.ContainsAny(replaceFile,"\\\r\n\x00:"){
-   return errors.New("replace-file requires a safe workspace-relative path")
-  }
-  appPing=true
- }
- if gitStatus{appPing=true}
- if listDir!="" {
-  if len(listDir)>180||strings.HasPrefix(listDir,"/")||
-   strings.Contains(listDir,"..")||strings.ContainsAny(listDir,"\\\r\n\x00:") {
-   return errors.New("list-dir must be '.' or a safe workspace-relative directory")
-  }
-  appPing=true
- }
- if readFile!=""{
-  if len(readFile)>180 || readFile=="." ||
-   strings.Contains(readFile,"..") || strings.HasPrefix(readFile,"/") ||
-   strings.ContainsAny(readFile,"\\\r\n\x00:"){
-   return errors.New("read-file must be a short safe workspace-relative text path")
-  }
-  appPing=true
- }
  trustedPin,err:=loadPinnedDevice(pinPath)
  if err!=nil{return fmt.Errorf("independent TaskDeck identity pin required: %w",err)}
  if trustedPin!=s.DeviceID {return errors.New("Device ID mismatch: Portal or command-line value disagrees with independent local pin")}
@@ -717,24 +466,24 @@ func run() error {
  fmt.Fprintln(tty,"Client public key:",base64.StdEncoding.EncodeToString(browser.Public))
  fmt.Fprintln(tty,"Nhập hai giá trị công khai ở trên vào biểu mẫu cấp ticket trên Portal,")
  fmt.Fprintln(tty,"sau đó sao chép ticket trả về. Không nhập mật khẩu TaskDeck lên Portal.")
- var replacement string
- if replaceFile!=""{
-  fmt.Fprintf(tty,"Thay nội dung tệp %q bằng một dòng UTF-8 tối đa 96 byte, chỉ nhập tại client:\n",replaceFile)
-  replacement,err=ttyLine(tty,reader,"Nội dung mới: ")
-  if err!=nil{return err}
-  if len(replacement)>96 || strings.ContainsRune(replacement,'\x00'){
-   return errors.New("replacement must be at most 96 UTF-8 bytes without NUL")
-  }
- }
  ticket,err:=ttyLine(tty,reader,"Ticket (30 giây hiệu lực): ")
  if err!=nil{return err}
- overallLimit:=70*time.Second
- if interactive||nativeGUI{overallLimit=5*time.Minute}
- ctx,cancel:=context.WithTimeout(context.Background(),overallLimit)
+ deadline:=70*time.Second
+ if gui {deadline=5*time.Minute} // Hard cap: host TaskDeck E2EE session expires at 5m.
+ ctx,cancel:=context.WithTimeout(context.Background(),deadline)
  defer cancel()
- ok,err:=probeWithDesktopMode(ctx,s,strings.TrimSpace(ticket),nonce,username,browser,client,
-  func()(string,error){return ttyPassword(tty,reader)},appPing,readFile,gitStatus,
-  replaceFile,replacement,taskID,listDir,windowPath,windowOffset,downloadSource,downloadTarget,downloadFast,downloadFull,interactive,nativeGUI)
+ var trustedGUIHandler func(context.Context,*remotetransport.PingClient)error
+ if gui {
+  trustedGUIHandler=func(ctx context.Context,actions *remotetransport.PingClient)error {
+   return runTrustedRemoteGUIForTarget(ctx,actions,tty,trustedGUITarget{
+    DeviceID:s.DeviceID,Username:username,
+   })
+  }
+ }
+ ok,err:=probeWithTrustedGUISession(ctx,s,strings.TrimSpace(ticket),nonce,username,browser,client,
+  func()(string,error){return ttyPassword(tty,reader)},appPing||gitStatus||gui,gitStatus,
+  func(status string){fmt.Fprintln(tty,"--- Verified E2EE Git status ---");fmt.Fprintln(tty,status)},
+  trustedGUIHandler)
  if errors.Is(err,errClientKeyNotApproved){
   showPendingClientKey(tty,username,client)
   return err
@@ -747,24 +496,10 @@ func run() error {
   // with a new enrollment popup or encourage repeatedly copying keys.
   return errors.New("TaskDeck rejected the credentials or revoked local access; no remote session opened")
  }
- if nativeGUI{
-  fmt.Fprintln(tty,"Đã đóng trusted native GUI và hủy phiên E2EE; PHP không giữ TaskDeck session.")
- } else if interactive{
-  fmt.Fprintln(tty,"Đã đóng console E2EE; không có shell/PTY hay bearer token.")
- } else if taskID>0{
-  fmt.Fprintln(tty,"TaskDeck đã thực thi một task được host phê duyệt qua TasksRun; không cấp Terminal/PTY hoặc shell tùy ý.")
- } else if replaceFile!=""{
-  fmt.Fprintln(tty,"Đã thay văn bản workspace với SHA đã kiểm tra và quyền FilesWrite; không có quyền thực thi lệnh.")
- } else if gitStatus{
-  fmt.Fprintln(tty,"Đã lấy Git status qua E2EE và quyền GitStatus; không có quyền thực thi git push hoặc lệnh shell.")
- } else if downloadSource!=""{
-  fmt.Fprintln(tty,"Đã xử lý các khối E2EE với xác thực TaskDeck; nếu file chưa đủ phải dùng ticket mới để tiếp tục checkpoint.")
- } else if windowPath!=""{
-  fmt.Fprintln(tty,"Đã đọc cửa sổ nhị phân E2EE với FilesRead và SHA-256 toàn tệp; không có quyền ghi hoặc thực thi lệnh.")
- } else if listDir!="" {
-  fmt.Fprintln(tty,"Đã liệt kê mục hiện ra trong thư mục workspace qua FilesRead E2EE; không có quyền ghi hoặc thực thi lệnh.")
- } else if readFile!=""{
-  fmt.Fprintln(tty,"Đã đọc văn bản workspace qua E2EE với quyền FilesRead; không có quyền ghi hoặc thực thi lệnh.")
+ if gui {
+  fmt.Fprintln(tty,"Phiên GUI cục bộ đã đóng; kênh E2EE không còn được sử dụng.")
+ } else if gitStatus {
+  fmt.Fprintln(tty,"TaskDeck đã xác thực và trả về git.status qua E2EE; không mở quyền Git ghi hoặc Terminal.")
  } else if appPing {
   fmt.Fprintln(tty,"TaskDeck xác thực thành công và session.ping E2EE qua WSS đã PASS; không có quyền thực thi lệnh Remote.")
  } else {

@@ -1,14 +1,11 @@
 # Cài đặt TaskDeck Remote (PHP Portal + Go Relay + TaskDeck Agent)
 
-> **Trạng thái 30/10/2026: EXPERIMENTAL / KHÔNG PHẢI RELEASE REMOTE CONTROL.**
+> **Trạng thái 03/11/2026: EXPERIMENTAL / KHÔNG PHẢI RELEASE REMOTE CONTROL.**
 > Merge source vào `main` **không bật điều khiển từ xa**. Các luồng Terminal,
 > File, Editor, Git, Patch/Collection và proxy HTTP/WS TaskDeck **chưa có tuyến
 > remote được phát hành**. `remote_control_available=false` ở mọi chế độ.
-> Hiện có pairing/presence, E2EE diagnostic/login và các thao tác native
-> giới hạn: `session.ping`, đọc tệp 192 byte, `git.status` 192 byte và
-> thay tệp 96 byte có điều kiện (mặc định tắt). **Không có shell, Patch,
-> Git write/push hay Remote Control UI hoàn chỉnh.** Không triển khai như
-> một dịch vụ Remote Control công khai.
+> Hiện có pairing/presence, E2EE diagnostic/login và tùy chọn thử nghiệm
+> `session.ping`, `session.features`, `project.info`, `tasks.preview` và `git.status` chỉ đọc qua E2EE; GUI thử nghiệm chạy trên máy client. Không triển khai như một dịch vụ Remote Control công khai.
 
 ## 1. Kiến trúc và yêu cầu
 
@@ -74,7 +71,7 @@ Trên máy Relay, copy **PUBLIC** Portal key từ lệnh `relay-public-key` vào
 
 Đưa `https://relay.example.com` ra Internet bằng TLS reverse proxy hỗ trợ **WSS upgrade tới TLS backend** hoặc cấu hình listener TLS trực tiếp thích hợp. Các đường Relay cần: `/healthz`, `/v1/device`, `/v1/browser`. Không proxy các request vào TaskDeck host; không expose TaskDeck port. **Không chạy Relay bằng root nếu không cần** và không dùng nhiều replica với replay ledger cục bộ độc lập (cần ledger giao dịch dùng chung).
 
-**Cờ thử nghiệm mặc định OFF:** `-allow-offline-file-client`, `-allow-offline-login-probe` (đòi cờ offline) và `-allow-app-ping` (chỉ `session.ping`, **không** mở lệnh). Không bật các cờ này khi chỉ cần presence/pairing.
+**Cờ thử nghiệm mặc định OFF:** `-allow-offline-file-client`, `-allow-offline-login-probe` (đòi cờ offline) và `-allow-app-ping` (chỉ `session.ping` và, nếu host cho phép riêng, `git.status` chỉ đọc; **không** mở shell/Terminal hoặc Git ghi). Không bật các cờ này khi chỉ cần presence/pairing.
 
 ## 4. Kích hoạt Agent trên máy TaskDeck (Linux/macOS)
 
@@ -99,6 +96,59 @@ TASKDECK_REMOTE_LOGIN_PROBE=1 TASKDECK_REMOTE_APP_PING=1 \
 ```
 
 Lưu ý: nếu daemon đã khởi chạy sẵn, thiết lập env trong terminal khác **không** thay đổi daemon đó; phải cấu hình trong service/process quản lý daemon và restart đúng cách. Để thử nghiệm `session.ping` đồng thời cần Relay `-allow-app-ping`. Mặc định các biến đều OFF.
+
+**Thử nghiệm Git chỉ đọc (nhánh tính năng, không LIVE):** Nếu TaskDeck workspace trỏ đúng root của Git repository, bật thêm `TASKDECK_REMOTE_GIT_STATUS=1` **trên daemon host**. Trên trusted native client chọn `-test-git-status` thay vì `-test-app-ping`. Không bật cả hai đồng thời. Lệnh này chỉ lấy trạng thái Git qua phiên E2EE; mọi `git add/commit/push`, terminal, proxy HTTP vẫn bị từ chối. Git có quá nhiều thay đổi vượt giới hạn 256 bytes sẽ bị từ chối thay vì in thiếu dữ liệu. Không bật trong production trước khi kiểm thử CI và môi trường thật.
+
+### GUI thử nghiệm trên client đã xác minh (read-only, chưa LIVE)
+
+Sau khi cấu hình Agent, Relay, ghim Device ID, duyệt client key và
+đăng nhập thành công từ native client, có thể thay cờ `-test-app-ping`
+bằng `-gui` khi chạy `taskdeck_remote_login`. Chương trình mở
+GUI qua URL `http://127.0.0.1:<random_port>/` **chỉ trên
+máy client**. CLI in riêng **mã kích hoạt 64 ký tự hex** vào terminal
+của client; hãy dán mã này vào ô kích hoạt trong GUI localhost.
+Không đưa mã vào trang PHP hay chia sẻ cho người khác. Đường dẫn mở
+browser KHÔNG chứa mã trong tham số tiến trình `xdg-open/open`
+(ngăn lộ qua danh sách tiến trình). HTML/JS/CSS được biên dịch
+sẵn vào binary độc lập, không được tải từ PHP hay Relay; giao diện
+dùng strict Origin/Host, CSP, chống CSRF và không ghi mã vào
+storage/cookie. Sau khi nhập, mã chỉ gửi qua request local tới
+native client, không đi vào PHP Portal.
+
+GUI có nút **Kiểm tra chức năng** (`session.features` qua E2EE) để hỏi
+host những chức năng đọc nào đã bật và được tài khoản hiện tại cấp quyền.
+Các nút chức năng đọc sẽ khóa cho đến khi kiểm tra và tiếp tục khóa nếu
+chưa được bật/quyền không đủ. Tài khoản chỉ có quyền `git.status`
+(ví dụ role restricted-developer) vẫn được kiểm tra tính năng;
+nút Ping được đánh giá riêng theo `tasks.view`. Bước kiểm tra tốn một trong 16 lượt E2EE;
+đây chỉ là gợi ý giao diện, host vẫn xác thực và kiểm tra RBAC lại ở
+**mỗi thao tác**. Native client và Agent phải dùng build tương thích;
+host cũ không hỗ trợ thao tác này sẽ từ chối an toàn.
+
+Giao diện hiện có `session.ping`, `project.info` (host phải
+bật riêng `TASKDECK_REMOTE_PROJECT_INFO=1`), `tasks.preview` chỉ đọc
+(host phải bật riêng `TASKDECK_REMOTE_TASKS_PREVIEW=1`) và `git.status` chỉ đọc
+(host phải bật riêng `TASKDECK_REMOTE_GIT_STATUS=1`), cùng nút đóng
+phiên. `project.info` chỉ trả tên dự án được TaskDeck xác thực,
+tên thư mục workspace (không có đường dẫn tuyệt đối) và host OS;
+không liệt kê các dự án khác. Khu vực Task hiển thị tổng số task
+và tối đa 24 nhãn (bốn nhãn mỗi trang, có tìm kiếm cục bộ), tự rút gọn nếu vượt
+giới hạn 512-byte JSON rõ trước mã hóa. Đổi tab hoặc trang trong
+GUI không gửi thêm yêu cầu qua Relay; dữ liệu đọc được xóa khỏi
+GUI khi đóng, hết hạn hoặc bị thu hồi phiên. GUI kiểm tra trạng thái
+phiên bằng request **chỉ tới localhost** mỗi 15 giây khi đang rảnh;
+request này không tốn lượt E2EE, không chuyển qua PHP/Relay và
+không tự đăng nhập lại. Khi native client đã đóng phiên, nội dung
+đã đọc được xóa khỏi giao diện. Nút **Tải thêm task từ host** sử dụng thao tác E2EE
+cố định `tasks.preview.next` và tiêu tốn một lượt/ lần. Host giữ vị trí trang,
+kiểm tra dấu vân tay của `tasks.json` và từ chối nếu dữ liệu đổi giữa hai lần đọc.
+Có thêm nút **Tải các trang còn lại**, được người dùng chủ động bấm để tải từng trang lần lượt trong giới hạn 16 lượt E2EE/phiên; nút **Dừng tải** ngừng gửi lượt mới sau lượt đang chờ, còn **Ngắt phiên** thu hồi quyền ngay cả khi một lượt chưa hoàn tất. Không tự đăng nhập lại hoặc dùng thêm quyền/đường dẫn từ PHP. Client/PHP không được gửi `offset`, task ID, đường dẫn hoặc lệnh. Phân trang/tìm kiếm
+và sắp xếp A–Z/Z–A trong các nhãn đã tải về vẫn hoàn toàn cục bộ và không tiêu tốn lượt Relay. Thanh tiến độ thể hiện số nhãn task đã tải/tổng nhãn được phép hiển thị, phân biệt rõ đã tải hết với hết 16 lượt E2EE khi danh sách còn dang dở. Khi rời trang, kể cả trang được Firefox giữ trong back-forward cache, GUI xóa dữ liệu dự án, Git, task và danh tính phiên ngay trước khi gửi ngắt phiên. Kết
+quả Git chỉ hiển thị trong vùng text/bảng và không được chuyển thành
+HTML hay command. Chỉ có tối đa 16 thao tác E2EE chỉ đọc qua Relay trong phiên
+kéo dài tối đa năm phút. **Chưa thể thực hiện Git Pull, Commit, Push,
+Terminal hoặc Editor**. Không xuất bản listener localhost ra Internet
+và không dùng GUI này như một bản Remote Control LIVE.
 
 ## 5. Cài trusted client và duyệt khóa lần đầu
 

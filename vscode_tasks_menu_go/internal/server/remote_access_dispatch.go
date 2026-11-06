@@ -2,13 +2,9 @@ package server
 
 import (
  "context"
- "crypto/sha256"
- "encoding/hex"
- "errors"
- "io"
  "os"
- "os/exec"
  "time"
+ "strings"
 
  "bletonfc/vscode_tasks_menu/internal/identity"
  "bletonfc/vscode_tasks_menu/internal/remotetransport"
@@ -18,11 +14,38 @@ import (
 // Record locally authorized action attempts using the real TaskDeck principal,
 // without request IDs, plaintext credentials, Portal tickets or ciphertext.
 // A failed audit is a hard refusal; do not produce an encrypted "success".
-func (s *Server) auditRemoteReadOnlyPing(session *remoteTaskDeckSession) error {
- return s.auditRemoteReadOnlyAction(session,"session_ping")
-}
-func (s *Server) auditRemoteReadOnlyAction(session *remoteTaskDeckSession,action string) error {
- if action!="session_ping" && action!="project_file_read" && action!="project_file_preview" && action!="project_file_lines" && action!="project_file_find_lines" && action!="project_file_edit_line" && action!="project_file_delete_line" && action!="project_file_insert_line" && action!="project_file_window" && action!="project_file_chunk" && action!="project_file_block" && action!="project_dir_list" && action!="git_status" && action!="git_status_full" && action!="git_commit_review" && action!="git_branch_review" && action!="git_branch_create" && action!="git_switch_review" && action!="git_switch_same_head" && action!="git_branch_delete_review" && action!="git_branch_delete" && action!="git_commit" && action!="git_diff" && action!="git_log" && action!="git_branches" && action!="git_remotes" && action!="git_tracking_refs" && action!="git_pull_review" && action!="git_pull_changes_review" && action!="git_pull_cached_review" && action!="git_pull_apply_cached" && action!="git_pull_apply_files" && action!="git_fetch_https_review" && action!="git_fetch_https_apply" && action!="git_push_https_review" && action!="git_push_https_apply" && action!="git_diff_staged" && action!="git_diff_head" && action!="git_stage" && action!="git_unstage" && action!="task_list" && action!="task_run_text" && action!="task_run_report" && action!="task_managed_start" && action!="task_managed_status" && action!="task_managed_cancel" && action!="task_managed_output" && action!="project_file_replace" && action!="project_file_replace_text" && action!="task_run" {
+func (s *Server) auditRemoteReadOnlyAction(session *remoteTaskDeckSession, operation string) error {
+ if operation!=remotetransport.RemoteActionSessionPing &&
+    operation!=remotetransport.RemoteActionSessionFeatures &&
+    operation!=remotetransport.RemoteActionGitStatus &&
+    operation!=remotetransport.RemoteActionGitLog &&
+    operation!=remotetransport.RemoteActionGitBranches &&
+    operation!=remotetransport.RemoteActionGitRemotes &&
+    operation!=remotetransport.RemoteActionGitTrackingStart &&
+    operation!=remotetransport.RemoteActionGitTrackingNext &&
+    operation!=remotetransport.RemoteActionGitPullReview &&
+    operation!=remotetransport.RemoteActionGitSwitchReview &&
+    operation!=remotetransport.RemoteActionGitBranchDeleteReview &&
+    operation!=remotetransport.RemoteActionGitPullChanges &&
+    operation!=remotetransport.RemoteActionGitDiff &&
+    operation!=remotetransport.RemoteActionGitPatchStart &&
+    operation!=remotetransport.RemoteActionGitPatchNext &&
+    operation!=remotetransport.RemoteActionGitPatchCachedStart &&
+    operation!=remotetransport.RemoteActionGitPatchCachedNext &&
+    operation!=remotetransport.RemoteActionProjectInfo &&
+    operation!=remotetransport.RemoteActionFilesRoot &&
+    operation!=remotetransport.RemoteActionFilesRootNext &&
+    operation!=remotetransport.RemoteActionFilesReadStart &&
+    operation!=remotetransport.RemoteActionFilesReadNext &&
+    operation!=remotetransport.RemoteActionFilesReadSelect &&
+    operation!=remotetransport.RemoteActionFilesDirSelect &&
+    operation!=remotetransport.RemoteActionFilesDirNext &&
+    operation!=remotetransport.RemoteActionTasksPreview &&
+    operation!=remotetransport.RemoteActionTasksPreviewNext &&
+    operation!=remotetransport.RemoteActionTasksInspect &&
+    operation!=remotetransport.RemoteActionTasksPoll &&
+    operation!=remotetransport.RemoteActionTasksClear &&
+    operation!=remotetransport.RemoteActionTerminalPoll {
   return remotetransport.ErrRemoteActionDenied
  }
  if s==nil || session==nil || session.userID=="" || s.Identity==nil {
@@ -36,10 +59,18 @@ func (s *Server) auditRemoteReadOnlyAction(session *remoteTaskDeckSession,action
  if err!=nil{return remotetransport.ErrRemoteActionDenied}
  userID:=session.userID
  projectID:=project.ID
+ resourceType:="session"
+ if operation==remotetransport.RemoteActionGitStatus||operation==remotetransport.RemoteActionGitLog||operation==remotetransport.RemoteActionGitBranches||operation==remotetransport.RemoteActionGitRemotes||operation==remotetransport.RemoteActionGitTrackingStart||operation==remotetransport.RemoteActionGitTrackingNext||operation==remotetransport.RemoteActionGitPullReview||operation==remotetransport.RemoteActionGitSwitchReview||operation==remotetransport.RemoteActionGitBranchDeleteReview||operation==remotetransport.RemoteActionGitPullChanges||operation==remotetransport.RemoteActionGitDiff||operation==remotetransport.RemoteActionGitPatchStart||operation==remotetransport.RemoteActionGitPatchNext||operation==remotetransport.RemoteActionGitPatchCachedStart||operation==remotetransport.RemoteActionGitPatchCachedNext {resourceType="git"}
+ if operation==remotetransport.RemoteActionProjectInfo {resourceType="project"}
+ if operation==remotetransport.RemoteActionFilesRoot||operation==remotetransport.RemoteActionFilesRootNext||operation==remotetransport.RemoteActionFilesReadStart||operation==remotetransport.RemoteActionFilesReadNext||operation==remotetransport.RemoteActionFilesReadSelect||operation==remotetransport.RemoteActionFilesDirSelect||operation==remotetransport.RemoteActionFilesDirNext{resourceType="files"}
+ if operation==remotetransport.RemoteActionTasksPreview || operation==remotetransport.RemoteActionTasksPreviewNext || operation==remotetransport.RemoteActionTasksInspect ||
+  operation==remotetransport.RemoteActionTasksPoll || operation==remotetransport.RemoteActionTasksClear {resourceType="tasks"}
+ if operation==remotetransport.RemoteActionSessionFeatures {resourceType="session"}
+ if operation==remotetransport.RemoteActionTerminalPoll {resourceType="terminal"}
  err=s.Identity.AppendAudit(ctx,identity.AuditEvent{
   ID:eventID,Timestamp:time.Now().UTC(),
   UserID:&userID,ProjectID:&projectID,
-  Action:"remote.action."+action,ResourceType:"session",
+  Action:"remote.action."+strings.ReplaceAll(operation,".","_"),ResourceType:resourceType,
   Result:"authorized",
   Details:`{"transport":"e2ee","taskdeck_auth":true,"remote_control":false}`,
  })
@@ -47,11 +78,10 @@ func (s *Server) auditRemoteReadOnlyAction(session *remoteTaskDeckSession,action
  return nil
 }
 
-// executeRemoteE2EEPing is a deliberately restricted, already-mounted
-// encrypted action dispatcher. Its only operations are session.ping, a small
-// workspace text preview/write, read-only Git status, and an independently
-// host-allowlisted, short task.run. It is NOT an arbitrary HTTP/WS/PTY,
-// Terminal, Git command, Patch/Collection or browser session proxy.
+// executeRemoteE2EEPing admits explicitly enumerated, bounded encrypted
+// read actions plus independently host-opted-in tasks.run by Task.ID only.
+// Git reads only the host TaskDeck workspace root; no arbitrary HTTP/shell,
+// PTY, file or Git write dispatcher is exposed.
 //
 // A forged or stolen PHP Portal admin ticket cannot manufacture session:
 // only authenticateRemoteTaskDeckCredentials can create its in-memory
@@ -78,1009 +108,403 @@ func (s *Server) executeRemoteE2EEPing(
  // A badly typed but authenticated record permanently poisons the E2EE key.
  request,err:=remotetransport.OpenRemoteAction(channel,frame)
  if err!=nil{return nil,remotetransport.ErrRemoteActionDenied}
- // Dispatch exactly the two reviewed typed read-only operations.
- // Never proxy an HTTP handler: such a handler trusts web cookies/CSRF state,
- // not this in-process E2EE principal. Execute through the same local
- // TaskDeck RBAC/revocation/cancellation boundary as session.ping.
- var content []byte
- var replacementHash string
- var taskReport remotetransport.RemoteTaskReport
- var managedReport remotetransport.RemoteManagedTaskResult
- var managedWindow remotetransport.RemoteManagedOutput
- var window remotetransport.FileWindow
- auditBeforeCommit:=false
- permission:=identity.PermissionTasksView
- auditAction:="session_ping"
- var run func(context.Context)error=func(c context.Context)error{return c.Err()}
+ // Page cursor is host-owned, and serialized across authenticated task
+ // requests; Close() never takes taskPageMu and remains nonblocking.
+ paging:=request.Operation==remotetransport.RemoteActionTasksPreview ||
+  request.Operation==remotetransport.RemoteActionTasksPreviewNext
+ // Inspection consumes an immutable host-issued task ID, protected by
+ // the same in-memory per-session snapshot lock as the page cursor.
+ if paging || request.Operation==remotetransport.RemoteActionTasksInspect ||
+  request.Operation==remotetransport.RemoteActionTasksRun ||
+  request.Operation==remotetransport.RemoteActionTasksStart ||
+  request.Operation==remotetransport.RemoteActionTasksPoll ||
+  request.Operation==remotetransport.RemoteActionTasksCancel ||
+  request.Operation==remotetransport.RemoteActionTasksClear {
+  session.taskPageMu.Lock()
+  defer session.taskPageMu.Unlock()
+ }
+ var permission string
  switch request.Operation {
  case remotetransport.RemoteActionSessionPing:
+  permission=identity.PermissionTasksView
+ case remotetransport.RemoteActionSessionFeatures:
+  // A restricted TaskDeck role may legitimately hold git.status WITHOUT
+  // tasks.view. Pick one of those two fixed read permissions from the
+  // current host-local principal. executeRemoteAuthenticatedAction then
+  // RECHECKS the chosen permission and live Portal grant before/after
+  // reading; this snapshot cannot grant extra privileges.
+  principal,principalErr:=s.verifyRemoteSessionLocalPrincipal(ctx,session)
+  if principalErr!=nil {
+   return nil,remotetransport.ErrRemoteActionDenied
+  }
+  permission=identity.PermissionTasksView
+  if remotetransport.AuthorizeAction(true,session.role,
+   &principal,session.projectKey,permission)!=nil {
+   permission=identity.PermissionGitStatus
+   if remotetransport.AuthorizeAction(true,session.role,
+    &principal,session.projectKey,permission)!=nil {
+    permission=identity.PermissionGitLog
+    if remotetransport.AuthorizeAction(true,session.role,
+     &principal,session.projectKey,permission)!=nil {
+     permission=identity.PermissionGitDiff
+     if remotetransport.AuthorizeAction(true,session.role,
+      &principal,session.projectKey,permission)!=nil {
+      permission=identity.PermissionGitWrite
+      if remotetransport.AuthorizeAction(true,session.role,
+       &principal,session.projectKey,permission)!=nil {
+       permission=identity.PermissionTerminalCreate
+       if remotetransport.AuthorizeAction(true,session.role,
+        &principal,session.projectKey,permission)!=nil {
+        permission=identity.PermissionFilesRead
+       }
+      }
+     }
+    }
+   }
+  }
+ case remotetransport.RemoteActionTerminalOpen:
+  permission=identity.PermissionTerminalCreate
+ case remotetransport.RemoteActionTerminalPoll:
+  permission=identity.PermissionTerminalViewOwn
+ case remotetransport.RemoteActionTerminalWrite,remotetransport.RemoteActionTerminalResize,
+  remotetransport.RemoteActionTerminalClose:
+  permission=identity.PermissionTerminalControlOwn
  case remotetransport.RemoteActionGitStatus:
   permission=identity.PermissionGitStatus
-  auditAction="git_status"
-  run=func(actionCtx context.Context)error{
-   if actionCtx.Err()!=nil{return remotetransport.ErrRemoteActionDenied}
-   root,err:=s.projectRoot()
-   if err!=nil{return remotetransport.ErrRemoteActionDenied}
-   // Never resolve Git using daemon PATH: an environment-controlled or
-   // workspace-local git binary could execute arbitrary code with TaskDeck
-   // credentials before the caller's GitStatus RBAC is rechecked.
-   executable,err:=remoteTrustedGitExecutable(root)
-   if err!=nil{return remotetransport.ErrRemoteActionDenied}
-   if err:=remoteGitReadOnlyConfigSafe(actionCtx,root,executable);err!=nil{
-    return remotetransport.ErrRemoteActionDenied
-   }
-   // Fixed read-only Git invocation. No aliases, hooks, shell or client
-   // supplied arguments; prevent repository fsmonitor helpers.
-   cmd:=exec.CommandContext(actionCtx,executable,
-    "-c","core.fsmonitor=false","-c","core.untrackedCache=false",
-    "-C",root,"status","--short","--branch","--untracked-files=no")
-   cmd.Env=isolatedRemoteGitEnvironment()
-   cmd.Stderr=io.Discard
-   var output cappedRemoteGitOutput
-   cmd.Stdout=&output
-   if err:=cmd.Run();err!=nil||actionCtx.Err()!=nil{
-    return remotetransport.ErrRemoteActionDenied
-   }
-   content=append([]byte(nil),output.Bytes()...)
-   return actionCtx.Err()
-  }
- case remotetransport.RemoteActionGitStatusFull:
-  permission=identity.PermissionGitStatus
-  auditAction="git_status_full"
-  run=func(actionCtx context.Context)error{
-   root,err:=s.projectRoot()
-   if err!=nil{return remotetransport.ErrRemoteActionDenied}
-   output,err:=remoteGitMetadata(actionCtx,root,request.Operation)
-   if err!=nil{return remotetransport.ErrRemoteActionDenied}
-   content=output
-   return actionCtx.Err()
-  }
- case remotetransport.RemoteActionGitBranchDeleteReview:
-  permission=identity.PermissionGitWrite
-  auditAction="git_branch_delete_review"
-  run=func(actionCtx context.Context)error{
-   denied:=remotetransport.ErrRemoteActionDenied
-   if err:=s.authorizeRemoteTransportAction(actionCtx,session,channel,identity.PermissionFilesRead);err!=nil{return denied}
-   root,err:=s.projectRoot()
-   if err!=nil{return denied}
-   review,err:=remoteGitSafeBranchDeleteReview(actionCtx,root,request.Path)
-   if err!=nil{return denied}
-   if err:=s.authorizeRemoteTransportAction(actionCtx,session,channel,identity.PermissionFilesRead);err!=nil{return denied}
-   content=review
-   return actionCtx.Err()
-  }
- case remotetransport.RemoteActionGitBranchDelete:
-  // Separate default-off host-only authorization for ref deletion.
-  if os.Getenv("TASKDECK_REMOTE_GIT_WRITE")!="1"||
-   os.Getenv("TASKDECK_REMOTE_GIT_BRANCH_DELETE")!="1"{
-   return nil,remotetransport.ErrRemoteActionDenied
-  }
-  permission=identity.PermissionGitWrite
-  auditAction="git_branch_delete"
-  auditBeforeCommit=true
-  run=func(actionCtx context.Context)error{
-   denied:=remotetransport.ErrRemoteActionDenied
-   if actionCtx.Err()!=nil{return denied}
-   root,err:=s.projectRoot()
-   if err!=nil{return denied}
-   for _,right:=range []string{identity.PermissionGitWrite,
-    identity.PermissionFilesRead,identity.PermissionFilesWrite}{
-    if err:=s.authorizeRemoteTransportAction(actionCtx,session,channel,right);err!=nil{return denied}
-   }
-   if err:=s.auditRemoteReadOnlyAction(session,auditAction);err!=nil{return denied}
-   for _,right:=range []string{identity.PermissionGitWrite,
-    identity.PermissionFilesRead,identity.PermissionFilesWrite}{
-    if err:=s.authorizeRemoteTransportAction(actionCtx,session,channel,right);err!=nil{return denied}
-   }
-   session.executionMu.Lock()
-   defer session.executionMu.Unlock()
-   if session.closed.Load()||session.channel!=channel||
-    session.portalGrant==nil||!session.portalGrant.ActiveForSession(channel)||
-    actionCtx.Err()!=nil{return denied}
-   result,err:=remoteGitSafeBranchDelete(actionCtx,root,request.Path,request.ExpectedSHA256)
-   if err!=nil{return denied}
-   content=[]byte(result)
-   return actionCtx.Err()
-  }
- case remotetransport.RemoteActionGitSwitchReview:
-  permission=identity.PermissionGitWrite
-  auditAction="git_switch_review"
-  run=func(actionCtx context.Context)error{
-   denied:=remotetransport.ErrRemoteActionDenied
-   if err:=s.authorizeRemoteTransportAction(actionCtx,session,channel,identity.PermissionFilesRead);err!=nil{return denied}
-   root,err:=s.projectRoot()
-   if err!=nil{return denied}
-   review,err:=remoteGitSameHeadSwitchReview(actionCtx,root,request.Path)
-   if err!=nil{return denied}
-   if err:=s.authorizeRemoteTransportAction(actionCtx,session,channel,identity.PermissionFilesRead);err!=nil{return denied}
-   content=review
-   return actionCtx.Err()
-  }
- case remotetransport.RemoteActionGitSwitchSameHead:
-  // Never enabled through PHP; it is host-only, separate from Git commit
-  // and branch creation. No checkout/worktree modification is permitted.
-  if os.Getenv("TASKDECK_REMOTE_GIT_WRITE")!="1"||
-   os.Getenv("TASKDECK_REMOTE_GIT_SWITCH_SAME_HEAD")!="1"{
-   return nil,remotetransport.ErrRemoteActionDenied
-  }
-  permission=identity.PermissionGitWrite
-  auditAction="git_switch_same_head"
-  auditBeforeCommit=true
-  run=func(actionCtx context.Context)error{
-   denied:=remotetransport.ErrRemoteActionDenied
-   if actionCtx.Err()!=nil{return denied}
-   root,err:=s.projectRoot()
-   if err!=nil{return denied}
-   for _,right:=range []string{identity.PermissionGitWrite,
-    identity.PermissionFilesRead,identity.PermissionFilesWrite}{
-    if err:=s.authorizeRemoteTransportAction(actionCtx,session,channel,right);err!=nil{return denied}
-   }
-   if err:=s.auditRemoteReadOnlyAction(session,auditAction);err!=nil{return denied}
-   for _,right:=range []string{identity.PermissionGitWrite,
-    identity.PermissionFilesRead,identity.PermissionFilesWrite}{
-    if err:=s.authorizeRemoteTransportAction(actionCtx,session,channel,right);err!=nil{return denied}
-   }
-   session.executionMu.Lock()
-   defer session.executionMu.Unlock()
-   if session.closed.Load()||session.channel!=channel||
-    session.portalGrant==nil||!session.portalGrant.ActiveForSession(channel)||
-    actionCtx.Err()!=nil{return denied}
-   oid,err:=remoteGitSwitchSameHead(actionCtx,root,request.Path,request.ExpectedSHA256)
-   if err!=nil{return denied}
-   content=[]byte(oid)
-   return actionCtx.Err()
-  }
- case remotetransport.RemoteActionGitBranchReview:
-  permission=identity.PermissionGitWrite
-  auditAction="git_branch_review"
-  run=func(actionCtx context.Context)error{
-   denied:=remotetransport.ErrRemoteActionDenied
-   if actionCtx.Err()!=nil{return denied}
-   if err:=s.authorizeRemoteTransportAction(actionCtx,session,channel,identity.PermissionFilesRead);err!=nil{return denied}
-   root,err:=s.projectRoot()
-   if err!=nil{return denied}
-   report,err:=remoteGitBranchReview(actionCtx,root)
-   if err!=nil{return denied}
-   if err:=s.authorizeRemoteTransportAction(actionCtx,session,channel,identity.PermissionFilesRead);err!=nil{return denied}
-   content=report
-   return actionCtx.Err()
-  }
- case remotetransport.RemoteActionGitBranchCreate:
-  if os.Getenv("TASKDECK_REMOTE_GIT_WRITE")!="1"||
-   os.Getenv("TASKDECK_REMOTE_GIT_BRANCH_CREATE")!="1"{
-   return nil,remotetransport.ErrRemoteActionDenied
-  }
-  permission=identity.PermissionGitWrite
-  auditAction="git_branch_create"
-  auditBeforeCommit=true
-  run=func(actionCtx context.Context)error{
-   denied:=remotetransport.ErrRemoteActionDenied
-   if actionCtx.Err()!=nil{return denied}
-   root,err:=s.projectRoot()
-   if err!=nil{return denied}
-   for _,right:=range []string{identity.PermissionGitWrite,
-    identity.PermissionFilesRead,identity.PermissionFilesWrite}{
-    if err:=s.authorizeRemoteTransportAction(actionCtx,session,channel,right);err!=nil{return denied}
-   }
-   // Audit must be committed before the Git update-ref side effect.
-   if err:=s.auditRemoteReadOnlyAction(session,auditAction);err!=nil{return denied}
-   for _,right:=range []string{identity.PermissionGitWrite,
-    identity.PermissionFilesRead,identity.PermissionFilesWrite}{
-    if err:=s.authorizeRemoteTransportAction(actionCtx,session,channel,right);err!=nil{return denied}
-   }
-   session.executionMu.Lock()
-   defer session.executionMu.Unlock()
-   if session.closed.Load()||session.channel!=channel||
-    session.portalGrant==nil||!session.portalGrant.ActiveForSession(channel)||
-    actionCtx.Err()!=nil{return denied}
-   oid,err:=remoteGitBranchCreate(actionCtx,root,request.Path,request.ExpectedSHA256)
-   if err!=nil{return denied}
-   content=[]byte(oid)
-   return actionCtx.Err()
-  }
- case remotetransport.RemoteActionGitCommit:
-  // Host-local flags default OFF; PHP can never flip a Git write gate.
-  if os.Getenv("TASKDECK_REMOTE_GIT_WRITE")!="1"||
-   os.Getenv("TASKDECK_REMOTE_GIT_COMMIT")!="1"{
-   return nil,remotetransport.ErrRemoteActionDenied
-  }
-  permission=identity.PermissionGitWrite
-  auditAction="git_commit"
-  auditBeforeCommit=true
-  run=func(actionCtx context.Context)error{
-   denied:=remotetransport.ErrRemoteActionDenied
-   if actionCtx.Err()!=nil{return denied}
-   root,err:=s.projectRoot()
-   if err!=nil{return denied}
-   for _,right:=range []string{identity.PermissionGitWrite,
-    identity.PermissionFilesRead,identity.PermissionFilesWrite}{
-    if err:=s.authorizeRemoteTransportAction(actionCtx,session,channel,right);err!=nil{return denied}
-   }
-   // Commit operation must be audited BEFORE git write-tree,
-   // git commit-tree (which creates Git objects) or any ref update.
-   if err:=s.auditRemoteReadOnlyAction(session,auditAction);err!=nil{return denied}
-   for _,right:=range []string{identity.PermissionGitWrite,
-    identity.PermissionFilesRead,identity.PermissionFilesWrite}{
-    if err:=s.authorizeRemoteTransportAction(actionCtx,session,channel,right);err!=nil{return denied}
-   }
-   session.executionMu.Lock()
-   defer session.executionMu.Unlock()
-   if session.closed.Load()||session.channel!=channel||
-    session.portalGrant==nil||!session.portalGrant.ActiveForSession(channel)||
-    actionCtx.Err()!=nil{return denied}
-   oid,err:=remoteGitCommitPinned(actionCtx,root,request.Content,request.ExpectedSHA256)
-   if err!=nil{return denied}
-   content=[]byte(oid)
-   return actionCtx.Err()
-  }
- case remotetransport.RemoteActionGitCommitReview:
-  // Reviewing ALL staged changes is privileged: the diff can disclose
-  // multiple files, including files unavailable through per-file previews.
-  // This remains read-only, is audit logged and never commits.
-  permission=identity.PermissionGitWrite
-  auditAction="git_commit_review"
-  run=func(actionCtx context.Context)error{
-   if actionCtx.Err()!=nil{return remotetransport.ErrRemoteActionDenied}
-   if err:=s.authorizeRemoteTransportAction(actionCtx,session,channel,identity.PermissionFilesRead);err!=nil{
-    return remotetransport.ErrRemoteActionDenied
-   }
-   root,err:=s.projectRoot()
-   if err!=nil{return remotetransport.ErrRemoteActionDenied}
-   reviewed,err:=remoteGitCommitReview(actionCtx,root)
-   if err!=nil{return remotetransport.ErrRemoteActionDenied}
-   if err:=s.authorizeRemoteTransportAction(actionCtx,session,channel,identity.PermissionFilesRead);err!=nil{
-    return remotetransport.ErrRemoteActionDenied
-   }
-   content=reviewed
-   return actionCtx.Err()
-  }
- case remotetransport.RemoteActionGitPullCachedReview:
-  permission=identity.PermissionGitStatus
-  auditAction="git_pull_cached_review"
-  run=func(actionCtx context.Context)error{
-   denied:=remotetransport.ErrRemoteActionDenied
-   for _,right:=range []string{identity.PermissionGitLog,identity.PermissionGitWrite}{
-    if err:=s.authorizeRemoteTransportAction(actionCtx,session,channel,right);err!=nil{return denied}
-   }
-   root,err:=s.projectRoot()
-   if err!=nil{return denied}
-   preview,err:=remoteGitPullCachedReview(actionCtx,root)
-   if err!=nil{return denied}
-   content=preview
-   return actionCtx.Err()
-  }
- case remotetransport.RemoteActionGitPullApplyCached:
-  // Local host flags default OFF; PHP cannot grant GitWrite or enable it.
-  if os.Getenv("TASKDECK_REMOTE_GIT_WRITE")!="1"||
-   os.Getenv("TASKDECK_REMOTE_GIT_PULL_CACHED")!="1"{
-   return nil,remotetransport.ErrRemoteActionDenied
-  }
-  permission=identity.PermissionGitWrite
-  auditAction="git_pull_apply_cached"
-  auditBeforeCommit=true
-  run=func(actionCtx context.Context)error{
-   denied:=remotetransport.ErrRemoteActionDenied
-   for _,right:=range []string{identity.PermissionGitStatus,identity.PermissionGitLog}{
-    if err:=s.authorizeRemoteTransportAction(actionCtx,session,channel,right);err!=nil{return denied}
-   }
-   root,err:=s.projectRoot()
-   if err!=nil{return denied}
-   // Audit BEFORE any ref update. Neither the digest nor the branch ref
-   // is logged; the host alone decides the target from its own upstream.
-   if err:=s.auditRemoteReadOnlyAction(session,auditAction);err!=nil{return denied}
-   for _,right:=range []string{identity.PermissionGitStatus,identity.PermissionGitLog,identity.PermissionGitWrite}{
-    if err:=s.authorizeRemoteTransportAction(actionCtx,session,channel,right);err!=nil{return denied}
-   }
-   session.executionMu.Lock()
-   defer session.executionMu.Unlock()
-   if session.closed.Load()||session.channel!=channel||
-    session.portalGrant==nil||!session.portalGrant.ActiveForSession(channel)||
-    actionCtx.Err()!=nil{return denied}
-   updated,err:=remoteGitPullApplyCached(actionCtx,root,request.ExpectedSHA256)
-   if err!=nil{return denied}
-   content=[]byte(updated)
-   return actionCtx.Err()
-  }
- case remotetransport.RemoteActionGitPullApplyFiles:
-  // A worktree-changing fast-forward is strictly separate from the
-  // cached same-tree ref-only capability. All host gates default OFF.
-  if os.Getenv("TASKDECK_REMOTE_GIT_WRITE")!="1"||
-   os.Getenv("TASKDECK_REMOTE_GIT_PULL_FILES")!="1"{
-   return nil,remotetransport.ErrRemoteActionDenied
-  }
-  permission=identity.PermissionGitWrite
-  auditAction="git_pull_apply_files"
-  auditBeforeCommit=true
-  run=func(actionCtx context.Context)error{
-   denied:=remotetransport.ErrRemoteActionDenied
-   for _,right:=range []string{
-    identity.PermissionGitStatus,identity.PermissionGitLog,
-    identity.PermissionFilesRead,identity.PermissionFilesWrite,
-   }{
-    if err:=s.authorizeRemoteTransportAction(actionCtx,session,channel,right);err!=nil{return denied}
-   }
-   root,err:=s.projectRoot()
-   if err!=nil{return denied}
-   if err:=s.auditRemoteReadOnlyAction(session,auditAction);err!=nil{return denied}
-   session.executionMu.Lock()
-   defer session.executionMu.Unlock()
-   if session.closed.Load()||session.channel!=channel||
-    session.portalGrant==nil||!session.portalGrant.ActiveForSession(channel)||
-    actionCtx.Err()!=nil{return denied}
-   for _,right:=range []string{
-    identity.PermissionGitStatus,identity.PermissionGitLog,
-    identity.PermissionFilesRead,identity.PermissionFilesWrite,
-    identity.PermissionGitWrite,
-   }{
-    if err:=s.authorizeRemoteTransportAction(actionCtx,session,channel,right);err!=nil{return denied}
-   }
-   oid,err:=remoteGitPullApplyFiles(actionCtx,root,request.ExpectedSHA256)
-   if err!=nil{return denied}
-   content=[]byte(oid)
-   return actionCtx.Err()
-  }
- case remotetransport.RemoteActionGitFetchReview:
-  // Review never contacts network or reads host Git credentials. The
-  // canonical HTTPS URL is operator-pinned in the Agent environment;
-  // only its public hostname and SHA-256 are returned under E2EE.
-  permission=identity.PermissionGitStatus
-  auditAction="git_fetch_https_review"
-  run=func(actionCtx context.Context)error{
-   denied:=remotetransport.ErrRemoteActionDenied
-   if err:=s.authorizeRemoteTransportAction(actionCtx,session,channel,
-    identity.PermissionGitLog);err!=nil{return denied}
-   root,err:=s.projectRoot()
-   if err!=nil{return denied}
-   report,err:=remoteGitHTTPSFetchReview(actionCtx,root)
-   if err!=nil{return denied}
-   if err:=s.authorizeRemoteTransportAction(actionCtx,session,channel,
-    identity.PermissionGitLog);err!=nil{return denied}
-   content=report
-   return actionCtx.Err()
-  }
- case remotetransport.RemoteActionGitFetchApply:
-  // Only the local Agent process can opt into network Fetch. The PHP
-  // portal cannot provide URLs, credentials, Git argv, or enable gates.
-  if os.Getenv("TASKDECK_REMOTE_GIT_WRITE")!="1"||
-   os.Getenv("TASKDECK_REMOTE_GIT_FETCH_HTTPS")!="1"{
-   return nil,remotetransport.ErrRemoteActionDenied
-  }
-  permission=identity.PermissionGitWrite
-  auditAction="git_fetch_https_apply"
-  auditBeforeCommit=true
-  run=func(actionCtx context.Context)error{
-   denied:=remotetransport.ErrRemoteActionDenied
-   for _,right:=range []string{identity.PermissionGitStatus,identity.PermissionGitLog}{
-    if err:=s.authorizeRemoteTransportAction(actionCtx,session,channel,right);err!=nil{return denied}
-   }
-   root,err:=s.projectRoot()
-   if err!=nil{return denied}
-   if err:=s.auditRemoteReadOnlyAction(session,auditAction);err!=nil{return denied}
-   session.executionMu.Lock()
-   defer session.executionMu.Unlock()
-   if session.closed.Load()||session.channel!=channel||
-    session.portalGrant==nil||!session.portalGrant.ActiveForSession(channel)||
-    actionCtx.Err()!=nil{return denied}
-   for _,right:=range []string{
-    identity.PermissionGitStatus,identity.PermissionGitLog,identity.PermissionGitWrite,
-   }{
-    if err:=s.authorizeRemoteTransportAction(actionCtx,session,channel,right);err!=nil{return denied}
-   }
-   target,err:=remoteGitHTTPSFetchApply(actionCtx,root,request.ExpectedSHA256)
-   if err!=nil{return denied}
-   content=[]byte(target)
-   return actionCtx.Err()
-  }
- case remotetransport.RemoteActionGitPushReview:
-  // HTTPS Push review uses local commit ancestry, does NOT contact
-  // network or expose the host's credential helper to browser/PHP.
-  permission=identity.PermissionGitStatus
-  auditAction="git_push_https_review"
-  run=func(actionCtx context.Context)error{
-   denied:=remotetransport.ErrRemoteActionDenied
-   if err:=s.authorizeRemoteTransportAction(actionCtx,session,channel,
-    identity.PermissionGitLog);err!=nil{return denied}
-   root,err:=s.projectRoot()
-   if err!=nil{return denied}
-   review,err:=remoteGitHTTPSPushReview(actionCtx,root)
-   if err!=nil{return denied}
-   if err:=s.authorizeRemoteTransportAction(actionCtx,session,channel,
-    identity.PermissionGitLog);err!=nil{return denied}
-   content=review
-   return actionCtx.Err()
-  }
- case remotetransport.RemoteActionGitPushApply:
-  if os.Getenv("TASKDECK_REMOTE_GIT_WRITE")!="1"||
-   os.Getenv("TASKDECK_REMOTE_GIT_PUSH_HTTPS")!="1"{
-   return nil,remotetransport.ErrRemoteActionDenied
-  }
-  permission=identity.PermissionGitWrite
-  auditAction="git_push_https_apply"
-  auditBeforeCommit=true
-  run=func(actionCtx context.Context)error{
-   denied:=remotetransport.ErrRemoteActionDenied
-   for _,right:=range []string{identity.PermissionGitStatus,identity.PermissionGitLog}{
-    if err:=s.authorizeRemoteTransportAction(actionCtx,session,channel,right);err!=nil{return denied}
-   }
-   root,err:=s.projectRoot()
-   if err!=nil{return denied}
-   if err:=s.auditRemoteReadOnlyAction(session,auditAction);err!=nil{return denied}
-   session.executionMu.Lock()
-   defer session.executionMu.Unlock()
-   if session.closed.Load()||session.channel!=channel||
-    session.portalGrant==nil||!session.portalGrant.ActiveForSession(channel)||
-    actionCtx.Err()!=nil{return denied}
-   for _,right:=range []string{
-    identity.PermissionGitStatus,identity.PermissionGitLog,identity.PermissionGitWrite,
-   }{
-    if err:=s.authorizeRemoteTransportAction(actionCtx,session,channel,right);err!=nil{return denied}
-   }
-   pushed,err:=remoteGitHTTPSPushApply(actionCtx,root,request.ExpectedSHA256)
-   if err!=nil{return denied}
-   content=[]byte(pushed)
-   return actionCtx.Err()
-  }
- case remotetransport.RemoteActionGitPullChangesReview:
-  // Changed paths can disclose workspace structure. Require FilesRead
-  // in addition to GitStatus/GitLog, both before and after the bounded
-  // offline read; no GitWrite or remote network permission is granted.
-  permission=identity.PermissionGitStatus
-  auditAction="git_pull_changes_review"
-  run=func(actionCtx context.Context)error{
-   denied:=remotetransport.ErrRemoteActionDenied
-   for _,right:=range []string{identity.PermissionGitLog,identity.PermissionFilesRead}{
-    if err:=s.authorizeRemoteTransportAction(actionCtx,session,channel,right);err!=nil{return denied}
-   }
-   root,err:=s.projectRoot()
-   if err!=nil{return denied}
-   report,err:=remoteGitPullChangesReview(actionCtx,root)
-   if err!=nil{return denied}
-   for _,right:=range []string{identity.PermissionGitLog,identity.PermissionFilesRead}{
-    if err:=s.authorizeRemoteTransportAction(actionCtx,session,channel,right);err!=nil{return denied}
-   }
-   content=report
-   return actionCtx.Err()
-  }
- case remotetransport.RemoteActionGitPullReview:
-  permission=identity.PermissionGitStatus
-  auditAction="git_pull_review"
-  run=func(actionCtx context.Context)error{
-   denied:=remotetransport.ErrRemoteActionDenied
-   if err:=s.authorizeRemoteTransportAction(actionCtx,session,channel,
-    identity.PermissionGitLog);err!=nil{return denied}
-   root,err:=s.projectRoot()
-   if err!=nil{return denied}
-   result,err:=remoteGitPullReview(actionCtx,root)
-   if err!=nil{return denied}
-   if err:=s.authorizeRemoteTransportAction(actionCtx,session,channel,
-    identity.PermissionGitLog);err!=nil{return denied}
-   content=result
-   return actionCtx.Err()
-  }
- case remotetransport.RemoteActionGitLog,remotetransport.RemoteActionGitBranches,remotetransport.RemoteActionGitRemotes,remotetransport.RemoteActionGitTrackingRefs:
+ case remotetransport.RemoteActionGitLog:
   permission=identity.PermissionGitLog
-  auditAction="git_log"
-  if request.Operation==remotetransport.RemoteActionGitBranches{auditAction="git_branches"}
-  if request.Operation==remotetransport.RemoteActionGitRemotes{auditAction="git_remotes"}
-  if request.Operation==remotetransport.RemoteActionGitTrackingRefs{auditAction="git_tracking_refs"}
-  run=func(actionCtx context.Context)error{
-   if actionCtx.Err()!=nil{return remotetransport.ErrRemoteActionDenied}
-   root,err:=s.projectRoot()
-   if err!=nil{return remotetransport.ErrRemoteActionDenied}
-   result,err:=remoteGitMetadata(actionCtx,root,request.Operation)
-   if err!=nil{return remotetransport.ErrRemoteActionDenied}
-   content=result
-   return actionCtx.Err()
-  }
- case remotetransport.RemoteActionGitDiff,remotetransport.RemoteActionGitStagedDiff,remotetransport.RemoteActionGitHeadDiff:
-  // Git diff can disclose file CONTENT. Require BOTH GitStatus and
-  // FilesRead rights; a Git metadata-only role never receives a diff.
-  // Fixed Git worktree diff: no arbitrary Git flags, shell, pager,
-  // external diff helpers, textconv, plugins or scripts from the Portal.
+ case remotetransport.RemoteActionGitBranches,remotetransport.RemoteActionGitRemotes,
+  remotetransport.RemoteActionGitPullReview,remotetransport.RemoteActionGitSwitchReview,remotetransport.RemoteActionGitBranchDeleteReview,remotetransport.RemoteActionGitPullChanges,
+  remotetransport.RemoteActionGitTrackingStart,remotetransport.RemoteActionGitTrackingNext:
   permission=identity.PermissionGitStatus
-  auditAction="git_diff"
-  if request.Operation==remotetransport.RemoteActionGitStagedDiff{auditAction="git_diff_staged"}
-  if request.Operation==remotetransport.RemoteActionGitHeadDiff{auditAction="git_diff_head"}
-  run=func(actionCtx context.Context)error{
-   if actionCtx.Err()!=nil{return remotetransport.ErrRemoteActionDenied}
-   if err:=s.authorizeRemoteTransportAction(actionCtx,session,channel,identity.PermissionFilesRead);err!=nil{
-    return remotetransport.ErrRemoteActionDenied
-   }
-   _,path,root,err:=s.restrictedSourcePath(request.Path)
-   if err!=nil{return remotetransport.ErrRemoteActionDenied}
-   pinned,err:=openProjectPinnedFile(root,path)
-   if err!=nil{return remotetransport.ErrRemoteActionDenied}
-   defer pinned.close()
-   current,statErr:=pinned.openCurrent()
-   if statErr!=nil{return remotetransport.ErrRemoteActionDenied}
-   info,statErr:=current.Stat()
-   _=current.Close()
-   if statErr!=nil||!info.Mode().IsRegular(){
-    return remotetransport.ErrRemoteActionDenied
-   }
-   executable,err:=remoteTrustedGitExecutable(root)
-   if err!=nil{return remotetransport.ErrRemoteActionDenied}
-   if err:=remoteGitReadOnlyConfigSafe(actionCtx,root,executable);err!=nil{
-    return remotetransport.ErrRemoteActionDenied
-   }
-   args:=[]string{
-    "-c","core.fsmonitor=false","-c","core.untrackedCache=false",
-    "-c","diff.external=","-C",root,
-    "--no-pager","diff","--no-ext-diff","--no-textconv","--no-color",
-   }
-   if request.Operation==remotetransport.RemoteActionGitStagedDiff{
-    args=append(args,"--cached")
-   }
-   if request.Operation==remotetransport.RemoteActionGitHeadDiff{
-    // Fixed HEAD ref, never accept a revision/flag from Relay or client.
-    args=append(args,"HEAD")
-   }
-   args=append(args,"--",request.Path)
-   cmd:=exec.CommandContext(actionCtx,executable,args...)
-   cmd.Env=isolatedRemoteGitEnvironment()
-   cmd.Stderr=io.Discard
-   var output cappedRemoteGitDiffOutput
-   cmd.Stdout=&output
-   if err:=cmd.Run();err!=nil||actionCtx.Err()!=nil{
-    return remotetransport.ErrRemoteActionDenied
-   }
-   // The secondary FilesRead right must still be valid after the Git
-   // subprocess exits; the generic wrapper independently rechecks GitStatus.
-   if err:=s.authorizeRemoteTransportAction(actionCtx,session,channel,identity.PermissionFilesRead);err!=nil{
-    return remotetransport.ErrRemoteActionDenied
-   }
-   content=append([]byte(nil),output.Bytes()...)
-   return actionCtx.Err()
-  }
- case remotetransport.RemoteActionTaskList:
-  // Same right and host-only opt-in as executing a TaskDeck task. Viewer
-  // and a forged PHP ticket cannot enumerate operator-approved task names.
-  permission=identity.PermissionTasksRun
-  auditAction="task_list"
-  run=func(actionCtx context.Context)error{
-   data,err:=s.listRemoteApprovedTasks(actionCtx)
-   if err!=nil{return remotetransport.ErrRemoteActionDenied}
-   content=data
-   return actionCtx.Err()
-  }
- case remotetransport.RemoteActionTaskManagedOutput:
-  if os.Getenv("TASKDECK_REMOTE_TASK_MANAGE")!="1"||
-   os.Getenv("TASKDECK_REMOTE_TASK_RUN")!="1"{
-   return nil,remotetransport.ErrRemoteActionDenied
-  }
-  permission=identity.PermissionTasksRun
-  auditAction="task_managed_output"
-  auditBeforeCommit=true
-  run=func(actionCtx context.Context)error{
-   if err:=s.auditRemoteReadOnlyAction(session,auditAction);err!=nil{
-    return remotetransport.ErrRemoteActionDenied
-   }
-   var err error
-   managedWindow,err=s.remoteManagedTaskOutput(actionCtx,session,channel,request.Path,request.Offset)
-   if err!=nil{return remotetransport.ErrRemoteActionDenied}
-   return actionCtx.Err()
-  }
- case remotetransport.RemoteActionTaskManagedStart,remotetransport.RemoteActionTaskManagedStatus,remotetransport.RemoteActionTaskManagedCancel:
-  if os.Getenv("TASKDECK_REMOTE_TASK_MANAGE")!="1"||
-   os.Getenv("TASKDECK_REMOTE_TASK_RUN")!="1"{
-   return nil,remotetransport.ErrRemoteActionDenied
-  }
-  permission=identity.PermissionTasksRun
-  auditBeforeCommit=true
-  auditAction="task_managed_status"
-  if request.Operation==remotetransport.RemoteActionTaskManagedStart{
-   auditAction="task_managed_start"
-  }else if request.Operation==remotetransport.RemoteActionTaskManagedCancel{
-   auditAction="task_managed_cancel"
-  }
-  run=func(actionCtx context.Context)error{
-   denied:=remotetransport.ErrRemoteActionDenied
-   var err error
-   switch request.Operation{
-   case remotetransport.RemoteActionTaskManagedStart:
-    managedReport,err=s.remoteManagedTaskStart(actionCtx,session,channel,request.TaskID)
-   case remotetransport.RemoteActionTaskManagedStatus:
-    if err=s.auditRemoteReadOnlyAction(session,auditAction);err!=nil{return denied}
-    managedReport,err=s.remoteManagedTaskLookup(actionCtx,session,channel,request.Path,false)
-   case remotetransport.RemoteActionTaskManagedCancel:
-    if err=s.auditRemoteReadOnlyAction(session,auditAction);err!=nil{return denied}
-    if err=s.authorizeRemoteTransportAction(actionCtx,session,channel,identity.PermissionTasksRun);err!=nil{
-     return denied
-    }
-    managedReport,err=s.remoteManagedTaskLookup(actionCtx,session,channel,request.Path,true)
-   }
-   if err!=nil{return denied}
-   return actionCtx.Err()
-  }
- case remotetransport.RemoteActionTaskRun,remotetransport.RemoteActionTaskRunText,remotetransport.RemoteActionTaskRunReport:
-  permission=identity.PermissionTasksRun
-  auditAction="task_run"
-  if request.Operation==remotetransport.RemoteActionTaskRunText{auditAction="task_run_text"}
-  if request.Operation==remotetransport.RemoteActionTaskRunReport{auditAction="task_run_report"}
-  auditBeforeCommit=true
-  run=func(actionCtx context.Context)error{
-   var output string
-   var err error
-   if request.Operation==remotetransport.RemoteActionTaskRunReport{
-    taskReport,err=s.runRemoteApprovedTaskReport(actionCtx,session,channel,request.TaskID)
-    if err==nil{output=taskReport.Output}
-   }else if request.Operation==remotetransport.RemoteActionTaskRunText{
-    output,err=s.runRemoteApprovedTaskText(actionCtx,session,channel,request.TaskID)
-   }else{
-    output,err=s.runRemoteApprovedTask(actionCtx,session,channel,request.TaskID)
-   }
-   if err!=nil{return remotetransport.ErrRemoteActionDenied}
-   content=[]byte(output)
-   return actionCtx.Err()
-  }
- case remotetransport.RemoteActionGitUnstage:
-  // Distinct host opt-in, separate from stage and all read-only Git actions.
-  if os.Getenv("TASKDECK_REMOTE_GIT_WRITE")!="1"||
-   os.Getenv("TASKDECK_REMOTE_GIT_UNSTAGE")!="1"{
-   return nil,remotetransport.ErrRemoteActionDenied
-  }
+ case remotetransport.RemoteActionGitBranchCreate,remotetransport.RemoteActionGitSwitchSameHead,
+  remotetransport.RemoteActionGitBranchDelete:
   permission=identity.PermissionGitWrite
-  auditAction="git_unstage"
-  auditBeforeCommit=true
-  run=func(actionCtx context.Context)error{
-   denied:=remotetransport.ErrRemoteActionDenied
-   if actionCtx.Err()!=nil{return denied}
-   if err:=s.authorizeRemoteTransportAction(actionCtx,session,channel,identity.PermissionFilesRead);err!=nil{return denied}
-   if err:=s.authorizeRemoteTransportAction(actionCtx,session,channel,identity.PermissionFilesWrite);err!=nil{return denied}
-   relative,pathErr:=cleanProjectRelativePath(request.Path,false)
-   if pathErr!=nil||relative!=request.Path||!remoteUnstageLiteralPath(relative){return denied}
-   if s.Config.SharedServerEnabled{
-    s.refreshSharedMutationLock()
-    lease,conflict,lockErr:=s.sharedMutation.acquire(identity.Principal{
-     UserID:session.userID,Username:session.clientUsername,
-    },"git.unstage",relative,time.Now().UTC())
-    if lockErr!=nil||conflict!=nil{return denied}
-    defer s.releaseSharedMutation(lease)
-   }
-   path,pathErr:=s.resolveProjectPath(relative,false,false)
-   if pathErr!=nil{return denied}
-   rootView,_,pathErr:=s.projectRootForVirtualPath(relative)
-   if pathErr!=nil{return denied}
-   root,err:=s.projectRoot()
-   if err!=nil||rootView.Path!=root{return denied}
-   pinned,err:=openProjectPinnedFile(root,path)
-   if err!=nil{return denied}
-   defer pinned.close()
-   current,err:=pinned.openCurrent()
-   if err!=nil||current==nil{return denied}
-   info,statErr:=current.Stat()
-   _=current.Close()
-   if statErr!=nil||info==nil||!info.Mode().IsRegular(){return denied}
-   // Refuse failed audit BEFORE any object/index side effects.
-   if err:=s.auditRemoteReadOnlyAction(session,auditAction);err!=nil{return denied}
-   for _,right:=range []string{identity.PermissionGitWrite,
-    identity.PermissionFilesRead,identity.PermissionFilesWrite}{
-    if err:=s.authorizeRemoteTransportAction(actionCtx,session,channel,right);err!=nil{return denied}
-   }
-   session.executionMu.Lock()
-   defer session.executionMu.Unlock()
-   if session.closed.Load()||session.channel!=channel||
-    session.portalGrant==nil||!session.portalGrant.ActiveForSession(channel)||
-    actionCtx.Err()!=nil{return denied}
-   if err:=remoteUnstageOneGitFile(actionCtx,root,relative,request.ExpectedSHA256);err!=nil{return denied}
-   content=[]byte("unstaged")
-   return actionCtx.Err()
-  }
- case remotetransport.RemoteActionGitStage:
-  // Git index writes are entirely unavailable unless a host operator
-  // sets BOTH flags. These cannot be supplied via PHP/Relay or ciphertext.
-  if os.Getenv("TASKDECK_REMOTE_GIT_WRITE")!="1"||
-   os.Getenv("TASKDECK_REMOTE_GIT_STAGE")!="1"{
-   return nil,remotetransport.ErrRemoteActionDenied
-  }
+ case remotetransport.RemoteActionGitDiff,
+  remotetransport.RemoteActionGitPatchStart,remotetransport.RemoteActionGitPatchNext,
+  remotetransport.RemoteActionGitPatchCachedStart,remotetransport.RemoteActionGitPatchCachedNext:
+  permission=identity.PermissionGitDiff
+ case remotetransport.RemoteActionGitPull,remotetransport.RemoteActionGitCommit,
+  remotetransport.RemoteActionGitFetch,
+  remotetransport.RemoteActionGitStageTracked,remotetransport.RemoteActionGitUnstageAll,
+  remotetransport.RemoteActionGitStageFile,remotetransport.RemoteActionGitUnstageFile:
   permission=identity.PermissionGitWrite
-  auditAction="git_stage"
-  auditBeforeCommit=true
-  run=func(actionCtx context.Context)error{
-   denied:=remotetransport.ErrRemoteActionDenied
-   if actionCtx.Err()!=nil{return denied}
-   if err:=s.authorizeRemoteTransportAction(actionCtx,session,channel,identity.PermissionFilesRead);err!=nil{return denied}
-   if err:=s.authorizeRemoteTransportAction(actionCtx,session,channel,identity.PermissionFilesWrite);err!=nil{return denied}
-   relative,pathErr:=cleanProjectRelativePath(request.Path,false)
-   if pathErr!=nil||relative==""||relative!=request.Path{return denied}
-   // The same per-source shared mutation lease as the local editor prevents
-   // TaskDeck-owned edits from racing the source hash verification.
-   if s.Config.SharedServerEnabled{
-    s.refreshSharedMutationLock()
-    lease,conflict,lockErr:=s.sharedMutation.acquire(identity.Principal{
-     UserID:session.userID,Username:session.clientUsername,
-    },"git.stage",relative,time.Now().UTC())
-    if lockErr!=nil||conflict!=nil{return denied}
-    defer s.releaseSharedMutation(lease)
-   }
-   path,pathErr:=s.resolveProjectPath(relative,false,false)
-   if pathErr!=nil{return denied}
-   rootView,_,pathErr:=s.projectRootForVirtualPath(relative)
-   if pathErr!=nil{return denied}
-   root,rootErr:=s.projectRoot()
-   if rootErr!=nil||rootView.Path!=root{return denied}
-   pinned,pathErr:=openProjectPinnedFile(root,path)
-   if pathErr!=nil{return denied}
-   defer pinned.close()
-   current,info,readErr:=pinned.readCurrent(remotetransport.RemoteFilePreviewMaxBytes)
-   if readErr!=nil||info==nil||!info.Mode().IsRegular()||
-    !projectTextBytesValid(current){return denied}
-   hash:=sha256.Sum256(current)
-   if hex.EncodeToString(hash[:])!=request.ExpectedSHA256{return denied}
-   // Local TaskDeck audit is committed BEFORE creating a Git blob or index
-   // mutation. A failed local audit must prevent all side effects.
-   if err:=s.auditRemoteReadOnlyAction(session,auditAction);err!=nil{return denied}
-   // Repeat all uncached host + Portal permissions immediately before the
-   // commit, then linearize any revocation against the actual Git index write.
-   for _,right:=range []string{identity.PermissionGitWrite,
-    identity.PermissionFilesRead,identity.PermissionFilesWrite}{
-    if err:=s.authorizeRemoteTransportAction(actionCtx,session,channel,right);err!=nil{return denied}
-   }
-   session.executionMu.Lock()
-   defer session.executionMu.Unlock()
-   if session.closed.Load()||session.channel!=channel||
-    session.portalGrant==nil||!session.portalGrant.ActiveForSession(channel)||
-    actionCtx.Err()!=nil{return denied}
-   latest,latestInfo,err:=pinned.readCurrent(remotetransport.RemoteFilePreviewMaxBytes)
-   if err!=nil||latestInfo==nil||!latestInfo.Mode().IsRegular(){return denied}
-   latestSHA:=sha256.Sum256(latest)
-   if hex.EncodeToString(latestSHA[:])!=request.ExpectedSHA256{return denied}
-   oid,err:=remoteStagePinnedGitFile(actionCtx,root,relative,latest,latestInfo.Mode()&0o111!=0)
-   if err!=nil{return denied}
-   content=[]byte(oid)
-   return actionCtx.Err()
-  }
- case remotetransport.RemoteActionProjectFileEditLine,remotetransport.RemoteActionProjectFileDeleteLine,remotetransport.RemoteActionProjectFileInsertLine:
-  // Both opt-ins are host-only. The read-only line page never enables write.
-  if os.Getenv("TASKDECK_REMOTE_FILE_REPLACE")!="1"||
-   os.Getenv("TASKDECK_REMOTE_TEXT_EDIT")!="1"||
-   os.Getenv("TASKDECK_REMOTE_LARGE_LINE_EDIT")!="1"{
-   return nil,remotetransport.ErrRemoteActionDenied
-  }
-  permission=identity.PermissionFilesWrite
-  auditAction="project_file_edit_line"
-  if request.Operation==remotetransport.RemoteActionProjectFileDeleteLine{
-   auditAction="project_file_delete_line"
-  }else if request.Operation==remotetransport.RemoteActionProjectFileInsertLine{
-   auditAction="project_file_insert_line"
-  }
-  auditBeforeCommit=true
-  run=func(actionCtx context.Context)error{
-   written,err:=s.remoteEditLargeFileLine(actionCtx,session,channel,request)
-   if err!=nil{return remotetransport.ErrRemoteActionDenied}
-   replacementHash=written
-   return actionCtx.Err()
-  }
- case remotetransport.RemoteActionProjectFileReplace,remotetransport.RemoteActionProjectFileReplaceText:
-  // A rollout of the existing read-only app transport must NEVER silently
-  // enable writes. Only a TaskDeck host operator can explicitly opt in to
-  // this narrow, experimental mutation capability.
-  if os.Getenv("TASKDECK_REMOTE_FILE_REPLACE")!="1"{
-   return nil,remotetransport.ErrRemoteActionDenied
-  }
-  permission=identity.PermissionFilesWrite
-  auditAction="project_file_replace"
-  readLimit:=int64(192)
-  writeLimit:=96
-  if request.Operation==remotetransport.RemoteActionProjectFileReplaceText{
-   // A separate host opt-in is required, in addition to the existing
-   // files.write flag. PHP/Portal cannot set host process environment.
-   if os.Getenv("TASKDECK_REMOTE_TEXT_EDIT")!="1"{
-    return nil,remotetransport.ErrRemoteActionDenied
-   }
-   readLimit=remotetransport.RemoteTextEditMaxBytes
-   writeLimit=remotetransport.RemoteTextEditMaxBytes
-   auditAction="project_file_replace_text"
-  }
-  auditBeforeCommit=true
-  run=func(actionCtx context.Context)error{
-   if actionCtx.Err()!=nil{return remotetransport.ErrRemoteActionDenied}
-   relative,pathErr:=cleanProjectRelativePath(request.Path,false)
-   if pathErr!=nil{return remotetransport.ErrRemoteActionDenied}
-   // Reuse the EXACT mutation lock also used by local editor/Patch/other
-   // TaskDeck API writes: two concurrent browser/remote writers cannot
-   // both pass the same stale optimistic hash and race to commit.
-   if s.Config.SharedServerEnabled{
-    s.refreshSharedMutationLock()
-    lease,conflict,lockErr:=s.sharedMutation.acquire(identity.Principal{
-     UserID:session.userID,Username:session.clientUsername,
-    },"file.write",relative,time.Now().UTC())
-    if lockErr!=nil||conflict!=nil{return remotetransport.ErrRemoteActionDenied}
-    defer s.releaseSharedMutation(lease)
-   }
-   path,pathErr:=s.resolveProjectPath(relative,false,false)
-   if pathErr!=nil{return remotetransport.ErrRemoteActionDenied}
-   rootView,_,pathErr:=s.projectRootForVirtualPath(relative)
-   if pathErr!=nil{return remotetransport.ErrRemoteActionDenied}
-   pinned,pathErr:=openProjectPinnedFile(rootView.Path,path)
-   if pathErr!=nil{return remotetransport.ErrRemoteActionDenied}
-   defer pinned.close()
-   current,info,readErr:=pinned.readCurrent(readLimit)
-   if readErr!=nil||info==nil||!info.Mode().IsRegular()||
-    info.Mode().Perm()&0o222==0||!projectTextBytesValid(current){
-    return remotetransport.ErrRemoteActionDenied
-   }
-   digest:=sha256.Sum256(current)
-   if hex.EncodeToString(digest[:])!=request.ExpectedSHA256{
-    return remotetransport.ErrRemoteActionDenied
-   }
-   next:=[]byte(request.Content)
-   defer func(){for i:=range next{next[i]=0}}()
-   if !projectTextBytesValid(next)||len(next)>writeLimit{
-    return remotetransport.ErrRemoteActionDenied
-   }
-   if err:=pinned.writeTemp(next,info);err!=nil{
-    return remotetransport.ErrRemoteActionDenied
-   }
-   latest,_,readErr:=pinned.readCurrent(readLimit)
-   if readErr!=nil{return remotetransport.ErrRemoteActionDenied}
-   latestSHA:=sha256.Sum256(latest)
-   if hex.EncodeToString(latestSHA[:])!=request.ExpectedSHA256{
-    return remotetransport.ErrRemoteActionDenied
-   }
-   // A durable, local TaskDeck identity audit must succeed BEFORE
-   // any file side effect. PHP cannot erase or synthesize this audit.
-   if err:=s.auditRemoteReadOnlyAction(session,auditAction);err!=nil{
-    return remotetransport.ErrRemoteActionDenied
-   }
-   // Uncached host + Portal RBAC again immediately before the atomic
-   // commit. Client-side approval at login is never sufficient.
-   if err:=s.authorizeRemoteTransportAction(actionCtx,session,channel,
-    identity.PermissionFilesWrite);err!=nil{return remotetransport.ErrRemoteActionDenied}
-   session.executionMu.Lock()
-   if session.closed.Load()||session.channel!=channel||
-    session.portalGrant==nil||!session.portalGrant.ActiveForSession(channel)||
-    actionCtx.Err()!=nil{
-    session.executionMu.Unlock()
-    return remotetransport.ErrRemoteActionDenied
-   }
-   // commitTemp is an atomic anchored rename and is serialized with
-   // session.Close to linearize revocation at the commit boundary.
-   commitErr:=pinned.commitTemp()
-   session.executionMu.Unlock()
-   if commitErr!=nil{return remotetransport.ErrRemoteActionDenied}
-   writtenHash:=sha256.Sum256([]byte(request.Content))
-   replacementHash=hex.EncodeToString(writtenHash[:])
-   return actionCtx.Err()
-  }
- case remotetransport.RemoteActionProjectDirectoryList:
+ case remotetransport.RemoteActionGitPush:
+  permission=identity.PermissionGitPush
+ case remotetransport.RemoteActionProjectInfo:
+  permission=identity.PermissionTasksView
+ case remotetransport.RemoteActionFilesRoot,remotetransport.RemoteActionFilesRootNext,
+  remotetransport.RemoteActionFilesReadStart,remotetransport.RemoteActionFilesReadNext,
+  remotetransport.RemoteActionFilesReadSelect,remotetransport.RemoteActionFilesDirSelect,remotetransport.RemoteActionFilesDirNext:
   permission=identity.PermissionFilesRead
-  auditAction="project_dir_list"
-  run=func(actionCtx context.Context)error{
-   data,err:=s.readRemoteDirectory(actionCtx,request.Path)
-   if err!=nil{return remotetransport.ErrRemoteActionDenied}
-   content=data
-   return actionCtx.Err()
-  }
- case remotetransport.RemoteActionProjectFileBlock:
-  permission=identity.PermissionFilesRead
-  auditAction="project_file_block"
-  run=func(actionCtx context.Context)error{
-   result,err:=s.readRemoteFileBlock(actionCtx,request.Path,request.Offset)
-   if err!=nil{return remotetransport.ErrRemoteActionDenied}
-   window=result
-   return actionCtx.Err()
-  }
- case remotetransport.RemoteActionProjectFileChunk:
-  permission=identity.PermissionFilesRead
-  auditAction="project_file_chunk"
-  run=func(actionCtx context.Context)error{
-   result,err:=s.readRemoteFileChunk(actionCtx,request.Path,request.Offset)
-   if err!=nil{return remotetransport.ErrRemoteActionDenied}
-   window=result
-   return actionCtx.Err()
-  }
- case remotetransport.RemoteActionProjectFileWindow:
-  permission=identity.PermissionFilesRead
-  auditAction="project_file_window"
-  run=func(actionCtx context.Context)error{
-   result,err:=s.readRemoteFileWindow(actionCtx,request.Path,request.Offset)
-   if err!=nil{return remotetransport.ErrRemoteActionDenied}
-   window=result
-   return actionCtx.Err()
-  }
- case remotetransport.RemoteActionProjectFileFindLines:
-  permission=identity.PermissionFilesRead
-  auditAction="project_file_find_lines"
-  run=func(actionCtx context.Context)error{
-   found,err:=s.readRemoteFileFindLines(actionCtx,request.Path,request.Content)
-   if err!=nil{return remotetransport.ErrRemoteActionDenied}
-   content=found
-   return actionCtx.Err()
-  }
- case remotetransport.RemoteActionProjectFileLines:
-  permission=identity.PermissionFilesRead
-  auditAction="project_file_lines"
-  run=func(actionCtx context.Context)error{
-   result,err:=s.readRemoteFileLines(actionCtx,request.Path,request.Offset)
-   if err!=nil{return remotetransport.ErrRemoteActionDenied}
-   content=result
-   return actionCtx.Err()
-  }
- case remotetransport.RemoteActionProjectFilePreview:
-  permission=identity.PermissionFilesRead
-  auditAction="project_file_preview"
-  run=func(actionCtx context.Context)error{
-   if actionCtx.Err()!=nil{return remotetransport.ErrRemoteActionDenied}
-   relative,pathErr:=cleanProjectRelativePath(request.Path,false)
-   if pathErr!=nil{return remotetransport.ErrRemoteActionDenied}
-   path,pathErr:=s.resolveProjectPath(relative,false,false)
-   if pathErr!=nil{return remotetransport.ErrRemoteActionDenied}
-   rootView,_,pathErr:=s.projectRootForVirtualPath(relative)
-   if pathErr!=nil{return remotetransport.ErrRemoteActionDenied}
-   pinned,pathErr:=openProjectPinnedFile(rootView.Path,path)
-   if pathErr!=nil{return remotetransport.ErrRemoteActionDenied}
-   defer pinned.close()
-   // Unlike project.file.chunk, preview must contain the entire short
-   // UTF-8 file and never activates scoped binary transfer/download.
-   data,info,readErr:=pinned.readCurrent(remotetransport.RemoteFilePreviewMaxBytes)
-   if readErr!=nil||info==nil||!info.Mode().IsRegular()||
-    !projectTextBytesValid(data)||actionCtx.Err()!=nil{
-    return remotetransport.ErrRemoteActionDenied
-   }
-   content=append([]byte(nil),data...)
-   return actionCtx.Err()
-  }
- case remotetransport.RemoteActionProjectFileRead:
-  permission=identity.PermissionFilesRead
-  auditAction="project_file_read"
-  run=func(actionCtx context.Context)error{
-   if actionCtx.Err()!=nil{return remotetransport.ErrRemoteActionDenied}
-   relative,pathErr:=cleanProjectRelativePath(request.Path,false)
-   if pathErr!=nil{return remotetransport.ErrRemoteActionDenied}
-   path,pathErr:=s.resolveProjectPath(relative,false,false)
-   if pathErr!=nil{return remotetransport.ErrRemoteActionDenied}
-   rootView,_,pathErr:=s.projectRootForVirtualPath(relative)
-   if pathErr!=nil{return remotetransport.ErrRemoteActionDenied}
-   pinned,pathErr:=openProjectPinnedFile(rootView.Path,path)
-   if pathErr!=nil{return remotetransport.ErrRemoteActionDenied}
-   defer pinned.close()
-   data,info,readErr:=pinned.readCurrent(192)
-   if readErr!=nil || info==nil || !info.Mode().IsRegular() ||
-    !projectTextBytesValid(data) || actionCtx.Err()!=nil {
-    return remotetransport.ErrRemoteActionDenied
-   }
-   content=append([]byte(nil),data...)
-   return actionCtx.Err()
-  }
+ case remotetransport.RemoteActionTasksPreview,remotetransport.RemoteActionTasksPreviewNext,
+  remotetransport.RemoteActionTasksInspect:
+  permission=identity.PermissionTasksView
+ case remotetransport.RemoteActionTasksRun,remotetransport.RemoteActionTasksStart,
+  remotetransport.RemoteActionTasksPoll,remotetransport.RemoteActionTasksCancel,
+  remotetransport.RemoteActionTasksClear:
+  permission=identity.PermissionTasksRun
  default:
   return nil,remotetransport.ErrRemoteActionDenied
  }
- // Switch to file-only mode INSIDE the already serialized host execution
- // callback. This ordering is critical: a concurrently authorized task.run
- // or file write cannot slip between a successful chunk and mode locking.
- originalRun:=run
- run=func(actionCtx context.Context)error{
-  if err:=session.checkScopedFileTransfer(request.Operation,request.Path,request.Offset);err!=nil{
-   return remotetransport.ErrRemoteActionDenied
-  }
-  if err:=originalRun(actionCtx);err!=nil{return err}
-  if actionCtx.Err()!=nil{return remotetransport.ErrRemoteActionDenied}
-  if err:=session.commitScopedFileTransfer(
-   request.Operation,request.Path,request.Offset,window);err!=nil{
-   return remotetransport.ErrRemoteActionDenied
-  }
-  return actionCtx.Err()
- }
- defer func(){
-  for i:=range content{content[i]=0}
-  for i:=range window.Data{window.Data[i]=0}
- }()
- err=s.executeRemoteAuthenticatedAction(ctx,session,channel,permission,run)
+ // Never authorize based on a Portal role alone. Every call performs
+ // fresh local TaskDeck RBAC + client-key + live Portal checks, before and
+ // after the bounded callback. No remote-supplied Git path is accepted.
+ var status string
+ var gitLog string
+ var gitBranches string
+ var gitRemotes string
+ var gitTracking remotetransport.RemoteGitTrackingPage
+ var gitBranchCreate remotetransport.RemoteGitBranchCreateResult
+ var gitSwitch remotetransport.RemoteGitSwitchResult
+ var gitBranchDelete remotetransport.RemoteGitBranchDeleteResult
+ var gitDiff string
+ var gitPatch remotetransport.RemoteGitPatchPage
+ var gitPull remotetransport.RemoteGitPullResult
+ var gitPullReview remotetransport.RemoteGitPullReviewResult
+ var gitPullChanges remotetransport.RemoteGitPullChanges
+ var gitCommit remotetransport.RemoteGitCommitResult
+ var gitPush remotetransport.RemoteGitPushResult
+ var gitFetch remotetransport.RemoteGitFetchResult
+ var gitIndex remotetransport.RemoteGitIndexResult
+ var terminal remotetransport.RemoteTerminalProgress
+ startedTerminal:=false
+ var filesRoot remotetransport.RemoteFilesRoot
+ var filesRead remotetransport.RemoteFilesReadPage
+ var projectInfo remotetransport.RemoteProjectInfo
+ var tasksPreview remotetransport.RemoteTasksPreview
+ var inspected remotetransport.RemoteTaskInspect
+ var taskRun remotetransport.RemoteTaskRun
+ var longTask remotetransport.RemoteLongTaskProgress
+ startedLongTask:=false
+ var nextTaskCursor int
+ var taskPageHash [32]byte
+ var features remotetransport.RemoteFeatures
+ err=s.executeRemoteAuthenticatedAction(ctx,session,channel,
+  permission,func(actionCtx context.Context)error {
+   switch request.Operation{
+   case remotetransport.RemoteActionSessionPing:
+    return actionCtx.Err()
+   case remotetransport.RemoteActionSessionFeatures:
+    var featuresErr error
+    features,featuresErr=s.readRemoteFeatures(actionCtx,session)
+    return featuresErr
+   case remotetransport.RemoteActionTerminalOpen:
+    if err:=s.startRemoteTerminal(actionCtx,session);err!=nil{return err}
+    startedTerminal=true
+    terminal=remotetransport.RemoteTerminalProgress{State:"running"}
+    return nil
+   case remotetransport.RemoteActionTerminalPoll:
+    if os.Getenv("TASKDECK_REMOTE_TERMINAL")!="1"{
+     return remotetransport.ErrRemoteActionDenied
+    }
+    if err:=s.auditRemoteReadOnlyAction(session,request.Operation);err!=nil{return err}
+    var termErr error
+    terminal,termErr=session.pollRemoteTerminal(actionCtx)
+    return termErr
+   case remotetransport.RemoteActionTerminalWrite:
+    var termErr error
+    terminal,termErr=s.writeRemoteTerminal(actionCtx,session,request.TerminalInput)
+    return termErr
+   case remotetransport.RemoteActionTerminalResize:
+    var termErr error
+    terminal,termErr=s.resizeRemoteTerminal(actionCtx,session,request.Cols,request.Rows)
+    return termErr
+   case remotetransport.RemoteActionTerminalClose:
+    var termErr error
+    terminal,termErr=s.closeRemoteTerminal(actionCtx,session)
+    return termErr
+   case remotetransport.RemoteActionGitStatus:
+    var gitErr error
+    status,gitErr=s.readRemoteGitStatus(actionCtx)
+    return gitErr
+   case remotetransport.RemoteActionGitLog:
+    var logErr error
+    gitLog,logErr=s.readRemoteGitLog(actionCtx)
+    return logErr
+   case remotetransport.RemoteActionGitBranches:
+    var branchesErr error
+    gitBranches,branchesErr=s.readRemoteGitBranches(actionCtx)
+    return branchesErr
+   case remotetransport.RemoteActionGitRemotes:
+    var remotesErr error
+    gitRemotes,remotesErr=s.readRemoteGitRemotes(actionCtx)
+    return remotesErr
+   case remotetransport.RemoteActionGitTrackingStart,remotetransport.RemoteActionGitTrackingNext:
+    var trackingErr error
+    gitTracking,trackingErr=s.readRemoteGitTrackingPage(actionCtx,session,
+     request.Operation==remotetransport.RemoteActionGitTrackingStart,request.RequestID)
+    return trackingErr
+   case remotetransport.RemoteActionGitBranchCreate:
+    var branchErr error
+    gitBranchCreate,branchErr=s.executeRemoteGitBranchCreate(actionCtx,session)
+    return branchErr
+   case remotetransport.RemoteActionGitSwitchReview:
+    var reviewErr error
+    gitSwitch,reviewErr=s.readRemoteGitSwitchReview(actionCtx,session)
+    return reviewErr
+   case remotetransport.RemoteActionGitSwitchSameHead:
+    var switchErr error
+    gitSwitch,switchErr=s.executeRemoteGitSwitchSameHead(actionCtx,session)
+    return switchErr
+   case remotetransport.RemoteActionGitBranchDeleteReview:
+    var reviewErr error
+    gitBranchDelete,reviewErr=s.readRemoteGitBranchDeleteReview(actionCtx,session)
+    return reviewErr
+   case remotetransport.RemoteActionGitBranchDelete:
+    var deleteErr error
+    gitBranchDelete,deleteErr=s.executeRemoteGitBranchDelete(actionCtx,session)
+    return deleteErr
+   case remotetransport.RemoteActionGitDiff:
+    var diffErr error
+    gitDiff,diffErr=s.readRemoteGitDiff(actionCtx)
+    return diffErr
+   case remotetransport.RemoteActionGitPatchStart,remotetransport.RemoteActionGitPatchNext,
+    remotetransport.RemoteActionGitPatchCachedStart,remotetransport.RemoteActionGitPatchCachedNext:
+    var patchErr error
+    gitPatch,patchErr=s.readRemoteGitPatchPageMode(actionCtx,session,
+     request.Operation==remotetransport.RemoteActionGitPatchStart||
+     request.Operation==remotetransport.RemoteActionGitPatchCachedStart,
+     request.RequestID,
+     request.Operation==remotetransport.RemoteActionGitPatchCachedStart||
+     request.Operation==remotetransport.RemoteActionGitPatchCachedNext)
+    return patchErr
+   case remotetransport.RemoteActionGitPullReview:
+    var reviewErr error
+    gitPullReview,reviewErr=s.readRemoteGitPullReview(actionCtx)
+    return reviewErr
+   case remotetransport.RemoteActionGitPullChanges:
+    var changesErr error
+    gitPullChanges,changesErr=s.readRemoteGitPullChanges(actionCtx)
+    return changesErr
+   case remotetransport.RemoteActionGitPull:
+    var pullErr error
+    gitPull,pullErr=s.executeRemoteGitPull(actionCtx,session)
+    return pullErr
+   case remotetransport.RemoteActionGitCommit:
+    var commitErr error
+    gitCommit,commitErr=s.executeRemoteGitCommit(actionCtx,session,request.Message)
+    return commitErr
+   case remotetransport.RemoteActionGitPush:
+    var pushErr error
+    gitPush,pushErr=s.executeRemoteGitPush(actionCtx,session)
+    return pushErr
+   case remotetransport.RemoteActionGitFetch:
+    var fetchErr error
+    gitFetch,fetchErr=s.executeRemoteGitFetch(actionCtx,session)
+    return fetchErr
+   case remotetransport.RemoteActionGitStageTracked,remotetransport.RemoteActionGitUnstageAll:
+    var indexErr error
+    gitIndex,indexErr=s.executeRemoteGitIndex(actionCtx,session,request.Operation)
+    return indexErr
+   case remotetransport.RemoteActionGitStageFile,remotetransport.RemoteActionGitUnstageFile:
+    var fileErr error
+    gitIndex,fileErr=s.executeRemoteGitFileIndex(actionCtx,session,
+     request.Operation,request.FileIndex,request.Snapshot)
+    return fileErr
+   case remotetransport.RemoteActionFilesDirSelect,remotetransport.RemoteActionFilesDirNext:
+    var directoryErr error
+    filesRoot,directoryErr=s.readRemoteDirFilesPage(actionCtx,session,
+     request.Operation==remotetransport.RemoteActionFilesDirSelect,request.FileIndex)
+    return directoryErr
+   case remotetransport.RemoteActionFilesReadSelect:
+    var selectErr error
+    filesRead,selectErr=s.readRemoteFileTextSelected(actionCtx,session,
+     request.FileIndex,request.RequestID)
+    return selectErr
+   case remotetransport.RemoteActionFilesReadStart,remotetransport.RemoteActionFilesReadNext:
+    var readErr error
+    filesRead,readErr=s.readRemoteFileTextPage(actionCtx,session,
+     request.Operation==remotetransport.RemoteActionFilesReadStart,request.RequestID)
+    return readErr
+   case remotetransport.RemoteActionFilesRoot,remotetransport.RemoteActionFilesRootNext:
+    var listErr error
+    filesRoot,listErr=s.readRemoteFilesRootPage(actionCtx,session,
+     request.Operation==remotetransport.RemoteActionFilesRoot)
+    return listErr
+   case remotetransport.RemoteActionProjectInfo:
+    var projectErr error
+    projectInfo,projectErr=s.readRemoteProjectInfo(actionCtx,session)
+    return projectErr
+   case remotetransport.RemoteActionTasksPreview:
+    var previewErr error
+    tasksPreview,nextTaskCursor,taskPageHash,previewErr=
+     s.readRemoteTaskPage(actionCtx,session,0,nil,request.RequestID)
+    return previewErr
+   case remotetransport.RemoteActionTasksPreviewNext:
+    if !session.taskPageReady{
+     return remotetransport.ErrRemoteActionDenied
+    }
+    var previewErr error
+    tasksPreview,nextTaskCursor,taskPageHash,previewErr=
+     s.readRemoteTaskPage(actionCtx,session,session.taskPageCursor,
+      &session.taskPageHash,request.RequestID)
+    return previewErr
+   case remotetransport.RemoteActionTasksStart:
+    startErr:=s.startRemoteLongTask(actionCtx,session,request.TaskID,request.Choice,request.Text)
+    if startErr!=nil{return startErr}
+    startedLongTask=true
+    longTask=remotetransport.RemoteLongTaskProgress{
+     TaskID:request.TaskID,Status:"started",ExitCode:-1,
+    }
+    return nil
+   case remotetransport.RemoteActionTasksPoll:
+    if os.Getenv("TASKDECK_REMOTE_TASKS_LONG")!="1"{
+     return remotetransport.ErrRemoteActionDenied
+    }
+    // Audit before advancing this session's incremental output cursor.
+    if err:=s.auditRemoteReadOnlyAction(session,request.Operation);err!=nil{return err}
+    progress,pollErr:=session.pollRemoteLongTask(actionCtx,request.TaskID)
+    if pollErr!=nil{return pollErr}
+    longTask=remotetransport.RemoteLongTaskProgress{
+     TaskID:progress.TaskID,Status:progress.Status,ExitCode:progress.ExitCode,
+     Output:progress.Output,Truncated:progress.Truncated,More:progress.More,
+    }
+    return nil
+   case remotetransport.RemoteActionTasksCancel:
+    if os.Getenv("TASKDECK_REMOTE_TASKS_LONG")!="1"{
+     return remotetransport.ErrRemoteActionDenied
+    }
+    if err:=s.auditRemoteLongTaskMutation(session,request.TaskID,"cancel");err!=nil{
+     return remotetransport.ErrRemoteActionDenied
+    }
+    if err:=session.cancelRemoteLongTask(request.TaskID);err!=nil{return err}
+    longTask=remotetransport.RemoteLongTaskProgress{
+     TaskID:request.TaskID,Status:"cancel_requested",ExitCode:-1,
+    }
+    return nil
+   case remotetransport.RemoteActionTasksClear:
+    if os.Getenv("TASKDECK_REMOTE_TASKS_LONG")!="1"{
+     return remotetransport.ErrRemoteActionDenied
+    }
+    if err:=s.auditRemoteLongTaskMutation(session,request.TaskID,"clear");err!=nil{
+     return err
+    }
+    if err:=session.clearRemoteLongTask(request.TaskID);err!=nil{return err}
+    longTask=remotetransport.RemoteLongTaskProgress{
+     TaskID:request.TaskID,Status:"cleared",ExitCode:-1,
+    }
+    return nil
+   case remotetransport.RemoteActionTasksRun:
+    var runErr error
+    taskRun,runErr=s.runRemoteTaskBoundedWithInput(actionCtx,session,request.TaskID,request.Choice,request.Text)
+    return runErr
+   case remotetransport.RemoteActionTasksInspect:
+    // Display labels alone cannot select a task: this ID must have been
+    // emitted by this very authenticated session and the host-owned task
+    // source must remain byte-for-byte the same.
+    if os.Getenv("TASKDECK_REMOTE_TASKS_PREVIEW")!="1" ||
+     !session.taskPageReady || session.taskIssuedIDs==nil ||
+     !session.taskIssuedIDs[request.TaskID] {
+     return remotetransport.ErrRemoteActionDenied
+    }
+    var inspectErr error
+    inspected,inspectErr=inspectRemoteTaskSelection(
+     actionCtx,s.Workspace,session.taskPageHash,request.TaskID)
+    if inspectErr!=nil || inspected.TaskID!=request.TaskID {
+     return remotetransport.ErrRemoteActionDenied
+    }
+    return nil
+   default:
+    return remotetransport.ErrRemoteActionDenied
+   }
+  })
  if err!=nil{
-  if request.Operation==remotetransport.RemoteActionTaskManagedStart{
-   s.remoteManagedTaskAbandon(session,managedReport.Handle)
-  }
+  if startedLongTask{_ = session.cancelRemoteLongTask(request.TaskID)}
+  if startedTerminal{session.stopRemoteTerminal()}
   return nil,remotetransport.ErrRemoteActionDenied
  }
- // Local audit must succeed BEFORE any confidential file data leaves host.
- // No content/path is recorded in Portal or the TaskDeck audit details.
- if !auditBeforeCommit {
-  if err:=s.auditRemoteReadOnlyAction(session,auditAction);err!=nil {
+ // Audit can block on storage. It MUST NOT hold executionMu: local
+ // Close() must promptly revoke a session even when its database is slow.
+ // The event is "authorized", not "successfully delivered": revocation
+ // may occur before the final encrypted response reaches its recipient.
+ if request.Operation!=remotetransport.RemoteActionTerminalOpen &&
+  request.Operation!=remotetransport.RemoteActionTerminalPoll &&
+  request.Operation!=remotetransport.RemoteActionTerminalWrite &&
+  request.Operation!=remotetransport.RemoteActionTerminalResize &&
+  request.Operation!=remotetransport.RemoteActionTerminalClose &&
+  request.Operation!=remotetransport.RemoteActionGitPull &&
+  request.Operation!=remotetransport.RemoteActionGitCommit &&
+  request.Operation!=remotetransport.RemoteActionGitPush &&
+  request.Operation!=remotetransport.RemoteActionGitFetch &&
+  request.Operation!=remotetransport.RemoteActionGitBranchCreate &&
+   request.Operation!=remotetransport.RemoteActionGitSwitchSameHead &&
+   request.Operation!=remotetransport.RemoteActionGitBranchDelete &&
+   request.Operation!=remotetransport.RemoteActionGitSwitchReview &&
+   request.Operation!=remotetransport.RemoteActionGitBranchDeleteReview &&
+  request.Operation!=remotetransport.RemoteActionGitStageTracked &&
+  request.Operation!=remotetransport.RemoteActionGitUnstageAll &&
+  request.Operation!=remotetransport.RemoteActionGitStageFile &&
+  request.Operation!=remotetransport.RemoteActionGitUnstageFile &&
+  request.Operation!=remotetransport.RemoteActionTasksRun &&
+  request.Operation!=remotetransport.RemoteActionTasksStart &&
+  request.Operation!=remotetransport.RemoteActionTasksCancel &&
+  request.Operation!=remotetransport.RemoteActionTasksPoll &&
+  request.Operation!=remotetransport.RemoteActionTasksClear {
+  if err:=s.auditRemoteReadOnlyAction(session,request.Operation);err!=nil {
    return nil,remotetransport.ErrRemoteActionDenied
   }
- }
-
+ } // Task runner wrote its durable attempted audit before starting.
  // Serialize final sealing with local session Close, which cancels active
  // work and destroys the Channel. The outer Agent must still check grant
  // liveness immediately before forwarding the encrypted response.
@@ -1091,133 +515,84 @@ func (s *Server) executeRemoteE2EEPing(
   return nil,remotetransport.ErrRemoteActionDenied
  }
  var sealed []byte
- if request.Operation==remotetransport.RemoteActionProjectFileRead{
-  sealed,err=remotetransport.SealRemoteFileReadResult(channel,request.RequestID,content)
- } else if request.Operation==remotetransport.RemoteActionProjectFileEditLine{
-  sealed,err=remotetransport.SealRemoteLargeLineEditResult(channel,request.RequestID,replacementHash)
- } else if request.Operation==remotetransport.RemoteActionProjectFileDeleteLine{
-  sealed,err=remotetransport.SealRemoteLargeLineDeleteResult(channel,request.RequestID,replacementHash)
- } else if request.Operation==remotetransport.RemoteActionProjectFileInsertLine{
-  sealed,err=remotetransport.SealRemoteLargeLineInsertResult(channel,request.RequestID,replacementHash)
- } else if request.Operation==remotetransport.RemoteActionProjectFilePreview{
-  sealed,err=remotetransport.SealRemoteFilePreviewResult(channel,request.RequestID,content)
- } else if request.Operation==remotetransport.RemoteActionProjectFileLines{
-  sealed,err=remotetransport.SealRemoteFileLinesResult(channel,request.RequestID,content)
- } else if request.Operation==remotetransport.RemoteActionProjectFileFindLines{
-  sealed,err=remotetransport.SealRemoteFindLinesResult(channel,request.RequestID,content)
- } else if request.Operation==remotetransport.RemoteActionProjectFileWindow{
-  sealed,err=remotetransport.SealRemoteFileWindowResult(channel,request.RequestID,window)
- } else if request.Operation==remotetransport.RemoteActionProjectFileChunk{
-  sealed,err=remotetransport.SealRemoteFileChunkResult(channel,request.RequestID,window)
- } else if request.Operation==remotetransport.RemoteActionProjectFileBlock{
-  sealed,err=remotetransport.SealRemoteFileBlockResult(channel,request.RequestID,window)
- } else if request.Operation==remotetransport.RemoteActionProjectDirectoryList{
-  sealed,err=remotetransport.SealRemoteDirectoryListResult(channel,request.RequestID,content)
-  } else if request.Operation==remotetransport.RemoteActionGitStatus{
-  sealed,err=remotetransport.SealRemoteGitStatusResult(channel,request.RequestID,content)
- } else if request.Operation==remotetransport.RemoteActionGitStatusFull{
-  sealed,err=remotetransport.SealRemoteGitStatusFullResult(channel,request.RequestID,content)
- } else if request.Operation==remotetransport.RemoteActionGitCommitReview{
-  sealed,err=remotetransport.SealRemoteGitCommitReviewResult(channel,request.RequestID,content)
- } else if request.Operation==remotetransport.RemoteActionGitCommit{
-  sealed,err=remotetransport.SealRemoteGitCommitResult(channel,request.RequestID,content)
- } else if request.Operation==remotetransport.RemoteActionGitBranchReview{
-  sealed,err=remotetransport.SealRemoteGitBranchReviewResult(channel,request.RequestID,content)
- } else if request.Operation==remotetransport.RemoteActionGitBranchCreate{
-  sealed,err=remotetransport.SealRemoteGitBranchCreateResult(channel,request.RequestID,content)
- } else if request.Operation==remotetransport.RemoteActionGitBranchDeleteReview{
-  sealed,err=remotetransport.SealRemoteGitBranchDeleteReviewResult(channel,request.RequestID,content)
- } else if request.Operation==remotetransport.RemoteActionGitBranchDelete{
-  sealed,err=remotetransport.SealRemoteGitBranchDeleteResult(channel,request.RequestID,content)
- } else if request.Operation==remotetransport.RemoteActionGitSwitchReview{
-  sealed,err=remotetransport.SealRemoteGitSwitchReviewResult(channel,request.RequestID,content)
- } else if request.Operation==remotetransport.RemoteActionGitSwitchSameHead{
-  sealed,err=remotetransport.SealRemoteGitSwitchResult(channel,request.RequestID,content)
- } else if request.Operation==remotetransport.RemoteActionGitDiff{
-  sealed,err=remotetransport.SealRemoteGitDiffResult(channel,request.RequestID,content)
- } else if request.Operation==remotetransport.RemoteActionGitStagedDiff{
-  sealed,err=remotetransport.SealRemoteGitStagedDiffResult(channel,request.RequestID,content)
- } else if request.Operation==remotetransport.RemoteActionGitHeadDiff{
-  sealed,err=remotetransport.SealRemoteGitHeadDiffResult(channel,request.RequestID,content)
- } else if request.Operation==remotetransport.RemoteActionGitStage{
-  sealed,err=remotetransport.SealRemoteGitStageResult(channel,request.RequestID,content)
- } else if request.Operation==remotetransport.RemoteActionGitUnstage{
-  sealed,err=remotetransport.SealRemoteGitUnstageResult(channel,request.RequestID,content)
- } else if request.Operation==remotetransport.RemoteActionTaskList{
-  sealed,err=remotetransport.SealRemoteTaskListResult(channel,request.RequestID,content)
- } else if request.Operation==remotetransport.RemoteActionGitLog{
-  sealed,err=remotetransport.SealRemoteGitLogResult(channel,request.RequestID,content)
- } else if request.Operation==remotetransport.RemoteActionGitBranches{
-  sealed,err=remotetransport.SealRemoteGitBranchesResult(channel,request.RequestID,content)
- } else if request.Operation==remotetransport.RemoteActionGitRemotes{
-  sealed,err=remotetransport.SealRemoteGitRemotesResult(channel,request.RequestID,content)
- } else if request.Operation==remotetransport.RemoteActionGitTrackingRefs{
-  sealed,err=remotetransport.SealRemoteGitTrackingRefsResult(channel,request.RequestID,content)
- } else if request.Operation==remotetransport.RemoteActionGitPullReview{
-  sealed,err=remotetransport.SealRemoteGitPullReviewResult(channel,request.RequestID,content)
- } else if request.Operation==remotetransport.RemoteActionGitPullChangesReview{
-  sealed,err=remotetransport.SealRemoteGitPullChangesResult(channel,request.RequestID,content)
- } else if request.Operation==remotetransport.RemoteActionGitPullCachedReview{
-  sealed,err=remotetransport.SealRemoteGitPullCachedReviewResult(channel,request.RequestID,content)
- } else if request.Operation==remotetransport.RemoteActionGitPullApplyCached{
-  sealed,err=remotetransport.SealRemoteGitPullApplyCachedResult(channel,request.RequestID,content)
- } else if request.Operation==remotetransport.RemoteActionGitPullApplyFiles{
-  sealed,err=remotetransport.SealRemoteGitPullApplyFilesResult(channel,request.RequestID,content)
- } else if request.Operation==remotetransport.RemoteActionGitFetchReview{
-  sealed,err=remotetransport.SealRemoteGitFetchReviewResult(channel,request.RequestID,content)
- } else if request.Operation==remotetransport.RemoteActionGitFetchApply{
-  sealed,err=remotetransport.SealRemoteGitFetchApplyResult(channel,request.RequestID,content)
- } else if request.Operation==remotetransport.RemoteActionGitPushReview{
-  sealed,err=remotetransport.SealRemoteGitPushReviewResult(channel,request.RequestID,content)
- } else if request.Operation==remotetransport.RemoteActionGitPushApply{
-  sealed,err=remotetransport.SealRemoteGitPushApplyResult(channel,request.RequestID,content)
- } else if request.Operation==remotetransport.RemoteActionProjectFileReplace{
-  sealed,err=remotetransport.SealRemoteFileReplaceResult(channel,request.RequestID,replacementHash)
- } else if request.Operation==remotetransport.RemoteActionProjectFileReplaceText{
-  sealed,err=remotetransport.SealRemoteTextEditResult(channel,request.RequestID,replacementHash)
- } else if request.Operation==remotetransport.RemoteActionTaskRun{
-  sealed,err=remotetransport.SealRemoteTaskRunResult(channel,request.RequestID,string(content))
-  } else if request.Operation==remotetransport.RemoteActionTaskRunText{
-  sealed,err=remotetransport.SealRemoteTaskRunTextResult(channel,request.RequestID,content)
- } else if request.Operation==remotetransport.RemoteActionTaskRunReport{
-  sealed,err=remotetransport.SealRemoteTaskReportResult(channel,request.RequestID,taskReport)
- } else if request.Operation==remotetransport.RemoteActionTaskManagedOutput{
-  sealed,err=remotetransport.SealRemoteManagedOutput(channel,request.RequestID,managedWindow)
- } else if request.Operation==remotetransport.RemoteActionTaskManagedStart||
-  request.Operation==remotetransport.RemoteActionTaskManagedStatus||
-  request.Operation==remotetransport.RemoteActionTaskManagedCancel{
-  sealed,err=remotetransport.SealRemoteManagedTaskResult(channel,request.RequestID,managedReport)
- } else {
+ switch request.Operation{
+ case remotetransport.RemoteActionSessionPing:
   sealed,err=remotetransport.SealRemoteActionPingResult(channel,request.RequestID)
- }
- if err!=nil{
-  if request.Operation==remotetransport.RemoteActionTaskManagedStart{
-   s.remoteManagedTaskAbandon(session,managedReport.Handle)
-  }
+ case remotetransport.RemoteActionSessionFeatures:
+  sealed,err=remotetransport.SealRemoteActionFeaturesResult(channel,request.RequestID,features)
+ case remotetransport.RemoteActionTerminalOpen,remotetransport.RemoteActionTerminalPoll,
+  remotetransport.RemoteActionTerminalWrite,remotetransport.RemoteActionTerminalResize,
+  remotetransport.RemoteActionTerminalClose:
+  sealed,err=remotetransport.SealRemoteTerminalProgress(channel,request.RequestID,terminal)
+ case remotetransport.RemoteActionGitStatus:
+  sealed,err=remotetransport.SealRemoteActionGitStatusResult(channel,request.RequestID,status)
+ case remotetransport.RemoteActionGitLog:
+  sealed,err=remotetransport.SealRemoteGitLogResult(channel,request.RequestID,gitLog)
+ case remotetransport.RemoteActionGitBranches:
+  sealed,err=remotetransport.SealRemoteGitBranchesResult(channel,request.RequestID,gitBranches)
+ case remotetransport.RemoteActionGitRemotes:
+  sealed,err=remotetransport.SealRemoteGitRemotesResult(channel,request.RequestID,gitRemotes)
+ case remotetransport.RemoteActionGitTrackingStart,remotetransport.RemoteActionGitTrackingNext:
+  sealed,err=remotetransport.SealRemoteGitTrackingPage(channel,request.RequestID,gitTracking)
+ case remotetransport.RemoteActionGitBranchCreate:
+  sealed,err=remotetransport.SealRemoteGitBranchCreateResult(channel,request.RequestID,gitBranchCreate)
+ case remotetransport.RemoteActionGitSwitchReview,remotetransport.RemoteActionGitSwitchSameHead:
+  sealed,err=remotetransport.SealRemoteGitSwitchResult(channel,request.RequestID,gitSwitch)
+ case remotetransport.RemoteActionGitBranchDeleteReview,remotetransport.RemoteActionGitBranchDelete:
+  sealed,err=remotetransport.SealRemoteGitBranchDeleteResult(channel,request.RequestID,gitBranchDelete)
+ case remotetransport.RemoteActionGitDiff:
+  sealed,err=remotetransport.SealRemoteGitDiffResult(channel,request.RequestID,gitDiff)
+ case remotetransport.RemoteActionGitPatchStart,remotetransport.RemoteActionGitPatchNext,
+  remotetransport.RemoteActionGitPatchCachedStart,remotetransport.RemoteActionGitPatchCachedNext:
+  sealed,err=remotetransport.SealRemoteGitPatchPage(channel,request.RequestID,gitPatch)
+ case remotetransport.RemoteActionGitPullReview:
+  sealed,err=remotetransport.SealRemoteGitPullReviewResult(channel,request.RequestID,gitPullReview)
+ case remotetransport.RemoteActionGitPullChanges:
+  sealed,err=remotetransport.SealRemoteGitPullChanges(channel,request.RequestID,gitPullChanges)
+ case remotetransport.RemoteActionGitPull:
+  sealed,err=remotetransport.SealRemoteGitPullResult(channel,request.RequestID,gitPull)
+ case remotetransport.RemoteActionGitCommit:
+  sealed,err=remotetransport.SealRemoteGitCommitResult(channel,request.RequestID,gitCommit)
+ case remotetransport.RemoteActionGitPush:
+  sealed,err=remotetransport.SealRemoteGitPushResult(channel,request.RequestID,gitPush)
+ case remotetransport.RemoteActionGitFetch:
+  sealed,err=remotetransport.SealRemoteGitFetchResult(channel,request.RequestID,gitFetch)
+ case remotetransport.RemoteActionGitStageTracked,remotetransport.RemoteActionGitUnstageAll,
+  remotetransport.RemoteActionGitStageFile,remotetransport.RemoteActionGitUnstageFile:
+  sealed,err=remotetransport.SealRemoteGitIndexResult(channel,request.RequestID,gitIndex)
+ case remotetransport.RemoteActionProjectInfo:
+  sealed,err=remotetransport.SealRemoteActionProjectInfoResult(channel,request.RequestID,projectInfo)
+ case remotetransport.RemoteActionFilesRoot,remotetransport.RemoteActionFilesRootNext,
+  remotetransport.RemoteActionFilesDirSelect,remotetransport.RemoteActionFilesDirNext:
+  sealed,err=remotetransport.SealRemoteFilesRoot(channel,request.RequestID,filesRoot)
+ case remotetransport.RemoteActionFilesReadStart,remotetransport.RemoteActionFilesReadNext,remotetransport.RemoteActionFilesReadSelect:
+  sealed,err=remotetransport.SealRemoteFilesReadPage(channel,request.RequestID,filesRead)
+ case remotetransport.RemoteActionTasksPreview,remotetransport.RemoteActionTasksPreviewNext:
+  sealed,err=remotetransport.SealRemoteActionTasksPreviewResult(channel,request.RequestID,tasksPreview)
+ case remotetransport.RemoteActionTasksInspect:
+  sealed,err=remotetransport.SealRemoteActionTasksInspectResult(channel,request.RequestID,inspected)
+ case remotetransport.RemoteActionTasksRun:
+  sealed,err=remotetransport.SealRemoteActionTaskRunResult(channel,request.RequestID,taskRun)
+ case remotetransport.RemoteActionTasksStart,remotetransport.RemoteActionTasksPoll,
+  remotetransport.RemoteActionTasksCancel,remotetransport.RemoteActionTasksClear:
+  sealed,err=remotetransport.SealRemoteLongTaskProgress(channel,request.RequestID,longTask)
+ default:
   return nil,remotetransport.ErrRemoteActionDenied
+ }
+ if err!=nil{return nil,remotetransport.ErrRemoteActionDenied}
+ if paging {
+  // Only commit host-owned cursor and published selection IDs after the
+  // authenticated E2EE response has been successfully sealed.
+  if request.Operation==remotetransport.RemoteActionTasksPreview {
+   session.taskIssuedIDs=make(map[int]bool)
+  }
+  if session.taskIssuedIDs==nil{session.taskIssuedIDs=make(map[int]bool)}
+  for _,taskID:=range tasksPreview.IDs{
+   if taskID>0 {session.taskIssuedIDs[taskID]=true}
+  }
+  session.taskPageHash=taskPageHash
+  session.taskPageCursor=nextTaskCursor
+  session.taskPageReady=true
  }
  return sealed,nil
 }
-
-
-// Never buffer unbounded Git output in TaskDeck memory. Output longer than
-// 192 bytes fails closed rather than returning a misleading truncated status.
-type cappedRemoteGitOutput struct{ bytes []byte }
-func (w *cappedRemoteGitOutput) Write(p []byte)(int,error){
- if len(w.bytes)+len(p)>192{return 0,errors.New("git status exceeds AEAD limit")}
- w.bytes=append(w.bytes,p...)
- return len(p),nil
-}
-func (w *cappedRemoteGitOutput) Bytes()[]byte{return w.bytes}
-
-// No truncation: an operator must not mistake a partial Git diff for the
-// complete change when deciding whether to edit. Refuse >4096 bytes.
-type cappedRemoteGitDiffOutput struct{ bytes []byte }
-func (w *cappedRemoteGitDiffOutput) Write(p []byte)(int,error){
- if len(w.bytes)+len(p)>remotetransport.RemoteGitDiffMaxBytes{
-  return 0,errors.New("remote Git diff exceeds E2EE read limit")
- }
- w.bytes=append(w.bytes,p...)
- return len(p),nil
-}
-func (w *cappedRemoteGitDiffOutput) Bytes()[]byte{return w.bytes}

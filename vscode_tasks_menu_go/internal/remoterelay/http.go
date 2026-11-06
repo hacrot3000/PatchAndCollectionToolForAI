@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
-	"bletonfc/vscode_tasks_menu/internal/remotetransport"
 )
 
 // Handler is a security-gated rendezvous skeleton. It authenticates device
@@ -31,7 +30,8 @@ type Handler struct {
  // Never mounts remote application actions or HTTP/WS TaskDeck endpoints.
  AllowOfflineLoginProbe bool
     // Disabled by default. Only an E2EE, TaskDeck-local authenticated
-    // session.ping route; no PTY, file, HTTP or arbitrary commands.
+    // bounded app route for session.ping or encrypted host-root
+    // git.status; no PTY, write-Git, file, HTTP or arbitrary commands.
     AllowAppPing bool
 
 	// Fixed, separate resource budgets for unauthenticated device and
@@ -166,9 +166,7 @@ func (h *Handler) deviceSocket(w http.ResponseWriter, r *http.Request) {
 	conn, err := websocket.Accept(w, r, nil)
 	if err != nil { return }
 	defer conn.CloseNow()
-	// Larger opaque app ACKs remain bounded by the strict frame decoder.
- // Only the authenticated Agent socket receives large E2EE file-block ACKs.
- conn.SetReadLimit(65536)
+	conn.SetReadLimit(4096)
 	// A fresh server-generated nonce binds the Agent signature to THIS socket.
 	// The old client-selected nonce alone was replayable after Relay restart.
 	var challengeBytes [DeviceChallengeSize]byte
@@ -208,11 +206,7 @@ func (h *Handler) deviceSocket(w http.ResponseWriter, r *http.Request) {
 		if readErr!=nil || typ!=websocket.MessageText {return}
 		// Admit BEFORE JSON decoding or Ed25519 lease verification.
 		// An exhausted or rolled-back bucket closes only this Agent socket.
-		// The default Agent anti-flood budget is unchanged. Only after a
-  // locally authenticated, Agent-signed FILE-ONLY upgrade can an
-  // authenticated socket sustain one ping+ACK every two seconds.
-  scoped:=h.Devices.ScopedFileTransferForAgent(proof.DeviceID,proof.Nonce)
-  if !frameBudget.allowScoped(time.Now(),scoped) {return}
+		if !frameBudget.allow(time.Now()) {return}
 		frame,err:=decodeAgentRelayFrame(payload)
 		if err!=nil {return}
 		if err:=h.Tickets.VerifyDeviceLease(frame.DeviceLease,proof.DeviceID,time.Now());err!=nil{return}
@@ -294,12 +288,6 @@ func (h *Handler) deviceSocket(w http.ResponseWriter, r *http.Request) {
             // This is only an Agent-signed, one-use mailbox transition.
             if err:=h.Devices.ActivateAppPing(proof.DeviceID,proof.Nonce,
                 frame.ProbeID,frame.PublicKey,frame.Signature);err!=nil {return}
-        case "app_transfer_ready":
-            // A PHP-signed admin ticket cannot upgrade opaque throughput.
-            // Only the original authenticated Agent may sign this proof,
-            // and only AFTER a locally approved FilesRead result was sealed.
-            if err:=h.Devices.AuthorizeScopedFileTransfer(proof.DeviceID,
-                proof.Nonce,frame.ProbeID,frame.PublicKey,frame.Signature);err!=nil{return}
         case "app_ping_ack":
             // An ACK never authenticates a TaskDeck operation: only the
             // host process may decrypt/authorize and seal the response.
@@ -494,8 +482,9 @@ func (h *Handler) browserSocketWithOrigin(w http.ResponseWriter, r *http.Request
             cancel()
             if writeErr!=nil{return}
             if envelope.Type=="e2ee_app_login" {
-                // No generic command access: bounded AEAD session.ping only.
-                for count:=0;count<remotetransport.MaxScopedFileTransferRounds;count++{
+                // No generic command access: only bounded AEAD ping and
+                // host-root Git status verified by the TaskDeck host.
+                for count:=0;count<MaxAppPingRounds;count++{
                     var request browserFrame
                     select{
                     case request=<-incoming:
