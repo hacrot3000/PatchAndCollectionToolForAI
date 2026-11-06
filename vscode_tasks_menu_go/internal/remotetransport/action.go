@@ -299,7 +299,7 @@ func SealRemoteAction(ch *Channel,action RemoteAction)([]byte,error){
   (!remoteTaskInputOperation(action.Operation) && action.Choice!=0) ||
   action.Choice<0 || action.Choice>MaxRemoteTaskCombinedChoices ||
   (action.Operation==RemoteActionGitCommit)!=(action.Message!="") ||
-  (RemoteGitFileOperation(action.Operation)!=((action.FileIndex!=0)||(action.Snapshot!=""))) ||
+  (RemoteGitFileOperation(action.Operation)!=((action.Operation!=RemoteActionFilesReadSelect)&&((action.FileIndex!=0)||(action.Snapshot!="")))) ||
   ((action.Operation==RemoteActionFilesReadSelect)!=(action.FileIndex!=0&&action.Snapshot=="")) ||
   (action.Operation==RemoteActionFilesReadSelect&&!ValidRemoteFilesSelectIndex(action.FileIndex)) ||
   (RemoteGitFileOperation(action.Operation)&&!ValidRemoteGitFileSelection(action.FileIndex,action.Snapshot)) ||
