@@ -24,7 +24,7 @@ const trustedGUIHTML = `<!doctype html>
     <button type="button" class="nav" id="nav-git" aria-current="false"><span>04</span> Git · quyền riêng</button>
     <button type="button" class="nav" id="nav-terminal" aria-current="false"><span>05</span> Terminal · PTY</button>
     <div class="nav muted"><span>06</span> Các lệnh Git khác <em>Chưa bật</em></div>
-    <div class="nav muted"><span>07</span> Editor / Files <em>Chưa bật</em></div>
+    <button type="button" class="nav" id="nav-files" aria-current="false"><span>07</span> Files · chỉ đọc</button>
    </nav>
    <div class="rail-note">Mật khẩu TaskDeck chỉ nhập trong client CLI đáng tin cậy, không nhập tại PHP Portal hoặc trang web khác.</div>
   </aside>
@@ -72,7 +72,7 @@ const trustedGUIHTML = `<!doctype html>
     <article class="tile">
      <div class="tile-heading"><span class="dot"></span><h2>Dự án TaskDeck</h2></div>
      <p>Đọc tên dự án, workspace và nền tảng host thực tế. Không truy xuất đường dẫn tuyệt đối hay danh sách dự án khác.</p>
-     <div class="actions"><button type="button" id="project">Thông tin dự án</button><button type="button" id="files-root" disabled>Xem mục gốc</button><button type="button" id="files-root-next" disabled>Trang file tiếp</button></div><p>Chỉ tên tối đa 8 file/thư mục gốc được host cho phép; không đọc nội dung.</p><pre id="files-root-output" hidden></pre>
+     <div class="actions"><button type="button" id="project">Thông tin dự án</button></div>
     </article>
    </div>
    <section class="project-overview" id="project-overview" hidden aria-label="Thông tin dự án được TaskDeck xác minh">
@@ -80,6 +80,18 @@ const trustedGUIHTML = `<!doctype html>
     <div><span class="overline">WORKSPACE</span><strong id="workspace-name"></strong></div>
     <div><span class="overline">HOST OS</span><strong id="host-os"></strong></div>
    </section>
+   </section>
+   <section class="gui-panel" id="panel-files" hidden>
+    <article class="tile">
+     <div class="tile-heading"><span class="dot"></span><h2>Files · Thư mục gốc</h2></div>
+     <p>Đọc danh sách tên file/thư mục an toàn thuộc workspace đã được host cấp quyền. Mỗi lần nhận tối đa 8 mục qua E2EE, giới hạn 128 mục nguồn. Nếu danh sách thay đổi giữa các trang, server sẽ từ chối tiếp.</p>
+     <div class="actions">
+      <button type="button" id="files-root" disabled>Đọc danh sách</button>
+      <button type="button" id="files-root-next" disabled>Trang tiếp</button>
+     </div>
+     <pre class="git-patch-output" id="files-root-output" hidden aria-label="Danh sách Files chỉ đọc"></pre>
+     <p>Chưa hỗ trợ mở/sửa file, upload, download hoặc duyệt thư mục con. Không có đường dẫn nào được gửi tới PHP Portal; mọi quyền đọc đều do Agent kiểm tra.</p>
+    </article>
    </section>
    <section class="gui-panel" id="panel-tasks" hidden>
    <div class="tiles">
@@ -724,21 +736,24 @@ const trustedGUIJavaScript = `'use strict';
     project:document.getElementById('nav-project'),
     tasks:document.getElementById('nav-tasks'),
     git:document.getElementById('nav-git'),
-    terminal:document.getElementById('nav-terminal')
+    terminal:document.getElementById('nav-terminal'),
+    files:document.getElementById('nav-files')
   };
   const panels={
     overview:document.getElementById('panel-overview'),
     project:document.getElementById('panel-project'),
     tasks:document.getElementById('panel-tasks'),
     git:document.getElementById('panel-git'),
-    terminal:document.getElementById('panel-terminal')
+    terminal:document.getElementById('panel-terminal'),
+    files:document.getElementById('panel-files')
   };
   const viewDescriptions={
     overview:['Tổng quan','Quản lý phiên và kiểm tra chức năng host. Chuyển tab không tốn lượt E2EE.'],
     project:['Dự án TaskDeck','Dữ liệu hiển thị được xác thực, chỉ thuộc một dự án TaskDeck đã cấp quyền.'],
     tasks:['Task của workspace','Chỉ xem nhãn task, không gửi ID, đường dẫn hoặc lệnh thực thi.'],
     git:['Git Status','Dữ liệu Git và thao tác pull, commit, push đều phải được host cho phép.'],
-    terminal:['Terminal PTY','Shell /bin/sh giới hạn 90 giây, một phiên trên mỗi kết nối E2EE, Linux/macOS.']
+    terminal:['Terminal PTY','Shell /bin/sh giới hạn 90 giây, một phiên trên mỗi kết nối E2EE, Linux/macOS.'],
+    files:['Files · chỉ đọc','Danh sách tên mục gốc do Agent cấp quyền; chưa có thao tác đọc nội dung hoặc sửa file.']
   };
   function showView(next){
     if(!Object.prototype.hasOwnProperty.call(panels,next))return;
