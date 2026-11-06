@@ -6,7 +6,7 @@ import (
  "testing"
 )
 
-func TestDecodeRemoteTaskFinishAuditDetailsStrictSchema(t *testing.T){
+func TestRemoteTaskFinishAuditDetailsStrictSchema(t *testing.T){
  valid:=`{"transport":"e2ee","task_id":123,"exit_code":-1,"duration_ms":1000}`
  parsed,ok:=decodeRemoteTaskFinishAuditDetails(valid)
  if !ok||parsed.TaskID!=123||parsed.ExitCode!= -1||parsed.DurationMS!=1000{
