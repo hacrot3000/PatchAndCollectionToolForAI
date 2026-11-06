@@ -129,6 +129,11 @@ func (p *PingClient) GitPatchCachedNext(ctx context.Context)(RemoteGitPatchPage,
 // GitPull requests a fixed host-only fast-forward operation. There is no
 // remote-selected branch, remote name, path, command or arbitrary argument.
 // GitPullReview is an offline, read-only preflight; not a Pull authorization.
+// Inventory only already-fetched local fast-forward file changes.
+func (p *PingClient) GitPullChanges(ctx context.Context)(RemoteGitPullChanges,error){
+ reply,err:=p.exchangeAction(ctx,RemoteActionGitPullChanges)
+ return reply.gitPullChanges,err
+}
 func (p *PingClient) GitPullReview(ctx context.Context)(RemoteGitPullReviewResult,error){
  reply,err:=p.exchangeAction(ctx,RemoteActionGitPullReview)
  return reply.gitPullReview,err
@@ -271,6 +276,7 @@ type remoteActionReply struct {
  gitPatch RemoteGitPatchPage
  gitPull RemoteGitPullResult
  gitPullReview RemoteGitPullReviewResult
+ gitPullChanges RemoteGitPullChanges
  gitCommit RemoteGitCommitResult
  gitPush RemoteGitPushResult
  gitFetch RemoteGitFetchResult
@@ -390,6 +396,8 @@ func (p *PingClient) exchangePayloadAction(ctx context.Context,operation string,
   result.gitPull,err=OpenRemoteGitPullResult(channel,reply,id)
  case RemoteActionGitPullReview:
   result.gitPullReview,err=OpenRemoteGitPullReviewResult(channel,reply,id)
+ case RemoteActionGitPullChanges:
+  result.gitPullChanges,err=OpenRemoteGitPullChanges(channel,reply,id)
  case RemoteActionGitCommit:
   result.gitCommit,err=OpenRemoteGitCommitResult(channel,reply,id)
  case RemoteActionGitPush:
