@@ -30,6 +30,7 @@ func (s *Server) auditRemoteReadOnlyAction(session *remoteTaskDeckSession, opera
     operation!=remotetransport.RemoteActionGitPatchCachedStart &&
     operation!=remotetransport.RemoteActionGitPatchCachedNext &&
     operation!=remotetransport.RemoteActionProjectInfo &&
+    operation!=remotetransport.RemoteActionFilesRoot &&
     operation!=remotetransport.RemoteActionTasksPreview &&
     operation!=remotetransport.RemoteActionTasksPreviewNext &&
     operation!=remotetransport.RemoteActionTasksInspect &&
@@ -52,6 +53,7 @@ func (s *Server) auditRemoteReadOnlyAction(session *remoteTaskDeckSession, opera
  resourceType:="session"
  if operation==remotetransport.RemoteActionGitStatus||operation==remotetransport.RemoteActionGitLog||operation==remotetransport.RemoteActionGitBranches||operation==remotetransport.RemoteActionGitRemotes||operation==remotetransport.RemoteActionGitTrackingStart||operation==remotetransport.RemoteActionGitTrackingNext||operation==remotetransport.RemoteActionGitPullReview||operation==remotetransport.RemoteActionGitDiff||operation==remotetransport.RemoteActionGitPatchStart||operation==remotetransport.RemoteActionGitPatchNext||operation==remotetransport.RemoteActionGitPatchCachedStart||operation==remotetransport.RemoteActionGitPatchCachedNext {resourceType="git"}
  if operation==remotetransport.RemoteActionProjectInfo {resourceType="project"}
+ if operation==remotetransport.RemoteActionFilesRoot{resourceType="files"}
  if operation==remotetransport.RemoteActionTasksPreview || operation==remotetransport.RemoteActionTasksPreviewNext || operation==remotetransport.RemoteActionTasksInspect ||
   operation==remotetransport.RemoteActionTasksPoll || operation==remotetransport.RemoteActionTasksClear {resourceType="tasks"}
  if operation==remotetransport.RemoteActionSessionFeatures {resourceType="session"}
@@ -177,6 +179,8 @@ func (s *Server) executeRemoteE2EEPing(
   permission=identity.PermissionGitPush
  case remotetransport.RemoteActionProjectInfo:
   permission=identity.PermissionTasksView
+ case remotetransport.RemoteActionFilesRoot:
+  permission=identity.PermissionFilesRead
  case remotetransport.RemoteActionTasksPreview,remotetransport.RemoteActionTasksPreviewNext,
   remotetransport.RemoteActionTasksInspect:
   permission=identity.PermissionTasksView
@@ -206,6 +210,7 @@ func (s *Server) executeRemoteE2EEPing(
  var gitIndex remotetransport.RemoteGitIndexResult
  var terminal remotetransport.RemoteTerminalProgress
  startedTerminal:=false
+ var filesRoot remotetransport.RemoteFilesRoot
  var projectInfo remotetransport.RemoteProjectInfo
  var tasksPreview remotetransport.RemoteTasksPreview
  var inspected remotetransport.RemoteTaskInspect
@@ -317,6 +322,10 @@ func (s *Server) executeRemoteE2EEPing(
     gitIndex,fileErr=s.executeRemoteGitFileIndex(actionCtx,session,
      request.Operation,request.FileIndex,request.Snapshot)
     return fileErr
+   case remotetransport.RemoteActionFilesRoot:
+    var listErr error
+    filesRoot,listErr=s.readRemoteFilesRoot(actionCtx)
+    return listErr
    case remotetransport.RemoteActionProjectInfo:
     var projectErr error
     projectInfo,projectErr=s.readRemoteProjectInfo(actionCtx,session)
@@ -487,6 +496,8 @@ func (s *Server) executeRemoteE2EEPing(
   sealed,err=remotetransport.SealRemoteGitIndexResult(channel,request.RequestID,gitIndex)
  case remotetransport.RemoteActionProjectInfo:
   sealed,err=remotetransport.SealRemoteActionProjectInfoResult(channel,request.RequestID,projectInfo)
+ case remotetransport.RemoteActionFilesRoot:
+  sealed,err=remotetransport.SealRemoteFilesRoot(channel,request.RequestID,filesRoot)
  case remotetransport.RemoteActionTasksPreview,remotetransport.RemoteActionTasksPreviewNext:
   sealed,err=remotetransport.SealRemoteActionTasksPreviewResult(channel,request.RequestID,tasksPreview)
  case remotetransport.RemoteActionTasksInspect:

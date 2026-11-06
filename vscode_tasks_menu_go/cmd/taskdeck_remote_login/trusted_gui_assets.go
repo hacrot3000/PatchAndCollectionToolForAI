@@ -72,7 +72,7 @@ const trustedGUIHTML = `<!doctype html>
     <article class="tile">
      <div class="tile-heading"><span class="dot"></span><h2>Dự án TaskDeck</h2></div>
      <p>Đọc tên dự án, workspace và nền tảng host thực tế. Không truy xuất đường dẫn tuyệt đối hay danh sách dự án khác.</p>
-     <div class="actions"><button type="button" id="project">Thông tin dự án</button></div>
+     <div class="actions"><button type="button" id="project">Thông tin dự án</button><button type="button" id="files-root" disabled>Xem mục gốc</button></div><p>Chỉ tên tối đa 8 file/thư mục gốc được host cho phép; không đọc nội dung.</p><pre id="files-root-output" hidden></pre>
     </article>
    </div>
    <section class="project-overview" id="project-overview" hidden aria-label="Thông tin dự án được TaskDeck xác minh">
@@ -685,6 +685,8 @@ const trustedGUIJavaScript = `'use strict';
     if(closed||(taskPage+1)*taskPageSize>=filteredTaskLabels().length)return;
     taskPage++;renderTaskPage();
   });
+  const filesRootButton=document.getElementById('files-root');
+  const filesRootOutput=document.getElementById('files-root-output');
   const projectOverview=document.getElementById('project-overview');
   const projectName=document.getElementById('project-name');
   const workspaceName=document.getElementById('workspace-name');
@@ -887,7 +889,7 @@ const trustedGUIJavaScript = `'use strict';
   // Only the newest initiated localhost status poll may alter the GUI.
   let sessionStatusEpoch=0;
   let featuresKnown=false;
-  let available={session_ping:false,project_info:false,tasks_preview:false,
+  let available={session_ping:false,project_info:false,files_root:false,tasks_preview:false,
     task_run:false,task_long:false,git_status:false,git_log:false,git_branches:false,git_branch_create:false,git_diff:false,git_patch:false,git_fetch:false,git_stage_tracked:false,git_unstage_all:false,git_stage_file:false,git_unstage_file:false,git_pull:false,git_commit:false,git_push:false,terminal:false};
   let expiresAt=0,expiredByClock=false;
   // Native quota guard: retain Cancel -> Poll -> Clear when a host job
@@ -968,6 +970,7 @@ const trustedGUIJavaScript = `'use strict';
     gitEmpty.hidden=true;
     gitEmpty.textContent='';
     projectOverview.hidden=true;
+    filesRootOutput.hidden=true;filesRootOutput.textContent='';
     projectName.textContent='';
     workspaceName.textContent='';
     hostOS.textContent='';
@@ -1008,7 +1011,7 @@ const trustedGUIJavaScript = `'use strict';
     targetUser.textContent='';
     pingLatency.textContent='Chưa đo';
     featuresKnown=false;
-    available={session_ping:false,project_info:false,tasks_preview:false,task_run:false,task_long:false,git_status:false,git_log:false,git_branches:false,git_branch_create:false,git_diff:false,git_patch:false,git_fetch:false,git_stage_tracked:false,git_unstage_all:false,git_stage_file:false,git_unstage_file:false,git_pull:false,git_commit:false,git_push:false,terminal:false};
+    available={session_ping:false,project_info:false,files_root:false,tasks_preview:false,task_run:false,task_long:false,git_status:false,git_log:false,git_branches:false,git_branch_create:false,git_diff:false,git_patch:false,git_fetch:false,git_stage_tracked:false,git_unstage_all:false,git_stage_file:false,git_unstage_file:false,git_pull:false,git_commit:false,git_push:false,terminal:false};
     featureSummary.textContent='Phiên đã đóng. Đăng nhập lại bằng client TaskDeck tin cậy.';
   }
   function render(){
@@ -1066,6 +1069,7 @@ const trustedGUIJavaScript = `'use strict';
     terminalResize.disabled=busy||!terminalLive;
     terminalClose.disabled=busy||!canTerminal||terminalState==='closed';
     project.disabled=busy||closed||!verified||budget<=0||maintenanceOnly||!featuresKnown||!available.project_info;
+    filesRootButton.disabled=busy||closed||!verified||budget<=0||maintenanceOnly||!featuresKnown||!available.files_root;
     tasksPreview.disabled=busy||closed||!verified||budget<=0||maintenanceOnly||!featuresKnown||!available.tasks_preview;
     taskRunStop.hidden=!taskRunning||closed;
     taskRunStop.disabled=!taskRunning||!verified||closed||closing||terminated;
@@ -1272,6 +1276,7 @@ const trustedGUIJavaScript = `'use strict';
             keys.some(key=>typeof data[key]!=='boolean')||
             (data.task_run!==undefined&&typeof data.task_run!=='boolean')||
             (data.task_long!==undefined&&typeof data.task_long!=='boolean')||
+            (data.files_root!==undefined&&typeof data.files_root!=='boolean')||
             (data.git_log!==undefined&&typeof data.git_log!=='boolean')||
             (data.git_branches!==undefined&&typeof data.git_branches!=='boolean')||
             (data.git_branch_create!==undefined&&typeof data.git_branch_create!=='boolean')||
@@ -1289,7 +1294,7 @@ const trustedGUIJavaScript = `'use strict';
             throw new Error('Phản hồi khả năng GUI không hợp lệ');
           }
           available={session_ping:data.session_ping,
-            project_info:data.project_info,
+            project_info:data.project_info,files_root:data.files_root===true,
             tasks_preview:data.tasks_preview,task_run:data.task_run===true,
             task_long:data.task_long===true,
             git_status:data.git_status,git_log:data.git_log===true,git_branches:data.git_branches===true,git_branch_create:data.git_branch_create===true,git_diff:data.git_diff===true,git_patch:data.git_patch===true,git_fetch:data.git_fetch===true,
@@ -1304,6 +1309,7 @@ const trustedGUIJavaScript = `'use strict';
           featureSummary.textContent=
             'Ping: '+(available.session_ping?'Được phép':'Thiếu quyền')+
             ' · Dự án: '+(available.project_info?'Được phép':'Chưa bật hoặc thiếu quyền')+
+            ' · Files gốc: '+(available.files_root?'Được phép':'Chưa bật hoặc thiếu quyền')+
             ' · Task: '+(available.tasks_preview?'Được phép':'Chưa bật hoặc thiếu quyền')+
             ' · Git: '+(available.git_status?'Được phép':'Chưa bật hoặc thiếu quyền')+
             ' · Git log: '+(available.git_log?'Được phép (3 commit)':'Chưa bật hoặc thiếu quyền')+
@@ -1332,7 +1338,19 @@ const trustedGUIJavaScript = `'use strict';
              (priorTaskRun!==available.task_run||
               priorTaskLong!==available.task_long))renderTaskPage();
         }
-        if(endpoint==='/api/project-info'){
+        if(endpoint==='/api/files-root'){
+          if(data.remote_control_available!==false||!Array.isArray(data.items)||data.items.length>8||
+            typeof data.more!=='boolean'||data.items.some((v,i)=>typeof v!=='string'||
+              !/^[FD]:[A-Za-z0-9][A-Za-z0-9_.-]{0,31}$/.test(v)||
+              (i>0&&data.items[i-1].slice(2)>=v.slice(2)))){
+            throw new Error('Danh sách file E2EE không hợp lệ');
+          }
+          filesRootOutput.textContent=data.items.map(v=>(v[0]==='D'?'Thư mục: ':'File: ')+v.slice(2)).join('\n')+
+            (data.more?'\nCòn mục chưa hiển thị.':'');
+          if(data.items.length===0)filesRootOutput.textContent='Không có mục gốc phù hợp.';
+          filesRootOutput.hidden=false;
+         }
+         if(endpoint==='/api/project-info'){
           for(const key of ['project_name','workspace_name']){
             if(typeof data[key]!=='string'||data[key].length===0||
               data[key].length>96)throw new Error('Thông tin dự án không hợp lệ');
@@ -1857,7 +1875,7 @@ const trustedGUIJavaScript = `'use strict';
     capability=candidate;
     verified=true;
     featuresKnown=false;
-    available={session_ping:false,project_info:false,tasks_preview:false,
+    available={session_ping:false,project_info:false,files_root:false,tasks_preview:false,
       task_run:false,task_long:false,git_status:false,git_log:false,git_branches:false,git_branch_create:false,git_diff:false,git_patch:false,git_fetch:false,git_stage_tracked:false,git_unstage_all:false,git_stage_file:false,git_unstage_file:false,git_pull:false,git_commit:false,git_push:false,terminal:false};
     featureSummary.textContent='Chưa kiểm tra. Bấm Kiểm tra chức năng để biết những chức năng được cấp phép.';
     activation.hidden=true;
@@ -2081,6 +2099,7 @@ const trustedGUIJavaScript = `'use strict';
     invoke('/api/terminal-close');
   });
   project.addEventListener('click',()=>invoke('/api/project-info'));
+  filesRootButton.addEventListener('click',()=>invoke('/api/files-root'));
   tasksPreview.addEventListener('click',()=>invoke('/api/tasks-preview'));
   taskFetchNext.addEventListener('click',()=>{
     if(!canFetchTaskNext||bulkLoading||closed||busy||budget<=0)return;

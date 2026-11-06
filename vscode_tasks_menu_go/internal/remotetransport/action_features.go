@@ -11,6 +11,7 @@ const RemoteFeaturesResultProtocol = "taskdeck-e2ee-session-features-result-v1"
 type RemoteFeatures struct {
  SessionPing bool
  ProjectInfo bool
+ FilesRoot bool
  TasksPreview bool
  TaskRun bool
  TaskLong bool
@@ -36,6 +37,7 @@ type remoteFeaturesWire struct {
  RequestID string `json:"request_id"`
  SessionPing bool `json:"session_ping"`
  ProjectInfo bool `json:"project_info"`
+ FilesRoot bool `json:"files_root,omitempty"`
  TasksPreview bool `json:"tasks_preview"`
  TaskRun bool `json:"task_run"`
  TaskLong bool `json:"task_long,omitempty"`
@@ -67,6 +69,7 @@ func SealRemoteActionFeaturesResult(
   Type:RemoteFeaturesResultProtocol,RequestID:id,
   SessionPing:capabilities.SessionPing,
   ProjectInfo:capabilities.ProjectInfo,
+  FilesRoot:capabilities.FilesRoot,
   TasksPreview:capabilities.TasksPreview,
   TaskRun:capabilities.TaskRun,
   TaskLong:capabilities.TaskLong,
@@ -109,7 +112,7 @@ func OpenRemoteActionFeaturesResult(
   "tasks_preview","git_status","remote_control_available"}
  optional:=[]string{"task_run","task_long","git_pull","git_commit","git_push",
   "terminal","git_log","git_diff","git_fetch","git_stage_tracked",
-  "git_unstage_all","git_stage_file","git_unstage_file","git_branches","git_patch","git_new"}
+  "git_unstage_all","git_stage_file","git_unstage_file","git_branches","git_patch","git_new","files_root"}
  fields,err:=decodeActionObjectWithOptionals(clear,required,optional)
  if err!=nil{
   ch.Close()
@@ -124,6 +127,7 @@ func OpenRemoteActionFeaturesResult(
    return denied,ErrInvalidRemoteAction
   }
  }
+ if token,ok:=fields["files_root"];ok && string(token)!="true"&&string(token)!="false"{ch.Close();return denied,ErrInvalidRemoteAction}
  if token,ok:=fields["task_long"];ok && string(token)!="true"&&string(token)!="false"{
   ch.Close();return denied,ErrInvalidRemoteAction
  }
@@ -179,6 +183,7 @@ func OpenRemoteActionFeaturesResult(
   ch.Close()
   return denied,ErrInvalidRemoteAction
  }
+ if token,ok:=fields["files_root"];ok{if json.Unmarshal(token,&caps.FilesRoot)!=nil{ch.Close();return denied,ErrInvalidRemoteAction}}
  if token,ok:=fields["task_run"];ok {
   if json.Unmarshal(token,&caps.TaskRun)!=nil{ch.Close();return denied,ErrInvalidRemoteAction}
  }

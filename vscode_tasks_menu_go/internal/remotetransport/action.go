@@ -22,6 +22,7 @@ const RemoteActionSessionFeatures = "session.features"
 const RemoteActionGitStatus = "git.status"
 const RemoteActionGitRemotes = "git.remotes"
 const RemoteActionProjectInfo = "project.info"
+const RemoteActionFilesRoot = "files.root"
 const RemoteActionTasksPreview = "tasks.preview"
 const RemoteActionTasksPreviewNext = "tasks.preview.next"
 // Selected, read-only preflight; no process or command can start.
@@ -152,7 +153,7 @@ func remoteTaskInputOperation(op string)bool{
 }
 func validRemoteOperation(op string)bool{
  return terminalOperation(op)||op==RemoteActionSessionPing || op==RemoteActionSessionFeatures ||
-  op==RemoteActionGitStatus || op==RemoteActionGitRemotes || op==RemoteActionGitTrackingStart || op==RemoteActionGitTrackingNext || op==RemoteActionGitLog || op==RemoteActionGitBranches || op==RemoteActionGitBranchCreate || op==RemoteActionGitDiff || op==RemoteActionGitPatchStart || op==RemoteActionGitPatchNext || op==RemoteActionGitPatchCachedStart || op==RemoteActionGitPatchCachedNext || op==RemoteActionGitFetch || op==RemoteActionGitStageTracked || op==RemoteActionGitUnstageAll || op==RemoteActionGitStageFile || op==RemoteActionGitUnstageFile || op==RemoteActionGitPull || op==RemoteActionGitPullReview || op==RemoteActionGitCommit || op==RemoteActionGitPush || op==RemoteActionProjectInfo ||
+  op==RemoteActionGitStatus || op==RemoteActionGitRemotes || op==RemoteActionGitTrackingStart || op==RemoteActionGitTrackingNext || op==RemoteActionGitLog || op==RemoteActionGitBranches || op==RemoteActionGitBranchCreate || op==RemoteActionGitDiff || op==RemoteActionGitPatchStart || op==RemoteActionGitPatchNext || op==RemoteActionGitPatchCachedStart || op==RemoteActionGitPatchCachedNext || op==RemoteActionGitFetch || op==RemoteActionGitStageTracked || op==RemoteActionGitUnstageAll || op==RemoteActionGitStageFile || op==RemoteActionGitUnstageFile || op==RemoteActionGitPull || op==RemoteActionGitPullReview || op==RemoteActionGitCommit || op==RemoteActionGitPush || op==RemoteActionProjectInfo || op==RemoteActionFilesRoot ||
   op==RemoteActionTasksPreview || op==RemoteActionTasksPreviewNext ||
   op==RemoteActionTasksInspect || op==RemoteActionTasksRun ||
   op==RemoteActionTasksStart || op==RemoteActionTasksPoll ||

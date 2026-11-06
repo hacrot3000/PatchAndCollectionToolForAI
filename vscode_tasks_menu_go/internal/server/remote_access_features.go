@@ -33,6 +33,7 @@ func (s *Server) readRemoteFeatures(
  return remotetransport.RemoteFeatures{
   SessionPing:view,
   ProjectInfo:view && os.Getenv("TASKDECK_REMOTE_PROJECT_INFO")=="1",
+  FilesRoot:allowed(identity.PermissionFilesRead) && os.Getenv("TASKDECK_REMOTE_FILES_ROOT")=="1",
   TasksPreview:view && os.Getenv("TASKDECK_REMOTE_TASKS_PREVIEW")=="1",
   TaskRun:view && allowed(identity.PermissionTasksRun) &&
    os.Getenv("TASKDECK_REMOTE_TASKS_PREVIEW")=="1" &&

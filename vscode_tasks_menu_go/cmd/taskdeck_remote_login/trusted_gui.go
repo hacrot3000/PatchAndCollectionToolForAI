@@ -246,7 +246,7 @@ func (ui *trustedGUI) ServeHTTP(w http.ResponseWriter,r *http.Request){
   if r.Method!=http.MethodGet{http.Error(w,"method not allowed",405);return}
   w.Header().Set("Content-Type","text/css; charset=utf-8")
   _,_=io.WriteString(w,trustedGUICSS)
- case "/api/git-patch-cached-start","/api/git-patch-cached-next","/api/ping","/api/features","/api/git-status","/api/git-log","/api/git-branches","/api/git-remotes","/api/git-tracking-start","/api/git-tracking-next","/api/git-branch-create","/api/git-diff","/api/git-patch-start","/api/git-patch-next","/api/git-pull","/api/git-pull-review","/api/git-commit","/api/git-push","/api/git-fetch","/api/git-stage-tracked","/api/git-unstage-all","/api/git-stage-file","/api/git-unstage-file","/api/terminal-open","/api/terminal-poll","/api/terminal-write","/api/terminal-resize","/api/terminal-close","/api/project-info","/api/tasks-preview","/api/tasks-preview-next","/api/close","/api/session":
+ case "/api/files-root","/api/git-patch-cached-start","/api/git-patch-cached-next","/api/ping","/api/features","/api/git-status","/api/git-log","/api/git-branches","/api/git-remotes","/api/git-tracking-start","/api/git-tracking-next","/api/git-branch-create","/api/git-diff","/api/git-patch-start","/api/git-patch-next","/api/git-pull","/api/git-pull-review","/api/git-commit","/api/git-push","/api/git-fetch","/api/git-stage-tracked","/api/git-unstage-all","/api/git-stage-file","/api/git-unstage-file","/api/terminal-open","/api/terminal-poll","/api/terminal-write","/api/terminal-resize","/api/terminal-close","/api/project-info","/api/tasks-preview","/api/tasks-preview-next","/api/close","/api/session":
   ui.action(w,r)
  default:
   _,inspect:=selectedTaskFromPath(r.URL.Path)
@@ -487,7 +487,7 @@ func (ui *trustedGUI) action(w http.ResponseWriter,r *http.Request){
    if stillOpen{
     _=json.NewEncoder(w).Encode(map[string]any{
      "ok":true,"session_ping":flags.SessionPing,
-     "project_info":flags.ProjectInfo,
+     "project_info":flags.ProjectInfo,"files_root":flags.FilesRoot,
      "tasks_preview":flags.TasksPreview,"task_run":flags.TaskRun,
      "task_long":flags.TaskLong,"git_status":flags.GitStatus,"git_log":flags.GitLog,"git_branches":flags.GitBranches,"git_branch_create":flags.GitBranchCreate,"git_diff":flags.GitDiff,"git_patch":flags.GitPatch,"git_pull":flags.GitPull,
      "git_commit":flags.GitCommit,"git_push":flags.GitPush,"git_fetch":flags.GitFetch,
@@ -771,6 +771,21 @@ func (ui *trustedGUI) action(w http.ResponseWriter,r *http.Request){
     return
    }
   }
+ }else if r.URL.Path=="/api/files-root" {
+  if scoped,ok:=ui.actions.(interface{FilesRoot(context.Context)(remotetransport.RemoteFilesRoot,error)});ok{
+   var listing remotetransport.RemoteFilesRoot
+   listing,err=scoped.FilesRoot(ctx)
+   if err==nil&&ctx.Err()==nil{
+    ui.mu.Lock();open:=!ui.closed;ui.mu.Unlock()
+    if open{
+     _=json.NewEncoder(w).Encode(map[string]any{
+      "ok":true,"items":listing.Items,"more":listing.More,
+      "remote_control_available":false,"remaining":remaining,
+     })
+     return
+    }
+   }
+  }else{err=remotetransport.ErrRemoteActionDenied}
  }else if r.URL.Path=="/api/project-info" {
   var info remotetransport.RemoteProjectInfo
   info,err=ui.actions.ProjectInfo(ctx)
