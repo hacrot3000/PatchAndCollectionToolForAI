@@ -23,7 +23,7 @@ class Element{
 const elements=new Map();
 const get=id=>{if(!elements.has(id))elements.set(id,new Element(id));return elements.get(id)};
 const token='0123456789abcdef'.repeat(4);
-let remaining=16,approved=false,calls=0;
+let remaining=16,approved=false,calls=0,reviews=0;
 const fetch=async(path,options)=>{
  assert.equal(options.method,'POST');
  assert.equal(options.headers['X-TaskDeck-Local-Capability'],token);
@@ -39,6 +39,13 @@ const fetch=async(path,options)=>{
   task_run:false,task_long:false,terminal:false,
   remote_control_available:false,remaining:--remaining,
  })};
+ if(path==='/api/git-switch-review'){
+  reviews++;
+  return {ok:true,json:async()=>({
+   ok:true,from:'feature/old',branch:'review',head:'a'.repeat(40),
+   remote_control_available:false,remaining:--remaining,
+  })};
+ }
  if(path==='/api/git-switch-same-head'){
   calls++;
   return {ok:true,json:async()=>({
@@ -64,12 +71,20 @@ const flush=async()=>{for(let i=0;i<100;i++)await Promise.resolve()};
  assert.equal(get('git-switch-same-head').disabled,true,
   'switch enabled before verified feature check');
  get('features').click();await flush();
- assert.equal(get('git-switch-same-head').disabled,false,
-  'fixed switch visibility should use read-only branch capability');
+ assert.equal(get('git-switch-review').disabled,false,
+  'read-only switch preview should be available with branch read permission');
+ assert.equal(get('git-switch-same-head').disabled,true,
+  'branch mutation enabled without an authenticated preview');
  assert.equal(get('git-pull').disabled,true,'switch UX escalated Git Pull');
  assert.equal(get('git-push').disabled,true,'switch UX escalated Git Push');
+ get('git-switch-review').click();await flush();
+ assert.equal(reviews,1,'fixed E2EE preview was not requested');
+ assert.ok(get('output').textContent.includes('feature/old'));
+ assert.ok(get('output').textContent.includes('review'));
+ assert.equal(get('git-switch-same-head').disabled,false,
+  'switch remained unavailable after successful authenticated preview');
  get('git-switch-same-head').click();await flush();
- assert.equal(calls,0,'branch switch bypassed user confirmation');
+ assert.equal(calls,0,'branch switch bypassed explicit preview-specific confirmation');
  approved=true;
  get('git-switch-same-head').click();await flush();
  assert.equal(calls,1,'the fixed branch switch route was not used once');
@@ -78,5 +93,6 @@ const flush=async()=>{for(let i=0;i<100;i++)await Promise.resolve()};
  assert.match(get('output').textContent,/Không fetch, reset/);
  get('disconnect').click();await flush();
  assert.equal(get('git-switch-same-head').disabled,true,'switch remained enabled after logout');
- console.log('PASS: same-HEAD switch host-fixed, user confirmed, no arguments, no Git escalation');
+ assert.equal(get('git-switch-review').disabled,true,'switch preview survived logout');
+ console.log('PASS: preview-pinned same-HEAD switch, named confirmation, no caller arguments or escalation');
 })().catch(err=>{console.error(err);process.exitCode=1});
