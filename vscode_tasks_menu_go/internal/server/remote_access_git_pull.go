@@ -2,7 +2,6 @@ package server
 
 import (
  "context"
- "errors"
  "io"
  "os"
  "os/exec"
@@ -114,27 +113,9 @@ func (s *Server) executeRemoteGitPull(
   "-c","core.fsmonitor=false","-C",root,
   "remote","get-url","--all",remote)
  if err!=nil||!validRemoteGitPushURL(fetchURL){return empty,denied}
- // Both status's clean-filter preflight and pull's checkout can launch
- // executable filter.clean/smudge/process programs from local Git config.
- // Never even run status before rejecting these drivers. --includes also
- // checks config brought in through include.path / includeIf directives.
- // With no matching keys git config exits 1; all other exits fail closed.
- filterCheck:=exec.CommandContext(ctx,"git",
-  "-c","core.fsmonitor=false","-C",root,
-  "config","--includes","--get-regexp",
-  "^filter\\..*\\.(clean|smudge|process)$")
- filterCheck.Dir=root
- filterCheck.Env=gitEnv
- filterCheck.Stdout=io.Discard
- filterCheck.Stderr=io.Discard
- prepareGitJobProcess(filterCheck)
- filterCheck.Cancel=func()error{killGitJobProcess(filterCheck);return nil}
- filterCheck.WaitDelay=time.Second
- filterErr:=filterCheck.Run()
- killGitJobProcess(filterCheck)
- var absent *exec.ExitError
- if !errors.As(filterErr,&absent)||absent.ExitCode()!=1||
-  ctx.Err()!=nil||session.closed.Load(){return empty,denied}
+ // A fixed, no-command Git config scan must precede even a read-only
+ // status: local clean filters can execute while Git checks worktree files.
+ if !remoteGitNoExecutableFilters(ctx,root,gitEnv){return empty,denied}
  // A clean tree is a strict prerequisite, including untracked files.
  // Reject >256 bytes rather than trusting a truncated clean indication.
  dirty,err:=read(ctx,"--no-optional-locks","status","--porcelain=v1","--untracked-files=normal")

@@ -126,3 +126,45 @@ func TestRemoteGitCommitRejectsParentRepositoryWorkspace(t *testing.T){
   t.Fatal("commit escaped a nested workspace into parent repository")
  }
 }
+
+func TestRemoteGitCommitRejectsExecutableFiltersBeforeCommit(t *testing.T){
+ requireGit(t)
+ if runtime.GOOS=="windows"{t.Skip("Unix-only remote Git execution")}
+ t.Setenv("TASKDECK_REMOTE_GIT_COMMIT","1")
+ s,session,_,_:=remoteDispatchFixture(t)
+ gitInitRemoteTest(t,s.Workspace)
+ run:=func(args ...string)string{
+  t.Helper()
+  cmd:=exec.Command("git",append([]string{"-C",s.Workspace},args...)...)
+  output,err:=cmd.CombinedOutput()
+  if err!=nil{t.Fatalf("git %v: %v: %s",args,err,output)}
+  return strings.TrimSpace(string(output))
+ }
+ run("config","user.name","Remote test")
+ run("config","user.email","remote@example.invalid")
+ if err:=os.WriteFile(filepath.Join(s.Workspace,".gitattributes"),
+  []byte("tracked.txt filter=demo\n"),0600);err!=nil{t.Fatal(err)}
+ file:=filepath.Join(s.Workspace,"tracked.txt")
+ if err:=os.WriteFile(file,[]byte("initial\n"),0600);err!=nil{t.Fatal(err)}
+ run("add","-A")
+ run("commit","-qm","Base")
+ before:=run("rev-parse","HEAD")
+ if err:=os.WriteFile(file,[]byte("staged\n"),0600);err!=nil{t.Fatal(err)}
+ run("add","tracked.txt")
+ marker:=filepath.Join(t.TempDir(),"executable-filter-ran")
+ for _,kind:=range []string{"clean","smudge","process"}{
+  key:="filter.demo."+kind
+  run("config",key,"sh -c 'echo EXECUTED > "+marker+"; cat'")
+  if _,err:=s.executeRemoteGitCommit(context.Background(),session,
+   "Reject unsafe filter");err==nil{
+   t.Fatalf("remote commit admitted filter.%s",kind)
+  }
+  if _,err:=os.Stat(marker);err==nil{
+   t.Fatalf("remote commit executed configured filter.%s",kind)
+  }else if !os.IsNotExist(err){t.Fatal(err)}
+  if got:=run("rev-parse","HEAD");got!=before{
+   t.Fatalf("denied filter.%s commit moved HEAD",kind)
+  }
+  run("config","--unset",key)
+ }
+}

@@ -50,6 +50,10 @@ func (s *Server) executeRemoteGitCommit(
   "GIT_CONFIG_NOSYSTEM=1","GIT_CONFIG_GLOBAL="+os.DevNull,
   "GIT_PROTOCOL_FROM_USER=0",
  }
+ // Both git diff/status preflights and git commit may invoke repository
+ // clean/process/smudge filters even with hooks disabled. Deny all
+ // executable filter drivers before any status-like Git call.
+ if !remoteGitNoExecutableFilters(ctx,root,env){return empty,denied}
  // Every Git invocation uses a fixed argv, no shell and no caller-supplied
  // path or environment. Disable local fsmonitor commands and Git hooks.
  base:=[]string{
