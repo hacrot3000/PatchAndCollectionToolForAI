@@ -61,7 +61,7 @@ vm.createContext(scope);
 new vm.Script(match[1],{filename:'native-task-dependencies.js'}).runInContext(scope);
 const flush=async()=>{for(let i=0;i<70;i++)await Promise.resolve()};
 
-async function assertMalformedGraphIsRejected(graph,description){
+async function assertGraphValidation(graph,description,accepted=false){
  const localNodes=new Map();
  const getLocal=id=>{
   if(!localNodes.has(id))localNodes.set(id,new Element(id));
@@ -107,10 +107,14 @@ async function assertMalformedGraphIsRejected(graph,description){
  getLocal('task-deps-select').value='55';
  getLocal('task-deps-select').listeners.change();
  getLocal('task-deps-view').click();await drain();
- assert.equal(getLocal('task-workflow-start').disabled,true,
-  description+': invalid graph enabled workflow start');
- assert.equal(getLocal('task-deps-output').hidden,true,
-  description+': invalid dependency graph was displayed as verified');
+ assert.equal(getLocal('task-workflow-start').disabled,!accepted,
+  description+': wrong workflow start availability');
+ assert.equal(getLocal('task-deps-output').hidden,!accepted,
+  description+': wrong graph inspection visibility');
+ if(accepted){
+  assert.match(getLocal('task-deps-output').textContent,/Thứ tự topo/,
+   description+': verified DAG not rendered');
+ }
  assert.equal(requests.some(x=>x.includes('workflow-start')),false,
   description+': invalid graph started remote task');
 }
@@ -155,18 +159,26 @@ async function assertMalformedGraphIsRejected(graph,description){
  assert.equal(get('task-deps-output').hidden,true,'graph visible after logout');
  assert.equal(get('task-workflow-start').disabled,true,
   'workflow start button persisted after logout');
- await assertMalformedGraphIsRejected({
+ await assertGraphValidation({
+  available:true,run_available:true,
+  order:[33,44,55],edges:[[33,55],[44,55]]
+ },'explicit sequential fan-in',true);
+ await assertGraphValidation({
+  available:true,run_available:true,
+  order:[22,33,44,55],edges:[[22,33],[22,44],[33,55],[44,55]]
+ },'explicit sequential diamond',true);
+ await assertGraphValidation({
   available:false,run_available:true,order:[],edges:[]
  },'false available with true run flag');
- await assertMalformedGraphIsRejected({
+ await assertGraphValidation({
   available:true,run_available:true,
   order:[44,33,55],edges:[[44,33],[44,33]]
  },'duplicate edge replacing required dependency');
- await assertMalformedGraphIsRejected({
+ await assertGraphValidation({
   available:true,run_available:true,
   order:[44,33,55],edges:[[44,33],[44,55]]
  },'nonlinear graph advertising executable chain');
- await assertMalformedGraphIsRejected({
+ await assertGraphValidation({
   available:true,run_available:false,
   order:[44,33,55],edges:[[44,33],[44,33]]
  },'duplicate read-only graph edge');

@@ -1600,6 +1600,18 @@ const trustedGUIJavaScript = `'use strict';
           const validID=x=>Number.isInteger(x)&&x>0&&x<=2147483647;
           const positions=new Map();
           const seenEdges=new Set();
+          const allNodesReachRoot=()=>{
+            // A runnable reply must contain exactly one rooted DAG. The
+            // client does not infer parallelism or accept disconnected IDs.
+            const reached=new Set([id]);
+            for(let i=order.length-1;i>=0;i--){
+              if(!reached.has(order[i]))continue;
+              for(const edge of edges){
+                if(edge[1]===order[i])reached.add(edge[0]);
+              }
+            }
+            return reached.size===order.length;
+          };
           if(!validID(id)||id!==taskDepsPendingID||
             !cachedTaskIDs.includes(id)||data.task_id!==id||
             data.remote_control_available!==false||
@@ -1613,7 +1625,7 @@ const trustedGUIJavaScript = `'use strict';
             (!data.available&&(data.run_available||order.length!==0||edges.length!==0))||
             (data.available&&(order.length===0||order[order.length-1]!==id))||
             (data.run_available&&(!data.available||order.length<2||
-              order.length>4||edges.length!==order.length-1))||
+              order.length>4||edges.length<order.length-1))||
             edges.some(e=>{
               if(!Array.isArray(e)||e.length!==2||
                 !positions.has(e[0])||!positions.has(e[1])||
@@ -1623,9 +1635,7 @@ const trustedGUIJavaScript = `'use strict';
               seenEdges.add(key);
               return false;
             })||
-            (data.run_available&&edges.some(e=>
-              !order.some((taskID,i)=>i>0&&
-                e[0]===order[i-1]&&e[1]===taskID)))){
+            (data.run_available&&!allNodesReachRoot())){
             throw new Error('Đồ thị phụ thuộc E2EE không hợp lệ');
           }
           const displayID=x=>{
@@ -1640,12 +1650,10 @@ const trustedGUIJavaScript = `'use strict';
              (edges.length?edges.map(e=>displayID(e[1])+' ← '+displayID(e[0])).join('\n'):
               '(Không có phụ thuộc)');
           taskDepsOutput.hidden=false;
-          taskWorkflowReadyID=data.available&&data.run_available&&
-            order.length>=2&&order.length<=4&&
-            edges.length===order.length-1&&
-            edges.every(edge=>order.some((id,i)=>i>0&&
-              edge[0]===order[i-1]&&edge[1]===id))?
-             id:0;
+          // Server has already checked explicit dependsOrder=sequence,
+          // process-only steps and fresh permission. The browser checks
+          // structural consistency above and never invents run authority.
+          taskWorkflowReadyID=data.available&&data.run_available?id:0;
           taskDepsPendingID=0;
          }
          if(endpoint==='/api/tasks-report'){
@@ -2617,9 +2625,9 @@ const trustedGUIJavaScript = `'use strict';
       !available.task_run||!available.task_long||budget<=3||
       longTaskID!==0||!Number.isInteger(id)||id<1||
       id!==taskWorkflowReadyID||!cachedTaskIDs.includes(id))return;
-    if(!window.confirm('Chạy tối đa 4 bước process tuyến tính trên host? '+
-      'Workflow được phép sẽ chạy tuần tự, có thể hủy và tự dừng khi lỗi. '+
-      'Không gửi lệnh hoặc tham số từ browser.'))return;
+    if(!window.confirm('Chạy tối đa 4 bước process theo thứ tự phụ thuộc trên host? '+
+      'Các nhánh chỉ được chạy tuần tự khi host khai báo dependsOrder: sequence. '+
+      'Có thể hủy, dừng khi lỗi; không gửi lệnh hoặc tham số từ browser.'))return;
     taskWorkflowReadyID=0;
     invoke('/api/tasks-workflow-start/'+String(id));
   });
