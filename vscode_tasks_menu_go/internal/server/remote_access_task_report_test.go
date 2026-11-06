@@ -36,6 +36,14 @@ func TestRemoteTaskReportPrincipalIsolationAndOptIn(t *testing.T){
  outsider,err:=identity.NewID()
  if err!=nil{t.Fatal(err)}
  now:=time.Now().UTC().Truncate(time.Second)
+ ownUser,err:=s.Identity.UserByID(context.Background(),session.userID)
+ if err!=nil{t.Fatal(err)}
+ // The SQLite audit table enforces a real user FK. A fabricated ID would
+ // exercise an impossible database state rather than E2EE principal isolation.
+ if err:=s.Identity.CreateUser(context.Background(),identity.User{
+  ID:outsider,Username:"audit-other-user",DisplayName:"Audit outsider",
+  PasswordHash:ownUser.PasswordHash,Enabled:true,CreatedAt:now,UpdatedAt:now,
+ });err!=nil{t.Fatal(err)}
  recordRemoteTaskReportAudit(t,s,project.ID,outsider,99,"completed",now.Add(-2*time.Second),"")
  recordRemoteTaskReportAudit(t,s,project.ID,userID,11,"failed",now,"")
  recordRemoteTaskReportAudit(t,s,project.ID,userID,12,"completed",now.Add(-time.Second),"")
