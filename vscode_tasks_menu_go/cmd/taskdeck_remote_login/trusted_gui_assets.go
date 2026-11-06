@@ -162,7 +162,7 @@ const trustedGUIHTML = `<!doctype html>
     <article class="tile">
      <div class="tile-heading"><span class="dot"></span><h2>Git Status</h2></div>
      <p>Đọc trạng thái repository gốc trên máy TaskDeck. Chỉ hoạt động khi host bật riêng quyền đọc Git.</p>
-     <div class="actions"><button type="button" id="git">Đọc trạng thái Git</button><button type="button" id="git-log" disabled>Git log (3 commit)</button><button type="button" id="git-branches" disabled>Nhánh Git cục bộ</button><button type="button" id="git-remotes" disabled>Git remote (chỉ tên)</button><button type="button" id="git-tracking-start" disabled>Tracking refs cục bộ</button><button type="button" id="git-tracking-next" disabled>Trang tracking tiếp</button><button type="button" id="git-branch-create" disabled>Tạo nhánh đã cấu hình trên host</button><button type="button" id="git-switch-review" disabled>Xem trước chuyển nhánh</button><button type="button" id="git-switch-same-head" disabled>Chuyển nhánh cùng HEAD</button><button type="button" id="git-diff" disabled>Git diff --stat</button><button type="button" id="git-patch-start" disabled>Xem diff chi tiết</button><button type="button" id="git-patch-cached-start" disabled>Review staged diff</button><button type="button" id="git-patch-next" disabled>Trang diff tiếp</button><button type="button" id="git-fetch" disabled>Git fetch (upstream)</button><button type="button" id="git-pull-review" disabled>Xem trước Pull (offline)</button><button type="button" id="git-pull-changes" disabled>Xem file sẽ thay đổi</button><button type="button" id="git-pull" disabled>Git pull (fast-forward)</button><button type="button" id="git-push" disabled>Git push (không force)</button></div>
+     <div class="actions"><button type="button" id="git">Đọc trạng thái Git</button><button type="button" id="git-log" disabled>Git log (3 commit)</button><button type="button" id="git-branches" disabled>Nhánh Git cục bộ</button><button type="button" id="git-remotes" disabled>Git remote (chỉ tên)</button><button type="button" id="git-tracking-start" disabled>Tracking refs cục bộ</button><button type="button" id="git-tracking-next" disabled>Trang tracking tiếp</button><button type="button" id="git-branch-create" disabled>Tạo nhánh đã cấu hình trên host</button><button type="button" id="git-switch-review" disabled>Xem trước chuyển nhánh</button><button type="button" id="git-switch-same-head" disabled>Chuyển nhánh cùng HEAD</button><button type="button" id="git-branch-delete-review" disabled>Xem trước xoá nhánh TaskDeck</button><button type="button" id="git-branch-delete" disabled>Xoá nhánh đã xem trước</button><button type="button" id="git-diff" disabled>Git diff --stat</button><button type="button" id="git-patch-start" disabled>Xem diff chi tiết</button><button type="button" id="git-patch-cached-start" disabled>Review staged diff</button><button type="button" id="git-patch-next" disabled>Trang diff tiếp</button><button type="button" id="git-fetch" disabled>Git fetch (upstream)</button><button type="button" id="git-pull-review" disabled>Xem trước Pull (offline)</button><button type="button" id="git-pull-changes" disabled>Xem file sẽ thay đổi</button><button type="button" id="git-pull" disabled>Git pull (fast-forward)</button><button type="button" id="git-push" disabled>Git push (không force)</button></div>
       <p>Diff chi tiết chỉ đọc tối đa 4 KiB thay đổi tracked, chia trang E2EE; Review staged diff chỉ xem thay đổi đã stage. Snapshot thay đổi giữa các trang sẽ bị từ chối.</p><pre id="git-patch-output" class="git-patch-output" aria-label="Git diff chi tiết" hidden></pre>
       <p>Git fetch chỉ cập nhật upstream tracking, không đổi HEAD; Git pull yêu cầu worktree sạch. Git push chỉ đẩy commit HEAD lên upstream cùng tên nhánh, không force, không đẩy tags; mọi thao tác yêu cầu quyền riêng trên host và xác nhận.</p>
       <div class="actions git-index-actions"><button type="button" id="git-stage-tracked" disabled>Stage file đã theo dõi</button><button type="button" id="git-unstage-all" disabled>Unstage toàn bộ</button></div>
@@ -302,6 +302,8 @@ const trustedGUIJavaScript = `'use strict';
   const gitBranchCreate=document.getElementById('git-branch-create');
    const gitSwitchReview=document.getElementById('git-switch-review');
    const gitSwitchSameHead=document.getElementById('git-switch-same-head');
+  const gitBranchDeleteReview=document.getElementById('git-branch-delete-review');
+  const gitBranchDelete=document.getElementById('git-branch-delete');
   const gitDiff=document.getElementById('git-diff');
   const gitPatchStart=document.getElementById('git-patch-start');
    const gitPatchCachedStart=document.getElementById('git-patch-cached-start');
@@ -904,6 +906,7 @@ const trustedGUIJavaScript = `'use strict';
   let terminalState='closed',terminalTranscript='';
   let gitPatchText='',gitPatchPage=0,gitPatchMore=false,gitPatchMode='head';
   let gitSwitchPreview=null,gitSwitchPending=null;
+  let gitDeletePreview=null,gitDeletePending=null;
   let filesRootNames=[],filesRootMore=false;
   let gitTrackingText='',gitTrackingPage=0,gitTrackingMore=false,gitTrackingLast='';
   let actionEpoch=0;
@@ -954,6 +957,7 @@ const trustedGUIJavaScript = `'use strict';
   // or revocation. Do not persist previous remote metadata in the browser.
   function clearPrivateViews(){
     gitSwitchPreview=null;gitSwitchPending=null;
+    gitDeletePreview=null;gitDeletePending=null;
     longTaskID=0;longTaskState='';longTaskText='';
     longTaskHistorySerial=0;
     taskRunHistory=[];taskRunHistoryList.replaceChildren();
@@ -1065,6 +1069,8 @@ const trustedGUIJavaScript = `'use strict';
      // requires git.write and TASKDECK_REMOTE_GIT_SWITCH=1.
      gitSwitchReview.disabled=busy||closed||!verified||budget<=0||gitWorkspaceBusy||!featuresKnown||!available.git_branches;
      gitSwitchSameHead.disabled=gitSwitchReview.disabled||gitSwitchPreview===null;
+    gitBranchDeleteReview.disabled=gitSwitchReview.disabled;
+    gitBranchDelete.disabled=gitBranchDeleteReview.disabled||gitDeletePreview===null;
     gitDiff.disabled=busy||closed||!verified||budget<=0||maintenanceOnly||!featuresKnown||!available.git_diff;
     gitPatchStart.disabled=busy||closed||!verified||budget<=0||maintenanceOnly||!featuresKnown||!available.git_patch;
      gitPatchCachedStart.disabled=gitPatchStart.disabled;
@@ -1248,7 +1254,7 @@ const trustedGUIJavaScript = `'use strict';
     if((isTextRun||isCommit||isGitFile||isTerminalWrite||isTerminalResize)&&payload===undefined)return;
     // A disabled button is UX; the endpoint also needs local admission.
     const gitMutations=[
-      '/api/git-branch-create','/api/git-switch-same-head','/api/git-stage-tracked','/api/git-unstage-all',
+      '/api/git-branch-create','/api/git-switch-same-head','/api/git-branch-delete','/api/git-stage-tracked','/api/git-unstage-all',
       '/api/git-stage-file','/api/git-unstage-file','/api/git-fetch',
       '/api/git-pull','/api/git-commit','/api/git-push'
     ];
@@ -1620,7 +1626,45 @@ const trustedGUIJavaScript = `'use strict';
           }
           output.textContent=data.summary;
         }
-        if(endpoint==='/api/git-switch-review'||endpoint==='/api/git-switch-same-head'){
+        if(endpoint==='/api/git-branch-delete-review'||endpoint==='/api/git-branch-delete'){
+          const safeCurrent=typeof data.current==='string'&&
+            /^[A-Za-z0-9][A-Za-z0-9._/-]{0,63}$/.test(data.current)&&
+            data.current!=='HEAD'&&!data.current.includes('..')&&
+            !data.current.includes('//')&&!data.current.includes('/.')&&
+            !data.current.endsWith('.')&&!data.current.endsWith('/')&&
+            !data.current.split('/').some(p=>p==='HEAD'||p.endsWith('.lock'));
+          const safeName=typeof data.branch==='string'&&
+            /^taskdeck\/[A-Za-z0-9][A-Za-z0-9._-]{0,39}$/.test(data.branch)&&
+            !['HEAD','main','master','develop','trunk','release'].includes(data.branch.slice(9))&&
+            !data.branch.endsWith('.')&&!data.branch.endsWith('.lock')&&
+            !data.branch.includes('..');
+          if(data.remote_control_available!==false||!safeCurrent||!safeName||
+            data.current===data.branch||
+            typeof data.head!=='string'||!/^[0-9a-f]{40}$/.test(data.head)){
+            throw new Error('Kết quả xoá nhánh TaskDeck không hợp lệ');
+          }
+          const plan={current:data.current,branch:data.branch,head:data.head};
+          if(endpoint==='/api/git-branch-delete-review'){
+            gitDeletePreview=plan;
+            gitDeletePending=null;
+            output.textContent='Xem trước chỉ đọc: nhánh '+plan.branch+
+              ' sẽ bị XOÁ (cục bộ), đang đứng tại '+plan.current+
+              ', cùng HEAD '+plan.head.slice(0,12)+
+              '. Không xóa commit, không force, không checkout. Yêu cầu xác nhận riêng.';
+          }else{
+            if(!gitDeletePending||gitDeletePending.current!==plan.current||
+              gitDeletePending.branch!==plan.branch||
+              gitDeletePending.head!==plan.head){
+              gitDeletePending=null;
+              throw new Error('Kết quả xoá nhánh khác bản đã xác nhận');
+            }
+            gitDeletePending=null;gitDeletePreview=null;
+            output.textContent='Đã xoá nhánh dư thừa cục bộ '+plan.branch+
+              '. Nhánh hiện tại '+plan.current+' và HEAD '+
+              plan.head.slice(0,12)+' vẫn được giữ nguyên.';
+          }
+         }
+         if(endpoint==='/api/git-switch-review'||endpoint==='/api/git-switch-same-head'){
           const safeFrom=typeof data.from==='string'&&
             /^[A-Za-z0-9][A-Za-z0-9._/-]{0,63}$/.test(data.from)&&
             !data.from.includes('..')&&!data.from.includes('//')&&
@@ -2074,6 +2118,24 @@ const trustedGUIJavaScript = `'use strict';
   gitTrackingStart.addEventListener('click',()=>invoke('/api/git-tracking-start'));
   gitTrackingNext.addEventListener('click',()=>{
     if(gitTrackingMore&&gitTrackingPage>0)invoke('/api/git-tracking-next');
+  });
+  gitBranchDeleteReview.addEventListener('click',()=>{
+    if(busy||closed||!verified||budget<=0||longTaskID!==0||
+      terminalState!=='closed'||!featuresKnown||!available.git_branches)return;
+    gitDeletePreview=null;gitDeletePending=null;
+    invoke('/api/git-branch-delete-review');
+  });
+  gitBranchDelete.addEventListener('click',()=>{
+    if(busy||closed||!verified||budget<=0||longTaskID!==0||
+      terminalState!=='closed'||!featuresKnown||!available.git_branches||
+      !gitDeletePreview)return;
+    const plan=gitDeletePreview;
+    if(!window.confirm('XÁC NHẬN XOÁ nhánh cục bộ '+plan.branch+
+      ', trong khi giữ nhánh '+plan.current+' và commit '+
+      plan.head.slice(0,12)+'? Không thể khôi phục tên ref tự động. Host chỉ xoá nếu hai nhánh vẫn cùng HEAD, worktree/index sạch và cho phép git.write.'))return;
+    gitDeletePending=plan;
+    gitDeletePreview=null;
+    invoke('/api/git-branch-delete');
   });
   gitSwitchReview.addEventListener('click',()=>{
     if(busy||closed||!verified||budget<=0||longTaskID!==0||
