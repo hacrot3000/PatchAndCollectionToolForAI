@@ -195,7 +195,9 @@ const actionContext={
   bindQueuePromptButtonHandlers:()=>{}
 };
 const actionCode=source.slice(controlsBegin,controlsEnd);
-const executeActionRender=()=>vm.runInNewContext(actionCode,actionContext);
+// Preserve the production block's lexical scope on each simulated
+// refresh. Reusing the sandbox must not re-declare top-level const bindings.
+const executeActionRender=()=>vm.runInNewContext('{\n'+actionCode+'\n}',actionContext);
 actionHost.dataset.patchButtonsSignature=JSON.stringify([['cancel','select'],false,[]]);
 executeActionRender();
 assert.equal(actionHost.children.length,2,'a stale signature cannot suppress newly needed buttons');
