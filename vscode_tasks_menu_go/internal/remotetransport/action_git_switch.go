@@ -6,6 +6,7 @@ import (
  "strings"
 )
 
+const RemoteActionGitSwitchReview = "git.switch_review"
 const RemoteActionGitSwitchSameHead = "git.switch_same_head"
 const RemoteGitSwitchResultProtocol = "taskdeck-e2ee-git-switch-result-v1"
 
