@@ -121,3 +121,59 @@ func TestRemoteFilesReadNativeFixedNoFilename(t *testing.T){
   })
  }
 }
+
+func TestRemoteFilesSelectStrictIndexNoPaths(t *testing.T){
+ c,a,_:=participants(t)
+ req:=RemoteAction{RequestID:testActionID,Operation:RemoteActionFilesReadSelect,FileIndex:7}
+ frame,err:=SealRemoteAction(c,req)
+ if err!=nil{t.Fatal(err)}
+ selected,err:=OpenRemoteAction(a,frame)
+ if err!=nil||selected!=req{t.Fatalf("authenticated Files index changed: %+v %v",selected,err)}
+ for _,request:=range []RemoteAction{
+  {RequestID:testActionID,Operation:RemoteActionFilesReadSelect,FileIndex:0},
+  {RequestID:testActionID,Operation:RemoteActionFilesReadSelect,FileIndex:129},
+  {RequestID:testActionID,Operation:RemoteActionFilesReadSelect,FileIndex:1,Snapshot:"a"},
+  {RequestID:testActionID,Operation:RemoteActionFilesReadSelect,FileIndex:1,Text:"secret.txt"},
+  {RequestID:testActionID,Operation:RemoteActionFilesReadSelect,FileIndex:1,Message:"../../etc/passwd"},
+  {RequestID:testActionID,Operation:RemoteActionFilesReadSelect,FileIndex:1,TaskID:5},
+  {RequestID:testActionID,Operation:RemoteActionFilesReadSelect,FileIndex:1,Choice:1},
+ }{
+  c,_,_:=participants(t)
+  if _,err:=SealRemoteAction(c,request);!errors.Is(err,ErrInvalidRemoteAction){
+   t.Fatalf("accepted remote path/offset injection: %+v",request)
+  }
+ }
+ for name,body:=range map[string]string{
+  "unknown":`{"type":"taskdeck-e2ee-action-v1","request_id":"`+testActionID+`","operation":"files.read.select","file_index":1,"path":"secret.txt"}`,
+  "duplicate":`{"type":"taskdeck-e2ee-action-v1","request_id":"`+testActionID+`","operation":"files.read.select","file_index":1,"file_index":2}`,
+  "strings":`{"type":"taskdeck-e2ee-action-v1","request_id":"`+testActionID+`","operation":"files.read.select","file_index":"1"}`,
+ }{
+  t.Run(name,func(t *testing.T){
+   c,a,_:=participants(t)
+   frame,err:=c.Seal([]byte(body))
+   if err!=nil{t.Fatal(err)}
+   if _,err:=OpenRemoteAction(a,frame);
+    !errors.Is(err,ErrInvalidRemoteAction){t.Fatalf("accepted forged index: %v",err)}
+   if a.Established(){t.Fatal("forged selection did not retire E2EE channel")}
+  })
+ }
+}
+func TestRemoteFilesSelectNativeTypedIndex(t *testing.T){
+ c,a,_:=participants(t)
+ exchange:=pingExchangeFunc(func(ctx context.Context,frame []byte)([]byte,error){
+  req,err:=OpenRemoteAction(a,frame)
+  if err!=nil||req.Operation!=RemoteActionFilesReadSelect||
+   req.FileIndex!=3||req.Snapshot!=""||req.Text!=""||
+   req.TaskID!=0{return nil,ErrInvalidRemoteAction}
+  return SealRemoteFilesReadPage(a,req.RequestID,RemoteFilesReadPage{
+   Page:1,Name:"selected.txt",Text:"fixed host text",More:false,
+  })
+ })
+ native,err:=NewPingClient(c,exchange)
+ if err!=nil{t.Fatal(err)}
+ defer native.Close()
+ page,err:=native.FilesReadSelect(context.Background(),3)
+ if err!=nil||page.Name!="selected.txt"||page.Page!=1{
+  t.Fatalf("selected E2EE text reply: %+v %v",page,err)
+ }
+}
