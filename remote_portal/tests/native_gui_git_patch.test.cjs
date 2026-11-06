@@ -26,7 +26,7 @@ const get=id=>{
  return elements.get(id);
 };
 const token='0123456789abcdef'.repeat(4);
-let remaining=16,starts=0,nexts=0;
+let remaining=16,starts=0,nexts=0,cachedStarts=0,cachedNexts=0;
 const fetch=async(path,options)=>{
  assert.equal(options.method,'POST');
  assert.equal(options.headers['X-TaskDeck-Local-Capability'],token);
@@ -53,6 +53,20 @@ const fetch=async(path,options)=>{
   nexts++;
   return {ok:true,json:async()=>({
    ok:true,page:2,patch:'@@ -1 +1 @@\n-old\n+new\n',
+   more:false,remote_control_available:false,remaining:--remaining,
+  })};
+ }
+ if(path==='/api/git-patch-cached-start'){
+  cachedStarts++;
+  return {ok:true,json:async()=>({
+   ok:true,page:1,patch:'diff --git a/staged.txt b/staged.txt\\n',
+   more:true,remote_control_available:false,remaining:--remaining,
+  })};
+ }
+ if(path==='/api/git-patch-cached-next'){
+  cachedNexts++;
+  return {ok:true,json:async()=>({
+   ok:true,page:2,patch:'@@ -1 +1 @@\\n-old\\n+staged\\n',
    more:false,remote_control_available:false,remaining:--remaining,
   })};
  }
@@ -84,7 +98,17 @@ const flush=async()=>{for(let i=0;i<100;i++)await Promise.resolve()};
  get('git-patch-next').click();await flush();
  assert.equal(nexts,1);
  assert.equal(get('git-patch-next').disabled,true,'next enabled after final page');
- assert.match(get('git-patch-output').textContent,/\+new/);
+ assert.match(get('git-patch-output').textContent,/\\+new/);
+ assert.equal(get('git-patch-cached-start').disabled,false,
+  'cached review should share read-only git.patch permission');
+ get('git-patch-cached-start').click();await flush();
+ assert.equal(cachedStarts,1);
+ assert.equal(get('git-patch-output').textContent,'diff --git a/staged.txt b/staged.txt\\n',
+  'switching mode must replace, not concatenate, prior HEAD diff');
+ get('git-patch-next').click();await flush();
+ assert.equal(cachedNexts,1,'next page must use staged-only route');
+ assert.match(get('git-patch-output').textContent,/\\+staged/);
+ assert.equal(get('git-patch-next').disabled,true);
  get('disconnect').click();await flush();
  assert.equal(get('git-patch-start').disabled,true,'read enabled after logout');
  assert.equal(get('git-patch-output').textContent,'','private patch retained after logout');

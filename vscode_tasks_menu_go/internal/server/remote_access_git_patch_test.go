@@ -115,3 +115,63 @@ func TestRemoteGitPatchCleanAndOversize(t *testing.T){
   t.Fatal("oversize diff was truncated into a misleading partial response")
  }
 }
+
+// The cached-only review must never conflate worktree changes with staged
+// content, even if a client switches the diff mode mid-pagination.
+func TestRemoteGitCachedPatchIsolationAndStaleIndex(t *testing.T){
+ requireGit(t)
+ if runtime.GOOS=="windows"{t.Skip("Unix-only fixed Git diff")}
+ t.Setenv("TASKDECK_REMOTE_GIT_PATCH","1")
+ s,session,_,_:=remoteDispatchFixture(t)
+ gitInitRemoteTest(t,s.Workspace)
+ run:=func(args ...string)string{
+  t.Helper()
+  cmd:=exec.Command("git",append([]string{"-C",s.Workspace},args...)...)
+  output,err:=cmd.CombinedOutput()
+  if err!=nil{t.Fatalf("git %v: %v %s",args,err,output)}
+  return strings.TrimSpace(string(output))
+ }
+ run("config","user.name","TaskDeck Test")
+ run("config","user.email","test@example.invalid")
+ file:=filepath.Join(s.Workspace,"tracked.txt")
+ if err:=os.WriteFile(file,[]byte("baseline\n"),0600);err!=nil{t.Fatal(err)}
+ run("add","tracked.txt")
+ run("commit","-m","Initial")
+ head:=run("rev-parse","HEAD")
+ stage:=strings.Repeat("staged line ABCDEFGHIJKL\n",32)
+ if err:=os.WriteFile(file,[]byte(stage),0600);err!=nil{t.Fatal(err)}
+ run("add","tracked.txt")
+ if err:=os.WriteFile(file,[]byte("unstaged-only worktree\n"),0600);err!=nil{t.Fatal(err)}
+ page,err:=s.readRemoteGitPatchPageMode(context.Background(),session,true,remoteDispatchTestID,true)
+ if err!=nil||!page.More||!strings.Contains(page.Patch,"diff --git"){
+  t.Fatalf("staged review first page invalid: %+v %v",page,err)
+ }
+ if strings.Contains(page.Patch,"unstaged-only"){t.Fatal("staged review included unstaged content")}
+ // Mixing HEAD-mode next with the cached-mode cursor must fail closed.
+ if _,err:=s.readRemoteGitPatchPageMode(context.Background(),session,false,remoteDispatchTestID,false);err==nil{
+  t.Fatal("head diff resumed cached-only snapshot")
+ }
+ // Restart cached review and verify every byte belongs to the index only.
+ page,err=s.readRemoteGitPatchPageMode(context.Background(),session,true,remoteDispatchTestID,true)
+ if err!=nil||!page.More{t.Fatalf("cached restart: %+v %v",page,err)}
+ var complete strings.Builder
+ complete.WriteString(page.Patch)
+ for page.More{
+  page,err=s.readRemoteGitPatchPageMode(context.Background(),session,false,remoteDispatchTestID,true)
+  if err!=nil{t.Fatalf("cached next: %v",err)}
+  complete.WriteString(page.Patch)
+ }
+ if !strings.Contains(complete.String(),"staged line")||
+  strings.Contains(complete.String(),"unstaged-only"){
+  t.Fatalf("staged view not isolated: %s",complete.String())
+ }
+ if run("rev-parse","HEAD")!=head{t.Fatal("read-only review changed HEAD")}
+ // Index mutation invalidates a partially-read staged review.
+ page,err=s.readRemoteGitPatchPageMode(context.Background(),session,true,remoteDispatchTestID,true)
+ if err!=nil||!page.More{t.Fatalf("cached re-open: %+v %v",page,err)}
+ if err:=os.WriteFile(file,[]byte("concurrent changed index\n"),0600);err!=nil{t.Fatal(err)}
+ run("add","tracked.txt")
+ if _,err:=s.readRemoteGitPatchPageMode(context.Background(),session,false,remoteDispatchTestID,true);err==nil{
+  t.Fatal("staged cursor accepted index changed after first page")
+ }
+}

@@ -95,7 +95,8 @@ func TestRemoteGitPatchMalformedE2EEAndNoOptions(t *testing.T){
    if c.Established(){t.Fatal("forged patch record did not destroy channel")}
   })
  }
- for _,op:=range []string{RemoteActionGitPatchStart,RemoteActionGitPatchNext}{
+ for _,op:=range []string{RemoteActionGitPatchStart,RemoteActionGitPatchNext,
+  RemoteActionGitPatchCachedStart,RemoteActionGitPatchCachedNext}{
   for _,request:=range []RemoteAction{
    {RequestID:testActionID,Operation:op,TaskID:1},
    {RequestID:testActionID,Operation:op,Text:"--cached"},
@@ -108,4 +109,31 @@ func TestRemoteGitPatchMalformedE2EEAndNoOptions(t *testing.T){
    }
   }
  }
+}
+
+// Staged review has its own fixed, no-argument E2EE action names and
+// authenticates the same strict page envelope as the existing patch view.
+func TestRemoteGitPatchCachedNativeStartNext(t *testing.T){
+ client,agent,_:=participants(t)
+ seen:=0
+ exchange:=pingExchangeFunc(func(ctx context.Context,frame []byte)([]byte,error){
+  req,err:=OpenRemoteAction(agent,frame)
+  if err!=nil||req.TaskID!=0||req.Text!=""||req.Message!=""||
+   req.FileIndex!=0||req.Snapshot!=""||req.Choice!=0{
+   return nil,ErrInvalidRemoteAction
+  }
+  seen++
+  want:=RemoteActionGitPatchCachedStart
+  if seen==2{want=RemoteActionGitPatchCachedNext}
+  if req.Operation!=want{return nil,ErrInvalidRemoteAction}
+  return SealRemoteGitPatchPage(agent,req.RequestID,
+   RemoteGitPatchPage{Page:seen,Patch:"staged diff",More:seen==1})
+ })
+ native,err:=NewPingClient(client,exchange)
+ if err!=nil{t.Fatal(err)}
+ defer native.Close()
+ first,err:=native.GitPatchCachedStart(context.Background())
+ if err!=nil||first.Page!=1||!first.More{t.Fatalf("cached start: %+v %v",first,err)}
+ next,err:=native.GitPatchCachedNext(context.Background())
+ if err!=nil||next.Page!=2||next.More{t.Fatalf("cached next: %+v %v",next,err)}
 }
