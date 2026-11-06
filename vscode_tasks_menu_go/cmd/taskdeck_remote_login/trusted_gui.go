@@ -162,6 +162,9 @@ func (ui *trustedGUI) expired()bool{
 func selectedTaskFromPath(path string)(int,bool){
  return selectedTaskIDFromRoute(path,"/api/tasks-inspect/")
 }
+func selectedTaskDependenciesFromPath(path string)(int,bool){
+ return selectedTaskIDFromRoute(path,"/api/tasks-dependencies/")
+}
 func selectedRunTaskFromPath(path string)(int,bool){
  return selectedTaskIDFromRoute(path,"/api/tasks-run/")
 }
@@ -250,6 +253,7 @@ func (ui *trustedGUI) ServeHTTP(w http.ResponseWriter,r *http.Request){
   ui.action(w,r)
  default:
   _,inspect:=selectedTaskFromPath(r.URL.Path)
+  _,dependencies:=selectedTaskDependenciesFromPath(r.URL.Path)
   _,_,run:=selectedRunTaskChoiceFromPath(r.URL.Path)
   _,textInput:=selectedTextTaskFromPath(r.URL.Path)
   _,_,longStart:=selectedStartLongTaskChoiceFromPath(r.URL.Path)
@@ -257,7 +261,7 @@ func (ui *trustedGUI) ServeHTTP(w http.ResponseWriter,r *http.Request){
   _,longPoll:=selectedLongPollFromPath(r.URL.Path)
   _,longCancel:=selectedLongCancelFromPath(r.URL.Path)
   _,longClear:=selectedLongClearFromPath(r.URL.Path)
-  if inspect||run||textInput||longStart||longText||
+  if inspect||dependencies||run||textInput||longStart||longText||
    longPoll||longCancel||longClear{
    ui.action(w,r)
   }else{http.NotFound(w,r)}
@@ -1058,6 +1062,25 @@ func (ui *trustedGUI) action(w http.ResponseWriter,r *http.Request){
     return
    }
   }
+ }else if taskID,selected:=selectedTaskDependenciesFromPath(r.URL.Path);selected {
+  if scoped,ok:=ui.actions.(interface{
+   TaskDependencies(context.Context,int)(remotetransport.RemoteTaskDependencies,error)
+  });ok{
+   deps,depErr:=scoped.TaskDependencies(ctx,taskID)
+   err=depErr
+   if err==nil&&ctx.Err()==nil&&deps.TaskID==taskID&&
+    remotetransport.ValidRemoteTaskDependencies(deps){
+    ui.mu.Lock();live:=!ui.closed;ui.mu.Unlock()
+    if live{
+     _=json.NewEncoder(w).Encode(map[string]any{
+      "ok":true,"task_id":taskID,"available":deps.Available,
+      "order":deps.Order,"edges":deps.Edges,
+      "remote_control_available":false,"remaining":remaining,
+     })
+     return
+    }
+   }
+  }else{err=remotetransport.ErrRemoteActionDenied}
  }else if taskID,selected:=selectedTaskFromPath(r.URL.Path);selected {
   var result remotetransport.RemoteTaskInspect
   result,err=ui.actions.InspectTask(ctx,taskID)
