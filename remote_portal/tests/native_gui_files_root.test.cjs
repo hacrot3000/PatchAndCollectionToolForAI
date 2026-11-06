@@ -23,11 +23,16 @@ class Element{
 const elements=new Map();
 const get=id=>{if(!elements.has(id))elements.set(id,new Element(id));return elements.get(id)};
 const token='0123456789abcdef'.repeat(4);
-let remaining=16,starts=0,nexts=0,textStarts=0,textNexts=0;
+let remaining=16,starts=0,nexts=0,textStarts=0,textNexts=0,selections=0;
 const fetch=async(url,opt)=>{
  assert.equal(opt.method,'POST');
  assert.equal(opt.headers['X-TaskDeck-Local-Capability'],token);
- assert.equal(opt.body,undefined,'Files root pagination cannot transmit path or offset');
+ if(url==='/api/files-read-select'){
+  assert.equal(opt.headers['Content-Type'],'application/json');
+  assert.equal(opt.body,'{"index":2}','only selection index may leave localhost GUI');
+ }else{
+  assert.equal(opt.body,undefined,'Files reads cannot transmit paths or offsets');
+ }
  if(url==='/api/session')return {ok:true,json:async()=>({
   ok:true,closed:false,active:false,remaining,expires_in_seconds:300,
   device_id:'a'.repeat(64),username:'alice',
@@ -49,6 +54,13 @@ const fetch=async(url,opt)=>{
   return {ok:true,json:async()=>({
    ok:true,items:['F:two.txt'],more:false,
    remote_control_available:false,remaining:--remaining,
+  })};
+ }
+ if(url==='/api/files-read-select'){
+  selections++;
+  return {ok:true,json:async()=>({
+   ok:true,name:'one.txt',page:1,text:'selected host file',
+   more:false,remote_control_available:false,remaining:--remaining,
   })};
  }
  if(url==='/api/files-read-start'){
@@ -93,6 +105,15 @@ const flush=async()=>{for(let i=0;i<100;i++)await Promise.resolve()};
  assert.equal(starts,1);
  assert.equal(get('files-root-next').disabled,false,'next disabled while host has more');
  assert.match(get('files-root-output').textContent,/docs/);
+ assert.equal(get('files-read-selected').disabled,true,
+  'selected-file read enabled before selecting a received file');
+ get('files-select').value='2';
+ get('files-select').listeners.change();
+ assert.equal(get('files-read-selected').disabled,false,
+  'issued root file index was not selectable');
+ get('files-read-selected').click();await flush();
+ assert.equal(selections,1,'Files selection did not call fixed E2EE endpoint');
+ assert.ok(get('files-read-output').textContent.includes('selected host file'));
  get('files-root-next').click();await flush();
  assert.equal(nexts,1);
  assert.equal(get('files-root-next').disabled,true,'terminal page can be replayed');
@@ -112,5 +133,7 @@ const flush=async()=>{for(let i=0;i<100;i++)await Promise.resolve()};
  assert.equal(get('files-root-output').hidden,true);
  assert.equal(get('files-read-output').textContent,'','Files contents survived logout');
  assert.equal(get('files-read-output').hidden,true,'File contents remained visible after logout');
+ assert.equal(get('files-select').children.length,0,'Files selection options survived logout');
+ assert.equal(get('files-read-selected').disabled,true,'File selection survived logout');
  console.log('PASS: fixed E2EE Files root and text pages, no path, no write, logout scrub');
 })().catch(err=>{console.error(err);process.exitCode=1});
