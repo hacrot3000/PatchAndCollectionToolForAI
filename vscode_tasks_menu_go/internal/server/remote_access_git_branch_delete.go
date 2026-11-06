@@ -119,6 +119,23 @@ func(s *Server)remoteGitBranchDelete(ctx context.Context,
   if output.truncated{return "",denied}
   return strings.TrimSpace(output.String()),nil
  }
+ // A repository config can change Git's worktree/gitdir despite a
+ // normal-looking .git directory at the TaskDeck workspace. Explicitly
+ // pin BOTH canonical roots before any Git ref may be mutated.
+ top,err:=run(4096,"rev-parse","--show-toplevel")
+ if err!=nil{return empty,denied}
+ top,err=filepath.EvalSymlinks(top)
+ if err!=nil{return empty,denied}
+ top,err=filepath.Abs(top)
+ if err!=nil||filepath.Clean(top)!=filepath.Clean(root){return empty,denied}
+ resolvedGitDir,err:=run(4096,"rev-parse","--absolute-git-dir")
+ if err!=nil{return empty,denied}
+ resolvedGitDir,err=filepath.EvalSymlinks(resolvedGitDir)
+ if err!=nil{return empty,denied}
+ resolvedGitDir,err=filepath.Abs(resolvedGitDir)
+ if err!=nil||filepath.Clean(resolvedGitDir)!=filepath.Clean(gitDir){
+  return empty,denied
+ }
  ref:="refs/heads/"+branch
  leaf:=filepath.Join(gitDir,"refs","heads","taskdeck",slug)
  leafInfo,err:=os.Lstat(leaf)
