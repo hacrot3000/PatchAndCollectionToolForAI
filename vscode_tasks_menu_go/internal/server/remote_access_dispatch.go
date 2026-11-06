@@ -24,6 +24,7 @@ func (s *Server) auditRemoteReadOnlyAction(session *remoteTaskDeckSession, opera
     operation!=remotetransport.RemoteActionGitTrackingStart &&
     operation!=remotetransport.RemoteActionGitTrackingNext &&
     operation!=remotetransport.RemoteActionGitPullReview &&
+    operation!=remotetransport.RemoteActionGitPullChanges &&
     operation!=remotetransport.RemoteActionGitDiff &&
     operation!=remotetransport.RemoteActionGitPatchStart &&
     operation!=remotetransport.RemoteActionGitPatchNext &&
@@ -51,7 +52,7 @@ func (s *Server) auditRemoteReadOnlyAction(session *remoteTaskDeckSession, opera
  userID:=session.userID
  projectID:=project.ID
  resourceType:="session"
- if operation==remotetransport.RemoteActionGitStatus||operation==remotetransport.RemoteActionGitLog||operation==remotetransport.RemoteActionGitBranches||operation==remotetransport.RemoteActionGitRemotes||operation==remotetransport.RemoteActionGitTrackingStart||operation==remotetransport.RemoteActionGitTrackingNext||operation==remotetransport.RemoteActionGitPullReview||operation==remotetransport.RemoteActionGitDiff||operation==remotetransport.RemoteActionGitPatchStart||operation==remotetransport.RemoteActionGitPatchNext||operation==remotetransport.RemoteActionGitPatchCachedStart||operation==remotetransport.RemoteActionGitPatchCachedNext {resourceType="git"}
+ if operation==remotetransport.RemoteActionGitStatus||operation==remotetransport.RemoteActionGitLog||operation==remotetransport.RemoteActionGitBranches||operation==remotetransport.RemoteActionGitRemotes||operation==remotetransport.RemoteActionGitTrackingStart||operation==remotetransport.RemoteActionGitTrackingNext||operation==remotetransport.RemoteActionGitPullReview||operation==remotetransport.RemoteActionGitPullChanges||operation==remotetransport.RemoteActionGitDiff||operation==remotetransport.RemoteActionGitPatchStart||operation==remotetransport.RemoteActionGitPatchNext||operation==remotetransport.RemoteActionGitPatchCachedStart||operation==remotetransport.RemoteActionGitPatchCachedNext {resourceType="git"}
  if operation==remotetransport.RemoteActionProjectInfo {resourceType="project"}
  if operation==remotetransport.RemoteActionFilesRoot{resourceType="files"}
  if operation==remotetransport.RemoteActionTasksPreview || operation==remotetransport.RemoteActionTasksPreviewNext || operation==remotetransport.RemoteActionTasksInspect ||
@@ -165,7 +166,7 @@ func (s *Server) executeRemoteE2EEPing(
  case remotetransport.RemoteActionGitLog:
   permission=identity.PermissionGitLog
  case remotetransport.RemoteActionGitBranches,remotetransport.RemoteActionGitRemotes,
-  remotetransport.RemoteActionGitPullReview,
+  remotetransport.RemoteActionGitPullReview,remotetransport.RemoteActionGitPullChanges,
   remotetransport.RemoteActionGitTrackingStart,remotetransport.RemoteActionGitTrackingNext:
   permission=identity.PermissionGitStatus
  case remotetransport.RemoteActionGitBranchCreate:
@@ -208,6 +209,7 @@ func (s *Server) executeRemoteE2EEPing(
  var gitPatch remotetransport.RemoteGitPatchPage
  var gitPull remotetransport.RemoteGitPullResult
  var gitPullReview remotetransport.RemoteGitPullReviewResult
+ var gitPullChanges remotetransport.RemoteGitPullChanges
  var gitCommit remotetransport.RemoteGitCommitResult
  var gitPush remotetransport.RemoteGitPushResult
  var gitFetch remotetransport.RemoteGitFetchResult
@@ -301,6 +303,10 @@ func (s *Server) executeRemoteE2EEPing(
     var reviewErr error
     gitPullReview,reviewErr=s.readRemoteGitPullReview(actionCtx)
     return reviewErr
+   case remotetransport.RemoteActionGitPullChanges:
+    var changesErr error
+    gitPullChanges,changesErr=s.readRemoteGitPullChanges(actionCtx)
+    return changesErr
    case remotetransport.RemoteActionGitPull:
     var pullErr error
     gitPull,pullErr=s.executeRemoteGitPull(actionCtx,session)
@@ -487,6 +493,8 @@ func (s *Server) executeRemoteE2EEPing(
   sealed,err=remotetransport.SealRemoteGitPatchPage(channel,request.RequestID,gitPatch)
  case remotetransport.RemoteActionGitPullReview:
   sealed,err=remotetransport.SealRemoteGitPullReviewResult(channel,request.RequestID,gitPullReview)
+ case remotetransport.RemoteActionGitPullChanges:
+  sealed,err=remotetransport.SealRemoteGitPullChanges(channel,request.RequestID,gitPullChanges)
  case remotetransport.RemoteActionGitPull:
   sealed,err=remotetransport.SealRemoteGitPullResult(channel,request.RequestID,gitPull)
  case remotetransport.RemoteActionGitCommit:
