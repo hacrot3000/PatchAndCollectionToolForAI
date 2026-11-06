@@ -4,7 +4,9 @@ import (
  "context"
  "os"
  "path/filepath"
+ "sync"
  "testing"
+ "time"
 
  "bletonfc/vscode_tasks_menu/internal/identity"
  "bletonfc/vscode_tasks_menu/internal/remotetransport"
@@ -131,5 +133,57 @@ func TestRemoteTaskDependenciesCyclesAndUnissuedIDsFailClosed(t *testing.T){
    if _,err:=s.readRemoteTaskDependencies(context.Background(),session,preview.IDs[0]);
     err==nil{t.Fatal("invalid workflow graph accepted")}
   })
+ }
+}
+
+func TestRemoteTaskDependenciesSerializesWithTaskPreviewMutation(t *testing.T){
+ t.Setenv("TASKDECK_REMOTE_TASKS_PREVIEW","1")
+ t.Setenv("TASKDECK_REMOTE_TASKS_DEPS","1")
+ s,session,client,agent:=remoteDispatchFixture(t)
+ writeRemoteTasksPreviewFixture(t,s.Workspace,remoteWorkflowFixture)
+ list,err:=tasks.Load(s.Workspace)
+ if err!=nil{t.Fatal(err)}
+ var root int
+ for _,task:=range list{
+  if task.Label=="Release"{root=task.ID}
+ }
+ if root==0{t.Fatal("workflow root not found")}
+ page,err:=remoteTaskMenuAction(t,s,session,client,agent,
+  remoteDispatchTestID,remotetransport.RemoteActionTasksPreview)
+ if err!=nil{t.Fatal(err)}
+ issued:=false
+ for _,id:=range page.IDs{if id==root{issued=true}}
+ if !issued{t.Fatal("root ID never issued")}
+ frame,err:=remotetransport.SealRemoteAction(client,remotetransport.RemoteAction{
+  RequestID:remoteDispatchTestID,Operation:remotetransport.RemoteActionTasksDependencies,
+  TaskID:root,
+ })
+ if err!=nil{t.Fatal(err)}
+ // A simultaneous authenticated preview refresh may replace the issued-ID
+ // map. The dependency reader must not traverse that map unlocked.
+ session.taskPageMu.Lock()
+ var releaseOnce sync.Once
+ release:=func(){releaseOnce.Do(func(){session.taskPageMu.Unlock()})}
+ defer release()
+ done:=make(chan error,1)
+ go func(){
+  reply,callErr:=s.executeRemoteE2EEPing(context.Background(),session,agent,frame)
+  if callErr==nil{
+   _,callErr=remotetransport.OpenRemoteTaskDependencies(
+    client,reply,remoteDispatchTestID,root)
+  }
+  done<-callErr
+ }()
+ select{
+ case callErr:=<-done:
+  t.Fatalf("dependency request bypassed task page mutation lock: %v",callErr)
+ case <-time.After(60*time.Millisecond):
+ }
+ release()
+ select{
+ case callErr:=<-done:
+  if callErr!=nil{t.Fatalf("dependency read failed after preview lock released: %v",callErr)}
+ case <-time.After(5*time.Second):
+  t.Fatal("dependency request deadlocked after preview lock released")
  }
 }

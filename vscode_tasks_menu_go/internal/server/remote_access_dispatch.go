@@ -116,7 +116,10 @@ func (s *Server) executeRemoteE2EEPing(
   request.Operation==remotetransport.RemoteActionTasksPreviewNext
  // Inspection consumes an immutable host-issued task ID, protected by
  // the same in-memory per-session snapshot lock as the page cursor.
+ // Dependency inspection reads the issued Task.ID map and source hash,
+ // so it must share the preview cursor's lock with every task mutation.
  if paging || request.Operation==remotetransport.RemoteActionTasksInspect ||
+  request.Operation==remotetransport.RemoteActionTasksDependencies ||
   request.Operation==remotetransport.RemoteActionTasksRun ||
   request.Operation==remotetransport.RemoteActionTasksStart ||
   request.Operation==remotetransport.RemoteActionTasksWorkflowStart ||
