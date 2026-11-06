@@ -387,13 +387,17 @@ const trustedGUIJavaScript = `'use strict';
     renderTaskRunHistory();
     return serial;
   }
-  function updateLongTaskHistory(taskID,status,exitCode,truncated){
+  function updateLongTaskHistory(taskID,status,exitCode,truncated,receivedOutput){
     const item=taskRunHistory.find(entry=>entry.serial===longTaskHistorySerial&&
       entry.taskID===taskID&&entry.kind==='dài');
     if(!item)return;
     item.status=status;
     item.exitCode=exitCode;
-    item.truncated=item.truncated||truncated;
+    // Keep a bounded, local-only tail of output for the history view. The
+    // full 16 KiB transcript remains in the active job panel until cleared.
+    // No task output is persisted or returned to PHP/Relay as plaintext.
+    item.output=receivedOutput.slice(-2048);
+    item.truncated=item.truncated||truncated||receivedOutput.length>2048;
     renderTaskRunHistory();
   }
   let inspectButtons=[];
@@ -1444,7 +1448,7 @@ const trustedGUIJavaScript = `'use strict';
           longTaskState=data.status;
           longTaskMore=data.more;
           if(data.status!=='cleared'){
-            updateLongTaskHistory(id,data.status,data.exit_code,data.truncated);
+            updateLongTaskHistory(id,data.status,data.exit_code,data.truncated,longTaskText);
           }
           if(data.status==='cleared'){
             longTaskHistorySerial=0;
