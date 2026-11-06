@@ -246,7 +246,7 @@ func (ui *trustedGUI) ServeHTTP(w http.ResponseWriter,r *http.Request){
   if r.Method!=http.MethodGet{http.Error(w,"method not allowed",405);return}
   w.Header().Set("Content-Type","text/css; charset=utf-8")
   _,_=io.WriteString(w,trustedGUICSS)
- case "/api/files-root","/api/git-patch-cached-start","/api/git-patch-cached-next","/api/ping","/api/features","/api/git-status","/api/git-log","/api/git-branches","/api/git-remotes","/api/git-tracking-start","/api/git-tracking-next","/api/git-branch-create","/api/git-diff","/api/git-patch-start","/api/git-patch-next","/api/git-pull","/api/git-pull-review","/api/git-commit","/api/git-push","/api/git-fetch","/api/git-stage-tracked","/api/git-unstage-all","/api/git-stage-file","/api/git-unstage-file","/api/terminal-open","/api/terminal-poll","/api/terminal-write","/api/terminal-resize","/api/terminal-close","/api/project-info","/api/tasks-preview","/api/tasks-preview-next","/api/close","/api/session":
+ case "/api/git-pull-changes","/api/files-root","/api/git-patch-cached-start","/api/git-patch-cached-next","/api/ping","/api/features","/api/git-status","/api/git-log","/api/git-branches","/api/git-remotes","/api/git-tracking-start","/api/git-tracking-next","/api/git-branch-create","/api/git-diff","/api/git-patch-start","/api/git-patch-next","/api/git-pull","/api/git-pull-review","/api/git-commit","/api/git-push","/api/git-fetch","/api/git-stage-tracked","/api/git-unstage-all","/api/git-stage-file","/api/git-unstage-file","/api/terminal-open","/api/terminal-poll","/api/terminal-write","/api/terminal-resize","/api/terminal-close","/api/project-info","/api/tasks-preview","/api/tasks-preview-next","/api/close","/api/session":
   ui.action(w,r)
  default:
   _,inspect:=selectedTaskFromPath(r.URL.Path)
@@ -625,6 +625,23 @@ func (ui *trustedGUI) action(w http.ResponseWriter,r *http.Request){
     return
    }
   }
+ }else if r.URL.Path=="/api/git-pull-changes" {
+  if reader,ok:=ui.actions.(interface{
+   GitPullChanges(context.Context)(remotetransport.RemoteGitPullChanges,error)
+  });ok{
+   value,readErr:=reader.GitPullChanges(ctx)
+   err=readErr
+   if err==nil&&ctx.Err()==nil{
+    ui.mu.Lock();stillOpen:=!ui.closed;ui.mu.Unlock()
+    if stillOpen{
+     _=json.NewEncoder(w).Encode(map[string]any{
+      "ok":true,"head":value.Head,"upstream_head":value.UpstreamHead,
+      "files":value.Files,"remote_control_available":false,"remaining":remaining,
+     })
+     return
+    }
+   }
+  }else{err=remotetransport.ErrRemoteActionDenied}
  }else if r.URL.Path=="/api/git-pull-review" {
   result,reviewErr:=ui.actions.GitPullReview(ctx)
   err=reviewErr
