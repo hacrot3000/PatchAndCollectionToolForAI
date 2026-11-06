@@ -22,6 +22,12 @@ func (s *Server) remoteFilesRootSnapshot(ctx context.Context)([]string,string,er
   runtime.GOOS=="windows"||os.Getenv("TASKDECK_REMOTE_FILES_ROOT")!="1"{
   return nil,"",denied
  }
+ // A final-component workspace symlink can be swapped to an
+ // unauthorized directory between E2EE actions. Restrict this sensitive
+ // remote file permission to an actual configured workspace directory.
+ configured,err:=os.Lstat(s.Workspace)
+ if err!=nil||!configured.IsDir()||
+  configured.Mode()&os.ModeSymlink!=0{return nil,"",denied}
  root,err:=filepath.EvalSymlinks(s.Workspace)
  if err!=nil{return nil,"",denied}
  root,err=filepath.Abs(root)
@@ -37,7 +43,8 @@ func (s *Server) remoteFilesRootSnapshot(ctx context.Context)([]string,string,er
  if err!=nil{return nil,"",denied}
  defer handle.Close()
  opened,err:=handle.Stat()
- if err!=nil||!opened.IsDir()||!os.SameFile(info,opened){
+ if err!=nil||!opened.IsDir()||!os.SameFile(info,opened)||
+  !os.SameFile(configured,opened){
   return nil,"",denied
  }
  // Reject directories with more than 128 entries instead of reading a
@@ -71,6 +78,10 @@ func (s *Server) remoteFilesRootSnapshot(ctx context.Context)([]string,string,er
  if err!=nil||filepath.Clean(latest)!=filepath.Clean(root)||ctx.Err()!=nil{
   return nil,"",denied
  }
+ configuredAfter,err:=os.Lstat(s.Workspace)
+ if err!=nil||!configuredAfter.IsDir()||
+  configuredAfter.Mode()&os.ModeSymlink!=0||
+  !os.SameFile(configured,configuredAfter){return nil,"",denied}
  sort.Slice(names,func(i,j int)bool{return names[i][2:]<names[j][2:]})
  return names,root,nil
 }
