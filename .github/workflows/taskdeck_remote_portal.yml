@@ -1,7 +1,7 @@
 name: TaskDeck Remote Portal (PHP)
 on:
   push:
-    branches: [main, 'feature/taskdeck-remote-access-architecture']
+    branches: [main]
     paths:
       # Verify the PHP side against the SAME Agent/Relay source revision:
       # Go-side protocol changes can break the Portal without editing PHP.

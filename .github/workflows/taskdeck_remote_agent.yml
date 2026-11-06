@@ -1,7 +1,7 @@
 name: TaskDeck Remote Agent (Go)
 on:
   push:
-    branches: [main, 'feature/taskdeck-remote-access-architecture']
+    branches: [main]
     paths:
       - 'vscode_tasks_menu_go/internal/remoteclientkey/**'
       - 'vscode_tasks_menu_go/internal/remoteportal/**'
