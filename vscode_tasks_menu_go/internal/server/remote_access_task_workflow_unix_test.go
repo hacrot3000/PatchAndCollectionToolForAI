@@ -86,7 +86,9 @@ func TestRemoteWorkflowStartE2EELinearAuditAndClear(t *testing.T){
  session.longTaskMu.Lock()
  job:=session.longTask
  session.longTaskMu.Unlock()
- got,_,_,_:=job.capture.next(0)
+ job.capture.mu.Lock()
+ got:=string(append([]byte(nil),job.capture.data...))
+ job.capture.mu.Unlock()
  if strings.Index(got,"Step 1/3")<0||
   !strings.Contains(got,"ONE")||!strings.Contains(got,"TWO")||
   !strings.Contains(got,"THREE")||
