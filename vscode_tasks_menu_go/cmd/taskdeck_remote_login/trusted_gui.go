@@ -171,6 +171,9 @@ func selectedRunTaskFromPath(path string)(int,bool){
 func selectedTextTaskFromPath(path string)(int,bool){
  return selectedTaskIDFromRoute(path,"/api/tasks-run-input/")
 }
+func selectedWorkflowStartFromPath(path string)(int,bool){
+ return selectedTaskIDFromRoute(path,"/api/tasks-workflow-start/")
+}
 func selectedStartLongTaskChoiceFromPath(path string)(int,int,bool){
  return selectedChoiceTaskRoute(path,"/api/tasks-start/")
 }
@@ -256,12 +259,13 @@ func (ui *trustedGUI) ServeHTTP(w http.ResponseWriter,r *http.Request){
   _,dependencies:=selectedTaskDependenciesFromPath(r.URL.Path)
   _,_,run:=selectedRunTaskChoiceFromPath(r.URL.Path)
   _,textInput:=selectedTextTaskFromPath(r.URL.Path)
+  _,workflowStart:=selectedWorkflowStartFromPath(r.URL.Path)
   _,_,longStart:=selectedStartLongTaskChoiceFromPath(r.URL.Path)
   _,longText:=selectedStartLongTaskTextFromPath(r.URL.Path)
   _,longPoll:=selectedLongPollFromPath(r.URL.Path)
   _,longCancel:=selectedLongCancelFromPath(r.URL.Path)
   _,longClear:=selectedLongClearFromPath(r.URL.Path)
-  if inspect||dependencies||run||textInput||longStart||longText||
+  if inspect||dependencies||run||textInput||workflowStart||longStart||longText||
    longPoll||longCancel||longClear{
    ui.action(w,r)
   }else{http.NotFound(w,r)}
@@ -1015,6 +1019,13 @@ func (ui *trustedGUI) action(w http.ResponseWriter,r *http.Request){
     return
    }
   }
+ }else if taskID,selected:=selectedWorkflowStartFromPath(r.URL.Path);selected {
+  if scoped,ok:=ui.actions.(interface{
+   StartWorkflowTask(context.Context,int)(remotetransport.RemoteLongTaskProgress,error)
+  });ok{
+   result,workflowErr:=scoped.StartWorkflowTask(ctx,taskID)
+   if ui.writeRemoteLongTaskResponse(w,ctx,taskID,remaining,result,workflowErr){return}
+  }else{err=remotetransport.ErrRemoteActionDenied}
  }else if taskID,choice,selected:=selectedStartLongTaskChoiceFromPath(r.URL.Path);selected {
   result,longErr:=ui.actions.StartLongTask(ctx,taskID,choice,"")
   if ui.writeRemoteLongTaskResponse(w,ctx,taskID,remaining,result,longErr){return}
