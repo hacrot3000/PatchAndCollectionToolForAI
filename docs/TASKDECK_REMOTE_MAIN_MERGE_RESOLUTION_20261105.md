@@ -377,3 +377,40 @@ loopback-route and browser GUI tests.
 - This is **not** yet a recursive File Explorer, editor, upload/download,
   binary transfer, file write, folder navigation or generic remote FS RPC.
   These require separately reviewed transport and permission contracts.
+
+## 2026-11-06 — One-level subdirectory browsing through E2EE
+
+- Added strictly typed `files.dir.select` and `files.dir.next`.
+  The former carries one integer index (1..128) into the root listing
+  previously **issued over this exact authenticated E2EE session**.
+  The latter has no arguments or caller-controlled cursor. No folder name,
+  path, command, file contents, offset, flags, or arbitrary RPC is accepted.
+- Requires `files.read` RBAC, live TaskDeck password/client-key/Portal grant,
+  `TASKDECK_REMOTE_FILES_ROOT=1`, the additional host opt-in
+  `TASKDECK_REMOTE_FILES_DIRS=1` and the host-maintained
+  `TASKDECK_REMOTE_FILES_DIR_NAMES=docs,assets` allowlist. At most eight
+  distinct safe, ASCII root-directory names are eligible; none may contain
+  `/`, backslashes, path traversal or a hidden leading dot.
+- The Agent re-evaluates the canonical root listing and its SHA-256 before
+  dereferencing the selected `D:` entry. The selected subdirectory is
+  opened with a no-follow directory-descriptor helper on Linux/macOS,
+  checked against before/after inode metadata, and restricted to a
+  single level of **names only**. The original 128-entry maximum and eight
+  entries/page are unchanged. Symlinks, devices, FIFO and sockets are
+  not shown or followed. A changed root or folder snapshot invalidates
+  pagination, even when the browser continues with the same index.
+- The GUI offers **Xem thư mục** and **Trang thư mục tiếp**, populating
+  the folder selector from authenticated `D:` root entries only. It renders
+  directory entries as plain `textContent`, with no HTML interpretation,
+  and clears the selector, cursor and listing on logout. A directory
+  listing is never a file-content-read grant: subdirectory files cannot
+  be opened, edited, downloaded, or uploaded by these actions.
+- Go/Node tests exercise strict no-argument paging and indexed selection,
+  E2EE result validation, unknown/guessed indices, changed root/folder,
+  host opt-in and allowlist, symlink escapes, redaction, pagination, local
+  audit and GUI cleanup. Windows-specific behavior remains deferred.
+- Remaining work: optional deeper navigation with an explicitly reviewed
+  per-directory authorization model, bounded Editor writes with compare-
+  and-swap content hashes, E2EE upload/download, additional Git review
+  interactions and local-principal race/permission audits. Never port
+  main's incompatible generic file RPC into the authenticated dispatcher.
