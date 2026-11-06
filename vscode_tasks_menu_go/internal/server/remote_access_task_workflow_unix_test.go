@@ -4,6 +4,7 @@ package server
 
 import(
  "context"
+ "fmt"
  "os"
  "path/filepath"
  "strings"
@@ -195,6 +196,71 @@ func TestRemoteWorkflowPreflightFailsClosedOnBranchesPolicyAndDrift(t *testing.T
   t.Setenv("TASKDECK_REMOTE_TASKS_WORKFLOW_RUN","0")
   if err:=s.startRemoteLinearWorkflow(context.Background(),session,id);err==nil{
    t.Fatal("workflow execution bypassed explicit host opt-in")
+  }
+ })
+}
+
+func TestRemoteWorkflowExecutableAliasesAndPermissions(t *testing.T){
+ root:=t.TempDir()
+ trusted:=filepath.Join(root,"trusted-helper")
+ shellAlias:=filepath.Join(root,"trusted-looking-shell")
+ missing:=filepath.Join(root,"missing")
+ noExec:=filepath.Join(root,"not-executable")
+ if err:=os.Symlink("/bin/echo",trusted);err!=nil{t.Fatal(err)}
+ if err:=os.Symlink("/bin/sh",shellAlias);err!=nil{t.Fatal(err)}
+ if err:=os.WriteFile(noExec,[]byte("nothing"),0600);err!=nil{t.Fatal(err)}
+ for _,tc:=range []struct{path string;safe bool}{
+  {"/bin/echo",true},{trusted,true},{shellAlias,false},
+  {missing,false},{noExec,false},{"/bin/sh",false},
+  {"/bin/echo\x00ignored",false},
+ }{
+  task:=tasks.Task{Type:"process",Command:tc.path}
+  if got:=remoteWorkflowSafeProcess(task);got!=tc.safe{
+   t.Fatalf("executable %q: safe=%t, want %t",tc.path,got,tc.safe)
+  }
+ }
+}
+
+func TestRemoteWorkflowGUIRunAvailableMatchesExecutablePreflight(t *testing.T){
+ remoteWorkflowHostFlags(t)
+ for name,setup:=range map[string]func(*testing.T)string{
+  "missing":func(t *testing.T)string{return filepath.Join(t.TempDir(),"absent")},
+  "shell-symlink":func(t *testing.T)string{
+   link:=filepath.Join(t.TempDir(),"innocent-name")
+   if err:=os.Symlink("/bin/sh",link);err!=nil{t.Fatal(err)}
+   return link
+  },
+  "nonexecutable":func(t *testing.T)string{
+   path:=filepath.Join(t.TempDir(),"tool")
+   if err:=os.WriteFile(path,[]byte("data"),0600);err!=nil{t.Fatal(err)}
+   return path
+  },
+ }{
+  t.Run(name,func(t *testing.T){
+   s,session,client,agent:=remoteTaskOperatorFixture(t)
+   unsafePath:=setup(t)
+   source:=fmt.Sprintf(`{"tasks":[
+    {"label":"First","type":"process","command":"/bin/echo"},
+    {"label":"Last","type":"process","command":%q,"dependsOn":"First"}
+   ]}`,unsafePath)
+   root:=remoteWorkflowIssuedRoot(t,s,session,client,agent,source,"Last")
+   deps,err:=s.readRemoteTaskDependencies(context.Background(),session,root)
+   if err!=nil||!deps.Available||deps.RunAvailable{
+    t.Fatalf("GUI offered impossible or unsafe workflow: %+v %v",deps,err)
+   }
+   if err:=s.startRemoteLinearWorkflow(context.Background(),session,root);err==nil{
+    t.Fatal("unsafe workflow actually started")
+   }
+   if session.longTask!=nil{t.Fatal("rejected workflow reserved execution slot")}
+  })
+ }
+ t.Run("allowed",func(t *testing.T){
+  s,session,client,agent:=remoteTaskOperatorFixture(t)
+  root:=remoteWorkflowIssuedRoot(t,s,session,client,agent,
+   remoteWorkflowLinearSource,"Step C")
+  deps,err:=s.readRemoteTaskDependencies(context.Background(),session,root)
+  if err!=nil||!deps.RunAvailable{
+   t.Fatalf("valid executable workflow is not offered: %+v %v",deps,err)
   }
  })
 }

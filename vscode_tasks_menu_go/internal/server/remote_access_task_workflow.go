@@ -23,18 +23,33 @@ const remoteWorkflowMaxSteps=4
 
 type remoteWorkflowStep struct{ taskID int }
 
+// Resolve executable aliases before checking for interpreters. Looking only
+// at the user-supplied basename allowed a symlink called "safe-tool" to
+// bypass the workflow's explicit shell/interpreter denylist.
+func remoteWorkflowResolvedExecutable(command string)(string,bool){
+ if command==""||!filepath.IsAbs(command)||
+  strings.ContainsAny(command,"\x00\r\n"){return "",false}
+ resolved,err:=filepath.EvalSymlinks(command)
+ if err!=nil||!filepath.IsAbs(resolved){return "",false}
+ info,err:=os.Stat(resolved)
+ if err!=nil||!info.Mode().IsRegular()||info.Mode().Perm()&0111==0{
+  return "",false
+ }
+ switch strings.ToLower(filepath.Base(resolved)){
+ case "bash","sh","dash","zsh","ksh","fish","csh","tcsh","pwsh","powershell",
+      "python","python3","perl","ruby","node","php","env","sudo","su":
+  return "",false
+ }
+ return resolved,true
+}
+
 func remoteWorkflowSafeProcess(task tasks.Task)bool{
  if task.Type!="process"||len(task.Inputs)!=0||
   len(task.SecretEnv)!=0||len(task.Options)!=0||
   task.Raw["taskdeck"]!=nil{return false}
  command,ok:=task.Command.(string)
- if !ok||command==""||strings.Contains(command,"${")||
-  !filepath.IsAbs(command){return false}
- switch strings.ToLower(filepath.Base(command)){
- case "bash","sh","dash","zsh","ksh","fish","csh","tcsh","pwsh","powershell",
-      "python","python3","perl","ruby","node","php","env","sudo","su":
-  return false
- }
+ if !ok||strings.Contains(command,"${"){return false}
+ if _,safe:=remoteWorkflowResolvedExecutable(command);!safe{return false}
  if task.Args!=nil {
   args,ok:=task.Args.([]any)
   if !ok||len(args)>16{return false}
@@ -212,9 +227,14 @@ func(s *Server)runRemoteLinearWorkflow(ctx context.Context,
    step.taskID,i+1,len(plan),"attempted",-1);err!=nil{
    status="failed";exitCode=-1;break
   }
+  // Re-resolve at launch and EXECUTE the resolved path, not the mutable
+  // symlink. A link repointed to /bin/sh after initial review must not
+  // silently turn a reviewed process task into shell execution.
+  executable,ok:=remoteWorkflowResolvedExecutable(spec.Command)
+  if !ok{status="failed";exitCode=-1;break}
   _,_=captureWorkflowText(job.capture,fmt.Sprintf(
    "[TaskDeck workflow] Step %d/%d: Task #%d\n",i+1,len(plan),step.taskID))
-  cmd:=exec.CommandContext(ctx,spec.Command,spec.Args...)
+  cmd:=exec.CommandContext(ctx,executable,spec.Args...)
   cmd.Dir=spec.Cwd
   cmd.Env=spec.Env
   cmd.Stdout=job.capture

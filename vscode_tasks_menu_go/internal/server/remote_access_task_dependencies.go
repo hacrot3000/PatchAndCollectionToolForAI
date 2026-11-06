@@ -121,7 +121,15 @@ func (s *Server)readRemoteTaskDependencies(ctx context.Context,
   }
   for _,n:=range graph.Nodes{
    item,found:=tasks.TaskByLabel(list,n.Label)
-   if !found||!remoteWorkflowSafeProcess(item){linear=false}
+   if !found||!remoteWorkflowSafeProcess(item){linear=false;break}
+   // The GUI must not offer Start unless every step passes the same
+   // host-owned snapshot/execution preflight as the real start path.
+   spec,_,prepErr:=prepareRemoteTaskExecutionInputMode(
+    ctx,s.Workspace,session.taskPageHash,item.ID,0,false,"",true)
+   if prepErr!=nil||spec.TaskID!=item.ID||
+    validateRemoteWorkflowStepCwd(root,spec.Cwd)!=nil{
+    linear=false;break
+   }
   }
   if linear{
    principal,authErr:=s.verifyRemoteSessionLocalPrincipal(ctx,session)
