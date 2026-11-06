@@ -8,6 +8,7 @@ import (
  "os"
  "path/filepath"
  "runtime"
+ "strings"
 
  "bletonfc/vscode_tasks_menu/internal/remotetransport"
 )
@@ -16,6 +17,9 @@ import (
 // read-only, text-only disclosure of exactly one named workspace-root file.
 // This does not permit arbitrary file reads, recursion, downloads or editing.
 func (s *Server)remoteFileReadSnapshot(ctx context.Context)(string,string,string,error){
+ return s.remoteFileReadSnapshotNamed(ctx,os.Getenv("TASKDECK_REMOTE_FILES_READ_NAME"))
+}
+func (s *Server)remoteFileReadSnapshotNamed(ctx context.Context,name string)(string,string,string,error){
  denied:=remotetransport.ErrRemoteActionDenied
  if s==nil||ctx==nil||ctx.Err()!=nil||s.Workspace==""||
   runtime.GOOS=="windows"||
@@ -23,7 +27,6 @@ func (s *Server)remoteFileReadSnapshot(ctx context.Context)(string,string,string
   os.Getenv("TASKDECK_REMOTE_FILES_READ")!="1"{
   return "","","",denied
  }
- name:=os.Getenv("TASKDECK_REMOTE_FILES_READ_NAME")
  if !remotetransport.ValidRemoteFilesRootItem("F:"+name){
   return "","","",denied
  }
@@ -74,20 +77,85 @@ func (s *Server)remoteFileReadSnapshot(ctx context.Context)(string,string,string
  return name,string(data),root,nil
 }
 
+// Only the host's explicitly enumerated names are accessible through a
+// client-selected INDEX. The caller cannot send a filename or a path.
+func remoteFilesSelectionAllowed(name string)bool{
+ raw:=os.Getenv("TASKDECK_REMOTE_FILES_SELECT_NAMES")
+ if raw==""||len(raw)>512{return false}
+ names:=strings.Split(raw,",")
+ if len(names)>8{return false}
+ seen:=make(map[string]bool,len(names))
+ allowed:=false
+ for _,entry:=range names{
+  if !remotetransport.ValidRemoteFilesRootItem("F:"+entry)||
+   seen[entry]{return false}
+  seen[entry]=true
+  if entry==name{allowed=true}
+ }
+ return allowed
+}
+
+func (s *Server)readRemoteFileTextSelected(ctx context.Context,
+ session *remoteTaskDeckSession,index int,id string,
+)(remotetransport.RemoteFilesReadPage,error){
+ return s.readRemoteFileTextPageChoice(ctx,session,true,id,index)
+}
 func (s *Server)readRemoteFileTextPage(
  ctx context.Context,session *remoteTaskDeckSession,first bool,id string,
+)(remotetransport.RemoteFilesReadPage,error){
+ return s.readRemoteFileTextPageChoice(ctx,session,first,id,0)
+}
+func (s *Server)readRemoteFileTextPageChoice(
+ ctx context.Context,session *remoteTaskDeckSession,first bool,id string,index int,
 )(remotetransport.RemoteFilesReadPage,error){
  denied:=remotetransport.ErrRemoteActionDenied
  var empty remotetransport.RemoteFilesReadPage
  if session==nil||session.closed.Load()||session.channel==nil||
   !session.channel.Established()||session.portalGrant==nil||
-  !session.portalGrant.ActiveForSession(session.channel){
+  !session.portalGrant.ActiveForSession(session.channel)||
+  (index>0&&!first){
   return empty,denied
  }
  session.fileReadMu.Lock()
  defer session.fileReadMu.Unlock()
  if !first&&!session.fileReadReady{return empty,denied}
- name,whole,root,err:=s.remoteFileReadSnapshot(ctx)
+ // Each new selected-file read is bound to an authenticated, issued root
+ // listing. Even an index that exists today cannot be guessed before
+ // that entry was actually sent over the E2EE channel.
+ selected:=index>0
+ if !first&&session.fileReadSelected{
+  selected=true
+  index=session.fileReadSelectedIndex
+ }
+ name:=""
+ var rootDigest [32]byte
+ if selected{
+  if !remotetransport.ValidRemoteFilesSelectIndex(index)||
+   os.Getenv("TASKDECK_REMOTE_FILES_SELECT")!="1"{
+   session.fileReadReady=false;return empty,denied
+  }
+  session.rootFilesMu.Lock()
+  names,root,err:=s.remoteFilesRootSnapshot(ctx)
+  if err!=nil{
+   session.rootFilesMu.Unlock()
+   session.fileReadReady=false;return empty,denied
+  }
+  rootDigest=sha256.Sum256([]byte(root+"\x00"+strings.Join(names,"\x00")))
+  if session.rootFilesCursor<index||index>len(names)||
+   session.rootFilesDigest!=rootDigest||
+   names[index-1][:2]!="F:"{
+   session.rootFilesMu.Unlock()
+   session.fileReadReady=false;return empty,denied
+  }
+  name=names[index-1][2:]
+  session.rootFilesMu.Unlock()
+  if !remoteFilesSelectionAllowed(name){
+   session.fileReadReady=false;return empty,denied
+  }
+ }else{
+  name=os.Getenv("TASKDECK_REMOTE_FILES_READ_NAME")
+ }
+ name,whole,root,err:=s.remoteFileReadSnapshotNamed(ctx,name)
  if err!=nil||ctx.Err()!=nil||session.closed.Load(){
   session.fileReadReady=false;return empty,denied
  }
@@ -95,6 +163,9 @@ func (s *Server)readRemoteFileTextPage(
  offset,pageNo:=0,1
  if !first{
   if session.fileReadDigest!=sum||session.fileReadName!=name||
+   session.fileReadSelected!=selected||
+   (selected&&(session.fileReadSelectedIndex!=index||
+    session.fileReadRootDigest!=rootDigest))||
    session.fileReadOffset>=len(whole){
    session.fileReadReady=false;return empty,denied
   }
@@ -107,6 +178,9 @@ func (s *Server)readRemoteFileTextPage(
  if page.More{
   session.fileReadDigest=sum
   session.fileReadName=name
+  session.fileReadSelected=selected
+  session.fileReadSelectedIndex=index
+  session.fileReadRootDigest=rootDigest
   session.fileReadOffset=end
   session.fileReadPage=pageNo
   session.fileReadReady=true
@@ -114,6 +188,9 @@ func (s *Server)readRemoteFileTextPage(
   session.fileReadReady=false
   session.fileReadDigest=[32]byte{}
   session.fileReadName=""
+  session.fileReadSelected=false
+  session.fileReadSelectedIndex=0
+  session.fileReadRootDigest=[32]byte{}
   session.fileReadOffset=0
   session.fileReadPage=0
  }
