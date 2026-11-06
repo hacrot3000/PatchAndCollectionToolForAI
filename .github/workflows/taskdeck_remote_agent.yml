@@ -115,6 +115,11 @@ jobs:
         run: node remote_portal/tests/native_gui_task_inspect.test.cjs
       - name: Verify principal-owned E2EE task outcome reports and GUI logout cleanup
         run: node remote_portal/tests/native_gui_task_report.test.cjs
+      - name: Verify E2EE Task dependency DAG inspection and host opt-out GUI
+        run: node remote_portal/tests/native_gui_task_dependencies.test.cjs
+      - name: Verify strict dependency graph codec, host snapshot and workflow safety
+        working-directory: vscode_tasks_menu_go
+        run: go test -race ./internal/remotetransport ./internal/server -run 'TestRemoteTaskDependencies' -count=1 -timeout=120s
       - name: Verify task report audit isolation, permissions and strict codec
         working-directory: vscode_tasks_menu_go
         run: go test -race ./internal/remotetransport ./internal/server -run 'TestRemoteTaskReport' -count=1 -timeout=90s
