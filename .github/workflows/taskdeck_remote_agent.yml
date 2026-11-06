@@ -113,6 +113,11 @@ jobs:
         run: node remote_portal/tests/native_gui_interactions.test.cjs
       - name: Verify trusted native task selection and E2EE ID-only GUI
         run: node remote_portal/tests/native_gui_task_inspect.test.cjs
+      - name: Verify principal-owned E2EE task outcome reports and GUI logout cleanup
+        run: node remote_portal/tests/native_gui_task_report.test.cjs
+      - name: Verify task report audit isolation, permissions and strict codec
+        working-directory: vscode_tasks_menu_go
+        run: go test -race ./internal/remotetransport ./internal/server -run 'TestRemoteTaskReport' -count=1 -timeout=90s
       - name: Verify trusted native bounded task run controls
         run: node remote_portal/tests/native_gui_task_run.test.cjs
       - name: Verify task stop revokes native E2EE and scrubs late results
