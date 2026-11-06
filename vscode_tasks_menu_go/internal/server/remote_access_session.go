@@ -86,6 +86,15 @@ type remoteTaskDeckSession struct {
  fileReadRootDigest [32]byte
  fileReadOffset int
  fileReadPage int
+ // Selected one-level directory cursor, bound to the issued root listing
+ // and its name allowlist. Never serialized or passed to PHP/Relay.
+ dirFilesMu sync.Mutex
+ dirFilesReady bool
+ dirFilesIndex int
+ dirFilesName string
+ dirFilesCursor int
+ dirFilesDigest [32]byte
+ dirFilesRootDigest [32]byte
  // Root Files cursor is E2EE-session scoped, never client-chosen and
  // never persisted in the untrusted PHP Portal or Relay.
  rootFilesMu sync.Mutex

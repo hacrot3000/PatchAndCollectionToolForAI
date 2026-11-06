@@ -153,7 +153,7 @@ func remoteTaskInputOperation(op string)bool{
 }
 func validRemoteOperation(op string)bool{
  return terminalOperation(op)||op==RemoteActionSessionPing || op==RemoteActionSessionFeatures ||
-  op==RemoteActionGitStatus || op==RemoteActionGitRemotes || op==RemoteActionGitTrackingStart || op==RemoteActionGitTrackingNext || op==RemoteActionGitLog || op==RemoteActionGitBranches || op==RemoteActionGitBranchCreate || op==RemoteActionGitSwitchReview || op==RemoteActionGitSwitchSameHead || op==RemoteActionGitBranchDeleteReview || op==RemoteActionGitBranchDelete || op==RemoteActionGitDiff || op==RemoteActionGitPatchStart || op==RemoteActionGitPatchNext || op==RemoteActionGitPatchCachedStart || op==RemoteActionGitPatchCachedNext || op==RemoteActionGitFetch || op==RemoteActionGitStageTracked || op==RemoteActionGitUnstageAll || op==RemoteActionGitStageFile || op==RemoteActionGitUnstageFile || op==RemoteActionGitPull || op==RemoteActionGitPullReview || op==RemoteActionGitPullChanges || op==RemoteActionGitCommit || op==RemoteActionGitPush || op==RemoteActionProjectInfo || op==RemoteActionFilesRoot || op==RemoteActionFilesRootNext || op==RemoteActionFilesReadStart || op==RemoteActionFilesReadNext || op==RemoteActionFilesReadSelect ||
+  op==RemoteActionGitStatus || op==RemoteActionGitRemotes || op==RemoteActionGitTrackingStart || op==RemoteActionGitTrackingNext || op==RemoteActionGitLog || op==RemoteActionGitBranches || op==RemoteActionGitBranchCreate || op==RemoteActionGitSwitchReview || op==RemoteActionGitSwitchSameHead || op==RemoteActionGitBranchDeleteReview || op==RemoteActionGitBranchDelete || op==RemoteActionGitDiff || op==RemoteActionGitPatchStart || op==RemoteActionGitPatchNext || op==RemoteActionGitPatchCachedStart || op==RemoteActionGitPatchCachedNext || op==RemoteActionGitFetch || op==RemoteActionGitStageTracked || op==RemoteActionGitUnstageAll || op==RemoteActionGitStageFile || op==RemoteActionGitUnstageFile || op==RemoteActionGitPull || op==RemoteActionGitPullReview || op==RemoteActionGitPullChanges || op==RemoteActionGitCommit || op==RemoteActionGitPush || op==RemoteActionProjectInfo || op==RemoteActionFilesRoot || op==RemoteActionFilesRootNext || op==RemoteActionFilesReadStart || op==RemoteActionFilesReadNext || op==RemoteActionFilesReadSelect || op==RemoteActionFilesDirSelect || op==RemoteActionFilesDirNext ||
   op==RemoteActionTasksPreview || op==RemoteActionTasksPreviewNext ||
   op==RemoteActionTasksInspect || op==RemoteActionTasksRun ||
   op==RemoteActionTasksStart || op==RemoteActionTasksPoll ||
@@ -190,7 +190,7 @@ func validateActionRequest(clear []byte) (RemoteAction,error){
    json.Unmarshal(fields["operation"],&op)!=nil||
    json.Unmarshal(fields["file_index"],&index)!=nil||
    typ!=RemoteActionProtocol||!validActionID(id)||
-   op!=RemoteActionFilesReadSelect||!ValidRemoteFilesSelectIndex(index){
+   (op!=RemoteActionFilesReadSelect&&op!=RemoteActionFilesDirSelect)||!ValidRemoteFilesSelectIndex(index){
    return denied,ErrInvalidRemoteAction
   }
   return RemoteAction{RequestID:id,Operation:op,FileIndex:index},nil
@@ -299,11 +299,11 @@ func SealRemoteAction(ch *Channel,action RemoteAction)([]byte,error){
   (!remoteTaskInputOperation(action.Operation) && action.Choice!=0) ||
   action.Choice<0 || action.Choice>MaxRemoteTaskCombinedChoices ||
   (action.Operation==RemoteActionGitCommit)!=(action.Message!="") ||
-  (RemoteGitFileOperation(action.Operation)!=((action.Operation!=RemoteActionFilesReadSelect)&&((action.FileIndex!=0)||(action.Snapshot!="")))) ||
-  ((action.Operation==RemoteActionFilesReadSelect)!=(action.FileIndex!=0&&action.Snapshot=="")) ||
-  (action.Operation==RemoteActionFilesReadSelect&&!ValidRemoteFilesSelectIndex(action.FileIndex)) ||
+  (RemoteGitFileOperation(action.Operation)!=((action.Operation!=RemoteActionFilesReadSelect&&action.Operation!=RemoteActionFilesDirSelect)&&((action.FileIndex!=0)||(action.Snapshot!="")))) ||
+  ((action.Operation==RemoteActionFilesReadSelect||action.Operation==RemoteActionFilesDirSelect)!=(action.FileIndex!=0&&action.Snapshot=="")) ||
+  ((action.Operation==RemoteActionFilesReadSelect||action.Operation==RemoteActionFilesDirSelect)&&!ValidRemoteFilesSelectIndex(action.FileIndex)) ||
   (RemoteGitFileOperation(action.Operation)&&!ValidRemoteGitFileSelection(action.FileIndex,action.Snapshot)) ||
-  (!RemoteGitFileOperation(action.Operation)&&action.Operation!=RemoteActionFilesReadSelect&&(action.FileIndex!=0||action.Snapshot!="")) ||
+  (!RemoteGitFileOperation(action.Operation)&&action.Operation!=RemoteActionFilesReadSelect&&action.Operation!=RemoteActionFilesDirSelect&&(action.FileIndex!=0||action.Snapshot!="")) ||
   (action.Operation==RemoteActionTerminalWrite)!=(action.TerminalInput!="") ||
   (action.TerminalInput!=""&&!ValidRemoteTerminalInput(action.TerminalInput)) ||
   (action.Operation==RemoteActionTerminalResize)!=((action.Cols!=0)||(action.Rows!=0)) ||
