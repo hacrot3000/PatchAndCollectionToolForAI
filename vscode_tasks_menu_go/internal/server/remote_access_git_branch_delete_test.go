@@ -134,12 +134,29 @@ func TestRemoteGitBranchDeleteViewerCannotMutate(t *testing.T){
  requireGit(t)
  if runtime.GOOS=="windows"{t.Skip("Unix-only safe delete")}
  gitInitRemoteTest(t,s.Workspace)
+ git:=func(args ...string){
+  t.Helper()
+  cmd:=exec.Command("git",append([]string{"-C",s.Workspace},args...)...)
+  out,err:=cmd.CombinedOutput()
+  if err!=nil{t.Fatalf("git %v: %v %s",args,err,out)}
+ }
+ git("config","user.name","TaskDeck Viewer")
+ git("config","user.email","test@example.invalid")
+ git("add",".vscode/tasks.json")
+ git("commit","-m","initial")
+ git("branch","taskdeck/safe-target")
  t.Setenv("TASKDECK_REMOTE_GIT_BRANCH_DELETE","1")
  t.Setenv("TASKDECK_REMOTE_GIT_BRANCH_DELETE_NAME","safe-target")
+ preview,err:=s.readRemoteGitBranchDeleteReview(context.Background(),session)
+ if err!=nil||preview.Branch!="taskdeck/safe-target"{
+  t.Fatalf("viewer could not read authorized preview: %+v %v",preview,err)
+ }
  frame,err:=remotetransport.SealRemoteAction(client,remotetransport.RemoteAction{
   RequestID:remoteDispatchTestID,Operation:remotetransport.RemoteActionGitBranchDelete,
  })
  if err!=nil{t.Fatal(err)}
  reply,err:=s.executeRemoteE2EEPing(context.Background(),session,agent,frame)
  if err==nil||len(reply)!=0{t.Fatal("viewer escalated to destructive git.write")}
+ leaf:=filepath.Join(s.Workspace,".git","refs","heads","taskdeck","safe-target")
+ if _,err:=os.Lstat(leaf);err!=nil{t.Fatalf("viewer removed existing reviewed ref: %v",err)}
 }
