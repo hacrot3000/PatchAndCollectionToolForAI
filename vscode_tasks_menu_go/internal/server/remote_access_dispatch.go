@@ -25,6 +25,7 @@ func (s *Server) auditRemoteReadOnlyAction(session *remoteTaskDeckSession, opera
     operation!=remotetransport.RemoteActionGitTrackingNext &&
     operation!=remotetransport.RemoteActionGitPullReview &&
     operation!=remotetransport.RemoteActionGitSwitchReview &&
+    operation!=remotetransport.RemoteActionGitBranchDeleteReview &&
     operation!=remotetransport.RemoteActionGitPullChanges &&
     operation!=remotetransport.RemoteActionGitDiff &&
     operation!=remotetransport.RemoteActionGitPatchStart &&
@@ -54,7 +55,7 @@ func (s *Server) auditRemoteReadOnlyAction(session *remoteTaskDeckSession, opera
  userID:=session.userID
  projectID:=project.ID
  resourceType:="session"
- if operation==remotetransport.RemoteActionGitStatus||operation==remotetransport.RemoteActionGitLog||operation==remotetransport.RemoteActionGitBranches||operation==remotetransport.RemoteActionGitRemotes||operation==remotetransport.RemoteActionGitTrackingStart||operation==remotetransport.RemoteActionGitTrackingNext||operation==remotetransport.RemoteActionGitPullReview||operation==remotetransport.RemoteActionGitSwitchReview||operation==remotetransport.RemoteActionGitPullChanges||operation==remotetransport.RemoteActionGitDiff||operation==remotetransport.RemoteActionGitPatchStart||operation==remotetransport.RemoteActionGitPatchNext||operation==remotetransport.RemoteActionGitPatchCachedStart||operation==remotetransport.RemoteActionGitPatchCachedNext {resourceType="git"}
+ if operation==remotetransport.RemoteActionGitStatus||operation==remotetransport.RemoteActionGitLog||operation==remotetransport.RemoteActionGitBranches||operation==remotetransport.RemoteActionGitRemotes||operation==remotetransport.RemoteActionGitTrackingStart||operation==remotetransport.RemoteActionGitTrackingNext||operation==remotetransport.RemoteActionGitPullReview||operation==remotetransport.RemoteActionGitSwitchReview||operation==remotetransport.RemoteActionGitBranchDeleteReview||operation==remotetransport.RemoteActionGitPullChanges||operation==remotetransport.RemoteActionGitDiff||operation==remotetransport.RemoteActionGitPatchStart||operation==remotetransport.RemoteActionGitPatchNext||operation==remotetransport.RemoteActionGitPatchCachedStart||operation==remotetransport.RemoteActionGitPatchCachedNext {resourceType="git"}
  if operation==remotetransport.RemoteActionProjectInfo {resourceType="project"}
  if operation==remotetransport.RemoteActionFilesRoot||operation==remotetransport.RemoteActionFilesRootNext{resourceType="files"}
  if operation==remotetransport.RemoteActionTasksPreview || operation==remotetransport.RemoteActionTasksPreviewNext || operation==remotetransport.RemoteActionTasksInspect ||
@@ -168,10 +169,11 @@ func (s *Server) executeRemoteE2EEPing(
  case remotetransport.RemoteActionGitLog:
   permission=identity.PermissionGitLog
  case remotetransport.RemoteActionGitBranches,remotetransport.RemoteActionGitRemotes,
-  remotetransport.RemoteActionGitPullReview,remotetransport.RemoteActionGitSwitchReview,remotetransport.RemoteActionGitPullChanges,
+  remotetransport.RemoteActionGitPullReview,remotetransport.RemoteActionGitSwitchReview,remotetransport.RemoteActionGitBranchDeleteReview,remotetransport.RemoteActionGitPullChanges,
   remotetransport.RemoteActionGitTrackingStart,remotetransport.RemoteActionGitTrackingNext:
   permission=identity.PermissionGitStatus
- case remotetransport.RemoteActionGitBranchCreate,remotetransport.RemoteActionGitSwitchSameHead:
+ case remotetransport.RemoteActionGitBranchCreate,remotetransport.RemoteActionGitSwitchSameHead,
+  remotetransport.RemoteActionGitBranchDelete:
   permission=identity.PermissionGitWrite
  case remotetransport.RemoteActionGitDiff,
   remotetransport.RemoteActionGitPatchStart,remotetransport.RemoteActionGitPatchNext,
@@ -208,6 +210,7 @@ func (s *Server) executeRemoteE2EEPing(
  var gitTracking remotetransport.RemoteGitTrackingPage
  var gitBranchCreate remotetransport.RemoteGitBranchCreateResult
  var gitSwitch remotetransport.RemoteGitSwitchResult
+ var gitBranchDelete remotetransport.RemoteGitBranchDeleteResult
  var gitDiff string
  var gitPatch remotetransport.RemoteGitPatchPage
  var gitPull remotetransport.RemoteGitPullResult
@@ -296,6 +299,14 @@ func (s *Server) executeRemoteE2EEPing(
     var switchErr error
     gitSwitch,switchErr=s.executeRemoteGitSwitchSameHead(actionCtx,session)
     return switchErr
+   case remotetransport.RemoteActionGitBranchDeleteReview:
+    var reviewErr error
+    gitBranchDelete,reviewErr=s.readRemoteGitBranchDeleteReview(actionCtx,session)
+    return reviewErr
+   case remotetransport.RemoteActionGitBranchDelete:
+    var deleteErr error
+    gitBranchDelete,deleteErr=s.executeRemoteGitBranchDelete(actionCtx,session)
+    return deleteErr
    case remotetransport.RemoteActionGitDiff:
     var diffErr error
     gitDiff,diffErr=s.readRemoteGitDiff(actionCtx)
@@ -455,7 +466,9 @@ func (s *Server) executeRemoteE2EEPing(
   request.Operation!=remotetransport.RemoteActionGitFetch &&
   request.Operation!=remotetransport.RemoteActionGitBranchCreate &&
    request.Operation!=remotetransport.RemoteActionGitSwitchSameHead &&
+   request.Operation!=remotetransport.RemoteActionGitBranchDelete &&
    request.Operation!=remotetransport.RemoteActionGitSwitchReview &&
+   request.Operation!=remotetransport.RemoteActionGitBranchDeleteReview &&
   request.Operation!=remotetransport.RemoteActionGitStageTracked &&
   request.Operation!=remotetransport.RemoteActionGitUnstageAll &&
   request.Operation!=remotetransport.RemoteActionGitStageFile &&
@@ -502,6 +515,8 @@ func (s *Server) executeRemoteE2EEPing(
   sealed,err=remotetransport.SealRemoteGitBranchCreateResult(channel,request.RequestID,gitBranchCreate)
  case remotetransport.RemoteActionGitSwitchReview,remotetransport.RemoteActionGitSwitchSameHead:
   sealed,err=remotetransport.SealRemoteGitSwitchResult(channel,request.RequestID,gitSwitch)
+ case remotetransport.RemoteActionGitBranchDeleteReview,remotetransport.RemoteActionGitBranchDelete:
+  sealed,err=remotetransport.SealRemoteGitBranchDeleteResult(channel,request.RequestID,gitBranchDelete)
  case remotetransport.RemoteActionGitDiff:
   sealed,err=remotetransport.SealRemoteGitDiffResult(channel,request.RequestID,gitDiff)
  case remotetransport.RemoteActionGitPatchStart,remotetransport.RemoteActionGitPatchNext,

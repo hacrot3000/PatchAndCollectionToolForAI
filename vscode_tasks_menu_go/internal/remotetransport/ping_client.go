@@ -101,6 +101,14 @@ func (p *PingClient) GitBranches(ctx context.Context)(string,error){
  reply,err:=p.exchangeAction(ctx,RemoteActionGitBranches)
  return reply.gitBranches,err
 }
+func (p *PingClient) GitBranchDeleteReview(ctx context.Context)(RemoteGitBranchDeleteResult,error){
+ reply,err:=p.exchangeAction(ctx,RemoteActionGitBranchDeleteReview)
+ return reply.gitBranchDelete,err
+}
+func (p *PingClient) GitBranchDelete(ctx context.Context)(RemoteGitBranchDeleteResult,error){
+ reply,err:=p.exchangeAction(ctx,RemoteActionGitBranchDelete)
+ return reply.gitBranchDelete,err
+}
 func (p *PingClient) GitSwitchReview(ctx context.Context)(RemoteGitSwitchResult,error){
  reply,err:=p.exchangeAction(ctx,RemoteActionGitSwitchReview)
  return reply.gitSwitch,err
@@ -285,6 +293,7 @@ type remoteActionReply struct {
  gitTracking RemoteGitTrackingPage
  gitBranchCreate RemoteGitBranchCreateResult
  gitSwitch RemoteGitSwitchResult
+ gitBranchDelete RemoteGitBranchDeleteResult
  gitDiff string
  gitPatch RemoteGitPatchPage
  gitPull RemoteGitPullResult
@@ -402,6 +411,8 @@ func (p *PingClient) exchangePayloadAction(ctx context.Context,operation string,
   result.gitBranchCreate,err=OpenRemoteGitBranchCreateResult(channel,reply,id)
  case RemoteActionGitSwitchReview,RemoteActionGitSwitchSameHead:
   result.gitSwitch,err=OpenRemoteGitSwitchResult(channel,reply,id)
+ case RemoteActionGitBranchDeleteReview,RemoteActionGitBranchDelete:
+  result.gitBranchDelete,err=OpenRemoteGitBranchDeleteResult(channel,reply,id)
  case RemoteActionGitDiff:
   result.gitDiff,err=OpenRemoteGitDiffResult(channel,reply,id)
  case RemoteActionGitPatchStart,RemoteActionGitPatchNext,

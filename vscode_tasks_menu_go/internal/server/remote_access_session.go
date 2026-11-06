@@ -70,6 +70,11 @@ type remoteTaskDeckSession struct {
  gitSwitchMu sync.Mutex
  gitSwitchPreviewReady bool
  gitSwitchPreview remotetransport.RemoteGitSwitchResult
+ // One locally owned delete preview. It cannot be supplied by PHP or
+ // transferred to a different authenticated E2EE session.
+ gitDeleteMu sync.Mutex
+ gitDeletePreviewReady bool
+ gitDeletePreview remotetransport.RemoteGitBranchDeleteResult
  // Root Files cursor is E2EE-session scoped, never client-chosen and
  // never persisted in the untrusted PHP Portal or Relay.
  rootFilesMu sync.Mutex
