@@ -143,6 +143,7 @@ const trustedGUIHTML = `<!doctype html>
      <div><label for="task-deps-select">Xem phụ thuộc của task đã được cấp qua E2EE</label>
       <select id="task-deps-select" disabled><option value="">Chọn Task</option></select></div>
      <button type="button" id="task-deps-view" disabled>Xem thứ tự và phụ thuộc · chỉ đọc</button>
+     <button type="button" id="task-workflow-start" disabled>Chạy workflow đã kiểm tra</button>
     </div>
     <pre id="task-deps-output" hidden aria-label="Đồ thị phụ thuộc task chỉ đọc"></pre>
     <div class="task-coverage" aria-live="polite">
@@ -377,6 +378,7 @@ const trustedGUIJavaScript = `'use strict';
   const taskLabels=document.getElementById('task-preview-labels');
   const taskDepsSelect=document.getElementById('task-deps-select');
   const taskDepsView=document.getElementById('task-deps-view');
+  const taskWorkflowStart=document.getElementById('task-workflow-start');
   const taskDepsOutput=document.getElementById('task-deps-output');
   const taskFetchNext=document.getElementById('task-fetch-next');
   const taskFetchAll=document.getElementById('task-fetch-all');
@@ -398,7 +400,7 @@ const trustedGUIJavaScript = `'use strict';
   const taskPageSize=4;
   let cachedTaskLabels=[];
   let cachedTaskIDs=[];
-  let taskDepsPendingID=0;
+  let taskDepsPendingID=0,taskWorkflowReadyID=0;
   let inspectedTasks=new Map();
   // Transient, local-only drafts survive pagination, sorting and job polls.
   // Never retain them across a new host snapshot, re-inspection or logout.
@@ -1002,7 +1004,7 @@ const trustedGUIJavaScript = `'use strict';
   // Authenticated data must not remain displayed after logout, expiration
   // or revocation. Do not persist previous remote metadata in the browser.
   function clearPrivateViews(){
-    taskDepsPendingID=0;
+    taskWorkflowReadyID=0;taskDepsPendingID=0;
     taskDepsSelect.replaceChildren();taskDepsSelect.value='';
     taskDepsOutput.textContent='';taskDepsOutput.hidden=true;
     tasksReportOutput.textContent='';tasksReportOutput.hidden=true;
@@ -1187,6 +1189,9 @@ const trustedGUIJavaScript = `'use strict';
     taskDepsView.disabled=taskDepsSelect.disabled||
       !Number.isInteger(depsID)||depsID<1||depsID>2147483647||
       !cachedTaskIDs.includes(depsID);
+    taskWorkflowStart.disabled=taskDepsView.disabled||
+      taskWorkflowReadyID!==depsID||!available.task_long||
+      !available.task_run||longTaskID!==0||budget<=3||bulkLoading;
     taskRunStop.hidden=!taskRunning||closed;
     taskRunStop.disabled=!taskRunning||!verified||closed||closing||terminated;
     longTaskControls.hidden=longTaskID===0||closed;
@@ -1303,7 +1308,8 @@ const trustedGUIJavaScript = `'use strict';
       endpoint.startsWith('/api/tasks-start-input/');
     const isRun=endpoint.startsWith('/api/tasks-run/')||
       endpoint.startsWith('/api/tasks-run-input/');
-    const isLongAction=endpoint.startsWith('/api/tasks-start/')||
+    const isLongAction=endpoint.startsWith('/api/tasks-workflow-start/')||
+      endpoint.startsWith('/api/tasks-start/')||
       endpoint.startsWith('/api/tasks-start-input/')||
       endpoint.startsWith('/api/tasks-poll/')||
       endpoint.startsWith('/api/tasks-cancel/')||
@@ -1621,6 +1627,10 @@ const trustedGUIJavaScript = `'use strict';
              (edges.length?edges.map(e=>displayID(e[1])+' ← '+displayID(e[0])).join('\n'):
               '(Không có phụ thuộc)');
           taskDepsOutput.hidden=false;
+          taskWorkflowReadyID=data.available&&order.length>=2&&order.length<=4&&
+            edges.length===order.length-1&&
+            edges.every((edge,i)=>edge[0]===order[i]&&edge[1]===order[i+1])?
+             id:0;
           taskDepsPendingID=0;
          }
          if(endpoint==='/api/tasks-report'){
@@ -1664,6 +1674,7 @@ const trustedGUIJavaScript = `'use strict';
             throw new Error('Trang task E2EE không hợp lệ');
           }
           if(!appendPage){
+            taskWorkflowReadyID=0;
             taskDepsPendingID=0;
             taskDepsOutput.textContent='';taskDepsOutput.hidden=true;
             cachedTaskLabels=data.labels.slice();
@@ -1738,7 +1749,7 @@ const trustedGUIJavaScript = `'use strict';
         }
         if(isLongAction){
           let prefix='';
-          for(const candidate of ['/api/tasks-start/','/api/tasks-start-input/',
+          for(const candidate of ['/api/tasks-workflow-start/','/api/tasks-start/','/api/tasks-start-input/',
             '/api/tasks-poll/','/api/tasks-cancel/','/api/tasks-clear/']){
             if(endpoint.startsWith(candidate)){prefix=candidate;break;}
           }
@@ -2574,15 +2585,28 @@ const trustedGUIJavaScript = `'use strict';
     if(filesRootMore)invoke('/api/files-root-next');
   });
   tasksPreview.addEventListener('click',()=>invoke('/api/tasks-preview'));
-  taskDepsSelect.addEventListener('change',()=>render());
+  taskDepsSelect.addEventListener('change',()=>{taskWorkflowReadyID=0;render();});
   taskDepsView.addEventListener('click',()=>{
     const id=Number(taskDepsSelect.value);
     if(busy||closed||bulkLoading||!verified||!featuresKnown||
       !available.tasks_preview||budget<=0||!Number.isInteger(id)||
       id<=0||id>2147483647||!cachedTaskIDs.includes(id))return;
+    taskWorkflowReadyID=0;
     taskDepsPendingID=id;
     taskDepsOutput.textContent='';taskDepsOutput.hidden=true;
     invoke('/api/tasks-dependencies/'+String(id));
+  });
+  taskWorkflowStart.addEventListener('click',()=>{
+    const id=Number(taskDepsSelect.value);
+    if(busy||closed||bulkLoading||!verified||!featuresKnown||
+      !available.task_run||!available.task_long||budget<=3||
+      longTaskID!==0||!Number.isInteger(id)||id<1||
+      id!==taskWorkflowReadyID||!cachedTaskIDs.includes(id))return;
+    if(!window.confirm('Chạy tối đa 4 bước process tuyến tính trên host? '+
+      'Workflow được phép sẽ chạy tuần tự, có thể hủy và tự dừng khi lỗi. '+
+      'Không gửi lệnh hoặc tham số từ browser.'))return;
+    taskWorkflowReadyID=0;
+    invoke('/api/tasks-workflow-start/'+String(id));
   });
   tasksReport.addEventListener('click',()=>invoke('/api/tasks-report'));
   taskFetchNext.addEventListener('click',()=>{
