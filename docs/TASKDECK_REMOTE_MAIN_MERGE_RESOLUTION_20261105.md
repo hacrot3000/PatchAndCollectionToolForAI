@@ -159,3 +159,25 @@ loopback-route and browser GUI tests.
 - Production LIVE remains NO-GO until all existing security release gates
   pass. Tests running in CI are code-validation gates, not device test
   requirements for marking an implemented code feature complete.
+
+## 2026-11-06 — first scoped Files E2EE implementation
+
+- `files.root` is a fixed, root-only, read-only authenticated E2EE
+  operation on the existing native Agent dispatcher. The host requires the
+  local `files.read` RBAC permission and its own opt-in
+  `TASKDECK_REMOTE_FILES_ROOT=1` (disabled by default). Each request is
+  subject to current password/key, live Portal grant and local audit.
+- The browser cannot choose a path, project, filename, offset or command.
+  The host opens only the configured workspace root and lists at most
+  128 directory entries before refusing oversized directories. It returns
+  at most eight sorted safe ASCII file/directory **names**, skipping hidden
+  names, symlinks and special files. Contents, absolute host paths,
+  arbitrary directories and file transfer are not part of this action.
+- The native GUI shows this as an explicit opt-in root preview with
+  textContent-only output. There are strict E2EE result bounds and
+  filename/type validation on the Agent, native client and local GUI.
+- Tests cover opt-out denial, bounded items, no request-supplied paths,
+  symlink/hidden exclusion, and absence of recursion. This does NOT
+  restore the general Editor, binary transfer, upload/download,
+  arbitrary file reads or file mutations from main: those require
+  independent typed E2EE operations, authorization and regression tests.
