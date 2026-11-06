@@ -133,3 +133,50 @@ func TestRemoteGitPullFastForwardFromSingleSSHUpstream(t *testing.T){
   t.Fatalf("pulled HEAD %s != %s",got,want)
  }
 }
+
+func TestRemoteGitPullRefusesExecutableFiltersBeforeGitStatus(t *testing.T){
+ requireGit(t)
+ if runtime.GOOS=="windows"{t.Skip("Unix-only remote Git process-group")}
+ t.Setenv("TASKDECK_REMOTE_GIT_PULL","1")
+ s,session,_,_:=remoteDispatchFixture(t)
+ gitInitRemoteTest(t,s.Workspace)
+ run:=func(args ...string)string{
+  t.Helper()
+  command:=exec.Command("git",append([]string{"-C",s.Workspace},args...)...)
+  output,err:=command.CombinedOutput()
+  if err!=nil{t.Fatalf("git %v: %v: %s",args,err,output)}
+  return strings.TrimSpace(string(output))
+ }
+ run("config","user.name","Remote test")
+ run("config","user.email","remote@example.invalid")
+ if err:=os.WriteFile(filepath.Join(s.Workspace,".gitattributes"),
+  []byte("victim.txt filter=demo\n"),0600);err!=nil{t.Fatal(err)}
+ if err:=os.WriteFile(filepath.Join(s.Workspace,"victim.txt"),
+  []byte("original\n"),0600);err!=nil{t.Fatal(err)}
+ run("add","-A")
+ run("commit","-qm","Baseline")
+ branch:=run("symbolic-ref","--short","HEAD")
+ before:=run("rev-parse","HEAD")
+ run("remote","add","origin","ssh://git@example.invalid/team/repo.git")
+ run("config","branch."+branch+".remote","origin")
+ run("config","branch."+branch+".merge","refs/heads/"+branch)
+ run("update-ref","refs/remotes/origin/"+branch,before)
+ marker:=filepath.Join(t.TempDir(),"filter-ran")
+ // Even a Git status requested by a pull preflight may run clean
+ // drivers. The host must reject the repository's executable filter
+ // configuration before Git can invoke any user-defined helper.
+ for _,kind:=range []string{"clean","smudge","process"}{
+  key:="filter.demo."+kind
+  run("config",key,"sh -c 'echo EXECUTED > "+marker+"; cat'")
+  if _,err:=s.executeRemoteGitPull(context.Background(),session);err==nil{
+   t.Fatalf("Git pull admitted executable filter.%s",kind)
+  }
+  if _,err:=os.Stat(marker);err==nil{
+   t.Fatalf("Git pull launched repository-defined filter.%s",kind)
+  }else if !os.IsNotExist(err){t.Fatal(err)}
+  if head:=run("rev-parse","HEAD");head!=before{
+   t.Fatal("denied pull changed HEAD")
+  }
+  run("config","--unset",key)
+ }
+}
