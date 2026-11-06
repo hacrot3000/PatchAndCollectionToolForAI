@@ -52,11 +52,21 @@ func TestRemoteGitSwitchSameHeadFixedTargetCleanAndAudit(t *testing.T){
   t.Fatal("invalid host branch accepted")
  }
  t.Setenv("TASKDECK_REMOTE_GIT_SWITCH_NAME","review")
+ if _,err:=s.executeRemoteGitSwitchSameHead(context.Background(),session);err==nil{
+  t.Fatal("mutation accepted without preceding host-audited preview")
+ }
  if err:=os.WriteFile(file,[]byte("changed\n"),0600);err!=nil{t.Fatal(err)}
+ if _,err:=s.readRemoteGitSwitchReview(context.Background(),session);err==nil{
+  t.Fatal("dirty tracked file allowed switch preview")
+ }
  if _,err:=s.executeRemoteGitSwitchSameHead(context.Background(),session);err==nil{
   t.Fatal("dirty tracked file allowed branch switching")
  }
  if err:=os.WriteFile(file,[]byte("original\n"),0600);err!=nil{t.Fatal(err)}
+ plan,err:=s.readRemoteGitSwitchReview(context.Background(),session)
+ if err!=nil||plan.From!=current||plan.Branch!="review"||plan.Head!=head{
+  t.Fatalf("host review mismatch: %+v %v",plan,err)
+ }
  result,err:=s.executeRemoteGitSwitchSameHead(context.Background(),session)
  if err!=nil||result.From!=current||result.Branch!="review"||result.Head!=head{
   t.Fatalf("fixed host switch refused: %+v %v",result,err)
@@ -89,6 +99,9 @@ func TestRemoteGitSwitchSameHeadRejectsMissingTargetAndDifferentTip(t *testing.T
  s,session,git,_,current,_:=setupRemoteGitSwitch(t)
  t.Setenv("TASKDECK_REMOTE_GIT_SWITCH","1")
  t.Setenv("TASKDECK_REMOTE_GIT_SWITCH_NAME","unknown")
+ if _,err:=s.readRemoteGitSwitchReview(context.Background(),session);err==nil{
+  t.Fatal("unconfigured missing branch allowed preview")
+ }
  if _,err:=s.executeRemoteGitSwitchSameHead(context.Background(),session);err==nil{
   t.Fatal("unconfigured missing branch accepted")
  }
@@ -96,6 +109,9 @@ func TestRemoteGitSwitchSameHeadRejectsMissingTargetAndDifferentTip(t *testing.T
  git("config","user.name","TaskDeck Switch Test")
  git("commit","--allow-empty","-m","new source HEAD")
  // Existing review branch still points to the older commit.
+ if _,err:=s.readRemoteGitSwitchReview(context.Background(),session);err==nil{
+  t.Fatal("different HEAD allowed preview")
+ }
  if _,err:=s.executeRemoteGitSwitchSameHead(context.Background(),session);err==nil{
   t.Fatal("switch permitted target with a different tree or HEAD")
  }
@@ -108,6 +124,9 @@ func TestRemoteGitSwitchSameHeadRejectsUntrackedOrNestedWorkspace(t *testing.T){
  t.Setenv("TASKDECK_REMOTE_GIT_SWITCH","1")
  file:=filepath.Join(s.Workspace,"untracked-private.txt")
  if err:=os.WriteFile(file,[]byte("secret"),0600);err!=nil{t.Fatal(err)}
+ if _,err:=s.readRemoteGitSwitchReview(context.Background(),session);err==nil{
+  t.Fatal("untracked file was accepted in preview")
+ }
  if _,err:=s.executeRemoteGitSwitchSameHead(context.Background(),session);err==nil{
   t.Fatal("switch silently discarded untracked file")
  }
@@ -118,6 +137,9 @@ func TestRemoteGitSwitchSameHeadRejectsUntrackedOrNestedWorkspace(t *testing.T){
  nested:=filepath.Join(s.Workspace,"nested")
  if err:=os.Mkdir(nested,0700);err!=nil{t.Fatal(err)}
  s.Workspace=nested
+ if _,err:=s.readRemoteGitSwitchReview(context.Background(),session);err==nil{
+  t.Fatal("nested workspace escaped to parent repository in review")
+ }
  if _,err:=s.executeRemoteGitSwitchSameHead(context.Background(),session);err==nil{
   t.Fatal("nested workspace escaped to parent repository")
  }
@@ -135,4 +157,70 @@ func TestRemoteGitSwitchSameHeadViewerCannotEscalate(t *testing.T){
  if err!=nil{t.Fatal(err)}
  reply,err:=s.executeRemoteE2EEPing(context.Background(),session,agent,frame)
  if err==nil||len(reply)!=0{t.Fatal("viewer escalated into git.write via branch switch")}
+}
+
+func TestRemoteGitSwitchSameHeadRejectsPreviewDrift(t *testing.T){
+ s,session,git,_,current,head:=setupRemoteGitSwitch(t)
+ t.Setenv("TASKDECK_REMOTE_GIT_SWITCH","1")
+ plan,err:=s.readRemoteGitSwitchReview(context.Background(),session)
+ if err!=nil||plan.Head!=head{t.Fatalf("expected initial preview: %+v %v",plan,err)}
+ // Target changes after the native client saw the preview. The Agent must
+ // NOT switch to the new host-configured target without a new preview.
+ git("branch","other")
+ t.Setenv("TASKDECK_REMOTE_GIT_SWITCH_NAME","other")
+ if _,err:=s.executeRemoteGitSwitchSameHead(context.Background(),session);err==nil{
+  t.Fatal("unreviewed target branch substitution accepted")
+ }
+ if git("symbolic-ref","--short","HEAD")!=current{
+  t.Fatal("mismatching preview changed HEAD")
+ }
+ if _,err:=s.executeRemoteGitSwitchSameHead(context.Background(),session);err==nil{
+  t.Fatal("failed preview was reusable for mutation")
+ }
+ // Re-review this exact target and ensure the new plan is independently
+ // checked, rather than trusting the old approval.
+ next,err:=s.readRemoteGitSwitchReview(context.Background(),session)
+ if err!=nil||next.Branch!="other"{t.Fatalf("new preview failed: %+v %v",next,err)}
+ got,err:=s.executeRemoteGitSwitchSameHead(context.Background(),session)
+ if err!=nil||got.Branch!="other"||got.From!=current{t.Fatalf("reviewed target refused: %+v %v",got,err)}
+}
+func TestRemoteGitSwitchSameHeadViewerPreviewCannotMutate(t *testing.T){
+ requireGit(t)
+ if runtime.GOOS=="windows"{t.Skip("Unix-only branch switch")}
+ s,session,client,agent:=remoteDispatchFixture(t)
+ gitInitRemoteTest(t,s.Workspace)
+ git:=func(args ...string)string{
+  t.Helper()
+  cmd:=exec.Command("git",append([]string{"-C",s.Workspace},args...)...)
+  out,err:=cmd.CombinedOutput()
+  if err!=nil{t.Fatalf("git %v failed: %v %s",args,err,out)}
+  return strings.TrimSpace(string(out))
+ }
+ git("config","user.name","Switch Review")
+ git("config","user.email","test@example.invalid")
+ git("add",".vscode/tasks.json")
+ git("commit","-m","initial")
+ git("branch","review")
+ current:=git("symbolic-ref","--short","HEAD")
+ t.Setenv("TASKDECK_REMOTE_GIT_SWITCH","1")
+ t.Setenv("TASKDECK_REMOTE_GIT_SWITCH_NAME","review")
+ request:=func(op string)([]byte,error){
+  t.Helper()
+  frame,err:=remotetransport.SealRemoteAction(client,remotetransport.RemoteAction{
+   RequestID:remoteDispatchTestID,Operation:op,
+  })
+  if err!=nil{t.Fatal(err)}
+  return s.executeRemoteE2EEPing(context.Background(),session,agent,frame)
+ }
+ sealed,err:=request(remotetransport.RemoteActionGitSwitchReview)
+ if err!=nil{t.Fatalf("viewer could not read Git switch preview: %v",err)}
+ plan,err:=remotetransport.OpenRemoteGitSwitchResult(client,sealed,remoteDispatchTestID)
+ if err!=nil||plan.From!=current||plan.Branch!="review"{
+  t.Fatalf("viewer received bad preview: %+v %v",plan,err)
+ }
+ sealed,err=request(remotetransport.RemoteActionGitSwitchSameHead)
+ if err==nil||len(sealed)!=0{t.Fatal("read permission escalated into git.write")}
+ if git("symbolic-ref","--short","HEAD")!=current{
+  t.Fatal("viewer changed local Git branch")
+ }
 }
