@@ -122,7 +122,7 @@ func (s *Server) executeRemoteGitPull(
  filterCheck:=exec.CommandContext(ctx,"git",
   "-c","core.fsmonitor=false","-C",root,
   "config","--includes","--get-regexp",
-  "^filter\\\\..*\\\\.(clean|smudge|process)$")
+  "^filter\\..*\\.(clean|smudge|process)$")
  filterCheck.Dir=root
  filterCheck.Env=gitEnv
  filterCheck.Stdout=io.Discard
