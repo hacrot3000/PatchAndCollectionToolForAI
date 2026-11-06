@@ -86,6 +86,17 @@ func prepareRemoteTaskExecutionInput(
     ctx context.Context, workspace string, expected [32]byte, taskID int,
     choice int, inspectOnly bool, textInput string,
 ) (tasks.Execution,remoteTaskInputSelection,error) {
+    return prepareRemoteTaskExecutionInputMode(ctx,workspace,expected,taskID,
+        choice,inspectOnly,textInput,false)
+}
+
+// A workflow dependency may only bypass the single-task dependsOn denial
+// through the separately validated, host-opted-in DAG step runner.
+// This internal helper alone grants no execution authority.
+func prepareRemoteTaskExecutionInputMode(
+    ctx context.Context, workspace string, expected [32]byte, taskID int,
+    choice int, inspectOnly bool, textInput string,allowDependency bool,
+) (tasks.Execution,remoteTaskInputSelection,error) {
     denied := remotetransport.ErrRemoteActionDenied
     if ctx == nil || ctx.Err() != nil || workspace == "" ||
         taskID < 1 || taskID > 0x7fffffff || expected == ([32]byte{}) {
@@ -135,7 +146,7 @@ func prepareRemoteTaskExecutionInput(
         safeRemoteTaskPreviewLabel(candidate.MenuLabel) == "" ||
         len(candidate.Inputs) > 2 ||
         len(candidate.SecretEnv) != 0 ||
-        candidate.Raw["dependsOn"] != nil {
+        (!allowDependency && candidate.Raw["dependsOn"] != nil) {
         return tasks.Execution{},remoteTaskInputSelection{},denied
     }
     var picked remoteTaskInputSelection
