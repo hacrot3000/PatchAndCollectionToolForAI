@@ -18,6 +18,10 @@ func setupRemoteGitPullReview(t *testing.T)(*Server,*remoteTaskDeckSession,*remo
  requireGit(t)
  if runtime.GOOS=="windows"{t.Skip("Unix-only trusted Git review")}
  s,session,client,agent:=remoteDispatchFixture(t)
+ // The TaskDeck login fixture may have untracked DB/config files in the
+ // original workspace. Use a fresh host-selected root so the Git preview's
+ // strict clean-worktree precondition can be tested without committing them.
+ s.Workspace=t.TempDir()
  gitInitRemoteTest(t,s.Workspace)
  git:=func(args ...string)string{
   t.Helper()
