@@ -60,6 +60,61 @@ const scope={document:{getElementById:get,createElement:x=>new Element(x)},
 vm.createContext(scope);
 new vm.Script(match[1],{filename:'native-task-dependencies.js'}).runInContext(scope);
 const flush=async()=>{for(let i=0;i<70;i++)await Promise.resolve()};
+
+async function assertMalformedGraphIsRejected(graph,description){
+ const localNodes=new Map();
+ const getLocal=id=>{
+  if(!localNodes.has(id))localNodes.set(id,new Element(id));
+  return localNodes.get(id);
+ };
+ let left=16;
+ const requests=[];
+ const badFetch=async(path,opt)=>{
+  requests.push(path);
+  assert.equal(opt.headers['X-TaskDeck-Local-Capability'],token);
+  if(path==='/api/session')return {ok:true,json:async()=>({
+   ok:true,closed:false,active:false,remaining:left,expires_in_seconds:300,
+   device_id:'a'.repeat(64),username:'alice'
+  })};
+  if(path==='/api/features')return {ok:true,json:async()=>({
+   ok:true,session_ping:true,project_info:false,tasks_preview:true,
+   git_status:false,task_run:true,task_long:true,remote_control_available:false,
+   remaining:--left
+  })};
+  if(path==='/api/tasks-preview')return {ok:true,json:async()=>({
+   ok:true,total:1,labels:['Workflow'],ids:[55],remaining:--left
+  })};
+  if(path==='/api/tasks-dependencies/55')return {ok:true,json:async()=>({
+   ok:true,task_id:55,remote_control_available:false,remaining:--left,
+   ...graph
+  })};
+  if(path==='/api/close')return {ok:true,json:async()=>({ok:true,closed:true})};
+  throw Error('malformed graph initiated an unexpected action '+path);
+ };
+ const localScope={
+  document:{getElementById:getLocal,createElement:x=>new Element(x)},
+  window:{addEventListener(){},confirm(){throw Error('unsafe workflow confirmation')}},
+  history:{replaceState(){}},location:{hash:'#'+token,pathname:'/'},
+  fetch:badFetch,Date,Number,String,Promise,setInterval(){},setTimeout(){}
+ };
+ vm.createContext(localScope);
+ new vm.Script(match[1],{filename:'native-task-dependency-invalid.js'})
+  .runInContext(localScope);
+ const drain=async()=>{for(let i=0;i<70;i++)await Promise.resolve()};
+ await drain();
+ getLocal('features').click();await drain();
+ getLocal('tasks-preview').click();await drain();
+ getLocal('task-deps-select').value='55';
+ getLocal('task-deps-select').listeners.change();
+ getLocal('task-deps-view').click();await drain();
+ assert.equal(getLocal('task-workflow-start').disabled,true,
+  description+': invalid graph enabled workflow start');
+ assert.equal(getLocal('task-deps-output').hidden,true,
+  description+': invalid dependency graph was displayed as verified');
+ assert.equal(requests.some(x=>x.includes('workflow-start')),false,
+  description+': invalid graph started remote task');
+}
+
 (async()=>{
  await flush();
  assert.equal(get('task-deps-view').disabled,true,'unissued task ID could be inspected');
@@ -100,5 +155,20 @@ const flush=async()=>{for(let i=0;i<70;i++)await Promise.resolve()};
  assert.equal(get('task-deps-output').hidden,true,'graph visible after logout');
  assert.equal(get('task-workflow-start').disabled,true,
   'workflow start button persisted after logout');
- console.log('PASS: native E2EE workflow DAG preview and content-free opt-out, scrubbed on logout');
+ await assertMalformedGraphIsRejected({
+  available:false,run_available:true,order:[],edges:[]
+ },'false available with true run flag');
+ await assertMalformedGraphIsRejected({
+  available:true,run_available:true,
+  order:[44,33,55],edges:[[44,33],[44,33]]
+ },'duplicate edge replacing required dependency');
+ await assertMalformedGraphIsRejected({
+  available:true,run_available:true,
+  order:[44,33,55],edges:[[44,33],[44,55]]
+ },'nonlinear graph advertising executable chain');
+ await assertMalformedGraphIsRejected({
+  available:true,run_available:false,
+  order:[44,33,55],edges:[[44,33],[44,33]]
+ },'duplicate read-only graph edge');
+ console.log('PASS: native E2EE workflow DAG preview, strict graph validation, scrubbed on logout');
 })().catch(err=>{console.error(err);process.exitCode=1});

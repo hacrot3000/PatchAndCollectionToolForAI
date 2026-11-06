@@ -1599,6 +1599,7 @@ const trustedGUIJavaScript = `'use strict';
           const order=data.order,edges=data.edges;
           const validID=x=>Number.isInteger(x)&&x>0&&x<=2147483647;
           const positions=new Map();
+          const seenEdges=new Set();
           if(!validID(id)||id!==taskDepsPendingID||
             !cachedTaskIDs.includes(id)||data.task_id!==id||
             data.remote_control_available!==false||
@@ -1609,11 +1610,22 @@ const trustedGUIJavaScript = `'use strict';
               if(!validID(n)||positions.has(n))return true;
               positions.set(n,i);return false;
             })||
-            (!data.available&&(order.length!==0||edges.length!==0))||
+            (!data.available&&(data.run_available||order.length!==0||edges.length!==0))||
             (data.available&&(order.length===0||order[order.length-1]!==id))||
-            edges.some(e=>!Array.isArray(e)||e.length!==2||
-              !positions.has(e[0])||!positions.has(e[1])||
-              positions.get(e[0])>=positions.get(e[1]))){
+            (data.run_available&&(!data.available||order.length<2||
+              order.length>4||edges.length!==order.length-1))||
+            edges.some(e=>{
+              if(!Array.isArray(e)||e.length!==2||
+                !positions.has(e[0])||!positions.has(e[1])||
+                positions.get(e[0])>=positions.get(e[1]))return true;
+              const key=String(e[0])+':'+String(e[1]);
+              if(seenEdges.has(key))return true;
+              seenEdges.add(key);
+              return false;
+            })||
+            (data.run_available&&edges.some(e=>
+              !order.some((taskID,i)=>i>0&&
+                e[0]===order[i-1]&&e[1]===taskID)))){
             throw new Error('Đồ thị phụ thuộc E2EE không hợp lệ');
           }
           const displayID=x=>{
