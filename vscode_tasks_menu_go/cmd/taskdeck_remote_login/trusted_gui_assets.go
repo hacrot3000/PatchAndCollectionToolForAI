@@ -1602,7 +1602,8 @@ const trustedGUIJavaScript = `'use strict';
           if(!validID(id)||id!==taskDepsPendingID||
             !cachedTaskIDs.includes(id)||data.task_id!==id||
             data.remote_control_available!==false||
-            typeof data.available!=='boolean'||!Array.isArray(order)||
+            typeof data.available!=='boolean'||typeof data.run_available!=='boolean'||
+            !Array.isArray(order)||
             !Array.isArray(edges)||order.length>8||edges.length>8||
             order.some((n,i)=>{
               if(!validID(n)||positions.has(n))return true;
@@ -1627,7 +1628,8 @@ const trustedGUIJavaScript = `'use strict';
              (edges.length?edges.map(e=>displayID(e[1])+' ← '+displayID(e[0])).join('\n'):
               '(Không có phụ thuộc)');
           taskDepsOutput.hidden=false;
-          taskWorkflowReadyID=data.available&&order.length>=2&&order.length<=4&&
+          taskWorkflowReadyID=data.available&&data.run_available&&
+            order.length>=2&&order.length<=4&&
             edges.length===order.length-1&&
             edges.every((edge,i)=>edge[0]===order[i]&&edge[1]===order[i+1])?
              id:0;

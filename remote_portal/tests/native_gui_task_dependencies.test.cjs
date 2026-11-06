@@ -42,7 +42,7 @@ const fetch=async(path,opt)=>{
   remaining:--remaining,
  })};
  if(path==='/api/tasks-dependencies/55')return {ok:true,json:async()=>({
-  ok:true,task_id:55,available,
+  ok:true,task_id:55,available,run_available:available,
   order:available?[44,55]:[],edges:available?[[44,55]]:[],
   remote_control_available:false,remaining:--remaining,
  })};

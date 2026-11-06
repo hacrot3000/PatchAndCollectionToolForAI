@@ -1085,7 +1085,7 @@ func (ui *trustedGUI) action(w http.ResponseWriter,r *http.Request){
     if live{
      _=json.NewEncoder(w).Encode(map[string]any{
       "ok":true,"task_id":taskID,"available":deps.Available,
-      "order":deps.Order,"edges":deps.Edges,
+      "run_available":deps.RunAvailable,"order":deps.Order,"edges":deps.Edges,
       "remote_control_available":false,"remaining":remaining,
      })
      return

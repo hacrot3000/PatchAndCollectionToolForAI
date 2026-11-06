@@ -6,6 +6,7 @@ import(
  "os"
  "path/filepath"
 
+ "bletonfc/vscode_tasks_menu/internal/identity"
  "bletonfc/vscode_tasks_menu/internal/remotetransport"
  "bletonfc/vscode_tasks_menu/internal/tasks"
 )
@@ -101,6 +102,31 @@ func (s *Server)readRemoteTaskDependencies(ctx context.Context,
   next,ok2:=byLabel[edge[1]]
   if !ok1||!ok2{return empty,denied}
   result.Edges=append(result.Edges,[2]int{dep,next})
+ }
+ // Advisory only: an authenticated DAG preview must not invite a
+ // destructive start when host opt-in or local tasks.run permission is
+ // absent. Every actual start independently repeats all these checks.
+ if os.Getenv("TASKDECK_REMOTE_TASKS_WORKFLOW_RUN")=="1"&&
+  os.Getenv("TASKDECK_REMOTE_TASKS_RUN")=="1"&&
+  os.Getenv("TASKDECK_REMOTE_TASKS_LONG")=="1"&&
+  len(result.Order)>=2&&len(result.Order)<=remoteWorkflowMaxSteps&&
+  len(result.Edges)==len(result.Order)-1{
+  linear:=true
+  for i,e:=range result.Edges{
+   if e[0]!=result.Order[i]||e[1]!=result.Order[i+1]{linear=false}
+  }
+  for _,n:=range graph.Nodes{
+   item,found:=tasks.TaskByLabel(list,n.Label)
+   if !found||!remoteWorkflowSafeProcess(item){linear=false}
+  }
+  if linear{
+   principal,authErr:=s.verifyRemoteSessionLocalPrincipal(ctx,session)
+   if authErr==nil&&remotetransport.AuthorizeAction(true,
+    session.role,&principal,session.projectKey,
+    identity.PermissionTasksRun)==nil{
+    result.RunAvailable=true
+   }
+  }
  }
  after,err:=os.ReadFile(filename)
  if err!=nil||!bytes.Equal(before,after)||
