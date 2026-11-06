@@ -65,6 +65,12 @@ type remoteTaskDeckSession struct {
  gitPatchCursor int
  gitPatchPage int
  gitPatchDigest [32]byte
+ // Root Files cursor is E2EE-session scoped, never client-chosen and
+ // never persisted in the untrusted PHP Portal or Relay.
+ rootFilesMu sync.Mutex
+ rootFilesReady bool
+ rootFilesCursor int
+ rootFilesDigest [32]byte
  // Local host-owned tracking-ref cursor, never a transferable token.
  gitTrackingMu sync.Mutex
  gitTrackingReady bool
