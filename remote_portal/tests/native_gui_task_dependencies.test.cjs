@@ -56,7 +56,7 @@ const fetch=async(path,opt)=>{
 };
 const scope={document:{getElementById:get,createElement:x=>new Element(x)},
  window:{addEventListener(){},confirm(){return confirmAccept}},history:{replaceState(){}},
- location:{hash:'#'+token,pathname:'/'},fetch,Date,Number,String,Promise,setInterval(){}};
+ location:{hash:'#'+token,pathname:'/'},fetch,Date,Number,String,Promise,setInterval(){},setTimeout(){}};
 vm.createContext(scope);
 new vm.Script(match[1],{filename:'native-task-dependencies.js'}).runInContext(scope);
 const flush=async()=>{for(let i=0;i<70;i++)await Promise.resolve()};
