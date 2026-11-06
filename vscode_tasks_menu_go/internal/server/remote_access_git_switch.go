@@ -19,8 +19,18 @@ import (
 // existing branch IF BOTH refs already point to exactly the same HEAD commit.
 // No arbitrary checkout, network, branch creation, reset, file path or remote
 // command is part of this authenticated E2EE action.
+func(s *Server)readRemoteGitSwitchReview(
+ ctx context.Context,session *remoteTaskDeckSession,
+)(remotetransport.RemoteGitSwitchResult,error){
+ return s.remoteGitSwitchSameHead(ctx,session,false)
+}
 func(s *Server)executeRemoteGitSwitchSameHead(
  ctx context.Context,session *remoteTaskDeckSession,
+)(remotetransport.RemoteGitSwitchResult,error){
+ return s.remoteGitSwitchSameHead(ctx,session,true)
+}
+func(s *Server)remoteGitSwitchSameHead(
+ ctx context.Context,session *remoteTaskDeckSession,apply bool,
 )(remotetransport.RemoteGitSwitchResult,error){
  denied:=remotetransport.ErrRemoteActionDenied
  var empty remotetransport.RemoteGitSwitchResult
@@ -30,6 +40,13 @@ func(s *Server)executeRemoteGitSwitchSameHead(
   session.closed.Load()||session.channel==nil||
   !session.channel.Established()||session.portalGrant==nil||
   !session.portalGrant.ActiveForSession(session.channel){return empty,denied}
+ // Consume the host-owned preview before any new preflight or mutation.
+ // A changed branch/ref/worktree/host target invalidates the comparison.
+ if !session.gitSwitchMu.TryLock(){return empty,denied}
+ defer session.gitSwitchMu.Unlock()
+ prior,ready:=session.gitSwitchPreview,session.gitSwitchPreviewReady
+ session.gitSwitchPreviewReady=false
+ if apply&&!ready{return empty,denied}
  target:=os.Getenv("TASKDECK_REMOTE_GIT_SWITCH_NAME")
  if !remotetransport.ValidRemoteGitCreatedBranchName(target){return empty,denied}
  release,err:=session.reserveRemoteGitMutation(ctx)
@@ -105,6 +122,21 @@ func(s *Server)executeRemoteGitSwitchSameHead(
  if err!=nil||verifyHead!=head{return empty,denied}
  verifyTarget,err:=run(128,"rev-parse","--verify","refs/heads/"+target+"^{commit}")
  if err!=nil||verifyTarget!=head{return empty,denied}
+ plan:=remotetransport.RemoteGitSwitchResult{
+  From:current,Branch:target,Head:head,
+ }
+ if !remotetransport.ValidRemoteGitSwitchResult(plan){return empty,denied}
+ if !apply{
+  // The preview must be durably audited before the host accepts a later
+  // mutation request based on it.
+  if err:=s.auditRemoteReadOnlyAction(session,
+   remotetransport.RemoteActionGitSwitchReview);err!=nil{return empty,denied}
+  if deadline.Err()!=nil||session.closed.Load(){return empty,denied}
+  session.gitSwitchPreview=plan
+  session.gitSwitchPreviewReady=true
+  return plan,nil
+ }
+ if prior!=plan{return empty,denied}
  if err:=s.auditRemoteGitSwitchAttempt(deadline,session);err!=nil{return empty,denied}
  if deadline.Err()!=nil||session.closed.Load()||
   !session.portalGrant.ActiveForSession(session.channel){return empty,denied}
@@ -119,9 +151,7 @@ func(s *Server)executeRemoteGitSwitchSameHead(
  afterStatus,err:=run(256,"status","--porcelain=v1",
   "--untracked-files=all","--ignore-submodules=none")
  if err!=nil||afterStatus!=""{return empty,denied}
- return remotetransport.RemoteGitSwitchResult{
-  From:current,Branch:target,Head:head,
- },nil
+ return plan,nil
 }
 
 func(s *Server)auditRemoteGitSwitchAttempt(ctx context.Context,

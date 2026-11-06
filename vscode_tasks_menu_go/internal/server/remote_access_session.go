@@ -65,6 +65,11 @@ type remoteTaskDeckSession struct {
  gitPatchCursor int
  gitPatchPage int
  gitPatchDigest [32]byte
+ // One authenticated read-only switch preview at a time. This never
+ // travels through PHP/Relay; no bearer preview token is issued.
+ gitSwitchMu sync.Mutex
+ gitSwitchPreviewReady bool
+ gitSwitchPreview remotetransport.RemoteGitSwitchResult
  // Root Files cursor is E2EE-session scoped, never client-chosen and
  // never persisted in the untrusted PHP Portal or Relay.
  rootFilesMu sync.Mutex
