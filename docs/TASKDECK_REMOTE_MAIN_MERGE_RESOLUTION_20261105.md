@@ -92,3 +92,27 @@ compatibility which could not compile.
 - No changes to session.features wire schema or agent encryption frame limits.
   The pre-existing session quota may prevent reading all pages of an unusually
   verbose snapshot. No client-controlled offsets or reusable bearer tokens.
+
+## 2026-11-06 — read-only offline Git Pull Review
+
+Ported the review step from main (not its separate incompatible transport)
+as `git.pull_review` in the established TaskDeck Agent E2EE protocol.
+The host checks the exact workspace root, clean index/worktree including
+untracked files, non-shallow local branch, existing local tracking ref, and
+full commit ancestry before displaying either `up-to-date` or
+`fast-forward`. Conflicts, divergence, no upstream, dirty or shallow
+repositories are refused; no partially approved state is sent.
+
+The command uses fixed trusted Git binary locations, an isolated environment,
+no local username/password/URL transfer, no network requests and no Git writes.
+Its authenticated response contains **only HEAD and upstream commit OIDs**
+plus a strict status enum. Host opt-in
+`TASKDECK_REMOTE_GIT_PULL_REVIEW=1` is required; default is disabled.
+Permission is local `git.status`, separate from `git.pull` (GitWrite).
+The GUI shows this clearly as an informational preview, NOT an approval
+or authority to perform a later Pull. Every action is audited locally and
+bound to the same client key, local password and current live Portal grant.
+
+The existing 512-byte E2EE envelope and `session.features` shape are
+preserved. Added typed codec/forgery, real Git repository/TOCTOU, RBAC,
+loopback-route and browser GUI tests.

@@ -29,6 +29,7 @@ on:
       - 'remote_portal/tests/native_gui_git_branches.test.cjs'
       - 'remote_portal/tests/native_gui_git_remotes.test.cjs'
       - 'remote_portal/tests/native_gui_git_tracking.test.cjs'
+      - 'remote_portal/tests/native_gui_git_pull_review.test.cjs'
       - 'remote_portal/tests/native_gui_git_patch.test.cjs'
       - 'remote_portal/tests/native_gui_git_branch_create.test.cjs'
       - 'remote_portal/tests/native_gui_terminal.test.cjs'
@@ -60,6 +61,7 @@ on:
       - 'remote_portal/tests/native_gui_git_branches.test.cjs'
       - 'remote_portal/tests/native_gui_git_remotes.test.cjs'
       - 'remote_portal/tests/native_gui_git_tracking.test.cjs'
+      - 'remote_portal/tests/native_gui_git_pull_review.test.cjs'
       - 'remote_portal/tests/native_gui_git_patch.test.cjs'
       - 'remote_portal/tests/native_gui_git_branch_create.test.cjs'
       - 'remote_portal/tests/native_gui_terminal.test.cjs'
@@ -130,6 +132,8 @@ jobs:
         run: node remote_portal/tests/native_gui_git_remotes.test.cjs
       - name: Verify host-owned tracking ref pagination in trusted native GUI
         run: node remote_portal/tests/native_gui_git_tracking.test.cjs
+      - name: Verify offline Git Pull review is not a Git write permission
+        run: node remote_portal/tests/native_gui_git_pull_review.test.cjs
       - name: Verify bounded Git patch pagination native GUI
         run: node remote_portal/tests/native_gui_git_patch.test.cjs
       - name: Verify host-fixed Git branch create native GUI confirmation
@@ -153,6 +157,9 @@ jobs:
       - name: Verify paged offline Git tracking refs and snapshot rejection
         working-directory: vscode_tasks_menu_go
         run: go test -race ./internal/remotetransport ./internal/server ./cmd/taskdeck_remote_login -run 'Test(RemoteGitTracking|TrustedGUIGitTracking)' -count=1 -timeout=90s
+      - name: Verify main's offline Pull review via authenticated GitStatus E2EE
+        working-directory: vscode_tasks_menu_go
+        run: go test -race ./internal/remotetransport ./internal/server ./cmd/taskdeck_remote_login -run 'Test(RemoteGitPullReview|TrustedGUIGitPullReview)' -count=1 -timeout=90s
       - name: Verify fixed Git branches protocol and real-repository safeguards first
         working-directory: vscode_tasks_menu_go
         run: go test -race ./internal/remotetransport ./internal/server -run 'TestRemoteGitBranches' -count=1 -timeout=90s

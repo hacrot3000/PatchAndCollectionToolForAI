@@ -118,6 +118,12 @@ func(f *fakeGUIActions)GitPatchNext(ctx context.Context)(remotetransport.RemoteG
  return remotetransport.RemoteGitPatchPage{Page:2,Patch:"+change",More:false},nil
 }
 
+func(f *fakeGUIActions)GitPullReview(ctx context.Context)(remotetransport.RemoteGitPullReviewResult,error){
+ f.gitCount.Add(1)
+ return remotetransport.RemoteGitPullReviewResult{
+  Head:strings.Repeat("a",40),UpstreamHead:strings.Repeat("b",40),Status:"fast-forward",
+ },nil
+}
 func(f *fakeGUIActions)GitPull(ctx context.Context)(remotetransport.RemoteGitPullResult,error){
  f.gitCount.Add(1)
  return remotetransport.RemoteGitPullResult{
@@ -1088,6 +1094,37 @@ func TestTrustedGUIGitLogFixedReadOnlyRoute(t *testing.T){
   if bad.Code==http.StatusOK||fake.gitCount.Load()!=1{
    t.Fatalf("Git log accepted client arguments: %s",path)
   }
+ }
+}
+
+
+func TestTrustedGUIGitPullReviewReadOnlyFixedRoute(t *testing.T){
+ fake:=&fakeGUIActions{}
+ ui,_:=newUITest(t,fake)
+ rr:=httptest.NewRecorder()
+ ui.ServeHTTP(rr,localRequest("POST","/api/git-pull-review",uiTestOrigin,uiTestToken))
+ if rr.Code!=http.StatusOK||
+  !strings.Contains(rr.Body.String(),`"status":"fast-forward"`)||
+  !strings.Contains(rr.Body.String(),`"head":"`+strings.Repeat("a",40)+`"`)||
+  !strings.Contains(rr.Body.String(),`"remote_control_available":false`)||
+  fake.gitCount.Load()!=1{
+  t.Fatalf("Git pull preview leaked or failed: %d %s",rr.Code,rr.Body.String())
+ }
+ for _,path:=range []string{
+  "/api/git-pull-review?branch=other","/api/git-pull-review?fetch=1",
+  "/api/git-pull-review/other",
+ }{
+  bad:=httptest.NewRecorder()
+  ui.ServeHTTP(bad,localRequest("POST",path,uiTestOrigin,uiTestToken))
+  if bad.Code==http.StatusOK||fake.gitCount.Load()!=1{
+   t.Fatalf("Pull review accepted client-selected arguments: %s",path)
+  }
+ }
+ forged:=httptest.NewRecorder()
+ ui.ServeHTTP(forged,localRequest("POST","/api/git-pull-review",
+  "https://portal.invalid",uiTestToken))
+ if forged.Code==http.StatusOK||fake.gitCount.Load()!=1{
+  t.Fatal("untrusted Portal accessed trusted Pull review")
  }
 }
 
