@@ -50,7 +50,9 @@ func(s *Server)readRemoteGitRemotes(ctx context.Context)(string,error){
   err:=cmd.Run()
   killGitJobProcess(cmd)
   if err!=nil||ctx.Err()!=nil||output.truncated{return "",denied}
-  return output.String(),nil
+  // boundedCommandOutput.String() trims trailing newlines for SSH display.
+  // The Git metadata wire contract needs the original complete stdout.
+  return output.buf.String(),nil
  }
  top,err:=run(4096,"-c","core.fsmonitor=false","-C",root,
   "rev-parse","--show-toplevel")
