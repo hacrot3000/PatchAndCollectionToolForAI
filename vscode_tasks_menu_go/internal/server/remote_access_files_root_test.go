@@ -122,3 +122,33 @@ func TestRemoteFilesRootPagedE2EEAndAudit(t *testing.T){
   t.Fatalf("next page missing TaskDeck-local audit: %+v %v",audits,err)
  }
 }
+
+func TestRemoteFilesRootRejectsSwappedWorkspaceSymlink(t *testing.T){
+ if runtime.GOOS=="windows"{t.Skip("Unix-only no-follow workspace root")}
+ s,_,_,_:=remoteDispatchFixture(t)
+ t.Setenv("TASKDECK_REMOTE_FILES_ROOT","1")
+ base:=t.TempDir()
+ root:=filepath.Join(base,"workspace")
+ original:=filepath.Join(base,"workspace-original")
+ if err:=os.Mkdir(root,0700);err!=nil{t.Fatal(err)}
+ if err:=os.WriteFile(filepath.Join(root,"allowed.txt"),[]byte("ok"),0600);err!=nil{t.Fatal(err)}
+ outside:=t.TempDir()
+ if err:=os.WriteFile(filepath.Join(outside,"private.txt"),
+  []byte("do not disclose"),0600);err!=nil{t.Fatal(err)}
+ s.Workspace=root
+ first,err:=s.readRemoteFilesRoot(context.Background())
+ if err!=nil||len(first.Items)!=1||first.Items[0]!="F:allowed.txt"{
+  t.Fatalf("real workspace refused: %+v %v",first,err)
+ }
+ if err:=os.Rename(root,original);err!=nil{t.Fatal(err)}
+ if err:=os.Symlink(outside,root);err!=nil{t.Fatal(err)}
+ if _,err:=s.readRemoteFilesRoot(context.Background());err==nil{
+  t.Fatal("swapped symlink workspace root disclosed outside directory")
+ }
+ if err:=os.Remove(root);err!=nil{t.Fatal(err)}
+ if err:=os.Rename(original,root);err!=nil{t.Fatal(err)}
+ restored,err:=s.readRemoteFilesRoot(context.Background())
+ if err!=nil||len(restored.Items)!=1||restored.Items[0]!="F:allowed.txt"{
+  t.Fatalf("restoring original root failed: %+v %v",restored,err)
+ }
+}
