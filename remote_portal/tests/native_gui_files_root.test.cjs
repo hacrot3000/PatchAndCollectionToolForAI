@@ -23,7 +23,7 @@ class Element{
 const elements=new Map();
 const get=id=>{if(!elements.has(id))elements.set(id,new Element(id));return elements.get(id)};
 const token='0123456789abcdef'.repeat(4);
-let remaining=16,starts=0,nexts=0;
+let remaining=16,starts=0,nexts=0,textStarts=0,textNexts=0;
 const fetch=async(url,opt)=>{
  assert.equal(opt.method,'POST');
  assert.equal(opt.headers['X-TaskDeck-Local-Capability'],token);
@@ -51,6 +51,20 @@ const fetch=async(url,opt)=>{
    remote_control_available:false,remaining:--remaining,
   })};
  }
+ if(url==='/api/files-read-start'){
+  textStarts++;
+  return {ok:true,json:async()=>({
+   ok:true,name:'notes.txt',page:1,text:'Host-approved text, ',more:true,
+   remote_control_available:false,remaining:--remaining,
+  })};
+ }
+ if(url==='/api/files-read-next'){
+  textNexts++;
+  return {ok:true,json:async()=>({
+   ok:true,name:'notes.txt',page:2,text:'not a file chosen by PHP.',
+   more:false,remote_control_available:false,remaining:--remaining,
+  })};
+ }
  if(url==='/api/close')return {ok:true,json:async()=>({ok:true,closed:true})};
  throw Error('Unexpected local route '+url);
 };
@@ -70,6 +84,8 @@ const flush=async()=>{for(let i=0;i<100;i++)await Promise.resolve()};
  get('features').click();await flush();
  assert.equal(get('files-root').disabled,false,'files.read opt-in hidden');
  assert.equal(get('files-root-next').disabled,true,'next accepted before first page');
+ assert.equal(get('files-read-start').disabled,false,'file preview not available on read-only Files screen');
+ assert.equal(get('files-read-next').disabled,true,'file continuation accepted before first page');
  get('nav-files').click();
  assert.equal(get('panel-files').hidden,false,'Files page not integrated in navigation');
  assert.equal(get('panel-project').hidden,true,'switching Files tab kept Project visible');
@@ -82,8 +98,19 @@ const flush=async()=>{for(let i=0;i<100;i++)await Promise.resolve()};
  assert.equal(get('files-root-next').disabled,true,'terminal page can be replayed');
  assert.ok(get('files-root-output').textContent.includes('one.txt'));
  assert.ok(get('files-root-output').textContent.includes('two.txt'));
+ get('files-read-start').click();await flush();
+ assert.equal(textStarts,1,'fixed host file-read start not called');
+ assert.equal(get('files-read-next').disabled,false,'next file page should be available');
+ assert.ok(get('files-read-output').textContent.includes('Host-approved text, '));
+ get('files-read-next').click();await flush();
+ assert.equal(textNexts,1,'fixed host file-read next not called');
+ assert.equal(get('files-read-next').disabled,true,'terminal read page is reusable');
+ assert.ok(get('files-read-output').textContent.includes('not a file chosen by PHP.'));
+ assert.ok(get('files-read-output').textContent.includes('notes.txt'));
  get('disconnect').click();await flush();
  assert.equal(get('files-root-output').textContent,'','Files names survived logout');
  assert.equal(get('files-root-output').hidden,true);
- console.log('PASS: fixed E2EE Files root page/next, no offset, no write privilege, logout cleanup');
+ assert.equal(get('files-read-output').textContent,'','Files contents survived logout');
+ assert.equal(get('files-read-output').hidden,true,'File contents remained visible after logout');
+ console.log('PASS: fixed E2EE Files root and text pages, no path, no write, logout scrub');
 })().catch(err=>{console.error(err);process.exitCode=1});
