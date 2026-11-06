@@ -4006,6 +4006,7 @@ function installPatchPanel(){
       // A prior prompt may have buttons with a matching capabilities signature.
       // Empty queues must invalidate them so the next nonempty queue creates actions.
       promptTools.replaceChildren();
+      promptItems.replaceChildren();
       promptButtons.replaceChildren();
       delete promptTools.dataset.patchToolsSignature;
       delete promptButtons.dataset.patchButtonsSignature;
