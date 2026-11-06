@@ -232,3 +232,40 @@ loopback-route and browser GUI tests.
 - Go/Node regression tests cover unordered/forged results, next-before-
   first, cursor exhaustion, stale snapshot denial, TaskDeck audit and GUI
   per-page gating. This is code-only implementation, not LIVE approval.
+
+## 2026-11-06 — Host-fixed same-HEAD branch switch with reviewed plan
+
+- Ported a strictly constrained alternative to main's branch-switch action.
+  `git.switch_review` is read-only and requires the current `git.status`
+  RBAC; `git.switch_same_head` is a separate **mutating** E2EE action
+  requiring `git.write`. Both require host opt-in
+  `TASKDECK_REMOTE_GIT_SWITCH=1`, and only the trusted host can define
+  `TASKDECK_REMOTE_GIT_SWITCH_NAME` (one validated existing local branch).
+- No branch, revision, path, Git options, terminal command or remote URL is
+  supplied in the E2EE request; PHP and Relay only forward ciphertext.
+  The native GUI first displays the full host-verified source branch, target
+  branch and HEAD commit. The user confirms this exact plan before clicking
+  the mutating control.
+- The Agent stores the audited preview inside the authenticated session,
+  not in a transferable continuation token. A switch without a previously
+  reviewed plan, a replayed review or any changed target/current/HEAD is
+  denied. The host also requires a pristine index and worktree (including
+  untracked and submodule status), exact workspace Git root, and equal commit
+  OIDs of both local branches. It holds the existing task/PTY Git mutation
+  exclusion slot and uses a fixed Git executable with hooks disabled.
+  Git's own `switch --no-guess` checks cross-worktree checkout constraints.
+- The operation neither creates branches nor fetches, merges, resets,
+  force-checkouts or pushes. The local TaskDeck audit never records
+  branch names or passwords.
+- E2EE `session.features` still has a strict 512-byte plaintext ceiling;
+  no new feature flag is added to the already bounded status message.
+  The GUI exposes *preview* when its Git branches read feature is enabled.
+  The actual write is independently gated by host opt-in + `git.write`,
+  not by that visibility hint.
+- Regression tests cover host opt-in, clean equal-tip success, dirty/missing/
+  changed-tip denial, inspected plan drift, viewer inability to mutate,
+  strict E2EE typed result, malicious caller arguments, and native GUI
+  confirmation with the named source/target.
+- This does **not** yet restore arbitrary branch switching, branch deletion
+  or any operation that changes checked-out file content. Such operations
+  require independent, individually reviewed E2EE schemas and safety gates.
