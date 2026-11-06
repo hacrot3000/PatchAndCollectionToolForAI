@@ -23,7 +23,7 @@ func ValidRemoteFilesRootItem(v string)bool{
  return true
 }
 func ValidRemoteFilesRoot(v RemoteFilesRoot)bool{
- if len(v.Items)>MaxRemoteFilesRootItems{return false}
+ if len(v.Items)>MaxRemoteFilesRootItems||(v.More&&len(v.Items)==0){return false}
  previous:=""
  for _,item:=range v.Items{
   if !ValidRemoteFilesRootItem(item)||item[2:]<=previous{return false}
