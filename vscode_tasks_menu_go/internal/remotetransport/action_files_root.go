@@ -3,6 +3,7 @@ package remotetransport
 import "encoding/json"
 
 const RemoteFilesRootProtocol="taskdeck-e2ee-files-root-v1"
+const RemoteActionFilesRootNext="files.root.next"
 const MaxRemoteFilesRootItems=8
 type RemoteFilesRoot struct {Items []string; More bool}
 type remoteFilesRootWire struct {

@@ -204,6 +204,10 @@ func (p *PingClient) TerminalClose(ctx context.Context)(RemoteTerminalProgress,e
 
 // ProjectInfo retrieves only bounded display metadata for the single
 // locally authorized TaskDeck project. No remote-selected project key or path.
+func (p *PingClient) FilesRootNext(ctx context.Context)(RemoteFilesRoot,error){
+ reply,err:=p.exchangeAction(ctx,RemoteActionFilesRootNext)
+ return reply.filesRoot,err
+}
 func (p *PingClient) FilesRoot(ctx context.Context)(RemoteFilesRoot,error){
  reply,err:=p.exchangeAction(ctx,RemoteActionFilesRoot)
  return reply.filesRoot,err
@@ -409,7 +413,7 @@ func (p *PingClient) exchangePayloadAction(ctx context.Context,operation string,
   result.gitIndex,err=OpenRemoteGitIndexResult(channel,reply,id,operation)
  case RemoteActionProjectInfo:
   result.info,err=OpenRemoteActionProjectInfoResult(channel,reply,id)
- case RemoteActionFilesRoot:
+ case RemoteActionFilesRoot,RemoteActionFilesRootNext:
   result.filesRoot,err=OpenRemoteFilesRoot(channel,reply,id)
  case RemoteActionTasksPreview,RemoteActionTasksPreviewNext:
   result.preview,err=OpenRemoteActionTasksPreviewResult(channel,reply,id)
