@@ -33,6 +33,7 @@ on:
       - 'remote_portal/tests/native_gui_files_root.test.cjs'
       - 'remote_portal/tests/native_gui_git_patch.test.cjs'
       - 'remote_portal/tests/native_gui_git_branch_create.test.cjs'
+      - 'remote_portal/tests/native_gui_git_switch.test.cjs'
       - 'remote_portal/tests/native_gui_terminal.test.cjs'
       - 'vscode_tasks_menu_go/internal/config/**'
       - 'vscode_tasks_menu_go/internal/server/**'
@@ -66,6 +67,7 @@ on:
       - 'remote_portal/tests/native_gui_files_root.test.cjs'
       - 'remote_portal/tests/native_gui_git_patch.test.cjs'
       - 'remote_portal/tests/native_gui_git_branch_create.test.cjs'
+      - 'remote_portal/tests/native_gui_git_switch.test.cjs'
       - 'remote_portal/tests/native_gui_terminal.test.cjs'
       - 'deploy/remote/verify_client.sh'
       - 'tests/test_remote_client_provenance.sh'
@@ -149,6 +151,8 @@ jobs:
         run: node remote_portal/tests/native_gui_git_patch.test.cjs
       - name: Verify host-fixed Git branch create native GUI confirmation
         run: node remote_portal/tests/native_gui_git_branch_create.test.cjs
+      - name: Verify host-fixed same-HEAD Git branch switch GUI confirmation
+        run: node remote_portal/tests/native_gui_git_switch.test.cjs
       - name: Verify short-lived E2EE native Terminal PTY controls
         run: node remote_portal/tests/native_gui_terminal.test.cjs
       - name: Test Go-Agent-to-browser E2EE interoperability
@@ -173,7 +177,7 @@ jobs:
         run: go test -race ./internal/remotetransport ./internal/server -run 'TestRemoteGitBranches' -count=1 -timeout=90s
       - name: Verify bounded Git pull, commit, push, fetch, branches, patch, per-file index, log and diff
         working-directory: vscode_tasks_menu_go
-        run: go test -race ./internal/remotetransport ./internal/server -run 'TestRemoteGit(Pull|Commit|Push|Fetch|BranchCreate|Branches|Patch|Index|File|Stage|Log|Diff)' -count=1 -timeout=3m
+        run: go test -race ./internal/remotetransport ./internal/server -run 'TestRemoteGit(Pull|Commit|Push|Fetch|BranchCreate|Switch|Branches|Patch|Index|File|Stage|Log|Diff)' -count=1 -timeout=3m
       - name: Verify staged E2EE native and Relay mailbox integration
         working-directory: vscode_tasks_menu_go
         # Fast focused preflight before the larger source-wide security suite.
