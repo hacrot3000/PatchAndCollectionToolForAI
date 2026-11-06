@@ -304,3 +304,38 @@ loopback-route and browser GUI tests.
   redundant TaskDeck-owned class, higher-volume diff and file inventories,
   and any interactive operations that would change checked-out file content.
   The old main protocol must NOT be wired directly into E2EE.
+
+## 2026-11-06 — Fixed host-chosen Files text preview
+
+- The native E2EE dispatcher now supports two argument-free, independently
+  authenticated operations: `files.read.start` and `files.read.next`.
+  The host's opt-ins are **both**
+  `TASKDECK_REMOTE_FILES_ROOT=1` and
+  `TASKDECK_REMOTE_FILES_READ=1`, plus its root-only filename
+  `TASKDECK_REMOTE_FILES_READ_NAME=<safe-name>`. No remote client,
+  PHP portal or Relay may select a filename, path, offset or content.
+  Each action rechecks `files.read` RBAC and the live Portal grant.
+- Only a regular, non-symlink, UTF-8 text file at the **exact configured
+  workspace root** is eligible. The filename obeys the same conservative
+  ASCII allowlist as the root viewer, never starts with a dot and contains
+  no separators. The complete file must be at most 2 KiB, with no NUL,
+  control/format/bidi or binary content; unsafe files are refused in full,
+  never partially leaked.
+- Linux opens using `openat` on a pinned workspace directory descriptor
+  and `O_NOFOLLOW | O_NONBLOCK`. macOS uses a no-follow open and
+  post-open inode/metadata checks. The host reads the entire bounded
+  file twice and checks the same regular inode before/after each read.
+- Pages are UTF-8 aligned, at most 220 bytes each (and independently fit
+  in the existing 512-byte AEAD plaintext mailbox); the entire source is
+  rechecked and hashed on every continuation. The cursor/fingerprint stay
+  on the authenticated Agent session and are never sent to the browser.
+  Reordering, replay, mismatched names, file mutation and expired sessions
+  fail closed. Local TaskDeck audit persists each successful read action.
+- The native Files screen shows plain text only (no HTML rendering or
+  editable fields), appends validated pages and clears all file content
+  on logout. This is a **read-only preview**, NOT arbitrary file opening,
+  a general File Explorer, binary download, Editor, upload or file mutation.
+- Tests cover malformed E2EE/JSON, no caller paths, UTF-8 page integrity,
+  control/binary/symlink denial, oversized files, stale snapshots,
+  permission/audit and GUI logout cleanup. Real-device-only verification
+  does not count as remaining code work; LIVE authorization remains separate.
