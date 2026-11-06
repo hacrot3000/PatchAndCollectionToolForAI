@@ -50,13 +50,13 @@ func TestRemoteGitRemotesStrictResultSchema(t *testing.T){
   if ValidRemoteGitRemotesReport(report){t.Fatalf("invalid report accepted: %q",report)}
  }
  const id=testActionID
- base:=`{"type":"taskdeck-e2ee-git-remotes-result-v1","request_id":"0123456789abcdef0123456789abcdef","remotes":"GIT_REMOTES_V1\\norigin\\n","remote_control_available":false}`
+ base:=`{"type":"taskdeck-e2ee-git-remotes-result-v1","request_id":"0123456789abcdef0123456789abcdef","remotes":"GIT_REMOTES_V1\norigin\n","remote_control_available":false}`
  cases:=map[string]string{
   "wrong id":strings.Replace(base,id,strings.Repeat("f",32),1),
   "duplicate":strings.Replace(base,"}",`,"remotes":"GIT_REMOTES_V1"}`,1),
   "extra":strings.Replace(base,"}",`,"url":"https://secret"}`,1),
   "escalation":strings.Replace(base,`"remote_control_available":false`,`"remote_control_available":true`,1),
-  "null":strings.Replace(base,`"remotes":"GIT_REMOTES_V1\\norigin\\n"`,`"remotes":null`,1),
+  "null":strings.Replace(base,`"remotes":"GIT_REMOTES_V1\norigin\n"`,`"remotes":null`,1),
   "URL":strings.Replace(base,"origin",`https://user:token@evil`,1),
  }
  for name,raw:=range cases{
@@ -81,12 +81,18 @@ func TestRemoteGitRemotesStrictResultSchema(t *testing.T){
   }
  }
 }
-func TestRemoteGitRemotesFeatureIsAdvisoryAndTyped(t *testing.T){
+// New Git remotes stays a separately gated action and does not enlarge
+// the legacy 512-byte session.features protocol.
+func TestRemoteGitRemotesPreservesLegacyFeatureEnvelope(t *testing.T){
  client,agent,_:=participants(t)
  frame,err:=SealRemoteActionFeaturesResult(agent,testActionID,RemoteFeatures{
-  SessionPing:true,GitStatus:true,GitRemotes:true,
+  SessionPing:true,GitStatus:true,
  })
- if err!=nil{t.Fatal(err)}
+ if err!=nil||len(frame)>MaxEncryptedPingFrame{
+  t.Fatalf("legacy feature frame changed: %v",err)
+ }
  result,err:=OpenRemoteActionFeaturesResult(client,frame,testActionID)
- if err!=nil||!result.GitRemotes||!result.GitStatus{t.Fatalf("Git remote capability lost: %+v %v",result,err)}
+ if err!=nil||!result.GitStatus||!result.SessionPing{
+  t.Fatalf("legacy feature payload rejected: %+v %v",result,err)
+ }
 }
