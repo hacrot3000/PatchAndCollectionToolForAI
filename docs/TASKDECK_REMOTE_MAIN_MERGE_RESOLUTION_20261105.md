@@ -414,3 +414,15 @@ loopback-route and browser GUI tests.
   and-swap content hashes, E2EE upload/download, additional Git review
   interactions and local-principal race/permission audits. Never port
   main's incompatible generic file RPC into the authenticated dispatcher.
+
+### Workspace root anti-symlink hardening
+
+For all root Files listing, selected Files read and one-level folder
+browsing, the Agent now opens and pins a no-follow directory descriptor
+and compares its inode to the configured, canonical workspace **before
+and after** enumeration. A final-component symlink at the host's
+configured workspace path is refused, even if it resolves to an existing
+directory; an attacker cannot replace the workspace with a symlink to
+disclose another directory's names. The root must be an actual directory
+for these remote read capabilities. Regression tests cover rename,
+symlink substitution and restoration.
