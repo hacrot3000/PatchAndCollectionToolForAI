@@ -23,13 +23,14 @@ class Element{
 const elements=new Map();
 const get=id=>{if(!elements.has(id))elements.set(id,new Element(id));return elements.get(id)};
 const token='0123456789abcdef'.repeat(4);
-let remaining=16,starts=0,nexts=0,textStarts=0,textNexts=0,selections=0;
+let remaining=16,starts=0,nexts=0,textStarts=0,textNexts=0,selections=0,dirStarts=0,dirNexts=0;
 const fetch=async(url,opt)=>{
  assert.equal(opt.method,'POST');
  assert.equal(opt.headers['X-TaskDeck-Local-Capability'],token);
- if(url==='/api/files-read-select'){
+ if(url==='/api/files-read-select'||url==='/api/files-dir-select'){
   assert.equal(opt.headers['Content-Type'],'application/json');
-  assert.equal(opt.body,'{"index":2}','only selection index may leave localhost GUI');
+  assert.equal(opt.body,url==='/api/files-dir-select'?'{"index":1}':'{"index":2}',
+   'only root-issued selection index may leave localhost GUI');
  }else{
   assert.equal(opt.body,undefined,'Files reads cannot transmit paths or offsets');
  }
@@ -53,6 +54,20 @@ const fetch=async(url,opt)=>{
   nexts++;
   return {ok:true,json:async()=>({
    ok:true,items:['F:two.txt'],more:false,
+   remote_control_available:false,remaining:--remaining,
+  })};
+ }
+ if(url==='/api/files-dir-select'){
+  dirStarts++;
+  return {ok:true,json:async()=>({
+   ok:true,items:['F:alpha.txt'],more:true,
+   remote_control_available:false,remaining:--remaining,
+  })};
+ }
+ if(url==='/api/files-dir-next'){
+  dirNexts++;
+  return {ok:true,json:async()=>({
+   ok:true,items:['D:zeta'],more:false,
    remote_control_available:false,remaining:--remaining,
   })};
  }
@@ -107,6 +122,20 @@ const flush=async()=>{for(let i=0;i<100;i++)await Promise.resolve()};
  assert.match(get('files-root-output').textContent,/docs/);
  assert.equal(get('files-read-selected').disabled,true,
   'selected-file read enabled before selecting a received file');
+ assert.equal(get('files-dir-open').disabled,true,
+  'directory button enabled before selecting a received directory');
+ get('files-dir-select').value='1';
+ get('files-dir-select').listeners.change();
+ assert.equal(get('files-dir-open').disabled,false,
+  'root directory index did not enable browse');
+ get('files-dir-open').click();await flush();
+ assert.equal(dirStarts,1,'selected folder list action missing');
+ assert.ok(get('files-dir-output').textContent.includes('[FILE] alpha.txt'));
+ assert.equal(get('files-dir-next').disabled,false,'directory next disabled before last page');
+ get('files-dir-next').click();await flush();
+ assert.equal(dirNexts,1,'directory next action missing');
+ assert.equal(get('files-dir-next').disabled,true,'finished directory cursor reused');
+ assert.ok(get('files-dir-output').textContent.includes('[DIR] zeta'));
  get('files-select').value='2';
  get('files-select').listeners.change();
  assert.equal(get('files-read-selected').disabled,false,
@@ -134,6 +163,9 @@ const flush=async()=>{for(let i=0;i<100;i++)await Promise.resolve()};
  assert.equal(get('files-read-output').textContent,'','Files contents survived logout');
  assert.equal(get('files-read-output').hidden,true,'File contents remained visible after logout');
  assert.equal(get('files-select').children.length,0,'Files selection options survived logout');
+ assert.equal(get('files-dir-select').children.length,0,'Directory selection survived logout');
+ assert.equal(get('files-dir-output').textContent,'','Directory entries survived logout');
+ assert.equal(get('files-dir-output').hidden,true,'Directory entries remained visible after logout');
  assert.equal(get('files-read-selected').disabled,true,'File selection survived logout');
- console.log('PASS: fixed E2EE Files root and text pages, no path, no write, logout scrub');
+ console.log('PASS: fixed E2EE Files root, one-level directory, text pages, and logout scrub');
 })().catch(err=>{console.error(err);process.exitCode=1});
