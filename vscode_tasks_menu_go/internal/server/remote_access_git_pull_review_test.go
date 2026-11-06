@@ -98,6 +98,10 @@ func TestRemoteGitPullReviewDivergedOrUnconfiguredRejected(t *testing.T){
 func TestRemoteGitPullReviewE2EEViewerAndAudit(t *testing.T){
  s,session,client,agent,_,_,head:=setupRemoteGitPullReview(t)
  t.Setenv("TASKDECK_REMOTE_GIT_PULL_REVIEW","1")
+ direct,checkErr:=s.readRemoteGitPullReview(context.Background())
+ if checkErr!=nil||direct.Head!=head||direct.Status!="up-to-date"{
+  t.Fatalf("host-only read preflight failed before authenticated action: %+v %v",direct,checkErr)
+ }
  request,err:=remotetransport.SealRemoteAction(client,remotetransport.RemoteAction{
   RequestID:remoteDispatchTestID,Operation:remotetransport.RemoteActionGitPullReview,
  })
@@ -106,7 +110,10 @@ func TestRemoteGitPullReviewE2EEViewerAndAudit(t *testing.T){
   t.Fatal("PHP-only principal authorized a pull review")
  }
  reply,err:=s.executeRemoteE2EEPing(context.Background(),session,agent,request)
- if err!=nil{t.Fatal(err)}
+ if err!=nil{
+  now,recheckErr:=s.readRemoteGitPullReview(context.Background())
+  t.Fatalf("authenticated action rejected after valid direct read: %v; host still valid=%t (%v)",err,now.Status=="up-to-date",recheckErr)
+ }
  result,err:=remotetransport.OpenRemoteGitPullReviewResult(client,reply,remoteDispatchTestID)
  if err!=nil||result.Status!="up-to-date"||result.Head!=head||
   result.UpstreamHead!=head{
