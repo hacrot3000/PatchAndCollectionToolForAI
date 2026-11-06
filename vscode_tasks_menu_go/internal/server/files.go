@@ -9,6 +9,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 )
 
 type downloadableFile struct {
@@ -87,7 +89,6 @@ func (s *Server) downloadableFilesFromSelectionAt(text, context, cwd string) []d
 	seen := make(map[string]struct{})
 	var paths []string
 	addResolved := func(candidate string) bool {
-		candidate = trimPathCandidate(candidate)
 		if candidate == "" {
 			return false
 		}
@@ -102,30 +103,36 @@ func (s *Server) downloadableFilesFromSelectionAt(text, context, cwd string) []d
 		paths = append(paths, resolved)
 		return true
 	}
-	addCandidate := func(candidate string) bool {
-		candidate = trimPathCandidate(candidate)
-		if !looksLikePath(candidate) {
-			return false
-		}
-		// If the selected row belongs to an ls/ll command that listed another
-		// directory, that command directory is stronger evidence than the shell
-		// CWD. This avoids opening a same-named workspace-root file by accident.
-		if !filepath.IsAbs(candidate) {
-			for _, dir := range contextDirs {
-				if addResolved(filepath.Join(dir, candidate)) {
+	addCandidate := func(value string) bool {
+		value = strings.TrimSpace(value)
+		// Try the literal path first: parentheses, quotes or brackets can
+		// legitimately be part of a filename. Then try terminal punctuation
+		// wrappers and common shell-escaped paths.
+		for _, raw := range []string{value, trimPathCandidate(value)} {
+			for _, candidate := range []string{raw, unescapeTerminalPath(raw)} {
+				if !looksLikePath(candidate) {
+					continue
+				}
+				// An ls/ll directory operand is stronger than the shell CWD.
+				if !filepath.IsAbs(candidate) {
+					for _, dir := range contextDirs {
+						if addResolved(filepath.Join(dir, candidate)) {
+							return true
+						}
+					}
+				}
+				// The resolver still checks workspace/symlink boundaries.
+				if cwd != "" && !filepath.IsAbs(candidate) {
+					if addResolved(filepath.Join(cwd, candidate)) {
+						return true
+					}
+				}
+				if addResolved(candidate) {
 					return true
 				}
 			}
 		}
-		// Otherwise shell-relative paths belong to the terminal/task working
-		// directory. The final resolver still enforces the workspace boundary
-		// and rejects escaping symlinks.
-		if cwd != "" && !filepath.IsAbs(candidate) {
-			if addResolved(filepath.Join(cwd, candidate)) {
-				return true
-			}
-		}
-		return addResolved(candidate)
+		return false
 	}
 
 	unresolved := make([]string, 0)
@@ -364,27 +371,76 @@ func normalizeDownloadDetectionText(text string) string {
 func downloadPathCandidates(text string) []string {
 	seen := make(map[string]struct{})
 	out := make([]string, 0)
+	add := func(candidate string) {
+		candidate = strings.TrimSpace(candidate)
+		if !looksLikePath(candidate) {
+			return
+		}
+		if _, ok := seen[candidate]; ok {
+			return
+		}
+		seen[candidate] = struct{}{}
+		out = append(out, candidate)
+	}
 	for _, rawLine := range strings.Split(strings.ReplaceAll(text, "\r", ""), "\n") {
 		line := strings.TrimSpace(rawLine)
 		if line == "" || ignoreDownloadDetectionLine(line) {
 			continue
 		}
-		candidates := []string{trimPathCandidate(line)}
-		for _, field := range strings.Fields(line) {
-			candidates = append(candidates, trimPathCandidate(field))
+		// Keep the entire line: a pathname may contain literal spaces.
+		add(line)
+		// Logs commonly prefix paths with labels, arrows or emoji. Extract
+		// from the path boundary, without splitting its remaining components.
+		for _, suffix := range terminalPathSuffixes(line) {
+			add(suffix)
 		}
-		for _, candidate := range candidates {
-			if !looksLikePath(candidate) {
-				continue
-			}
-			if _, ok := seen[candidate]; ok {
-				continue
-			}
-			seen[candidate] = struct{}{}
-			out = append(out, candidate)
+		if index := strings.LastIndex(line, ": "); index >= 0 {
+			add(line[index+2:])
+		}
+		for _, field := range strings.Fields(line) {
+			add(field)
 		}
 	}
 	return out
+}
+
+// terminalPathSuffixes locates paths following terminal decorations (including
+// emoji), quotes or separators. It deliberately does not split on spaces.
+func terminalPathSuffixes(line string) []string {
+	var out []string
+	for i := 0; i < len(line); i++ {
+		absolute := line[i] == '/'
+		relative := line[i] == '.' && (strings.HasPrefix(line[i:], "./") || strings.HasPrefix(line[i:], "../"))
+		if !absolute && !relative {
+			continue
+		}
+		if i > 0 {
+			previous, _ := utf8.DecodeLastRuneInString(line[:i])
+			if !unicode.IsSpace(previous) && !unicode.IsSymbol(previous) &&
+				!strings.ContainsRune(":=([{<>\"'`", previous) {
+				continue
+			}
+		}
+		out = append(out, line[i:])
+	}
+	return out
+}
+
+// Shell output sometimes prints paths with backslash-escaped whitespace or
+// punctuation. Resolve both raw and unescaped forms; raw paths win.
+func unescapeTerminalPath(value string) string {
+	var result strings.Builder
+	result.Grow(len(value))
+	for i := 0; i < len(value); i++ {
+		if value[i] == '\\' && i+1 < len(value) {
+			switch value[i+1] {
+			case ' ', '\\', '#', '$', '&', '(', ')', '[', ']', '{', '}', ';', '|', '*', '?', '!', '\'', '"', ':':
+				i++
+			}
+		}
+		result.WriteByte(value[i])
+	}
+	return result.String()
 }
 
 func expandedDownloadPathCandidates(selected, line string) []string {
@@ -394,7 +450,9 @@ func expandedDownloadPathCandidates(selected, line string) []string {
 	}
 	seen := make(map[string]struct{})
 	out := make([]string, 0)
-	for _, field := range strings.Fields(line) {
+	// Also expand selections inside an absolute or relative path containing
+	// spaces, while retaining the original single-token expansion behavior.
+	for _, field := range append(strings.Fields(line), terminalPathSuffixes(line)...) {
 		token := trimPathCandidate(field)
 		if token == "" || token == selected {
 			continue
@@ -583,7 +641,7 @@ func trimPathCandidate(value string) string {
 }
 
 func looksLikePath(value string) bool {
-	if value == "" || strings.ContainsRune(value, '\x00') || strings.ContainsAny(value, "\r\n\t ") {
+	if value == "" || strings.ContainsRune(value, '\x00') || strings.ContainsAny(value, "\r\n\t") {
 		return false
 	}
 	if strings.Contains(value, "://") {
