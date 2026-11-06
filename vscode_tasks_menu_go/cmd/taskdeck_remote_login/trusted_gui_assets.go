@@ -90,6 +90,12 @@ const trustedGUIHTML = `<!doctype html>
       <button type="button" id="files-root-next" disabled>Trang tiếp</button>
      </div>
      <pre class="git-patch-output" id="files-root-output" hidden aria-label="Danh sách Files chỉ đọc"></pre>
+     <label for="files-select">Chọn file đã được liệt kê</label>
+     <select id="files-select" disabled aria-label="File văn bản gốc">
+      <option value="">Chọn file từ danh sách đã nhận</option>
+     </select>
+     <div class="actions"><button type="button" id="files-read-selected" disabled>Đọc file đã chọn</button></div>
+     <p>Agent chỉ cho đọc file trong danh sách cho phép do host cấu hình; không hỗ trợ đường dẫn tùy ý.</p>
      <div class="tile-heading"><span class="dot"></span><h2>Đọc file văn bản host phê duyệt</h2></div>
      <p>Chỉ đọc một file gốc được cấu hình trên Agent. Không có ô nhập đường dẫn và không cung cấp quyền tải xuống hoặc sửa.</p>
      <div class="actions">
@@ -712,6 +718,8 @@ const trustedGUIJavaScript = `'use strict';
   const filesRootButton=document.getElementById('files-root');
   const filesRootNext=document.getElementById('files-root-next');
   const filesRootOutput=document.getElementById('files-root-output');
+  const filesSelect=document.getElementById('files-select');
+  const filesReadSelected=document.getElementById('files-read-selected');
   const filesReadStart=document.getElementById('files-read-start');
   const filesReadNext=document.getElementById('files-read-next');
   const filesReadOutput=document.getElementById('files-read-output');
@@ -919,6 +927,7 @@ const trustedGUIJavaScript = `'use strict';
   let gitDeletePreview=null,gitDeletePending=null;
   let filesRootNames=[],filesRootMore=false;
   let filesReadName='',filesReadText='',filesReadPage=0,filesReadMore=false;
+  let filesPendingSelectedName='';
   let gitTrackingText='',gitTrackingPage=0,gitTrackingMore=false,gitTrackingLast='';
   let actionEpoch=0;
   // Only the newest initiated localhost status poll may alter the GUI.
@@ -1010,6 +1019,9 @@ const trustedGUIJavaScript = `'use strict';
     filesRootOutput.hidden=true;filesRootOutput.textContent='';
     filesRootNames=[];filesRootMore=false;
     filesReadName='';filesReadText='';filesReadPage=0;filesReadMore=false;
+    filesPendingSelectedName='';
+    filesSelect.replaceChildren();
+    filesSelect.value='';
     filesReadOutput.textContent='';filesReadOutput.hidden=true;
     projectName.textContent='';
     workspaceName.textContent='';
@@ -1118,6 +1130,12 @@ const trustedGUIJavaScript = `'use strict';
     project.disabled=busy||closed||!verified||budget<=0||maintenanceOnly||!featuresKnown||!available.project_info;
     filesRootButton.disabled=busy||closed||!verified||budget<=0||maintenanceOnly||!featuresKnown||!available.files_root;
     filesRootNext.disabled=filesRootButton.disabled||!filesRootMore;
+    filesSelect.disabled=filesRootButton.disabled||filesRootNames.every(x=>!x.startsWith('F:'));
+    const selectedIndex=Number(filesSelect.value);
+    filesReadSelected.disabled=filesSelect.disabled||
+      !Number.isInteger(selectedIndex)||selectedIndex<1||
+      selectedIndex>filesRootNames.length||
+      !filesRootNames[selectedIndex-1].startsWith('F:');
     // This is only an affordance; the Agent independently checks
     // files.read and both opt-ins before opening a host-chosen file.
     filesReadStart.disabled=filesRootButton.disabled;
@@ -1246,6 +1264,7 @@ const trustedGUIJavaScript = `'use strict';
       endpoint.startsWith('/api/tasks-clear/');
     const isCommit=endpoint==='/api/git-commit';
     const isGitFile=endpoint==='/api/git-stage-file'||endpoint==='/api/git-unstage-file';
+    const isFilesSelect=endpoint==='/api/files-read-select';
     const isTerminalWrite=endpoint==='/api/terminal-write';
     const isTerminalResize=endpoint==='/api/terminal-resize';
     if(payload!==undefined){
@@ -1255,6 +1274,11 @@ const trustedGUIJavaScript = `'use strict';
           !/^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/.test(payload.value))return;
       }else if(isCommit){
         if(Object.keys(payload).length!==1||!validCommitSubject(payload.message))return;
+       }else if(isFilesSelect){
+        if(Object.keys(payload).length!==1||!Number.isInteger(payload.index)||
+          payload.index<1||payload.index>128||
+          payload.index>filesRootNames.length||
+          !filesRootNames[payload.index-1].startsWith('F:'))return;
       }else if(isGitFile){
         if(Object.keys(payload).length!==2||!Number.isInteger(payload.index)||
           payload.index<1||payload.index>12||typeof payload.snapshot!=='string'||
@@ -1268,7 +1292,7 @@ const trustedGUIJavaScript = `'use strict';
           !Number.isInteger(payload.rows)||payload.rows<8||payload.rows>60)return;
       }else return;
     }
-    if((isTextRun||isCommit||isGitFile||isTerminalWrite||isTerminalResize)&&payload===undefined)return;
+    if((isTextRun||isCommit||isGitFile||isFilesSelect||isTerminalWrite||isTerminalResize)&&payload===undefined)return;
     // A disabled button is UX; the endpoint also needs local admission.
     const gitMutations=[
       '/api/git-branch-create','/api/git-switch-same-head','/api/git-branch-delete','/api/git-stage-tracked','/api/git-unstage-all',
@@ -1292,12 +1316,12 @@ const trustedGUIJavaScript = `'use strict';
     busy=true;render();
     try{
       const headers={'X-TaskDeck-Local-Capability':requestCapability};
-      if(isTextRun||isCommit||isGitFile||isTerminalWrite||isTerminalResize)headers['Content-Type']='application/json';
+      if(isTextRun||isCommit||isGitFile||isFilesSelect||isTerminalWrite||isTerminalResize)headers['Content-Type']='application/json';
       const options={
         method:'POST',mode:'same-origin',credentials:'omit',cache:'no-store',
         headers
       };
-      if(isTextRun||isCommit||isGitFile||isTerminalWrite||isTerminalResize)options.body=JSON.stringify(payload);
+      if(isTextRun||isCommit||isGitFile||isFilesSelect||isTerminalWrite||isTerminalResize)options.body=JSON.stringify(payload);
       const response=await fetch(endpoint,options);
       if(!response.ok)throw new Error('TaskDeck từ chối thao tác hoặc phiên đã hết hạn (HTTP '+response.status+')');
       const data=await response.json();
@@ -1390,8 +1414,9 @@ const trustedGUIJavaScript = `'use strict';
              (priorTaskRun!==available.task_run||
               priorTaskLong!==available.task_long))renderTaskPage();
         }
-        if(endpoint==='/api/files-read-start'||endpoint==='/api/files-read-next'){
-          const first=endpoint==='/api/files-read-start';
+        if(endpoint==='/api/files-read-start'||endpoint==='/api/files-read-next'||
+           endpoint==='/api/files-read-select'){
+          const first=endpoint==='/api/files-read-start'||endpoint==='/api/files-read-select';
           const safeName=typeof data.name==='string'&&
             /^[A-Za-z0-9][A-Za-z0-9_.-]{0,31}$/.test(data.name);
           if(data.remote_control_available!==false||
@@ -1402,6 +1427,8 @@ const trustedGUIJavaScript = `'use strict';
             !first&&(!filesReadMore||filesReadName!==data.name||
               data.page!==filesReadPage+1)||
             first&&data.page!==1||
+            (endpoint==='/api/files-read-select'&&
+              (!filesPendingSelectedName||data.name!==filesPendingSelectedName))||
             (!first&&filesReadText.length+data.text.length>2048)||
             Array.from(data.text).some(ch=>{
               const cp=ch.codePointAt(0);
@@ -1416,6 +1443,7 @@ const trustedGUIJavaScript = `'use strict';
           filesReadPage=data.page;
           filesReadText=first?data.text:filesReadText+data.text;
           filesReadMore=data.more;
+          if(first)filesPendingSelectedName='';
           filesReadOutput.textContent='File: '+filesReadName+' (chỉ đọc)\n'+
             filesReadText+(filesReadMore?'\n[Còn nội dung chưa nhận]':'');
           filesReadOutput.hidden=false;
@@ -1435,6 +1463,25 @@ const trustedGUIJavaScript = `'use strict';
           }
           filesRootNames=first?data.items.slice():filesRootNames.concat(data.items);
           filesRootMore=data.more;
+          const previousChoice=first?'':filesSelect.value;
+          filesSelect.replaceChildren();
+          const initial=document.createElement('option');
+          initial.value='';initial.textContent='Chọn file đã nhận qua E2EE';
+          filesSelect.append(initial);
+          filesRootNames.forEach((v,i)=>{
+            if(!v.startsWith('F:'))return;
+            const option=document.createElement('option');
+            option.value=String(i+1);
+            option.textContent=v.slice(2);
+            filesSelect.append(option);
+          });
+          filesSelect.value=(previousChoice&&filesRootNames[Number(previousChoice)-1]?.startsWith('F:'))?
+            previousChoice:'';
+          if(first){
+            filesReadName='';filesReadText='';filesReadPage=0;filesReadMore=false;
+            filesPendingSelectedName='';
+            filesReadOutput.textContent='';filesReadOutput.hidden=true;
+          }
           filesRootOutput.textContent=filesRootNames.map(v=>
             (v[0]==='D'?'Thư mục: ':'File: ')+v.slice(2)).join('\n')+
             (filesRootMore?'\nCòn mục chưa nhận.':'');
@@ -2329,6 +2376,16 @@ const trustedGUIJavaScript = `'use strict';
     invoke('/api/terminal-close');
   });
   project.addEventListener('click',()=>invoke('/api/project-info'));
+  filesSelect.addEventListener('change',()=>{if(!closed)render();});
+  filesReadSelected.addEventListener('click',()=>{
+    const index=Number(filesSelect.value);
+    if(busy||closed||!verified||!Number.isInteger(index)||index<1||
+      index>filesRootNames.length||!filesRootNames[index-1].startsWith('F:'))return;
+    filesPendingSelectedName=filesRootNames[index-1].slice(2);
+    filesReadName='';filesReadText='';filesReadPage=0;filesReadMore=false;
+    filesReadOutput.textContent='';filesReadOutput.hidden=true;
+    invoke('/api/files-read-select',{index});
+  });
   filesReadStart.addEventListener('click',()=>{
     filesReadName='';filesReadText='';filesReadPage=0;filesReadMore=false;
     filesReadOutput.textContent='';filesReadOutput.hidden=true;
