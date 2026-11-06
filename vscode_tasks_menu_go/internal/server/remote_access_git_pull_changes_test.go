@@ -6,6 +6,9 @@ import (
  "path/filepath"
  "strings"
  "testing"
+
+ "bletonfc/vscode_tasks_menu/internal/identity"
+ "bletonfc/vscode_tasks_menu/internal/remotetransport"
 )
 
 func TestRemoteGitPullChangesHostOfflineAndClean(t *testing.T){
@@ -73,5 +76,32 @@ func TestRemoteGitPullChangesRejectsOversizeAndUnsafePaths(t *testing.T){
  }
  if strings.Contains(git("status","--short"),"unsafe name.txt"){
   t.Fatal("Git preview unexpectedly modified the worktree")
+ }
+}
+
+func TestRemoteGitPullChangesE2EEPermissionAndAudit(t *testing.T){
+ s,session,client,agent,_,_,head:=setupRemoteGitPullReview(t)
+ t.Setenv("TASKDECK_REMOTE_GIT_PULL_REVIEW","1")
+ t.Setenv("TASKDECK_REMOTE_GIT_PULL_CHANGES","1")
+ action,err:=remotetransport.SealRemoteAction(client,remotetransport.RemoteAction{
+  RequestID:remoteDispatchTestID,Operation:remotetransport.RemoteActionGitPullChanges,
+ })
+ if err!=nil{t.Fatal(err)}
+ if body,err:=s.executeRemoteE2EEPing(context.Background(),nil,agent,action);
+  err==nil||len(body)!=0{t.Fatal("unbound PHP session was admitted")}
+ encrypted,err:=s.executeRemoteE2EEPing(context.Background(),session,agent,action)
+ if err!=nil{t.Fatalf("E2EE read refused: %v",err)}
+ result,err:=remotetransport.OpenRemoteGitPullChanges(client,encrypted,remoteDispatchTestID)
+ if err!=nil||result.Head!=head||result.UpstreamHead!=head||len(result.Files)!=0{
+  t.Fatalf("authenticated file inventory mismatch: %+v %v",result,err)
+ }
+ project,err:=s.Identity.ProjectByKey(context.Background(),session.projectKey)
+ if err!=nil{t.Fatal(err)}
+ audits,err:=s.Identity.ListAudit(context.Background(),identity.AuditQuery{
+  ProjectID:project.ID,Action:"remote.action.git_pull_changes",Limit:5,
+ })
+ if err!=nil||len(audits)==0||audits[0].UserID==nil||
+  *audits[0].UserID!=session.userID||audits[0].ResourceType!="git"{
+  t.Fatalf("missing TaskDeck-local principal/audit: %+v %v",audits,err)
  }
 }
