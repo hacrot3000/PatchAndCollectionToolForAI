@@ -151,7 +151,7 @@ jobs:
         run: node remote_portal/tests/native_gui_files_root.test.cjs
       - name: Verify host-selected E2EE file content pages and strict no-follow reads
         working-directory: vscode_tasks_menu_go
-        run: go test -race ./internal/remotetransport ./internal/server -run 'TestRemote(FilesRoot|FileRead|FilesRead)' -count=1 -timeout=120s
+        run: go test -race ./internal/remotetransport ./internal/server -run 'TestRemote(FilesRoot|FileRead|FilesRead|FilesDir)' -count=1 -timeout=120s
       - name: Verify bounded Git patch pagination native GUI
         run: node remote_portal/tests/native_gui_git_patch.test.cjs
       - name: Verify host-fixed Git branch create native GUI confirmation
