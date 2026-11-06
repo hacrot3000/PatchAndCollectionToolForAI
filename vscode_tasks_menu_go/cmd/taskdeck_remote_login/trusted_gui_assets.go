@@ -72,7 +72,7 @@ const trustedGUIHTML = `<!doctype html>
     <article class="tile">
      <div class="tile-heading"><span class="dot"></span><h2>Dự án TaskDeck</h2></div>
      <p>Đọc tên dự án, workspace và nền tảng host thực tế. Không truy xuất đường dẫn tuyệt đối hay danh sách dự án khác.</p>
-     <div class="actions"><button type="button" id="project">Thông tin dự án</button><button type="button" id="files-root" disabled>Xem mục gốc</button></div><p>Chỉ tên tối đa 8 file/thư mục gốc được host cho phép; không đọc nội dung.</p><pre id="files-root-output" hidden></pre>
+     <div class="actions"><button type="button" id="project">Thông tin dự án</button><button type="button" id="files-root" disabled>Xem mục gốc</button><button type="button" id="files-root-next" disabled>Trang file tiếp</button></div><p>Chỉ tên tối đa 8 file/thư mục gốc được host cho phép; không đọc nội dung.</p><pre id="files-root-output" hidden></pre>
     </article>
    </div>
    <section class="project-overview" id="project-overview" hidden aria-label="Thông tin dự án được TaskDeck xác minh">
@@ -687,6 +687,7 @@ const trustedGUIJavaScript = `'use strict';
     taskPage++;renderTaskPage();
   });
   const filesRootButton=document.getElementById('files-root');
+  const filesRootNext=document.getElementById('files-root-next');
   const filesRootOutput=document.getElementById('files-root-output');
   const projectOverview=document.getElementById('project-overview');
   const projectName=document.getElementById('project-name');
@@ -885,6 +886,7 @@ const trustedGUIJavaScript = `'use strict';
   let longTaskAuto=false,longTaskPollScheduled=false;
   let terminalState='closed',terminalTranscript='';
   let gitPatchText='',gitPatchPage=0,gitPatchMore=false,gitPatchMode='head';
+  let filesRootNames=[],filesRootMore=false;
   let gitTrackingText='',gitTrackingPage=0,gitTrackingMore=false,gitTrackingLast='';
   let actionEpoch=0;
   // Only the newest initiated localhost status poll may alter the GUI.
@@ -972,6 +974,7 @@ const trustedGUIJavaScript = `'use strict';
     gitEmpty.textContent='';
     projectOverview.hidden=true;
     filesRootOutput.hidden=true;filesRootOutput.textContent='';
+    filesRootNames=[];filesRootMore=false;
     projectName.textContent='';
     workspaceName.textContent='';
     hostOS.textContent='';
@@ -1072,6 +1075,7 @@ const trustedGUIJavaScript = `'use strict';
     terminalClose.disabled=busy||!canTerminal||terminalState==='closed';
     project.disabled=busy||closed||!verified||budget<=0||maintenanceOnly||!featuresKnown||!available.project_info;
     filesRootButton.disabled=busy||closed||!verified||budget<=0||maintenanceOnly||!featuresKnown||!available.files_root;
+    filesRootNext.disabled=filesRootButton.disabled||!filesRootMore;
     tasksPreview.disabled=busy||closed||!verified||budget<=0||maintenanceOnly||!featuresKnown||!available.tasks_preview;
     taskRunStop.hidden=!taskRunning||closed;
     taskRunStop.disabled=!taskRunning||!verified||closed||closing||terminated;
@@ -1340,16 +1344,24 @@ const trustedGUIJavaScript = `'use strict';
              (priorTaskRun!==available.task_run||
               priorTaskLong!==available.task_long))renderTaskPage();
         }
-        if(endpoint==='/api/files-root'){
+        if(endpoint==='/api/files-root'||endpoint==='/api/files-root-next'){
+          const first=endpoint==='/api/files-root';
           if(data.remote_control_available!==false||!Array.isArray(data.items)||data.items.length>8||
-            typeof data.more!=='boolean'||data.items.some((v,i)=>typeof v!=='string'||
+            typeof data.more!=='boolean'||(data.more&&data.items.length===0)||
+            (!first&&!filesRootMore)||
+            data.items.some((v,i)=>typeof v!=='string'||
               !/^[FD]:[A-Za-z0-9][A-Za-z0-9_.-]{0,31}$/.test(v)||
-              (i>0&&data.items[i-1].slice(2)>=v.slice(2)))){
-            throw new Error('Danh sách file E2EE không hợp lệ');
+              (i>0&&data.items[i-1].slice(2)>=v.slice(2)))||
+            (!first&&data.items.length>0&&filesRootNames.length>0&&
+              filesRootNames[filesRootNames.length-1].slice(2)>=data.items[0].slice(2))){
+            throw new Error('Trang Files E2EE không hợp lệ');
           }
-          filesRootOutput.textContent=data.items.map(v=>(v[0]==='D'?'Thư mục: ':'File: ')+v.slice(2)).join('\n')+
-            (data.more?'\nCòn mục chưa hiển thị.':'');
-          if(data.items.length===0)filesRootOutput.textContent='Không có mục gốc phù hợp.';
+          filesRootNames=first?data.items.slice():filesRootNames.concat(data.items);
+          filesRootMore=data.more;
+          filesRootOutput.textContent=filesRootNames.map(v=>
+            (v[0]==='D'?'Thư mục: ':'File: ')+v.slice(2)).join('\n')+
+            (filesRootMore?'\nCòn mục chưa nhận.':'');
+          if(filesRootNames.length===0)filesRootOutput.textContent='Không có mục gốc phù hợp.';
           filesRootOutput.hidden=false;
          }
          if(endpoint==='/api/project-info'){
@@ -2127,6 +2139,9 @@ const trustedGUIJavaScript = `'use strict';
   });
   project.addEventListener('click',()=>invoke('/api/project-info'));
   filesRootButton.addEventListener('click',()=>invoke('/api/files-root'));
+  filesRootNext.addEventListener('click',()=>{
+    if(filesRootMore)invoke('/api/files-root-next');
+  });
   tasksPreview.addEventListener('click',()=>invoke('/api/tasks-preview'));
   taskFetchNext.addEventListener('click',()=>{
     if(!canFetchTaskNext||bulkLoading||closed||busy||budget<=0)return;
