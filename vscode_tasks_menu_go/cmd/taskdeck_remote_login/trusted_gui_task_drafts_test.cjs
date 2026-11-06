@@ -173,6 +173,10 @@ const controls=(parent,tag)=>parent.children.filter(child=>child.tagName===tag.t
  await action(byText(row('One'),'Chạy task dài'));
  assert.equal(requests.length,whileLong,'parallel task launch escaped long-job guard');
  await action(el('long-task-poll'));
+ const historyRows=el('task-run-history-list').children;
+ assert.equal(historyRows.length,1,'long-running job should have one history entry');
+ assert.equal(byText(historyRows[0],'chunk').tagName,'PRE',
+  'first poll output must be visible in local task run history');
  assert.equal(row('One'),beforeStart,'job output replaced unchanged task row');
  assert.deepEqual(controls(row('One'),'select').map(x=>x.value),['2','2']);
 
@@ -182,6 +186,8 @@ const controls=(parent,tag)=>parent.children.filter(child=>child.tagName===tag.t
  assert.ok(input,'missing prompt input');
  input.value='release-4.2';input.emit('input');
  await action(el('long-task-poll'));
+ assert.equal(byText(el('task-run-history-list').children[0],'chunkchunk').tagName,'PRE',
+  'later poll output must accumulate in the same bounded history entry');
  assert.equal(controls(row('Two'),'input')[0],input,
   'poll discarded focused prompt element');
  assert.equal(input.value,'release-4.2');
