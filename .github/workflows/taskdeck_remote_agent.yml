@@ -72,6 +72,10 @@ on:
       - '.github/workflows/taskdeck_remote_client_provenance.yml'
       - '.github/workflows/taskdeck_remote_portal.yml'
       - '.github/workflows/taskdeck_remote_agent.yml'
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   remote-agent-go:
     runs-on: ubuntu-latest
