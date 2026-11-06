@@ -80,23 +80,6 @@ func TestRemoteFileReadRejectsUnapprovedSymlinkAndBinary(t *testing.T){
  if _,err:=s.readRemoteFileTextPage(context.Background(),session,true,remoteDispatchTestID);
   err==nil{t.Fatal("read escaped nested workspace to parent")}
 }
-func TestRemoteFileReadNoArgumentsAndAudit(t *testing.T){
- s,session,file:=remoteFileReadFixture(t)
- if err:=os.WriteFile(file,[]byte("safe snippet\n"),0600);err!=nil{t.Fatal(err)}
- // Fixture creates a host-owned authenticated viewer channel. Its existing
- // files.read permission is independently checked by the dispatcher.
- c,a,_:=participants(t)
- _=c;_=a
- // Direct host helper verifies data scope; full dispatch test uses the
- // authenticated channel created with this fixture below.
- result,err:=s.readRemoteFileTextPage(context.Background(),session,true,remoteDispatchTestID)
- if err!=nil||result.Name!="notes.txt"||result.More{
-  t.Fatalf("typed page result: %+v %v",result,err)
- }
- project,err:=s.Identity.ProjectByKey(context.Background(),session.projectKey)
- if err!=nil{t.Fatal(err)}
- _=project
-}
 func TestRemoteFileReadE2EEAuditAndNoCallerPath(t *testing.T){
  if runtime.GOOS=="windows"{t.Skip("Unix-only file read")}
  s,session,client,agent:=remoteDispatchFixture(t)

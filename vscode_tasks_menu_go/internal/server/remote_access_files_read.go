@@ -8,7 +8,6 @@ import (
  "os"
  "path/filepath"
  "runtime"
- "strings"
 
  "bletonfc/vscode_tasks_menu/internal/remotetransport"
 )
