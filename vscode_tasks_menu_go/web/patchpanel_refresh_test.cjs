@@ -168,3 +168,60 @@ assert.ok(source.includes('promptButtons.children.length===expectedButtons'),'re
 assert.ok(source.includes('bindQueuePromptButtonHandlers(sessionId);'),'even unchanged buttons must rebind');
 assert.ok(source.includes('!queuePromptLoadPending&&!queueSilentRefreshPending'),'queued refresh waits for the active Python prompt');
 console.log('PASS: queue button handlers follow the current prompt; empty-to-nonempty actions cannot be skipped');
+
+const controlsBegin=source.indexOf('    const buttonsSignature=patchRowStable([Array.from(actionsAllowed).sort(),');
+const controlsEnd=source.indexOf('    if(latestQueueSnapshot)renderQueueSnapshot(latestQueueSnapshot);else renderQueueRows();',controlsBegin);
+assert.ok(controlsBegin>=0&&controlsEnd>controlsBegin,'prompt controls construction block exists');
+class ActionHost {
+  constructor(){this.dataset={};this.children=[];}
+  replaceChildren(){this.children=[];}
+  append(node){this.children.push(node);}
+  querySelector(selector){
+    const match=/data-patch-prompt-action="([^"]+)"/.exec(selector);
+    return match?this.children.find(node=>node.dataset.patchPromptAction===match[1])||null:null;
+  }
+}
+const actionHost=new ActionHost();
+const actionContext={
+  actionsAllowed:new Set(['select','cancel']),
+  parallelCollect:null,
+  activeKinds:new Set(),
+  incremental:true,
+  promptButtons:actionHost,
+  patchRowStable:JSON.stringify,
+  document:{createElement(){return {dataset:{},type:'',textContent:''};}},
+  sessionId:'session-b',
+  bindQueuePromptButtonHandlers:()=>{}
+};
+const actionCode=source.slice(controlsBegin,controlsEnd);
+const executeActionRender=()=>vm.runInNewContext(actionCode,actionContext);
+actionHost.dataset.patchButtonsSignature=JSON.stringify([['cancel','select'],false,[]]);
+executeActionRender();
+assert.equal(actionHost.children.length,2,'a stale signature cannot suppress newly needed buttons');
+assert.deepEqual(actionHost.children.map(node=>node.textContent),['Run selected','Cancel']);
+const oldRunNode=actionHost.children[0];
+executeActionRender();
+assert.equal(actionHost.children[0],oldRunNode,'unchanged action buttons keep DOM identity');
+actionContext.actionsAllowed=new Set(['select']);
+executeActionRender();
+assert.equal(actionHost.children.length,1,'removing a capability removes only obsolete buttons');
+assert.equal(actionHost.children[0].textContent,'Run selected');
+
+// The auto-refresh scheduler must not replace a session after merely receiving
+// the queue snapshot. Python must have produced a ready selection prompt first.
+const settledBegin=source.indexOf('  function queueSessionSnapshotSettled(){');
+const settledEnd=source.indexOf('  function queuePointerInteractionActive(){',settledBegin);
+assert.ok(settledBegin>=0&&settledEnd>settledBegin);
+const settledContext={
+  queuePromptLoadPending:true,queueSilentRefreshPending:false,
+  activeSessionId:'session-b',lastQueueSnapshotSessionId:'session-b'
+};
+const queueSessionSnapshotSettled=vm.runInNewContext(
+  source.slice(settledBegin,settledEnd)+'\nqueueSessionSnapshotSettled',settledContext);
+assert.equal(queueSessionSnapshotSettled(),false,'snapshot alone cannot restart prompt session');
+settledContext.queuePromptLoadPending=false;
+settledContext.queueSilentRefreshPending=true;
+assert.equal(queueSessionSnapshotSettled(),false,'silent handoff must settle');
+settledContext.queueSilentRefreshPending=false;
+assert.equal(queueSessionSnapshotSettled(),true,'ready queue resumes timed refresh');
+console.log('PASS: prompt action controls recover after an empty queue and refresh awaits Python prompt');
