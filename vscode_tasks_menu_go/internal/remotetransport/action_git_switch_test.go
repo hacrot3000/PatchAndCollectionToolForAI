@@ -89,3 +89,39 @@ func TestRemoteGitSwitchSameHeadNativeNoArbitraryRef(t *testing.T){
   }
  }
 }
+
+func TestRemoteGitSwitchReviewNoArgumentsAndSealedPreview(t *testing.T){
+ client,agent,_:=participants(t)
+ seen:=0
+ exchange:=pingExchangeFunc(func(ctx context.Context,frame []byte)([]byte,error){
+  request,err:=OpenRemoteAction(agent,frame)
+  if err!=nil||request.Operation!=RemoteActionGitSwitchReview||
+   request.TaskID!=0||request.Choice!=0||request.Text!=""||
+   request.Message!=""||request.FileIndex!=0||request.Snapshot!=""||
+   request.TerminalInput!=""||request.Cols!=0||request.Rows!=0{
+   return nil,ErrInvalidRemoteAction
+  }
+  seen++
+  return SealRemoteGitSwitchResult(agent,request.RequestID,RemoteGitSwitchResult{
+   From:"feature/old",Branch:"review",Head:strings.Repeat("a",40),
+  })
+ })
+ native,err:=NewPingClient(client,exchange)
+ if err!=nil{t.Fatal(err)}
+ defer native.Close()
+ plan,err:=native.GitSwitchReview(context.Background())
+ if err!=nil||seen!=1||plan.Branch!="review"||plan.From!="feature/old"{
+  t.Fatalf("review result: %+v %v",plan,err)
+ }
+ for _,bad:=range []RemoteAction{
+  {RequestID:testActionID,Operation:RemoteActionGitSwitchReview,Text:"main"},
+  {RequestID:testActionID,Operation:RemoteActionGitSwitchReview,TaskID:1},
+  {RequestID:testActionID,Operation:RemoteActionGitSwitchReview,FileIndex:3},
+  {RequestID:testActionID,Operation:RemoteActionGitSwitchReview,Message:"git branch"},
+ }{
+  c,_,_:=participants(t)
+  if _,err:=SealRemoteAction(c,bad);!errors.Is(err,ErrInvalidRemoteAction){
+   t.Fatalf("review accepted caller Git arguments: %+v",bad)
+  }
+ }
+}
