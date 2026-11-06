@@ -139,6 +139,12 @@ const trustedGUIHTML = `<!doctype html>
    </div>
    <section class="task-preview" id="task-preview" hidden aria-label="Task trên workspace đã xác minh">
     <div class="task-preview-heading"><strong>Danh sách task · chỉ xem trước</strong><span id="task-total"></span></div>
+    <div class="task-filter-row">
+     <div><label for="task-deps-select">Xem phụ thuộc của task đã được cấp qua E2EE</label>
+      <select id="task-deps-select" disabled><option value="">Chọn Task</option></select></div>
+     <button type="button" id="task-deps-view" disabled>Xem thứ tự và phụ thuộc · chỉ đọc</button>
+    </div>
+    <pre id="task-deps-output" hidden aria-label="Đồ thị phụ thuộc task chỉ đọc"></pre>
     <div class="task-coverage" aria-live="polite">
      <strong id="task-coverage">Chưa tải danh sách task</strong>
      <progress id="task-progress" value="0" max="1" aria-label="Tỷ lệ nhãn task đã tải"></progress>
@@ -369,6 +375,9 @@ const trustedGUIJavaScript = `'use strict';
   const taskPreviewSection=document.getElementById('task-preview');
   const taskTotal=document.getElementById('task-total');
   const taskLabels=document.getElementById('task-preview-labels');
+  const taskDepsSelect=document.getElementById('task-deps-select');
+  const taskDepsView=document.getElementById('task-deps-view');
+  const taskDepsOutput=document.getElementById('task-deps-output');
   const taskFetchNext=document.getElementById('task-fetch-next');
   const taskFetchAll=document.getElementById('task-fetch-all');
   const taskStopAll=document.getElementById('task-stop-all');
@@ -389,6 +398,7 @@ const trustedGUIJavaScript = `'use strict';
   const taskPageSize=4;
   let cachedTaskLabels=[];
   let cachedTaskIDs=[];
+  let taskDepsPendingID=0;
   let inspectedTasks=new Map();
   // Transient, local-only drafts survive pagination, sorting and job polls.
   // Never retain them across a new host snapshot, re-inspection or logout.
@@ -992,6 +1002,9 @@ const trustedGUIJavaScript = `'use strict';
   // Authenticated data must not remain displayed after logout, expiration
   // or revocation. Do not persist previous remote metadata in the browser.
   function clearPrivateViews(){
+    taskDepsPendingID=0;
+    taskDepsSelect.replaceChildren();taskDepsSelect.value='';
+    taskDepsOutput.textContent='';taskDepsOutput.hidden=true;
     tasksReportOutput.textContent='';tasksReportOutput.hidden=true;
     gitSwitchPreview=null;gitSwitchPending=null;
     gitDeletePreview=null;gitDeletePending=null;
@@ -1168,6 +1181,12 @@ const trustedGUIJavaScript = `'use strict';
     filesReadNext.disabled=filesReadStart.disabled||!filesReadMore;
     tasksPreview.disabled=busy||closed||!verified||budget<=0||maintenanceOnly||!featuresKnown||!available.tasks_preview;
     tasksReport.disabled=tasksPreview.disabled;
+    const depsID=Number(taskDepsSelect.value);
+    taskDepsSelect.disabled=tasksPreview.disabled||
+      !cachedTaskIDs.some(id=>Number.isInteger(id)&&id>0);
+    taskDepsView.disabled=taskDepsSelect.disabled||
+      !Number.isInteger(depsID)||depsID<1||depsID>2147483647||
+      !cachedTaskIDs.includes(depsID);
     taskRunStop.hidden=!taskRunning||closed;
     taskRunStop.disabled=!taskRunning||!verified||closed||closing||terminated;
     longTaskControls.hidden=longTaskID===0||closed;
@@ -1569,7 +1588,42 @@ const trustedGUIJavaScript = `'use strict';
           hostOS.textContent=data.host_os;
           projectOverview.hidden=false;
         }
-        if(endpoint==='/api/tasks-report'){
+        if(endpoint.startsWith('/api/tasks-dependencies/')){
+          const id=Number(endpoint.slice('/api/tasks-dependencies/'.length));
+          const order=data.order,edges=data.edges;
+          const validID=x=>Number.isInteger(x)&&x>0&&x<=2147483647;
+          const positions=new Map();
+          if(!validID(id)||id!==taskDepsPendingID||
+            !cachedTaskIDs.includes(id)||data.task_id!==id||
+            data.remote_control_available!==false||
+            typeof data.available!=='boolean'||!Array.isArray(order)||
+            !Array.isArray(edges)||order.length>8||edges.length>8||
+            order.some((n,i)=>{
+              if(!validID(n)||positions.has(n))return true;
+              positions.set(n,i);return false;
+            })||
+            (!data.available&&(order.length!==0||edges.length!==0))||
+            (data.available&&(order.length===0||order[order.length-1]!==id))||
+            edges.some(e=>!Array.isArray(e)||e.length!==2||
+              !positions.has(e[0])||!positions.has(e[1])||
+              positions.get(e[0])>=positions.get(e[1]))){
+            throw new Error('Đồ thị phụ thuộc E2EE không hợp lệ');
+          }
+          const displayID=x=>{
+            const i=cachedTaskIDs.indexOf(x);
+            return i>=0?cachedTaskLabels[i]+' (#'+x+')':'Task #'+x;
+          };
+          taskDepsOutput.textContent=!data.available?
+            'Host chưa bật xem phụ thuộc cho TaskDeck Remote.':
+            'Thứ tự topo (chỉ xem, không tự chạy):\n'+
+             order.map((id,i)=>String(i+1)+'. '+displayID(id)).join('\n')+
+            '\nPhụ thuộc:\n'+
+             (edges.length?edges.map(e=>displayID(e[1])+' ← '+displayID(e[0])).join('\n'):
+              '(Không có phụ thuộc)');
+          taskDepsOutput.hidden=false;
+          taskDepsPendingID=0;
+         }
+         if(endpoint==='/api/tasks-report'){
           if(data.remote_control_available!==false||!Array.isArray(data.items)||
             data.items.length>3||data.items.some((item,i)=>
               !item||typeof item!=='object'||
@@ -1610,6 +1664,8 @@ const trustedGUIJavaScript = `'use strict';
             throw new Error('Trang task E2EE không hợp lệ');
           }
           if(!appendPage){
+            taskDepsPendingID=0;
+            taskDepsOutput.textContent='';taskDepsOutput.hidden=true;
             cachedTaskLabels=data.labels.slice();
             cachedTaskIDs=data.ids==null?data.labels.map(()=>0):data.ids.slice();
             inspectedTasks.clear(); // a new preview invalidates prior selections
@@ -1623,6 +1679,19 @@ const trustedGUIJavaScript = `'use strict';
             cachedTaskLabels.push(...data.labels);
             cachedTaskIDs.push(...(data.ids==null?data.labels.map(()=>0):data.ids));
           }
+          const previousDeps=appendPage?taskDepsSelect.value:'';
+          taskDepsSelect.replaceChildren();
+          const placeholder=document.createElement('option');
+          placeholder.value='';placeholder.textContent='Chọn Task đã nhận';
+          taskDepsSelect.append(placeholder);
+          cachedTaskIDs.forEach((id,i)=>{
+            if(!Number.isInteger(id)||id<=0)return;
+            const opt=document.createElement('option');
+            opt.value=String(id);opt.textContent=cachedTaskLabels[i]+' (#'+id+')';
+            taskDepsSelect.append(opt);
+          });
+          taskDepsSelect.value=previousDeps&&
+            cachedTaskIDs.includes(Number(previousDeps))?previousDeps:'';
           remoteTaskTotal=data.total;
           canFetchTaskNext=data.labels.length>0 &&
             cachedTaskLabels.length<remoteTaskTotal;
@@ -2505,6 +2574,16 @@ const trustedGUIJavaScript = `'use strict';
     if(filesRootMore)invoke('/api/files-root-next');
   });
   tasksPreview.addEventListener('click',()=>invoke('/api/tasks-preview'));
+  taskDepsSelect.addEventListener('change',()=>render());
+  taskDepsView.addEventListener('click',()=>{
+    const id=Number(taskDepsSelect.value);
+    if(busy||closed||bulkLoading||!verified||!featuresKnown||
+      !available.tasks_preview||budget<=0||!Number.isInteger(id)||
+      id<=0||id>2147483647||!cachedTaskIDs.includes(id))return;
+    taskDepsPendingID=id;
+    taskDepsOutput.textContent='';taskDepsOutput.hidden=true;
+    invoke('/api/tasks-dependencies/'+String(id));
+  });
   tasksReport.addEventListener('click',()=>invoke('/api/tasks-report'));
   taskFetchNext.addEventListener('click',()=>{
     if(!canFetchTaskNext||bulkLoading||closed||busy||budget<=0)return;
