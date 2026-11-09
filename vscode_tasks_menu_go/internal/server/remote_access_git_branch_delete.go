@@ -169,6 +169,10 @@ func(s *Server)remoteGitBranchDelete(ctx context.Context,
   indexInfo.Size()<1{return empty,denied}
  initialIndex,err:=os.ReadFile(indexLeaf)
  if err!=nil||len(initialIndex)>1<<20{return empty,denied}
+ // The read-only preview and the destructive confirmation both call
+ // git status. A repository-local filter must never run just because
+ // the remote user reviewed or removed an otherwise redundant ref.
+ if !remoteGitNoExecutableFilters(deadline,root,env){return empty,denied}
  status,err:=run(256,"status","--porcelain=v1","--untracked-files=all",
   "--ignore-submodules=none","--no-renames")
  if err!=nil||status!=""{return empty,denied}

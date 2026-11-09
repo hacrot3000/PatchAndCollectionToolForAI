@@ -86,6 +86,10 @@ func(s *Server)executeRemoteGitBranchCreate(ctx context.Context,
  if err!=nil||!validRemoteGitBranchName(current){return empty,denied}
  head,err:=run(ctx,128,"rev-parse","--verify","HEAD^{commit}")
  if err!=nil||!remoteGitObjectID.MatchString(head){return empty,denied}
+ // A local Git filter.clean/process/smudge command can run even during
+ // read-only status preflight. Deny these commands before touching status
+ // or creating any branch ref; only the host config decides the opt-in.
+ if !remoteGitNoExecutableFilters(ctx,root,env){return empty,denied}
  // No dirty worktree/index or untracked files: avoid suggesting that the
  // newly created branch contains working changes (it points only to HEAD).
  work,err:=run(ctx,256,"status","--porcelain=v1","--untracked-files=normal")

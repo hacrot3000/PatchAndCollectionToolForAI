@@ -110,6 +110,10 @@ func(s *Server)remoteGitSwitchSameHead(
  if err!=nil||!remoteGitObjectID.MatchString(head){return empty,denied}
  expected,err:=run(128,"rev-parse","--verify","refs/heads/"+target+"^{commit}")
  if err!=nil||expected!=head{return empty,denied}
+ // Even same-tip branch switching first calls git status, which may
+ // execute repository-defined filter drivers. Reject them before any
+ // status/check-out operation, for both preview and confirmed switch.
+ if !remoteGitNoExecutableFilters(deadline,root,env){return empty,denied}
  // Any staged, unstaged, ignored-submodule or untracked change is a hard
  // refusal: this action never offers a checkout to a dirty workspace.
  status,err:=run(256,"status","--porcelain=v1","--untracked-files=all",
