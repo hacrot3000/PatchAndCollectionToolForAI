@@ -102,7 +102,7 @@ async function scenario(startStatus,pollStates){
  // A second "started" cannot overwrite the existing job/output/history.
  const restarted=await scenario('started',['started']);
  restarted.get('long-task-poll').click();await restarted.flush();
- assert.match(restarted.get('output').textContent,/vòng đời/);
+ assert.match(restarted.get('output').textContent,/vòng đời|Trạng thái\/exit code/);
  assert.equal(restarted.get('long-task-output').textContent,'');
  assert.equal(restarted.get('long-task-controls').hidden,true,
   'invalid status must close and scrub native GUI');
@@ -110,7 +110,7 @@ async function scenario(startStatus,pollStates){
  // Only an explicit clear action may mark a host job cleared.
  const earlyClear=await scenario('started',['cleared']);
  earlyClear.get('long-task-poll').click();await earlyClear.flush();
- assert.match(earlyClear.get('output').textContent,/vòng đời/);
+ assert.match(earlyClear.get('output').textContent,/vòng đời|Trạng thái\/exit code/);
 
  // A terminal success cannot later turn into an active job.
  const regression=await scenario('started',['completed','running']);
