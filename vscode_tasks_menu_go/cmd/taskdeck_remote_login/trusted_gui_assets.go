@@ -1726,18 +1726,42 @@ const trustedGUIJavaScript = `'use strict';
           if(!next){workflowAuditRows=[];}
           workflowAuditRows=workflowAuditRows.concat(data.items);
           workflowAuditMore=data.more;
+          // Group only records bearing the same authenticated per-run ID.
+          // Older records have no ID, so never guess that two happened in
+          // one execution merely because their task IDs look alike.
+          const groups=[];
+          const groupByRun=new Map();
+          for(let i=0;i<workflowAuditRows.length;i++){
+            const item=workflowAuditRows[i];
+            let group=item.run_id?groupByRun.get(item.run_id):null;
+            if(group){
+              if(group.root!==item.root_task_id||group.total!==item.total){
+                throw new Error('Audit lượt workflow có metadata không thống nhất');
+              }
+            }else{
+              group={run:item.run_id||'',root:item.root_task_id,
+                total:item.total,rows:[]};
+              groups.push(group);
+              if(item.run_id)groupByRun.set(item.run_id,group);
+            }
+            group.rows.push(item);
+          }
+          const groupText=groups.map(group=>{
+            const covered=new Set(group.rows.map(item=>item.step)).size;
+            const header=(group.run?'Lượt '+group.run:'Lượt cũ')+
+              ' · Workflow #'+group.root+' · '+covered+'/'+group.total+
+              ' bước có kết quả trong snapshot';
+            return header+'\n'+group.rows.map(item=>{
+              const when=new Date(item.timestamp*1000).toLocaleString('vi-VN');
+              return when+' · Bước '+item.step+'/'+item.total+
+                ' (Task #'+item.task_id+') · Lần '+item.attempt+
+                ' · '+item.status+' · exit '+item.exit_code;
+            }).join('\n');
+          }).join('\n\n');
           tasksReportOutput.textContent=workflowAuditRows.length===0?
             'Không có kết quả bước workflow hợp lệ của tài khoản này.':
             'Audit workflow của tài khoản này (tối đa 32 sự kiện từ 128 audit gần nhất):\n'+
-            workflowAuditRows.map(item=>{
-              const when=new Date(item.timestamp*1000).toLocaleString('vi-VN');
-              return when+(item.run_id?' · Lượt '+item.run_id:' · Lượt cũ')+
-                ' · Workflow #'+item.root_task_id+
-                ' · Bước '+item.step+'/'+item.total+' (Task #'+item.task_id+
-                ') · Lần '+item.attempt+' · '+item.status+
-                ' · exit '+item.exit_code;
-            }).join('\n')+
-            (workflowAuditMore?'\nCòn trang; bấm Xem tiếp audit.':'');
+            groupText+(workflowAuditMore?'\nCòn trang; bấm Xem tiếp audit.':'');
           tasksReportOutput.hidden=false;
          }
          if(endpoint==='/api/tasks-preview'||endpoint==='/api/tasks-preview-next'){

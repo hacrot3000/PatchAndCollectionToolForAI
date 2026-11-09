@@ -376,3 +376,17 @@ real-host testing are considered **code complete**.
 - Báo cáo có thể nhận biết hai lần chạy cùng `root_task_id`; chưa có
   lựa chọn ID chạy từ browser, API resume hoặc toàn bộ lịch sử không
   bị giới hạn. Các tính năng đó vẫn thuộc backlog.
+
+ 
+## 2026-11-09 — Nhóm báo cáo các bước theo lần chạy trên native GUI
+
+- Giao diện gom các audit bước có cùng mã `run_id` xác thực thành
+  một nhóm tương ứng **một lần chạy**, dù các bước đến từ các trang
+  E2EE khác nhau. Kiểm tra root task ID và tổng số bước phải thống nhất.
+- Hiển thị số bước **có bản ghi kết quả trong cửa sổ snapshot**,
+  không đánh đồng với số bước chắc chắn đã chạy/hoàn tất trên host.
+  Retry của cùng bước vẫn là các bản ghi sự kiện riêng.
+- Audit cũ không chứa mã lượt chạy chỉ hiển thị “Lượt cũ” cho từng
+  bản ghi, không suy đoán ghép các lần chạy bằng ID task.
+- Chỉ xử lý textContent của tối đa 32 sự kiện trong bộ nhớ GUI;
+  không lưu history trong browser storage hoặc PHP Relay.

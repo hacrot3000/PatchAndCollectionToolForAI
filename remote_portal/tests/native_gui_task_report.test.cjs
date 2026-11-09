@@ -87,8 +87,11 @@ const flush=async()=>{for(let i=0;i<80;i++)await Promise.resolve()};
  assert.match(get('tasks-report-output').textContent,/Workflow #80/);
  assert.match(get('tasks-report-output').textContent,/Bước 2\/3 \(Task #70\)/);
  assert.match(get('tasks-report-output').textContent,/Lần 2 · failed · exit 7/);
- assert.equal((get('tasks-report-output').textContent.match(/Lượt 0123456789abcdef/g)||[]).length,2,
-  'two completed steps must retain their same host-issued execution label');
+ assert.equal((get('tasks-report-output').textContent.match(/Lượt 0123456789abcdef/g)||[]).length,1,
+  'the two authenticated steps must appear under one run heading');
+ assert.match(get('tasks-report-output').textContent,
+  /Lượt 0123456789abcdef · Workflow #80 · 2\/3 bước có kết quả trong snapshot/,
+  'a partial per-run summary must not claim the workflow fully finished');
  assert.match(get('tasks-report-output').textContent,/Còn trang; bấm Xem tiếp audit/);
  assert.equal(get('tasks-workflow-audit-next').disabled,false,
   'additional host-owned workflow audit page not offered');
@@ -100,6 +103,8 @@ const flush=async()=>{for(let i=0;i<80;i++)await Promise.resolve()};
  assert.match(get('tasks-report-output').textContent,/Task #50/);
  assert.match(get('tasks-report-output').textContent,/Lượt cũ/,
   'historical step records without execution correlation remain readable');
+ assert.equal((get('tasks-report-output').textContent.match(/Lượt 0123456789abcdef/g)||[]).length,1,
+  'paging must not duplicate or split the per-run group');
  assert.equal(get('tasks-workflow-audit-next').disabled,true,
   'next button remained active after final audit page');
  assert.equal(get('tasks-report-output').children.length,0,
