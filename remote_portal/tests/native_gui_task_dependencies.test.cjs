@@ -56,6 +56,12 @@ const fetch=async(path,opt)=>{
   more:false,output:'',truncated:false,
   remote_control_available:false,remaining:--remaining,
  })};
+ if(path==='/api/tasks-poll/55')return {ok:true,json:async()=>({
+  ok:true,task_id:55,status:'running',exit_code:-1,
+  more:true,output:'authenticated-child-output',truncated:false,
+  step:1,step_total:2,attempt:2,attempt_total:2,step_status:'running',
+  remote_control_available:false,remaining:--remaining,
+ })};
  if(path==='/api/close')return {ok:true,json:async()=>({ok:true,closed:true})};
  throw Error('unexpected endpoint '+path);
 };
@@ -154,6 +160,13 @@ async function assertGraphValidation(graph,description,accepted=false){
   'workflow start must send only authenticated root ID');
  assert.equal(get('task-workflow-start').disabled,true,
   'second workflow run was allowed while one job owns the session');
+ get('long-task-poll').click();await flush();
+ assert.match(get('long-task-output').textContent,/Bước 1\/2/,
+  'signed workflow step index not rendered');
+ assert.match(get('long-task-output').textContent,/Lần 2\/2/,
+  'signed workflow retry attempt not rendered');
+ assert.match(get('long-task-output').textContent,/authenticated-child-output/,
+  'workflow output was not preserved alongside typed progress');
  available=false;
  get('task-deps-view').click();await flush();
  assert.match(get('task-deps-output').textContent,/Host chưa bật/);
@@ -164,6 +177,8 @@ async function assertGraphValidation(graph,description,accepted=false){
  assert.equal(get('task-deps-output').hidden,true,'graph visible after logout');
  assert.equal(get('task-workflow-start').disabled,true,
   'workflow start button persisted after logout');
+ assert.equal(get('long-task-output').textContent,'',
+  'authenticated workflow progress not scrubbed on logout');
  await assertGraphValidation({
   available:true,run_available:true,
   order:[33,44,55],edges:[[33,55],[44,55]]

@@ -936,3 +936,40 @@ func TestRemoteWorkflowRevocationDuringAttemptAuditPreventsFirstProcess(t *testi
   })
  }
 }
+
+ 
+func TestRemoteWorkflowPollReturnsAuthenticatedStepResult(t *testing.T){
+ remoteWorkflowHostFlags(t)
+ s,session,client,agent:=remoteTaskOperatorFixture(t)
+ root:=remoteWorkflowIssuedRoot(t,s,session,client,agent,
+  remoteWorkflowLinearSource,"Step C")
+ started,err:=longTaskE2EEAction(t,s,session,client,agent,
+  remotetransport.RemoteActionTasksWorkflowStart,root,0,"",
+  "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+ if err!=nil||started.Status!="started"{
+  t.Fatalf("workflow start: %+v %v",started,err)
+ }
+ if status:=awaitRemoteWorkflow(t,session);status!="completed"{
+  t.Fatalf("workflow outcome: %s",status)
+ }
+ progress,err:=longTaskE2EEAction(t,s,session,client,agent,
+  remotetransport.RemoteActionTasksPoll,root,0,"",
+  "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
+ if err!=nil||progress.Status!="completed"||
+  progress.Step!=3||progress.StepTotal!=3||
+  progress.Attempt!=1||progress.AttemptTotal!=1||
+  progress.StepStatus!="completed"||len(progress.Output)>64{
+  t.Fatalf("typed E2EE workflow progress unavailable: %+v %v",progress,err)
+ }
+ // The step record comes from the host, independent of a child process's
+ // arbitrary stdout. A single-step legacy task must not invent metadata.
+ for progress.More{
+  progress,err=longTaskE2EEAction(t,s,session,client,agent,
+   remotetransport.RemoteActionTasksPoll,root,0,"",
+   fmt.Sprintf("%032d",progress.Step+len(progress.Output)+1))
+  if err!=nil||progress.Step!=3||progress.StepTotal!=3||
+   len(progress.Output)>64{
+   t.Fatalf("subsequent E2EE page lost metadata: %+v %v",progress,err)
+  }
+ }
+}

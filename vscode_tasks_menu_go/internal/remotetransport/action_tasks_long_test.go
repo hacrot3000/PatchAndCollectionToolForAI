@@ -166,3 +166,21 @@ func TestRemoteLongTaskRejectsPartialOrOutOfBoundsWorkflowMetadata(t *testing.T)
   if client.Established(){t.Fatal("malformed workflow metadata did not revoke channel")}
  }
 }
+
+ 
+func TestRemoteLongTaskWorkflowStepEscapedOutputFitsE2EEEnvelope(t *testing.T){
+ for _,char:=range []string{"<",">","&","\"","\\","\n","\t"}{
+  client,agent,_:=participants(t)
+  value:=RemoteLongTaskProgress{
+   TaskID:2147483647,Status:"completed",ExitCode:255,
+   Output:strings.Repeat(char,64),Truncated:true,More:true,
+   Step:4,StepTotal:4,Attempt:2,AttemptTotal:2,StepStatus:"completed",
+  }
+  frame,err:=SealRemoteLongTaskProgress(agent,testActionID,value)
+  if err!=nil{t.Fatalf("escaped workflow output %q overflowed E2EE: %v",char,err)}
+  got,err:=OpenRemoteLongTaskProgress(client,frame,testActionID,2147483647)
+  if err!=nil||got.Output!=value.Output||got.Step!=4||got.Attempt!=2{
+   t.Fatalf("escaped workflow response corrupted: %+v %v",got,err)
+  }
+ }
+}
