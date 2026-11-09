@@ -80,8 +80,12 @@ func decodeRemoteWorkflowStepAuditDetails(raw string)(remoteWorkflowStepAuditDet
  end,err:=d.Token()
  if err!=nil||end!=json.Delim('}')||
   (len(seen)!=7&&len(seen)!=8)||
-  (len(seen)==8&&!seen["run_id"])||
   detail.Step>detail.Total{return denied,false}
+ for _,required:=range []string{
+  "transport","root_task_id","task_id","step","total","attempt","exit_code",
+ }{
+  if !seen[required]{return denied,false}
+ }
  if _,err=d.Token();err!=io.EOF{return denied,false}
  return detail,true
 }

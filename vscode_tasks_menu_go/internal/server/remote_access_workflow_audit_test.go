@@ -105,6 +105,10 @@ func TestRemoteWorkflowAuditStrictStoredSchema(t *testing.T){
   strings.Replace(valid,`"step":1`,`"step":1,"run_id":"\u002e"`,1),
   strings.Replace(valid,`"step":1`,`"step":1,"run_id":null`,1),
   strings.Replace(valid,`"step":1`,`"step":1,"run_id":"ABCDEF1234567890"`,1),
+  strings.Replace(strings.Replace(valid,`"transport":"e2ee",`,"",1),
+   `"step":1`,`"step":1,"run_id":"0123456789abcdef"`,1),
+  strings.Replace(strings.Replace(valid,`,"exit_code":0`,"",1),
+   `"step":1`,`"step":1,"run_id":"0123456789abcdef"`,1),
  }{
   if _,ok:=decodeRemoteWorkflowStepAuditDetails(source);ok{
    t.Fatalf("invalid durable audit schema accepted: %s",source)
