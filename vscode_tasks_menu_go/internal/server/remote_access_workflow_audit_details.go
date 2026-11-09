@@ -15,6 +15,17 @@ type remoteWorkflowStepAuditDetail struct{
  Total int
  Attempt int
  ExitCode int
+ RunID string
+}
+// Only a lowercase, fixed-length public correlation label, never an
+// authorization key. Disallow Unicode, separators, controls and whitespace.
+func validRemoteWorkflowRunID(value string)bool{
+ if len(value)!=16{return false}
+ for i:=0;i<len(value);i++{
+  c:=value[i]
+  if !((c>='0'&&c<='9')||(c>='a'&&c<='f')){return false}
+ }
+ return true
 }
 func decodeRemoteWorkflowStepAuditDetails(raw string)(remoteWorkflowStepAuditDetail,bool){
  var denied remoteWorkflowStepAuditDetail
@@ -23,7 +34,7 @@ func decodeRemoteWorkflowStepAuditDetails(raw string)(remoteWorkflowStepAuditDet
  first,err:=d.Token()
  if err!=nil||first!=json.Delim('{'){return denied,false}
  var detail remoteWorkflowStepAuditDetail
- seen:=make(map[string]bool,7)
+ seen:=make(map[string]bool,8)
  for d.More(){
   token,e:=d.Token()
   key,ok:=token.(string)
@@ -32,6 +43,11 @@ func decodeRemoteWorkflowStepAuditDetails(raw string)(remoteWorkflowStepAuditDet
   if key=="transport"{
    var transport string
    if d.Decode(&transport)!=nil||transport!="e2ee"{return denied,false}
+   continue
+  }
+  if key=="run_id"{
+   if d.Decode(&detail.RunID)!=nil||
+    !validRemoteWorkflowRunID(detail.RunID){return denied,false}
    continue
   }
   var value json.RawMessage
@@ -62,7 +78,9 @@ func decodeRemoteWorkflowStepAuditDetails(raw string)(remoteWorkflowStepAuditDet
   }
  }
  end,err:=d.Token()
- if err!=nil||end!=json.Delim('}')||len(seen)!=7||
+ if err!=nil||end!=json.Delim('}')||
+  (len(seen)!=7&&len(seen)!=8)||
+  (len(seen)==8&&!seen["run_id"])||
   detail.Step>detail.Total{return denied,false}
  if _,err=d.Token();err!=io.EOF{return denied,false}
  return detail,true

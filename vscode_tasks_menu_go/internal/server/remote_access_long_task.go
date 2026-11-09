@@ -43,6 +43,7 @@ type remoteLongTaskJob struct {
  workflowStepStatus string
  workflowStepHistory string
  workflowStepDetails []string
+ workflowRunID string // Random per execution; never sent as a command token.
 }
 
 type remoteLongTaskCapture struct {

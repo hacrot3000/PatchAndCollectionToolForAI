@@ -21,6 +21,7 @@ type RemoteWorkflowAuditEntry struct{
  Status string `json:"status"`
  ExitCode int `json:"exit_code"`
  Timestamp int64 `json:"timestamp"`
+ RunID string `json:"run_id,omitempty"` // Public correlation, not a bearer capability.
 }
 type RemoteWorkflowAudit struct{
  Items []RemoteWorkflowAuditEntry
@@ -33,7 +34,16 @@ type remoteWorkflowAuditWire struct{
  RemoteControlAvailable bool `json:"remote_control_available"`
  More bool `json:"more,omitempty"`
 }
+func ValidRemoteWorkflowRunID(value string)bool{
+ if len(value)!=16{return false}
+ for i:=0;i<16;i++{
+  c:=value[i]
+  if !((c>='0'&&c<='9')||(c>='a'&&c<='f')){return false}
+ }
+ return true
+}
 func ValidRemoteWorkflowAuditEntry(item RemoteWorkflowAuditEntry)bool{
+ if item.RunID!=""&&!ValidRemoteWorkflowRunID(item.RunID){return false}
  if !validSelectedTaskID(item.RootTaskID)||!validSelectedTaskID(item.TaskID)||
   item.Step<1||item.Total<2||item.Total>4||item.Step>item.Total||
   item.Attempt<1||item.Attempt>2||item.ExitCode< -1||item.ExitCode>255||
@@ -103,8 +113,10 @@ func OpenRemoteWorkflowAudit(ch *Channel,frame []byte,id string)(RemoteWorkflowA
   result.More=string(rawMore)=="true"
  }
  for _,raw:=range rawItems{
-  sub,e:=decodeActionObject(raw,"root_task_id","task_id","step","total",
-   "attempt","status","exit_code","timestamp")
+  sub,e:=decodeActionObjectWithOptionals(raw,
+   []string{"root_task_id","task_id","step","total",
+    "attempt","status","exit_code","timestamp"},
+   []string{"run_id"})
   if e!=nil{ch.Close();return denied,ErrInvalidRemoteAction}
   var item RemoteWorkflowAuditEntry
   root,ok:=decodeWorkflowAuditInt(sub["root_task_id"])
@@ -135,6 +147,12 @@ func OpenRemoteWorkflowAudit(ch *Channel,frame []byte,id string)(RemoteWorkflowA
   item.Attempt=int(attempt)
   item.ExitCode=int(code)
   item.Timestamp=timestamp
+  if rawRunID,hasRunID:=sub["run_id"];hasRunID{
+   if json.Unmarshal(rawRunID,&item.RunID)!=nil||
+    !ValidRemoteWorkflowRunID(item.RunID){
+    ch.Close();return denied,ErrInvalidRemoteAction
+   }
+  }
   result.Items=append(result.Items,item)
  }
  if !ValidRemoteWorkflowAudit(result){ch.Close();return denied,ErrInvalidRemoteAction}

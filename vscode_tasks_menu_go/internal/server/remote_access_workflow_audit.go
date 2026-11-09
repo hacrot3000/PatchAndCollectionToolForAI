@@ -55,7 +55,7 @@ func (s *Server)readRemoteWorkflowAudit(ctx context.Context,
    RootTaskID:detail.RootTaskID,TaskID:detail.TaskID,
    Step:detail.Step,Total:detail.Total,Attempt:detail.Attempt,
    Status:event.Result,ExitCode:detail.ExitCode,
-   Timestamp:event.Timestamp.UTC().Unix(),
+   Timestamp:event.Timestamp.UTC().Unix(),RunID:detail.RunID,
   }
   if !remotetransport.ValidRemoteWorkflowAuditEntry(item){continue}
   if len(snapshot)>0&&

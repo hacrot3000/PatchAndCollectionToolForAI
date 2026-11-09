@@ -2,6 +2,8 @@ package server
 
 import(
  "context"
+ "crypto/rand"
+ "encoding/hex"
  "errors"
  "fmt"
  "io"
@@ -259,11 +261,12 @@ func validateRemoteWorkflowStepCwd(root,cwd string)error{
 // Append a durable attempted row before EACH child process. Never persist
 // command, argv, stdout, secret values or cwd in the audit database.
 func(s *Server)auditRemoteWorkflowStep(session *remoteTaskDeckSession,
- rootID,stepID,index,total,attempt int,status string,exit int)error{
+ rootID,stepID,index,total,attempt int,runID,status string,exit int)error{
  denied:=remotetransport.ErrRemoteActionDenied
  if s==nil||s.Identity==nil||session==nil||rootID<1||stepID<1||
   index<1||index>total||total>remoteWorkflowMaxSteps||
-  attempt<1||attempt>2{return denied}
+  attempt<1||attempt>2||
+  !validRemoteWorkflowRunID(runID){return denied}
  ctx,cancel:=context.WithTimeout(context.Background(),2*time.Second)
  defer cancel()
  project,err:=s.Identity.ProjectByKey(ctx,session.projectKey)
@@ -274,8 +277,8 @@ func(s *Server)auditRemoteWorkflowStep(session *remoteTaskDeckSession,
  err=s.Identity.AppendAudit(ctx,identity.AuditEvent{
   ID:id,Timestamp:time.Now().UTC(),UserID:&user,ProjectID:&pid,
   Action:"remote.action.tasks_workflow_step",ResourceType:"tasks",Result:status,
-  Details:fmt.Sprintf("{\"transport\":\"e2ee\",\"root_task_id\":%d,\"task_id\":%d,\"step\":%d,\"total\":%d,\"attempt\":%d,\"exit_code\":%d}",
-   rootID,stepID,index,total,attempt,exit),
+  Details:fmt.Sprintf("{\"transport\":\"e2ee\",\"root_task_id\":%d,\"task_id\":%d,\"step\":%d,\"total\":%d,\"attempt\":%d,\"exit_code\":%d,\"run_id\":%q}",
+   rootID,stepID,index,total,attempt,exit,runID),
  })
  if err!=nil{return denied}
  return nil
@@ -299,6 +302,11 @@ func(s *Server)startRemoteLinearWorkflow(ctx context.Context,
  if session.longTask!=nil{return denied}
  plan,hash,err:=s.prepareRemoteLinearWorkflow(ctx,session,taskID)
  if err!=nil{return denied}
+ // Create a new random identifier for this execution, not the task
+ // definition. It is never used as authority or a transferable token.
+ var nonce [8]byte
+ if _,err:=rand.Read(nonce[:]);err!=nil{return denied}
+ runID:=hex.EncodeToString(nonce[:])
  // Durable aggregate attempted audit is BEFORE any irreversible start.
  if err:=s.auditRemoteTaskRunAttempt(ctx,session,taskID);err!=nil{return denied}
  jobCtx,cancel:=context.WithTimeout(context.Background(),remoteLongTaskMaxDuration)
@@ -306,6 +314,7 @@ func(s *Server)startRemoteLinearWorkflow(ctx context.Context,
  job:=&remoteLongTaskJob{
   taskID:taskID,started:time.Now(),cancel:cancel,
   done:make(chan struct{}),capture:capture,status:"running",exitCode:-1,
+  workflowRunID:runID,
   workflowStepHistory:strings.Repeat("-",len(plan)),
   workflowStepDetails:func()[]string{
    parts:=make([]string,len(plan))
@@ -367,7 +376,7 @@ Workflow:
    }
    // An unavailable audit denies this attempt BEFORE any process starts.
    if err:=s.auditRemoteWorkflowStep(session,job.taskID,
-    step.taskID,i+1,len(plan),attempt,"attempted",-1);err!=nil{
+    step.taskID,i+1,len(plan),attempt,job.workflowRunID,"attempted",-1);err!=nil{
     status="failed";exitCode=-1;break Workflow
    }
    executable,ok:=remoteWorkflowResolvedExecutable(spec.Command)
@@ -375,7 +384,7 @@ Workflow:
     // Even an executable failure after the durable attempted audit must
     // produce a final, content-free step outcome whenever storage works.
     _=s.auditRemoteWorkflowStep(session,job.taskID,
-     step.taskID,i+1,len(plan),attempt,"failed",-1)
+     step.taskID,i+1,len(plan),attempt,job.workflowRunID,"failed",-1)
     job.updateWorkflowStep(i+1,len(plan),attempt,step.retries+1,"failed",-1,0)
     status="failed";exitCode=-1;break Workflow
    }
@@ -402,7 +411,7 @@ Workflow:
     (attempt>1&&os.Getenv("TASKDECK_REMOTE_TASKS_WORKFLOW_RETRY")!="1"){
     cancelStep()
     _=s.auditRemoteWorkflowStep(session,job.taskID,
-     step.taskID,i+1,len(plan),attempt,"cancelled",-1)
+     step.taskID,i+1,len(plan),attempt,job.workflowRunID,"cancelled",-1)
     job.updateWorkflowStep(i+1,len(plan),attempt,step.retries+1,"cancelled",-1,0)
     status="cancelled";exitCode=-1;break Workflow
    }
@@ -426,7 +435,7 @@ Workflow:
    // The result audit is a hard boundary between attempts, including
    // retries of the SAME step. A failed audit can never trigger a replay.
    if err:=s.auditRemoteWorkflowStep(session,job.taskID,step.taskID,
-    i+1,len(plan),attempt,stepStatus,code);err!=nil{
+    i+1,len(plan),attempt,job.workflowRunID,stepStatus,code);err!=nil{
     job.updateWorkflowStep(i+1,len(plan),attempt,step.retries+1,"failed",-1,0)
     status="failed";exitCode=-1
     _,_=captureWorkflowText(job.capture,fmt.Sprintf(

@@ -624,6 +624,7 @@ func (s *Server) executeRemoteE2EEPing(
  case remotetransport.RemoteActionTasksWorkflowAudit:
   // Old exact-key clients must not receive the optional pagination hint.
   workflowAudit.More=false
+  for i:=range workflowAudit.Items{workflowAudit.Items[i].RunID=""}
   sealed,err=remotetransport.SealRemoteWorkflowAudit(channel,request.RequestID,workflowAudit)
  case remotetransport.RemoteActionTasksWorkflowAuditStart,
   remotetransport.RemoteActionTasksWorkflowAuditNext:
