@@ -126,6 +126,14 @@ func (s *Server) executeRemoteGitPush(ctx context.Context,
  if err!=nil||!remoteGitPushName.MatchString(remote){return empty,denied}
  merge,err:=run(ctx,"config","--get","branch."+branch+".merge")
  if err!=nil||merge!=localRef{return empty,denied}
+ // branch.<name>.merge alone does not prove that the local tracking ref
+ // represents that branch: remote.origin.fetch can map it to a different
+ // refs/remotes destination. Refuse a misleading upstream before any
+ // network side effect (the Pull preflight enforces this same binding).
+ tracking,err:=run(ctx,"rev-parse","--symbolic-full-name","@{upstream}")
+ if err!=nil||tracking!="refs/remotes/"+remote+"/"+branch{
+  return empty,denied
+ }
  // The effective push URL is resolved by Git, including url.*.pushInsteadOf.
  // Reject multiple destinations before starting a network mutation.
  pushURL,err:=run(ctx,"remote","get-url","--push","--all",remote)
