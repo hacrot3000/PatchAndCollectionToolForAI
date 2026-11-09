@@ -165,6 +165,7 @@ if(app.layoutProfile==='mobile'){
       remote:()=>globalThis.TaskMenuRemoteWorkspace?.open?.(),
       operations:()=>globalThis.TaskMenuOperationCenter?.open?.(),
       snapshots:()=>globalThis.TaskMenuWorkspaceSnapshots?.open?.(),
+      notes:()=>globalThis.TaskMenuProjectNotes?.open?.(),
       health:()=>globalThis.TaskMenuProjectHealth?.open?.(),
       profiles:()=>globalThis.TaskMenuProjectProfiles?.open?.()
     };
@@ -202,6 +203,7 @@ if(app.layoutProfile==='mobile'){
     ['remote','⇄','Remote workspace',()=>can('ssh.use')&&can('settings.read')],
     ['operations','⇅','Operations',()=>true],
     ['snapshots','◫','Snapshots',()=>true],
+    ['notes','✎','Project notes',()=>can('settings.read')],
     ['health','♡','Project health',()=>true],
     ['profiles','▥','Project profiles',()=>can('settings.read')]
   ];

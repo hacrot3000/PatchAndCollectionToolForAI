@@ -34,8 +34,8 @@ function installWorkspaceUtilitiesLauncher(){
   launcher.type='button';
   launcher.className='task-activity-button task-workspace-utilities-launcher';
   launcher.dataset.view='workspace-utilities';
-  launcher.title='Workspace snapshots · Operation Center · Project Health';
-  launcher.setAttribute('aria-label','Workspace tools: Snapshots, Operation Center, Project Health');
+  launcher.title='Workspace snapshots · Operation Center · Project Health · Project notes';
+  launcher.setAttribute('aria-label','Workspace tools: Snapshots, Operation Center, Project Health, Project notes');
   launcher.setAttribute('aria-haspopup','menu');
   launcher.setAttribute('aria-expanded','false');
   launcher.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="7" height="7" rx="1"/><rect x="13" y="4" width="7" height="7" rx="1"/><rect x="4" y="13" width="7" height="7" rx="1"/><rect x="13" y="13" width="7" height="7" rx="1"/></svg>';
@@ -49,7 +49,8 @@ function installWorkspaceUtilitiesLauncher(){
   const entries=[
     {name:'Workspace snapshots',description:'Save or restore workspace state',icon:'◫',open:()=>globalThis.TaskMenuWorkspaceSnapshots?.open?.()},
     {name:'OPERATION CENTER',description:'Track and manage operations',icon:'⇅',open:()=>globalThis.TaskMenuOperationCenter?.open?.()},
-    {name:'PROJECT HEALTH',description:'Review project status and diagnostics',icon:'♥',open:()=>globalThis.TaskMenuProjectHealth?.open?.()}
+    {name:'PROJECT HEALTH',description:'Review project status and diagnostics',icon:'♥',open:()=>globalThis.TaskMenuProjectHealth?.open?.()},
+    {name:'Project notes',description:'Prompts, templates and project reminders',icon:'✎',open:()=>globalThis.TaskMenuProjectNotes?.open?.()}
   ];
   const items=entries.map(entry=>{
     const item=document.createElement('button');

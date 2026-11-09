@@ -301,6 +301,11 @@ func sharedRoutePermissions(r *http.Request) []string {
 			return []string{identity.PermissionSettingsRead}
 		}
 		return []string{identity.PermissionSettingsWrite}
+	case "/api/project-notes":
+		if r.Method == http.MethodGet {
+			return []string{identity.PermissionSettingsRead}
+		}
+		return []string{identity.PermissionSettingsWrite}
 	case "/api/project-profiles":
 		if r.Method == http.MethodGet {
 			return []string{identity.PermissionSettingsRead}

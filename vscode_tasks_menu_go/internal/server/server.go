@@ -95,6 +95,7 @@ type Server struct {
 	terminalStateMu     sync.RWMutex
 	terminalStateFrozen bool
 	workspaceSnapshotsMu sync.Mutex
+	projectNotesMu sync.Mutex
 	projectProfilesMu     sync.Mutex
 	workspaceRootsMu      sync.Mutex
 	taskRunHistoryMu      sync.Mutex
@@ -139,6 +140,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/schedules/repositories",s.scheduleRepositoriesAPI)
 	mux.HandleFunc("/api/state/tasks", s.taskState)
 	mux.HandleFunc("/api/workspace-snapshots", s.workspaceSnapshots)
+	mux.HandleFunc("/api/project-notes", s.projectNotes)
 	mux.HandleFunc("/api/project-profiles", s.projectProfiles)
 	mux.HandleFunc("/api/workspace-roots", s.workspaceRoots)
 	mux.HandleFunc("/api/config/page-title", s.pageTitle)
