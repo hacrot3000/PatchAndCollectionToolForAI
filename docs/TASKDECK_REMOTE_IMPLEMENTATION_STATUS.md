@@ -2578,3 +2578,43 @@ shared-PHP deployment validation remain required.
 - **Next:** finish remaining Git Pull → Commit → Push edge cases, shared
   workspace inter-session mutation isolation, then Terminal, other Git,
   remaining GUI and remote security in the agreed order.
+
+## 2026-11-09 — main: canonical workspace Git mutation exclusion across E2EE sessions
+
+- **Commit `fe57a7f`:** Every host-authenticated, opt-in remote Git
+  operation that can alter refs, index, HEAD or remote-tracking refs now
+  acquires an in-process exclusive reservation keyed by the canonical
+  `filepath.EvalSymlinks` + absolute TaskDeck workspace directory.
+  Pull, Commit, Push, Fetch, Stage/Unstage (including tracked-file
+  variants), Branch Create, Branch Switch and Branch Delete share it.
+- **Admission:** Existing `terminalMu -> longTaskMu` local session
+  reservation is retained; the workspace reservation is acquired last.
+  A busy workspace is rejected immediately rather than blocking an
+  E2EE request. Each completed operation releases the workspace and
+  both local mutexes, including on execution error, and deletes its
+  registry entry. Cleanup is idempotent. A symlink alias cannot bypass
+  this in-process host lock. Different canonical roots can work in
+  parallel. No PHP/Relay/user-provided workspace name or lock token
+  participates in the decision.
+- **Regression tests:** Two different session principals and Server
+  values targeting the same root cannot simultaneously reserve Git
+  writes; a distinct root succeeds concurrently; a released root is
+  available again; a symlinked alias is treated as the same root.
+  These source-level Go tests are integrated into the existing
+  mandatory remote Agent `go test -race` server job.
+- **Exact guarantee boundary:** This is a *single TaskDeck Agent
+  process* Git-write mutex. It does not coordinate separate daemon
+  processes; unrelated external/local Git commands; or tasks and PTYs
+  owned by other authenticated E2EE sessions. Extending workspace
+  isolation to those operations requires explicit lifecycle-bound
+  leases and dedicated regression tests; avoid claiming total
+  cross-process workspace exclusivity or exposing an unsafe lockfile
+  interface. No change to authorization, audit, or live release gate.
+- **CI:** PHP Portal passed on source commit `fe57a7f`. Go Agent's
+  complete race-enabled job is still running at the time of writing;
+  passing results are not asserted until the final run completes.
+- **Next priorities:** close remaining task/PTY-vs-Git cross-session
+  workspace races, then Git Pull/Commit/Push edge cases, Terminal,
+  other Git commands and remaining GUI features, according to the
+  established ordering. Source-complete functions are not reopened
+  only for missing physical LIVE tests.
