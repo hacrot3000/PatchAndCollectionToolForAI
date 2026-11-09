@@ -2660,3 +2660,44 @@ shared-PHP deployment validation remain required.
   Git operations, other GUI features and remaining remote security.
   Implemented code is considered complete independently of whether
   physical field deployment has been tested.
+
+
+
+## 2026-11-09 — main: short Task lease, strict Git Pull status and Git URL path policy
+
+- **Commit `4abdc32` (Go test):** add an actual bounded short-task
+  process test. After its host-visible marker, a second E2EE session
+  cannot acquire the canonical Git workspace lease. Cancelling the
+  task must stop its subprocess group and free the lease; stale task
+  definitions rejected before process launch must likewise free it.
+  The test is included in the existing `TestRemote...` Agent security
+  test regex (Linux/macOS only).
+- **Commit `fa382e2` (Pull):** use explicit
+  `git status --porcelain=v1 --untracked-files=all
+  --ignore-submodules=none` for the pre-network clean-tree check.
+  Repository-local `submodule.<name>.ignore=all` must not hide
+  uncommitted nested changes. A host-local test builds a real
+  submodule, leaves an untracked file inside it, and verifies Pull
+  denies before attempting to execute the mock SSH transport. No
+  client-supplied Git argv, remote URL or refspec was added.
+- **Commit `8992b1a` (Pull/Push URL safety):** URL-form
+  `ssh://` and `https://` destinations must pass canonical path
+  segment validation; dot/dot-dot, repeated slash, backslash, NUL,
+  escaped slash/backslash and encoded traversal are rejected,
+  matching the already-enforced SCP-style path restriction.
+  Extend Git Push URL policy regression tests for the above values.
+  Both Git Pull and Push use the same approved URL predicate.
+- **Test state:** PHP Portal main CI succeeded at `fa382e2` and
+  earlier; race-enabled Go Agent CI on the latest source is still
+  pending at this handoff. These are source changes with test cases,
+  **not** a claim that all Go tests or physical Remote acceptance
+  have completed.
+- **Unfinished in established priority order:** Task GUI
+  output/lifecycle edge review; Git Pull/Commit/Push concurrency
+  and repository hardening (cross-process host operations are not
+  covered by the in-process lock); bounded Terminal; remaining
+  Git interactions; Files/Editor/Patch/Collection GUI; remaining
+  security/feature checks. Code complete is counted complete
+  regardless of whether LIVE hardware/NAT trials were performed.
+  The release gate `remote_control_available=false` remains
+  intentionally unchanged.
