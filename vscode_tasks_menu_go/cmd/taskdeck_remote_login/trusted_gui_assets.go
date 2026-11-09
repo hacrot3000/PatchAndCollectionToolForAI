@@ -950,6 +950,9 @@ const trustedGUIJavaScript = `'use strict';
   let busy=false,closed=false,terminated=false,closing=false,budget=16;
   let taskRunning=false; // Short tasks: stop revokes E2EE.
   let longTaskID=0,longTaskState='',longTaskText='',longTaskMore=false;
+  // Cancel acknowledgement is distinct from process exit. Poll may still
+  // report "running" while the host is terminating the process group.
+  let longTaskCancelPending=false;
   let longTaskAuto=false,longTaskPollScheduled=false;
   let terminalState='closed',terminalTranscript='';
   let gitPatchText='',gitPatchPage=0,gitPatchMore=false,gitPatchMode='head';
@@ -973,7 +976,7 @@ const trustedGUIJavaScript = `'use strict';
     if(longTaskID===0||budget>3||endpoint==='/api/close')return true;
     const id=String(longTaskID);
     if(endpoint==='/api/tasks-cancel/'+id)
-      return ['started','running'].includes(longTaskState);
+      return !longTaskCancelPending&&['started','running'].includes(longTaskState);
     if(endpoint==='/api/tasks-clear/'+id)
       return ['completed','failed','cancelled','timed_out'].includes(longTaskState);
     if(endpoint==='/api/tasks-poll/'+id)
@@ -1015,6 +1018,7 @@ const trustedGUIJavaScript = `'use strict';
     gitSwitchPreview=null;gitSwitchPending=null;
     gitDeletePreview=null;gitDeletePending=null;
     longTaskID=0;longTaskState='';longTaskText='';
+    longTaskCancelPending=false;
     longTaskHistorySerial=0;
     taskRunHistory=[];taskRunHistoryList.replaceChildren();
     taskRunHistoryView.hidden=true;taskRunHistoryClear.disabled=true;
@@ -1209,7 +1213,8 @@ const trustedGUIJavaScript = `'use strict';
     longTaskAutoButton.disabled=closed||!verified||longTaskID===0;
     longTaskAutoButton.textContent=longTaskAuto?'Tạm dừng tự nhận':'Tiếp tục tự nhận';
     longTaskCancel.disabled=busy||closed||!verified||budget<=0||
-      longTaskID===0||!['started','running'].includes(longTaskState);
+      longTaskID===0||longTaskCancelPending||
+      !['started','running'].includes(longTaskState);
     longTaskClear.textContent=longTaskMore?
       'Bỏ output còn lại và dọn job':'Dọn job đã kết thúc';
     longTaskClear.disabled=busy||closed||!verified||budget<=0||
@@ -1362,6 +1367,11 @@ const trustedGUIJavaScript = `'use strict';
     ];
     if(gitMutations.includes(endpoint)&&
       (longTaskID!==0||terminalState!=='closed'))return;
+    // An acknowledged cancel is irreversible for this job. The next
+    // status read can legitimately be "running" while SIGTERM propagates;
+    // it must never authorize a second cancel or consume cleanup quota.
+    if(longTaskCancelPending&&longTaskID>0&&
+      endpoint==='/api/tasks-cancel/'+String(longTaskID))return;
     if(!verified||(busy&&!isClose)||(closed&&!isClose)||
       (!isClose&&budget<=0)||
       (!isClose&&!taskMaintenanceAllowed(endpoint))||
@@ -1982,12 +1992,16 @@ const trustedGUIJavaScript = `'use strict';
           }
           if(launching){
             longTaskID=id;longTaskText='';
+            longTaskCancelPending=false;
             longTaskAuto=!finalStates.includes(data.status);
             longTaskHistorySerial=rememberTaskRun(
               id,'dài',data.status,data.exit_code,'',data.truncated);
           }
           if(data.output){
             longTaskText=(longTaskText+data.output).slice(0,16384);
+          }
+          if(prefix==='/api/tasks-cancel/'&&data.status==='cancel_requested'){
+            longTaskCancelPending=true;
           }
           longTaskState=data.status;
           longTaskMore=data.more;
@@ -1998,6 +2012,7 @@ const trustedGUIJavaScript = `'use strict';
             longTaskHistorySerial=0;
             longTaskID=0;
             longTaskText='';longTaskMore=false;
+            longTaskCancelPending=false;
             longTaskAuto=false;
           }
           const historyLabels={'-':'Chưa chạy',R:'Đang chạy',
@@ -2019,6 +2034,9 @@ const trustedGUIJavaScript = `'use strict';
             '\n'+longTaskText;
           output.textContent='Trạng thái job E2EE: '+data.status+
             ' (Task ID '+String(id)+').'+
+            (longTaskCancelPending&&
+             ['running','cancel_requested'].includes(longTaskState)?
+              ' Đã yêu cầu hủy; đang chờ tiến trình kết thúc.':'')+
             (budget<=3&&longTaskID>0&&
               (longTaskMore||['started','running','cancel_requested'].includes(longTaskState))?
               ' Đã tạm dừng tự nhận để giữ lượt cho hủy/dọn job.':'');
@@ -2916,7 +2934,7 @@ const trustedGUIJavaScript = `'use strict';
     if(longTaskID>0&&budget>0&&!busy)invoke('/api/tasks-poll/'+String(longTaskID));
   });
   longTaskCancel.addEventListener('click',()=>{
-    if(longTaskID>0&&budget>0&&!busy&&
+    if(longTaskID>0&&budget>0&&!busy&&!longTaskCancelPending&&
       ['started','running'].includes(longTaskState)){
       invoke('/api/tasks-cancel/'+String(longTaskID));
     }
