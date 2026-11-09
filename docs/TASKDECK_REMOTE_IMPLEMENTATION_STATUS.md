@@ -2804,3 +2804,67 @@ shared-PHP deployment validation remain required.
   Linux/macOS NAT/CGNAT field validation has not happened.
   The actual remote-control release remains intentionally
   `remote_control_available=false` / LIVE NO-GO.
+
+
+
+## 2026-11-09 — main: directory-inode workspace OS lock and Git credential-helper denial
+
+- **Commit `90816ca`:** The in-process canonical workspace reservation
+  shared by Git mutations, short/long tasks, workflows and PTY now also
+  obtains `flock(LOCK_EX|LOCK_NB)` on the already-existing canonical
+  workspace DIRECTORY inode on Linux/macOS. A failed advisory lock
+  also releases the local mutex/registry entry. The lock is fail-fast,
+  reference-counted by a private opened descriptor and dropped only
+  when its host operation/process has exited. There is no project
+  `.lock` file to write, delete, forge or leave stale on a daemon
+  crash. `os.SameFile` rejects a directory inode swap between
+  workspace preflight Stat and the lock descriptor Open. Host opt-in,
+  TaskDeck RBAC, client Ed25519 possession, E2EE and the disabled
+  production feature gate are unchanged.
+- **Commits `bebbb96`, `a4220f5`:** Unix regression tests spawn the
+  **compiled Go test binary as a separate process** and verify that
+  an acquired directory lock denies a second process, including
+  a canonical symlink alias. After normal release the second process
+  can acquire it. A separate crash test starts a subprocess that
+  announces it holds the lock, verifies competing access is denied,
+  kills the owner with SIGKILL, reaps it, then verifies the OS
+  releases the lock without any lock-file cleanup. The second commit
+  corrects the helper handshake newline, which must be an actual
+  newline for the parent to read the signal.
+- **Commit `b7a34c2`:** Fixed HTTPS Git network actions Pull, Fetch
+  and Push now reset repository-defined `credential.helper` lists via
+  highest-priority Git `-c credential.helper=` and route both Git/SSH
+  askpass to the fixed noninteractive `/usr/bin/false`. Merely setting
+  `GIT_TERMINAL_PROMPT=0` was insufficient: a malicious local
+  `credential.helper` script could still run after an HTTPS
+  authentication challenge. This denies host-repository-controlled
+  command execution as a side effect of the three fixed E2EE operations.
+- **Commit `3758b26`:** Added a Unix integration regression using an
+  actual local TLS Git endpoint responding with HTTPS 401 Basic auth
+  and an executable, repository-configured malicious credential
+  helper. Each of the three authorized operation implementations
+  must reach the HTTPS challenge but fail WITHOUT executing that
+  helper. The same test demonstrates the helper does execute in an
+  independent bare Git `credential fill` call without the safe override,
+  so the negative test is meaningful. A local standalone Git
+  reproduction also confirmed that an empty `-c credential.helper=`
+  suppresses repo-defined helpers.
+- **Verification caveats:** The single-source GitHub Actions Go Agent
+  race/security suite for compiled HEAD `3758b26` was still
+  IN_PROGRESS at the time of writing, while PHP Portal workflow
+  has previously passed. Do not claim green Go CI or actual macOS
+  directory-lock behavior before covered validation; Linux directory
+  flock was independently confirmed with a small native Go probe.
+- **Scope:** Advisory locks prevent *cooperating TaskDeck Agent
+  processes on the same local filesystem* from overlapping
+  workspace-mutating tasks, Git or PTY actions; they cannot prevent
+  independent tools, ordinary local Git, tasks started outside
+  TaskDeck, or all filesystem replacement/network-filesystem races.
+  Actual Remote application controls remain `remote_control_available=false`
+  and LIVE NO-GO. Source-complete features count as complete without
+  physical network deployment.
+- **Remaining priority:** native task-GUI edge cases (code review),
+  remaining Git Pull/Commit/Push safety (cross-process locking
+  completed for cooperating daemons), Terminal/PTY lifecycle,
+  other Git commands, other GUI (Files/Editor/Patch/Collection),
+  and remaining remote privilege/budget security.
