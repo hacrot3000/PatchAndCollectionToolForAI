@@ -678,3 +678,100 @@ func TestRemoteWorkflowAcceptedSystemExecutableRemainsAllowed(t *testing.T){
   t.Fatalf("system process failed after guard: %s",state)
  }
 }
+
+ 
+func TestRemoteWorkflowPerStepTimeoutHostOptInAndAudit(t *testing.T){
+ remoteWorkflowHostFlags(t)
+ source:=`{"tasks":[
+  {"label":"Slow","type":"process","command":"/bin/sleep","args":["3"],
+   "taskdeck":{"workflow":{"timeoutSeconds":1}}},
+  {"label":"Never","type":"process","command":"/bin/echo",
+   "args":["MUST-NOT-RUN"],"dependsOn":"Slow"}
+ ]}`
+ t.Setenv("TASKDECK_REMOTE_TASKS_WORKFLOW_TIMEOUT","0")
+ s,session,client,agent:=remoteTaskOperatorFixture(t)
+ root:=remoteWorkflowIssuedRoot(t,s,session,client,agent,source,"Never")
+ info,err:=s.readRemoteTaskDependencies(context.Background(),session,root)
+ if err!=nil||!info.Available||info.RunAvailable{
+  t.Fatalf("timeout workflow admitted without host opt-in: %+v %v",info,err)
+ }
+ if _,_,err:=s.prepareRemoteLinearWorkflow(context.Background(),session,root);err==nil{
+  t.Fatal("timeout bypassed disabled opt-in at start")
+ }
+ t.Setenv("TASKDECK_REMOTE_TASKS_WORKFLOW_TIMEOUT","1")
+ info,err=s.readRemoteTaskDependencies(context.Background(),session,root)
+ if err!=nil||!info.RunAvailable{
+  t.Fatalf("valid host timeout not offered in GUI: %+v %v",info,err)
+ }
+ if err:=s.startRemoteLinearWorkflow(context.Background(),session,root);err!=nil{
+  t.Fatalf("timeout workflow start: %v",err)
+ }
+ if got:=awaitRemoteWorkflow(t,session);got!="timed_out"{
+  t.Fatalf("step did not time out before global 90-second deadline: %s",got)
+ }
+ job:=session.longTask
+ job.capture.mu.Lock()
+ output:=string(append([]byte(nil),job.capture.data...))
+ job.capture.mu.Unlock()
+ if !strings.Contains(output,"Step 1/2: timed_out")||
+  strings.Contains(output,"MUST-NOT-RUN")||
+  strings.Contains(output,"Step 2/2"){
+  t.Fatalf("timeout ran a dependent task or lost status: %q",output)
+ }
+ project,err:=s.Identity.ProjectByKey(context.Background(),session.projectKey)
+ if err!=nil{t.Fatal(err)}
+ rows,err:=s.Identity.ListAudit(context.Background(),identity.AuditQuery{
+  ProjectID:project.ID,UserID:session.userID,
+  Action:"remote.action.tasks_workflow_step",Limit:12,
+ })
+ if err!=nil||len(rows)!=2{
+  t.Fatalf("timeout audit must have attempted and timed_out: %+v %v",rows,err)
+ }
+ found:=false
+ for _,row:=range rows{
+  if row.Result=="timed_out"{found=true}
+ }
+ if !found{t.Fatalf("missing durable step timeout audit: %+v",rows)}
+}
+
+func TestRemoteWorkflowTimeoutRejectsUnknownPolicyAndUnapprovedRanges(t *testing.T){
+ remoteWorkflowHostFlags(t)
+ for _,tc:=range []struct{name,policy,enabled string;allowed bool}{
+  {"disabled",`{"timeoutSeconds":1}`,"0",false},
+  {"one-second",`{"timeoutSeconds":1}`,"1",true},
+  {"thirty-seconds",`{"timeoutSeconds":30}`,"1",true},
+  {"zero-seconds",`{"timeoutSeconds":0}`,"1",false},
+  {"thirty-one-seconds",`{"timeoutSeconds":31}`,"1",false},
+  {"fractional-seconds",`{"timeoutSeconds":1.5}`,"1",false},
+  {"string-seconds",`{"timeoutSeconds":"1"}`,"1",false},
+  {"zero-retries",`{"retry":0,"timeoutSeconds":1}`,"1",false},
+  {"conditional",`{"timeoutSeconds":1,"condition":"always"}`,"1",false},
+  {"outputs",`{"timeoutSeconds":1,"outputs":["x"]}`,"1",false},
+  {"unknown",`{"timeoutSeconds":1,"other":1}`,"1",false},
+  {"combined",`{"retry":1,"timeoutSeconds":1}`,"1",true},
+ }{
+  t.Run(tc.name,func(t *testing.T){
+   t.Setenv("TASKDECK_REMOTE_TASKS_WORKFLOW_TIMEOUT",tc.enabled)
+   t.Setenv("TASKDECK_REMOTE_TASKS_WORKFLOW_RETRY","1")
+   s,session,client,agent:=remoteTaskOperatorFixture(t)
+   source:=fmt.Sprintf(`{"tasks":[
+    {"label":"First","type":"process","command":"/bin/echo",
+     "taskdeck":{"workflow":%s}},
+    {"label":"Last","type":"process","command":"/bin/echo",
+     "dependsOn":"First"}
+   ]}`,tc.policy)
+   root:=remoteWorkflowIssuedRoot(t,s,session,client,agent,source,"Last")
+   result,err:=s.readRemoteTaskDependencies(context.Background(),session,root)
+   if err!=nil||!result.Available||result.RunAvailable!=tc.allowed{
+    t.Fatalf("unexpected timeout policy admission: %+v %v",result,err)
+   }
+   plan,_,err:=s.prepareRemoteLinearWorkflow(context.Background(),session,root)
+   if (err==nil)!=tc.allowed{
+    t.Fatalf("executor/preflight mismatch: %+v %v",plan,err)
+   }
+   if tc.allowed&&len(plan)>0&&plan[0].timeout<=0{
+    t.Fatalf("approved timeout lost in execution plan: %+v",plan)
+   }
+  })
+ }
+}

@@ -23,7 +23,7 @@ import(
 // interpolated inputs remain denied. No browser-supplied graph or command.
 const remoteWorkflowMaxSteps=4
 
-type remoteWorkflowStep struct{ taskID int; retries int }
+type remoteWorkflowStep struct{ taskID int; retries int; timeout time.Duration }
 
 // Process workflows intentionally exclude executable scripts, including
 // shebang files with innocuous names. Check native object headers rather than
@@ -73,34 +73,53 @@ func remoteWorkflowResolvedExecutable(command string)(string,bool){
 }
 
 
-// A retry is an explicit potentially repeated side effect, not a safe
-// default. Admit ONLY the host-authored retry:1 workflow policy and ONLY
-// with its own default-OFF host opt-in. Do not accept conditions, outputs,
-// timeouts, dynamic inputs or other taskdeck metadata. This is deliberately
-// narrower than the ordinary local TaskDeck workflow policy.
-func remoteWorkflowRetryForTask(task tasks.Task)(int,bool){
+// Only a tiny, independently opted-in subset of TaskDeck workflow
+// policies is executable remotely. The host owns this metadata; browser
+// callers cannot set retry counts, timeouts, command or arguments.
+// Per-step timeouts must not outlive the existing 90-second job deadline.
+func remoteWorkflowPolicyForTask(task tasks.Task)(int,time.Duration,bool){
  raw,exists:=task.Raw["taskdeck"]
- if !exists||raw==nil{return 0,true}
- if os.Getenv("TASKDECK_REMOTE_TASKS_WORKFLOW_RETRY")!="1"{
-  return 0,false
- }
+ if !exists||raw==nil{return 0,0,true}
  meta,ok:=raw.(map[string]any)
- if !ok||len(meta)!=1{return 0,false}
+ if !ok||len(meta)!=1{return 0,0,false}
  config,ok:=meta["workflow"].(map[string]any)
- if !ok||len(config)!=1{return 0,false}
- switch n:=config["retry"].(type){
- case float64:
-  if n==1{return 1,true}
- case int:
-  if n==1{return 1,true}
+ if !ok||len(config)<1||len(config)>2{return 0,0,false}
+ retries:=0
+ var timeout time.Duration
+ for key,value:=range config{
+  integer:=0
+  switch v:=value.(type){
+  case float64:
+   if v!=float64(int(v)){return 0,0,false}
+   integer=int(v)
+  case int:
+   integer=v
+  default:
+   return 0,0,false
+  }
+  switch key{
+  case "retry":
+   if integer!=1||os.Getenv("TASKDECK_REMOTE_TASKS_WORKFLOW_RETRY")!="1"{
+    return 0,0,false
+   }
+   retries=1
+  case "timeoutSeconds":
+   if integer<1||integer>30||
+    os.Getenv("TASKDECK_REMOTE_TASKS_WORKFLOW_TIMEOUT")!="1"{
+    return 0,0,false
+   }
+   timeout=time.Duration(integer)*time.Second
+  default:
+   return 0,0,false
+  }
  }
- return 0,false
+ return retries,timeout,true
 }
 
 func remoteWorkflowSafeProcess(task tasks.Task)bool{
  if task.Type!="process"||len(task.Inputs)!=0||
   len(task.SecretEnv)!=0||len(task.Options)!=0{return false}
- if _,ok:=remoteWorkflowRetryForTask(task);!ok{return false}
+ if _,_,ok:=remoteWorkflowPolicyForTask(task);!ok{return false}
  command,ok:=task.Command.(string)
  if !ok||strings.Contains(command,"${"){return false}
  if _,safe:=remoteWorkflowResolvedExecutable(command);!safe{return false}
@@ -205,7 +224,7 @@ func(s *Server)prepareRemoteLinearWorkflow(ctx context.Context,
  for _,item:=range list{byID[item.ID]=item}
  plan:=make([]remoteWorkflowStep,0,len(deps.Order))
  for _,id:=range deps.Order{
-  retries,ok:=remoteWorkflowRetryForTask(byID[id])
+  retries,timeout,ok:=remoteWorkflowPolicyForTask(byID[id])
   if !ok{return nil,hash,denied}
   // Reuse the existing, separately tested single-task source/inode,
   // workspace boundary and stable-ID preflight, with the ONLY exception
@@ -217,7 +236,7 @@ func(s *Server)prepareRemoteLinearWorkflow(ctx context.Context,
    !tasks.RemoteExecutableAllowed(root,spec.Command){
    return nil,hash,denied
   }
-  plan=append(plan,remoteWorkflowStep{taskID:id,retries:retries})
+  plan=append(plan,remoteWorkflowStep{taskID:id,retries:retries,timeout:timeout})
  }
  if ctx.Err()!=nil||session.closed.Load(){return nil,hash,denied}
  return plan,hash,nil
@@ -308,6 +327,12 @@ Workflow:
   // host-authorized retry:1 policy. Each try re-checks permission, source
   // hash, cwd, executable identity and durable start/finish audit.
   for attempt:=1;attempt<=step.retries+1;attempt++{
+   // Disabling a host opt-in while a workflow is already running also
+   // revokes future retries/timeout-governed steps.
+   if (attempt>1&&os.Getenv("TASKDECK_REMOTE_TASKS_WORKFLOW_RETRY")!="1")||
+    (step.timeout>0&&os.Getenv("TASKDECK_REMOTE_TASKS_WORKFLOW_TIMEOUT")!="1"){
+    status="failed";exitCode=-1;break Workflow
+   }
    if ctx.Err()!=nil||session.closed.Load(){
     status="cancelled";exitCode=-1;break Workflow
    }
@@ -337,7 +362,12 @@ Workflow:
    _,_=captureWorkflowText(job.capture,fmt.Sprintf(
     "[TaskDeck workflow] Step %d/%d: Task #%d (attempt %d/%d)\n",
     i+1,len(plan),step.taskID,attempt,step.retries+1))
-   cmd:=exec.CommandContext(ctx,executable,spec.Args...)
+   runCtx:=ctx
+   cancelStep:=func(){}
+   if step.timeout>0{
+    runCtx,cancelStep=context.WithTimeout(ctx,step.timeout)
+   }
+   cmd:=exec.CommandContext(runCtx,executable,spec.Args...)
    cmd.Dir=spec.Cwd
    cmd.Env=spec.Env
    cmd.Stdout=job.capture
@@ -346,10 +376,13 @@ Workflow:
    cmd.Cancel=func()error{killGitJobProcess(cmd);return nil}
    cmd.WaitDelay=time.Second
    if ctx.Err()!=nil||session.closed.Load(){
+    cancelStep()
     status="cancelled";exitCode=-1;break Workflow
    }
    err=cmd.Run()
    killGitJobProcess(cmd)
+   timedOut:=errors.Is(runCtx.Err(),context.DeadlineExceeded)
+   cancelStep()
    code:=0
    if err!=nil{
     var exit *exec.ExitError
@@ -358,7 +391,7 @@ Workflow:
     }else{code=-1}
    }
    stepStatus:="completed"
-   if errors.Is(ctx.Err(),context.DeadlineExceeded){stepStatus="timed_out"
+   if timedOut||errors.Is(ctx.Err(),context.DeadlineExceeded){stepStatus="timed_out"
    }else if ctx.Err()!=nil||session.closed.Load(){stepStatus="cancelled"
    }else if err!=nil{stepStatus="failed"}
    // The result audit is a hard boundary between attempts, including
