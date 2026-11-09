@@ -23,7 +23,7 @@ import(
 // interpolated inputs remain denied. No browser-supplied graph or command.
 const remoteWorkflowMaxSteps=4
 
-type remoteWorkflowStep struct{ taskID int }
+type remoteWorkflowStep struct{ taskID int; retries int }
 
 // Process workflows intentionally exclude executable scripts, including
 // shebang files with innocuous names. Check native object headers rather than
@@ -72,10 +72,35 @@ func remoteWorkflowResolvedExecutable(command string)(string,bool){
  return resolved,true
 }
 
+
+// A retry is an explicit potentially repeated side effect, not a safe
+// default. Admit ONLY the host-authored retry:1 workflow policy and ONLY
+// with its own default-OFF host opt-in. Do not accept conditions, outputs,
+// timeouts, dynamic inputs or other taskdeck metadata. This is deliberately
+// narrower than the ordinary local TaskDeck workflow policy.
+func remoteWorkflowRetryForTask(task tasks.Task)(int,bool){
+ raw,exists:=task.Raw["taskdeck"]
+ if !exists||raw==nil{return 0,true}
+ if os.Getenv("TASKDECK_REMOTE_TASKS_WORKFLOW_RETRY")!="1"{
+  return 0,false
+ }
+ meta,ok:=raw.(map[string]any)
+ if !ok||len(meta)!=1{return 0,false}
+ config,ok:=meta["workflow"].(map[string]any)
+ if !ok||len(config)!=1{return 0,false}
+ switch n:=config["retry"].(type){
+ case float64:
+  if n==1{return 1,true}
+ case int:
+  if n==1{return 1,true}
+ }
+ return 0,false
+}
+
 func remoteWorkflowSafeProcess(task tasks.Task)bool{
  if task.Type!="process"||len(task.Inputs)!=0||
-  len(task.SecretEnv)!=0||len(task.Options)!=0||
-  task.Raw["taskdeck"]!=nil{return false}
+  len(task.SecretEnv)!=0||len(task.Options)!=0{return false}
+ if _,ok:=remoteWorkflowRetryForTask(task);!ok{return false}
  command,ok:=task.Command.(string)
  if !ok||strings.Contains(command,"${"){return false}
  if _,safe:=remoteWorkflowResolvedExecutable(command);!safe{return false}
@@ -176,8 +201,12 @@ func(s *Server)prepareRemoteLinearWorkflow(ctx context.Context,
  if !remoteWorkflowSafeSequentialGraph(list,deps.Order,deps.Edges){
   return nil,hash,denied
  }
+ byID:=make(map[int]tasks.Task,len(list))
+ for _,item:=range list{byID[item.ID]=item}
  plan:=make([]remoteWorkflowStep,0,len(deps.Order))
  for _,id:=range deps.Order{
+  retries,ok:=remoteWorkflowRetryForTask(byID[id])
+  if !ok{return nil,hash,denied}
   // Reuse the existing, separately tested single-task source/inode,
   // workspace boundary and stable-ID preflight, with the ONLY exception
   // that the host-owned dependency label is now allowed.
@@ -187,7 +216,7 @@ func(s *Server)prepareRemoteLinearWorkflow(ctx context.Context,
   if err:=validateRemoteWorkflowStepCwd(root,spec.Cwd);err!=nil{
    return nil,hash,denied
   }
-  plan=append(plan,remoteWorkflowStep{taskID:id})
+  plan=append(plan,remoteWorkflowStep{taskID:id,retries:retries})
  }
  if ctx.Err()!=nil||session.closed.Load(){return nil,hash,denied}
  return plan,hash,nil
@@ -206,10 +235,11 @@ func validateRemoteWorkflowStepCwd(root,cwd string)error{
 // Append a durable attempted row before EACH child process. Never persist
 // command, argv, stdout, secret values or cwd in the audit database.
 func(s *Server)auditRemoteWorkflowStep(session *remoteTaskDeckSession,
- rootID,stepID,index,total int,status string,exit int)error{
+ rootID,stepID,index,total,attempt int,status string,exit int)error{
  denied:=remotetransport.ErrRemoteActionDenied
  if s==nil||s.Identity==nil||session==nil||rootID<1||stepID<1||
-  index<1||index>total||total>remoteWorkflowMaxSteps{return denied}
+  index<1||index>total||total>remoteWorkflowMaxSteps||
+  attempt<1||attempt>2{return denied}
  ctx,cancel:=context.WithTimeout(context.Background(),2*time.Second)
  defer cancel()
  project,err:=s.Identity.ProjectByKey(ctx,session.projectKey)
@@ -220,8 +250,8 @@ func(s *Server)auditRemoteWorkflowStep(session *remoteTaskDeckSession,
  err=s.Identity.AppendAudit(ctx,identity.AuditEvent{
   ID:id,Timestamp:time.Now().UTC(),UserID:&user,ProjectID:&pid,
   Action:"remote.action.tasks_workflow_step",ResourceType:"tasks",Result:status,
-  Details:fmt.Sprintf("{\"transport\":\"e2ee\",\"root_task_id\":%d,\"task_id\":%d,\"step\":%d,\"total\":%d,\"exit_code\":%d}",
-   rootID,stepID,index,total,exit),
+  Details:fmt.Sprintf("{\"transport\":\"e2ee\",\"root_task_id\":%d,\"task_id\":%d,\"step\":%d,\"total\":%d,\"attempt\":%d,\"exit_code\":%d}",
+   rootID,stepID,index,total,attempt,exit),
  })
  if err!=nil{return denied}
  return nil
@@ -271,76 +301,83 @@ func(s *Server)runRemoteLinearWorkflow(ctx context.Context,
  plan []remoteWorkflowStep,hash [32]byte){
  exitCode:=0
  status:="completed"
+Workflow:
  for i,step:=range plan{
-  if ctx.Err()!=nil||session.closed.Load(){
-   status="cancelled";exitCode=-1;break
-  }
-  // Live Portal authorization and local password/key/role are rechecked
-  // before EVERY process, not only before the first workflow action.
-  if err:=s.authorizeRemoteAuthenticatedSession(ctx,session,
-   session.channel,identity.PermissionTasksRun);err!=nil{
-   status="cancelled";exitCode=-1;break
-  }
-  spec,_,err:=prepareRemoteTaskExecutionInputMode(ctx,s.Workspace,hash,
-   step.taskID,0,false,"",true)
-  if err!=nil{status="failed";exitCode=-1;break}
-  root,err:=filepath.EvalSymlinks(s.Workspace)
-  if err!=nil{status="failed";exitCode=-1;break}
-  root,err=filepath.Abs(root)
-  if err!=nil||validateRemoteWorkflowStepCwd(root,spec.Cwd)!=nil{
-   status="failed";exitCode=-1;break
-  }
-  if err:=s.auditRemoteWorkflowStep(session,job.taskID,
-   step.taskID,i+1,len(plan),"attempted",-1);err!=nil{
-   status="failed";exitCode=-1;break
-  }
-  // Re-resolve at launch and EXECUTE the resolved path, not the mutable
-  // symlink. A link repointed to /bin/sh after initial review must not
-  // silently turn a reviewed process task into shell execution.
-  executable,ok:=remoteWorkflowResolvedExecutable(spec.Command)
-  if !ok{status="failed";exitCode=-1;break}
-  _,_=captureWorkflowText(job.capture,fmt.Sprintf(
-   "[TaskDeck workflow] Step %d/%d: Task #%d\n",i+1,len(plan),step.taskID))
-  cmd:=exec.CommandContext(ctx,executable,spec.Args...)
-  cmd.Dir=spec.Cwd
-  cmd.Env=spec.Env
-  cmd.Stdout=job.capture
-  cmd.Stderr=job.capture
-  prepareGitJobProcess(cmd)
-  cmd.Cancel=func()error{killGitJobProcess(cmd);return nil}
-  cmd.WaitDelay=time.Second
-  if ctx.Err()!=nil||session.closed.Load(){
-   status="cancelled";exitCode=-1;break
-  }
-  err=cmd.Run()
-  killGitJobProcess(cmd)
-  code:=0
-  if err!=nil{
-   var exit *exec.ExitError
-   if errors.As(err,&exit)&&exit.ExitCode()>=0&&exit.ExitCode()<=255{
-    code=exit.ExitCode()
-   }else{code=-1}
-  }
-  stepStatus:="completed"
-  if errors.Is(ctx.Err(),context.DeadlineExceeded){stepStatus="timed_out"
-  }else if ctx.Err()!=nil||session.closed.Load(){stepStatus="cancelled"
-  }else if err!=nil{stepStatus="failed"}
-  // A completed process is not permission to start another step if its
-  // security outcome could not be durably recorded. Fail the whole job
-  // closed instead of silently losing the prior step's audit event.
-  if err:=s.auditRemoteWorkflowStep(session,job.taskID,step.taskID,
-   i+1,len(plan),stepStatus,code);err!=nil{
-   status="failed";exitCode=-1
+  // A failed native process may run ONCE more only with an explicit
+  // host-authorized retry:1 policy. Each try re-checks permission, source
+  // hash, cwd, executable identity and durable start/finish audit.
+  for attempt:=1;attempt<=step.retries+1;attempt++{
+   if ctx.Err()!=nil||session.closed.Load(){
+    status="cancelled";exitCode=-1;break Workflow
+   }
+   if err:=s.authorizeRemoteAuthenticatedSession(ctx,session,
+    session.channel,identity.PermissionTasksRun);err!=nil{
+    status="cancelled";exitCode=-1;break Workflow
+   }
+   spec,_,err:=prepareRemoteTaskExecutionInputMode(ctx,s.Workspace,hash,
+    step.taskID,0,false,"",true)
+   if err!=nil{status="failed";exitCode=-1;break Workflow}
+   root,err:=filepath.EvalSymlinks(s.Workspace)
+   if err!=nil{status="failed";exitCode=-1;break Workflow}
+   root,err=filepath.Abs(root)
+   if err!=nil||validateRemoteWorkflowStepCwd(root,spec.Cwd)!=nil{
+    status="failed";exitCode=-1;break Workflow
+   }
+   // An unavailable audit denies this attempt BEFORE any process starts.
+   if err:=s.auditRemoteWorkflowStep(session,job.taskID,
+    step.taskID,i+1,len(plan),attempt,"attempted",-1);err!=nil{
+    status="failed";exitCode=-1;break Workflow
+   }
+   executable,ok:=remoteWorkflowResolvedExecutable(spec.Command)
+   if !ok{status="failed";exitCode=-1;break Workflow}
    _,_=captureWorkflowText(job.capture,fmt.Sprintf(
-    "[TaskDeck workflow] Step %d/%d: audit unavailable; stopped\n",
-    i+1,len(plan)))
-   break
-  }
-  _,_=captureWorkflowText(job.capture,fmt.Sprintf(
-   "[TaskDeck workflow] Step %d/%d: %s (exit=%d)\n",
-   i+1,len(plan),stepStatus,code))
-  if stepStatus!="completed"{
-   status=stepStatus;exitCode=code;break
+    "[TaskDeck workflow] Step %d/%d: Task #%d (attempt %d/%d)\n",
+    i+1,len(plan),step.taskID,attempt,step.retries+1))
+   cmd:=exec.CommandContext(ctx,executable,spec.Args...)
+   cmd.Dir=spec.Cwd
+   cmd.Env=spec.Env
+   cmd.Stdout=job.capture
+   cmd.Stderr=job.capture
+   prepareGitJobProcess(cmd)
+   cmd.Cancel=func()error{killGitJobProcess(cmd);return nil}
+   cmd.WaitDelay=time.Second
+   if ctx.Err()!=nil||session.closed.Load(){
+    status="cancelled";exitCode=-1;break Workflow
+   }
+   err=cmd.Run()
+   killGitJobProcess(cmd)
+   code:=0
+   if err!=nil{
+    var exit *exec.ExitError
+    if errors.As(err,&exit)&&exit.ExitCode()>=0&&exit.ExitCode()<=255{
+     code=exit.ExitCode()
+    }else{code=-1}
+   }
+   stepStatus:="completed"
+   if errors.Is(ctx.Err(),context.DeadlineExceeded){stepStatus="timed_out"
+   }else if ctx.Err()!=nil||session.closed.Load(){stepStatus="cancelled"
+   }else if err!=nil{stepStatus="failed"}
+   // The result audit is a hard boundary between attempts, including
+   // retries of the SAME step. A failed audit can never trigger a replay.
+   if err:=s.auditRemoteWorkflowStep(session,job.taskID,step.taskID,
+    i+1,len(plan),attempt,stepStatus,code);err!=nil{
+    status="failed";exitCode=-1
+    _,_=captureWorkflowText(job.capture,fmt.Sprintf(
+     "[TaskDeck workflow] Step %d/%d: audit unavailable; stopped\n",
+     i+1,len(plan)))
+    break Workflow
+   }
+   _,_=captureWorkflowText(job.capture,fmt.Sprintf(
+    "[TaskDeck workflow] Step %d/%d: %s (exit=%d, attempt=%d)\n",
+    i+1,len(plan),stepStatus,code,attempt))
+   if stepStatus=="completed"{break}
+   if stepStatus=="failed"&&code>0&&attempt<=step.retries{
+    _,_=captureWorkflowText(job.capture,fmt.Sprintf(
+     "[TaskDeck workflow] Step %d/%d: retry authorized (one repeat)\n",
+     i+1,len(plan)))
+    continue
+   }
+   status=stepStatus;exitCode=code;break Workflow
   }
  }
  if errors.Is(ctx.Err(),context.DeadlineExceeded){status="timed_out"

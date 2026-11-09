@@ -414,3 +414,100 @@ func TestRemoteWorkflowStopsBeforeNextStepIfStepAuditFails(t *testing.T){
   })
  }
 }
+
+ 
+func TestRemoteWorkflowSingleRetryHostOptInAndAudit(t *testing.T){
+ remoteWorkflowHostFlags(t)
+ source:=`{"tasks":[
+  {"label":"Fail once more","type":"process","command":"/bin/false",
+   "taskdeck":{"workflow":{"retry":1}}},
+  {"label":"Must stop","type":"process","command":"/bin/echo",
+   "args":["MUST-NOT-RUN"],"dependsOn":"Fail once more"}
+ ]}`
+ t.Setenv("TASKDECK_REMOTE_TASKS_WORKFLOW_RETRY","1")
+ s,session,client,agent:=remoteTaskOperatorFixture(t)
+ root:=remoteWorkflowIssuedRoot(t,s,session,client,agent,source,"Must stop")
+ deps,err:=s.readRemoteTaskDependencies(context.Background(),session,root)
+ if err!=nil||!deps.Available||!deps.RunAvailable{
+  t.Fatalf("host-approved one-retry workflow not offered: %+v %v",deps,err)
+ }
+ if err:=s.startRemoteLinearWorkflow(context.Background(),session,root);err!=nil{
+  t.Fatalf("host-approved one-retry workflow not started: %v",err)
+ }
+ if result:=awaitRemoteWorkflow(t,session);result!="failed"{
+  t.Fatalf("exhausted retry did not fail: %s",result)
+ }
+ job:=session.longTask
+ job.mu.Lock()
+ code:=job.exitCode
+ job.mu.Unlock()
+ if code!=1{t.Fatalf("nonzero child exit not preserved after retry: %d",code)}
+ job.capture.mu.Lock()
+ output:=string(append([]byte(nil),job.capture.data...))
+ job.capture.mu.Unlock()
+ if !strings.Contains(output,"attempt 1/2")||
+  !strings.Contains(output,"attempt 2/2")||
+  strings.Contains(output,"MUST-NOT-RUN")||
+  strings.Contains(output,"Step 2/2"){
+  t.Fatalf("retry count, or fail-fast contract was broken: %q",output)
+ }
+ project,err:=s.Identity.ProjectByKey(context.Background(),session.projectKey)
+ if err!=nil{t.Fatal(err)}
+ events,err:=s.Identity.ListAudit(context.Background(),identity.AuditQuery{
+  ProjectID:project.ID,UserID:session.userID,
+  Action:"remote.action.tasks_workflow_step",Limit:12,
+ })
+ if err!=nil||len(events)!=4{
+  t.Fatalf("each retry must have attempted and failed audit: %+v %v",events,err)
+ }
+ attempts:=map[string]int{"1":0,"2":0}
+ for _,row:=range events{
+  if row.Result!="attempted"&&row.Result!="failed"{
+   t.Fatalf("unexpected per-attempt audit status: %+v",row)
+  }
+  if !strings.Contains(row.Details,`"step":1`)||
+   !strings.Contains(row.Details,`"task_id":`){
+   t.Fatalf("retry audit mixed another step: %+v",row)
+  }
+  if strings.Contains(row.Details,`"attempt":1`){attempts["1"]++
+  }else if strings.Contains(row.Details,`"attempt":2`){attempts["2"]++
+  }else{t.Fatalf("audit omitted attempt number: %+v",row)}
+ }
+ if attempts["1"]!=2||attempts["2"]!=2{
+  t.Fatalf("wrong per-attempt local audits: %+v",attempts)
+ }
+}
+
+func TestRemoteWorkflowRetryDeniedWithoutHostOptInOrWithOtherPolicies(t *testing.T){
+ remoteWorkflowHostFlags(t)
+ for _,scenario:=range []struct{name,policy,flag string;safe bool}{
+  {"disabled",`{"retry":1}`,"0",false},
+  {"explicit-repeat",`{"retry":1}`,"1",true},
+  {"too-many-repeats",`{"retry":2}`,"1",false},
+  {"conditional",`{"retry":1,"condition":"always"}`,"1",false},
+  {"continue-on-error",`{"retry":1,"continueOnError":true}`,"1",false},
+  {"output-exfiltration",`{"retry":1,"outputs":["output"]}`,"1",false},
+  {"extra-taskdeck-metadata",`{"retry":1}`,"1",false},
+ }{
+  t.Run(scenario.name,func(t *testing.T){
+   t.Setenv("TASKDECK_REMOTE_TASKS_WORKFLOW_RETRY",scenario.flag)
+   s,session,client,agent:=remoteTaskOperatorFixture(t)
+   extra:=""
+   if scenario.name=="extra-taskdeck-metadata"{extra=`,"other":"extra"`}
+   source:=fmt.Sprintf(`{"tasks":[
+    {"label":"First","type":"process","command":"/bin/echo",
+     "taskdeck":{"workflow":%s%s}},
+    {"label":"Last","type":"process","command":"/bin/echo","dependsOn":"First"}
+   ]}`,scenario.policy,extra)
+   root:=remoteWorkflowIssuedRoot(t,s,session,client,agent,source,"Last")
+   deps,err:=s.readRemoteTaskDependencies(context.Background(),session,root)
+   if err!=nil||!deps.Available||deps.RunAvailable!=scenario.safe{
+    t.Fatalf("wrong retry policy admission: %+v %v",deps,err)
+   }
+   _,_,err=s.prepareRemoteLinearWorkflow(context.Background(),session,root)
+   if (err==nil)!=scenario.safe{
+    t.Fatalf("mismatched executor retry admission: %v",err)
+   }
+  })
+ }
+}
