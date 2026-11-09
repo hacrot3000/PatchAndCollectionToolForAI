@@ -2,6 +2,7 @@ package remotetransport
 
 import (
  "encoding/json"
+ "strconv"
  "time"
 )
 
@@ -60,6 +61,13 @@ func SealRemoteWorkflowAudit(ch *Channel,id string,report RemoteWorkflowAudit)([
  if err!=nil||len(clear)>maxRemoteActionPlaintext{return nil,ErrInvalidRemoteAction}
  return ch.Seal(clear)
 }
+// Strict canonical integer syntax rejects null, negative zero, floats,
+// overflow and alternate representations that encoding/json can coerce.
+func decodeWorkflowAuditInt(raw json.RawMessage)(int64,bool){
+ if len(raw)==0||len(raw)>18{return 0,false}
+ v,err:=strconv.ParseInt(string(raw),10,64)
+ return v,err==nil&&strconv.FormatInt(v,10)==string(raw)
+}
 func OpenRemoteWorkflowAudit(ch *Channel,frame []byte,id string)(RemoteWorkflowAudit,error){
  denied:=RemoteWorkflowAudit{}
  if ch==nil||!ch.Established()||!validActionID(id){return denied,ErrInvalidRemoteAction}
@@ -75,6 +83,7 @@ func OpenRemoteWorkflowAudit(ch *Channel,frame []byte,id string)(RemoteWorkflowA
  if json.Unmarshal(fields["type"],&typ)!=nil||
   json.Unmarshal(fields["request_id"],&requestID)!=nil||
   json.Unmarshal(fields["items"],&rawItems)!=nil||
+  len(fields["items"])<2||fields["items"][0]!='['||
   typ!=RemoteWorkflowAuditProtocol||requestID!=id||
   len(rawItems)>MaxRemoteWorkflowAuditEntries{
   ch.Close();return denied,ErrInvalidRemoteAction
@@ -85,16 +94,34 @@ func OpenRemoteWorkflowAudit(ch *Channel,frame []byte,id string)(RemoteWorkflowA
    "attempt","status","exit_code","timestamp")
   if e!=nil{ch.Close();return denied,ErrInvalidRemoteAction}
   var item RemoteWorkflowAuditEntry
-  if json.Unmarshal(sub["root_task_id"],&item.RootTaskID)!=nil||
-   json.Unmarshal(sub["task_id"],&item.TaskID)!=nil||
-   json.Unmarshal(sub["step"],&item.Step)!=nil||
-   json.Unmarshal(sub["total"],&item.Total)!=nil||
-   json.Unmarshal(sub["attempt"],&item.Attempt)!=nil||
-   json.Unmarshal(sub["status"],&item.Status)!=nil||
-   json.Unmarshal(sub["exit_code"],&item.ExitCode)!=nil||
-   json.Unmarshal(sub["timestamp"],&item.Timestamp)!=nil{
+  root,ok:=decodeWorkflowAuditInt(sub["root_task_id"])
+  if !ok||root<1||root>0x7fffffff{
    ch.Close();return denied,ErrInvalidRemoteAction
   }
+  task,ok:=decodeWorkflowAuditInt(sub["task_id"])
+  if !ok||task<1||task>0x7fffffff{
+   ch.Close();return denied,ErrInvalidRemoteAction
+  }
+  step,ok:=decodeWorkflowAuditInt(sub["step"])
+  if !ok||step<1||step>4{ch.Close();return denied,ErrInvalidRemoteAction}
+  total,ok:=decodeWorkflowAuditInt(sub["total"])
+  if !ok||total<2||total>4{ch.Close();return denied,ErrInvalidRemoteAction}
+  attempt,ok:=decodeWorkflowAuditInt(sub["attempt"])
+  if !ok||attempt<1||attempt>2{ch.Close();return denied,ErrInvalidRemoteAction}
+  code,ok:=decodeWorkflowAuditInt(sub["exit_code"])
+  if !ok||code< -1||code>255{ch.Close();return denied,ErrInvalidRemoteAction}
+  timestamp,ok:=decodeWorkflowAuditInt(sub["timestamp"])
+  if !ok{ch.Close();return denied,ErrInvalidRemoteAction}
+  if json.Unmarshal(sub["status"],&item.Status)!=nil{
+   ch.Close();return denied,ErrInvalidRemoteAction
+  }
+  item.RootTaskID=int(root)
+  item.TaskID=int(task)
+  item.Step=int(step)
+  item.Total=int(total)
+  item.Attempt=int(attempt)
+  item.ExitCode=int(code)
+  item.Timestamp=timestamp
   result.Items=append(result.Items,item)
  }
  if !ValidRemoteWorkflowAudit(result){ch.Close();return denied,ErrInvalidRemoteAction}
