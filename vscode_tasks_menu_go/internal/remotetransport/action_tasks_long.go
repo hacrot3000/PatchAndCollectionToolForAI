@@ -30,6 +30,7 @@ type RemoteLongTaskProgress struct {
  Attempt int
  AttemptTotal int
  StepStatus string
+ StepHistory string // Optional: 'C'=completed, 'R'=running, 'F'=failed, 'X'=cancelled, 'T'=timed_out, '-'=not started.
 }
 type remoteLongTaskProgressWire struct {
  Type string `json:"type"`
@@ -46,6 +47,7 @@ type remoteLongTaskProgressWire struct {
  Attempt int `json:"attempt,omitempty"`
  AttemptTotal int `json:"attempt_total,omitempty"`
  StepStatus string `json:"step_status,omitempty"`
+ StepHistory string `json:"step_history,omitempty"`
 }
 func validLongTaskProgress(p RemoteLongTaskProgress)bool{
  if !validSelectedTaskID(p.TaskID)||p.ExitCode< -1||p.ExitCode>255||
@@ -62,16 +64,34 @@ func validLongTaskProgress(p RemoteLongTaskProgress)bool{
   return false
  }
  workflow:=p.Step!=0||p.StepTotal!=0||p.Attempt!=0||
-  p.AttemptTotal!=0||p.StepStatus!=""
+  p.AttemptTotal!=0||p.StepStatus!=""||p.StepHistory!=""
  if workflow{
   if p.Status=="started"||p.Status=="cancel_requested"||
    p.Status=="cleared"||p.Step<1||p.StepTotal<2||
    p.StepTotal>4||p.Step>p.StepTotal||
    p.Attempt<1||p.AttemptTotal<1||p.AttemptTotal>2||
    p.Attempt>p.AttemptTotal||len(p.Output)>64{return false}
+  expected:='?'
   switch p.StepStatus{
-  case "running","completed","failed","cancelled","timed_out":
+  case "running":expected='R'
+  case "completed":expected='C'
+  case "failed":expected='F'
+  case "cancelled":expected='X'
+  case "timed_out":expected='T'
   default:return false
+  }
+  if p.StepHistory!=""{
+   if len(p.StepHistory)!=p.StepTotal{return false}
+   for i:=0;i<len(p.StepHistory);i++{
+    switch{
+    case i<p.Step-1:
+     if p.StepHistory[i]!='C'{return false}
+    case i==p.Step-1:
+     if rune(p.StepHistory[i])!=expected{return false}
+    default:
+     if p.StepHistory[i]!='-'{return false}
+    }
+   }
   }
  }
  for _,r:=range p.Output{
@@ -93,6 +113,7 @@ func SealRemoteLongTaskProgress(ch *Channel,id string,p RemoteLongTaskProgress)(
   More:p.More,RemoteControlAvailable:false,
   Step:p.Step,StepTotal:p.StepTotal,Attempt:p.Attempt,
   AttemptTotal:p.AttemptTotal,StepStatus:p.StepStatus,
+  StepHistory:p.StepHistory,
  })
  if err!=nil{return nil,ErrInvalidRemoteAction}
  clear:=bytes.TrimSuffix(clearBuffer.Bytes(),[]byte{10})
@@ -110,7 +131,8 @@ func OpenRemoteLongTaskProgress(ch *Channel,frame []byte,id string,taskID int)(R
  fields,err:=decodeActionObjectWithOptionals(clear,
   []string{"type","request_id","task_id","status","exit_code",
    "output","truncated","more","remote_control_available"},
-  []string{"step","step_total","attempt","attempt_total","step_status"})
+  []string{"step","step_total","attempt","attempt_total","step_status",
+   "step_history"})
  if err!=nil{ch.Close();return zero,ErrInvalidRemoteAction}
  var typ,requestID string
  var p RemoteLongTaskProgress
@@ -142,6 +164,12 @@ func OpenRemoteLongTaskProgress(ch *Channel,frame []byte,id string,taskID int)(R
    json.Unmarshal(fields["attempt"],&p.Attempt)!=nil||
    json.Unmarshal(fields["attempt_total"],&p.AttemptTotal)!=nil||
    json.Unmarshal(fields["step_status"],&p.StepStatus)!=nil{
+   ch.Close();return zero,ErrInvalidRemoteAction
+  }
+ }
+ if rawHistory,found:=fields["step_history"];found{
+  if present!=len(optional)||json.Unmarshal(rawHistory,&p.StepHistory)!=nil||
+   p.StepHistory==""{
    ch.Close();return zero,ErrInvalidRemoteAction
   }
  }
