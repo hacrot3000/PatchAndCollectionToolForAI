@@ -366,6 +366,10 @@ Workflow:
    }
    executable,ok:=remoteWorkflowResolvedExecutable(spec.Command)
    if !ok||!tasks.RemoteExecutableAllowed(root,executable){
+    // Even an executable failure after the durable attempted audit must
+    // produce a final, content-free step outcome whenever storage works.
+    _=s.auditRemoteWorkflowStep(session,job.taskID,
+     step.taskID,i+1,len(plan),attempt,"failed",-1)
     status="failed";exitCode=-1;break Workflow
    }
    _,_=captureWorkflowText(job.capture,fmt.Sprintf(
@@ -384,8 +388,13 @@ Workflow:
    prepareGitJobProcess(cmd)
    cmd.Cancel=func()error{killGitJobProcess(cmd);return nil}
    cmd.WaitDelay=time.Second
-   if ctx.Err()!=nil||session.closed.Load(){
+   if ctx.Err()!=nil||session.closed.Load()||
+    !remoteWorkflowHostExecutionEnabled()||
+    (step.timeout>0&&os.Getenv("TASKDECK_REMOTE_TASKS_WORKFLOW_TIMEOUT")!="1")||
+    (attempt>1&&os.Getenv("TASKDECK_REMOTE_TASKS_WORKFLOW_RETRY")!="1"){
     cancelStep()
+    _=s.auditRemoteWorkflowStep(session,job.taskID,
+     step.taskID,i+1,len(plan),attempt,"cancelled",-1)
     status="cancelled";exitCode=-1;break Workflow
    }
    err=cmd.Run()

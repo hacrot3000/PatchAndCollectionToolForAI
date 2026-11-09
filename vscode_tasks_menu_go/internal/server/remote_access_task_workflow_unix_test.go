@@ -875,3 +875,64 @@ func TestRemoteWorkflowHostRevocationStopsSubsequentSteps(t *testing.T){
   })
  }
 }
+
+type remoteWorkflowRevokeDuringAttemptAudit struct{
+ identity.Store
+ flag string
+}
+func(store remoteWorkflowRevokeDuringAttemptAudit)AppendAudit(
+ ctx context.Context,event identity.AuditEvent,
+)error{
+ err:=store.Store.AppendAudit(ctx,event)
+ if err==nil&&event.Action=="remote.action.tasks_workflow_step"&&
+  event.Result=="attempted"&&
+  strings.Contains(event.Details,`"step":1`){
+  if e:=os.Setenv(store.flag,"0");e!=nil{return e}
+ }
+ return err
+}
+
+func TestRemoteWorkflowRevocationDuringAttemptAuditPreventsFirstProcess(t *testing.T){
+ for _,flag:=range []string{
+  "TASKDECK_REMOTE_TASKS_WORKFLOW_RUN",
+  "TASKDECK_REMOTE_TASKS_RUN",
+  "TASKDECK_REMOTE_TASKS_DEPS",
+ }{
+  t.Run(flag,func(t *testing.T){
+   remoteWorkflowHostFlags(t)
+   s,session,client,agent:=remoteTaskOperatorFixture(t)
+   id:=remoteWorkflowIssuedRoot(t,s,session,client,agent,
+    remoteWorkflowLinearSource,"Step C")
+   original:=s.Identity
+   s.Identity=remoteWorkflowRevokeDuringAttemptAudit{Store:original,flag:flag}
+   if err:=s.startRemoteLinearWorkflow(context.Background(),session,id);err!=nil{
+    t.Fatal(err)
+   }
+   if status:=awaitRemoteWorkflow(t,session);status!="cancelled"{
+    t.Fatalf("pre-run host revocation did not cancel: %s",status)
+   }
+   job:=session.longTask
+   job.capture.mu.Lock()
+   output:=string(append([]byte(nil),job.capture.data...))
+   job.capture.mu.Unlock()
+   if strings.Contains(output,"ONE")||strings.Contains(output,"TWO")||
+    strings.Contains(output,"THREE"){
+    t.Fatalf("host launched process after attempted audit revoked opt-in: %q",output)
+   }
+   project,err:=original.ProjectByKey(context.Background(),session.projectKey)
+   if err!=nil{t.Fatal(err)}
+   events,err:=original.ListAudit(context.Background(),identity.AuditQuery{
+    ProjectID:project.ID,UserID:session.userID,
+    Action:"remote.action.tasks_workflow_step",Limit:12,
+   })
+   if err!=nil||len(events)!=2{
+    t.Fatalf("pre-exec revocation lost step final audit: %+v %v",events,err)
+   }
+   results:=map[string]int{}
+   for _,event:=range events{results[event.Result]++}
+   if results["attempted"]!=1||results["cancelled"]!=1{
+    t.Fatalf("pre-exec revocation audit mismatch: %+v",results)
+   }
+  })
+ }
+}
