@@ -279,3 +279,24 @@ real-host testing are considered **code complete**.
 - Chỉ là **lịch sử trạng thái tóm tắt của job hiện tại**, giữ tới khi
   dọn job hoặc đóng E2EE session; báo cáo bền vững của nhiều phiên,
   thời lượng và mã lỗi riêng mỗi bước vẫn chưa hoàn tất.
+
+ 
+## 2026-11-09 — Mã thoát và thời lượng từng bước trong Remote workflow
+
+- Bổ sung `step_details` (metadata host-owned, tùy chọn) bên cạnh
+  `step_history` trong `tasks.poll`. Cấu trúc là 2–4 phần phân
+  tách bởi `|`, mỗi phần là `-` nếu đang chờ/chạy, hoặc
+  `<exit_code>:<milliseconds>` khi đã kết thúc.
+- Exit code nằm trong `[-1,255]` (-1 = lỗi khởi chạy/hủy hoặc
+  không có mã thoát hợp lệ), thời lượng từ **0 đến 90.000 ms**.
+  Bước hoàn tất thành công yêu cầu exit=0. Thời lượng tính tại
+  thời điểm Agent gọi process cho **lần thử cuối** của từng bước;
+  chưa phải tổng thời gian gồm preflight, audit hay các lần retry.
+- Toàn bộ chuỗi được cập nhật dưới job mutex, có kiểm tra trạng thái
+  từng bước, số nguyên canonical, giới hạn byte và envelope E2EE
+  **512 byte**; không truyền stdout, command, argv, filepath, secret.
+  Bước chưa chạy không được giả tạo exit code.
+- Native GUI hiển thị ví dụ `Bước 1: Hoàn tất (exit=0, 10 ms)`.
+  Các client mới vẫn chấp nhận phản hồi Agent cũ thiếu trường này.
+- Đây là báo cáo chi tiết **trong phiên đang chạy**; chưa có truy vấn
+  kết quả từng bước bền vững hoặc khôi phục workflow qua E2EE session.

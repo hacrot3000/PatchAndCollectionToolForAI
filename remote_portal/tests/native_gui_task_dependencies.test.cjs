@@ -27,7 +27,7 @@ class Element{
 const nodes=new Map();
 const get=id=>{if(!nodes.has(id))nodes.set(id,new Element(id));return nodes.get(id)};
 const token='0123456789abcdef'.repeat(4);
-const calls=[];let remaining=16;
+const calls=[];let remaining=16;let workflowPollCount=0;
 let available=true,confirmAccept=false;
 const fetch=async(path,opt)=>{
  calls.push({path,body:opt.body});
@@ -56,13 +56,23 @@ const fetch=async(path,opt)=>{
   more:false,output:'',truncated:false,
   remote_control_available:false,remaining:--remaining,
  })};
- if(path==='/api/tasks-poll/55')return {ok:true,json:async()=>({
-  ok:true,task_id:55,status:'running',exit_code:-1,
-  more:true,output:'authenticated-child-output',truncated:false,
-  step:1,step_total:2,attempt:2,attempt_total:2,step_status:'running',
-  step_history:'R-',step_details:'-|-',
-  remote_control_available:false,remaining:--remaining,
- })};
+ if(path==='/api/tasks-poll/55'){
+  workflowPollCount++;
+  if(workflowPollCount===1)return {ok:true,json:async()=>({
+   ok:true,task_id:55,status:'running',exit_code:-1,
+   more:true,output:'authenticated-child-output',truncated:false,
+   step:1,step_total:2,attempt:2,attempt_total:2,step_status:'running',
+   step_history:'R-',step_details:'-|-',
+   remote_control_available:false,remaining:--remaining,
+  })};
+  return {ok:true,json:async()=>({
+   ok:true,task_id:55,status:'completed',exit_code:0,
+   more:false,output:'END',truncated:false,
+   step:2,step_total:2,attempt:1,attempt_total:1,step_status:'completed',
+   step_history:'CC',step_details:'0:10|0:125',
+   remote_control_available:false,remaining:--remaining,
+  })};
+ }
  if(path==='/api/close')return {ok:true,json:async()=>({ok:true,closed:true})};
  throw Error('unexpected endpoint '+path);
 };
@@ -172,6 +182,13 @@ async function assertGraphValidation(graph,description,accepted=false){
   'unfinished steps must not render a fabricated exit result');
  assert.match(get('long-task-output').textContent,/authenticated-child-output/,
   'workflow output was not preserved alongside typed progress');
+ get('long-task-poll').click();await flush();
+ assert.match(get('long-task-output').textContent,
+  /Bước 1: Hoàn tất \(exit=0, 10 ms\) · Bước 2: Hoàn tất \(exit=0, 125 ms\)/,
+  'verified per-step exit and elapsed time not rendered safely');
+ assert.match(get('long-task-output').textContent,/END/,
+  'completed workflow output was not appended');
+ assert.equal(workflowPollCount,2,'workflow report needed additional arbitrary polling');
  available=false;
  get('task-deps-view').click();await flush();
  assert.match(get('task-deps-output').textContent,/Host chưa bật/);
