@@ -192,7 +192,7 @@ async function assertGraphValidation(graph,description,accepted=false){
   'skip after success incorrectly changed aggregate result');
  assert.ok(!/Bước 2: Bỏ qua \(exit=/.test(get('long-task-output').textContent),
   'skipped task was shown as an executed process');
- assert.match(get('long-task-output').textContent,/END/,
+ assert.match(get('long-task-output').textContent,/SKIPPED/,
   'completed workflow output was not appended');
  assert.equal(workflowPollCount,2,'workflow report needed additional arbitrary polling');
  available=false;
