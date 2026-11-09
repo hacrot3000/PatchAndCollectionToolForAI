@@ -2701,3 +2701,52 @@ shared-PHP deployment validation remain required.
   regardless of whether LIVE hardware/NAT trials were performed.
   The release gate `remote_control_available=false` remains
   intentionally unchanged.
+
+
+
+## 2026-11-09 — main: preserve cancel-pending job cleanup quota and strict native E2EE output codec
+
+- **Commit `e12c4e3` (native task GUI):** After an acknowledged
+  `tasks.cancel`, the Agent may transiently return `running` while
+  its process group is shutting down. With few E2EE rounds remaining,
+  the native GUI used the original running-job quota rule (reserve
+  Cancel + Poll + Clear) even though Cancel was ALREADY accepted.
+  This inadvertently disabled manual Poll and stranded a host job.
+  The new rule uses the separate `longTaskCancelPending` state:
+  allow a Poll with more than one round remaining, keeping the final
+  round for Clear. Do not re-enable another Cancel.
+- **Regression coverage:** the existing cancel-pending DOM test now
+  starts with exactly FOUR cleanup E2EE rounds and exercises
+  Cancel → Poll(running) → Poll(completed) → Clear, asserting the
+  exact remaining budget at each step, no duplicate cancellation,
+  no premature button lockout and scrubbing on Disconnect.
+- **Commit `67a7ed0` (native task GUI):** Validate every long-job
+  output chunk against the actual UTF-8 byte limit, not JavaScript
+  UTF-16 `string.length`. The reusable terminal-output validator
+  now accepts an optional limit (128 bytes for normal job output,
+  64 bytes for workflow metadata envelopes). Reject control/format
+  characters, invalid active-status exit codes, nonempty `more`
+  flags on Start/Cancel/Clear ACKs, cancellation ACKs in Poll,
+  and non-ACK statuses on Cancel. These restrictions match the
+  typed native Go E2EE protocol; no Agent grant or host command
+  authority was extended.
+- **Commit `fbbdd5e` (regression):** Update lifecycle checks for the
+  stricter denial message and add negative browser cases for
+  an invalid running exit code, 160-byte Unicode output that fits
+  a 128-unit JS check, ESC/control output, impossible Cancel/more
+  combination and 80-byte workflow output exceeding its 64-byte
+  cap. All four long-task JavaScript suites passed together in
+  the isolated V8 mock-DOM runner on this final source.
+- **Full CI status:** PHP Portal succeeded on `e12c4e3`.
+  The full Go Agent workflow on `fbbdd5e` was still running at
+  the time of this handoff; do NOT mark full-source Go validation
+  as passed unless that workflow finishes successfully. Subsequent
+  markdown-only updates do not change compiled code.
+- **Remaining source priorities:** task GUI edge-case review,
+  Git Pull/Commit/Push concurrent workspace review, Terminal
+  lifecycle/output, other Git interactions, other GUI features
+  (Files/Editor/Patch/Collection), remaining remote security.
+  Features already complete in code stay complete regardless of
+  absent physical deployment runs. The independent LIVE
+  remote-control release gate remains NO-GO and
+  `remote_control_available=false`.
