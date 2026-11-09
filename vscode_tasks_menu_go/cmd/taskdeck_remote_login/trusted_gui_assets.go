@@ -976,7 +976,9 @@ const trustedGUIJavaScript = `'use strict';
     if(longTaskID===0||budget>3||endpoint==='/api/close')return true;
     const id=String(longTaskID);
     if(endpoint==='/api/tasks-cancel/'+id)
-      return !longTaskCancelPending&&['started','running'].includes(longTaskState);
+      // At least three rounds: Cancel ACK, final status Poll, and Clear.
+      return budget>=3&&!longTaskCancelPending&&
+        ['started','running'].includes(longTaskState);
     if(endpoint==='/api/tasks-clear/'+id)
       return ['completed','failed','cancelled','timed_out'].includes(longTaskState);
     if(endpoint==='/api/tasks-poll/'+id)
@@ -1218,6 +1220,7 @@ const trustedGUIJavaScript = `'use strict';
     longTaskAutoButton.textContent=longTaskAuto?'Tạm dừng tự nhận':'Tiếp tục tự nhận';
     longTaskCancel.disabled=busy||closed||!verified||budget<=0||
       longTaskID===0||longTaskCancelPending||
+      !taskMaintenanceAllowed('/api/tasks-cancel/'+String(longTaskID))||
       !['started','running'].includes(longTaskState);
     longTaskClear.textContent=longTaskMore?
       'Bỏ output còn lại và dọn job':'Dọn job đã kết thúc';
@@ -2975,6 +2978,7 @@ const trustedGUIJavaScript = `'use strict';
   });
   longTaskCancel.addEventListener('click',()=>{
     if(longTaskID>0&&budget>0&&!busy&&!longTaskCancelPending&&
+      taskMaintenanceAllowed('/api/tasks-cancel/'+String(longTaskID))&&
       ['started','running'].includes(longTaskState)){
       invoke('/api/tasks-cancel/'+String(longTaskID));
     }

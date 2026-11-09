@@ -70,11 +70,16 @@ const sandbox={
  fetch,setInterval(){},setTimeout(fn){timers.push(fn);return timers.length;},Date,Number,String,Promise
 };
 vm.createContext(sandbox);
-new vm.Script(script[1],{filename:'cancel-pending-native.js'}).runInContext(sandbox);
+new vm.Script(script[1]+"\n;globalThis.__checkCancelQuota=(left)=>{\n  const prior={id:longTaskID,state:longTaskState,pending:longTaskCancelPending,\n    budget,auto:longTaskAuto};\n  longTaskID=21;longTaskState='running';longTaskCancelPending=false;\n  longTaskAuto=false;budget=left;\n  render();\n  const permitted=taskMaintenanceAllowed('/api/tasks-cancel/21');\n  const disabled=longTaskCancel.disabled;\n  longTaskID=prior.id;longTaskState=prior.state;\n  longTaskCancelPending=prior.pending;longTaskAuto=prior.auto;\n  budget=prior.budget;render();\n  return {permitted,disabled};\n};\n",{filename:'cancel-pending-native.js'}).runInContext(sandbox);
 const flush=async()=>{for(let i=0;i<50;i++)await Promise.resolve()};
 (async()=>{
  await flush();
  get('features').click();await flush();
+ for(const [left,allowed] of [[1,false],[2,false],[3,true],[4,true]]){
+  const result=sandbox.__checkCancelQuota(left);
+  assert.equal(result.permitted,allowed,'Cancel quota guard at '+left);
+  assert.equal(result.disabled,!allowed,'Cancel button quota at '+left);
+ }
  get('tasks-preview').click();await flush();
  let row=get('task-preview-labels').children[0];
  row.children[1].click();await flush();
