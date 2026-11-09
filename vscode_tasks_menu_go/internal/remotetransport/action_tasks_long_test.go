@@ -202,7 +202,7 @@ func TestRemoteLongTaskWorkflowHistoryStrictE2EEContract(t *testing.T){
   t.Fatalf("workflow summary not authenticated: %+v %v",actual,err)
  }
  for _,history:=range []string{
-  "CC","CCCC","CC-", "CFC","CCR","CXX","CCC\x1b",
+  "CC","CCCC","CC-", "FCC","CCR","CXX","CCC\x1b",
  }{
   invalid:=good
   invalid.StepHistory=history
