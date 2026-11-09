@@ -257,3 +257,25 @@ real-host testing are considered **code complete**.
   thực, không do browser chỉ định.
 - Đây là tiến độ *live/last-step*, chưa thay thế báo cáo lịch sử toàn
   bộ các bước hoặc phục hồi job giữa phiên. Cả hai vẫn thuộc backlog.
+
+ 
+## 2026-11-09 — Bảng lịch sử trạng thái từng bước trong một phiên E2EE
+
+- Bổ sung metadata tùy chọn `step_history` trong phản hồi
+  `tasks.poll`. Đây là chuỗi **2–4 ký tự** do Agent phát hành:
+  `-` chưa chạy, `R` đang chạy, `C` hoàn tất, `F` thất bại,
+  `X` đã hủy, `T` hết thời gian. Không bao gồm stdout, tham số,
+  đường dẫn, token hay secrets.
+- Chỉ hợp lệ khi đi kèm đầy đủ 5 trường tiến độ host hiện có;
+  chiều dài bằng `step_total`, toàn bộ bước trước bước hiện tại
+  phải hoàn tất (`C`), bước hiện tại khớp `step_status`,
+  các bước sau chưa chạy (`-`). Metadata sai/hư/thiếu/trùng
+  làm đóng phiên E2EE; Agent cũ không gửi `step_history` vẫn tương
+  thích với native client mới.
+- Cập nhật trạng thái được đồng bộ bởi mutex ngay trong Agent, tại
+  lúc bắt đầu/chạy retry/hoàn tất bước, không parse dòng log của
+  chương trình con. Native GUI trình bày bằng text, không HTML;
+  output vẫn bị giới hạn 64 byte/trang workflow và 512 byte/frame.
+- Chỉ là **lịch sử trạng thái tóm tắt của job hiện tại**, giữ tới khi
+  dọn job hoặc đóng E2EE session; báo cáo bền vững của nhiều phiên,
+  thời lượng và mã lỗi riêng mỗi bước vẫn chưa hoàn tất.

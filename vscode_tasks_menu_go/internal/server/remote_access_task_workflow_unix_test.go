@@ -975,3 +975,62 @@ func TestRemoteWorkflowPollReturnsAuthenticatedStepResult(t *testing.T){
   }
  }
 }
+
+ 
+func TestRemoteWorkflowHostStepHistoryLiveAndFailed(t *testing.T){
+ remoteWorkflowHostFlags(t)
+ t.Run("live-then-complete",func(t *testing.T){
+  s,session,client,agent:=remoteTaskOperatorFixture(t)
+  source:=`{"tasks":[
+   {"label":"Slow","type":"process","command":"/bin/sleep","args":["2"]},
+   {"label":"Done","type":"process","command":"/bin/echo","args":["DONE"],"dependsOn":"Slow"}
+  ]}`
+  root:=remoteWorkflowIssuedRoot(t,s,session,client,agent,source,"Done")
+  if err:=s.startRemoteLinearWorkflow(context.Background(),session,root);err!=nil{
+   t.Fatal(err)
+  }
+  during,err:=longTaskE2EEAction(t,s,session,client,agent,
+   remotetransport.RemoteActionTasksPoll,root,0,"",
+   "10101010101010101010101010101010")
+  if err!=nil||during.Status!="running"||during.Step!=1||
+   during.StepTotal!=2||during.StepStatus!="running"||
+   during.StepHistory!="R-"{
+   t.Fatalf("first step live history missing: %+v %v",during,err)
+  }
+  if state:=awaitRemoteWorkflow(t,session);state!="completed"{
+   t.Fatalf("workflow outcome: %s",state)
+  }
+  final,err:=longTaskE2EEAction(t,s,session,client,agent,
+   remotetransport.RemoteActionTasksPoll,root,0,"",
+   "20202020202020202020202020202020")
+  if err!=nil||final.Status!="completed"||
+   final.Step!=2||final.StepStatus!="completed"||
+   final.StepHistory!="CC"{
+   t.Fatalf("completed host history incorrect: %+v %v",final,err)
+  }
+ })
+ t.Run("failed-dependency-not-started",func(t *testing.T){
+  s,session,client,agent:=remoteTaskOperatorFixture(t)
+  source:=`{"tasks":[
+   {"label":"Okay","type":"process","command":"/bin/echo","args":["ONE"]},
+   {"label":"Fail","type":"process","command":"/bin/false","dependsOn":"Okay"},
+   {"label":"Never","type":"process","command":"/bin/echo",
+    "args":["MUST-NOT-RUN"],"dependsOn":"Fail"}
+  ]}`
+  root:=remoteWorkflowIssuedRoot(t,s,session,client,agent,source,"Never")
+  if err:=s.startRemoteLinearWorkflow(context.Background(),session,root);err!=nil{
+   t.Fatal(err)
+  }
+  if state:=awaitRemoteWorkflow(t,session);state!="failed"{
+   t.Fatalf("failed dependency did not stop job: %s",state)
+  }
+  final,err:=longTaskE2EEAction(t,s,session,client,agent,
+   remotetransport.RemoteActionTasksPoll,root,0,"",
+   "30303030303030303030303030303030")
+  if err!=nil||final.Status!="failed"||final.Step!=2||
+   final.StepTotal!=3||final.StepStatus!="failed"||
+   final.StepHistory!="CF-"{
+   t.Fatalf("failed workflow history leaked/omitted a step: %+v %v",final,err)
+  }
+ })
+}

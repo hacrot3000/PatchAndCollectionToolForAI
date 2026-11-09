@@ -1801,7 +1801,8 @@ const trustedGUIJavaScript = `'use strict';
           const stepStatus=present.length?data.step_status:'';
           const workflowProgress=step!==0||stepTotal!==0||
             attempt!==0||attemptTotal!==0||stepStatus!=='';
-          const stepHistory=data.step_history==null?'':data.step_history;
+          const hasStepHistory=Object.prototype.hasOwnProperty.call(data,'step_history');
+          const stepHistory=hasStepHistory?data.step_history:'';
           if(typeof stepHistory!=='string'||stepHistory.length>4||
             (stepHistory!==''&&(!workflowProgress||
               stepHistory.length!==stepTotal))){

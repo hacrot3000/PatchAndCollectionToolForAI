@@ -175,11 +175,13 @@ func TestRemoteLongTaskWorkflowStepEscapedOutputFitsE2EEEnvelope(t *testing.T){
    TaskID:2147483647,Status:"completed",ExitCode:255,
    Output:strings.Repeat(char,64),Truncated:true,More:true,
    Step:4,StepTotal:4,Attempt:2,AttemptTotal:2,StepStatus:"completed",
+   StepHistory:"CCCC",
   }
   frame,err:=SealRemoteLongTaskProgress(agent,testActionID,value)
   if err!=nil{t.Fatalf("escaped workflow output %q overflowed E2EE: %v",char,err)}
   got,err:=OpenRemoteLongTaskProgress(client,frame,testActionID,2147483647)
-  if err!=nil||got.Output!=value.Output||got.Step!=4||got.Attempt!=2{
+  if err!=nil||got.Output!=value.Output||got.Step!=4||got.Attempt!=2||
+   got.StepHistory!="CCCC"{
    t.Fatalf("escaped workflow response corrupted: %+v %v",got,err)
   }
  }
@@ -224,5 +226,30 @@ func TestRemoteLongTaskWorkflowHistoryStrictE2EEContract(t *testing.T){
  actual,err=OpenRemoteLongTaskProgress(client,frame,testActionID,17)
  if err!=nil||actual.StepHistory!=""{
   t.Fatalf("prior protocol metadata ceased working: %+v %v",actual,err)
+ }
+}
+
+ 
+func TestRemoteLongTaskWorkflowHistoryRejectsMalformedAuthenticatedFrames(t *testing.T){
+ for _,metadata:=range []string{
+  `"step_history":"CX-"`,
+  `"step_history":"C--"`,
+  `"step_history":null`,
+  `"step_history":"CCC","step_history":"CCC"`,
+ }{
+  client,agent,_:=participants(t)
+  jsonMessage:=`{"type":"`+RemoteLongTaskProgressProtocol+
+   `","request_id":"`+testActionID+
+   `","task_id":14,"status":"completed","exit_code":0,
+   "output":"","truncated":false,"more":false,
+   "remote_control_available":false,"step":3,"step_total":3,
+   "attempt":1,"attempt_total":1,"step_status":"completed",`+
+   metadata+`}`
+  frame,err:=agent.Seal([]byte(jsonMessage))
+  if err!=nil{t.Fatal(err)}
+  if _,err:=OpenRemoteLongTaskProgress(client,frame,testActionID,14);err==nil{
+   t.Fatalf("malformed host step history accepted: %s",metadata)
+  }
+  if client.Established(){t.Fatal("invalid step history failed to close E2EE channel")}
  }
 }
