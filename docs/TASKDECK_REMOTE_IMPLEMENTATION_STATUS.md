@@ -2618,3 +2618,45 @@ shared-PHP deployment validation remain required.
   other Git commands and remaining GUI features, according to the
   established ordering. Source-complete functions are not reopened
   only for missing physical LIVE tests.
+
+## 2026-11-09 — main: one workspace execution lease across Remote Git, Task and PTY
+
+- **Commit `68d4212`:** Extend the existing in-process, canonical
+  workspace write reservation beyond Git-only actions to every
+  Remote host execution category: bounded synchronous tasks,
+  asynchronous long tasks, sequential workflow runs, and interactive
+  PTY sessions. A second authenticated E2EE principal with the same
+  canonical workspace can no longer run Git while a task/shell is
+  active, or start tasks/shells while another session's Git mutation
+  holds the lease. Independent workspaces are unaffected.
+- **Lifecycle:** synchronous task operations release on bounded
+  command completion; long tasks/workflows release ONLY in the host
+  process waiter, before publishing `job.done`, including the
+  cancellation/timeout/revocation paths. Failed starts and preflight
+  denials release immediately. PTY releases after the shell Wait
+  goroutine has closed the controlling TTY. The lease is host-owned
+  with no PHP/Relay-selected key; it does not implement a filesystem
+  lock across independent Agent processes.
+- **Commit `cb43570`:** Explicit native Terminal Close now awaits,
+  for at most two seconds, a host-only `workspaceReleased` signal
+  after process exit and cleanup. This prevents a false successful
+  Close followed by an immediate task rejected solely because
+  asynchronous PTY teardown still owns the workspace. Session-wide
+  logout and E2EE revocation remain nonblocking. The new
+  Unix integration tests verify an actual long task blocks Git from a
+  second session, and an actual PTY blocks it until explicit Close.
+  Existing same-session Terminal→Task and Task→Terminal tests still
+  cover the synchronous usability requirement.
+- **Validation:** two commits landed on `main` with regression tests.
+  Full Go-Agent `go test -race` validation for `cb43570` remains
+  pending as of this handoff; do not claim a passing run until
+  GitHub Actions completes. PHP Portal CI for `68d4212` passed.
+- **Boundaries and priority:** Not a cross-process OS advisory lock;
+  unrelated native TaskDeck/local Git processes and other independent
+  Agent daemons are not covered. Keep remote-control release gated
+  off (`remote_control_available=false`) until documented security
+  and LIVE acceptance conditions are met. Proceed with remaining
+  task/GUI review, then Git Pull/Commit/Push review, Terminal, other
+  Git operations, other GUI features and remaining remote security.
+  Implemented code is considered complete independently of whether
+  physical field deployment has been tested.
