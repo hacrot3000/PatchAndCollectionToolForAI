@@ -114,7 +114,10 @@ func validLongTaskProgress(p RemoteLongTaskProgress)bool{
    for i:=0;i<len(p.StepHistory);i++{
     switch{
     case i<p.Step-1:
-     if p.StepHistory[i]!='C'{return false}
+     if p.StepHistory[i]!='C'&&
+      !(p.Step==p.StepTotal&&i==p.Step-2&&p.StepHistory[i]=='F'){
+      return false
+     }
     case i==p.Step-1:
      if rune(p.StepHistory[i])!=expected{return false}
     default:
