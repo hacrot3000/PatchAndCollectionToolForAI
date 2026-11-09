@@ -120,6 +120,17 @@ func(s *Server) startRemoteTerminal(ctx context.Context,session *remoteTaskDeckS
  }()
  go func(){
   _=cmd.Wait()
+  // A user can type "nohup command &; exit": the interactive shell
+  // exits while children in DIFFERENT process groups still belong to
+  // its PTY session. Closing the master TTY alone does not stop a
+  // child which deliberately ignores SIGHUP. Retire session members
+  // before making the workspace available to other E2EE sessions.
+  // IMPORTANT: Do not signal the already-reaped shell PID or its
+  // process group here: it may have been recycled. The session helper
+  // inspects the live session ID of each process before signalling it.
+  if cmd.Process!=nil&&cmd.Process.Pid>0{
+   remoteKillPTYSession(cmd.Process.Pid)
+  }
   job.mu.Lock()
   job.state="exited"
   job.mu.Unlock()

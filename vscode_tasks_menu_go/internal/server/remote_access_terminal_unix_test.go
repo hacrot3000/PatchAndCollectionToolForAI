@@ -150,3 +150,37 @@ func TestRemoteTerminalViewerAndOptOutDenied(t *testing.T){
   t.Fatal("local admin bypassed independent host terminal opt-in")
  }
 }
+
+
+func TestRemoteTerminalNaturalShellExitKillsDetachedSessionChildren(t *testing.T){
+ if os.Geteuid()==0{t.Skip("PTY host must not run as root")}
+ t.Setenv("TASKDECK_REMOTE_TERMINAL","1")
+ s,session,_,_:=remoteTerminalAdminFixture(t)
+ if err:=s.startRemoteTerminal(context.Background(),session);err!=nil{
+  t.Fatalf("could not start PTY: %v",err)
+ }
+ job:=session.terminal
+ // The background child ignores SIGHUP and redirects its output, so
+ // simply closing the PTY master or reaping the parent shell cannot
+ // terminate this process. It must be killed as an authenticated
+ // PTY-session descendant before the host releases the workspace.
+ command:="nohup /bin/sh -c 'sleep 2; touch escaped' </dev/null >/dev/null 2>&1 &\n"
+ if _,err:=s.writeRemoteTerminal(context.Background(),session,command);err!=nil{
+  t.Fatalf("could not run detached PTY child: %v",err)
+ }
+ if _,err:=s.writeRemoteTerminal(context.Background(),session,"exit\n");err!=nil{
+  t.Fatalf("cannot terminate parent shell: %v",err)
+ }
+ select{
+ case <-job.workspaceReleased:
+ case <-time.After(4*time.Second):t.Fatal("normal PTY exit left a workspace lease")
+ }
+ job.mu.Lock()
+ state:=job.state
+ job.mu.Unlock()
+ if state!="exited"{t.Fatalf("PTY did not report natural exit: %q",state)}
+ time.Sleep(2300*time.Millisecond)
+ if _,err:=os.Stat(filepath.Join(s.Workspace,"escaped"));!os.IsNotExist(err){
+  t.Fatal("background PTY process survived the parent shell's natural exit")
+ }
+}
