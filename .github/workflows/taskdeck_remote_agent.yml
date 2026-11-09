@@ -101,6 +101,9 @@ jobs:
       - name: Verify main's offline Pull review via authenticated GitStatus E2EE
         working-directory: vscode_tasks_menu_go
         run: go test -race ./internal/remotetransport ./internal/server ./cmd/taskdeck_remote_login -run 'Test(RemoteGitPullReview|TrustedGUIGitPullReview)' -count=1 -timeout=90s
+      - name: Verify project notebook CRUD, isolation and UI contracts
+        working-directory: vscode_tasks_menu_go
+        run: go test -race ./internal/server -run '^TestProjectNotes' -count=1 -timeout=90s
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
@@ -110,6 +113,7 @@ jobs:
           node --check remote_portal/public/remote_crypto.js
           node --check vscode_tasks_menu_go/web/featuremods/remoteaccess.js
           node --check vscode_tasks_menu_go/web/featuremods/remote_workspace.js
+          node --check vscode_tasks_menu_go/web/featuremods/projectnotes.js
       - name: Verify bundled native Remote GUI JavaScript is trusted and parses
         run: node remote_portal/tests/native_gui_assets.test.cjs
       - name: Exercise native GUI session expiry and concurrent disconnect in browser
