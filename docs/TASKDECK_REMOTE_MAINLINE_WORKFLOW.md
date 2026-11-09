@@ -234,3 +234,26 @@ real-host testing are considered **code complete**.
   tiếp bắt đầu; không thay đổi quyền shell hay gửi tham số từ browser.
 - Test đã bổ sung: opt-in bật/tắt, giới hạn 1–30, chính sách kết hợp,
   từ chối số không hợp lệ, timeout process thực tế và audit fail-fast.
+
+## 2026-11-09 — Tiến độ workflow theo từng bước (typed E2EE)
+
+- Agent và native client hiện hỗ trợ các trường **tùy chọn** trong phản
+  hồi `tasks.poll`: `step`, `step_total`, `attempt`,
+  `attempt_total`, `step_status`. Đây là metadata do Agent xác
+  lập khi thực thi native process, KHÔNG suy đoán từ stdout của task.
+- Bước 1–4, tổng 2–4, lần thử 1–2 và trạng thái từng bước chỉ cho
+  phép `running/completed/failed/cancelled/timed_out`. Một phản hồi
+  thiếu field, trùng key, sai kiểu hoặc nằm ngoài giới hạn bị từ chối
+  và làm đóng kênh E2EE.
+- Task chạy đơn vẫn sử dụng giao thức v1 với metadata bước bị bỏ
+  trống; native client mới đọc được phản hồi Agent cũ và không hiển
+  thị “Bước 0/0”. Agent mới khi gửi metadata bước workflow yêu cầu
+  native client đã cập nhật để hiểu các trường tùy chọn.
+- Poll workflow giới hạn output **64 byte/trang** (task đơn tiếp tục
+  128 byte/trang), tổng capture 16 KiB; metadata và output đều nằm
+  trong mailbox E2EE bị giới hạn 512 byte.
+- Native GUI hiển thị “Bước X/Y · Lần A/B · Trạng thái” bên cạnh
+  output. Chỉ số bước được bảo vệ bởi phiên và root Task ID đã xác
+  thực, không do browser chỉ định.
+- Đây là tiến độ *live/last-step*, chưa thay thế báo cáo lịch sử toàn
+  bộ các bước hoặc phục hồi job giữa phiên. Cả hai vẫn thuộc backlog.
