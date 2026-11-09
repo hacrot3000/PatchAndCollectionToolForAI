@@ -4,6 +4,7 @@ package server
 
 import (
  "context"
+ "errors"
  "crypto/ed25519"
  "crypto/rand"
  "crypto/sha256"
@@ -188,4 +189,61 @@ func TestRemoteTerminalNaturalShellExitKillsDetachedSessionChildren(t *testing.T
  if _,err:=os.Stat(filepath.Join(s.Workspace,"escaped"));!os.IsNotExist(err){
   t.Fatal("background PTY process survived the parent shell's natural exit")
  }
+}
+
+
+func TestRemoteTerminalCloseTimeoutRetainsJobForAuthenticatedRetry(t *testing.T){
+ t.Setenv("TASKDECK_REMOTE_TERMINAL","1")
+ s,session,_,_:=remoteTerminalAdminFixture(t)
+ // Model Wait delayed past the action deadline. An in-flight host
+ // process can remain alive while E2EE Close has already been sent.
+ // The test intentionally does not start a shell or leak a child.
+ cancelCalled:=make(chan struct{})
+ released:=make(chan struct{})
+ job:=&remoteTerminalJob{
+  state:"running",done:make(chan struct{}),
+  workspaceReleased:released,
+  cancel:func(){close(cancelCalled)},
+ }
+ session.terminalMu.Lock()
+ session.terminal=job
+ session.terminalMu.Unlock()
+ ctx,cancel:=context.WithCancel(context.Background())
+ finished:=make(chan error,1)
+ go func(){
+  _,err:=s.closeRemoteTerminal(ctx,session)
+  finished<-err
+ }()
+ select{
+ case <-cancelCalled:
+ case <-time.After(3*time.Second):
+  cancel()
+  t.Fatal("Close never requested host PTY cancellation")
+ }
+ cancel()
+ select{
+ case err:=<-finished:
+  if !errors.Is(err,remotetransport.ErrRemoteActionDenied){
+   t.Fatalf("cancelled Close wrongly confirmed workspace release: %v",err)
+  }
+ case <-time.After(3*time.Second):
+  t.Fatal("cancelled close action failed to stop waiting")
+ }
+ session.terminalMu.Lock()
+ retained:=session.terminal==job
+ session.terminalMu.Unlock()
+ if !retained{t.Fatal("timed-out Close silently detached an unretired host PTY")}
+ // A retry is permitted after the waiter confirms process exit and
+ // releases its workspace reservation. We install a one-shot fake cancel
+ // to model the already requested shutdown while preserving the job.
+ job.cancel=func(){}
+ close(released)
+ result,err:=s.closeRemoteTerminal(context.Background(),session)
+ if err!=nil||result.State!="closed"{
+  t.Fatalf("retry failed to retire completed PTY: %+v %v",result,err)
+ }
+ session.terminalMu.Lock()
+ stillAttached:=session.terminal!=nil
+ session.terminalMu.Unlock()
+ if stillAttached{t.Fatal("successfully retried PTY Close leaked job handle")}
 }

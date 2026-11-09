@@ -236,7 +236,10 @@ func (s *Server) closeRemoteTerminal(ctx context.Context,
   return remotetransport.RemoteTerminalProgress{},denied
  }
  if ctx.Err()!=nil||session.closed.Load(){return remotetransport.RemoteTerminalProgress{},denied}
- session.terminal=nil
+ // Keep the job attached until its workspace lease is actually
+ // released. If ctx expires while Wait is still retiring the PTY,
+ // a later authenticated Close can retry instead of orphaning a hidden
+ // terminal and wrongly allowing another PTY to be started.
  job.cancel()
  // An explicit successful Close must mean the workspace has actually
  // been released. Otherwise an immediate Task/Git action can race the
@@ -249,6 +252,10 @@ func (s *Server) closeRemoteTerminal(ctx context.Context,
   case <-time.After(2*time.Second):return remotetransport.RemoteTerminalProgress{},denied
   }
  }
+ // Only successful, completed shutdown detaches the session-owned job.
+ // Session revocation may still detach it in stopRemoteTerminal, but the
+ // async PTY waiter independently retains and eventually frees its lease.
+ session.terminal=nil
  return remotetransport.RemoteTerminalProgress{State:"closed"},nil
 }
 
