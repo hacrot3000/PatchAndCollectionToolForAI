@@ -293,3 +293,47 @@ func TestRemoteLongTaskStepDetailsBoundedAuthenticatedAndBackwardCompatible(t *t
   t.Fatalf("older workflow frame became incompatible: %+v %v",got,err)
  }
 }
+
+ 
+func TestRemoteLongTaskConditionalCleanupAllowsOnlyImmediateFailedPredecessor(t *testing.T){
+ good:=RemoteLongTaskProgress{
+  TaskID:44,Status:"failed",ExitCode:1,Output:"cleanup complete",
+  Step:2,StepTotal:2,Attempt:1,AttemptTotal:1,
+  StepStatus:"completed",StepHistory:"FC",
+  StepDetails:"1:5|0:8",
+ }
+ client,agent,_:=participants(t)
+ sealed,err:=SealRemoteLongTaskProgress(agent,testActionID,good)
+ if err!=nil{t.Fatalf("host cleanup result not sealable: %v",err)}
+ result,err:=OpenRemoteLongTaskProgress(client,sealed,testActionID,44)
+ if err!=nil||result.Status!="failed"||result.StepHistory!="FC"{
+  t.Fatalf("authenticated cleanup result lost: %+v %v",result,err)
+ }
+ three:=good
+ three.Step=3;three.StepTotal=3
+ three.StepHistory="CFC";three.StepDetails="0:1|1:2|0:3"
+ client,agent,_=participants(t)
+ sealed,err=SealRemoteLongTaskProgress(agent,testActionID,three)
+ if err!=nil{t.Fatal(err)}
+ result,err=OpenRemoteLongTaskProgress(client,sealed,testActionID,44)
+ if err!=nil||result.StepHistory!="CFC"{t.Fatalf("3-step final cleanup: %+v %v",result,err)}
+ for _,candidate:=range []RemoteLongTaskProgress{
+  {TaskID:44,Status:"failed",ExitCode:1,Step:2,StepTotal:3,
+   Attempt:1,AttemptTotal:1,StepStatus:"completed",StepHistory:"FC-",
+   StepDetails:"1:2|0:3|-"},
+  {TaskID:44,Status:"failed",ExitCode:1,Step:3,StepTotal:3,
+   Attempt:1,AttemptTotal:1,StepStatus:"completed",StepHistory:"FCC",
+   StepDetails:"1:2|0:3|0:4"},
+  {TaskID:44,Status:"failed",ExitCode:1,Step:3,StepTotal:3,
+   Attempt:1,AttemptTotal:1,StepStatus:"completed",StepHistory:"F-C",
+   StepDetails:"1:2|-|0:4"},
+  {TaskID:44,Status:"failed",ExitCode:1,Step:4,StepTotal:4,
+   Attempt:1,AttemptTotal:1,StepStatus:"completed",StepHistory:"CFCC",
+   StepDetails:"0:1|1:2|0:3|0:4"},
+ }{
+  _,agent,_:=participants(t)
+  if _,err:=SealRemoteLongTaskProgress(agent,testActionID,candidate);err==nil{
+   t.Fatalf("unsafe failed step prefix allowed: %+v",candidate)
+  }
+ }
+}

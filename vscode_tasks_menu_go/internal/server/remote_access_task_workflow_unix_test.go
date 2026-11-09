@@ -1037,3 +1037,197 @@ func TestRemoteWorkflowHostStepHistoryLiveAndFailed(t *testing.T){
   }
  })
 }
+
+ 
+func TestRemoteWorkflowFinalCleanupAlwaysOptInAndStickyFailure(t *testing.T){
+ remoteWorkflowHostFlags(t)
+ source:=`{"tasks":[
+  {"label":"Fail","type":"process","command":"/bin/false"},
+  {"label":"Cleanup","type":"process","command":"/bin/echo",
+   "args":["CLEANUP_OK"],"dependsOn":"Fail",
+   "taskdeck":{"workflow":{"condition":"always"}}}
+ ]}`
+ t.Setenv("TASKDECK_REMOTE_TASKS_WORKFLOW_CONDITION","0")
+ s,session,client,agent:=remoteTaskOperatorFixture(t)
+ root:=remoteWorkflowIssuedRoot(t,s,session,client,agent,source,"Cleanup")
+ deps,err:=s.readRemoteTaskDependencies(context.Background(),session,root)
+ if err!=nil||!deps.Available||deps.RunAvailable{
+  t.Fatalf("cleanup condition was offered without explicit opt-in: %+v %v",deps,err)
+ }
+ if _,_,err:=s.prepareRemoteLinearWorkflow(context.Background(),session,root);err==nil{
+  t.Fatal("executor bypassed disabled conditional workflow gate")
+ }
+ t.Setenv("TASKDECK_REMOTE_TASKS_WORKFLOW_CONDITION","1")
+ deps,err=s.readRemoteTaskDependencies(context.Background(),session,root)
+ if err!=nil||!deps.RunAvailable{t.Fatalf("cleanup not offered to GUI: %+v %v",deps,err)}
+ if err:=s.startRemoteLinearWorkflow(context.Background(),session,root);err!=nil{
+  t.Fatalf("start cleanup workflow: %v",err)
+ }
+ if state:=awaitRemoteWorkflow(t,session);state!="failed"{
+  t.Fatalf("successful cleanup masked failed dependency: %s",state)
+ }
+ session.longTaskMu.Lock()
+ job:=session.longTask
+ session.longTaskMu.Unlock()
+ job.mu.Lock()
+ history,exit:=job.workflowStepHistory,job.exitCode
+ job.mu.Unlock()
+ if history!="FC"||exit!=1{
+  t.Fatalf("wrong cleanup result/status: history=%q exit=%d",history,exit)
+ }
+ job.capture.mu.Lock()
+ output:=string(append([]byte(nil),job.capture.data...))
+ job.capture.mu.Unlock()
+ if !strings.Contains(output,"CLEANUP_OK")||
+  strings.Index(output,"Step 1/2: failed")>strings.Index(output,"CLEANUP_OK"){
+  t.Fatalf("cleanup not executed after failed dependency: %q",output)
+ }
+ progress,err:=longTaskE2EEAction(t,s,session,client,agent,
+  remotetransport.RemoteActionTasksPoll,root,0,"",
+  "87878787878787878787878787878787")
+ if err!=nil||progress.Status!="failed"||progress.ExitCode!=1||
+  progress.StepStatus!="completed"||progress.StepHistory!="FC"{
+  t.Fatalf("failed/cleanup status not authenticated: %+v %v",progress,err)
+ }
+ project,err:=s.Identity.ProjectByKey(context.Background(),session.projectKey)
+ if err!=nil{t.Fatal(err)}
+ rows,err:=s.Identity.ListAudit(context.Background(),identity.AuditQuery{
+  ProjectID:project.ID,UserID:session.userID,
+  Action:"remote.action.tasks_workflow_step",Limit:8,
+ })
+ if err!=nil||len(rows)!=4{
+  t.Fatalf("expected failed step and completed cleanup audits: %+v %v",rows,err)
+ }
+ count:=map[string]int{}
+ for _,row:=range rows{count[row.Result]++}
+ if count["attempted"]!=2||count["failed"]!=1||count["completed"]!=1{
+  t.Fatalf("unexpected cleanup audit sequence: %+v",count)
+ }
+}
+
+func TestRemoteWorkflowFinalCleanupAfterSuccessfulDependency(t *testing.T){
+ remoteWorkflowHostFlags(t)
+ t.Setenv("TASKDECK_REMOTE_TASKS_WORKFLOW_CONDITION","1")
+ s,session,client,agent:=remoteTaskOperatorFixture(t)
+ source:=`{"tasks":[
+  {"label":"Okay","type":"process","command":"/bin/true"},
+  {"label":"Cleanup","type":"process","command":"/bin/echo",
+   "args":["CLEANUP_ON_SUCCESS"],"dependsOn":"Okay",
+   "taskdeck":{"workflow":{"condition":"always"}}}
+ ]}`
+ root:=remoteWorkflowIssuedRoot(t,s,session,client,agent,source,"Cleanup")
+ if err:=s.startRemoteLinearWorkflow(context.Background(),session,root);err!=nil{
+  t.Fatal(err)
+ }
+ if status:=awaitRemoteWorkflow(t,session);status!="completed"{
+  t.Fatalf("cleanup after success failed: %s",status)
+ }
+ job:=session.longTask
+ job.mu.Lock();history:=job.workflowStepHistory;job.mu.Unlock()
+ if history!="CC"{t.Fatalf("invalid normal cleanup history: %s",history)}
+}
+
+func TestRemoteWorkflowFinalCleanupDoesNotBypassEarlierFailures(t *testing.T){
+ remoteWorkflowHostFlags(t)
+ t.Setenv("TASKDECK_REMOTE_TASKS_WORKFLOW_CONDITION","1")
+ s,session,client,agent:=remoteTaskOperatorFixture(t)
+ source:=`{"tasks":[
+  {"label":"EarlyFail","type":"process","command":"/bin/false"},
+  {"label":"Middle","type":"process","command":"/bin/echo",
+   "args":["MIDDLE_MUST_NOT_RUN"],"dependsOn":"EarlyFail"},
+  {"label":"Cleanup","type":"process","command":"/bin/echo",
+   "args":["CLEANUP_MUST_NOT_RUN"],"dependsOn":"Middle",
+   "taskdeck":{"workflow":{"condition":"always"}}}
+ ]}`
+ root:=remoteWorkflowIssuedRoot(t,s,session,client,agent,source,"Cleanup")
+ if err:=s.startRemoteLinearWorkflow(context.Background(),session,root);err!=nil{
+  t.Fatal(err)
+ }
+ if status:=awaitRemoteWorkflow(t,session);status!="failed"{
+  t.Fatalf("early failure did not abort workflow: %s",status)
+ }
+ job:=session.longTask
+ job.mu.Lock();history:=job.workflowStepHistory;job.mu.Unlock()
+ if history!="F--"{t.Fatalf("early failure bypassed middle gate: %q",history)}
+ job.capture.mu.Lock()
+ output:=string(append([]byte(nil),job.capture.data...))
+ job.capture.mu.Unlock()
+ if strings.Contains(output,"MIDDLE_MUST_NOT_RUN")||
+  strings.Contains(output,"CLEANUP_MUST_NOT_RUN"){
+  t.Fatalf("skipped tasks executed despite early failure: %q",output)
+ }
+}
+
+func TestRemoteWorkflowConditionRejectsUnsupportedPoliciesAndPositions(t *testing.T){
+ remoteWorkflowHostFlags(t)
+ t.Setenv("TASKDECK_REMOTE_TASKS_WORKFLOW_CONDITION","1")
+ for _,scenario:=range []struct{name,first,last string;safe bool}{
+  {"safe-success", "",`"taskdeck":{"workflow":{"condition":"success"}}`,true},
+  {"always-first", `"taskdeck":{"workflow":{"condition":"always"}}`, "",false},
+  {"failure-condition","",`"taskdeck":{"workflow":{"condition":"failure"}}`,false},
+  {"continue-on-error","",`"taskdeck":{"workflow":{"continueOnError":true}}`,false},
+  {"output-export","",`"taskdeck":{"workflow":{"condition":"always","outputs":["key"]}}`,false},
+  {"noncanonical","",`"taskdeck":{"workflow":{"condition":"ALWAYS"}}`,false},
+ }{
+  t.Run(scenario.name,func(t *testing.T){
+   s,session,client,agent:=remoteTaskOperatorFixture(t)
+   first:=""
+   if scenario.first!=""{first=","+scenario.first}
+   last:=""
+   if scenario.last!=""{last=","+scenario.last}
+   source:=fmt.Sprintf(`{"tasks":[
+    {"label":"First","type":"process","command":"/bin/true"%s},
+    {"label":"Last","type":"process","command":"/bin/true",
+     "dependsOn":"First"%s}
+   ]}`,first,last)
+   root:=remoteWorkflowIssuedRoot(t,s,session,client,agent,source,"Last")
+   deps,err:=s.readRemoteTaskDependencies(context.Background(),session,root)
+   if err!=nil||deps.RunAvailable!=scenario.safe{
+    t.Fatalf("conditional policy GUI mismatch: %+v %v",deps,err)
+   }
+   _,_,err=s.prepareRemoteLinearWorkflow(context.Background(),session,root)
+   if (err==nil)!=scenario.safe{
+    t.Fatalf("executor admitted unsafe conditional policy: %v",err)
+   }
+  })
+ }
+}
+
+type remoteWorkflowCleanupFlagRevoker struct{identity.Store}
+func (r remoteWorkflowCleanupFlagRevoker)AppendAudit(
+ ctx context.Context,event identity.AuditEvent)error{
+ err:=r.Store.AppendAudit(ctx,event)
+ if err==nil&&event.Action=="remote.action.tasks_workflow_step"&&
+  event.Result=="failed"&&strings.Contains(event.Details,`"step":1`){
+  os.Setenv("TASKDECK_REMOTE_TASKS_WORKFLOW_CONDITION","0")
+ }
+ return err
+}
+func TestRemoteWorkflowCleanupDoesNotRunWhenHostRevokesCondition(t *testing.T){
+ remoteWorkflowHostFlags(t)
+ t.Setenv("TASKDECK_REMOTE_TASKS_WORKFLOW_CONDITION","1")
+ s,session,client,agent:=remoteTaskOperatorFixture(t)
+ source:=`{"tasks":[
+  {"label":"Failed","type":"process","command":"/bin/false"},
+  {"label":"Cleanup","type":"process","command":"/bin/echo",
+   "args":["CLEANUP_MUST_NOT_RUN"],"dependsOn":"Failed",
+   "taskdeck":{"workflow":{"condition":"always"}}}
+ ]}`
+ root:=remoteWorkflowIssuedRoot(t,s,session,client,agent,source,"Cleanup")
+ s.Identity=remoteWorkflowCleanupFlagRevoker{Store:s.Identity}
+ if err:=s.startRemoteLinearWorkflow(context.Background(),session,root);err!=nil{
+  t.Fatal(err)
+ }
+ if status:=awaitRemoteWorkflow(t,session);status!="failed"{
+  t.Fatalf("revocation changed failure to success: %s",status)
+ }
+ job:=session.longTask
+ job.mu.Lock();history:=job.workflowStepHistory;job.mu.Unlock()
+ if history!="F-"{t.Fatalf("cleanup ran after host revocation: %q",history)}
+ job.capture.mu.Lock()
+ output:=string(append([]byte(nil),job.capture.data...))
+ job.capture.mu.Unlock()
+ if strings.Contains(output,"CLEANUP_MUST_NOT_RUN"){
+  t.Fatalf("cleanup output found after host revoked flag: %q",output)
+ }
+}

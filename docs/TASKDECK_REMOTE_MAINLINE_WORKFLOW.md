@@ -390,3 +390,29 @@ real-host testing are considered **code complete**.
   bản ghi, không suy đoán ghép các lần chạy bằng ID task.
 - Chỉ xử lý textContent của tối đa 32 sự kiện trong bộ nhớ GUI;
   không lưu history trong browser storage hoặc PHP Relay.
+
+ 
+## 2026-11-09 — Conditional cleanup an toàn cho Remote Task workflow
+
+- Opt-in host: `TASKDECK_REMOTE_TASKS_WORKFLOW_CONDITION=1` (mặc
+  định tắt). Chỉ hỗ trợ `taskdeck.workflow.condition:"success"` và
+  `"always"`, đúng chuỗi lowercase; mọi `failure`, cấu hình
+  `continueOnError`, output export và policy khác vẫn bị từ chối.
+- `condition:"success"` hoạt động theo fail-fast mặc định.
+  `"always"` chỉ được gắn với **bước cuối/root** của workflow
+  tuần tự tối đa 4 bước; không được dùng ở bước trung gian.
+- Khi **bước ngay trước cuối** thất bại sau các retry đã cho phép,
+  chỉ bước cuối `"always"` mới có thể chạy dọn dẹp. Nếu một bước
+  sớm hơn lỗi thì dừng; không bỏ qua phụ thuộc trung gian.
+- Không chạy dọn dẹp sau **timeout**, **hủy**, mất phân quyền hoặc
+  host thu hồi gate; kiểm tra lại quyền chạy, hash source, cwd,
+  executable và audit ngay trước process. Tác dụng phụ của bước
+  dọn dẹp vẫn là hành động thực, do đó GUI cảnh báo rõ trước khi chạy.
+- Sau khi dọn dẹp thành công, **kết quả tổng thể vẫn là failed** với
+  mã lỗi của bước gốc. Báo cáo tiến độ E2EE có thể chứa `FC`
+  hoặc `CFC` ở đúng vị trí cuối, nhưng không chấp nhận tiền tố
+  lỗi ở giữa hoặc nhảy qua các bước phụ thuộc.
+- Bảo vệ fail-closed và giới hạn 90 giây toàn job vẫn giữ nguyên;
+  không nhận condition, lệnh, đối số từ browser. Các chế độ
+  `condition:"failure"`, nhánh rẽ, song song, truyền output và
+  `continueOnError` vẫn là những phần chưa hoàn tất.

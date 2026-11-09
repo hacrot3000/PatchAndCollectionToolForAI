@@ -2810,6 +2810,9 @@ const trustedGUIJavaScript = `'use strict';
       'và host đã bật quyền retry riêng; việc chạy lại có thể lặp tác dụng phụ. '+
       'Host có thể giới hạn 1–30 giây/bước với timeoutSeconds khi bật riêng; '+
       'bước hết giờ sẽ bị dừng, không chạy lại hoặc chạy bước sau. '+
+      'Khi host bật quyền condition riêng, bước cuối có condition: always '+
+      'có thể chạy dọn dẹp sau lỗi ở bước ngay trước; workflow vẫn thất bại. '+
+      'Không áp dụng sau hủy hoặc hết giờ. '+
       'Có thể hủy, dừng khi lỗi; không gửi lệnh hoặc tham số từ browser.'))return;
     taskWorkflowReadyID=0;
     invoke('/api/tasks-workflow-start/'+String(id));
