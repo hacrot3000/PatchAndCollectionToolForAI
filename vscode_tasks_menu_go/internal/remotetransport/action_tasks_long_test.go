@@ -337,3 +337,48 @@ func TestRemoteLongTaskConditionalCleanupAllowsOnlyImmediateFailedPredecessor(t 
   }
  }
 }
+
+ 
+func TestRemoteLongTaskFailureOnlyFinalSkippedState(t *testing.T){
+ good:=RemoteLongTaskProgress{
+  TaskID:21,Status:"completed",ExitCode:0,Output:"skipped",
+  Step:2,StepTotal:2,Attempt:1,AttemptTotal:1,
+  StepStatus:"skipped",StepHistory:"CS",StepDetails:"0:13|-",
+ }
+ client,agent,_:=participants(t)
+ frame,err:=SealRemoteLongTaskProgress(agent,testActionID,good)
+ if err!=nil{t.Fatalf("skip metadata cannot be sealed: %v",err)}
+ got,err:=OpenRemoteLongTaskProgress(client,frame,testActionID,21)
+ if err!=nil||got.Status!="completed"||got.StepHistory!="CS"||
+  got.StepStatus!="skipped"||got.StepDetails!="0:13|-"{ 
+  t.Fatalf("skip E2EE metadata corrupted: %+v %v",got,err)
+ }
+ triple:=good
+ triple.Step=3;triple.StepTotal=3
+ triple.StepHistory="CCS"
+ triple.StepDetails="0:5|0:10|-"
+ client,agent,_=participants(t)
+ frame,err=SealRemoteLongTaskProgress(agent,testActionID,triple)
+ if err!=nil{t.Fatal(err)}
+ got,err=OpenRemoteLongTaskProgress(client,frame,testActionID,21)
+ if err!=nil||got.StepHistory!="CCS"{
+  t.Fatalf("three-step skipped root rejected: %+v %v",got,err)
+ }
+ for _,mutate:=range []struct{name string; change func(*RemoteLongTaskProgress)}{
+  {"failed-predecessor",func(p *RemoteLongTaskProgress){p.StepHistory="FS";p.StepDetails="1:2|-"}},
+  {"faked-exit",func(p *RemoteLongTaskProgress){p.StepDetails="0:13|0:0"}},
+  {"nonfinal",func(p *RemoteLongTaskProgress){p.Step=1;p.StepHistory="S-";p.StepDetails="-|-"}},
+  {"failed-aggregate",func(p *RemoteLongTaskProgress){p.Status="failed";p.ExitCode=1}},
+  {"no-history",func(p *RemoteLongTaskProgress){p.StepHistory="";p.StepDetails=""}},
+  {"unexpected-run",func(p *RemoteLongTaskProgress){p.StepStatus="running"}},
+ }{
+  t.Run(mutate.name,func(t *testing.T){
+   value:=good
+   mutate.change(&value)
+   _,agent,_:=participants(t)
+   if _,err:=SealRemoteLongTaskProgress(agent,testActionID,value);err==nil{
+    t.Fatalf("unsafe E2EE skipped step accepted: %+v",value)
+   }
+  })
+ }
+}

@@ -1164,7 +1164,8 @@ func TestRemoteWorkflowConditionRejectsUnsupportedPoliciesAndPositions(t *testin
  for _,scenario:=range []struct{name,first,last string;safe bool}{
   {"safe-success", "",`"taskdeck":{"workflow":{"condition":"success"}}`,true},
   {"always-first", `"taskdeck":{"workflow":{"condition":"always"}}`, "",false},
-  {"failure-condition","",`"taskdeck":{"workflow":{"condition":"failure"}}`,false},
+  {"failure-condition","",`"taskdeck":{"workflow":{"condition":"failure"}}`,true},
+  {"failure-intermediate",`"taskdeck":{"workflow":{"condition":"failure"}}`,"",false},
   {"continue-on-error","",`"taskdeck":{"workflow":{"continueOnError":true}}`,false},
   {"output-export","",`"taskdeck":{"workflow":{"condition":"always","outputs":["key"]}}`,false},
   {"noncanonical","",`"taskdeck":{"workflow":{"condition":"ALWAYS"}}`,false},
@@ -1229,5 +1230,141 @@ func TestRemoteWorkflowCleanupDoesNotRunWhenHostRevokesCondition(t *testing.T){
  job.capture.mu.Unlock()
  if strings.Contains(output,"CLEANUP_MUST_NOT_RUN"){
   t.Fatalf("cleanup output found after host revoked flag: %q",output)
+ }
+}
+
+ 
+func TestRemoteWorkflowFinalFailureOnlyRunsAfterFailedDependency(t *testing.T){
+ remoteWorkflowHostFlags(t)
+ source:=`{"tasks":[
+  {"label":"Failed","type":"process","command":"/bin/false"},
+  {"label":"Recovery","type":"process","command":"/bin/echo",
+   "args":["RECOVERY_EXECUTED"],"dependsOn":"Failed",
+   "taskdeck":{"workflow":{"condition":"failure"}}}
+ ]}`
+ t.Setenv("TASKDECK_REMOTE_TASKS_WORKFLOW_CONDITION","0")
+ s,session,client,agent:=remoteTaskOperatorFixture(t)
+ root:=remoteWorkflowIssuedRoot(t,s,session,client,agent,source,"Recovery")
+ deps,err:=s.readRemoteTaskDependencies(context.Background(),session,root)
+ if err!=nil||!deps.Available||deps.RunAvailable{
+  t.Fatalf("failure-only cleanup offered without host opt-in: %+v %v",deps,err)
+ }
+ if _,_,err:=s.prepareRemoteLinearWorkflow(context.Background(),session,root);err==nil{
+  t.Fatal("failure condition execution admitted without opt-in")
+ }
+ t.Setenv("TASKDECK_REMOTE_TASKS_WORKFLOW_CONDITION","1")
+ deps,err=s.readRemoteTaskDependencies(context.Background(),session,root)
+ if err!=nil||!deps.RunAvailable{
+  t.Fatalf("failure-only recovery unavailable after opt-in: %+v %v",deps,err)
+ }
+ if err:=s.startRemoteLinearWorkflow(context.Background(),session,root);err!=nil{
+  t.Fatal(err)
+ }
+ if result:=awaitRemoteWorkflow(t,session);result!="failed"{
+  t.Fatalf("recovery hid earlier process failure: %s",result)
+ }
+ job:=session.longTask
+ job.mu.Lock()
+ history,exit:=job.workflowStepHistory,job.exitCode
+ job.mu.Unlock()
+ if history!="FC"||exit!=1{
+  t.Fatalf("recovery result invalid: history=%q exit=%d",history,exit)
+ }
+ job.capture.mu.Lock()
+ output:=string(append([]byte(nil),job.capture.data...))
+ job.capture.mu.Unlock()
+ if !strings.Contains(output,"RECOVERY_EXECUTED"){
+  t.Fatalf("failure condition did not run recovery step: %q",output)
+ }
+ progress,err:=longTaskE2EEAction(t,s,session,client,agent,
+  remotetransport.RemoteActionTasksPoll,root,0,"",
+  "66666666666666666666666666666666")
+ if err!=nil||progress.Status!="failed"||progress.StepHistory!="FC"||
+  progress.StepStatus!="completed"||progress.ExitCode!=1{
+  t.Fatalf("E2EE recovery outcome lost: %+v %v",progress,err)
+ }
+}
+
+func TestRemoteWorkflowFinalFailureOnlySkippedWhenDependenciesSucceeded(t *testing.T){
+ remoteWorkflowHostFlags(t)
+ t.Setenv("TASKDECK_REMOTE_TASKS_WORKFLOW_CONDITION","1")
+ s,session,client,agent:=remoteTaskOperatorFixture(t)
+ source:=`{"tasks":[
+  {"label":"Success","type":"process","command":"/bin/true"},
+  {"label":"Recovery","type":"process","command":"/bin/echo",
+   "args":["MUST_NOT_EXECUTE_RECOVERY"],"dependsOn":"Success",
+   "taskdeck":{"workflow":{"condition":"failure"}}}
+ ]}`
+ root:=remoteWorkflowIssuedRoot(t,s,session,client,agent,source,"Recovery")
+ if err:=s.startRemoteLinearWorkflow(context.Background(),session,root);err!=nil{
+  t.Fatal(err)
+ }
+ if result:=awaitRemoteWorkflow(t,session);result!="completed"{
+  t.Fatalf("skipped failure-only step failed workflow: %s",result)
+ }
+ job:=session.longTask
+ job.mu.Lock()
+ history,exit:=job.workflowStepHistory,job.exitCode
+ details:=append([]string(nil),job.workflowStepDetails...)
+ job.mu.Unlock()
+ if history!="CS"||exit!=0||len(details)!=2||details[1]!="-"{ 
+  t.Fatalf("skipped step incorrectly recorded execution: %q %d %+v",history,exit,details)
+ }
+ job.capture.mu.Lock()
+ output:=string(append([]byte(nil),job.capture.data...))
+ job.capture.mu.Unlock()
+ if strings.Contains(output,"MUST_NOT_EXECUTE_RECOVERY")||
+  !strings.Contains(output,"skipped (condition failure not met)"){
+  t.Fatalf("failure-only step executed after successful dependencies: %q",output)
+ }
+ progress,err:=longTaskE2EEAction(t,s,session,client,agent,
+  remotetransport.RemoteActionTasksPoll,root,0,"",
+  "67676767676767676767676767676767")
+ if err!=nil||progress.Status!="completed"||progress.StepHistory!="CS"||
+  progress.StepStatus!="skipped"||progress.ExitCode!=0{
+  t.Fatalf("E2EE skipped state unavailable: %+v %v",progress,err)
+ }
+ project,err:=s.Identity.ProjectByKey(context.Background(),session.projectKey)
+ if err!=nil{t.Fatal(err)}
+ events,err:=s.Identity.ListAudit(context.Background(),identity.AuditQuery{
+  ProjectID:project.ID,UserID:session.userID,
+  Action:"remote.action.tasks_workflow_step",Limit:8,
+ })
+ if err!=nil||len(events)!=2{
+  t.Fatalf("skipped condition performed an attempted process/audit: %+v %v",events,err)
+ }
+ for _,event:=range events{
+  if strings.Contains(event.Details,`"step":2`){
+   t.Fatalf("skipped workflow step emitted process audit: %+v",event)
+  }
+ }
+}
+
+func TestRemoteWorkflowFailureRecoveryKeepsFirstExitIfRecoveryAlsoFails(t *testing.T){
+ remoteWorkflowHostFlags(t)
+ t.Setenv("TASKDECK_REMOTE_TASKS_WORKFLOW_CONDITION","1")
+ s,session,client,agent:=remoteTaskOperatorFixture(t)
+ source:=`{"tasks":[
+  {"label":"InitialFail","type":"process","command":"/bin/false"},
+  {"label":"RecoveryFail","type":"process","command":"/bin/ls",
+   "args":["--unknown-taskdeck-option"],"dependsOn":"InitialFail",
+   "taskdeck":{"workflow":{"condition":"failure"}}}
+ ]}`
+ root:=remoteWorkflowIssuedRoot(t,s,session,client,agent,source,"RecoveryFail")
+ if err:=s.startRemoteLinearWorkflow(context.Background(),session,root);err!=nil{
+  t.Fatal(err)
+ }
+ if state:=awaitRemoteWorkflow(t,session);state!="failed"{
+  t.Fatalf("failed cleanup unexpectedly changed outcome: %s",state)
+ }
+ job:=session.longTask
+ job.mu.Lock()
+ history,exit:=job.workflowStepHistory,job.exitCode
+ details:=append([]string(nil),job.workflowStepDetails...)
+ job.mu.Unlock()
+ if history!="FF"||exit!=1||len(details)!=2||
+  !strings.HasPrefix(details[1],"2:"){
+  t.Fatalf("original error was overwritten: history=%q exit=%d details=%+v",
+   history,exit,details)
  }
 }

@@ -2816,6 +2816,8 @@ const trustedGUIJavaScript = `'use strict';
       'bước hết giờ sẽ bị dừng, không chạy lại hoặc chạy bước sau. '+
       'Khi host bật quyền condition riêng, bước cuối có condition: always '+
       'có thể chạy dọn dẹp sau lỗi ở bước ngay trước; workflow vẫn thất bại. '+
+      'condition: failure chỉ chạy bước cuối sau lỗi ở bước ngay trước, '+
+      'nếu các bước trước thành công thì đánh dấu bỏ qua, không chạy process. '+
       'Không áp dụng sau hủy hoặc hết giờ. '+
       'Có thể hủy, dừng khi lỗi; không gửi lệnh hoặc tham số từ browser.'))return;
     taskWorkflowReadyID=0;

@@ -416,3 +416,31 @@ real-host testing are considered **code complete**.
   không nhận condition, lệnh, đối số từ browser. Các chế độ
   `condition:"failure"`, nhánh rẽ, song song, truyền output và
   `continueOnError` vẫn là những phần chưa hoàn tất.
+
+ 
+## 2026-11-09 — Final recovery condition:failure
+
+- Opt-in riêng `TASKDECK_REMOTE_TASKS_WORKFLOW_CONDITION=1` tiếp tục
+  bắt buộc. `taskdeck.workflow.condition:"failure"` giờ được cho
+  phép **chỉ trên bước cuối/root** trong DAG tuần tự an toàn.
+- Nếu bước ngay trước thất bại (mã exit thực), bước cuối được phép
+  chạy recovery; kết quả tổng thể vẫn **failed** và giữ mã lỗi gốc
+  kể cả khi recovery cũng thất bại. Các bước phụ thuộc trung gian
+  không bị bỏ qua; không chạy sau cancel, timeout, source drift,
+  revoked role/grant hoặc opt-in bị tắt.
+- Nếu toàn bộ bước trước thành công, final recovery không chạy:
+  trạng thái workflow **completed**, E2EE tiến độ ghi `S` với
+  `step_status:"skipped"`, `step_details:"-"` cho final step.
+  Đây không phải exit code thành công giả và không có audit
+  `attempted` cho process không được thực thi.
+- Bộ giải mã E2EE và native GUI chỉ chấp nhận `S` ở **cuối cùng**,
+  sau các bước hoàn tất `C` và với kết quả tổng thể completed.
+  Các lịch sử `FS`, `S-`, `CSS`, skipped có exit giả và skipped
+  khi aggregate failed đều bị từ chối.
+- Phản hồi giao thức từ Agent cũ không phát hành trạng thái skipped
+  vẫn tương thích với client mới. Client cũ không hiểu skipped
+  có thể từ chối phản hồi nếu bật opt-in mới; vì vậy khi phát hành
+  Agent có điều kiện failure, phải cập nhật native client tương ứng.
+- Báo cáo audit bền vững hiện lưu kết quả các process đã chạy, không
+  tạo bản ghi process giả cho bước bỏ qua; báo cáo workflow trọn
+  vẹn gồm các bước skipped vẫn thuộc backlog.

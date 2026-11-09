@@ -68,10 +68,10 @@ const fetch=async(path,opt)=>{
    remote_control_available:false,remaining:--remaining,
   })};
   return {ok:true,json:async()=>({
-   ok:true,task_id:55,status:'failed',exit_code:1,
-   more:false,output:'END',truncated:false,
-   step:2,step_total:2,attempt:1,attempt_total:1,step_status:'completed',
-   step_history:'FC',step_details:'1:10|0:125',
+   ok:true,task_id:55,status:'completed',exit_code:0,
+   more:false,output:'SKIPPED',truncated:false,
+   step:2,step_total:2,attempt:1,attempt_total:1,step_status:'skipped',
+   step_history:'CS',step_details:'0:10|-',
    remote_control_available:false,remaining:--remaining,
   })};
  }
@@ -186,10 +186,12 @@ async function assertGraphValidation(graph,description,accepted=false){
   'workflow output was not preserved alongside typed progress');
  get('long-task-poll').click();await flush();
  assert.match(get('long-task-output').textContent,
-  /Bước 1: Lỗi \(exit=1, 10 ms\) · Bước 2: Hoàn tất \(exit=0, 125 ms\)/,
-  'authenticated failed-predecessor cleanup not rendered safely');
- assert.match(get('long-task-output').textContent,/Task 55 · failed · exit=1/,
-  'a successful cleanup masked the original failed workflow');
+  /Bước 1: Hoàn tất \(exit=0, 10 ms\) · Bước 2: Bỏ qua/,
+  'failure-only final step not rendered as skipped');
+ assert.match(get('long-task-output').textContent,/Task 55 · completed · exit=0/,
+  'skip after success incorrectly changed aggregate result');
+ assert.ok(!/Bước 2: Bỏ qua \(exit=/.test(get('long-task-output').textContent),
+  'skipped task was shown as an executed process');
  assert.match(get('long-task-output').textContent,/END/,
   'completed workflow output was not appended');
  assert.equal(workflowPollCount,2,'workflow report needed additional arbitrary polling');
