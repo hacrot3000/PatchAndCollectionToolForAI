@@ -6,6 +6,9 @@ const source=fs.readFileSync(
  'vscode_tasks_menu_go/cmd/taskdeck_remote_login/trusted_gui_assets.go','utf8');
 const match=source.match(/const trustedGUIJavaScript = `([\s\S]*?)`/);
 assert.ok(match,'trusted GUI JavaScript missing');
+assert.ok(match[1].includes('Một bước thất bại có thể được chạy lại đúng một lần'),
+ 'native GUI must disclose that host-approved retry can repeat side effects');
+
 class Element{
  constructor(id){
   this.id=id;this.textContent='';this.value='';this.hidden=false;

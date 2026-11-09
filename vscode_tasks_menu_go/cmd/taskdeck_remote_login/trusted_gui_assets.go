@@ -2627,6 +2627,8 @@ const trustedGUIJavaScript = `'use strict';
       id!==taskWorkflowReadyID||!cachedTaskIDs.includes(id))return;
     if(!window.confirm('Chạy tối đa 4 bước process theo thứ tự phụ thuộc trên host? '+
       'Các nhánh chỉ được chạy tuần tự khi host khai báo dependsOrder: sequence. '+
+      'Một bước thất bại có thể được chạy lại đúng một lần khi task có retry: 1 '+
+      'và host đã bật quyền retry riêng; việc chạy lại có thể lặp tác dụng phụ. '+
       'Có thể hủy, dừng khi lỗi; không gửi lệnh hoặc tham số từ browser.'))return;
     taskWorkflowReadyID=0;
     invoke('/api/tasks-workflow-start/'+String(id));

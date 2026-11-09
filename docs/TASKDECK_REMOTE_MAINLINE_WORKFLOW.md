@@ -170,3 +170,29 @@ real-host testing are considered **code complete**.
   persistent step-by-step result pagination and Windows execution.
   Those require separate reviewed contracts rather than silently relaxing
   this conservative host gate.
+
+## 2026-11-09 — Giới hạn retry cho Remote workflow (mã nguồn)
+
+- Remote chỉ chấp nhận chính sách `taskdeck.workflow.retry: 1` trên một task
+  `process` đã vượt qua mọi kiểm tra DAG và mã thực thi native. Mọi
+  metadata `taskdeck` khác (condition, outputs, timeout, retry cao hơn,
+  thuộc tính lạ) tiếp tục bị từ chối; shell/script và implicit parallel
+  vẫn không được phép.
+- Đây là cơ chế **opt-in bổ sung, mặc định tắt**:
+  `TASKDECK_REMOTE_TASKS_WORKFLOW_RETRY=1`. Các host chỉ bật workflow
+  thông thường không tự động cho phép chạy lặp. `retry:1` có thể gây
+  lặp tác dụng phụ nếu bước đó không idempotent; chỉ cấu hình cho task
+  đã được chủ host chấp thuận.
+- Mỗi lần thực thi phải xác minh lại quyền `tasks.run`, live Portal
+  grant, nguồn `.vscode/tasks.json`, cwd và binary. Mỗi attempt có
+  audit `attempted` và `completed/failed/cancelled/timed_out` với
+  số lần thử (1 hoặc 2); không ghi argv, output hay secret.
+- Chỉ retry khi native child trả exit code 1..255; không retry nếu
+  auth/preflight/audit fail, process không khởi động được, hủy hoặc
+  deadline. Workflow vẫn dừng khi hết số lần thử hoặc có lỗi bảo mật.
+- Trusted GUI xác nhận nguy cơ tác dụng phụ trước khi chạy workflow.
+  E2EE client vẫn chỉ gửi root Task ID, không nhận lệnh/argv từ browser.
+- Regression test bao gồm opt-in tắt/mở, giới hạn chính sách, hai lần
+  thử thật, audit riêng mỗi attempt và fail-fast chặn dependency tiếp.
+  CI cần được xác nhận PASS trên commit cuối cùng trước khi coi là
+  kiểm thử hoàn tất; không tự bật tính năng trong môi trường triển khai.
