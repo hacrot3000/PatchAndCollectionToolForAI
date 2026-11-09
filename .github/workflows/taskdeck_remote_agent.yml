@@ -141,6 +141,8 @@ jobs:
         run: node remote_portal/tests/native_gui_two_picks.test.cjs
       - name: Verify native GUI long task progress and independent cancellation
         run: node remote_portal/tests/native_gui_long_task.test.cjs
+      - name: Reject stale or regressed native GUI task lifecycle responses
+        run: node remote_portal/tests/native_gui_long_task_lifecycle.test.cjs
       - name: Verify bounded automatic long-task polling and reserved cancellation quota
         run: node remote_portal/tests/native_gui_long_task_autopoll.test.cjs
       - name: Verify explicit GUI bulk task paging stop, quota and disconnect
