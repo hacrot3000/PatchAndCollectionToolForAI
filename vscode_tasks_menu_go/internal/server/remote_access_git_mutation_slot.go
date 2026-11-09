@@ -43,9 +43,10 @@ func (session *remoteTaskDeckSession) reserveRemoteGitMutation(
 }
 
 // Remote Git, Task and PTY executions share this workspace guard across
-// authenticated E2EE sessions in ONE Agent process. Paths are canonical
-// absolute host-owned directories; no client-supplied lock token exists.
-// A reserved entry is deleted as soon as its owner releases it.
+// authenticated E2EE sessions. Paths are canonical host-owned directories;
+// the OS advisory directory lock also excludes distinct Agent processes
+// on the same local filesystem. No client-supplied token or project lock
+// file exists. The registry entry disappears when its owner releases it.
 var remoteWorkspaceExecutions=struct{
  sync.Mutex
  active map[string]bool
@@ -69,9 +70,23 @@ func reserveRemoteWorkspaceExecution(ctx context.Context,workspace string)(
  }
  remoteWorkspaceExecutions.active[root]=true
  remoteWorkspaceExecutions.Unlock()
+ // The local map rejects concurrent goroutines in this process. An
+ // advisory lock ON the directory itself also excludes separate TaskDeck
+ // daemon processes without creating a raceable .lock file in a project.
+ // Failing to obtain it must release the in-process reservation too.
+ releaseOS,err:=acquireRemoteWorkspaceOSLock(root,info)
+ if err!=nil{
+  remoteWorkspaceExecutions.Lock()
+  delete(remoteWorkspaceExecutions.active,root)
+  remoteWorkspaceExecutions.Unlock()
+  return nil,denied
+ }
  var once sync.Once
  release:=func(){
   once.Do(func(){
+   // Keep the local entry live until the OS lock has been released.
+   // Another local goroutine must not race a separate Agent process.
+   releaseOS()
    remoteWorkspaceExecutions.Lock()
    delete(remoteWorkspaceExecutions.active,root)
    remoteWorkspaceExecutions.Unlock()
@@ -87,7 +102,8 @@ func reserveRemoteWorkspaceExecution(ctx context.Context,workspace string)(
 // Hold the pre-existing local session PTY -> long-task mutex ordering,
 // then an exclusive canonical workspace reservation until Git exits.
 // No wait queues or unbounded blocking in the native E2EE action path.
-// External OS processes and independent Agent daemons remain out of scope.
+// External Git/task processes that do not cooperate with TaskDeck's
+// advisory directory lock remain out of scope.
 func (s *Server) reserveRemoteGitMutation(
  ctx context.Context,session *remoteTaskDeckSession,
 )(func(),error){
