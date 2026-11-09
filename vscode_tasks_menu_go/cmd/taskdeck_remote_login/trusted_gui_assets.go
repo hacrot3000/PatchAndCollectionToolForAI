@@ -1858,7 +1858,9 @@ const trustedGUIJavaScript = `'use strict';
                 const parts=value.split(':');
                 const exit=Number(parts[0]);
                 const ms=Number(parts[1]);
-                if(exit< -1||exit>255||ms>90000||(code==='C'&&exit!==0)){
+                if(exit< -1||exit>255||ms>90000||
+                  String(exit)!==parts[0]||String(ms)!==parts[1]||
+                  (code==='C'&&exit!==0)){
                   throw new Error('Mã thoát/thời gian bước vượt giới hạn');
                 }
               }

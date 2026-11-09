@@ -176,7 +176,7 @@ func TestRemoteLongTaskWorkflowStepEscapedOutputFitsE2EEEnvelope(t *testing.T){
    Output:strings.Repeat(char,64),Truncated:true,More:true,
    Step:4,StepTotal:4,Attempt:2,AttemptTotal:2,StepStatus:"completed",
    StepHistory:"CCCC",
-   StepDetails:"255:90000|255:90000|255:90000|255:90000",
+   StepDetails:"0:90000|0:90000|0:90000|0:90000",
   }
   frame,err:=SealRemoteLongTaskProgress(agent,testActionID,value)
   if err!=nil{t.Fatalf("escaped workflow output %q overflowed E2EE: %v",char,err)}
