@@ -597,3 +597,84 @@ func TestRemoteWorkflowRetryNeverReplaysFailedOutcomeAudit(t *testing.T){
   t.Fatalf("retry executed after denied outcome audit: %q",output)
  }
 }
+
+
+func TestRemoteWorkflowDeniesMutableOrWorkspaceControlledBinaries(t *testing.T){
+ remoteWorkflowHostFlags(t)
+ scenarios:=[]struct{
+  name string
+  setup func(*testing.T,*Server)string
+ }{
+  {"workspace-binary",func(t *testing.T,s *Server)string{
+   command:=filepath.Join(s.Workspace,"local-echo")
+   data,err:=os.ReadFile("/bin/echo")
+   if err!=nil{t.Fatal(err)}
+   if err:=os.WriteFile(command,data,0700);err!=nil{t.Fatal(err)}
+   return command
+  }},
+  {"workspace-symlink-alias",func(t *testing.T,s *Server)string{
+   command:=filepath.Join(s.Workspace,"echo-alias")
+   if err:=os.Symlink("/bin/echo",command);err!=nil{t.Fatal(err)}
+   return command
+  }},
+  {"world-writable-binary",func(t *testing.T,s *Server)string{
+   command:=filepath.Join(t.TempDir(),"untrusted-echo")
+   data,err:=os.ReadFile("/bin/echo")
+   if err!=nil{t.Fatal(err)}
+   if err:=os.WriteFile(command,data,0700);err!=nil{t.Fatal(err)}
+   if err:=os.Chmod(command,0777);err!=nil{t.Fatal(err)}
+   return command
+  }},
+  {"external-symlink-into-workspace",func(t *testing.T,s *Server)string{
+   target:=filepath.Join(s.Workspace,"local-echo")
+   data,err:=os.ReadFile("/bin/echo")
+   if err!=nil{t.Fatal(err)}
+   if err:=os.WriteFile(target,data,0700);err!=nil{t.Fatal(err)}
+   command:=filepath.Join(t.TempDir(),"external-alias")
+   if err:=os.Symlink(target,command);err!=nil{t.Fatal(err)}
+   return command
+  }},
+ }
+ for _,tc:=range scenarios{
+  t.Run(tc.name,func(t *testing.T){
+   s,session,client,agent:=remoteTaskOperatorFixture(t)
+   command:=tc.setup(t,s)
+   source:=fmt.Sprintf(`{"tasks":[
+    {"label":"Trusted","type":"process","command":"/bin/echo"},
+    {"label":"Unsafe","type":"process","command":%q,"dependsOn":"Trusted"}
+   ]}`,command)
+   root:=remoteWorkflowIssuedRoot(t,s,session,client,agent,source,"Unsafe")
+   result,err:=s.readRemoteTaskDependencies(context.Background(),session,root)
+   if err!=nil||!result.Available||result.RunAvailable{
+    t.Fatalf("GUI permitted mutable executable: %+v %v",result,err)
+   }
+   if _,_,err:=s.prepareRemoteLinearWorkflow(context.Background(),session,root);err==nil{
+    t.Fatal("mutable binary passed start-time preflight")
+   }
+   if err:=s.startRemoteLinearWorkflow(context.Background(),session,root);err==nil{
+    t.Fatal("mutable binary started host workflow")
+   }
+   if session.longTask!=nil{t.Fatal("rejected binary reserved long-task slot")}
+  })
+ }
+}
+
+// The standalone native-file guard is a defense-in-depth check. A script
+// may have an innocent filename and valid executable permissions but is
+// always denied before attempting any workflow launch.
+func TestRemoteWorkflowAcceptedSystemExecutableRemainsAllowed(t *testing.T){
+ remoteWorkflowHostFlags(t)
+ s,session,client,agent:=remoteTaskOperatorFixture(t)
+ root:=remoteWorkflowIssuedRoot(t,s,session,client,agent,
+  remoteWorkflowLinearSource,"Step C")
+ result,err:=s.readRemoteTaskDependencies(context.Background(),session,root)
+ if err!=nil||!result.RunAvailable{
+  t.Fatalf("safe system process unexpectedly denied: %+v %v",result,err)
+ }
+ if err:=s.startRemoteLinearWorkflow(context.Background(),session,root);err!=nil{
+  t.Fatal(err)
+ }
+ if state:=awaitRemoteWorkflow(t,session);state!="completed"{
+  t.Fatalf("system process failed after guard: %s",state)
+ }
+}

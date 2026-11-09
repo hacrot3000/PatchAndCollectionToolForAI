@@ -118,7 +118,8 @@ func (s *Server)readRemoteTaskDependencies(ctx context.Context,
     spec,_,prepErr:=prepareRemoteTaskExecutionInputMode(
      ctx,s.Workspace,session.taskPageHash,n.ID,0,false,"",true)
     if prepErr!=nil||spec.TaskID!=n.ID||
-     validateRemoteWorkflowStepCwd(root,spec.Cwd)!=nil{
+     validateRemoteWorkflowStepCwd(root,spec.Cwd)!=nil||
+     !tasks.RemoteExecutableAllowed(root,spec.Command){
      sequential=false;break
     }
    }

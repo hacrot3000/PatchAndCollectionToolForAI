@@ -213,7 +213,8 @@ func(s *Server)prepareRemoteLinearWorkflow(ctx context.Context,
   spec,_,err:=prepareRemoteTaskExecutionInputMode(
    ctx,s.Workspace,hash,id,0,false,"",true)
   if err!=nil||spec.TaskID!=id{return nil,hash,denied}
-  if err:=validateRemoteWorkflowStepCwd(root,spec.Cwd);err!=nil{
+  if err:=validateRemoteWorkflowStepCwd(root,spec.Cwd);err!=nil||
+   !tasks.RemoteExecutableAllowed(root,spec.Command){
    return nil,hash,denied
   }
   plan=append(plan,remoteWorkflowStep{taskID:id,retries:retries})
@@ -320,7 +321,8 @@ Workflow:
    root,err:=filepath.EvalSymlinks(s.Workspace)
    if err!=nil{status="failed";exitCode=-1;break Workflow}
    root,err=filepath.Abs(root)
-   if err!=nil||validateRemoteWorkflowStepCwd(root,spec.Cwd)!=nil{
+   if err!=nil||validateRemoteWorkflowStepCwd(root,spec.Cwd)!=nil||
+    !tasks.RemoteExecutableAllowed(root,spec.Command){
     status="failed";exitCode=-1;break Workflow
    }
    // An unavailable audit denies this attempt BEFORE any process starts.
@@ -329,7 +331,9 @@ Workflow:
     status="failed";exitCode=-1;break Workflow
    }
    executable,ok:=remoteWorkflowResolvedExecutable(spec.Command)
-   if !ok{status="failed";exitCode=-1;break Workflow}
+   if !ok||!tasks.RemoteExecutableAllowed(root,executable){
+    status="failed";exitCode=-1;break Workflow
+   }
    _,_=captureWorkflowText(job.capture,fmt.Sprintf(
     "[TaskDeck workflow] Step %d/%d: Task #%d (attempt %d/%d)\n",
     i+1,len(plan),step.taskID,attempt,step.retries+1))
