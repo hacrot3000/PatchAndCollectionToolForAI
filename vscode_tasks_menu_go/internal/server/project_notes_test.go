@@ -160,7 +160,7 @@ func TestProjectNotesPermissionAndFrontendContracts(t *testing.T) {
 		{"featuremods/mobile.js", []string{"notes:()=>globalThis.TaskMenuProjectNotes?.open?.()", "['notes'"}},
 		{"featuremods/projectnotes.js", []string{
 			"/api/project-notes", "globalThis.TaskMenuProjectNotes={open,close,refresh",
-			"navigator.clipboard?.writeText(content)", "makeButton('Edit'", "makeButton('Copy'", "makeButton('Delete'",
+			"if(navigator.clipboard?.writeText)", "navigator.clipboard.writeText(content)", "document.execCommand('copy')", "makeButton('Edit'", "makeButton('Copy'", "makeButton('Delete'",
 			"method:id?'PUT':'POST'", "method:'DELETE'", "textContent",
 		}},
 	} {
