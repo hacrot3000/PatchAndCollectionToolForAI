@@ -1894,8 +1894,12 @@ const trustedGUIJavaScript = `'use strict';
             throw new Error('Báo cáo từng bước workflow không hợp lệ');
           }
           if(stepHistory!==''){
-            const codes={running:'R',completed:'C',failed:'F',
-              cancelled:'X',timed_out:'T'};
+            const codes={running:'R',completed:'C',skipped:'S',
+              failed:'F',cancelled:'X',timed_out:'T'};
+            if(stepStatus==='skipped'&&
+              (step!==stepTotal||data.status!=='completed'||!stepHistory)){
+              throw new Error('Bước bỏ qua chỉ hợp lệ ở cuối workflow thành công');
+            }
             for(let i=0;i<stepHistory.length;i++){
               const expected=i<step-1?'C':i===step-1?codes[stepStatus]:'-';
               const finalCleanupFailure=i===step-2&&step===stepTotal&&
@@ -1911,7 +1915,7 @@ const trustedGUIJavaScript = `'use strict';
              step<1||stepTotal<2||stepTotal>4||step>stepTotal||
              attempt<1||attemptTotal<1||attemptTotal>2||
              attempt>attemptTotal||
-             !['running','completed','failed','cancelled','timed_out'].includes(stepStatus)||
+             !['running','completed','skipped','failed','cancelled','timed_out'].includes(stepStatus)||
              ['started','cleared','cancel_requested'].includes(data.status)||
              data.output.length>64)){
             throw new Error('Tiến độ bước workflow E2EE không hợp lệ');
@@ -1936,7 +1940,7 @@ const trustedGUIJavaScript = `'use strict';
             for(let i=0;i<details.length;i++){
               const code=stepHistory[i];
               const value=details[i];
-              if(code==='R'||code==='-'){
+              if(code==='R'||code==='-'||code==='S'){
                 if(value!=='-')throw new Error('Bước đang chờ không thể có kết quả');
               }else{
                 if(!/^-?(0|[1-9][0-9]{0,2}):(0|[1-9][0-9]{0,4})$/.test(value)){
@@ -1975,7 +1979,7 @@ const trustedGUIJavaScript = `'use strict';
             longTaskAuto=false;
           }
           const historyLabels={'-':'Chưa chạy',R:'Đang chạy',
-            C:'Hoàn tất',F:'Lỗi',X:'Đã hủy',T:'Hết thời gian'};
+            C:'Hoàn tất',S:'Bỏ qua',F:'Lỗi',X:'Đã hủy',T:'Hết thời gian'};
           const historyLines=stepHistory?
             Array.from(stepHistory).map((code,i)=>
               'Bước '+String(i+1)+': '+historyLabels[code]+

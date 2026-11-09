@@ -102,7 +102,9 @@ func remoteWorkflowPolicyForTask(task tasks.Task)(int,time.Duration,string,bool)
    }
    // Only these two non-branching modes are currently supported.
    // "failure" and continueOnError require a separate graph contract.
-   if c!="success"&&c!="always"{return 0,0,"",false}
+   if c!="success"&&c!="always"&&c!="failure"{
+    return 0,0,"",false
+   }
    condition=c
    continue
   }
@@ -178,9 +180,11 @@ func remoteWorkflowSafeSequentialGraph(items []tasks.Task,
   task,exists:=byID[id]
   if !exists||!remoteWorkflowSafeProcess(task){return false}
   _,_,condition,ok:=remoteWorkflowPolicyForTask(task)
-  // Explicit "always" only authorizes the final/root cleanup task.
-  // An intermediate "always" could bypass unrelated dependencies.
-  if !ok||(condition=="always"&&i!=len(order)-1){return false}
+  // A conditional recovery/cleanup task can only be the root/final
+  // node. Earlier branches would bypass dependencies without a DAG
+  // scheduler or a separate result-authority contract.
+  if !ok||((condition=="always"||condition=="failure")&&
+   i!=len(order)-1){return false}
   if _,duplicate:=positions[id];duplicate{return false}
   positions[id]=i
  }
@@ -252,7 +256,7 @@ func(s *Server)prepareRemoteLinearWorkflow(ctx context.Context,
  plan:=make([]remoteWorkflowStep,0,len(deps.Order))
  for _,id:=range deps.Order{
   retries,timeout,condition,ok:=remoteWorkflowPolicyForTask(byID[id])
-  if !ok||(condition=="always"&&id!=rootTaskID){
+  if !ok||((condition=="always"||condition=="failure")&&id!=rootTaskID){
    return nil,hash,denied
   }
   // Reuse the existing, separately tested single-task source/inode,
@@ -390,6 +394,17 @@ Workflow:
     session.channel,identity.PermissionTasksRun);err!=nil{
     status="cancelled";exitCode=-1;break Workflow
    }
+   if i==len(plan)-1&&step.condition=="failure"&&
+    status=="completed"&&exitCode==0{
+    // The host-owned failure-only final step must not execute after
+    // successful dependencies. It is a documented skip, not a fake
+    // successful process (no attempted audit and no side effects).
+    job.updateWorkflowStep(i+1,len(plan),1,step.retries+1,"skipped",-1,0)
+    _,_=captureWorkflowText(job.capture,fmt.Sprintf(
+     "[TaskDeck workflow] Step %d/%d: skipped (condition failure not met)\n",
+     i+1,len(plan)))
+    break Workflow
+   }
    spec,_,err:=prepareRemoteTaskExecutionInputMode(ctx,s.Workspace,hash,
     step.taskID,0,false,"",true)
    if err!=nil{status="failed";exitCode=-1;break Workflow}
@@ -482,7 +497,8 @@ Workflow:
     continue
    }
    if stepStatus=="failed"&&i==len(plan)-2&&
-    plan[i+1].condition=="always"&&
+    (plan[i+1].condition=="always"||
+     plan[i+1].condition=="failure")&&
     os.Getenv("TASKDECK_REMOTE_TASKS_WORKFLOW_CONDITION")=="1"{
     // Permit ONLY the final, host-declared cleanup after the immediately
     // preceding failure. The aggregate result stays failed even if the
@@ -490,7 +506,14 @@ Workflow:
     status="failed";exitCode=code
     continue Workflow
    }
-   status=stepStatus;exitCode=code;break Workflow
+   // Preserve the original dependency's failure code if the last
+   // cleanup/recovery process also failed. Its own outcome still
+   // appears separately in per-step history and audit.
+   if !(i==len(plan)-1&&status=="failed"&&stepStatus=="failed"&&
+    (step.condition=="always"||step.condition=="failure")){
+    status=stepStatus;exitCode=code
+   }
+   break Workflow
   }
  }
  if errors.Is(ctx.Err(),context.DeadlineExceeded){status="timed_out"

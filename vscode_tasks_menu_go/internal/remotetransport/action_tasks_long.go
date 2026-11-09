@@ -61,7 +61,7 @@ func validLongTaskStepDetails(p RemoteLongTaskProgress)bool{
  if len(parts)!=p.StepTotal{return false}
  for i,part:=range parts{
   state:=p.StepHistory[i]
-  if state=='R'||state=='-'{
+  if state=='R'||state=='-'||state=='S'{
    if part!="-" {return false}
    continue
   }
@@ -104,6 +104,10 @@ func validLongTaskProgress(p RemoteLongTaskProgress)bool{
   switch p.StepStatus{
   case "running":expected='R'
   case "completed":expected='C'
+  case "skipped":
+   expected='S'
+   if p.Step!=p.StepTotal||p.Status!="completed"||
+    p.StepHistory==""{return false}
   case "failed":expected='F'
   case "cancelled":expected='X'
   case "timed_out":expected='T'

@@ -239,6 +239,7 @@ func (job *remoteLongTaskJob) updateWorkflowStep(index,total,attempt,attemptTota
   switch state{
   case "running":code='R'
   case "completed":code='C'
+  case "skipped":code='S'
   case "failed":code='F'
   case "cancelled":code='X'
   case "timed_out":code='T'
@@ -248,7 +249,8 @@ func (job *remoteLongTaskJob) updateWorkflowStep(index,total,attempt,attemptTota
    history[index-1]=code
    job.workflowStepHistory=string(history)
    if len(job.workflowStepDetails)==total{
-    if state=="running"{job.workflowStepDetails[index-1]="-"
+    if state=="running"||state=="skipped"{
+     job.workflowStepDetails[index-1]="-"
     }else{
      millis:=elapsed.Milliseconds()
      if millis<0{millis=0}
