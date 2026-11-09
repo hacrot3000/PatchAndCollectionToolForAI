@@ -86,6 +86,7 @@ const flush=async()=>{for(let i=0;i<80;i++)await Promise.resolve()};
  assert.equal(terminalCalls.length,1,'PTY not opened exactly once');
  assert.equal(get('terminal-open').disabled,true);
  assert.equal(get('terminal-send').disabled,false);
+ assert.match(get('session-activity').textContent,/Terminal PTY đang chạy/);
   for(const id of ['git-pull','git-commit','git-push']){
     assert.equal(get(id).disabled,true,id+' must be disabled while PTY owns session');
   }
@@ -113,6 +114,7 @@ const flush=async()=>{for(let i=0;i<80;i++)await Promise.resolve()};
  get('terminal-eof').click();await flush();
  assert.equal(JSON.parse(terminalCalls[5][1]).input,String.fromCharCode(4));
  get('terminal-close').click();await flush();
+ assert.equal(get('session-activity').textContent,'Không có tác vụ đang chạy');
  assert.equal(get('terminal-send').disabled,true);
  assert.equal(get('terminal-poll').disabled,true);
   for(const id of ['git-pull','git-commit','git-push']){

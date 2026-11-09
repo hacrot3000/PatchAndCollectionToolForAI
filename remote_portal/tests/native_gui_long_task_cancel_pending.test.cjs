@@ -90,12 +90,15 @@ const flush=async()=>{for(let i=0;i<50;i++)await Promise.resolve()};
   'cancel-pending must allow polling with one Clear round reserved');
  assert.equal(get('long-task-cancel').disabled,true,
   'acknowledged cancellation must disable duplicate cancel');
+ assert.match(get('session-activity').textContent,/đã yêu cầu hủy/);
  get('long-task-poll').click();await flush();
  assert.match(get('long-task-output').textContent,/terminating/);
  assert.match(get('output').textContent,/Đã yêu cầu hủy/);
  assert.equal(get('long-task-cancel').disabled,true,
   'intermediate running poll must not re-arm the cancel button');
  assert.equal(remaining,2);
+ assert.match(get('session-activity').textContent,/đã yêu cầu hủy/,
+  'intermediate running reply must preserve pending-cancel indication');
  assert.equal(get('long-task-poll').disabled,false,
   'cancel-pending running response must allow one more poll and Clear');
  const count=calls.filter(x=>x==='/api/tasks-cancel/21').length;

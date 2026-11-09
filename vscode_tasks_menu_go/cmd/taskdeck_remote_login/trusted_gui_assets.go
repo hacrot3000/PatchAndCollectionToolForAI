@@ -1248,7 +1248,26 @@ const trustedGUIJavaScript = `'use strict';
     state.textContent=closed?'Phiên đã đóng':(!verified?'Không có mã phiên cục bộ':busy?'Đang xử lý':'Phiên cục bộ sẵn sàng');
     state.classList.toggle('bad',closed||!verified);
     remaining.textContent='Lượt thao tác còn lại: '+budget;
-    sessionActivity.textContent=busy?'Đang chờ phản hồi E2EE':(closed?'Phiên không còn hợp lệ':'Không có tác vụ đang chạy');
+    // The status line is derived exclusively from the last authenticated
+    // host job/PTY response, never from task names or unauthenticated DOM
+    // text. A completed job remains here until explicit Clear, and an
+    // acknowledged Cancel may still be terminating the host process.
+    let activity='Không có tác vụ đang chạy';
+    if(terminalState==='running')activity='Terminal PTY đang chạy';
+    else if(terminalState!=='closed')activity='Terminal PTY: '+terminalState;
+    if(longTaskID!==0){
+      const jobLabel='Task '+String(longTaskID);
+      if(['completed','failed','cancelled','timed_out'].includes(longTaskState)){
+        activity=jobLabel+' đã kết thúc ('+longTaskState+') — chờ dọn job'+
+          (longTaskMore?' · còn output chưa nhận':'');
+      }else if(longTaskCancelPending||longTaskState==='cancel_requested'){
+        activity=jobLabel+' đã yêu cầu hủy — đang chờ kết thúc';
+      }else{
+        activity=jobLabel+' đang chạy ('+longTaskState+')';
+      }
+    }
+    sessionActivity.textContent=closed?'Phiên không còn hợp lệ':
+      busy?'Đang chờ phản hồi E2EE':activity;
   }
   // No background E2EE work without a user-started job. Reserve three
   // application roundtrips so Cancel and Clear remain possible. A poll is

@@ -97,6 +97,7 @@ const flush=async()=>{for(let i=0;i<45;i++)await Promise.resolve()};
  assert.deepEqual(sent.filter(x=>x.startsWith('/api/tasks-start/')),['/api/tasks-start/123']);
  assert.equal(get('long-task-controls').hidden,false);
  assert.equal(get('long-task-cancel').disabled,false);
+ assert.match(get('session-activity').textContent,/Task 123 đang chạy/);
  assert.equal(get('task-run-history-list').children.length,1);
  assert.match(get('task-run-history-list').children[0].children[0].textContent,
   /Task 123 .* dài .* started/);
@@ -105,9 +106,11 @@ const flush=async()=>{for(let i=0;i<45;i++)await Promise.resolve()};
  assert.equal(get('long-task-output').children.length,0,
   'output must be textContent only, never HTML');
  get('long-task-cancel').click();await flush();
+ assert.match(get('session-activity').textContent,/Task 123 đã yêu cầu hủy/);
  assert.equal(get('long-task-controls').hidden,false);
  get('long-task-poll').click();await flush();
  assert.match(get('long-task-output').textContent,/cancelled/);
+ assert.match(get('session-activity').textContent,/Task 123 đã kết thúc \(cancelled\) — chờ dọn job/);
  assert.match(get('task-run-history-list').children[0].children[0].textContent,
   /Task 123 .* dài .* cancelled/);
  const historyEntry=get('task-run-history-list').children[0];
@@ -119,6 +122,7 @@ const flush=async()=>{for(let i=0;i<45;i++)await Promise.resolve()};
   'history output must be textContent, never injected as HTML');
  assert.equal(get('long-task-clear').disabled,false);
  get('long-task-clear').click();await flush();
+ assert.equal(get('session-activity').textContent,'Không có tác vụ đang chạy');
  assert.equal(get('long-task-controls').hidden,true);
  assert.equal(get('task-run-history-list').children.length,1,
   'clear may remove host job but keep locally verified final outcome');
