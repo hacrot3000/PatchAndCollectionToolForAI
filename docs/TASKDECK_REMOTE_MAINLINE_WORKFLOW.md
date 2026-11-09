@@ -300,3 +300,28 @@ real-host testing are considered **code complete**.
   Các client mới vẫn chấp nhận phản hồi Agent cũ thiếu trường này.
 - Đây là báo cáo chi tiết **trong phiên đang chạy**; chưa có truy vấn
   kết quả từng bước bền vững hoặc khôi phục workflow qua E2EE session.
+
+ 
+## 2026-11-09 — Audit bước workflow có thể đọc lại qua phiên E2EE mới
+
+- Đã bổ sung hành động chỉ đọc `tasks.workflow.audit`, xuất tối đa **hai**
+  sự kiện **kết thúc bước** gần nhất của đúng TaskDeck user và project.
+  Không phụ thuộc vào phiên cũ, job slot, mã nguồn task hiện tại hoặc
+  workspace; dữ liệu đến từ audit SQLite cục bộ trên host.
+- Quyền: `tasks.view` và Portal Grant đang hoạt động, kết hợp ba opt-in
+  độc lập: `TASKDECK_REMOTE_TASKS_PREVIEW=1`,
+  `TASKDECK_REMOTE_TASKS_REPORT=1`,
+  `TASKDECK_REMOTE_TASKS_WORKFLOW_REPORT=1` (mặc định tắt).
+  Không cần `tasks.run`; không có API resume hoặc lệnh mới.
+- Kết quả được đưa qua E2EE: `root_task_id`, `task_id`, vị trí/tổng
+  bước, lần thử, trạng thái, exit code, thời điểm UTC. Không truyền
+  tên task, đường dẫn, argv, stdout, secrets, nội dung audit thô.
+- Decoder áp dụng schema JSON đúng khóa, từ chối duplicate/null/số
+  không canonical, không cho phép yêu cầu user/project/task ID tùy ý.
+  Agent bỏ qua audit `attempted`, audit chứa thuộc tính lạ hoặc
+  audit khác principal; không ghi audit mới lên PHP.
+- Giao diện native có nút “Xem audit bước workflow”; nội dung hiển thị
+  bằng textContent và bị xóa khi logout. Kết quả chỉ gồm **hai sự kiện
+  gần nhất**, KHÔNG đồng nghĩa bản báo cáo đầy đủ một workflow hay
+  khôi phục công việc; truy vấn phân trang/báo cáo bền vững toàn bộ
+  chuỗi vẫn chưa hoàn tất về mã nguồn.

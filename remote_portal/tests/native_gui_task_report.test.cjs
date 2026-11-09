@@ -43,6 +43,14 @@ const fetch=async(path,opt)=>{
    {task_id:12,status:'completed',exit_code:0,duration_ms:10,timestamp:epoch-1},
   ],remote_control_available:false,remaining:--remaining,
  })};
+ if(path==='/api/tasks-workflow-audit')return {ok:true,json:async()=>({
+  ok:true,items:[
+   {root_task_id:80,task_id:70,step:2,total:3,attempt:2,
+    status:'failed',exit_code:7,timestamp:epoch},
+   {root_task_id:80,task_id:60,step:1,total:3,attempt:1,
+    status:'completed',exit_code:0,timestamp:epoch-1},
+  ],remote_control_available:false,remaining:--remaining,
+ })};
  if(path==='/api/close')return {ok:true,json:async()=>({ok:true,closed:true})};
  throw Error('unexpected local endpoint '+path);
 };
@@ -64,9 +72,23 @@ const flush=async()=>{for(let i=0;i<80;i++)await Promise.resolve()};
  assert.match(get('tasks-report-output').textContent,/Task #42 · failed · exit 7 · 120 ms/);
  assert.match(get('tasks-report-output').textContent,/Task #12 · completed · exit 0/);
  assert.equal(get('tasks-report-output').children.length,0,'audit metadata became HTML');
+ assert.equal(get('tasks-workflow-audit').disabled,false,
+  'principal-only audit button not shown after features');
+ get('tasks-workflow-audit').click();await flush();
+ assert.deepEqual(sent.filter(p=>p==='/api/tasks-workflow-audit'),
+  ['/api/tasks-workflow-audit'],
+  'native GUI must read step audit without client arguments');
+ assert.match(get('tasks-report-output').textContent,/Workflow #80/);
+ assert.match(get('tasks-report-output').textContent,/Bước 2\/3 \(Task #70\)/);
+ assert.match(get('tasks-report-output').textContent,/Lần 2 · failed · exit 7/);
+ assert.match(get('tasks-report-output').textContent,/không phải lịch sử toàn bộ job/);
+ assert.equal(get('tasks-report-output').children.length,0,
+  'host-owned audit content was inserted as HTML');
  get('disconnect').click();await flush();
  assert.equal(get('tasks-report-output').hidden,true,'audit report visible after logout');
  assert.equal(get('tasks-report-output').textContent,'','audit persisted after logout');
  assert.equal(get('tasks-report').disabled,true,'report enabled after logout');
+ assert.equal(get('tasks-workflow-audit').disabled,true,
+  'workflow audit button enabled after logout');
  console.log('PASS: principal-owned E2EE task outcome report, zero caller params, scrub on logout');
 })().catch(e=>{console.error(e);process.exitCode=1});
