@@ -7,6 +7,7 @@ import (
  "os/exec"
  "path/filepath"
  "runtime"
+ "strconv"
  "strings"
  "sync"
  "time"
@@ -41,6 +42,7 @@ type remoteLongTaskJob struct {
  workflowAttemptTotal int
  workflowStepStatus string
  workflowStepHistory string
+ workflowStepDetails []string
 }
 
 type remoteLongTaskCapture struct {
@@ -112,6 +114,7 @@ type remoteLongTaskSnapshot struct {
  AttemptTotal int
  StepStatus string
  StepHistory string
+ StepDetails string
 }
 
 // Must be entered only from TaskDeck's verified tasks.run role, live
@@ -222,7 +225,8 @@ func (s *Server) startRemoteLongTask(
 // These fields are Agent-owned, not parsed from arbitrary child stdout.
 // Job and cursor mutations share the same mutex, so no poll can see a
 // mixed step index/attempt from different attempts.
-func (job *remoteLongTaskJob) updateWorkflowStep(index,total,attempt,attemptTotal int,state string){
+func (job *remoteLongTaskJob) updateWorkflowStep(index,total,attempt,attemptTotal int,
+ state string,exitCode int,elapsed time.Duration){
  job.mu.Lock()
  job.workflowStep=index
  job.workflowTotal=total
@@ -242,6 +246,17 @@ func (job *remoteLongTaskJob) updateWorkflowStep(index,total,attempt,attemptTota
    history:=[]byte(job.workflowStepHistory)
    history[index-1]=code
    job.workflowStepHistory=string(history)
+   if len(job.workflowStepDetails)==total{
+    if state=="running"{job.workflowStepDetails[index-1]="-"
+    }else{
+     millis:=elapsed.Milliseconds()
+     if millis<0{millis=0}
+     if millis>90000{millis=90000}
+     if exitCode< -1||exitCode>255{exitCode=-1}
+     job.workflowStepDetails[index-1]=strconv.Itoa(exitCode)+":"+
+      strconv.FormatInt(millis,10)
+    }
+   }
   }
  }
  job.mu.Unlock()
@@ -272,8 +287,9 @@ func (session *remoteTaskDeckSession) pollRemoteLongTask(
    Attempt:job.workflowAttempt,AttemptTotal:job.workflowAttemptTotal,
    StepStatus:job.workflowStepStatus,
    StepHistory:job.workflowStepHistory,
+   StepDetails:strings.Join(job.workflowStepDetails,"|"),
   }
-  if state.Step==0{state.StepHistory=""}
+  if state.Step==0{state.StepHistory="";state.StepDetails=""}
   limit:=remoteLongTaskMaxChunkBytes
   if state.Step>0{limit=64} // Reserve E2EE envelope for five typed fields.
   chunk,next,truncated,more:=job.capture.nextBounded(cursor,limit)
@@ -300,8 +316,9 @@ func (session *remoteTaskDeckSession) pollRemoteLongTask(
     Attempt:job.workflowAttempt,AttemptTotal:job.workflowAttemptTotal,
     StepStatus:job.workflowStepStatus,
     StepHistory:job.workflowStepHistory,
+    StepDetails:strings.Join(job.workflowStepDetails,"|"),
    }
-   if state.Step==0{state.StepHistory=""}
+   if state.Step==0{state.StepHistory="";state.StepDetails=""}
    job.mu.Unlock()
    return state,nil
   case <-job.capture.notify:

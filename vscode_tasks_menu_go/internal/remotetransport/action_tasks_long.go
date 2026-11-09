@@ -3,6 +3,8 @@ package remotetransport
 import (
  "bytes"
  "encoding/json"
+ "strconv"
+ "strings"
  "unicode"
  "unicode/utf8"
 )
@@ -30,7 +32,8 @@ type RemoteLongTaskProgress struct {
  Attempt int
  AttemptTotal int
  StepStatus string
- StepHistory string // Optional: 'C'=completed, 'R'=running, 'F'=failed, 'X'=cancelled, 'T'=timed_out, '-'=not started.
+ StepHistory string // Optional host-owned step status summary.
+ StepDetails string // Exit code and milliseconds for each finished step.
 }
 type remoteLongTaskProgressWire struct {
  Type string `json:"type"`
@@ -48,7 +51,32 @@ type remoteLongTaskProgressWire struct {
  AttemptTotal int `json:"attempt_total,omitempty"`
  StepStatus string `json:"step_status,omitempty"`
  StepHistory string `json:"step_history,omitempty"`
+ StepDetails string `json:"step_details,omitempty"`
 }
+// Compact, canonical per-step exit codes and elapsed milliseconds.
+func validLongTaskStepDetails(p RemoteLongTaskProgress)bool{
+ if p.StepDetails==""{return true}
+ if p.StepHistory==""{return false}
+ parts:=strings.Split(p.StepDetails,"|")
+ if len(parts)!=p.StepTotal{return false}
+ for i,part:=range parts{
+  state:=p.StepHistory[i]
+  if state=='R'||state=='-'{
+   if part!="-" {return false}
+   continue
+  }
+  rawCode,rawMillis,ok:=strings.Cut(part,":")
+  if !ok||len(rawCode)>3||len(rawMillis)>5{return false}
+  code,err:=strconv.Atoi(rawCode)
+  if err!=nil||code< -1||code>255||strconv.Itoa(code)!=rawCode{return false}
+  millis,err:=strconv.Atoi(rawMillis)
+  if err!=nil||millis<0||millis>90000||
+   strconv.Itoa(millis)!=rawMillis{return false}
+  if state=='C'&&code!=0{return false}
+ }
+ return true
+}
+
 func validLongTaskProgress(p RemoteLongTaskProgress)bool{
  if !validSelectedTaskID(p.TaskID)||p.ExitCode< -1||p.ExitCode>255||
   len(p.Output)>MaxRemoteLongTaskOutputBytes||!utf8.ValidString(p.Output) {
@@ -64,7 +92,8 @@ func validLongTaskProgress(p RemoteLongTaskProgress)bool{
   return false
  }
  workflow:=p.Step!=0||p.StepTotal!=0||p.Attempt!=0||
-  p.AttemptTotal!=0||p.StepStatus!=""||p.StepHistory!=""
+  p.AttemptTotal!=0||p.StepStatus!=""||p.StepHistory!=""||
+  p.StepDetails!=""
  if workflow{
   if p.Status=="started"||p.Status=="cancel_requested"||
    p.Status=="cleared"||p.Step<1||p.StepTotal<2||
@@ -93,6 +122,7 @@ func validLongTaskProgress(p RemoteLongTaskProgress)bool{
     }
    }
   }
+  if !validLongTaskStepDetails(p){return false}
  }
  for _,r:=range p.Output{
   if r=='\n'||r=='\t'{continue}
@@ -113,7 +143,7 @@ func SealRemoteLongTaskProgress(ch *Channel,id string,p RemoteLongTaskProgress)(
   More:p.More,RemoteControlAvailable:false,
   Step:p.Step,StepTotal:p.StepTotal,Attempt:p.Attempt,
   AttemptTotal:p.AttemptTotal,StepStatus:p.StepStatus,
-  StepHistory:p.StepHistory,
+  StepHistory:p.StepHistory,StepDetails:p.StepDetails,
  })
  if err!=nil{return nil,ErrInvalidRemoteAction}
  clear:=bytes.TrimSuffix(clearBuffer.Bytes(),[]byte{10})
@@ -132,7 +162,7 @@ func OpenRemoteLongTaskProgress(ch *Channel,frame []byte,id string,taskID int)(R
   []string{"type","request_id","task_id","status","exit_code",
    "output","truncated","more","remote_control_available"},
   []string{"step","step_total","attempt","attempt_total","step_status",
-   "step_history"})
+   "step_history","step_details"})
  if err!=nil{ch.Close();return zero,ErrInvalidRemoteAction}
  var typ,requestID string
  var p RemoteLongTaskProgress
@@ -170,6 +200,12 @@ func OpenRemoteLongTaskProgress(ch *Channel,frame []byte,id string,taskID int)(R
  if rawHistory,found:=fields["step_history"];found{
   if present!=len(optional)||json.Unmarshal(rawHistory,&p.StepHistory)!=nil||
    p.StepHistory==""{
+   ch.Close();return zero,ErrInvalidRemoteAction
+  }
+ }
+ if raw,found:=fields["step_details"];found{
+  if present!=len(optional)||json.Unmarshal(raw,&p.StepDetails)!=nil||
+   p.StepDetails==""{
    ch.Close();return zero,ErrInvalidRemoteAction
   }
  }
