@@ -2483,3 +2483,34 @@ shared-PHP deployment validation remain required.
   user confirmation, fixed argv, credential isolation, command timeouts
   and audit. No additional commands, E2EE rounds, PHP authority,
   Windows-specific features or production enablement were added.
+
+
+## 2026-11-09 — main: task GUI session lifetime and managed-job state-machine hardening
+
+- **Direct main commits:** `0888718` caps every in-flight native GUI E2EE action
+  at the original five-minute session deadline and interrupts outstanding
+  action contexts on session poison/revocation; `bfaf13a` adds Go tests for
+  expiry and in-flight cancellation. This is in-process cancellation, not
+  a guarantee that an already executed host side effect can be undone.
+- **Task GUI:** `42307a0` binds managed long-job creation to the explicit
+  Start endpoint only. A later Poll/Cancel cannot spoof `started` and
+  reset previously received output/history/Task ID. Only Clear can return
+  `cleared`; terminal statuses cannot regress to active or silently
+  switch to a different final status. An immediately completed Start
+  acknowledgement is now adopted as a legitimate, clearable job.
+- **Regression coverage:** `d9eab40` adds a DOM lifecycle test for
+  immediate completion, stale `started` from Poll, premature `cleared`
+  from Poll, and `completed` -> `running` rollback. `4452864`
+  wires the test to the main Go-Agent CI alongside the two pre-existing
+  long-job DOM suites. All three bundled-JavaScript suites passed in
+  an isolated V8 mock-DOM execution during the development turn;
+  **full GitHub Actions Go/PHP CI on the exact final HEAD must be checked
+  separately**. Do not describe it as complete until that run succeeds.
+- **Security/release:** Existing E2EE, TaskDeck user/password/project RBAC,
+  approved host client key, uncached Portal grant and per-action quotas
+  remain unchanged. `remote_control_available=false`, no LIVE deployment.
+- **Next coding priorities in user order:** (1) remaining remote task GUI
+  lifecycle/inputs/output/reconnect audit, (2) Git Pull/Commit/Push
+  edge cases, (3) Terminal, (4) other Git, (5) Files/Editor and remaining
+  GUI, (6) other remote security/features. Source-complete features are
+  not marked unfinished merely because physical deployment tests remain.
