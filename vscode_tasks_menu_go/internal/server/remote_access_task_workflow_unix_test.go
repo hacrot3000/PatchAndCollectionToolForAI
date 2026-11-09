@@ -779,3 +779,48 @@ func TestRemoteWorkflowTimeoutRejectsUnknownPolicyAndUnapprovedRanges(t *testing
   })
  }
 }
+
+func TestRemoteWorkflowStepTimeoutNeverRetriesOrStartsNextTask(t *testing.T){
+ remoteWorkflowHostFlags(t)
+ t.Setenv("TASKDECK_REMOTE_TASKS_WORKFLOW_TIMEOUT","1")
+ t.Setenv("TASKDECK_REMOTE_TASKS_WORKFLOW_RETRY","1")
+ s,session,client,agent:=remoteTaskOperatorFixture(t)
+ source:=`{"tasks":[
+  {"label":"Timed","type":"process","command":"/bin/sleep","args":["3"],
+   "taskdeck":{"workflow":{"retry":1,"timeoutSeconds":1}}},
+  {"label":"After","type":"process","command":"/bin/echo",
+   "args":["MUST-NOT-RUN"],"dependsOn":"Timed"}
+ ]}`
+ root:=remoteWorkflowIssuedRoot(t,s,session,client,agent,source,"After")
+ if err:=s.startRemoteLinearWorkflow(context.Background(),session,root);err!=nil{
+  t.Fatal(err)
+ }
+ if status:=awaitRemoteWorkflow(t,session);status!="timed_out"{
+  t.Fatalf("timeout erroneously retried or completed: %s",status)
+ }
+ job:=session.longTask
+ job.capture.mu.Lock()
+ output:=string(append([]byte(nil),job.capture.data...))
+ job.capture.mu.Unlock()
+ if strings.Count(output,"Step 1/2: Task #")!=1||
+  strings.Contains(output,"attempt 2/2")||
+  strings.Contains(output,"Step 2/2")||
+  strings.Contains(output,"MUST-NOT-RUN"){
+  t.Fatalf("timeout retried or launched a dependent task: %q",output)
+ }
+ project,err:=s.Identity.ProjectByKey(context.Background(),session.projectKey)
+ if err!=nil{t.Fatal(err)}
+ audits,err:=s.Identity.ListAudit(context.Background(),identity.AuditQuery{
+  ProjectID:project.ID,UserID:session.userID,
+  Action:"remote.action.tasks_workflow_step",Limit:12,
+ })
+ if err!=nil||len(audits)!=2{
+  t.Fatalf("timeout must create exactly two first-attempt audits: %+v %v",audits,err)
+ }
+ for _,row:=range audits{
+  if !strings.Contains(row.Details,`"attempt":1`)||
+   !strings.Contains(row.Details,`"step":1`){
+   t.Fatalf("timeout ran or audited a second attempt: %+v",row)
+  }
+ }
+}
