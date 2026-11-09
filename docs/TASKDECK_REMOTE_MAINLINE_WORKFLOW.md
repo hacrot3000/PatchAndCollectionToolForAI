@@ -196,3 +196,20 @@ real-host testing are considered **code complete**.
   thử thật, audit riêng mỗi attempt và fail-fast chặn dependency tiếp.
   CI cần được xác nhận PASS trên commit cuối cùng trước khi coi là
   kiểm thử hoàn tất; không tự bật tính năng trong môi trường triển khai.
+
+
+## 2026-11-09 — Giới hạn Git patch lớn và quota phiên
+
+- Mặc định, Git patch qua E2EE chỉ cho phép snapshot tối đa 4 KiB.
+  Đặt TASKDECK_REMOTE_GIT_PATCH_LARGE=1 (và vẫn yêu cầu
+  TASKDECK_REMOTE_GIT_PATCH=1) để chủ host cho phép snapshot đến 16 KiB.
+  Tính năng mở rộng này mặc định tắt, không mở quyền Git mới.
+- Trang E2EE tiếp tục giới hạn 320 byte, tối đa 256 trang; host đọc
+  toàn bộ snapshot hợp lệ trước khi gửi trang đầu, và đối chiếu digest
+  SHA-256 giữa các trang. Snapshot vượt 16 KiB bị từ chối hoàn toàn.
+- QUAN TRỌNG: quota phiên Remote hiện giới hạn 16 lượt E2EE. Vì vậy,
+  một diff 16 KiB có thể KHÔNG được đọc hết trong một phiên. Giao diện
+  cảnh báo khi còn trang nhưng phiên gần hết lượt. Tạo phiên mới hiện
+  chỉ bắt đầu lại từ trang đầu, không có resume cross-session.
+- Vẫn cần nghiên cứu/chuyển thành code cơ chế review theo đoạn hoặc
+  file được host phát hành để xem đầy đủ diff vượt ngân sách E2EE.

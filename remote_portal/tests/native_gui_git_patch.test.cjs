@@ -7,6 +7,10 @@ const tick=String.fromCharCode(96);
 const sections=raw.split('const trustedGUIJavaScript = '+tick);
 assert.equal(sections.length,2);
 const script=sections[1].split(tick)[0];
+assert.ok(script.includes('diff CHƯA đầy đủ'),
+ 'native GUI must warn about incomplete patch on quota exhaustion');
+assert.ok(script.includes('Phiên mới phải bắt đầu lại từ trang đầu'),
+ 'native GUI must not promise cross-session patch continuation');
 assert.ok(script.includes('gitPatchText.length+data.patch.length>16384'),
  'trusted GUI must not clip a host-approved larger patch');
 assert.ok(script.includes('data.patch.length>320'),

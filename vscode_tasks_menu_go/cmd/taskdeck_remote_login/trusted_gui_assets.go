@@ -1906,7 +1906,10 @@ const trustedGUIJavaScript = `'use strict';
           gitPatchOutput.hidden=false;
           gitPatchOutput.textContent=gitPatchText;
           output.textContent=(mode==='cached'?'Staged Git diff':'Git diff')+' trang '+String(data.page)+
-            (data.more?' · Còn trang tiếp theo.':' · Đã đọc hết diff.');
+            (data.more?' · Còn trang tiếp theo.':' · Đã đọc hết diff.')+
+            (data.more&&budget<=2?
+              ' Lưu ý: Phiên gần hết lượt E2EE; diff CHƯA đầy đủ. '+
+              'Phiên mới phải bắt đầu lại từ trang đầu.':'');
         }
         if(endpoint==='/api/git-diff'){
           if(data.remote_control_available!==false||typeof data.summary!=='string'||
