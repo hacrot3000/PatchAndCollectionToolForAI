@@ -2976,3 +2976,56 @@ shared-PHP deployment validation remain required.
   functionality is considered complete without separate live
   NAT/CGNAT field deployment trials. Retain
   `remote_control_available=false`, LIVE release NO-GO.
+
+
+## 2026-11-09 — main: notebook CI contract, pending-cancel autopoll and safe Cancel quota
+
+- **Commit `d31edb7`:** The prior `35a4119` full Go Agent CI failed
+  specifically at `TestProjectNotesPermissionAndFrontendContracts`:
+  the test searched for a literal
+  `navigator.clipboard?.writeText(content)` expression, whereas the
+  independently reviewed notebook client correctly checks
+  `if(navigator.clipboard?.writeText)` before calling
+  `navigator.clipboard.writeText(content)` and falls back to
+  `document.execCommand('copy')`. The regression now requires
+  the guard, actual write call, and fallback. No notebook runtime
+  behavior or project isolation policy was weakened.
+- **Commit `bcab096` (Remote task native GUI):** Automatic task polling
+  previously always stopped once budget dropped to three E2EE actions,
+  even after `tasks.cancel` was acknowledged. The host might still
+  respond `running` while stopping; this unnecessarily stranded the
+  background polling and forced manual interaction. The native GUI
+  now shares a `mayAutoPollLongTask` predicate between scheduling
+  and timer execution. A running job without accepted cancellation
+  still reserves three rounds (Cancel/Poll/Clear), whereas after the
+  ACK it needs only one final Clear round. This never triggers a
+  second cancellation or polls without a user-started job.
+  The cancel-pending DOM regression now executes real queued timer
+  callbacks across Cancel → Poll(running) → Poll(completed) → Clear
+  with an exact four-round budget and asserts no premature
+  exhaustion or duplicate timer.
+- **Commit `f15f798` (GUI E2EE admission):** Closing the remaining
+  Cancel quota loophole: `taskMaintenanceAllowed` previously
+  admitted a new Cancel when only one or two E2EE actions remained.
+  Now a new cancellation requires **at least three rounds**
+  to retain the expected status Poll and final Clear. The same
+  predicate controls the visible Cancel button and the click
+  handler; bypassing button disability does not bypass admission.
+- **Commit `60d4e4b` (regression):** The test-only quota hook
+  executes inside the native GUI closure and checks both admission
+  and visible button state at 1, 2, 3 and 4 remaining rounds.
+  All four long-task JavaScript mock-DOM suites passed together
+  on the resulting source. This uses no new production test hooks.
+- **Current verification:** The latest Go Agent and PHP Portal GitHub
+  Actions runs on compiled `60d4e4b` were still running when this
+  handoff was updated; do not call them successful until completed.
+  A markdown-only handoff change does not alter compiled code.
+- **Remaining source order:** review native Task GUI edge cases;
+  Git Pull/Commit/Push and Terminal lifecycle/security checks;
+  other Git review/branch/conflict interactions; the remaining
+  Files/Editor/Patch/Collection native GUI surfaces; and other
+  bounded-data/RBAC/relay security work. The OS advisory
+  workspace lock and credential-helper hardening already complete
+  in code stay complete even without actual Internet deployment
+  trials. Production remote-control gate still
+  `remote_control_available=false` (LIVE NO-GO).
