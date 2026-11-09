@@ -71,6 +71,29 @@ func TestRemoteGitPushHostOptInAndUnsafeRemoteDenied(t *testing.T){
   t.Fatal("Git push silently redirected to different branch")
  }
  run("config","branch."+branch+".merge","refs/heads/"+branch)
+ // An apparently matching branch.merge may still resolve to another
+ // tracking ref when remote.origin.fetch has been remapped. Reject this
+ // before any SSH process starts, even with a valid network destination.
+ run("config","remote.origin.fetch","+refs/heads/"+branch+":refs/remotes/origin/alias")
+ run("update-ref","refs/remotes/origin/alias","HEAD")
+ if got:=run("rev-parse","--symbolic-full-name","@{upstream}");
+  got!="refs/remotes/origin/alias"{
+  t.Fatalf("fixture did not produce a remapped upstream: %q",got)
+ }
+ fakeBin:=t.TempDir()
+ invoked:=filepath.Join(fakeBin,"push-ssh-invoked")
+ fakeSSH:="#!/bin/sh\nprintf invoked > "+strconv.Quote(invoked)+"\nexit 75\n"
+ if err:=os.WriteFile(filepath.Join(fakeBin,"ssh"),[]byte(fakeSSH),0700);err!=nil{
+  t.Fatal(err)
+ }
+ t.Setenv("PATH",fakeBin+string(os.PathListSeparator)+os.Getenv("PATH"))
+ if _,err:=s.executeRemoteGitPush(context.Background(),session);err==nil{
+  t.Fatal("Git push accepted a remapped upstream tracking ref")
+ }
+ if _,err:=os.Stat(invoked);!os.IsNotExist(err){
+  t.Fatal("Git push started SSH despite an unexpected upstream mapping")
+ }
+ run("config","remote.origin.fetch","+refs/heads/*:refs/remotes/origin/*")
  run("remote","set-url","--push","origin","ssh://git@example.org/team/repo.git")
  run("remote","set-url","--push","--add","origin","ssh://git@example.net/team/repo.git")
  if _,err:=s.executeRemoteGitPush(context.Background(),session);err==nil{
