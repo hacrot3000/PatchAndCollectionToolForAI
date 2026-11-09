@@ -15,7 +15,7 @@ import(
 // A plain git status/diff may run filter.clean from .gitattributes; this is
 // an executable command, even when Git hooks and external diffs are off.
 // Read-only E2EE roles must not be able to trigger it.
-func TestRemoteGitReadonlyAndIndexRejectExecutableFilters(t *testing.T){
+func TestRemoteGitDiffStatusIndexRejectExecutableFilters(t *testing.T){
  requireGit(t)
  if runtime.GOOS=="windows"{t.Skip("Unix-only Git process runner")}
  s,session,_,_:=remoteDispatchFixture(t)
