@@ -31,7 +31,7 @@ func TestRemoteWorkspaceOSLockSubprocessHelper(t *testing.T){
   if err!=nil||release==nil{t.Fatalf("child lock failed: %v",err)}
   // The parent may observe this marker only AFTER the OS lock is held.
   // Kill the child without Unlock to exercise kernel crash cleanup.
-  _,_=os.Stdout.WriteString("WORKSPACE_LOCK_HELD\\n")
+  _,_=os.Stdout.WriteString("WORKSPACE_LOCK_HELD\n")
   for{time.Sleep(time.Second)}
  }
  if mode=="denied"{
