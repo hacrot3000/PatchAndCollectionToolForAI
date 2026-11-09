@@ -234,3 +234,68 @@ func TestRemoteLongTaskClearRestoresBoundedExecution(t *testing.T){
   t.Fatalf("cleared long job did not release the bounded task slot: %+v %v",result,err)
  }
 }
+
+
+func TestRemoteLongTaskCancelIsOneShotAndFinalJobCannotBeCancelled(t *testing.T){
+ t.Setenv("TASKDECK_REMOTE_TASKS_PREVIEW","1")
+ t.Setenv("TASKDECK_REMOTE_TASKS_RUN","1")
+ t.Setenv("TASKDECK_REMOTE_TASKS_LONG","1")
+ s,session,client,agent:=remoteTaskOperatorFixture(t)
+ id:=previewOneRemoteRunTask(t,s,session,client,agent,
+  `{"tasks":[{"label":"Stop once","type":"process","command":"/bin/sh",
+    "args":["-c","sleep 20"]}]}`)
+ if err:=s.startRemoteLongTask(context.Background(),session,id,0,"");err!=nil{
+  t.Fatalf("cannot start host long task: %v",err)
+ }
+ if err:=session.cancelRemoteLongTask(id);err!=nil{
+  t.Fatalf("first cancel denied: %v",err)
+ }
+ if err:=session.cancelRemoteLongTask(id);
+  !errors.Is(err,remotetransport.ErrRemoteActionDenied){
+  t.Fatalf("duplicate task cancel was accepted: %v",err)
+ }
+ select{
+ case <-session.longTask.done:
+ case <-time.After(4*time.Second):
+  t.Fatal("cancelled host process failed to exit")
+ }
+ if err:=session.cancelRemoteLongTask(id);
+  !errors.Is(err,remotetransport.ErrRemoteActionDenied){
+  t.Fatalf("finished job was cancelled again: %v",err)
+ }
+ progress,err:=session.pollRemoteLongTask(context.Background(),id)
+ if err!=nil||progress.Status!="cancelled"{
+  t.Fatalf("duplicate cancel changed final outcome: %+v %v",progress,err)
+ }
+ if err:=session.clearRemoteLongTask(id);err!=nil{t.Fatal(err)}
+ if err:=session.cancelRemoteLongTask(id);
+  !errors.Is(err,remotetransport.ErrRemoteActionDenied){
+  t.Fatalf("cleared job accepted cancellation: %v",err)
+ }
+}
+
+func TestRemoteLongTaskCancelRejectsAlreadyCompletedJob(t *testing.T){
+ t.Setenv("TASKDECK_REMOTE_TASKS_PREVIEW","1")
+ t.Setenv("TASKDECK_REMOTE_TASKS_RUN","1")
+ t.Setenv("TASKDECK_REMOTE_TASKS_LONG","1")
+ s,session,client,agent:=remoteTaskOperatorFixture(t)
+ id:=previewOneRemoteRunTask(t,s,session,client,agent,
+  `{"tasks":[{"label":"Complete fast","type":"process","command":"/bin/sh",
+    "args":["-c","printf finished"]}]}`)
+ if err:=s.startRemoteLongTask(context.Background(),session,id,0,"");err!=nil{
+  t.Fatal(err)
+ }
+ select{
+ case <-session.longTask.done:
+ case <-time.After(4*time.Second):t.Fatal("short host job did not complete")
+ }
+ if err:=session.cancelRemoteLongTask(id);
+  !errors.Is(err,remotetransport.ErrRemoteActionDenied){
+  t.Fatalf("completed task was accepted as cancellable: %v",err)
+ }
+ progress,err:=session.pollRemoteLongTask(context.Background(),id)
+ if err!=nil||progress.Status!="completed"||progress.Output!="finished"{
+  t.Fatalf("completed task lost its result: %+v %v",progress,err)
+ }
+ if err:=session.clearRemoteLongTask(id);err!=nil{t.Fatal(err)}
+}

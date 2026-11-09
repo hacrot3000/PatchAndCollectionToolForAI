@@ -37,6 +37,10 @@ type remoteLongTaskJob struct {
  capture *remoteLongTaskCapture
  mu sync.Mutex
  status string
+ // A successful cancellation request is one-shot for this host job.
+ // A duplicate or a request after completion must not re-arm the
+ // context or report a fake "cancel_requested" E2EE acknowledgement.
+ cancelRequested bool
  exitCode int
  outputCursor int
  workflowStep int
@@ -348,6 +352,16 @@ func (session *remoteTaskDeckSession) cancelRemoteLongTask(taskID int)error{
  defer session.longTaskMu.Unlock()
  job:=session.longTask
  if job==nil||job.taskID!=taskID{return remotetransport.ErrRemoteActionDenied}
+ job.mu.Lock()
+ // The waiter publishes a terminal status before closing job.done;
+ // looking only at done can acknowledge a cancellation after the
+ // process has already exited. Deny both final and duplicate requests.
+ if job.status!="running"||job.cancelRequested {
+  job.mu.Unlock()
+  return remotetransport.ErrRemoteActionDenied
+ }
+ job.cancelRequested=true
+ job.mu.Unlock()
  job.cancel()
  return nil
 }
