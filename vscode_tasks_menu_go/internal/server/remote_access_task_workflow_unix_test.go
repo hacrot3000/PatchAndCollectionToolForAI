@@ -963,10 +963,11 @@ func TestRemoteWorkflowPollReturnsAuthenticatedStepResult(t *testing.T){
  }
  // The step record comes from the host, independent of a child process's
  // arbitrary stdout. A single-step legacy task must not invent metadata.
- for progress.More{
+ for pollIndex:=0;progress.More;pollIndex++{
+  if pollIndex>=32{t.Fatal("host output cursor did not terminate")}
   progress,err=longTaskE2EEAction(t,s,session,client,agent,
    remotetransport.RemoteActionTasksPoll,root,0,"",
-   fmt.Sprintf("%032d",progress.Step+len(progress.Output)+1))
+   fmt.Sprintf("%032d",1000+pollIndex))
   if err!=nil||progress.Step!=3||progress.StepTotal!=3||
    len(progress.Output)>64{
    t.Fatalf("subsequent E2EE page lost metadata: %+v %v",progress,err)
