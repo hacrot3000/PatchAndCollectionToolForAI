@@ -1958,12 +1958,33 @@ const trustedGUIJavaScript = `'use strict';
               }
             }
           }
-          if(data.status==='started'){
+          // Only the explicit start endpoint can create a local job. A
+          // forged/stale "started" response from Poll must not reset the
+          // already-authenticated output, history, or selected Task ID.
+          const launching=prefix==='/api/tasks-workflow-start/'||
+            prefix==='/api/tasks-start/'||prefix==='/api/tasks-start-input/';
+          const clearing=prefix==='/api/tasks-clear/';
+          const finalStates=['completed','failed','cancelled','timed_out'];
+          if(launching){
+            if(longTaskID!==0||data.status==='cleared'||
+              data.status==='cancel_requested'){
+              throw new Error('Phản hồi khởi chạy job không hợp lệ');
+            }
+          }else{
+            if(longTaskID!==id||data.status==='started'||
+              (data.status==='cleared')!==clearing||
+              (finalStates.includes(longTaskState)&&
+               !finalStates.includes(data.status)&&!clearing)||
+              (finalStates.includes(longTaskState)&&
+               finalStates.includes(data.status)&&data.status!==longTaskState)){
+              throw new Error('Phản hồi job không khớp vòng đời đã xác minh');
+            }
+          }
+          if(launching){
             longTaskID=id;longTaskText='';
-            longTaskAuto=true;
-            longTaskHistorySerial=rememberTaskRun(id,'dài','started',-1,'',false);
-          }else if(longTaskID!==id){
-            throw new Error('Job trả về không thuộc phiên đang chọn');
+            longTaskAuto=!finalStates.includes(data.status);
+            longTaskHistorySerial=rememberTaskRun(
+              id,'dài',data.status,data.exit_code,'',data.truncated);
           }
           if(data.output){
             longTaskText=(longTaskText+data.output).slice(0,16384);
