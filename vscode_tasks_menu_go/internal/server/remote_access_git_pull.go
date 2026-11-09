@@ -116,9 +116,12 @@ func (s *Server) executeRemoteGitPull(
  // A fixed, no-command Git config scan must precede even a read-only
  // status: local clean filters can execute while Git checks worktree files.
  if !remoteGitNoExecutableFilters(ctx,root,gitEnv){return empty,denied}
- // A clean tree is a strict prerequisite, including untracked files.
+ // A clean tree is a strict prerequisite, including every untracked
+ // path and dirty submodule. Repository-controlled submodule.<name>.ignore
+ // and status.showUntrackedFiles settings must not hide local changes.
  // Reject >256 bytes rather than trusting a truncated clean indication.
- dirty,err:=read(ctx,"--no-optional-locks","status","--porcelain=v1","--untracked-files=normal")
+ dirty,err:=read(ctx,"--no-optional-locks","status","--porcelain=v1",
+  "--untracked-files=all","--ignore-submodules=none")
  if err!=nil||dirty!=""{return empty,denied}
  before,err:=read(ctx,"rev-parse","--verify","HEAD")
  if err!=nil||!remoteGitObjectID.MatchString(before){return empty,denied}
