@@ -2,6 +2,7 @@ package server
 
 import (
  "context"
+ "errors"
  "os"
  "os/exec"
  "path/filepath"
@@ -117,6 +118,11 @@ func TestRemoteGitPullFastForwardFromSingleSSHUpstream(t *testing.T){
  run(other,"commit","-qm","Update")
  run(other,"push","-q","origin","HEAD:refs/heads/"+branch)
  want:=run(other,"rev-parse","HEAD")
+ // The remote contains another branch and a tag. A fixed single-branch
+ // pull must not silently fetch the unrelated ref or auto-follow tags.
+ run(other,"push","-q","origin","HEAD:refs/heads/taskdeck-unrelated")
+ run(other,"tag","taskdeck-unrelated-tag")
+ run(other,"push","-q","origin","refs/tags/taskdeck-unrelated-tag")
  run(s.Workspace,"remote","add","origin","ssh://git@example.invalid/repo.git")
  run(s.Workspace,"config","branch."+branch+".remote","origin")
  run(s.Workspace,"config","branch."+branch+".merge","refs/heads/"+branch)
@@ -131,6 +137,20 @@ func TestRemoteGitPullFastForwardFromSingleSSHUpstream(t *testing.T){
  }
  if got:=run(s.Workspace,"rev-parse","HEAD");got!=want{
   t.Fatalf("pulled HEAD %s != %s",got,want)
+ }
+ for _,ref:=range []string{
+  "refs/remotes/origin/taskdeck-unrelated",
+  "refs/tags/taskdeck-unrelated-tag",
+ }{
+  check:=exec.Command(gitPath,"-C",s.Workspace,"show-ref","--verify","--quiet",ref)
+  if err:=check.Run();err==nil{
+   t.Fatalf("single-branch pull unexpectedly fetched unrelated ref %s",ref)
+  }else{
+   var exit *exec.ExitError
+   if !errors.As(err,&exit)||exit.ExitCode()!=1{
+    t.Fatalf("cannot verify absent Git ref %s: %v",ref,err)
+   }
+  }
  }
 }
 

@@ -141,8 +141,14 @@ func (s *Server) executeRemoteGitPull(
   "-c","protocol.file.allow=never",
   "-c","submodule.recurse=false",
   "-c","fetch.recurseSubmodules=false",
+  "-c","fetch.prune=false",
+  "-c","fetch.pruneTags=false",
   "-c","pull.rebase=false",
-  "-C",root,"pull","--ff-only","--no-recurse-submodules","--no-edit")
+  // Pin the fetch to this already-validated upstream branch. Git pull
+  // without an explicit remote+ref can fetch every remote.fetch refspec
+  // and auto-follow tags, mutating unrelated tracking refs/tags.
+  "-C",root,"pull","--ff-only","--no-recurse-submodules","--no-edit",
+  "--no-tags",remote,branch)
  if err!=nil||pullCtx.Err()!=nil||session.closed.Load(){return empty,denied}
  after,err:=read(ctx,"rev-parse","--verify","HEAD")
  if err!=nil||!remoteGitObjectID.MatchString(after){return empty,denied}
