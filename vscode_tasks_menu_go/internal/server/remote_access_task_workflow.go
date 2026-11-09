@@ -329,6 +329,10 @@ func(s *Server)startRemoteLinearWorkflow(ctx context.Context,
  session.longTaskMu.Lock()
  defer session.longTaskMu.Unlock()
  if session.longTask!=nil{return denied}
+ releaseWorkspace,err:=reserveRemoteWorkspaceExecution(ctx,s.Workspace)
+ if err!=nil{return denied}
+ launched:=false
+ defer func(){if !launched{releaseWorkspace()}}()
  plan,hash,err:=s.prepareRemoteLinearWorkflow(ctx,session,taskID)
  if err!=nil{return denied}
  // Create a new random identifier for this execution, not the task
@@ -343,6 +347,7 @@ func(s *Server)startRemoteLinearWorkflow(ctx context.Context,
  job:=&remoteLongTaskJob{
   taskID:taskID,started:time.Now(),cancel:cancel,
   done:make(chan struct{}),capture:capture,status:"running",exitCode:-1,
+  workspaceRelease:releaseWorkspace,
   workflowRunID:runID,
   workflowStepHistory:strings.Repeat("-",len(plan)),
   workflowStepDetails:func()[]string{
@@ -352,6 +357,7 @@ func(s *Server)startRemoteLinearWorkflow(ctx context.Context,
   }(),
  }
  session.longTask=job
+ launched=true
  go func(){
   select{
   case <-session.lifetimeDone:cancel()
@@ -524,6 +530,7 @@ Workflow:
  job.status=status
  job.exitCode=exitCode
  job.mu.Unlock()
+ job.workspaceRelease()
  close(job.done)
  select{case job.capture.notify<-struct{}{}:default:}
  job.cancel()

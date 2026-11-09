@@ -53,6 +53,12 @@ func(s *Server) startRemoteTerminal(ctx context.Context,session *remoteTaskDeckS
  session.longTaskMu.Unlock()
  if hasTask{return denied}
  if ctx.Err()!=nil||session.closed.Load(){return denied}
+ // Another E2EE session must not be running Git, Task or PTY in the
+ // same canonical workspace while the shell can modify its files.
+ releaseWorkspace,err:=reserveRemoteWorkspaceExecution(ctx,root)
+ if err!=nil{return denied}
+ launched:=false
+ defer func(){if !launched{releaseWorkspace()}}()
  if err:=s.auditRemoteTerminalAttempt(ctx,session,"open");err!=nil{return denied}
  cmdCtx,cancelContext:=context.WithTimeout(context.Background(),remoteTerminalMaxLifetime)
  cmd:=exec.CommandContext(cmdCtx,"/bin/sh","-i")
@@ -85,6 +91,7 @@ func(s *Server) startRemoteTerminal(ctx context.Context,session *remoteTaskDeckS
  job:=&remoteTerminalJob{
   ptyFile:tty,process:cmd,done:make(chan struct{}),
   capture:capture,started:time.Now(),state:"running",
+  workspaceRelease:releaseWorkspace,
  }
  var stopOnce sync.Once
  job.cancel=func(){
@@ -105,6 +112,7 @@ func(s *Server) startRemoteTerminal(ctx context.Context,session *remoteTaskDeckS
   })
  }
  session.terminal=job
+ launched=true
  go func(){
   // io.Copy drains the PTY regardless of the native client polling speed.
   // Capture is limited to 16 KiB and never written to local audit or PHP.
@@ -118,6 +126,9 @@ func(s *Server) startRemoteTerminal(ctx context.Context,session *remoteTaskDeckS
   close(job.done)
   select{case capture.notify<-struct{}{}:default:}
   job.cancel()
+  // Release only after the shell has exited and its controlling PTY
+  // has been closed, including when logout asynchronously kills it.
+  job.workspaceRelease()
  }()
  go func(){
   select{

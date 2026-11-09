@@ -107,3 +107,36 @@ func TestRemoteGitWorkspaceMutationCanonicalSymlinkAlias(t *testing.T){
  if err!=nil{t.Fatal(err)}
  next()
 }
+
+// All remote action families use a single in-process workspace
+// reservation. A Git action may not overlap a different session's
+// Task/PTY lease, but another project directory is unaffected.
+func TestRemoteWorkspaceExecutionBlocksCrossSessionGit(t *testing.T){
+ root:=t.TempDir()
+ host:=&Server{Workspace:root}
+ first:=&remoteTaskDeckSession{}
+ second:=&remoteTaskDeckSession{}
+ releaseTask,err:=reserveRemoteWorkspaceExecution(context.Background(),root)
+ if err!=nil{t.Fatal(err)}
+ _,err=host.reserveRemoteGitMutation(context.Background(),first)
+ if !errors.Is(err,remotetransport.ErrRemoteActionDenied){
+  t.Fatalf("remote Git started during another session's task: %v",err)
+ }
+ releaseTask()
+ releaseGit,err:=host.reserveRemoteGitMutation(context.Background(),first)
+ if err!=nil{t.Fatal(err)}
+ _,err=reserveRemoteWorkspaceExecution(context.Background(),root)
+ if !errors.Is(err,remotetransport.ErrRemoteActionDenied){
+  t.Fatalf("task or PTY started during another session's Git: %v",err)
+ }
+ unrelated,err:=reserveRemoteWorkspaceExecution(context.Background(),t.TempDir())
+ if err!=nil{t.Fatalf("independent workspace blocked: %v",err)}
+ unrelated()
+ releaseGit()
+ releaseTask,err=reserveRemoteWorkspaceExecution(context.Background(),root)
+ if err!=nil{t.Fatalf("workspace lease leaked: %v",err)}
+ releaseTask()
+ releaseOther,err:=host.reserveRemoteGitMutation(context.Background(),second)
+ if err!=nil{t.Fatal(err)}
+ releaseOther()
+}

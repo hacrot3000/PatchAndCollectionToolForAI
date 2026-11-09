@@ -31,6 +31,9 @@ type remoteLongTaskJob struct {
  started time.Time
  cancel context.CancelFunc
  done chan struct{}
+ // Held until the last host process has exited, including after session
+ // logout. Never released by an unauthenticated Poll/Cancel/Clear action.
+ workspaceRelease func()
  capture *remoteLongTaskCapture
  mu sync.Mutex
  status string
@@ -145,6 +148,10 @@ func (s *Server) startRemoteLongTask(
  session.longTaskMu.Lock()
  defer session.longTaskMu.Unlock()
  if session.longTask!=nil{return denied} // one job, never auto-overwrite
+ releaseWorkspace,err:=reserveRemoteWorkspaceExecution(ctx,s.Workspace)
+ if err!=nil{return denied}
+ launched:=false
+ defer func(){if !launched{releaseWorkspace()}}()
  spec,_,err:=prepareRemoteTaskExecutionInput(
   ctx,s.Workspace,session.taskPageHash,taskID,choice,false,textInput)
  if err!=nil||spec.TaskID!=taskID{return denied}
@@ -182,8 +189,10 @@ func (s *Server) startRemoteLongTask(
  job:=&remoteLongTaskJob{
   taskID:taskID,started:time.Now(),cancel:cancel,
   done:make(chan struct{}),capture:capture,status:"running",exitCode:-1,
+  workspaceRelease:releaseWorkspace,
  }
  session.longTask=job
+ launched=true
  go func(){
   select{
   case <-session.lifetimeDone:cancel()
@@ -213,6 +222,9 @@ func (s *Server) startRemoteLongTask(
   job.status=status
   job.exitCode=exitCode
   job.mu.Unlock()
+  // Completion is observable only AFTER the workspace is safe for a
+  // new authenticated Git/task/PTY operation in another session.
+  job.workspaceRelease()
   close(job.done)
   select{case capture.notify<-struct{}{}:default:}
   cancel()

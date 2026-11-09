@@ -147,6 +147,12 @@ func (s *Server)runRemoteTaskBoundedWithInput(ctx context.Context,session *remot
  session.longTaskMu.Lock()
  defer session.longTaskMu.Unlock()
  if session.longTask!=nil{return denied,remotetransport.ErrRemoteActionDenied}
+ // Tasks and Git from OTHER E2EE sessions must not mutate this same
+ // workspace at the same time. Hold the lease until cmd.Run has fully
+ // exited and its entire process group has been retired.
+ releaseWorkspace,err:=reserveRemoteWorkspaceExecution(ctx,s.Workspace)
+ if err!=nil{return denied,remotetransport.ErrRemoteActionDenied}
+ defer releaseWorkspace()
  spec,_,err:=prepareRemoteTaskExecutionInput(ctx,s.Workspace,session.taskPageHash,taskID,choice,false,textInput)
  if err!=nil||spec.TaskID!=taskID||ctx.Err()!=nil{
   return denied,remotetransport.ErrRemoteActionDenied

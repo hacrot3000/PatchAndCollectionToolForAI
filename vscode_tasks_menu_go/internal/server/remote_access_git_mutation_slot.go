@@ -42,21 +42,52 @@ func (session *remoteTaskDeckSession) reserveRemoteGitMutation(
  },nil
 }
 
-// A local session mutex alone is insufficient: two independently authorized
-// E2EE sessions can target the same TaskDeck workspace. Serialize ALL remote
-// Git mutations in this Agent process by the canonical workspace path, not
-// by the caller, raw path spelling, task ID or client-supplied project name.
-// Entries exist ONLY while acquired: inactive workspaces do not accumulate.
-var remoteGitWorkspaceMutations=struct{
+// Remote Git, Task and PTY executions share this workspace guard across
+// authenticated E2EE sessions in ONE Agent process. Paths are canonical
+// absolute host-owned directories; no client-supplied lock token exists.
+// A reserved entry is deleted as soon as its owner releases it.
+var remoteWorkspaceExecutions=struct{
  sync.Mutex
  active map[string]bool
 }{active:make(map[string]bool)}
 
-// reserveRemoteGitMutation extends the per-session task/PTY guard with an
-// in-process, cross-session workspace reservation. Both locks are acquired
-// with immediate failure rather than waiting on an in-progress network Git
-// operation. This is NOT a cross-process OS lock and does not constrain
-// external/local Git commands or remote tasks in unrelated E2EE sessions.
+func reserveRemoteWorkspaceExecution(ctx context.Context,workspace string)(
+ func(),error,
+){
+ denied:=remotetransport.ErrRemoteActionDenied
+ if ctx==nil||ctx.Err()!=nil||workspace==""{return nil,denied}
+ root,err:=filepath.EvalSymlinks(workspace)
+ if err!=nil{return nil,denied}
+ root,err=filepath.Abs(root)
+ if err!=nil{return nil,denied}
+ info,err:=os.Stat(root)
+ if err!=nil||!info.IsDir()||ctx.Err()!=nil{return nil,denied}
+ remoteWorkspaceExecutions.Lock()
+ if remoteWorkspaceExecutions.active[root]{
+  remoteWorkspaceExecutions.Unlock()
+  return nil,denied
+ }
+ remoteWorkspaceExecutions.active[root]=true
+ remoteWorkspaceExecutions.Unlock()
+ var once sync.Once
+ release:=func(){
+  once.Do(func(){
+   remoteWorkspaceExecutions.Lock()
+   delete(remoteWorkspaceExecutions.active,root)
+   remoteWorkspaceExecutions.Unlock()
+  })
+ }
+ if ctx.Err()!=nil{
+  release()
+  return nil,denied
+ }
+ return release,nil
+}
+
+// Hold the pre-existing local session PTY -> long-task mutex ordering,
+// then an exclusive canonical workspace reservation until Git exits.
+// No wait queues or unbounded blocking in the native E2EE action path.
+// External OS processes and independent Agent daemons remain out of scope.
 func (s *Server) reserveRemoteGitMutation(
  ctx context.Context,session *remoteTaskDeckSession,
 )(func(),error){
@@ -66,41 +97,16 @@ func (s *Server) reserveRemoteGitMutation(
  }
  releaseSession,err:=session.reserveRemoteGitMutation(ctx)
  if err!=nil{return nil,denied}
- root,err:=filepath.EvalSymlinks(s.Workspace)
+ releaseWorkspace,err:=reserveRemoteWorkspaceExecution(ctx,s.Workspace)
  if err!=nil{
   releaseSession()
   return nil,denied
- }
- root,err=filepath.Abs(root)
- if err!=nil{
-  releaseSession()
-  return nil,denied
- }
- info,err:=os.Stat(root)
- if err!=nil||!info.IsDir()||ctx.Err()!=nil||session.closed.Load(){
-  releaseSession()
-  return nil,denied
- }
- remoteGitWorkspaceMutations.Lock()
- if remoteGitWorkspaceMutations.active[root]{
-  remoteGitWorkspaceMutations.Unlock()
-  releaseSession()
-  return nil,denied
- }
- remoteGitWorkspaceMutations.active[root]=true
- remoteGitWorkspaceMutations.Unlock()
- releaseWorkspace:=func(){
-  remoteGitWorkspaceMutations.Lock()
-  delete(remoteGitWorkspaceMutations.active,root)
-  remoteGitWorkspaceMutations.Unlock()
  }
  if ctx.Err()!=nil||session.closed.Load(){
   releaseWorkspace()
   releaseSession()
   return nil,denied
  }
- // Idempotent cleanup avoids a leaked global reservation even if a
- // caller's defer and an error/Close path both attempt the same release.
  var once sync.Once
  return func(){
   once.Do(func(){
