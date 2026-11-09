@@ -266,6 +266,10 @@ func (p *PingClient) TasksReport(ctx context.Context)(RemoteTaskReport,error){
  reply,err:=p.exchangeAction(ctx,RemoteActionTasksReport)
  return reply.taskReport,err
 }
+func (p *PingClient) WorkflowAudit(ctx context.Context)(RemoteWorkflowAudit,error){
+ reply,err:=p.exchangeAction(ctx,RemoteActionTasksWorkflowAudit)
+ return reply.workflowAudit,err
+}
 func (p *PingClient) TasksPreviewNext(ctx context.Context)(RemoteTasksPreview,error){
  reply,err:=p.exchangeAction(ctx,RemoteActionTasksPreviewNext)
  return reply.preview,err
@@ -341,6 +345,7 @@ type remoteActionReply struct {
  filesRead RemoteFilesReadPage
  preview RemoteTasksPreview
  taskReport RemoteTaskReport
+ workflowAudit RemoteWorkflowAudit
  inspect RemoteTaskInspect
  dependencies RemoteTaskDependencies
  run RemoteTaskRun
@@ -478,6 +483,8 @@ func (p *PingClient) exchangePayloadAction(ctx context.Context,operation string,
   result.preview,err=OpenRemoteActionTasksPreviewResult(channel,reply,id)
  case RemoteActionTasksReport:
   result.taskReport,err=OpenRemoteTaskReport(channel,reply,id)
+ case RemoteActionTasksWorkflowAudit:
+  result.workflowAudit,err=OpenRemoteWorkflowAudit(channel,reply,id)
  case RemoteActionTasksInspect:
   result.inspect,err=OpenRemoteActionTasksInspectResult(channel,reply,id,taskID)
  case RemoteActionTasksDependencies:
