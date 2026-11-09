@@ -118,6 +118,10 @@ func(s *Server)executeRemoteGitIndex(
   if errors.As(err,&ex){return ex.ExitCode(),nil}
   return -1,denied
  }
+ // The initial git diff --quiet can invoke clean/process filters before
+ // the old stage-only guard below is reached. Apply the shared strict
+ // preflight to both stage and unstage index mutations.
+ if !remoteGitNoExecutableFilters(ctx,root,env){return empty,denied}
  code,err:=check(ctx)
  if err!=nil||code!=1{return empty,denied}
  // Git add can execute user-configured clean/process filters from

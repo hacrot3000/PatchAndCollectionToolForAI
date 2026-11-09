@@ -46,6 +46,9 @@ func(s *Server)readRemoteGitDiff(ctx context.Context)(string,error){
  if err!=nil{return "",denied}
  canonical,err=filepath.Abs(canonical)
  if err!=nil||filepath.Clean(canonical)!=filepath.Clean(root){return "",denied}
+ // Diffing worktree blobs can invoke filter.clean/process even with
+ // --no-ext-diff. Read permission is never permission to launch helpers.
+ if !remoteGitNoExecutableFilters(ctx,root,env){return "",denied}
  summary,err:=run(remotetransport.MaxRemoteGitLogText,
   "-c","core.fsmonitor=false","-c","diff.external=",
   "-c","diff.trustExitCode=false","-C",root,

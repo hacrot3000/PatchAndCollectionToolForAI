@@ -137,6 +137,11 @@ func (s *Server) readRemoteGitPatchSnapshotMode(ctx context.Context,cached bool)
  if err!=nil||!remoteGitObjectID.MatchString(strings.TrimSpace(head)){
   return "","",denied
  }
+ // A fixed HEAD diff still reads the worktree through local clean
+ // filters; deny executable filter drivers before any diff page.
+ if !remoteGitNoExecutableFilters(deadlineCtx,root,env){
+  return "","",denied
+ }
  args:=[]string{"--no-pager","diff","--no-ext-diff","--no-textconv","--no-color","--no-renames","--ignore-submodules=all","--unified=1"}
  if cached{args=append(args,"--cached")}else{args=append(args,"HEAD")}
  args=append(args,"--")

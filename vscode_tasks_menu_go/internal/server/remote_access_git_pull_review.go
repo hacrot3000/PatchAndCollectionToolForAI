@@ -96,6 +96,11 @@ func (s *Server)readRemoteGitPullReview(ctx context.Context)(
   }
   status="fast-forward"
  }
+ // Offline pull review calls git status. No privilege escalation to
+ // configured filter executables is allowed by this read-only action.
+ if !remoteGitNoExecutableFilters(deadline,root,env){
+  return empty,denied
+ }
  dirty,err:=read("--no-optional-locks","status","--porcelain=v1",
   "--untracked-files=all","--ignore-submodules=none")
  if err!=nil||dirty!=""{return empty,denied}

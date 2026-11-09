@@ -77,6 +77,9 @@ func (s *Server) readRemoteGitStatus(ctx context.Context) (string, error) {
         return "", denied
     }
 
+    // Even read-only git status may run repository-defined filter.clean.
+    // Reject executable filters before touching tracked worktree data.
+    if !remoteGitNoExecutableFilters(ctx,root,gitEnv){return "",denied}
     status, err := run(remotetransport.MaxRemoteGitStatusText,
         prefix, "core.fsmonitor=false",
         prefix, "core.quotePath=true",
