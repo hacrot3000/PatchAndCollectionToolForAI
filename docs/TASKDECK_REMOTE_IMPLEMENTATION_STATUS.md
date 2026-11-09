@@ -2750,3 +2750,57 @@ shared-PHP deployment validation remain required.
   absent physical deployment runs. The independent LIVE
   remote-control release gate remains NO-GO and
   `remote_control_available=false`.
+
+
+
+## 2026-11-09 — main: host-enforced one-shot Cancel and single-upstream Pull
+
+- **Go Agent and PHP Portal green before this increment:** Both CI
+  workflows completed **SUCCESS** for exact compiled source `fbbdd5e`:
+  Go Agent run
+  `https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/42589753620`
+  and PHP Portal run
+  `https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/42589753683`.
+- **Commit `56f7dd5` (Task execution):** The host-side
+  `cancelRemoteLongTask` now checks and atomically marks a
+  per-job one-shot `cancelRequested` state under the existing job
+  mutex, while retaining `terminalMu → longTaskMu → job.mu`
+  ordering. Reject a second cancellation and any cancellation after
+  a terminal job state, rather than returning a misleading
+  `cancel_requested` response. No ability to cancel another task
+  or bypass E2EE/RBAC was introduced. The job remains readable
+  through authenticated Poll and removable through Clear.
+- **Commit `544812e` (E2EE integration regression):** Added
+  real encrypted dispatcher tests for Start → Cancel →
+  duplicate Cancel denial → Poll terminal state, and for
+  attempted Cancel of an already-completed task followed by
+  successful final-output Poll. The tests verify a denied redundant
+  action does not silently revoke the correct E2EE session.
+  Host-level tests additionally cover one-shot and terminal denial.
+- **Commit `8c8055a` (Git Pull and regression):** Git Pull
+  now passes the previously verified `remote,branch` explicitly
+  to `git pull --ff-only --no-recurse-submodules --no-edit
+  --no-tags`, and disables fetch-prune/tag-prune. Thus the
+  bounded action does not implicitly use an arbitrary wildcard
+  fetch expansion or auto-follow tags unrelated to the
+  approved upstream. The existing authentic SSH-upstream
+  fast-forward test now hosts a second remote branch and an
+  unrelated tag, then demands both are ABSENT locally after
+  a successful Pull. A local real-Git reproduction independently
+  confirmed explicit-branch/no-tags fetch only updates the
+  desired tracking branch and HEAD. Local source tests in the
+  remote-agent Go workflow provide the authoritative next check.
+- **CI status:** PHP Portal run on `8c8055a` completed
+  SUCCESS. Its Go Agent run `42592462852` was still
+  IN_PROGRESS at this handoff. Subsequent docs-only commits do
+  not modify the compiled artifact. Do not label the new
+  Go regression green before that run finishes.
+- **Remaining priorities:** task GUI execution/lifecycle
+  (review further edge cases); Git Pull/Commit/Push hardening,
+  especially cross-process workspace isolation; Terminal PTY;
+  other Git operations; remaining GUI Files/Editor/Patch/
+  Collection; other remote security/permission/size checks.
+  Source-complete features remain complete even if live
+  Linux/macOS NAT/CGNAT field validation has not happened.
+  The actual remote-control release remains intentionally
+  `remote_control_available=false` / LIVE NO-GO.
