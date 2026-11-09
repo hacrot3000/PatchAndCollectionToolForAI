@@ -2927,3 +2927,52 @@ shared-PHP deployment validation remain required.
   control remains `remote_control_available=false` / LIVE NO-GO.
   Source-complete work is considered complete regardless of field
   deployment tests.
+
+
+
+## 2026-11-09 — main: PTY Close retry and exact Git upload-pack
+
+- **Commit `ea82cc6` (Terminal):** A PTY Close request previously
+  removed `session.terminal` BEFORE waiting for the PTY waiter to
+  release the exclusive workspace lease. If the authenticated
+  request's context expired or the bounded shutdown wait timed out,
+  it returned an error but left the still-retiring terminal DETACHED:
+  users could no longer retry Close or inspect its state. Now the
+  session-owned handle remains attached through a failed Close and is
+  removed only after `workspaceReleased` is observed. A session
+  logout still performs the separately reviewed nonblocking
+  revocation. Test `TestRemoteTerminalCloseTimeoutRetainsJobForAuthenticatedRetry`
+  simulates a delayed waiter, cancels Close, verifies the PTY remains
+  attached, then finishes workspace release and checks a second
+  authenticated Close succeeds. No new E2EE operation type or
+  terminal permission is introduced.
+- **Commit `c245a3c` (Git Pull + Fetch):** The host already selected
+  one exact upstream branch, disabled repository-owned credentials
+  and rejected unsafe remote URLs, but Git still honored
+  `remote.<name>.uploadpack` for SSH fetch. The authenticated
+  client sends no argv, yet repository-local Git config could
+  replace the SSH upload-pack remote command. Both fixed
+  `git pull` and `git fetch` now explicitly pass
+  `--upload-pack=git-upload-pack`, overriding that config.
+  Existing real-Git SSH integration tests set a deliberately
+  unapproved `remote.origin.uploadpack`, capture the fake
+  SSH process's argv, verify only `git-upload-pack` was
+  requested, and preserve prior fast-forward/no-tag/HEAD
+  expectations. A separate local Git 2.47 reproduction confirmed
+  that the host-configured command is otherwise passed through
+  and that the explicit CLI flag overrides it.
+- **Source/CI:** On entry to this increment, exact earlier source
+  `3758b269` had both Go Agent and PHP Portal workflows
+  COMPLETED/SUCCESS. PHP Portal CI has succeeded at `ea82cc6`.
+  Race-enabled Go Agent CI for `c245a3c` is pending at the time
+  of this handoff; these new host tests are NOT yet claimed green.
+  The documentation update does not change compiled code.
+- **Remaining by agreed code priority:** Task GUI final edge
+  cases; Git Pull/Commit/Push safety checks; Terminal/PTy
+  lifecycle validation; other Git review/interaction; remaining
+  Files/Editor/Patch/Collection GUI; further Remote security.
+  Cooperating TaskDeck processes have an OS workspace lease,
+  but uncooperative local tools do not. Source-complete
+  functionality is considered complete without separate live
+  NAT/CGNAT field deployment trials. Retain
+  `remote_control_available=false`, LIVE release NO-GO.
