@@ -25,7 +25,12 @@ import(
 // interpolated inputs remain denied. No browser-supplied graph or command.
 const remoteWorkflowMaxSteps=4
 
-type remoteWorkflowStep struct{ taskID int; retries int; timeout time.Duration }
+type remoteWorkflowStep struct{
+ taskID int
+ retries int
+ timeout time.Duration
+ condition string // "" or "success" normally; "always" only at the final root.
+}
 
 // Process workflows intentionally exclude executable scripts, including
 // shebang files with innocuous names. Check native object headers rather than
@@ -79,49 +84,61 @@ func remoteWorkflowResolvedExecutable(command string)(string,bool){
 // policies is executable remotely. The host owns this metadata; browser
 // callers cannot set retry counts, timeouts, command or arguments.
 // Per-step timeouts must not outlive the existing 90-second job deadline.
-func remoteWorkflowPolicyForTask(task tasks.Task)(int,time.Duration,bool){
+func remoteWorkflowPolicyForTask(task tasks.Task)(int,time.Duration,string,bool){
  raw,exists:=task.Raw["taskdeck"]
- if !exists||raw==nil{return 0,0,true}
+ if !exists||raw==nil{return 0,0,"",true}
  meta,ok:=raw.(map[string]any)
- if !ok||len(meta)!=1{return 0,0,false}
+ if !ok||len(meta)!=1{return 0,0,"",false}
  config,ok:=meta["workflow"].(map[string]any)
- if !ok||len(config)<1||len(config)>2{return 0,0,false}
+ if !ok||len(config)<1||len(config)>3{return 0,0,"",false}
  retries:=0
  var timeout time.Duration
+ condition:=""
  for key,value:=range config{
+  if key=="condition"{
+   c,ok:=value.(string)
+   if !ok||os.Getenv("TASKDECK_REMOTE_TASKS_WORKFLOW_CONDITION")!="1"{
+    return 0,0,"",false
+   }
+   // Only these two non-branching modes are currently supported.
+   // "failure" and continueOnError require a separate graph contract.
+   if c!="success"&&c!="always"{return 0,0,"",false}
+   condition=c
+   continue
+  }
   integer:=0
   switch v:=value.(type){
   case float64:
-   if v!=float64(int(v)){return 0,0,false}
+   if v!=float64(int(v)){return 0,0,"",false}
    integer=int(v)
   case int:
    integer=v
   default:
-   return 0,0,false
+   return 0,0,"",false
   }
   switch key{
   case "retry":
    if integer!=1||os.Getenv("TASKDECK_REMOTE_TASKS_WORKFLOW_RETRY")!="1"{
-    return 0,0,false
+    return 0,0,"",false
    }
    retries=1
   case "timeoutSeconds":
    if integer<1||integer>30||
     os.Getenv("TASKDECK_REMOTE_TASKS_WORKFLOW_TIMEOUT")!="1"{
-    return 0,0,false
+    return 0,0,"",false
    }
    timeout=time.Duration(integer)*time.Second
   default:
-   return 0,0,false
+   return 0,0,"",false
   }
  }
- return retries,timeout,true
+ return retries,timeout,condition,true
 }
 
 func remoteWorkflowSafeProcess(task tasks.Task)bool{
  if task.Type!="process"||len(task.Inputs)!=0||
   len(task.SecretEnv)!=0||len(task.Options)!=0{return false}
- if _,_,ok:=remoteWorkflowPolicyForTask(task);!ok{return false}
+ if _,_,_,ok:=remoteWorkflowPolicyForTask(task);!ok{return false}
  command,ok:=task.Command.(string)
  if !ok||strings.Contains(command,"${"){return false}
  if _,safe:=remoteWorkflowResolvedExecutable(command);!safe{return false}
@@ -160,6 +177,10 @@ func remoteWorkflowSafeSequentialGraph(items []tasks.Task,
  for i,id:=range order{
   task,exists:=byID[id]
   if !exists||!remoteWorkflowSafeProcess(task){return false}
+  _,_,condition,ok:=remoteWorkflowPolicyForTask(task)
+  // Explicit "always" only authorizes the final/root cleanup task.
+  // An intermediate "always" could bypass unrelated dependencies.
+  if !ok||(condition=="always"&&i!=len(order)-1){return false}
   if _,duplicate:=positions[id];duplicate{return false}
   positions[id]=i
  }
@@ -230,8 +251,10 @@ func(s *Server)prepareRemoteLinearWorkflow(ctx context.Context,
  for _,item:=range list{byID[item.ID]=item}
  plan:=make([]remoteWorkflowStep,0,len(deps.Order))
  for _,id:=range deps.Order{
-  retries,timeout,ok:=remoteWorkflowPolicyForTask(byID[id])
-  if !ok{return nil,hash,denied}
+  retries,timeout,condition,ok:=remoteWorkflowPolicyForTask(byID[id])
+  if !ok||(condition=="always"&&id!=rootTaskID){
+   return nil,hash,denied
+  }
   // Reuse the existing, separately tested single-task source/inode,
   // workspace boundary and stable-ID preflight, with the ONLY exception
   // that the host-owned dependency label is now allowed.
@@ -242,7 +265,9 @@ func(s *Server)prepareRemoteLinearWorkflow(ctx context.Context,
    !tasks.RemoteExecutableAllowed(root,spec.Command){
    return nil,hash,denied
   }
-  plan=append(plan,remoteWorkflowStep{taskID:id,retries:retries,timeout:timeout})
+  plan=append(plan,remoteWorkflowStep{
+   taskID:id,retries:retries,timeout:timeout,condition:condition,
+  })
  }
  if ctx.Err()!=nil||session.closed.Load(){return nil,hash,denied}
  return plan,hash,nil
@@ -354,7 +379,8 @@ Workflow:
    // Disabling a host opt-in while a workflow is already running also
    // revokes future retries/timeout-governed steps.
    if (attempt>1&&os.Getenv("TASKDECK_REMOTE_TASKS_WORKFLOW_RETRY")!="1")||
-    (step.timeout>0&&os.Getenv("TASKDECK_REMOTE_TASKS_WORKFLOW_TIMEOUT")!="1"){
+    (step.timeout>0&&os.Getenv("TASKDECK_REMOTE_TASKS_WORKFLOW_TIMEOUT")!="1")||
+    (step.condition!=""&&os.Getenv("TASKDECK_REMOTE_TASKS_WORKFLOW_CONDITION")!="1"){
     status="failed";exitCode=-1;break Workflow
    }
    if ctx.Err()!=nil||session.closed.Load(){
@@ -408,7 +434,8 @@ Workflow:
    if ctx.Err()!=nil||session.closed.Load()||
     !remoteWorkflowHostExecutionEnabled()||
     (step.timeout>0&&os.Getenv("TASKDECK_REMOTE_TASKS_WORKFLOW_TIMEOUT")!="1")||
-    (attempt>1&&os.Getenv("TASKDECK_REMOTE_TASKS_WORKFLOW_RETRY")!="1"){
+    (attempt>1&&os.Getenv("TASKDECK_REMOTE_TASKS_WORKFLOW_RETRY")!="1")||
+    (step.condition!=""&&os.Getenv("TASKDECK_REMOTE_TASKS_WORKFLOW_CONDITION")!="1"){
     cancelStep()
     _=s.auditRemoteWorkflowStep(session,job.taskID,
      step.taskID,i+1,len(plan),attempt,job.workflowRunID,"cancelled",-1)
@@ -453,6 +480,15 @@ Workflow:
      "[TaskDeck workflow] Step %d/%d: retry authorized (one repeat)\n",
      i+1,len(plan)))
     continue
+   }
+   if stepStatus=="failed"&&i==len(plan)-2&&
+    plan[i+1].condition=="always"&&
+    os.Getenv("TASKDECK_REMOTE_TASKS_WORKFLOW_CONDITION")=="1"{
+    // Permit ONLY the final, host-declared cleanup after the immediately
+    // preceding failure. The aggregate result stays failed even if the
+    // cleanup succeeds. Cancellation and timeouts never trigger cleanup.
+    status="failed";exitCode=code
+    continue Workflow
    }
    status=stepStatus;exitCode=code;break Workflow
   }
