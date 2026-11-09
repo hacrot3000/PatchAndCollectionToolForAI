@@ -150,3 +150,74 @@ func TestRemoteLongTaskTerminalBacklogIsExposedWithoutDroppingTail(t *testing.T)
   t.Fatalf("expected all 420 bytes, got %d",got.Len())
  }
 }
+
+
+func TestRemoteLongTaskE2EEDuplicateCancelFailsClosed(t *testing.T){
+ t.Setenv("TASKDECK_REMOTE_TASKS_PREVIEW","1")
+ t.Setenv("TASKDECK_REMOTE_TASKS_RUN","1")
+ t.Setenv("TASKDECK_REMOTE_TASKS_LONG","1")
+ s,session,client,agent:=remoteTaskOperatorFixture(t)
+ id:=previewOneRemoteRunTask(t,s,session,client,agent,
+  `{"tasks":[{"label":"One-shot E2EE cancel","type":"process",
+    "command":"/bin/sh","args":["-c","sleep 20"]}]}`)
+ started,err:=longTaskE2EEAction(t,s,session,client,agent,
+  remotetransport.RemoteActionTasksStart,id,0,"",
+  "22222222222222222222222222222222")
+ if err!=nil||started.Status!="started"{t.Fatalf("start failed: %+v %v",started,err)}
+ stopped,err:=longTaskE2EEAction(t,s,session,client,agent,
+  remotetransport.RemoteActionTasksCancel,id,0,"",
+  "33333333333333333333333333333333")
+ if err!=nil||stopped.Status!="cancel_requested"{
+  t.Fatalf("first cancellation not acknowledged: %+v %v",stopped,err)
+ }
+ duplicate,err:=longTaskE2EEAction(t,s,session,client,agent,
+  remotetransport.RemoteActionTasksCancel,id,0,"",
+  "44444444444444444444444444444444")
+ if err==nil||duplicate.Status=="cancel_requested"{
+  t.Fatalf("host accepted second E2EE cancel: %+v %v",duplicate,err)
+ }
+ select{
+ case <-session.longTask.done:
+ case <-time.After(4*time.Second):t.Fatal("cancelled host task remained alive")
+ }
+ // Denial of a redundant action must not kill the authenticated E2EE
+ // channel or erase the existing job's final output/status.
+ if session.closed.Load()||!session.channel.Established(){
+  t.Fatal("duplicate cancel unexpectedly revoked authenticated channel")
+ }
+ final,err:=longTaskE2EEAction(t,s,session,client,agent,
+  remotetransport.RemoteActionTasksPoll,id,0,"",
+  "55555555555555555555555555555555")
+ if err!=nil||final.Status!="cancelled"{
+  t.Fatalf("final task state lost after denied duplicate: %+v %v",final,err)
+ }
+}
+
+func TestRemoteLongTaskE2EECompletedCancelDeniedWithoutResultLoss(t *testing.T){
+ t.Setenv("TASKDECK_REMOTE_TASKS_PREVIEW","1")
+ t.Setenv("TASKDECK_REMOTE_TASKS_RUN","1")
+ t.Setenv("TASKDECK_REMOTE_TASKS_LONG","1")
+ s,session,client,agent:=remoteTaskOperatorFixture(t)
+ id:=previewOneRemoteRunTask(t,s,session,client,agent,
+  `{"tasks":[{"label":"Completed E2EE task","type":"process",
+    "command":"/bin/sh","args":["-c","printf completed"]}]}`)
+ start,err:=longTaskE2EEAction(t,s,session,client,agent,
+  remotetransport.RemoteActionTasksStart,id,0,"",
+  "22222222222222222222222222222222")
+ if err!=nil||start.Status!="started"{t.Fatalf("start: %+v %v",start,err)}
+ select{
+ case <-session.longTask.done:
+ case <-time.After(4*time.Second):t.Fatal("task completion did not arrive")
+ }
+ if _,err:=longTaskE2EEAction(t,s,session,client,agent,
+  remotetransport.RemoteActionTasksCancel,id,0,"",
+  "33333333333333333333333333333333");err==nil{
+  t.Fatal("E2EE cancel falsely acknowledged an already completed job")
+ }
+ final,err:=longTaskE2EEAction(t,s,session,client,agent,
+  remotetransport.RemoteActionTasksPoll,id,0,"",
+  "44444444444444444444444444444444")
+ if err!=nil||final.Status!="completed"||final.Output!="completed"{
+  t.Fatalf("completed output lost after invalid cancel: %+v %v",final,err)
+ }
+}
