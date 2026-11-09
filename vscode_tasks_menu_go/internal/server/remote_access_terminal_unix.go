@@ -91,7 +91,7 @@ func(s *Server) startRemoteTerminal(ctx context.Context,session *remoteTaskDeckS
  job:=&remoteTerminalJob{
   ptyFile:tty,process:cmd,done:make(chan struct{}),
   capture:capture,started:time.Now(),state:"running",
-  workspaceRelease:releaseWorkspace,
+  workspaceRelease:releaseWorkspace,workspaceReleased:make(chan struct{}),
  }
  var stopOnce sync.Once
  job.cancel=func(){
@@ -129,6 +129,7 @@ func(s *Server) startRemoteTerminal(ctx context.Context,session *remoteTaskDeckS
   // Release only after the shell has exited and its controlling PTY
   // has been closed, including when logout asynchronously kills it.
   job.workspaceRelease()
+  close(job.workspaceReleased)
  }()
  go func(){
   select{
@@ -226,6 +227,17 @@ func (s *Server) closeRemoteTerminal(ctx context.Context,
  if ctx.Err()!=nil||session.closed.Load(){return remotetransport.RemoteTerminalProgress{},denied}
  session.terminal=nil
  job.cancel()
+ // An explicit successful Close must mean the workspace has actually
+ // been released. Otherwise an immediate Task/Git action can race the
+ // asynchronous Wait goroutine and be spuriously denied as busy.
+ // Session-wide revocation remains nonblocking in stopRemoteTerminal.
+ if job.workspaceReleased!=nil{
+  select{
+  case <-job.workspaceReleased:
+  case <-ctx.Done():return remotetransport.RemoteTerminalProgress{},denied
+  case <-time.After(2*time.Second):return remotetransport.RemoteTerminalProgress{},denied
+  }
+ }
  return remotetransport.RemoteTerminalProgress{State:"closed"},nil
 }
 

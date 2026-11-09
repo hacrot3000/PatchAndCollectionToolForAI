@@ -17,6 +17,7 @@ type remoteTerminalJob struct{
  cancel func()
  done chan struct{}
  workspaceRelease func()
+ workspaceReleased chan struct{}
  capture *remoteLongTaskCapture
  started time.Time
  mu sync.Mutex
