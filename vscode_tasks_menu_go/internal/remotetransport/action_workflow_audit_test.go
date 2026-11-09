@@ -176,3 +176,37 @@ func TestRemoteWorkflowAuditStartAndNextForbidCallerSelectors(t *testing.T){
   }
  }
 }
+
+func TestRemoteWorkflowRunIdentifierBoundedE2EEOptionalField(t *testing.T){
+ now:=time.Now().UTC().Unix()
+ good:=RemoteWorkflowAudit{Items:[]RemoteWorkflowAuditEntry{
+  {RootTaskID:2147483647,TaskID:2147483647,Step:4,Total:4,
+   Attempt:2,Status:"timed_out",ExitCode:-1,Timestamp:now,
+   RunID:"0123456789abcdef"},
+  {RootTaskID:2147483647,TaskID:2147483647,Step:4,Total:4,
+   Attempt:2,Status:"timed_out",ExitCode:-1,Timestamp:now-1,
+   RunID:"fedcba9876543210"},
+ },More:true}
+ client,agent,_:=participants(t)
+ frame,err:=SealRemoteWorkflowAudit(agent,testActionID,good)
+ if err!=nil{t.Fatalf("max-sized run-correlated E2EE page did not fit: %v",err)}
+ decoded,err:=OpenRemoteWorkflowAudit(client,frame,testActionID)
+ if err!=nil||!decoded.More||
+  decoded.Items[0].RunID!=good.Items[0].RunID||
+  decoded.Items[1].RunID!=good.Items[1].RunID{
+  t.Fatalf("run IDs lost in authenticated page: %+v %v",decoded,err)
+ }
+ for _,candidate:=range []string{
+  "0123456789abcde","0123456789abcdef0","ABCDEF1234567890",
+  "0123456789abcd/g","0123456789abcd:g",
+  "0123456789abcd\u0000",
+ }{
+  bad:=good
+  bad.Items=append([]RemoteWorkflowAuditEntry{},good.Items...)
+  bad.Items[0].RunID=candidate
+  _,agent,_:=participants(t)
+  if _,err:=SealRemoteWorkflowAudit(agent,testActionID,bad);err==nil{
+   t.Fatalf("invalid run correlation accepted: %q",candidate)
+  }
+ }
+}

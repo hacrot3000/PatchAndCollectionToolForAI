@@ -102,6 +102,9 @@ func TestRemoteWorkflowAuditStrictStoredSchema(t *testing.T){
   strings.Replace(valid,`"step":1`,`"step":1,"command":"/bin/sh"`,1),
   strings.Replace(valid,`"step":1`,`"step":3`,1),
   strings.Replace(valid,`"transport":"e2ee"`,`"transport":"php"`,1),
+  strings.Replace(valid,`"step":1`,`"step":1,"run_id":"\u002e"`,1),
+  strings.Replace(valid,`"step":1`,`"step":1,"run_id":null`,1),
+  strings.Replace(valid,`"step":1`,`"step":1,"run_id":"ABCDEF1234567890"`,1),
  }{
   if _,ok:=decodeRemoteWorkflowStepAuditDetails(source);ok{
    t.Fatalf("invalid durable audit schema accepted: %s",source)
@@ -197,5 +200,69 @@ func TestRemoteWorkflowAuditHistoryBoundedTo32Events(t *testing.T){
  final,err:=s.readRemoteWorkflowAuditNext(context.Background(),session)
  if err!=nil||len(final.Items)!=2||final.More{
   t.Fatalf("bounded final page invalid: %+v %v",final,err)
+ }
+}
+
+func TestRemoteWorkflowAuditRunCorrelationDistinguishesRepeatedExecutions(t *testing.T){
+ remoteWorkflowHostFlags(t)
+ t.Setenv("TASKDECK_REMOTE_TASKS_REPORT","1")
+ t.Setenv("TASKDECK_REMOTE_TASKS_WORKFLOW_REPORT","1")
+ s,session,client,agent:=remoteTaskOperatorFixture(t)
+ root:=remoteWorkflowIssuedRoot(t,s,session,client,agent,
+  remoteWorkflowLinearSource,"Step C")
+ ids:=make([]string,0,2)
+ for i:=0;i<2;i++{
+  if err:=s.startRemoteLinearWorkflow(context.Background(),session,root);err!=nil{
+   t.Fatalf("execution %d start: %v",i,err)
+  }
+  if state:=awaitRemoteWorkflow(t,session);state!="completed"{
+   t.Fatalf("execution %d not completed: %s",i,state)
+  }
+  session.longTaskMu.Lock()
+  job:=session.longTask
+  session.longTaskMu.Unlock()
+  if job==nil||!validRemoteWorkflowRunID(job.workflowRunID){
+   t.Fatalf("execution %d lost host random label",i)
+  }
+  ids=append(ids,job.workflowRunID)
+  cleared,err:=longTaskE2EEAction(t,s,session,client,agent,
+   remotetransport.RemoteActionTasksClear,root,0,"",
+   fmt.Sprintf("%032d",600+i))
+  if err!=nil||cleared.Status!="cleared"{
+   t.Fatalf("execution %d slot not released: %+v %v",i,cleared,err)
+  }
+ }
+ if ids[0]==ids[1]{t.Fatal("two distinct executions used the same run label")}
+ report,err:=s.readRemoteWorkflowAudit(context.Background(),session)
+ if err!=nil||len(report.Items)!=2||
+  report.Items[0].RunID!=ids[1]||report.Items[1].RunID!=ids[1]{
+  t.Fatalf("most recent run did not retain step correlation: %+v %v",report,err)
+ }
+ if len(session.workflowAuditPageItems)!=6{
+  t.Fatalf("expected six final step audit rows across two executions: %d",
+   len(session.workflowAuditPageItems))
+ }
+ counts:=map[string]int{}
+ for _,event:=range session.workflowAuditPageItems{
+  if !remotetransport.ValidRemoteWorkflowRunID(event.RunID){
+   t.Fatalf("invalid E2EE run label: %+v",event)
+  }
+  counts[event.RunID]++
+ }
+ if counts[ids[0]]!=3||counts[ids[1]]!=3{
+  t.Fatalf("repeated workflows not distinguishable: %+v",counts)
+ }
+ // Old action must not emit the new optional field or page hint.
+ frame,err:=remotetransport.SealRemoteAction(client,remotetransport.RemoteAction{
+  RequestID:"ffffffffffffffffffffffffffffffff",
+  Operation:remotetransport.RemoteActionTasksWorkflowAudit,
+ })
+ if err!=nil{t.Fatal(err)}
+ sealed,err:=s.executeRemoteE2EEPing(context.Background(),session,agent,frame)
+ if err!=nil{t.Fatal(err)}
+ previous,err:=remotetransport.OpenRemoteWorkflowAudit(client,sealed,
+  "ffffffffffffffffffffffffffffffff")
+ if err!=nil||len(previous.Items)!=2||previous.Items[0].RunID!=""||previous.More{
+  t.Fatalf("v1 exact-key compatibility broken: %+v %v",previous,err)
  }
 }

@@ -1700,8 +1700,11 @@ const trustedGUIJavaScript = `'use strict';
             workflowAuditRows.length+data.items.length>32&&next||
             data.items.some((item,i)=>
               !item||typeof item!=='object'||
-              Object.keys(item).sort().join(',')!==
-              'attempt,exit_code,root_task_id,status,step,task_id,timestamp,total'||
+              !['attempt,exit_code,root_task_id,status,step,task_id,timestamp,total',
+                'attempt,exit_code,root_task_id,run_id,status,step,task_id,timestamp,total']
+                .includes(Object.keys(item).sort().join(','))||
+              (Object.prototype.hasOwnProperty.call(item,'run_id')&&
+                (typeof item.run_id!=='string'||!(/^[a-f0-9]{16}$/).test(item.run_id)))||
               !Number.isInteger(item.root_task_id)||item.root_task_id<1||
               item.root_task_id>2147483647||
               !Number.isInteger(item.task_id)||item.task_id<1||
@@ -1728,7 +1731,8 @@ const trustedGUIJavaScript = `'use strict';
             'Audit workflow của tài khoản này (tối đa 32 sự kiện từ 128 audit gần nhất):\n'+
             workflowAuditRows.map(item=>{
               const when=new Date(item.timestamp*1000).toLocaleString('vi-VN');
-              return when+' · Workflow #'+item.root_task_id+
+              return when+(item.run_id?' · Lượt '+item.run_id:' · Lượt cũ')+
+                ' · Workflow #'+item.root_task_id+
                 ' · Bước '+item.step+'/'+item.total+' (Task #'+item.task_id+
                 ') · Lần '+item.attempt+' · '+item.status+
                 ' · exit '+item.exit_code;

@@ -46,9 +46,9 @@ const fetch=async(path,opt)=>{
  if(path==='/api/tasks-workflow-audit')return {ok:true,json:async()=>({
   ok:true,items:[
    {root_task_id:80,task_id:70,step:2,total:3,attempt:2,
-    status:'failed',exit_code:7,timestamp:epoch},
+    status:'failed',exit_code:7,timestamp:epoch,run_id:'0123456789abcdef'},
    {root_task_id:80,task_id:60,step:1,total:3,attempt:1,
-    status:'completed',exit_code:0,timestamp:epoch-1},
+    status:'completed',exit_code:0,timestamp:epoch-1,run_id:'0123456789abcdef'},
   ],more:true,remote_control_available:false,remaining:--remaining,
  })};
  if(path==='/api/tasks-workflow-audit-next')return {ok:true,json:async()=>({
@@ -87,6 +87,8 @@ const flush=async()=>{for(let i=0;i<80;i++)await Promise.resolve()};
  assert.match(get('tasks-report-output').textContent,/Workflow #80/);
  assert.match(get('tasks-report-output').textContent,/Bước 2\/3 \(Task #70\)/);
  assert.match(get('tasks-report-output').textContent,/Lần 2 · failed · exit 7/);
+ assert.equal((get('tasks-report-output').textContent.match(/Lượt 0123456789abcdef/g)||[]).length,2,
+  'two completed steps must retain their same host-issued execution label');
  assert.match(get('tasks-report-output').textContent,/Còn trang; bấm Xem tiếp audit/);
  assert.equal(get('tasks-workflow-audit-next').disabled,false,
   'additional host-owned workflow audit page not offered');
@@ -96,6 +98,8 @@ const flush=async()=>{for(let i=0;i<80;i++)await Promise.resolve()};
   'next page must use a body-free native endpoint');
  assert.match(get('tasks-report-output').textContent,/Task #70/);
  assert.match(get('tasks-report-output').textContent,/Task #50/);
+ assert.match(get('tasks-report-output').textContent,/Lượt cũ/,
+  'historical step records without execution correlation remain readable');
  assert.equal(get('tasks-workflow-audit-next').disabled,true,
   'next button remained active after final audit page');
  assert.equal(get('tasks-report-output').children.length,0,

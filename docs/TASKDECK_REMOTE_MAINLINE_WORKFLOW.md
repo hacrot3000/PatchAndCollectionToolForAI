@@ -357,3 +357,22 @@ real-host testing are considered **code complete**.
   Toàn bộ hành động đều read-only và giữ nguyên RBAC + host opt-in.
 - Client mới vẫn đọc được phản hồi v1 thiếu `more`. Không tự động
   tiếp tục từ client cũ hoặc vượt giới hạn 16 lượt E2EE.
+
+ 
+## 2026-11-09 — Mã tương quan riêng cho từng lần chạy Remote workflow
+
+- Mỗi lần bắt đầu workflow, Agent tạo mã ngẫu nhiên **16 ký tự hex**
+  bằng hệ thống ngẫu nhiên mật mã. Mã này chỉ để **nhóm các bước
+  thuộc cùng lần thực thi**, không phải session, bearer token hay
+  quyền điều khiển.
+- Mỗi audit `attempted/completed/failed/cancelled/timed_out` của
+  workflow mới chứa `run_id`; chỉ khi cả cấu trúc và mã hợp lệ mới
+  được đưa vào báo cáo bền vững. Các audit cũ thiếu mã vẫn đọc được,
+  hiển thị rõ “Lượt cũ”.
+- Chỉ phản hồi phân trang mới `tasks.workflow.audit.start/next`
+  có trường `run_id` tùy chọn. Hành động cũ `tasks.workflow.audit`
+  không phát hành `run_id` hoặc `more` để giữ tương thích với
+  client v1 kiểm tra đúng số trường.
+- Báo cáo có thể nhận biết hai lần chạy cùng `root_task_id`; chưa có
+  lựa chọn ID chạy từ browser, API resume hoặc toàn bộ lịch sử không
+  bị giới hạn. Các tính năng đó vẫn thuộc backlog.
