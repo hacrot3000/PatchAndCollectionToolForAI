@@ -511,3 +511,89 @@ func TestRemoteWorkflowRetryDeniedWithoutHostOptInOrWithOtherPolicies(t *testing
   })
  }
 }
+
+type remoteWorkflowReadyAfterFailedAttempt struct{
+ identity.Store
+ marker string
+}
+func(store remoteWorkflowReadyAfterFailedAttempt)AppendAudit(
+ ctx context.Context,event identity.AuditEvent,
+)error{
+ if event.Action=="remote.action.tasks_workflow_step"&&
+  event.Result=="failed"&&strings.Contains(event.Details,`"attempt":1`){
+  if err:=os.WriteFile(store.marker,[]byte("ready"),0600);err!=nil{return err}
+ }
+ return store.Store.AppendAudit(ctx,event)
+}
+
+func TestRemoteWorkflowSingleRetrySucceedsThenContinues(t *testing.T){
+ remoteWorkflowHostFlags(t)
+ t.Setenv("TASKDECK_REMOTE_TASKS_WORKFLOW_RETRY","1")
+ s,session,client,agent:=remoteTaskOperatorFixture(t)
+ marker:=filepath.Join(s.Workspace,"ready-after-first-failure")
+ source:=fmt.Sprintf(`{"tasks":[
+  {"label":"Probe","type":"process","command":"/bin/test","args":["-f",%q],
+   "taskdeck":{"workflow":{"retry":1}}},
+  {"label":"Downstream","type":"process","command":"/bin/echo",
+   "args":["AFTER-RETRY"],"dependsOn":"Probe"}
+ ]}`,marker)
+ root:=remoteWorkflowIssuedRoot(t,s,session,client,agent,source,"Downstream")
+ original:=s.Identity
+ s.Identity=remoteWorkflowReadyAfterFailedAttempt{Store:original,marker:marker}
+ if err:=s.startRemoteLinearWorkflow(context.Background(),session,root);err!=nil{
+  t.Fatalf("retry task did not start: %v",err)
+ }
+ if status:=awaitRemoteWorkflow(t,session);status!="completed"{
+  t.Fatalf("successful second attempt did not unblock dependent task: %s",status)
+ }
+ job:=session.longTask
+ job.capture.mu.Lock()
+ output:=string(append([]byte(nil),job.capture.data...))
+ job.capture.mu.Unlock()
+ if !strings.Contains(output,"Step 1/2: failed (exit=1, attempt=1)")||
+  !strings.Contains(output,"Step 1/2: completed (exit=0, attempt=2)")||
+  !strings.Contains(output,"AFTER-RETRY")||
+  strings.Count(output,"Step 1/2: Task #")!=2||
+  strings.Count(output,"Step 2/2: Task #")!=1{
+  t.Fatalf("successful retry/order not observed: %q",output)
+ }
+ project,err:=original.ProjectByKey(context.Background(),session.projectKey)
+ if err!=nil{t.Fatal(err)}
+ rows,err:=original.ListAudit(context.Background(),identity.AuditQuery{
+  ProjectID:project.ID,UserID:session.userID,
+  Action:"remote.action.tasks_workflow_step",Limit:12,
+ })
+ if err!=nil||len(rows)!=6{
+  t.Fatalf("successful retry must retain both attempts and next step: %+v %v",rows,err)
+ }
+}
+
+func TestRemoteWorkflowRetryNeverReplaysFailedOutcomeAudit(t *testing.T){
+ remoteWorkflowHostFlags(t)
+ t.Setenv("TASKDECK_REMOTE_TASKS_WORKFLOW_RETRY","1")
+ s,session,client,agent:=remoteTaskOperatorFixture(t)
+ source:=`{"tasks":[
+  {"label":"Fail","type":"process","command":"/bin/false",
+   "taskdeck":{"workflow":{"retry":1}}},
+  {"label":"Never","type":"process","command":"/bin/echo",
+   "args":["NO-RUN"],"dependsOn":"Fail"}
+ ]}`
+ root:=remoteWorkflowIssuedRoot(t,s,session,client,agent,source,"Never")
+ original:=s.Identity
+ s.Identity=remoteWorkflowRejectStepAudit{Store:original,rejectResult:"failed"}
+ if err:=s.startRemoteLinearWorkflow(context.Background(),session,root);err!=nil{
+  t.Fatal(err)
+ }
+ if status:=awaitRemoteWorkflow(t,session);status!="failed"{
+  t.Fatalf("failed audit resumed a retry task: %s",status)
+ }
+ job:=session.longTask
+ job.capture.mu.Lock()
+ output:=string(append([]byte(nil),job.capture.data...))
+ job.capture.mu.Unlock()
+ if strings.Count(output,"Step 1/2: Task #")!=1||
+  strings.Contains(output,"attempt 2/2")||
+  strings.Contains(output,"NO-RUN"){
+  t.Fatalf("retry executed after denied outcome audit: %q",output)
+ }
+}
