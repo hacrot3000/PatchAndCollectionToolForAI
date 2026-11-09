@@ -70,7 +70,11 @@ const sandbox={
  fetch,setInterval(){},setTimeout(fn){timers.push(fn);return timers.length;},Date,Number,String,Promise
 };
 vm.createContext(sandbox);
-new vm.Script(script[1]+"\n;globalThis.__checkCancelQuota=(left)=>{\n  const prior={id:longTaskID,state:longTaskState,pending:longTaskCancelPending,\n    budget,auto:longTaskAuto};\n  longTaskID=21;longTaskState='running';longTaskCancelPending=false;\n  longTaskAuto=false;budget=left;\n  render();\n  const permitted=taskMaintenanceAllowed('/api/tasks-cancel/21');\n  const disabled=longTaskCancel.disabled;\n  longTaskID=prior.id;longTaskState=prior.state;\n  longTaskCancelPending=prior.pending;longTaskAuto=prior.auto;\n  budget=prior.budget;render();\n  return {permitted,disabled};\n};\n",{filename:'cancel-pending-native.js'}).runInContext(sandbox);
+const quotaHook="  globalThis.__checkCancelQuota=(left)=>{\n  const prior={id:longTaskID,state:longTaskState,pending:longTaskCancelPending,\n    budget,auto:longTaskAuto};\n  longTaskID=21;longTaskState='running';longTaskCancelPending=false;\n  longTaskAuto=false;budget=left;\n  render();\n  const permitted=taskMaintenanceAllowed('/api/tasks-cancel/21');\n  const disabled=longTaskCancel.disabled;\n  longTaskID=prior.id;longTaskState=prior.state;\n  longTaskCancelPending=prior.pending;longTaskAuto=prior.auto;\n  budget=prior.budget;render();\n  return {permitted,disabled};\n};\n";
+const anchor='  function taskMaintenanceAllowed(endpoint){';
+assert.ok(script[1].includes(anchor),'quota hook injection anchor missing');
+const instrumented=script[1].replace(anchor,quotaHook+'\n'+anchor);
+new vm.Script(instrumented,{filename:'cancel-pending-native.js'}).runInContext(sandbox);
 const flush=async()=>{for(let i=0;i<50;i++)await Promise.resolve()};
 (async()=>{
  await flush();
