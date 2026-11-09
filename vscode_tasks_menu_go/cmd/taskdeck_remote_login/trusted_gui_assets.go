@@ -980,7 +980,11 @@ const trustedGUIJavaScript = `'use strict';
     if(endpoint==='/api/tasks-clear/'+id)
       return ['completed','failed','cancelled','timed_out'].includes(longTaskState);
     if(endpoint==='/api/tasks-poll/'+id)
-      return (['started','running'].includes(longTaskState)?budget>3:budget>1)&&
+      // Once Cancel was acknowledged, an interim "running" response
+      // does not mean a NEW cancel round is needed. Keep one round for
+      // the final Clear and allow the remaining round to observe exit.
+      return (['started','running'].includes(longTaskState)&&
+        !longTaskCancelPending?budget>3:budget>1)&&
         (['started','running','cancel_requested'].includes(longTaskState)||longTaskMore);
     return false;
   }

@@ -81,7 +81,13 @@ const flush=async()=>{for(let i=0;i<50;i++)await Promise.resolve()};
  row=get('task-preview-labels').children[0];
  row.children[3].click();await flush();
  assert.equal(get('long-task-cancel').disabled,false);
+ // Reserve exactly four E2EE rounds before Cancel: Cancel, two status
+ // polls (the first can still say "running"), and final Clear.
+ remaining=4;
  get('long-task-cancel').click();await flush();
+ assert.equal(remaining,3);
+ assert.equal(get('long-task-poll').disabled,false,
+  'cancel-pending must allow polling with one Clear round reserved');
  assert.equal(get('long-task-cancel').disabled,true,
   'acknowledged cancellation must disable duplicate cancel');
  get('long-task-poll').click();await flush();
@@ -89,6 +95,9 @@ const flush=async()=>{for(let i=0;i<50;i++)await Promise.resolve()};
  assert.match(get('output').textContent,/Đã yêu cầu hủy/);
  assert.equal(get('long-task-cancel').disabled,true,
   'intermediate running poll must not re-arm the cancel button');
+ assert.equal(remaining,2);
+ assert.equal(get('long-task-poll').disabled,false,
+  'cancel-pending running response must allow one more poll and Clear');
  const count=calls.filter(x=>x==='/api/tasks-cancel/21').length;
  const quota=remaining;
  // Force invocation even while the button is disabled, to verify that
@@ -99,6 +108,7 @@ const flush=async()=>{for(let i=0;i<50;i++)await Promise.resolve()};
  get('long-task-poll').click();await flush();
  assert.equal(get('long-task-clear').disabled,false);
  get('long-task-clear').click();await flush();
+ assert.equal(remaining,0,'exactly four cleanup rounds were expected');
  assert.equal(get('long-task-controls').hidden,true);
  get('disconnect').click();await flush();
  assert.equal(get('long-task-output').textContent,'');
