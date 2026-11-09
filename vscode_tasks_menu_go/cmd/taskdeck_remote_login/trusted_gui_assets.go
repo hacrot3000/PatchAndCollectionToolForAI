@@ -1902,8 +1902,8 @@ const trustedGUIJavaScript = `'use strict';
             }
             for(let i=0;i<stepHistory.length;i++){
               const expected=i<step-1?'C':i===step-1?codes[stepStatus]:'-';
-              const finalCleanupFailure=i===step-2&&step===stepTotal&&
-                stepHistory[i]==='F';
+              const finalCleanupFailure=stepStatus!=='skipped'&&
+                i===step-2&&step===stepTotal&&stepHistory[i]==='F';
               if(stepHistory[i]!==expected&&!finalCleanupFailure){
                 throw new Error('Báo cáo từng bước workflow sai trạng thái');
               }

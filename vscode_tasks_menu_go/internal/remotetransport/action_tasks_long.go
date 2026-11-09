@@ -119,7 +119,8 @@ func validLongTaskProgress(p RemoteLongTaskProgress)bool{
     switch{
     case i<p.Step-1:
      if p.StepHistory[i]!='C'&&
-      !(p.Step==p.StepTotal&&i==p.Step-2&&p.StepHistory[i]=='F'){
+      !(p.StepStatus!="skipped"&&p.Step==p.StepTotal&&
+       i==p.Step-2&&p.StepHistory[i]=='F'){
       return false
      }
     case i==p.Step-1:
