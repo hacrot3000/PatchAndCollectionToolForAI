@@ -137,6 +137,8 @@ func (ui *trustedGUI) poison(){
  ui.mu.Lock()
  ui.closed=true
  ui.mu.Unlock()
+ // Expiry/revocation must also interrupt a request already in flight.
+ ui.cancelLifecycle()
  ui.closeAuthenticatedAction()
 }
 
@@ -493,7 +495,12 @@ func (ui *trustedGUI) action(w http.ResponseWriter,r *http.Request){
  remaining:=ui.remaining
  ui.mu.Unlock()
  defer func(){ui.mu.Lock();ui.active=false;ui.mu.Unlock()}()
- ctx,cancel:=context.WithTimeout(r.Context(),16*time.Second)
+ // An action started just before the five-minute GUI expiry must not
+ // continue for a full fresh 16 seconds after its session has expired.
+ deadline:=time.Now().Add(16*time.Second)
+ sessionDeadline:=ui.startedAt.Add(trustedGUIMaxLifetime)
+ if sessionDeadline.Before(deadline){deadline=sessionDeadline}
+ ctx,cancel:=context.WithDeadline(r.Context(),deadline)
  started:=time.Now()
  stopOnClose:=context.AfterFunc(ui.lifecycleCtx,cancel)
  defer func(){stopOnClose();cancel()}()
