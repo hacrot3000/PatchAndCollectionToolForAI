@@ -353,6 +353,16 @@ func TestRemoteLongTaskFailureOnlyFinalSkippedState(t *testing.T){
   got.StepStatus!="skipped"||got.StepDetails!="0:13|-"{ 
   t.Fatalf("skip E2EE metadata corrupted: %+v %v",got,err)
  }
+ transitional:=good
+ transitional.Status="running"
+ transitional.ExitCode=-1
+ client,agent,_=participants(t)
+ frame,err=SealRemoteLongTaskProgress(agent,testActionID,transitional)
+ if err!=nil{t.Fatalf("final skip race must not poison E2EE: %v",err)}
+ got,err=OpenRemoteLongTaskProgress(client,frame,testActionID,21)
+ if err!=nil||got.Status!="running"||got.StepStatus!="skipped"{
+  t.Fatalf("in-flight final skip transition lost: %+v %v",got,err)
+ }
  triple:=good
  triple.Step=3;triple.StepTotal=3
  triple.StepHistory="CCS"

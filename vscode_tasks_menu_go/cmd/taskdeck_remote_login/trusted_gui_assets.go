@@ -1897,7 +1897,8 @@ const trustedGUIJavaScript = `'use strict';
             const codes={running:'R',completed:'C',skipped:'S',
               failed:'F',cancelled:'X',timed_out:'T'};
             if(stepStatus==='skipped'&&
-              (step!==stepTotal||data.status!=='completed'||!stepHistory)){
+              (step!==stepTotal||
+               !['running','completed'].includes(data.status)||!stepHistory)){
               throw new Error('Bước bỏ qua chỉ hợp lệ ở cuối workflow thành công');
             }
             for(let i=0;i<stepHistory.length;i++){

@@ -106,7 +106,11 @@ func validLongTaskProgress(p RemoteLongTaskProgress)bool{
   case "completed":expected='C'
   case "skipped":
    expected='S'
-   if p.Step!=p.StepTotal||p.Status!="completed"||
+   // Poll can observe the final step becoming skipped before the
+   // aggregate job status is published. Both states are authenticated
+   // under the same job mutex, so permit this temporary running state.
+   if p.Step!=p.StepTotal||
+    (p.Status!="completed"&&p.Status!="running")||
     p.StepHistory==""{return false}
   case "failed":expected='F'
   case "cancelled":expected='X'
