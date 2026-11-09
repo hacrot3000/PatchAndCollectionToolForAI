@@ -121,7 +121,7 @@ const trustedGUIHTML = `<!doctype html>
      <div class="tile-heading"><span class="dot"></span><h2>Task của workspace</h2></div>
      <p>Xem task qua E2EE. Khi host bật quyền, chạy task ngắn hoặc job dài có giới hạn; hỗ trợ các input process token/pickString đã xác minh. Không nhập lệnh shell tùy ý từ client.</p>
      <div class="actions">
-      <button type="button" id="tasks-preview">Xem trước task</button><button type="button" id="tasks-report" disabled>Xem báo cáo task gần đây</button>
+      <button type="button" id="tasks-preview">Xem trước task</button><button type="button" id="tasks-report" disabled>Xem báo cáo task gần đây</button><button type="button" id="tasks-workflow-audit" disabled>Xem audit bước workflow</button>
       <button type="button" id="task-run-stop" hidden>Dừng task và ngắt phiên</button>
      </div>
      <div class="actions" id="long-task-controls" hidden>
@@ -362,6 +362,7 @@ const trustedGUIJavaScript = `'use strict';
   const project=document.getElementById('project');
   const tasksPreview=document.getElementById('tasks-preview');
   const tasksReport=document.getElementById('tasks-report');
+  const workflowAuditButton=document.getElementById('tasks-workflow-audit');
   const tasksReportOutput=document.getElementById('tasks-report-output');
   const taskRunStop=document.getElementById('task-run-stop');
   const longTaskControls=document.getElementById('long-task-controls');
@@ -1183,6 +1184,7 @@ const trustedGUIJavaScript = `'use strict';
     filesReadNext.disabled=filesReadStart.disabled||!filesReadMore;
     tasksPreview.disabled=busy||closed||!verified||budget<=0||maintenanceOnly||!featuresKnown||!available.tasks_preview;
     tasksReport.disabled=tasksPreview.disabled;
+    workflowAuditButton.disabled=tasksReport.disabled;
     const depsID=Number(taskDepsSelect.value);
     taskDepsSelect.disabled=tasksPreview.disabled||
       !cachedTaskIDs.some(id=>Number.isInteger(id)&&id>0);
@@ -1676,6 +1678,40 @@ const trustedGUIJavaScript = `'use strict';
               const when=new Date(item.timestamp*1000).toLocaleString('vi-VN');
               return when+' · Task #'+item.task_id+' · '+item.status+
                 ' · exit '+item.exit_code+' · '+item.duration_ms+' ms';
+            }).join('\n');
+          tasksReportOutput.hidden=false;
+         }
+         if(endpoint==='/api/tasks-workflow-audit'){
+          if(data.remote_control_available!==false||!Array.isArray(data.items)||
+            data.items.length>2||data.items.some((item,i)=>
+              !item||typeof item!=='object'||
+              Object.keys(item).sort().join(',')!==
+              'attempt,exit_code,root_task_id,status,step,task_id,timestamp,total'||
+              !Number.isInteger(item.root_task_id)||item.root_task_id<1||
+              item.root_task_id>2147483647||
+              !Number.isInteger(item.task_id)||item.task_id<1||
+              item.task_id>2147483647||
+              !Number.isInteger(item.step)||item.step<1||
+              !Number.isInteger(item.total)||item.total<2||item.total>4||
+              item.step>item.total||
+              !Number.isInteger(item.attempt)||item.attempt<1||item.attempt>2||
+              !['completed','failed','cancelled','timed_out'].includes(item.status)||
+              !Number.isInteger(item.exit_code)||item.exit_code< -1||
+              item.exit_code>255||(item.status==='completed'&&item.exit_code!==0)||
+              !Number.isInteger(item.timestamp)||item.timestamp<1577836800||
+              item.timestamp>Math.floor(Date.now()/1000)+300||
+              (i>0&&item.timestamp>data.items[i-1].timestamp))){
+            throw new Error('Báo cáo bước workflow E2EE không hợp lệ');
+          }
+          tasksReportOutput.textContent=data.items.length===0?
+            'Không có kết quả bước workflow hợp lệ của tài khoản này.':
+            'Hai sự kiện bước workflow gần nhất, không phải lịch sử toàn bộ job:\n'+
+            data.items.map(item=>{
+              const when=new Date(item.timestamp*1000).toLocaleString('vi-VN');
+              return when+' · Workflow #'+item.root_task_id+
+                ' · Bước '+item.step+'/'+item.total+' (Task #'+item.task_id+
+                ') · Lần '+item.attempt+' · '+item.status+
+                ' · exit '+item.exit_code;
             }).join('\n');
           tasksReportOutput.hidden=false;
          }
@@ -2728,6 +2764,7 @@ const trustedGUIJavaScript = `'use strict';
     invoke('/api/tasks-workflow-start/'+String(id));
   });
   tasksReport.addEventListener('click',()=>invoke('/api/tasks-report'));
+  workflowAuditButton.addEventListener('click',()=>invoke('/api/tasks-workflow-audit'));
   taskFetchNext.addEventListener('click',()=>{
     if(!canFetchTaskNext||bulkLoading||closed||busy||budget<=0)return;
     invoke('/api/tasks-preview-next');
