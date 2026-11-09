@@ -2550,3 +2550,31 @@ shared-PHP deployment validation remain required.
   remote hardening. A source-complete feature is not open merely due
   to missing physical Linux/macOS/NAT deployment validation.
   `remote_control_available=false` and live release NO-GO persist.
+
+
+## 2026-11-09 — main: Git Push upstream mapping must match current branch
+
+- **Source:** `4fe6fee` adds a host-side Git Push preflight that resolves
+  `@{upstream}` with the same isolated, fixed-argv Git runner used by the
+  other checks. The exact resolved tracking ref must be
+  `refs/remotes/<approved remote>/<current branch>`, matching Git Pull.
+  Checking only `branch.<branch>.merge` is insufficient when
+  `remote.<remote>.fetch` remaps branch fetches into a different local
+  tracking ref. A nonmatching or missing upstream fails before network,
+  local write audit or SSH process creation; no remote name/URL/refspec
+  may be supplied by the E2EE client.
+- **Regression:** `ce480d2` extends the host Git Push test fixture to
+  deliberately remap the upstream to `refs/remotes/origin/alias`, confirms
+  Git resolves that exact alias, then checks both denied action and the
+  absence of an SSH invocation marker. It restores the ordinary refspec
+  before the existing multiple-push-URL guard. The test is picked up by
+  the existing mandatory `go test -race` Git Push CI selections.
+- **Validation:** local Git command-line reproduction confirmed
+  `@{upstream}` may resolve to an alias despite a matching
+  `branch.<branch>.merge`. GitHub Actions must still verify the exact
+  Go source HEAD; an unreported or pending run is NOT a passing run.
+  No source-complete feature is reopened solely for missing LIVE field
+  deployment. Production `remote_control_available=false` unchanged.
+- **Next:** finish remaining Git Pull → Commit → Push edge cases, shared
+  workspace inter-session mutation isolation, then Terminal, other Git,
+  remaining GUI and remote security in the agreed order.
