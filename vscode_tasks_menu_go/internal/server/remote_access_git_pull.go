@@ -153,7 +153,7 @@ func (s *Server) executeRemoteGitPull(
   // without an explicit remote+ref can fetch every remote.fetch refspec
   // and auto-follow tags, mutating unrelated tracking refs/tags.
   "-C",root,"pull","--ff-only","--no-recurse-submodules","--no-edit",
-  "--no-tags",remote,branch)
+  "--no-tags","--upload-pack=git-upload-pack",remote,branch)
  if err!=nil||pullCtx.Err()!=nil||session.closed.Load(){return empty,denied}
  after,err:=read(ctx,"rev-parse","--verify","HEAD")
  if err!=nil||!remoteGitObjectID.MatchString(after){return empty,denied}

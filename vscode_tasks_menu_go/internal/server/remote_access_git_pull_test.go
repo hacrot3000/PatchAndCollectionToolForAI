@@ -124,11 +124,14 @@ func TestRemoteGitPullFastForwardFromSingleSSHUpstream(t *testing.T){
  run(other,"tag","taskdeck-unrelated-tag")
  run(other,"push","-q","origin","refs/tags/taskdeck-unrelated-tag")
  run(s.Workspace,"remote","add","origin","ssh://git@example.invalid/repo.git")
+ run(s.Workspace,"config","remote.origin.uploadpack","taskdeck-unapproved-upload-pack")
  run(s.Workspace,"config","branch."+branch+".remote","origin")
  run(s.Workspace,"config","branch."+branch+".merge","refs/heads/"+branch)
  run(s.Workspace,"update-ref","refs/remotes/origin/"+branch,before)
  mockBin:=t.TempDir()
- script:="#!/bin/sh\nexec "+strconv.Quote(gitPath)+" upload-pack "+strconv.Quote(bare)+"\n"
+ argsLog:=filepath.Join(mockBin,"ssh-argv")
+ script:="#!/bin/sh\nprintf '%s\\n' \"$@\" > "+strconv.Quote(argsLog)+
+  "\nexec "+strconv.Quote(gitPath)+" upload-pack "+strconv.Quote(bare)+"\n"
  if err:=os.WriteFile(filepath.Join(mockBin,"ssh"),[]byte(script),0700);err!=nil{t.Fatal(err)}
  t.Setenv("PATH",mockBin+string(os.PathListSeparator)+os.Getenv("PATH"))
  result,err:=s.executeRemoteGitPull(context.Background(),session)
@@ -137,6 +140,11 @@ func TestRemoteGitPullFastForwardFromSingleSSHUpstream(t *testing.T){
  }
  if got:=run(s.Workspace,"rev-parse","HEAD");got!=want{
   t.Fatalf("pulled HEAD %s != %s",got,want)
+ }
+ passed,err:=os.ReadFile(argsLog)
+ if err!=nil||!strings.Contains(string(passed),"git-upload-pack")||
+  strings.Contains(string(passed),"taskdeck-unapproved-upload-pack"){
+  t.Fatalf("Git Pull allowed remote.uploadpack to override the fixed command: %q %v",passed,err)
  }
  for _,ref:=range []string{
   "refs/remotes/origin/taskdeck-unrelated",

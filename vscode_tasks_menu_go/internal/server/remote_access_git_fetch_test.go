@@ -108,6 +108,7 @@ func TestRemoteGitFetchUpstreamAdvancementWithoutChangingHEAD(t *testing.T){
  run(s.Workspace,"push",bare,"HEAD:refs/heads/"+branch)
  run(s.Workspace,"reset","--hard",head)
  run(s.Workspace,"remote","add","origin","ssh://git@example.invalid/team/repo.git")
+ run(s.Workspace,"config","remote.origin.uploadpack","taskdeck-unapproved-upload-pack")
  run(s.Workspace,"config","branch."+branch+".remote","origin")
  run(s.Workspace,"config","branch."+branch+".merge","refs/heads/"+branch)
  run(s.Workspace,"update-ref","refs/remotes/origin/"+branch,head)
@@ -115,7 +116,9 @@ func TestRemoteGitFetchUpstreamAdvancementWithoutChangingHEAD(t *testing.T){
  mockBin:=t.TempDir()
  // This SSH binary is ONLY a CI fixture and always serves the temp bare
  // repository; production E2EE cannot select an SSH binary or transport.
- fakeSSH:="#!/bin/sh\nexec "+strconv.Quote(gitPath)+" upload-pack "+strconv.Quote(bare)+"\n"
+ argsLog:=filepath.Join(mockBin,"ssh-argv")
+ fakeSSH:="#!/bin/sh\nprintf '%s\\n' \"$@\" > "+strconv.Quote(argsLog)+
+  "\nexec "+strconv.Quote(gitPath)+" upload-pack "+strconv.Quote(bare)+"\n"
  if err:=os.WriteFile(filepath.Join(mockBin,"ssh"),[]byte(fakeSSH),0700);err!=nil{t.Fatal(err)}
  t.Setenv("PATH",mockBin+string(os.PathListSeparator)+os.Getenv("PATH"))
  result,err:=s.executeRemoteGitFetch(context.Background(),session)
@@ -125,6 +128,11 @@ func TestRemoteGitFetchUpstreamAdvancementWithoutChangingHEAD(t *testing.T){
  }
  if after:=run(s.Workspace,"rev-parse","HEAD");after!=head{
   t.Fatalf("fetch moved local HEAD: %s != %s",after,head)
+ }
+ passed,err:=os.ReadFile(argsLog)
+ if err!=nil||!strings.Contains(string(passed),"git-upload-pack")||
+  strings.Contains(string(passed),"taskdeck-unapproved-upload-pack"){
+  t.Fatalf("Git Fetch allowed remote.uploadpack to override the fixed command: %q %v",passed,err)
  }
  unchanged,err:=s.executeRemoteGitFetch(context.Background(),session)
  if err!=nil||unchanged.Updated||unchanged.After!=latest{

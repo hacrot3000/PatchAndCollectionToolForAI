@@ -121,7 +121,7 @@ func(s *Server)executeRemoteGitFetch(
  // The host's worktree, index, local HEAD, tags and other refs are not
  // selected for updates.
  _,err=run(fetchCtx,0,"fetch","--no-tags","--no-recurse-submodules",
-  "--no-write-fetch-head",remote,
+  "--no-write-fetch-head","--upload-pack=git-upload-pack",remote,
   "refs/heads/"+branch+":"+tracking)
  if err!=nil||fetchCtx.Err()!=nil||session.closed.Load(){return empty,denied}
  after,err:=run(ctx,256,"rev-parse","--verify",tracking+"^{commit}")
