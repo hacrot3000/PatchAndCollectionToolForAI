@@ -25,6 +25,11 @@ type RemoteLongTaskProgress struct {
  Output string
  Truncated bool
  More bool // More output is buffered on Agent after this response.
+ Step int
+ StepTotal int
+ Attempt int
+ AttemptTotal int
+ StepStatus string
 }
 type remoteLongTaskProgressWire struct {
  Type string `json:"type"`
@@ -36,6 +41,11 @@ type remoteLongTaskProgressWire struct {
  Truncated bool `json:"truncated"`
  More bool `json:"more"`
  RemoteControlAvailable bool `json:"remote_control_available"`
+ Step int `json:"step,omitempty"`
+ StepTotal int `json:"step_total,omitempty"`
+ Attempt int `json:"attempt,omitempty"`
+ AttemptTotal int `json:"attempt_total,omitempty"`
+ StepStatus string `json:"step_status,omitempty"`
 }
 func validLongTaskProgress(p RemoteLongTaskProgress)bool{
  if !validSelectedTaskID(p.TaskID)||p.ExitCode< -1||p.ExitCode>255||
@@ -50,6 +60,19 @@ func validLongTaskProgress(p RemoteLongTaskProgress)bool{
   p.Status=="cancel_requested"||p.Status=="cleared")&&p.ExitCode!= -1{return false}
  if (p.Status=="started"||p.Status=="cancel_requested"||p.Status=="cleared")&&p.More{
   return false
+ }
+ workflow:=p.Step!=0||p.StepTotal!=0||p.Attempt!=0||
+  p.AttemptTotal!=0||p.StepStatus!=""
+ if workflow{
+  if p.Status=="started"||p.Status=="cancel_requested"||
+   p.Status=="cleared"||p.Step<1||p.StepTotal<2||
+   p.StepTotal>4||p.Step>p.StepTotal||
+   p.Attempt<1||p.AttemptTotal<1||p.AttemptTotal>2||
+   p.Attempt>p.AttemptTotal||len(p.Output)>64{return false}
+  switch p.StepStatus{
+  case "running","completed","failed","cancelled","timed_out":
+  default:return false
+  }
  }
  for _,r:=range p.Output{
   if r=='\n'||r=='\t'{continue}
@@ -68,6 +91,8 @@ func SealRemoteLongTaskProgress(ch *Channel,id string,p RemoteLongTaskProgress)(
   Type:RemoteLongTaskProgressProtocol,RequestID:id,TaskID:p.TaskID,
   Status:p.Status,ExitCode:p.ExitCode,Output:p.Output,Truncated:p.Truncated,
   More:p.More,RemoteControlAvailable:false,
+  Step:p.Step,StepTotal:p.StepTotal,Attempt:p.Attempt,
+  AttemptTotal:p.AttemptTotal,StepStatus:p.StepStatus,
  })
  if err!=nil{return nil,ErrInvalidRemoteAction}
  clear:=bytes.TrimSuffix(clearBuffer.Bytes(),[]byte{10})
@@ -82,8 +107,10 @@ func OpenRemoteLongTaskProgress(ch *Channel,frame []byte,id string,taskID int)(R
  clear,err:=ch.Open(frame)
  if err!=nil{return zero,ErrInvalidRemoteAction}
  defer wipeLoginBytes(clear)
- fields,err:=decodeActionObject(clear,"type","request_id","task_id",
-  "status","exit_code","output","truncated","more","remote_control_available")
+ fields,err:=decodeActionObjectWithOptionals(clear,
+  []string{"type","request_id","task_id","status","exit_code",
+   "output","truncated","more","remote_control_available"},
+  []string{"step","step_total","attempt","attempt_total","step_status"})
  if err!=nil{ch.Close();return zero,ErrInvalidRemoteAction}
  var typ,requestID string
  var p RemoteLongTaskProgress
@@ -98,8 +125,27 @@ func OpenRemoteLongTaskProgress(ch *Channel,frame []byte,id string,taskID int)(R
   json.Unmarshal(fields["output"],&p.Output)!=nil||
   json.Unmarshal(fields["truncated"],&p.Truncated)!=nil||
   json.Unmarshal(fields["more"],&p.More)!=nil||
-  typ!=RemoteLongTaskProgressProtocol||requestID!=id||
-  p.TaskID!=taskID||!validLongTaskProgress(p){
+  typ!=RemoteLongTaskProgressProtocol||requestID!=id{
+  ch.Close();return zero,ErrInvalidRemoteAction
+ }
+ optional:=[]string{"step","step_total","attempt","attempt_total","step_status"}
+ present:=0
+ for _,key:=range optional{
+  if _,found:=fields[key];found{present++}
+ }
+ if present!=0&&present!=len(optional){
+  ch.Close();return zero,ErrInvalidRemoteAction
+ }
+ if present==len(optional){
+  if json.Unmarshal(fields["step"],&p.Step)!=nil||
+   json.Unmarshal(fields["step_total"],&p.StepTotal)!=nil||
+   json.Unmarshal(fields["attempt"],&p.Attempt)!=nil||
+   json.Unmarshal(fields["attempt_total"],&p.AttemptTotal)!=nil||
+   json.Unmarshal(fields["step_status"],&p.StepStatus)!=nil{
+   ch.Close();return zero,ErrInvalidRemoteAction
+  }
+ }
+ if p.TaskID!=taskID||!validLongTaskProgress(p){
   ch.Close();return zero,ErrInvalidRemoteAction
  }
  return p,nil

@@ -106,3 +106,63 @@ func TestRemoteLongTaskEscapedOutputFitsFixedE2EEEnvelope(t *testing.T){
   }
  }
 }
+
+ 
+func TestRemoteLongTaskWorkflowStepTypedE2EERoundTrip(t *testing.T){
+ for _,state:=range []string{"running","completed","failed","cancelled","timed_out"}{
+  client,agent,_:=participants(t)
+  input:=RemoteLongTaskProgress{
+   TaskID:23,Status:"running",ExitCode:-1,Output:"step",
+   Step:2,StepTotal:4,Attempt:2,AttemptTotal:2,StepStatus:state,
+  }
+  frame,err:=SealRemoteLongTaskProgress(agent,testActionID,input)
+  if err!=nil{t.Fatalf("workflow progress %q not sealed: %v",state,err)}
+  result,err:=OpenRemoteLongTaskProgress(client,frame,testActionID,23)
+  if err!=nil||result.Step!=2||result.StepTotal!=4||
+   result.Attempt!=2||result.AttemptTotal!=2||result.StepStatus!=state{
+   t.Fatalf("authenticated workflow fields lost: %+v %v",result,err)
+  }
+ }
+}
+
+func TestRemoteLongTaskRejectsPartialOrOutOfBoundsWorkflowMetadata(t *testing.T){
+ invalid:=[]RemoteLongTaskProgress{
+  {TaskID:3,Status:"running",ExitCode:-1,Step:1},
+  {TaskID:3,Status:"running",ExitCode:-1,Step:1,StepTotal:5,
+   Attempt:1,AttemptTotal:1,StepStatus:"running"},
+  {TaskID:3,Status:"running",ExitCode:-1,Step:2,StepTotal:1,
+   Attempt:1,AttemptTotal:1,StepStatus:"running"},
+  {TaskID:3,Status:"running",ExitCode:-1,Step:1,StepTotal:2,
+   Attempt:3,AttemptTotal:2,StepStatus:"running"},
+  {TaskID:3,Status:"running",ExitCode:-1,Step:1,StepTotal:2,
+   Attempt:1,AttemptTotal:1,StepStatus:"unknown"},
+  {TaskID:3,Status:"started",ExitCode:-1,Step:1,StepTotal:2,
+   Attempt:1,AttemptTotal:1,StepStatus:"running"},
+  {TaskID:3,Status:"running",ExitCode:-1,Step:1,StepTotal:2,
+   Attempt:1,AttemptTotal:1,StepStatus:"running",Output:strings.Repeat("X",65)},
+ }
+ for _,value:=range invalid{
+  _,agent,_:=participants(t)
+  if _,err:=SealRemoteLongTaskProgress(agent,testActionID,value);err==nil{
+   t.Fatalf("unsafe workflow metadata accepted: %+v",value)
+  }
+ }
+ for _,jsonSource:=range []string{
+  `{"type":"taskdeck-e2ee-task-progress-v1","request_id":"`+testActionID+
+   `","task_id":3,"status":"running","exit_code":-1,"output":"",
+     "truncated":false,"more":false,"remote_control_available":false,
+     "step":1}`,
+  `{"type":"taskdeck-e2ee-task-progress-v1","request_id":"`+testActionID+
+   `","task_id":3,"status":"running","exit_code":-1,"output":"",
+     "truncated":false,"more":false,"remote_control_available":false,
+     "step":1,"step":2}`,
+ }{
+  client,agent,_:=participants(t)
+  frame,err:=agent.Seal([]byte(jsonSource))
+  if err!=nil{t.Fatal(err)}
+  if _,err:=OpenRemoteLongTaskProgress(client,frame,testActionID,3);err==nil{
+   t.Fatalf("malformed metadata not denied: %s",jsonSource)
+  }
+  if client.Established(){t.Fatal("malformed workflow metadata did not revoke channel")}
+ }
+}
