@@ -22,12 +22,16 @@ type RemoteWorkflowAuditEntry struct{
  ExitCode int `json:"exit_code"`
  Timestamp int64 `json:"timestamp"`
 }
-type RemoteWorkflowAudit struct{ Items []RemoteWorkflowAuditEntry }
+type RemoteWorkflowAudit struct{
+ Items []RemoteWorkflowAuditEntry
+ More bool // Host-owned E2EE cursor has further final step results.
+}
 type remoteWorkflowAuditWire struct{
  Type string `json:"type"`
  RequestID string `json:"request_id"`
  Items []RemoteWorkflowAuditEntry `json:"items"`
  RemoteControlAvailable bool `json:"remote_control_available"`
+ More bool `json:"more,omitempty"`
 }
 func ValidRemoteWorkflowAuditEntry(item RemoteWorkflowAuditEntry)bool{
  if !validSelectedTaskID(item.RootTaskID)||!validSelectedTaskID(item.TaskID)||
@@ -43,7 +47,8 @@ func ValidRemoteWorkflowAuditEntry(item RemoteWorkflowAuditEntry)bool{
  }
 }
 func ValidRemoteWorkflowAudit(report RemoteWorkflowAudit)bool{
- if len(report.Items)>MaxRemoteWorkflowAuditEntries{return false}
+ if len(report.Items)>MaxRemoteWorkflowAuditEntries||
+  (report.More&&len(report.Items)!=MaxRemoteWorkflowAuditEntries){return false}
  for i,item:=range report.Items{
   if !ValidRemoteWorkflowAuditEntry(item)||
    (i>0&&item.Timestamp>report.Items[i-1].Timestamp){return false}
@@ -56,7 +61,7 @@ func SealRemoteWorkflowAudit(ch *Channel,id string,report RemoteWorkflowAudit)([
  if report.Items==nil{report.Items=[]RemoteWorkflowAuditEntry{}}
  clear,err:=json.Marshal(remoteWorkflowAuditWire{
   Type:RemoteWorkflowAuditProtocol,RequestID:id,Items:report.Items,
-  RemoteControlAvailable:false,
+  RemoteControlAvailable:false,More:report.More,
  })
  if err!=nil||len(clear)>maxRemoteActionPlaintext{return nil,ErrInvalidRemoteAction}
  return ch.Seal(clear)
@@ -74,7 +79,9 @@ func OpenRemoteWorkflowAudit(ch *Channel,frame []byte,id string)(RemoteWorkflowA
  clear,err:=ch.Open(frame)
  if err!=nil{return denied,ErrInvalidRemoteAction}
  defer wipeLoginBytes(clear)
- fields,err:=decodeActionObject(clear,"type","request_id","items","remote_control_available")
+ fields,err:=decodeActionObjectWithOptionals(clear,
+  []string{"type","request_id","items","remote_control_available"},
+  []string{"more"})
  if err!=nil||string(fields["remote_control_available"])!="false"{
   ch.Close();return denied,ErrInvalidRemoteAction
  }
@@ -89,6 +96,12 @@ func OpenRemoteWorkflowAudit(ch *Channel,frame []byte,id string)(RemoteWorkflowA
   ch.Close();return denied,ErrInvalidRemoteAction
  }
  result:=RemoteWorkflowAudit{Items:make([]RemoteWorkflowAuditEntry,0,len(rawItems))}
+ if rawMore,found:=fields["more"];found{
+  if string(rawMore)!="true"&&string(rawMore)!="false"{
+   ch.Close();return denied,ErrInvalidRemoteAction
+  }
+  result.More=string(rawMore)=="true"
+ }
  for _,raw:=range rawItems{
   sub,e:=decodeActionObject(raw,"root_task_id","task_id","step","total",
    "attempt","status","exit_code","timestamp")

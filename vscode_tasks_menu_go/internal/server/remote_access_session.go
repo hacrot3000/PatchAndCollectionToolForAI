@@ -107,6 +107,13 @@ type remoteTaskDeckSession struct {
  gitTrackingCursor int
  gitTrackingPage int
  gitTrackingDigest [32]byte
+ // Stable host-issued workflow audit pages. No caller-provided index,
+ // time filter, root task ID or continuation token may affect selection.
+ // Cache is bounded, per principal, and discarded on session Close.
+ workflowAuditPageMu sync.Mutex
+ workflowAuditPageReady bool
+ workflowAuditPageCursor int
+ workflowAuditPageItems []remotetransport.RemoteWorkflowAuditEntry
  // Only these stable IDs were actually published by E2EE task preview.
  // A guessed ID from PHP/Relay cannot be inspected or used as authority.
  taskIssuedIDs map[int]bool

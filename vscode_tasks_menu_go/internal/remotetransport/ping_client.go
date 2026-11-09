@@ -270,6 +270,10 @@ func (p *PingClient) WorkflowAudit(ctx context.Context)(RemoteWorkflowAudit,erro
  reply,err:=p.exchangeAction(ctx,RemoteActionTasksWorkflowAudit)
  return reply.workflowAudit,err
 }
+func (p *PingClient) WorkflowAuditNext(ctx context.Context)(RemoteWorkflowAudit,error){
+ reply,err:=p.exchangeAction(ctx,RemoteActionTasksWorkflowAuditNext)
+ return reply.workflowAudit,err
+}
 func (p *PingClient) TasksPreviewNext(ctx context.Context)(RemoteTasksPreview,error){
  reply,err:=p.exchangeAction(ctx,RemoteActionTasksPreviewNext)
  return reply.preview,err
@@ -483,7 +487,7 @@ func (p *PingClient) exchangePayloadAction(ctx context.Context,operation string,
   result.preview,err=OpenRemoteActionTasksPreviewResult(channel,reply,id)
  case RemoteActionTasksReport:
   result.taskReport,err=OpenRemoteTaskReport(channel,reply,id)
- case RemoteActionTasksWorkflowAudit:
+ case RemoteActionTasksWorkflowAudit,RemoteActionTasksWorkflowAuditNext:
   result.workflowAudit,err=OpenRemoteWorkflowAudit(channel,reply,id)
  case RemoteActionTasksInspect:
   result.inspect,err=OpenRemoteActionTasksInspectResult(channel,reply,id,taskID)

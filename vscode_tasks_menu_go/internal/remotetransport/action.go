@@ -29,6 +29,7 @@ const RemoteActionTasksPreviewNext = "tasks.preview.next"
 const RemoteActionTasksReport = "tasks.report"
 // Read-only host-local durable audit of completed workflow steps; no resume.
 const RemoteActionTasksWorkflowAudit = "tasks.workflow.audit"
+const RemoteActionTasksWorkflowAuditNext = "tasks.workflow.audit.next"
 // Selected, read-only preflight; no process or command can start.
 const RemoteActionTasksInspect = "tasks.inspect"
 // Host-opted-in bounded task execution; no client-selected shell or arguments.
@@ -158,7 +159,7 @@ func remoteTaskInputOperation(op string)bool{
 func validRemoteOperation(op string)bool{
  return terminalOperation(op)||op==RemoteActionSessionPing || op==RemoteActionSessionFeatures ||
   op==RemoteActionGitStatus || op==RemoteActionGitRemotes || op==RemoteActionGitTrackingStart || op==RemoteActionGitTrackingNext || op==RemoteActionGitLog || op==RemoteActionGitBranches || op==RemoteActionGitBranchCreate || op==RemoteActionGitSwitchReview || op==RemoteActionGitSwitchSameHead || op==RemoteActionGitBranchDeleteReview || op==RemoteActionGitBranchDelete || op==RemoteActionGitDiff || op==RemoteActionGitPatchStart || op==RemoteActionGitPatchNext || op==RemoteActionGitPatchCachedStart || op==RemoteActionGitPatchCachedNext || op==RemoteActionGitFetch || op==RemoteActionGitStageTracked || op==RemoteActionGitUnstageAll || op==RemoteActionGitStageFile || op==RemoteActionGitUnstageFile || op==RemoteActionGitPull || op==RemoteActionGitPullReview || op==RemoteActionGitPullChanges || op==RemoteActionGitCommit || op==RemoteActionGitPush || op==RemoteActionProjectInfo || op==RemoteActionFilesRoot || op==RemoteActionFilesRootNext || op==RemoteActionFilesReadStart || op==RemoteActionFilesReadNext || op==RemoteActionFilesReadSelect || op==RemoteActionFilesDirSelect || op==RemoteActionFilesDirNext ||
-  op==RemoteActionTasksPreview || op==RemoteActionTasksPreviewNext || op==RemoteActionTasksReport || op==RemoteActionTasksWorkflowAudit ||
+  op==RemoteActionTasksPreview || op==RemoteActionTasksPreviewNext || op==RemoteActionTasksReport || op==RemoteActionTasksWorkflowAudit || op==RemoteActionTasksWorkflowAuditNext ||
   op==RemoteActionTasksInspect || op==RemoteActionTasksDependencies || op==RemoteActionTasksRun ||
   op==RemoteActionTasksStart || op==RemoteActionTasksWorkflowStart || op==RemoteActionTasksPoll ||
   op==RemoteActionTasksCancel || op==RemoteActionTasksClear

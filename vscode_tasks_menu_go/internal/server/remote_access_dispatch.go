@@ -44,6 +44,7 @@ func (s *Server) auditRemoteReadOnlyAction(session *remoteTaskDeckSession, opera
     operation!=remotetransport.RemoteActionTasksPreviewNext &&
     operation!=remotetransport.RemoteActionTasksReport &&
     operation!=remotetransport.RemoteActionTasksWorkflowAudit &&
+    operation!=remotetransport.RemoteActionTasksWorkflowAuditNext &&
     operation!=remotetransport.RemoteActionTasksInspect &&
     operation!=remotetransport.RemoteActionTasksDependencies &&
     operation!=remotetransport.RemoteActionTasksPoll &&
@@ -66,7 +67,7 @@ func (s *Server) auditRemoteReadOnlyAction(session *remoteTaskDeckSession, opera
  if operation==remotetransport.RemoteActionGitStatus||operation==remotetransport.RemoteActionGitLog||operation==remotetransport.RemoteActionGitBranches||operation==remotetransport.RemoteActionGitRemotes||operation==remotetransport.RemoteActionGitTrackingStart||operation==remotetransport.RemoteActionGitTrackingNext||operation==remotetransport.RemoteActionGitPullReview||operation==remotetransport.RemoteActionGitSwitchReview||operation==remotetransport.RemoteActionGitBranchDeleteReview||operation==remotetransport.RemoteActionGitPullChanges||operation==remotetransport.RemoteActionGitDiff||operation==remotetransport.RemoteActionGitPatchStart||operation==remotetransport.RemoteActionGitPatchNext||operation==remotetransport.RemoteActionGitPatchCachedStart||operation==remotetransport.RemoteActionGitPatchCachedNext {resourceType="git"}
  if operation==remotetransport.RemoteActionProjectInfo {resourceType="project"}
  if operation==remotetransport.RemoteActionFilesRoot||operation==remotetransport.RemoteActionFilesRootNext||operation==remotetransport.RemoteActionFilesReadStart||operation==remotetransport.RemoteActionFilesReadNext||operation==remotetransport.RemoteActionFilesReadSelect||operation==remotetransport.RemoteActionFilesDirSelect||operation==remotetransport.RemoteActionFilesDirNext{resourceType="files"}
- if operation==remotetransport.RemoteActionTasksPreview || operation==remotetransport.RemoteActionTasksPreviewNext || operation==remotetransport.RemoteActionTasksReport || operation==remotetransport.RemoteActionTasksWorkflowAudit || operation==remotetransport.RemoteActionTasksInspect || operation==remotetransport.RemoteActionTasksDependencies ||
+ if operation==remotetransport.RemoteActionTasksPreview || operation==remotetransport.RemoteActionTasksPreviewNext || operation==remotetransport.RemoteActionTasksReport || operation==remotetransport.RemoteActionTasksWorkflowAudit || operation==remotetransport.RemoteActionTasksWorkflowAuditNext || operation==remotetransport.RemoteActionTasksInspect || operation==remotetransport.RemoteActionTasksDependencies ||
   operation==remotetransport.RemoteActionTasksPoll || operation==remotetransport.RemoteActionTasksClear {resourceType="tasks"}
  if operation==remotetransport.RemoteActionSessionFeatures {resourceType="session"}
  if operation==remotetransport.RemoteActionTerminalPoll {resourceType="terminal"}
@@ -119,6 +120,11 @@ func (s *Server) executeRemoteE2EEPing(
  // the same in-memory per-session snapshot lock as the page cursor.
  // Dependency inspection reads the issued Task.ID map and source hash,
  // so it must share the preview cursor's lock with every task mutation.
+ if request.Operation==remotetransport.RemoteActionTasksWorkflowAudit||
+  request.Operation==remotetransport.RemoteActionTasksWorkflowAuditNext{
+  session.workflowAuditPageMu.Lock()
+  defer session.workflowAuditPageMu.Unlock()
+ }
  if paging || request.Operation==remotetransport.RemoteActionTasksInspect ||
   request.Operation==remotetransport.RemoteActionTasksDependencies ||
   request.Operation==remotetransport.RemoteActionTasksRun ||
@@ -205,7 +211,7 @@ func (s *Server) executeRemoteE2EEPing(
   remotetransport.RemoteActionFilesReadSelect,remotetransport.RemoteActionFilesDirSelect,remotetransport.RemoteActionFilesDirNext:
   permission=identity.PermissionFilesRead
  case remotetransport.RemoteActionTasksPreview,remotetransport.RemoteActionTasksPreviewNext,
-  remotetransport.RemoteActionTasksReport,remotetransport.RemoteActionTasksWorkflowAudit,remotetransport.RemoteActionTasksInspect,
+  remotetransport.RemoteActionTasksReport,remotetransport.RemoteActionTasksWorkflowAudit,remotetransport.RemoteActionTasksWorkflowAuditNext,remotetransport.RemoteActionTasksInspect,
   remotetransport.RemoteActionTasksDependencies:
   permission=identity.PermissionTasksView
  case remotetransport.RemoteActionTasksRun,remotetransport.RemoteActionTasksStart,
@@ -401,9 +407,14 @@ func (s *Server) executeRemoteE2EEPing(
     var reportErr error
     taskReport,reportErr=s.readRemoteTaskReport(actionCtx,session)
     return reportErr
-   case remotetransport.RemoteActionTasksWorkflowAudit:
+   case remotetransport.RemoteActionTasksWorkflowAudit,
+    remotetransport.RemoteActionTasksWorkflowAuditNext:
     var auditErr error
-    workflowAudit,auditErr=s.readRemoteWorkflowAudit(actionCtx,session)
+    if request.Operation==remotetransport.RemoteActionTasksWorkflowAudit{
+     workflowAudit,auditErr=s.readRemoteWorkflowAudit(actionCtx,session)
+    }else{
+     workflowAudit,auditErr=s.readRemoteWorkflowAuditNext(actionCtx,session)
+    }
     return auditErr
    case remotetransport.RemoteActionTasksPreview:
     var previewErr error
@@ -607,7 +618,8 @@ func (s *Server) executeRemoteE2EEPing(
   sealed,err=remotetransport.SealRemoteActionTasksPreviewResult(channel,request.RequestID,tasksPreview)
  case remotetransport.RemoteActionTasksReport:
   sealed,err=remotetransport.SealRemoteTaskReport(channel,request.RequestID,taskReport)
- case remotetransport.RemoteActionTasksWorkflowAudit:
+ case remotetransport.RemoteActionTasksWorkflowAudit,
+  remotetransport.RemoteActionTasksWorkflowAuditNext:
   sealed,err=remotetransport.SealRemoteWorkflowAudit(channel,request.RequestID,workflowAudit)
  case remotetransport.RemoteActionTasksInspect:
   sealed,err=remotetransport.SealRemoteActionTasksInspectResult(channel,request.RequestID,inspected)
@@ -623,6 +635,17 @@ func (s *Server) executeRemoteE2EEPing(
   return nil,remotetransport.ErrRemoteActionDenied
  }
  if err!=nil{return nil,remotetransport.ErrRemoteActionDenied}
+ if request.Operation==remotetransport.RemoteActionTasksWorkflowAudit||
+  request.Operation==remotetransport.RemoteActionTasksWorkflowAuditNext{
+  // Cursor advances only for a successfully sealed authenticated page.
+  // The E2EE operation lock excludes concurrent Start/Next requests.
+  session.workflowAuditPageReady=true
+  if request.Operation==remotetransport.RemoteActionTasksWorkflowAudit{
+   session.workflowAuditPageCursor=len(workflowAudit.Items)
+  }else{
+   session.workflowAuditPageCursor+=len(workflowAudit.Items)
+  }
+ }
  if paging {
   // Only commit host-owned cursor and published selection IDs after the
   // authenticated E2EE response has been successfully sealed.
