@@ -121,7 +121,7 @@ const trustedGUIHTML = `<!doctype html>
      <div class="tile-heading"><span class="dot"></span><h2>Task của workspace</h2></div>
      <p>Xem task qua E2EE. Khi host bật quyền, chạy task ngắn hoặc job dài có giới hạn; hỗ trợ các input process token/pickString đã xác minh. Không nhập lệnh shell tùy ý từ client.</p>
      <div class="actions">
-      <button type="button" id="tasks-preview">Xem trước task</button><button type="button" id="tasks-report" disabled>Xem báo cáo task gần đây</button><button type="button" id="tasks-workflow-audit" disabled>Xem audit bước workflow</button>
+      <button type="button" id="tasks-preview">Xem trước task</button><button type="button" id="tasks-report" disabled>Xem báo cáo task gần đây</button><button type="button" id="tasks-workflow-audit" disabled>Xem audit bước workflow</button><button type="button" id="tasks-workflow-audit-next" disabled>Xem tiếp audit</button>
       <button type="button" id="task-run-stop" hidden>Dừng task và ngắt phiên</button>
      </div>
      <div class="actions" id="long-task-controls" hidden>
@@ -363,6 +363,7 @@ const trustedGUIJavaScript = `'use strict';
   const tasksPreview=document.getElementById('tasks-preview');
   const tasksReport=document.getElementById('tasks-report');
   const workflowAuditButton=document.getElementById('tasks-workflow-audit');
+  const workflowAuditNext=document.getElementById('tasks-workflow-audit-next');
   const tasksReportOutput=document.getElementById('tasks-report-output');
   const taskRunStop=document.getElementById('task-run-stop');
   const longTaskControls=document.getElementById('long-task-controls');
@@ -401,6 +402,7 @@ const trustedGUIJavaScript = `'use strict';
   const taskPageSize=4;
   let cachedTaskLabels=[];
   let cachedTaskIDs=[];
+  let workflowAuditRows=[],workflowAuditMore=false;
   let taskDepsPendingID=0,taskWorkflowReadyID=0;
   let inspectedTasks=new Map();
   // Transient, local-only drafts survive pagination, sorting and job polls.
@@ -1009,6 +1011,7 @@ const trustedGUIJavaScript = `'use strict';
     taskDepsSelect.replaceChildren();taskDepsSelect.value='';
     taskDepsOutput.textContent='';taskDepsOutput.hidden=true;
     tasksReportOutput.textContent='';tasksReportOutput.hidden=true;
+    workflowAuditRows=[];workflowAuditMore=false;
     gitSwitchPreview=null;gitSwitchPending=null;
     gitDeletePreview=null;gitDeletePending=null;
     longTaskID=0;longTaskState='';longTaskText='';
@@ -1185,6 +1188,8 @@ const trustedGUIJavaScript = `'use strict';
     tasksPreview.disabled=busy||closed||!verified||budget<=0||maintenanceOnly||!featuresKnown||!available.tasks_preview;
     tasksReport.disabled=tasksPreview.disabled;
     workflowAuditButton.disabled=tasksReport.disabled;
+    workflowAuditNext.disabled=tasksReport.disabled||!workflowAuditMore||
+      workflowAuditRows.length>=32;
     const depsID=Number(taskDepsSelect.value);
     taskDepsSelect.disabled=tasksPreview.disabled||
       !cachedTaskIDs.some(id=>Number.isInteger(id)&&id>0);
@@ -1659,6 +1664,7 @@ const trustedGUIJavaScript = `'use strict';
           taskDepsPendingID=0;
          }
          if(endpoint==='/api/tasks-report'){
+          workflowAuditRows=[];workflowAuditMore=false;
           if(data.remote_control_available!==false||!Array.isArray(data.items)||
             data.items.length>3||data.items.some((item,i)=>
               !item||typeof item!=='object'||
@@ -1681,9 +1687,18 @@ const trustedGUIJavaScript = `'use strict';
             }).join('\n');
           tasksReportOutput.hidden=false;
          }
-         if(endpoint==='/api/tasks-workflow-audit'){
+         if(endpoint==='/api/tasks-workflow-audit'||
+            endpoint==='/api/tasks-workflow-audit-next'){
+          const next=endpoint==='/api/tasks-workflow-audit-next';
+          if(next&&!workflowAuditMore){
+            throw new Error('Không có trang báo cáo bước workflow tiếp theo');
+          }
           if(data.remote_control_available!==false||!Array.isArray(data.items)||
-            data.items.length>2||data.items.some((item,i)=>
+            data.items.length>2||typeof data.more!=='boolean'||
+            (data.more&&data.items.length!==2)||
+            (next&&data.items.length===0)||
+            workflowAuditRows.length+data.items.length>32&&next||
+            data.items.some((item,i)=>
               !item||typeof item!=='object'||
               Object.keys(item).sort().join(',')!==
               'attempt,exit_code,root_task_id,status,step,task_id,timestamp,total'||
@@ -1700,19 +1715,25 @@ const trustedGUIJavaScript = `'use strict';
               item.exit_code>255||(item.status==='completed'&&item.exit_code!==0)||
               !Number.isInteger(item.timestamp)||item.timestamp<1577836800||
               item.timestamp>Math.floor(Date.now()/1000)+300||
-              (i>0&&item.timestamp>data.items[i-1].timestamp))){
+              (i>0&&item.timestamp>data.items[i-1].timestamp)||
+              (next&&i===0&&workflowAuditRows.length>0&&
+               item.timestamp>workflowAuditRows[workflowAuditRows.length-1].timestamp))){
             throw new Error('Báo cáo bước workflow E2EE không hợp lệ');
           }
-          tasksReportOutput.textContent=data.items.length===0?
+          if(!next){workflowAuditRows=[];}
+          workflowAuditRows=workflowAuditRows.concat(data.items);
+          workflowAuditMore=data.more;
+          tasksReportOutput.textContent=workflowAuditRows.length===0?
             'Không có kết quả bước workflow hợp lệ của tài khoản này.':
-            'Hai sự kiện bước workflow gần nhất, không phải lịch sử toàn bộ job:\n'+
-            data.items.map(item=>{
+            'Audit workflow của tài khoản này (tối đa 32 sự kiện từ 128 audit gần nhất):\n'+
+            workflowAuditRows.map(item=>{
               const when=new Date(item.timestamp*1000).toLocaleString('vi-VN');
               return when+' · Workflow #'+item.root_task_id+
                 ' · Bước '+item.step+'/'+item.total+' (Task #'+item.task_id+
                 ') · Lần '+item.attempt+' · '+item.status+
                 ' · exit '+item.exit_code;
-            }).join('\n');
+            }).join('\n')+
+            (workflowAuditMore?'\nCòn trang; bấm Xem tiếp audit.':'');
           tasksReportOutput.hidden=false;
          }
          if(endpoint==='/api/tasks-preview'||endpoint==='/api/tasks-preview-next'){
@@ -2765,6 +2786,7 @@ const trustedGUIJavaScript = `'use strict';
   });
   tasksReport.addEventListener('click',()=>invoke('/api/tasks-report'));
   workflowAuditButton.addEventListener('click',()=>invoke('/api/tasks-workflow-audit'));
+  workflowAuditNext.addEventListener('click',()=>invoke('/api/tasks-workflow-audit-next'));
   taskFetchNext.addEventListener('click',()=>{
     if(!canFetchTaskNext||bulkLoading||closed||busy||budget<=0)return;
     invoke('/api/tasks-preview-next');

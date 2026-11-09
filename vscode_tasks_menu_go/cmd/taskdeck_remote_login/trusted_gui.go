@@ -252,7 +252,7 @@ func (ui *trustedGUI) ServeHTTP(w http.ResponseWriter,r *http.Request){
   if r.Method!=http.MethodGet{http.Error(w,"method not allowed",405);return}
   w.Header().Set("Content-Type","text/css; charset=utf-8")
   _,_=io.WriteString(w,trustedGUICSS)
- case "/api/files-dir-select","/api/files-dir-next","/api/files-read-select","/api/files-read-start","/api/files-read-next","/api/git-branch-delete-review","/api/git-branch-delete","/api/git-switch-review","/api/git-switch-same-head","/api/git-pull-changes","/api/files-root","/api/files-root-next","/api/git-patch-cached-start","/api/git-patch-cached-next","/api/ping","/api/features","/api/git-status","/api/git-log","/api/git-branches","/api/git-remotes","/api/git-tracking-start","/api/git-tracking-next","/api/git-branch-create","/api/git-diff","/api/git-patch-start","/api/git-patch-next","/api/git-pull","/api/git-pull-review","/api/git-commit","/api/git-push","/api/git-fetch","/api/git-stage-tracked","/api/git-unstage-all","/api/git-stage-file","/api/git-unstage-file","/api/terminal-open","/api/terminal-poll","/api/terminal-write","/api/terminal-resize","/api/terminal-close","/api/project-info","/api/tasks-preview","/api/tasks-preview-next","/api/tasks-report","/api/tasks-workflow-audit","/api/close","/api/session":
+ case "/api/files-dir-select","/api/files-dir-next","/api/files-read-select","/api/files-read-start","/api/files-read-next","/api/git-branch-delete-review","/api/git-branch-delete","/api/git-switch-review","/api/git-switch-same-head","/api/git-pull-changes","/api/files-root","/api/files-root-next","/api/git-patch-cached-start","/api/git-patch-cached-next","/api/ping","/api/features","/api/git-status","/api/git-log","/api/git-branches","/api/git-remotes","/api/git-tracking-start","/api/git-tracking-next","/api/git-branch-create","/api/git-diff","/api/git-patch-start","/api/git-patch-next","/api/git-pull","/api/git-pull-review","/api/git-commit","/api/git-push","/api/git-fetch","/api/git-stage-tracked","/api/git-unstage-all","/api/git-stage-file","/api/git-unstage-file","/api/terminal-open","/api/terminal-poll","/api/terminal-write","/api/terminal-resize","/api/terminal-close","/api/project-info","/api/tasks-preview","/api/tasks-preview-next","/api/tasks-report","/api/tasks-workflow-audit","/api/tasks-workflow-audit-next","/api/close","/api/session":
   ui.action(w,r)
  default:
   _,inspect:=selectedTaskFromPath(r.URL.Path)
@@ -1000,17 +1000,25 @@ func (ui *trustedGUI) action(w http.ResponseWriter,r *http.Request){
     }
    }
   }else{err=remotetransport.ErrRemoteActionDenied}
- }else if r.URL.Path=="/api/tasks-workflow-audit" {
+ }else if r.URL.Path=="/api/tasks-workflow-audit"||
+  r.URL.Path=="/api/tasks-workflow-audit-next" {
   if scoped,ok:=ui.actions.(interface{
    WorkflowAudit(context.Context)(remotetransport.RemoteWorkflowAudit,error)
+   WorkflowAuditNext(context.Context)(remotetransport.RemoteWorkflowAudit,error)
   });ok{
-   report,reportErr:=scoped.WorkflowAudit(ctx)
+   var report remotetransport.RemoteWorkflowAudit
+   var reportErr error
+   if r.URL.Path=="/api/tasks-workflow-audit"{
+    report,reportErr=scoped.WorkflowAudit(ctx)
+   }else{
+    report,reportErr=scoped.WorkflowAuditNext(ctx)
+   }
    err=reportErr
    if err==nil&&ctx.Err()==nil&&remotetransport.ValidRemoteWorkflowAudit(report){
     ui.mu.Lock();live:=!ui.closed;ui.mu.Unlock()
     if live{
      _=json.NewEncoder(w).Encode(map[string]any{
-      "ok":true,"items":report.Items,
+      "ok":true,"items":report.Items,"more":report.More,
       "remote_control_available":false,"remaining":remaining,
      })
      return
