@@ -325,8 +325,20 @@ func(s *Server)runRemoteLinearWorkflow(ctx context.Context,
   if errors.Is(ctx.Err(),context.DeadlineExceeded){stepStatus="timed_out"
   }else if ctx.Err()!=nil||session.closed.Load(){stepStatus="cancelled"
   }else if err!=nil{stepStatus="failed"}
-  _=s.auditRemoteWorkflowStep(session,job.taskID,step.taskID,
-   i+1,len(plan),stepStatus,code)
+  // A completed process is not permission to start another step if its
+  // security outcome could not be durably recorded. Fail the whole job
+  // closed instead of silently losing the prior step's audit event.
+  if err:=s.auditRemoteWorkflowStep(session,job.taskID,step.taskID,
+   i+1,len(plan),stepStatus,code);err!=nil{
+   status="failed";exitCode=-1
+   _,_=captureWorkflowText(job.capture,fmt.Sprintf(
+    "[TaskDeck workflow] Step %d/%d: audit unavailable; stopped\n",
+    i+1,len(plan)))
+   break
+  }
+  _,_=captureWorkflowText(job.capture,fmt.Sprintf(
+   "[TaskDeck workflow] Step %d/%d: %s (exit=%d)\n",
+   i+1,len(plan),stepStatus,code))
   if stepStatus!="completed"{
    status=stepStatus;exitCode=code;break
   }

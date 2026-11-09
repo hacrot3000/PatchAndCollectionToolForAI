@@ -4,6 +4,7 @@ package server
 
 import(
  "context"
+ "errors"
  "fmt"
  "os"
  "path/filepath"
@@ -331,4 +332,85 @@ func TestRemoteWorkflowExplicitSequentialDiamondRunAndParallelDenial(t *testing.
   }
   if session.longTask!=nil{t.Fatal("rejected graph reserved a job slot")}
  })
+}
+
+ 
+// Preserve every other identity behavior; inject only a durable step-audit
+// failure at the exact transition between workflow child processes.
+type remoteWorkflowRejectStepAudit struct{
+ identity.Store
+ rejectResult string
+}
+func(store remoteWorkflowRejectStepAudit)AppendAudit(
+ ctx context.Context,event identity.AuditEvent,
+)error{
+ if event.Action=="remote.action.tasks_workflow_step"&&
+  event.Result==store.rejectResult{
+  return errors.New("injected unavailable step audit")
+ }
+ return store.Store.AppendAudit(ctx,event)
+}
+
+func TestRemoteWorkflowStopsBeforeNextStepIfStepAuditFails(t *testing.T){
+ remoteWorkflowHostFlags(t)
+ source:=`{"tasks":[
+  {"label":"A","type":"process","command":"/bin/echo","args":["FIRST-ONLY"]},
+  {"label":"B","type":"process","command":"/bin/echo","args":["MUST-NOT-RUN"],"dependsOn":"A"},
+  {"label":"C","type":"process","command":"/bin/echo","args":["NEITHER-THIS"],"dependsOn":"B"}
+ ]}`
+ for _,reject:=range []string{"attempted","completed"}{
+  t.Run(reject,func(t *testing.T){
+   s,session,client,agent:=remoteTaskOperatorFixture(t)
+   id:=remoteWorkflowIssuedRoot(t,s,session,client,agent,source,"C")
+   store:=s.Identity
+   s.Identity=remoteWorkflowRejectStepAudit{
+    Store:store,rejectResult:reject,
+   }
+   if err:=s.startRemoteLinearWorkflow(context.Background(),session,id);err!=nil{
+    t.Fatalf("workflow start was denied before injected audit failure: %v",err)
+   }
+   if status:=awaitRemoteWorkflow(t,session);status!="failed"{
+    t.Fatalf("missing security audit allowed workflow to finish as %s",status)
+   }
+   job:=session.longTask
+   job.mu.Lock()
+   code:=job.exitCode
+   job.mu.Unlock()
+   if code!= -1{t.Fatalf("audit failure returned a normal exit code: %d",code)}
+   job.capture.mu.Lock()
+   output:=string(append([]byte(nil),job.capture.data...))
+   job.capture.mu.Unlock()
+   if strings.Contains(output,"MUST-NOT-RUN")||
+    strings.Contains(output,"NEITHER-THIS")||
+    strings.Contains(output,"Step 2/3"){
+    t.Fatalf("subsequent process ran after audit rejection: %q",output)
+   }
+   if reject=="attempted"&&strings.Contains(output,"FIRST-ONLY"){
+    t.Fatalf("first process ran before attempted audit: %q",output)
+   }
+   if reject=="completed"&&!strings.Contains(output,"FIRST-ONLY"){
+    t.Fatalf("setup did not execute the first successful process: %q",output)
+   }
+   project,err:=store.ProjectByKey(context.Background(),session.projectKey)
+   if err!=nil{t.Fatal(err)}
+   events,err:=store.ListAudit(context.Background(),identity.AuditQuery{
+    ProjectID:project.ID,UserID:session.userID,
+    Action:"remote.action.tasks_run_finished",Limit:5,
+   })
+   if err!=nil||len(events)!=1||events[0].Result!="failed"{
+    t.Fatalf("root outcome not durably marked failed: %+v %v",events,err)
+   }
+   attempts,err:=store.ListAudit(context.Background(),identity.AuditQuery{
+    ProjectID:project.ID,UserID:session.userID,
+    Action:"remote.action.tasks_workflow_step",Limit:12,
+   })
+   if err!=nil{t.Fatal(err)}
+   for _,row:=range attempts{
+    if strings.Contains(row.Details,`"step":2`)||
+     strings.Contains(row.Details,`"step":3`){
+     t.Fatalf("later step was audited after rejected transition: %+v",row)
+    }
+   }
+  })
+ }
 }
