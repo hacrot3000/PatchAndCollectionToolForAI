@@ -1290,10 +1290,10 @@ const trustedGUIJavaScript = `'use strict';
       return encodeURIComponent(input).replace(/%[0-9a-f]{2}/gi,'x').length<=96;
     }catch(error){return false;}
   }
-  function validTerminalOutput(value){
+  function validTerminalOutput(value,maxBytes=128){
     if(typeof value!=='string')return false;
     try{
-      if(encodeURIComponent(value).replace(/%[0-9a-f]{2}/gi,'x').length>128)return false;
+      if(encodeURIComponent(value).replace(/%[0-9a-f]{2}/gi,'x').length>maxBytes)return false;
     }catch(error){return false;}
     for(const ch of value){
       if(ch==='\n'||ch==='\t')continue;
@@ -1884,7 +1884,7 @@ const trustedGUIJavaScript = `'use strict';
             !Number.isInteger(data.exit_code)||data.exit_code< -1||
             data.exit_code>255||typeof data.more!=='boolean'||
             typeof data.output!=='string'||
-            data.output.length>128||typeof data.truncated!=='boolean'||
+            !validTerminalOutput(data.output)||typeof data.truncated!=='boolean'||
             data.remote_control_available!==false){
             throw new Error('Phản hồi job dài E2EE không hợp lệ');
           }
@@ -1932,7 +1932,7 @@ const trustedGUIJavaScript = `'use strict';
              attempt>attemptTotal||
              !['running','completed','skipped','failed','cancelled','timed_out'].includes(stepStatus)||
              ['started','cleared','cancel_requested'].includes(data.status)||
-             data.output.length>64)){
+             !validTerminalOutput(data.output,64))){
             throw new Error('Tiến độ bước workflow E2EE không hợp lệ');
           }
           if(!workflowProgress&&present.length&&
@@ -1978,7 +1978,20 @@ const trustedGUIJavaScript = `'use strict';
           const launching=prefix==='/api/tasks-workflow-start/'||
             prefix==='/api/tasks-start/'||prefix==='/api/tasks-start-input/';
           const clearing=prefix==='/api/tasks-clear/';
+          const cancelling=prefix==='/api/tasks-cancel/';
+          const polling=prefix==='/api/tasks-poll/';
           const finalStates=['completed','failed','cancelled','timed_out'];
+          // The Agent codec requires in-flight replies to carry exit=-1.
+          // A cancellation ACK is not a poll result and cannot claim
+          // buffered output; browser-side validation must match the
+          // typed AEAD protocol even if the localhost bridge is corrupted.
+          if((['started','running','cancel_requested','cleared'].includes(data.status)&&
+              data.exit_code!==-1)||
+             (['started','cancel_requested','cleared'].includes(data.status)&&data.more)||
+             (cancelling&&data.status!=='cancel_requested')||
+             (polling&&['cancel_requested','started','cleared'].includes(data.status))){
+            throw new Error('Trạng thái/exit code job dài E2EE không hợp lệ');
+          }
           if(launching){
             if(longTaskID!==0||data.status==='cleared'||
               data.status==='cancel_requested'){

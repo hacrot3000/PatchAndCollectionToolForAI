@@ -63,8 +63,10 @@ async function scenario(startStatus,pollStates){
   if(endpoint==='/api/tasks-start/123')return reply(progress(startStatus,false));
   if(endpoint==='/api/tasks-poll/123'){
    assert.ok(pollStates.length,'unexpected extra poll');
-   const status=pollStates.shift();
-   return reply(progress(status,pollStates.length>0));
+   const next=pollStates.shift();
+   const status=typeof next==='string'?next:next.status;
+   return reply(Object.assign(progress(status,pollStates.length>0),
+     typeof next==='object'?next:{}));
   }
   throw Error('unexpected native route '+endpoint);
  };
@@ -117,5 +119,26 @@ async function scenario(startStatus,pollStates){
  regression.get('long-task-poll').click();await regression.flush();
  assert.match(regression.get('output').textContent,/vòng đời/);
  assert.equal(regression.get('long-task-controls').hidden,true);
- console.log('PASS: native long task start/poll/clear lifecycle is monotonic');
+
+ // Native Go E2EE validates exact UTF-8 byte limits and status/exit-code
+ // relationships. The local browser must not accept an impossible
+ // forged bridge reply simply because JS string.length is shorter.
+ const impossible=[
+  {status:'running',exit_code:0},
+  {status:'running',output:'🙂'.repeat(40)}, // 80 UTF-16 units, 160 UTF-8 bytes
+  {status:'running',output:'\\x1b[31m'}, // checked below as ESC escape
+  {status:'cancel_requested',more:true},
+  {status:'running',step:1,step_total:2,attempt:1,attempt_total:1,
+   step_status:'running',output:'é'.repeat(40)}, // 80 bytes > 64 for workflow
+ ];
+ impossible[2].output='\x1b[31m';
+ for(const response of impossible){
+  const attempt=await scenario('started',[response]);
+  attempt.get('long-task-poll').click();await attempt.flush();
+  assert.equal(attempt.get('long-task-controls').hidden,true,
+   'invalid E2EE task response did not fail closed: '+response.status);
+  assert.equal(attempt.get('long-task-output').textContent,'',
+   'invalid response left private output visible');
+ }
+ console.log('PASS: native long task lifecycle, strict UTF-8 quota and status codec');
 })().catch(error=>{console.error(error);process.exitCode=1});
