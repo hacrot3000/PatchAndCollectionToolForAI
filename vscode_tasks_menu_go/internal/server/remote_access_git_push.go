@@ -38,6 +38,14 @@ func validRemoteGitPushURL(raw string)bool{
  parsed,err:=url.Parse(raw)
  if err!=nil||parsed.Hostname()==""||parsed.Opaque!=""||
   parsed.Fragment!=""||parsed.RawQuery!="" {return false}
+ // URL-form SSH/HTTPS repositories need the same path traversal guard as
+ // SCP-style URLs. Parse also decodes percent-escaped path components, so
+ // encoded dot segments, slashes and control characters cannot bypass it.
+ if !validRemoteGitPushURLPath(parsed.Path)||
+  strings.Contains(strings.ToLower(parsed.EscapedPath()),"%2f")||
+  strings.Contains(strings.ToLower(parsed.EscapedPath()),"%5c"){
+  return false
+ }
  switch parsed.Scheme{
  case "ssh":
   return parsed.User!=nil && parsed.User.Username()!="" &&
@@ -47,6 +55,22 @@ func validRemoteGitPushURL(raw string)bool{
  default:
   return false
  }
+}
+
+// Git transports can interpret dot segments (including percent-encoded
+// forms) differently than Go's URL parser. Never allow a configured network
+// remote to traverse or escape its explicit repository URL path.
+func validRemoteGitPushURLPath(value string)bool{
+ if value==""||len(value)>256||
+  strings.ContainsAny(value,"\\%\x00\r\n\t "){
+  return false
+ }
+ path:=strings.TrimPrefix(value,"/")
+ if path==""||strings.HasPrefix(path,"/"){return false}
+ for _,segment:=range strings.Split(path,"/"){
+  if segment==""||segment=="."||segment==".."{return false}
+ }
+ return true
 }
 
 // Push only the exact current commit to the already configured upstream

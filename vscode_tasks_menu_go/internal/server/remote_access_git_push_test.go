@@ -30,6 +30,15 @@ func TestRemoteGitPushURLPolicy(t *testing.T){
   "git@github.com:../../sensitive",
   "git@github.com:owner/repo.git\n",
   "ssh://git@example.org",
+  "ssh://git@example.org/../private/repo.git",
+  "ssh://git@example.org/owner/../../private.git",
+  "https://example.org/owner/../private.git",
+  "https://example.org/owner/%2e%2e/private.git",
+  "https://example.org/owner/%2Fprivate.git",
+  "ssh://git@example.org/owner/%5cprivate.git",
+  "https://example.org//owner/repo.git",
+  "ssh://git@example.org/a/%250a/path.git",
+  "https://example.org/owner/%0arepo.git",
  }{
   if validRemoteGitPushURL(u){t.Fatalf("unsafe Git destination admitted: %q",u)}
  }
