@@ -51,6 +51,7 @@ func (s *Server) executeRemoteGitPull(
   "PATH="+os.Getenv("PATH"),"HOME="+os.Getenv("HOME"),
   "SSH_AUTH_SOCK="+os.Getenv("SSH_AUTH_SOCK"),"LC_ALL=C",
   "GIT_TERMINAL_PROMPT=0","GCM_INTERACTIVE=never",
+  "GIT_ASKPASS=/usr/bin/false","SSH_ASKPASS=/usr/bin/false",
   "GIT_CONFIG_NOSYSTEM=1","GIT_CONFIG_GLOBAL="+os.DevNull,
   "GIT_PROTOCOL_FROM_USER=0",
   // Ignore repo-supplied core.sshCommand for this fixed, noninteractive
@@ -82,6 +83,7 @@ func (s *Server) executeRemoteGitPull(
   return run(ctx,256,append([]string{
    "-c","core.fsmonitor=false",
    "-c","protocol.ext.allow=never",
+   "-c","credential.helper=",
    "-C",root,
   },args...)...)
  }
@@ -134,6 +136,9 @@ func (s *Server) executeRemoteGitPull(
  _,err=run(pullCtx,0,
   "-c","core.hooksPath="+os.DevNull,
   "-c","core.fsmonitor=false",
+  // An HTTPS remote must never launch a repo-owned credential.helper
+  // command or askpass program, even when the server replies 401.
+  "-c","credential.helper=",
   "-c","protocol.allow=never",
   "-c","protocol.ssh.allow=always",
   "-c","protocol.https.allow=always",

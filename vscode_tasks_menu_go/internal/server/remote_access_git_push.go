@@ -104,12 +104,16 @@ func (s *Server) executeRemoteGitPush(ctx context.Context,
   "PATH="+os.Getenv("PATH"),"HOME="+os.Getenv("HOME"),
   "SSH_AUTH_SOCK="+os.Getenv("SSH_AUTH_SOCK"),
   "LC_ALL=C","GIT_TERMINAL_PROMPT=0","GCM_INTERACTIVE=never",
+  "GIT_ASKPASS=/usr/bin/false","SSH_ASKPASS=/usr/bin/false",
   "GIT_CONFIG_NOSYSTEM=1","GIT_CONFIG_GLOBAL="+os.DevNull,
   "GIT_PROTOCOL_FROM_USER=0","GIT_SSH_COMMAND=ssh -oBatchMode=yes",
  }
  base:=[]string{
   "-c","core.hooksPath="+os.DevNull,
   "-c","core.fsmonitor=false",
+  // Empty override resets helpers configured by the repository; the
+  // fixed GIT_ASKPASS binary denies any remaining interactive prompt.
+  "-c","credential.helper=",
   "-c","protocol.allow=never",
   "-c","protocol.ssh.allow=always",
   "-c","protocol.https.allow=always",
