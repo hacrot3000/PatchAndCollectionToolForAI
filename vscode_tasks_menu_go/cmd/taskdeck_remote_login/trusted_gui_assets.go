@@ -1789,6 +1789,34 @@ const trustedGUIJavaScript = `'use strict';
             data.remote_control_available!==false){
             throw new Error('Phản hồi job dài E2EE không hợp lệ');
           }
+          const fields=['step','step_total','attempt','attempt_total','step_status'];
+          const present=fields.filter(key=>Object.prototype.hasOwnProperty.call(data,key));
+          if(present.length!==0&&present.length!==fields.length){
+            throw new Error('Tiến độ bước workflow thiếu trường E2EE');
+          }
+          const step=present.length?data.step:0;
+          const stepTotal=present.length?data.step_total:0;
+          const attempt=present.length?data.attempt:0;
+          const attemptTotal=present.length?data.attempt_total:0;
+          const stepStatus=present.length?data.step_status:'';
+          const workflowProgress=step!==0||stepTotal!==0||
+            attempt!==0||attemptTotal!==0||stepStatus!=='';
+          if(workflowProgress&&
+            (!Number.isInteger(step)||!Number.isInteger(stepTotal)||
+             !Number.isInteger(attempt)||!Number.isInteger(attemptTotal)||
+             step<1||stepTotal<2||stepTotal>4||step>stepTotal||
+             attempt<1||attemptTotal<1||attemptTotal>2||
+             attempt>attemptTotal||
+             !['running','completed','failed','cancelled','timed_out'].includes(stepStatus)||
+             ['started','cleared','cancel_requested'].includes(data.status)||
+             data.output.length>64)){
+            throw new Error('Tiến độ bước workflow E2EE không hợp lệ');
+          }
+          if(!workflowProgress&&present.length&&
+            (step!==0||stepTotal!==0||attempt!==0||attemptTotal!==0||
+             stepStatus!=='')){
+            throw new Error('Tiến độ workflow không hợp lệ');
+          }
           if(data.status==='started'){
             longTaskID=id;longTaskText='';
             longTaskAuto=true;
@@ -1812,6 +1840,9 @@ const trustedGUIJavaScript = `'use strict';
           }
           longTaskOutput.textContent='Task '+String(id)+' · '+data.status+
             ' · exit='+String(data.exit_code)+
+            (workflowProgress?' · Bước '+String(step)+'/'+String(stepTotal)+
+              ' · Lần '+String(attempt)+'/'+String(attemptTotal)+
+              ' · '+stepStatus:'')+
             (data.truncated?' · output vượt giới hạn':'')+
             (longTaskMore?' · còn output chưa nhận':'')+
             '\n'+longTaskText;

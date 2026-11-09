@@ -1131,6 +1131,9 @@ func (ui *trustedGUI) writeRemoteLongTaskResponse(
   "ok":true,"task_id":taskID,"status":value.Status,
   "exit_code":value.ExitCode,"output":value.Output,
   "truncated":value.Truncated,"more":value.More,
+  "step":value.Step,"step_total":value.StepTotal,
+  "attempt":value.Attempt,"attempt_total":value.AttemptTotal,
+  "step_status":value.StepStatus,
   "remote_control_available":false,
   "remaining":remaining,
  })

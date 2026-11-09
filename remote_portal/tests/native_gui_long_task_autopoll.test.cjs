@@ -111,6 +111,10 @@ const flush=async()=>{for(let i=0;i<45;i++)await Promise.resolve()};
  row.children[3].click();await flush();
  assert.equal(get('long-task-controls').hidden,false);
  assert.equal(timers.length,1,'auto polling did not schedule after start');
+ // Legacy single-process task responses have no workflow metadata, so
+ // the Native GUI must remain backwards compatible with existing Agent.
+ assert.ok(!get('long-task-output').textContent.includes('Bước 0/0'),
+  'legacy task rendered a fake workflow step');
  // A bulk page fetch occupies the single E2EE action slot; the pending
  // timer must not poll concurrently. Once bulk is stopped, poll resumes.
  get('task-fetch-all').click();await flush();
