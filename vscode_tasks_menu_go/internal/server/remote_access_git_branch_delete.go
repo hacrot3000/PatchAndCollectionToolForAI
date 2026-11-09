@@ -46,7 +46,7 @@ func(s *Server)remoteGitBranchDelete(ctx context.Context,
  previous,ready:=owner.gitDeletePreview,owner.gitDeletePreviewReady
  owner.gitDeletePreviewReady=false
  if apply&&!ready{return empty,denied}
- release,err:=owner.reserveRemoteGitMutation(ctx)
+ release,err:=s.reserveRemoteGitMutation(ctx,owner)
  if err!=nil{return empty,denied}
  defer release()
  deadline,cancel:=context.WithTimeout(ctx,12*time.Second)

@@ -49,7 +49,7 @@ func(s *Server)remoteGitSwitchSameHead(
  if apply&&!ready{return empty,denied}
  target:=os.Getenv("TASKDECK_REMOTE_GIT_SWITCH_NAME")
  if !remotetransport.ValidRemoteGitCreatedBranchName(target){return empty,denied}
- release,err:=session.reserveRemoteGitMutation(ctx)
+ release,err:=s.reserveRemoteGitMutation(ctx,session)
  if err!=nil{return empty,denied}
  defer release()
  deadline,cancel:=context.WithTimeout(ctx,12*time.Second)

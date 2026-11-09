@@ -67,7 +67,7 @@ func (s *Server) executeRemoteGitFileIndex(ctx context.Context,
   &principal,session.projectKey,identity.PermissionGitStatus)!=nil{return empty,denied}
  // Recheck and reserve the Git write slot through the complete fixed
  // stage/unstage command, not only at the beginning of this request.
- release,err:=session.reserveRemoteGitMutation(ctx)
+ release,err:=s.reserveRemoteGitMutation(ctx,session)
  if err!=nil{return empty,denied}
  defer release()
  root,err:=filepath.EvalSymlinks(s.Workspace)

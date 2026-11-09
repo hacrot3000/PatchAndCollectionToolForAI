@@ -65,7 +65,7 @@ func (s *Server) executeRemoteGitPush(ctx context.Context,
  }
  // A trusted GUI disables these while a task runs, but only the host
  // can enforce exclusion against another authenticated E2EE action.
- release,err:=session.reserveRemoteGitMutation(ctx)
+ release,err:=s.reserveRemoteGitMutation(ctx,session)
  if err!=nil{return empty,denied}
  defer release()
  root,err:=filepath.EvalSymlinks(s.Workspace)

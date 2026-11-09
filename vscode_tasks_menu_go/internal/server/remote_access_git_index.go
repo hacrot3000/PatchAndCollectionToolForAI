@@ -43,7 +43,7 @@ func(s *Server)executeRemoteGitIndex(
  }
  // Hold the admission through the Git mutation; a quick busy-state check
  // alone races with tasks.start and terminal-open after the check returns.
- release,err:=session.reserveRemoteGitMutation(ctx)
+ release,err:=s.reserveRemoteGitMutation(ctx,session)
  if err!=nil{return empty,denied}
  defer release()
  root,err:=filepath.EvalSymlinks(s.Workspace)

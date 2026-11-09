@@ -38,7 +38,7 @@ func(s *Server)executeRemoteGitBranchCreate(ctx context.Context,
  }
  // Keep the same exclusive in-session Git slot from preflight through
  // local ref creation. Busy tasks/PTY must fail without a check/use race.
- release,err:=session.reserveRemoteGitMutation(ctx)
+ release,err:=s.reserveRemoteGitMutation(ctx,session)
  if err!=nil{return empty,denied}
  defer release()
  root,err:=filepath.EvalSymlinks(s.Workspace)
