@@ -3,11 +3,13 @@
 package server
 
 import (
+ "bufio"
  "context"
  "errors"
  "os"
  "os/exec"
  "path/filepath"
+ "strings"
  "testing"
  "time"
 
@@ -21,10 +23,17 @@ func TestRemoteWorkspaceOSLockSubprocessHelper(t *testing.T){
  if os.Getenv("TASKDECK_TEST_WORKSPACE_FLOCK_HELPER")!="1"{return}
  root:=os.Getenv("TASKDECK_TEST_WORKSPACE_FLOCK_ROOT")
  mode:=os.Getenv("TASKDECK_TEST_WORKSPACE_FLOCK_MODE")
- if root==""||(mode!="denied"&&mode!="allowed"){
+ if root==""||(mode!="denied"&&mode!="allowed"&&mode!="hold"){
   t.Fatal("invalid helper setup")
  }
  release,err:=reserveRemoteWorkspaceExecution(context.Background(),root)
+ if mode=="hold"{
+  if err!=nil||release==nil{t.Fatalf("child lock failed: %v",err)}
+  // The parent may observe this marker only AFTER the OS lock is held.
+  // Kill the child without Unlock to exercise kernel crash cleanup.
+  _,_=os.Stdout.WriteString("WORKSPACE_LOCK_HELD\\n")
+  for{time.Sleep(time.Second)}
+ }
  if mode=="denied"{
   if !errors.Is(err,remotetransport.ErrRemoteActionDenied){
    if release!=nil{release()}
@@ -75,4 +84,42 @@ func TestRemoteWorkspaceOSLockAcrossIndependentProcesses(t *testing.T){
   !os.IsNotExist(err){
   t.Fatal("workspace lease unexpectedly created a project lock file")
  }
+}
+
+
+func TestRemoteWorkspaceOSLockReleasedWhenDaemonCrashes(t *testing.T){
+ root:=t.TempDir()
+ ctx,cancel:=context.WithTimeout(context.Background(),10*time.Second)
+ defer cancel()
+ cmd:=exec.CommandContext(ctx,os.Args[0],
+  "-test.run=^TestRemoteWorkspaceOSLockSubprocessHelper$",
+  "-test.count=1")
+ cmd.Env=append(os.Environ(),
+  "TASKDECK_TEST_WORKSPACE_FLOCK_HELPER=1",
+  "TASKDECK_TEST_WORKSPACE_FLOCK_ROOT="+root,
+  "TASKDECK_TEST_WORKSPACE_FLOCK_MODE=hold")
+ pipe,err:=cmd.StdoutPipe()
+ if err!=nil{t.Fatal(err)}
+ if err:=cmd.Start();err!=nil{t.Fatal(err)}
+ defer func(){
+  if cmd.Process!=nil{_=cmd.Process.Kill()}
+  _=cmd.Wait()
+ }()
+ marker,err:=bufio.NewReader(pipe).ReadString('\n')
+ if err!=nil||strings.TrimSpace(marker)!="WORKSPACE_LOCK_HELD"{
+  t.Fatalf("separate Agent never held its workspace lock: %q %v",marker,err)
+ }
+ _,err=reserveRemoteWorkspaceExecution(context.Background(),root)
+ if !errors.Is(err,remotetransport.ErrRemoteActionDenied){
+  t.Fatalf("parent bypassed live child's directory lock: %v",err)
+ }
+ if err:=cmd.Process.Kill();err!=nil{t.Fatalf("cannot kill child Agent: %v",err)}
+ // Reap the process before asserting that all of its open descriptors
+ // (and hence advisory locks) are closed by the OS, not by our code.
+ if err:=cmd.Wait();err==nil{
+  t.Fatal("helper unexpectedly exited normally instead of being killed")
+ }
+ release,err:=reserveRemoteWorkspaceExecution(context.Background(),root)
+ if err!=nil{t.Fatalf("dead Agent left a stale OS lock: %v",err)}
+ release()
 }
