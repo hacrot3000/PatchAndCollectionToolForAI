@@ -26,7 +26,7 @@ const get=id=>{
 };
 const capability='0123456789abcdef'.repeat(4);
 let remaining=16,polls=0;
-const calls=[];
+const calls=[],timers=[];
 const respond=data=>({ok:true,json:async()=>data});
 const progress=(status,output='')=>({
  ok:true,task_id:21,status,exit_code:status==='completed'?0:-1,
@@ -67,7 +67,7 @@ const sandbox={
  document:{getElementById:get,createElement:tag=>new Element(tag)},
  window:{confirm(){return true},addEventListener(){}},
  history:{replaceState(){}},location:{hash:'#'+capability,pathname:'/'},
- fetch,setInterval(){},setTimeout(){},Date,Number,String,Promise
+ fetch,setInterval(){},setTimeout(fn){timers.push(fn);return timers.length;},Date,Number,String,Promise
 };
 vm.createContext(sandbox);
 new vm.Script(script[1],{filename:'cancel-pending-native.js'}).runInContext(sandbox);
@@ -80,6 +80,7 @@ const flush=async()=>{for(let i=0;i<50;i++)await Promise.resolve()};
  row.children[1].click();await flush();
  row=get('task-preview-labels').children[0];
  row.children[3].click();await flush();
+ assert.equal(timers.length,1,'running job must schedule an auto poll');
  assert.equal(get('long-task-cancel').disabled,false);
  // Reserve exactly four E2EE rounds before Cancel: Cancel, two status
  // polls (the first can still say "running"), and final Clear.
@@ -91,12 +92,14 @@ const flush=async()=>{for(let i=0;i<50;i++)await Promise.resolve()};
  assert.equal(get('long-task-cancel').disabled,true,
   'acknowledged cancellation must disable duplicate cancel');
  assert.match(get('session-activity').textContent,/đã yêu cầu hủy/);
- get('long-task-poll').click();await flush();
+ assert.equal(timers.length,1,'Cancel must not queue a duplicate timer');
+ timers.shift()();await flush();
  assert.match(get('long-task-output').textContent,/terminating/);
  assert.match(get('output').textContent,/Đã yêu cầu hủy/);
  assert.equal(get('long-task-cancel').disabled,true,
   'intermediate running poll must not re-arm the cancel button');
  assert.equal(remaining,2);
+ assert.equal(timers.length,1,'pending cancellation must auto poll with two rounds remaining');
  assert.match(get('session-activity').textContent,/đã yêu cầu hủy/,
   'intermediate running reply must preserve pending-cancel indication');
  assert.equal(get('long-task-poll').disabled,false,
@@ -108,7 +111,8 @@ const flush=async()=>{for(let i=0;i<50;i++)await Promise.resolve()};
  get('long-task-cancel').click();await flush();
  assert.equal(calls.filter(x=>x==='/api/tasks-cancel/21').length,count);
  assert.equal(remaining,quota,'duplicate cancel must not consume AEAD quota');
- get('long-task-poll').click();await flush();
+ timers.shift()();await flush();
+ assert.equal(timers.length,0,'terminal reply must reserve last round for Clear');
  assert.equal(get('long-task-clear').disabled,false);
  get('long-task-clear').click();await flush();
  assert.equal(remaining,0,'exactly four cleanup rounds were expected');

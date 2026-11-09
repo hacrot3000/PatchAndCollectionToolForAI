@@ -1269,22 +1269,26 @@ const trustedGUIJavaScript = `'use strict';
     sessionActivity.textContent=closed?'Phiên không còn hợp lệ':
       busy?'Đang chờ phản hồi E2EE':activity;
   }
-  // No background E2EE work without a user-started job. Reserve three
-  // application roundtrips so Cancel and Clear remain possible. A poll is
-  // always an ordinary authenticated native action with fresh RBAC checks.
+  // A running job needs Cancel + Poll + Clear. Once cancellation has
+  // already been acknowledged, reserve only the final Clear E2EE round.
+  // Recheck this at timer execution, since Cancel can arrive meanwhile.
+  function mayAutoPollLongTask(){
+    return longTaskID!==0&&
+      (longTaskCancelPending?budget>1:budget>3)&&
+      (['started','running','cancel_requested'].includes(longTaskState)||
+        longTaskMore)&&
+      taskMaintenanceAllowed('/api/tasks-poll/'+String(longTaskID));
+  }
   function scheduleLongTaskPoll(){
-    if(!longTaskAuto||longTaskPollScheduled||longTaskID===0||
+    if(!longTaskAuto||longTaskPollScheduled||
       !verified||busy||closed||closing||terminated||bulkLoading||
-      budget<=3||(!['started','running','cancel_requested'].includes(longTaskState)&&
-        !longTaskMore))return;
+      !mayAutoPollLongTask())return;
     const selectedID=longTaskID;
     longTaskPollScheduled=true;
     setTimeout(()=>{
       longTaskPollScheduled=false;
       if(selectedID===longTaskID&&longTaskAuto&&!busy&&!closed&&
-        !closing&&!terminated&&!bulkLoading&&budget>3&&
-        (['started','running','cancel_requested'].includes(longTaskState)||
-         longTaskMore)){
+        !closing&&!terminated&&!bulkLoading&&mayAutoPollLongTask()){
         invoke('/api/tasks-poll/'+String(selectedID));
       }
     },450);
