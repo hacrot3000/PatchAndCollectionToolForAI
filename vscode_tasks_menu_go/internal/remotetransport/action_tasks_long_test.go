@@ -184,3 +184,45 @@ func TestRemoteLongTaskWorkflowStepEscapedOutputFitsE2EEEnvelope(t *testing.T){
   }
  }
 }
+
+func TestRemoteLongTaskWorkflowHistoryStrictE2EEContract(t *testing.T){
+ good:=RemoteLongTaskProgress{
+  TaskID:17,Status:"completed",ExitCode:0,
+  Step:3,StepTotal:3,Attempt:1,AttemptTotal:1,
+  StepStatus:"completed",StepHistory:"CCC",Output:"visible",
+ }
+ client,agent,_:=participants(t)
+ frame,err:=SealRemoteLongTaskProgress(agent,testActionID,good)
+ if err!=nil{t.Fatal(err)}
+ actual,err:=OpenRemoteLongTaskProgress(client,frame,testActionID,17)
+ if err!=nil||actual.StepHistory!="CCC"{
+  t.Fatalf("workflow summary not authenticated: %+v %v",actual,err)
+ }
+ for _,history:=range []string{
+  "CC","CCCC","CC-", "CFC","CCR","CXX","CCC\x1b",
+ }{
+  invalid:=good
+  invalid.StepHistory=history
+  _,ch,_:=participants(t)
+  if _,err:=SealRemoteLongTaskProgress(ch,testActionID,invalid);err==nil{
+   t.Fatalf("unsafe workflow history allowed: %q",history)
+  }
+ }
+ invalid:=good
+ invalid.StepHistory="C--"
+ invalid.Step=2
+ invalid.StepStatus="running"
+ _,ch,_:=participants(t)
+ if _,err:=SealRemoteLongTaskProgress(ch,testActionID,invalid);err==nil{
+  t.Fatal("history must agree with current step state")
+ }
+ // Accept the five older authenticated metadata fields without summary.
+ good.StepHistory=""
+ client,agent,_=participants(t)
+ frame,err=SealRemoteLongTaskProgress(agent,testActionID,good)
+ if err!=nil{t.Fatal(err)}
+ actual,err=OpenRemoteLongTaskProgress(client,frame,testActionID,17)
+ if err!=nil||actual.StepHistory!=""{
+  t.Fatalf("prior protocol metadata ceased working: %+v %v",actual,err)
+ }
+}

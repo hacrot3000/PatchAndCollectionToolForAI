@@ -60,6 +60,7 @@ const fetch=async(path,opt)=>{
   ok:true,task_id:55,status:'running',exit_code:-1,
   more:true,output:'authenticated-child-output',truncated:false,
   step:1,step_total:2,attempt:2,attempt_total:2,step_status:'running',
+  step_history:'R-',
   remote_control_available:false,remaining:--remaining,
  })};
  if(path==='/api/close')return {ok:true,json:async()=>({ok:true,closed:true})};
@@ -165,6 +166,8 @@ async function assertGraphValidation(graph,description,accepted=false){
   'signed workflow step index not rendered');
  assert.match(get('long-task-output').textContent,/Lần 2\/2/,
   'signed workflow retry attempt not rendered');
+ assert.match(get('long-task-output').textContent,/Bước 1: Đang chạy · Bước 2: Chưa chạy/,
+  'authenticated per-step history not shown');
  assert.match(get('long-task-output').textContent,/authenticated-child-output/,
   'workflow output was not preserved alongside typed progress');
  available=false;

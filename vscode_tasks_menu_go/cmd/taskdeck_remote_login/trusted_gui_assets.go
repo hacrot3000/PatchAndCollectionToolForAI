@@ -1801,6 +1801,22 @@ const trustedGUIJavaScript = `'use strict';
           const stepStatus=present.length?data.step_status:'';
           const workflowProgress=step!==0||stepTotal!==0||
             attempt!==0||attemptTotal!==0||stepStatus!=='';
+          const stepHistory=data.step_history==null?'':data.step_history;
+          if(typeof stepHistory!=='string'||stepHistory.length>4||
+            (stepHistory!==''&&(!workflowProgress||
+              stepHistory.length!==stepTotal))){
+            throw new Error('Báo cáo từng bước workflow không hợp lệ');
+          }
+          if(stepHistory!==''){
+            const codes={running:'R',completed:'C',failed:'F',
+              cancelled:'X',timed_out:'T'};
+            for(let i=0;i<stepHistory.length;i++){
+              const expected=i<step-1?'C':i===step-1?codes[stepStatus]:'-';
+              if(stepHistory[i]!==expected){
+                throw new Error('Báo cáo từng bước workflow sai trạng thái');
+              }
+            }
+          }
           if(workflowProgress&&
             (!Number.isInteger(step)||!Number.isInteger(stepTotal)||
              !Number.isInteger(attempt)||!Number.isInteger(attemptTotal)||
@@ -1838,6 +1854,11 @@ const trustedGUIJavaScript = `'use strict';
             longTaskText='';longTaskMore=false;
             longTaskAuto=false;
           }
+          const historyLabels={'-':'Chưa chạy',R:'Đang chạy',
+            C:'Hoàn tất',F:'Lỗi',X:'Đã hủy',T:'Hết thời gian'};
+          const historyLines=stepHistory?
+            Array.from(stepHistory).map((code,i)=>
+              'Bước '+String(i+1)+': '+historyLabels[code]).join(' · '):'';
           longTaskOutput.textContent='Task '+String(id)+' · '+data.status+
             ' · exit='+String(data.exit_code)+
             (workflowProgress?' · Bước '+String(step)+'/'+String(stepTotal)+
@@ -1845,6 +1866,7 @@ const trustedGUIJavaScript = `'use strict';
               ' · '+stepStatus:'')+
             (data.truncated?' · output vượt giới hạn':'')+
             (longTaskMore?' · còn output chưa nhận':'')+
+            (historyLines?'\n'+historyLines:'')+
             '\n'+longTaskText;
           output.textContent='Trạng thái job E2EE: '+data.status+
             ' (Task ID '+String(id)+').'+

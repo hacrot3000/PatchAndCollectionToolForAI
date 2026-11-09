@@ -958,7 +958,8 @@ func TestRemoteWorkflowPollReturnsAuthenticatedStepResult(t *testing.T){
  if err!=nil||progress.Status!="completed"||
   progress.Step!=3||progress.StepTotal!=3||
   progress.Attempt!=1||progress.AttemptTotal!=1||
-  progress.StepStatus!="completed"||len(progress.Output)>64{
+  progress.StepStatus!="completed"||
+  progress.StepHistory!="CCC"||len(progress.Output)>64{
   t.Fatalf("typed E2EE workflow progress unavailable: %+v %v",progress,err)
  }
  // The step record comes from the host, independent of a child process's
@@ -969,7 +970,7 @@ func TestRemoteWorkflowPollReturnsAuthenticatedStepResult(t *testing.T){
    remotetransport.RemoteActionTasksPoll,root,0,"",
    fmt.Sprintf("%032d",1000+pollIndex))
   if err!=nil||progress.Step!=3||progress.StepTotal!=3||
-   len(progress.Output)>64{
+   len(progress.Output)>64||progress.StepHistory!="CCC"{
    t.Fatalf("subsequent E2EE page lost metadata: %+v %v",progress,err)
   }
  }
