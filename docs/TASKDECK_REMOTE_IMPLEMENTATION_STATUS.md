@@ -2514,3 +2514,39 @@ shared-PHP deployment validation remain required.
   edge cases, (3) Terminal, (4) other Git, (5) Files/Editor and remaining
   GUI, (6) other remote security/features. Source-complete features are
   not marked unfinished merely because physical deployment tests remain.
+
+
+## 2026-11-09 — main: preserve managed-task cancel intent across delayed termination
+
+- **Direct main source changes:** `a763c63` retains a separate native GUI
+  `longTaskCancelPending` flag after a successfully authenticated
+  `tasks.cancel` acknowledgment. The Agent's subsequent `tasks.poll` may
+  legitimately report `running` before the process group has stopped;
+  that intermediate snapshot MUST NOT re-enable Cancel or authorize a
+  second E2EE cancellation operation. GUI shows a cancellation-in-progress
+  hint, continues to permit authenticated Poll, and clears pending state
+  on explicit Clear, session close or the next accepted Start.
+- **Tests and CI:** `c8b38d7` adds a browser-DOM test for
+  Start → Cancel → Poll(running) → attempted duplicate Cancel
+  → Poll(completed) → Clear, including AEAD quota preservation and
+  logout scrubbing. `694d018` wires the test into main Go Agent CI.
+  All four long-task JavaScript suites passed in the isolated V8
+  mock-DOM runner on this source. PHP Portal CI succeeded on
+  `694d018`; full Go Agent CI is **in progress** at the time of this
+  entry, so this is not a same-HEAD green-CI claim.
+- **Git follow-up review:** Pull/Commit/Push have bounded, opt-in,
+  per-session host Git mutation exclusions with active task and PTY,
+  independently reviewed commands and separate host authorization.
+  The reservation currently holds only `session.terminalMu` and
+  `session.longTaskMu`; it is NOT a shared workspace-level mutex
+  across simultaneously authenticated sessions, local TaskDeck GUI
+  operations or other external Git processes. Audit and design the
+  correct cross-session lock/optimistic-ref safety before claiming
+  concurrent-workspace mutation guarantees. Preserve task/PTY lock
+  order and nonblocking revocation; do not add a global unbounded lock.
+- **Remaining code priorities (user order):** finish other Remote GUI task
+  edge cases, then Git Pull → Commit → Push, Terminal PTY, remaining Git,
+  other GUI components (Files/Editor/Patch/Collection), then other
+  remote hardening. A source-complete feature is not open merely due
+  to missing physical Linux/macOS/NAT deployment validation.
+  `remote_control_available=false` and live release NO-GO persist.
