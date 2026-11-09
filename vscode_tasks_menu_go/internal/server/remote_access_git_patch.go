@@ -15,7 +15,16 @@ import (
 )
 
 const remoteGitPatchMaxBytes=4096
+// Host-only, default-OFF bigger review. E2EE pages and time remain bounded.
+const remoteGitPatchLargeMaxBytes=16*1024
 const remoteGitPatchDeadline=7*time.Second
+
+func remoteGitPatchSnapshotMaxBytes()int{
+ if os.Getenv("TASKDECK_REMOTE_GIT_PATCH_LARGE")=="1"{
+  return remoteGitPatchLargeMaxBytes
+ }
+ return remoteGitPatchMaxBytes
+}
 
 // Each page is computed from the same host-owned, fixed HEAD diff. The
 // client never supplies a file path, ref, offset, content hash or Git argv.
@@ -40,8 +49,8 @@ func (s *Server) readRemoteGitPatchPageMode(ctx context.Context,session *remoteT
  session.gitPatchMu.Lock()
  defer session.gitPatchMu.Unlock()
  if !first&&!session.gitPatchReady{return empty,denied}
- // Read and cap before returning even the first byte. Refuse any diff over
- // 4 KiB; streaming an unbounded diff or silently clipping it is forbidden.
+ // Read and cap before returning even the first byte. The host defaults
+ // to 4 KiB; a separate opt-in enables up to 16 KiB. Never clip silently.
  patch,root,err:=s.readRemoteGitPatchSnapshotMode(ctx,cached)
  if err!=nil||ctx.Err()!=nil||session.closed.Load(){
   session.gitPatchReady=false
@@ -145,7 +154,7 @@ func (s *Server) readRemoteGitPatchSnapshotMode(ctx context.Context,cached bool)
  args:=[]string{"--no-pager","diff","--no-ext-diff","--no-textconv","--no-color","--no-renames","--ignore-submodules=all","--unified=1"}
  if cached{args=append(args,"--cached")}else{args=append(args,"HEAD")}
  args=append(args,"--")
- data,err:=run(remoteGitPatchMaxBytes,args...)
+ data,err:=run(remoteGitPatchSnapshotMaxBytes(),args...)
  if err!=nil{return "","",denied}
  if data==""{
   if cached{data="(no staged changes)\n"}else{data="(no tracked changes)\n"}

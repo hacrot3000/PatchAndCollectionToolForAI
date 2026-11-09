@@ -7,6 +7,10 @@ const tick=String.fromCharCode(96);
 const sections=raw.split('const trustedGUIJavaScript = '+tick);
 assert.equal(sections.length,2);
 const script=sections[1].split(tick)[0];
+assert.ok(script.includes('gitPatchText.length+data.patch.length>16384'),
+ 'trusted GUI must not clip a host-approved larger patch');
+assert.ok(script.includes('data.patch.length>320'),
+ 'E2EE output per-page bound must remain unchanged');
 class Element{
  constructor(id){
   this.id=id;this.value='';this.textContent='';this.hidden=false;

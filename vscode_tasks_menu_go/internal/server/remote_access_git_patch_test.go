@@ -175,3 +175,69 @@ func TestRemoteGitCachedPatchIsolationAndStaleIndex(t *testing.T){
   t.Fatal("staged cursor accepted index changed after first page")
  }
 }
+
+func TestRemoteGitPatchLargeReviewRequiresSeparateHostOptIn(t *testing.T){
+ requireGit(t)
+ if runtime.GOOS=="windows"{t.Skip("Unix-only bounded Git diff")}
+ t.Setenv("TASKDECK_REMOTE_GIT_PATCH","1")
+ t.Setenv("TASKDECK_REMOTE_GIT_PATCH_LARGE","0")
+ s,session,_,_:=remoteDispatchFixture(t)
+ gitInitRemoteTest(t,s.Workspace)
+ git:=func(args ...string)string{
+  t.Helper()
+  cmd:=exec.Command("git",append([]string{"-C",s.Workspace},args...)...)
+  output,err:=cmd.CombinedOutput()
+  if err!=nil{t.Fatalf("git %v: %v %s",args,err,output)}
+  return strings.TrimSpace(string(output))
+ }
+ git("config","user.name","TaskDeck Large Review")
+ git("config","user.email","large@example.invalid")
+ file:=filepath.Join(s.Workspace,"changed.txt")
+ if err:=os.WriteFile(file,[]byte("base\n"),0600);err!=nil{t.Fatal(err)}
+ git("add","changed.txt")
+ git("commit","-m","baseline")
+ changed:=strings.Repeat("tracked review line ABCDEFGHIJKLMNOPQRST\n",240)
+ if err:=os.WriteFile(file,[]byte(changed),0600);err!=nil{t.Fatal(err)}
+ if _,err:=s.readRemoteGitPatchPage(context.Background(),session,true,
+  remoteDispatchTestID);err==nil{
+  t.Fatal("large diff bypassed default 4 KiB host cap")
+ }
+ t.Setenv("TASKDECK_REMOTE_GIT_PATCH_LARGE","1")
+ page,err:=s.readRemoteGitPatchPage(context.Background(),session,true,
+  remoteDispatchTestID)
+ if err!=nil||page.Page!=1||!page.More{
+  t.Fatalf("opt-in large diff unavailable: %+v %v",page,err)
+ }
+ var combined strings.Builder
+ combined.WriteString(page.Patch)
+ for count:=0;page.More;count++{
+  if count>=256{t.Fatal("E2EE review exceeded 256 pages")}
+  page,err=s.readRemoteGitPatchPage(context.Background(),session,false,
+   remoteDispatchTestID)
+  if err!=nil||!remotetransport.ValidRemoteGitPatchPage(page){
+   t.Fatalf("large review page invalid: %+v %v",page,err)
+  }
+  combined.WriteString(page.Patch)
+ }
+ if combined.Len()<=remoteGitPatchMaxBytes||
+  combined.Len()>remoteGitPatchLargeMaxBytes||
+  !strings.Contains(combined.String(),"tracked review line"){
+  t.Fatalf("large diff not complete or bounded, bytes=%d",combined.Len())
+ }
+ // Oversize snapshots are denied before the first page; never clip.
+ huge:=strings.Repeat("oversized review line ABCDEFGHIJKLMNOPQRSTUVWXYZ\n",650)
+ if err:=os.WriteFile(file,[]byte(huge),0600);err!=nil{t.Fatal(err)}
+ if _,err:=s.readRemoteGitPatchPage(context.Background(),session,true,
+  remoteDispatchTestID);err==nil{
+  t.Fatal("16 KiB cap silently truncated oversized diff")
+ }
+ if err:=os.WriteFile(file,[]byte(changed),0600);err!=nil{t.Fatal(err)}
+ page,err=s.readRemoteGitPatchPage(context.Background(),session,true,
+  remoteDispatchTestID)
+ if err!=nil||!page.More{t.Fatalf("large review restart: %+v %v",page,err)}
+ if err:=os.WriteFile(file,[]byte("concurrent file edit\n"),0600);err!=nil{t.Fatal(err)}
+ if _,err:=s.readRemoteGitPatchPage(context.Background(),session,false,
+  remoteDispatchTestID);err==nil{
+  t.Fatal("large review resumed stale SHA-256 snapshot")
+ }
+}

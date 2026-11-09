@@ -1896,8 +1896,8 @@ const trustedGUIJavaScript = `'use strict';
               if(ch==='\n'||ch==='\t')return false;
               return /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u.test(ch);
             })||
-            (fresh?data.patch.length>4096:
-              gitPatchText.length+data.patch.length>4096)){
+            (fresh?data.patch.length>16384:
+              gitPatchText.length+data.patch.length>16384)){
             throw new Error('Trang Git diff E2EE không hợp lệ');
           }
           gitPatchText=fresh?data.patch:gitPatchText+data.patch;
