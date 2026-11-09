@@ -136,7 +136,7 @@ func TestRemoteWorkflowAuditHostOwnedPaginationAndStableSnapshot(t *testing.T){
   if err!=nil{return remotetransport.RemoteWorkflowAudit{},err}
   return remotetransport.OpenRemoteWorkflowAudit(client,reply,id)
  }
- first,err:=action(remotetransport.RemoteActionTasksWorkflowAudit,
+ first,err:=action(remotetransport.RemoteActionTasksWorkflowAuditStart,
   "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
  if err!=nil||len(first.Items)!=2||!first.More||
   first.Items[0].TaskID!=101||first.Items[1].TaskID!=102{
@@ -162,7 +162,7 @@ func TestRemoteWorkflowAuditHostOwnedPaginationAndStableSnapshot(t *testing.T){
   t.Fatal("audit cursor replay after final page")
  }
  // A new Start is the only way to view audit entries added later.
- refreshed,err:=action(remotetransport.RemoteActionTasksWorkflowAudit,
+ refreshed,err:=action(remotetransport.RemoteActionTasksWorkflowAuditStart,
   "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee")
  if err!=nil||len(refreshed.Items)!=2||
   refreshed.Items[0].TaskID!=900{

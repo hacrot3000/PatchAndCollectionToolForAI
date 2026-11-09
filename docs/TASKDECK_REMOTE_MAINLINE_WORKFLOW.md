@@ -345,3 +345,15 @@ real-host testing are considered **code complete**.
   Phiên vẫn chịu hạn mức 16 lượt E2EE, nên chưa chắc hiển thị hết
   32 bản ghi trong một phiên. Không tự động nối/resume cursor giữa
   các phiên; một phiên mới bắt đầu lại từ sự kiện mới nhất.
+
+ 
+## 2026-11-09 — Giữ tương thích ngược cho client audit v1
+
+- Hành động cũ `tasks.workflow.audit` luôn trả tối đa hai mục
+  và **không gửi khóa `more`**; client cũ dùng decoder exact-key
+  tiếp tục hoạt động với host/Agent mới.
+- Native client mới dùng `tasks.workflow.audit.start` để tạo cursor
+  và đọc khóa `more`, sau đó gọi `tasks.workflow.audit.next`.
+  Toàn bộ hành động đều read-only và giữ nguyên RBAC + host opt-in.
+- Client mới vẫn đọc được phản hồi v1 thiếu `more`. Không tự động
+  tiếp tục từ client cũ hoặc vượt giới hạn 16 lượt E2EE.

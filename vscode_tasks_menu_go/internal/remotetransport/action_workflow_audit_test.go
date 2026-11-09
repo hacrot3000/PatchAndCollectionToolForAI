@@ -83,7 +83,7 @@ func TestRemoteWorkflowAuditNoCallerSelectedTaskOrProject(t *testing.T){
  client,agent,_:=participants(t)
  exchange:=pingExchangeFunc(func(_ context.Context,frame []byte)([]byte,error){
   request,err:=OpenRemoteAction(agent,frame)
-  if err!=nil||request.Operation!=RemoteActionTasksWorkflowAudit||
+  if err!=nil||request.Operation!=RemoteActionTasksWorkflowAuditStart||
    request.TaskID!=0||request.FileIndex!=0||request.Text!=""||
    request.Message!=""||request.Snapshot!=""||request.Choice!=0{
    return nil,ErrInvalidRemoteAction
@@ -157,6 +157,22 @@ func TestRemoteWorkflowAuditMorePageStrictAndCompatible(t *testing.T){
   if err!=nil{t.Fatal(err)}
   if _,err:=OpenRemoteWorkflowAudit(c,frame,testActionID);err==nil{
    t.Fatalf("bad more boolean %s admitted",rawMore)
+  }
+ }
+}
+
+func TestRemoteWorkflowAuditStartAndNextForbidCallerSelectors(t *testing.T){
+ for _,op:=range []string{RemoteActionTasksWorkflowAuditStart,RemoteActionTasksWorkflowAuditNext}{
+  for _,bad:=range []RemoteAction{
+   {RequestID:testActionID,Operation:op,TaskID:3},
+   {RequestID:testActionID,Operation:op,Text:"user"},
+   {RequestID:testActionID,Operation:op,Message:"offset"},
+   {RequestID:testActionID,Operation:op,FileIndex:1},
+  }{
+   client,_,_:=participants(t)
+   if _,err:=SealRemoteAction(client,bad);err==nil{
+    t.Fatalf("untrusted selector accepted: %+v",bad)
+   }
   }
  }
 }

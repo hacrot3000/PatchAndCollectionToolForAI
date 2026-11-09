@@ -267,7 +267,7 @@ func (p *PingClient) TasksReport(ctx context.Context)(RemoteTaskReport,error){
  return reply.taskReport,err
 }
 func (p *PingClient) WorkflowAudit(ctx context.Context)(RemoteWorkflowAudit,error){
- reply,err:=p.exchangeAction(ctx,RemoteActionTasksWorkflowAudit)
+ reply,err:=p.exchangeAction(ctx,RemoteActionTasksWorkflowAuditStart)
  return reply.workflowAudit,err
 }
 func (p *PingClient) WorkflowAuditNext(ctx context.Context)(RemoteWorkflowAudit,error){
@@ -487,7 +487,7 @@ func (p *PingClient) exchangePayloadAction(ctx context.Context,operation string,
   result.preview,err=OpenRemoteActionTasksPreviewResult(channel,reply,id)
  case RemoteActionTasksReport:
   result.taskReport,err=OpenRemoteTaskReport(channel,reply,id)
- case RemoteActionTasksWorkflowAudit,RemoteActionTasksWorkflowAuditNext:
+ case RemoteActionTasksWorkflowAudit,RemoteActionTasksWorkflowAuditStart,RemoteActionTasksWorkflowAuditNext:
   result.workflowAudit,err=OpenRemoteWorkflowAudit(channel,reply,id)
  case RemoteActionTasksInspect:
   result.inspect,err=OpenRemoteActionTasksInspectResult(channel,reply,id,taskID)
