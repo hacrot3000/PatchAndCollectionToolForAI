@@ -83,7 +83,10 @@ concurrency:
 jobs:
   remote-agent-go:
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    # Full race-enabled workflow, Git, Relay and HTTP security suites can
+    # exceed 12 minutes even when every test passes. Do not cancel a
+    # release validation job while the final security suite is running.
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
