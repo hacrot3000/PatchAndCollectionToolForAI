@@ -35,6 +35,11 @@ type remoteLongTaskJob struct {
  status string
  exitCode int
  outputCursor int
+ workflowStep int
+ workflowTotal int
+ workflowAttempt int
+ workflowAttemptTotal int
+ workflowStepStatus string
 }
 
 type remoteLongTaskCapture struct {
@@ -77,6 +82,9 @@ func validLongTaskStatus(status string)bool{
 // boundary. Each poll consumes the next chunk; a full capture drops new
 // bytes rather than allocating unbounded memory. Nothing is logged in DB.
 func (c *remoteLongTaskCapture)next(cursor int)(string,int,bool,bool){
+ return c.nextBounded(cursor,remoteLongTaskMaxChunkBytes)
+}
+func (c *remoteLongTaskCapture)nextBounded(cursor,limit int)(string,int,bool,bool){
  c.mu.Lock()
  defer c.mu.Unlock()
  clean:=sanitizeLongTaskOutput(c.data)
@@ -84,7 +92,7 @@ func (c *remoteLongTaskCapture)next(cursor int)(string,int,bool,bool){
  end:=cursor
  for index,r:=range clean[cursor:]{
   width:=utf8.RuneLen(r)
-  if width<1||index+width>remoteLongTaskMaxChunkBytes{break}
+  if width<1||index+width>limit{break}
   end=cursor+index+width
  }
  return clean[cursor:end],end,c.truncated,end<len(clean)
@@ -97,6 +105,11 @@ type remoteLongTaskSnapshot struct {
  Output string
  Truncated bool
  More bool // Captured output still unread in the host-owned cursor.
+ Step int
+ StepTotal int
+ Attempt int
+ AttemptTotal int
+ StepStatus string
 }
 
 // Must be entered only from TaskDeck's verified tasks.run role, live
@@ -204,6 +217,20 @@ func (s *Server) startRemoteLongTask(
 // Polling never starts a process or accepts an offset/filename from client.
 // One bounded output chunk is delivered per read, and a subsequent poll may
 // retrieve the next. A done job remains available until explicit cleanup.
+// These fields are Agent-owned, not parsed from arbitrary child stdout.
+// Job and cursor mutations share the same mutex, so no poll can see a
+// mixed step index/attempt from different attempts.
+func (job *remoteLongTaskJob) updateWorkflowStep(index,total,attempt,attemptTotal int,state string){
+ job.mu.Lock()
+ job.workflowStep=index
+ job.workflowTotal=total
+ job.workflowAttempt=attempt
+ job.workflowAttemptTotal=attemptTotal
+ job.workflowStepStatus=state
+ job.mu.Unlock()
+ select{case job.capture.notify<-struct{}{}:default:}
+}
+
 func (session *remoteTaskDeckSession) pollRemoteLongTask(
  ctx context.Context,taskID int,
 )(remoteLongTaskSnapshot,error){
@@ -222,7 +249,15 @@ func (session *remoteTaskDeckSession) pollRemoteLongTask(
   // polls must not both send the same chunk or rewind an advanced cursor.
   job.mu.Lock()
   status,exit,cursor:=job.status,job.exitCode,job.outputCursor
-  chunk,next,truncated,more:=job.capture.next(cursor)
+  state:=remoteLongTaskSnapshot{
+   TaskID:taskID,Status:status,ExitCode:exit,
+   Step:job.workflowStep,StepTotal:job.workflowTotal,
+   Attempt:job.workflowAttempt,AttemptTotal:job.workflowAttemptTotal,
+   StepStatus:job.workflowStepStatus,
+  }
+  limit:=remoteLongTaskMaxChunkBytes
+  if state.Step>0{limit=64} // Reserve E2EE envelope for five typed fields.
+  chunk,next,truncated,more:=job.capture.nextBounded(cursor,limit)
   if chunk!=""||status!="running"{
    if ctx.Err()!=nil||session.closed.Load(){
     job.mu.Unlock()
@@ -230,16 +265,24 @@ func (session *remoteTaskDeckSession) pollRemoteLongTask(
    }
    job.outputCursor=next
    job.mu.Unlock()
-   return remoteLongTaskSnapshot{
-    TaskID:taskID,Status:status,ExitCode:exit,
-    Output:chunk,Truncated:truncated,More:more,
-   },nil
+   state.Output=chunk
+   state.Truncated=truncated
+   state.More=more
+   return state,nil
   }
   job.mu.Unlock()
   select{
   case <-deadlineCtx.Done():
    if ctx.Err()!=nil||session.closed.Load(){return denied,remotetransport.ErrRemoteActionDenied}
-   return remoteLongTaskSnapshot{TaskID:taskID,Status:"running",ExitCode:-1},nil
+   job.mu.Lock()
+   state=remoteLongTaskSnapshot{
+    TaskID:taskID,Status:job.status,ExitCode:job.exitCode,
+    Step:job.workflowStep,StepTotal:job.workflowTotal,
+    Attempt:job.workflowAttempt,AttemptTotal:job.workflowAttemptTotal,
+    StepStatus:job.workflowStepStatus,
+   }
+   job.mu.Unlock()
+   return state,nil
   case <-job.capture.notify:
   case <-job.done:
   }

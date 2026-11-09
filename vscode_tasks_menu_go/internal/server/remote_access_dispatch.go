@@ -440,6 +440,9 @@ func (s *Server) executeRemoteE2EEPing(
     longTask=remotetransport.RemoteLongTaskProgress{
      TaskID:progress.TaskID,Status:progress.Status,ExitCode:progress.ExitCode,
      Output:progress.Output,Truncated:progress.Truncated,More:progress.More,
+     Step:progress.Step,StepTotal:progress.StepTotal,
+     Attempt:progress.Attempt,AttemptTotal:progress.AttemptTotal,
+     StepStatus:progress.StepStatus,
     }
     return nil
    case remotetransport.RemoteActionTasksCancel:

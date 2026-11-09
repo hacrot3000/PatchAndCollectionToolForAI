@@ -370,8 +370,10 @@ Workflow:
     // produce a final, content-free step outcome whenever storage works.
     _=s.auditRemoteWorkflowStep(session,job.taskID,
      step.taskID,i+1,len(plan),attempt,"failed",-1)
+    job.updateWorkflowStep(i+1,len(plan),attempt,step.retries+1,"failed")
     status="failed";exitCode=-1;break Workflow
    }
+   job.updateWorkflowStep(i+1,len(plan),attempt,step.retries+1,"running")
    _,_=captureWorkflowText(job.capture,fmt.Sprintf(
     "[TaskDeck workflow] Step %d/%d: Task #%d (attempt %d/%d)\n",
     i+1,len(plan),step.taskID,attempt,step.retries+1))
@@ -395,6 +397,7 @@ Workflow:
     cancelStep()
     _=s.auditRemoteWorkflowStep(session,job.taskID,
      step.taskID,i+1,len(plan),attempt,"cancelled",-1)
+    job.updateWorkflowStep(i+1,len(plan),attempt,step.retries+1,"cancelled")
     status="cancelled";exitCode=-1;break Workflow
    }
    err=cmd.Run()
@@ -416,12 +419,14 @@ Workflow:
    // retries of the SAME step. A failed audit can never trigger a replay.
    if err:=s.auditRemoteWorkflowStep(session,job.taskID,step.taskID,
     i+1,len(plan),attempt,stepStatus,code);err!=nil{
+    job.updateWorkflowStep(i+1,len(plan),attempt,step.retries+1,"failed")
     status="failed";exitCode=-1
     _,_=captureWorkflowText(job.capture,fmt.Sprintf(
      "[TaskDeck workflow] Step %d/%d: audit unavailable; stopped\n",
      i+1,len(plan)))
     break Workflow
    }
+   job.updateWorkflowStep(i+1,len(plan),attempt,step.retries+1,stepStatus)
    _,_=captureWorkflowText(job.capture,fmt.Sprintf(
     "[TaskDeck workflow] Step %d/%d: %s (exit=%d, attempt=%d)\n",
     i+1,len(plan),stepStatus,code,attempt))
