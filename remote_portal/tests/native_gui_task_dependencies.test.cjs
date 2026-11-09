@@ -8,6 +8,8 @@ const match=source.match(/const trustedGUIJavaScript = `([\s\S]*?)`/);
 assert.ok(match,'trusted GUI JavaScript missing');
 assert.ok(match[1].includes('Một bước thất bại có thể được chạy lại đúng một lần'),
  'native GUI must disclose that host-approved retry can repeat side effects');
+assert.ok(match[1].includes('bước hết giờ sẽ bị dừng, không chạy lại'),
+ 'native GUI must disclose host-authorized per-step timeout');
 
 class Element{
  constructor(id){

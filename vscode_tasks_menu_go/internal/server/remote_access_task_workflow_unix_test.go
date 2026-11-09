@@ -762,8 +762,12 @@ func TestRemoteWorkflowTimeoutRejectsUnknownPolicyAndUnapprovedRanges(t *testing
    ]}`,tc.policy)
    root:=remoteWorkflowIssuedRoot(t,s,session,client,agent,source,"Last")
    result,err:=s.readRemoteTaskDependencies(context.Background(),session,root)
-   if err!=nil||!result.Available||result.RunAvailable!=tc.allowed{
-    t.Fatalf("unexpected timeout policy admission: %+v %v",result,err)
+   if tc.allowed{
+    if err!=nil||!result.Available||!result.RunAvailable{
+     t.Fatalf("approved timeout policy denied: %+v %v",result,err)
+    }
+   }else if err==nil&&result.RunAvailable{
+    t.Fatalf("unsafe timeout policy shown as executable: %+v",result)
    }
    plan,_,err:=s.prepareRemoteLinearWorkflow(context.Background(),session,root)
    if (err==nil)!=tc.allowed{

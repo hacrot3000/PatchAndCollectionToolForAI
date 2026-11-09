@@ -2632,6 +2632,8 @@ const trustedGUIJavaScript = `'use strict';
       'Các nhánh chỉ được chạy tuần tự khi host khai báo dependsOrder: sequence. '+
       'Một bước thất bại có thể được chạy lại đúng một lần khi task có retry: 1 '+
       'và host đã bật quyền retry riêng; việc chạy lại có thể lặp tác dụng phụ. '+
+      'Host có thể giới hạn 1–30 giây/bước với timeoutSeconds khi bật riêng; '+
+      'bước hết giờ sẽ bị dừng, không chạy lại hoặc chạy bước sau. '+
       'Có thể hủy, dừng khi lỗi; không gửi lệnh hoặc tham số từ browser.'))return;
     taskWorkflowReadyID=0;
     invoke('/api/tasks-workflow-start/'+String(id));

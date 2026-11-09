@@ -213,3 +213,24 @@ real-host testing are considered **code complete**.
   chỉ bắt đầu lại từ trang đầu, không có resume cross-session.
 - Vẫn cần nghiên cứu/chuyển thành code cơ chế review theo đoạn hoặc
   file được host phát hành để xem đầy đủ diff vượt ngân sách E2EE.
+
+
+## 2026-11-09 — Timeout theo từng bước Remote workflow
+
+- Chỉ hỗ trợ `taskdeck.workflow.timeoutSeconds` dạng **số nguyên JSON**
+  từ **1 đến 30**, chỉ khi host bật riêng
+  `TASKDECK_REMOTE_TASKS_WORKFLOW_TIMEOUT=1` (mặc định tắt).
+  Vẫn yêu cầu các opt-in workflow/E2EE hiện có; tổng thời lượng
+  của job vẫn không quá **90 giây**.
+- Timeout có thể đi cùng `retry: 1` nếu và chỉ nếu host cũng bật
+  `TASKDECK_REMOTE_TASKS_WORKFLOW_RETRY=1`. Timeout **không bao giờ**
+  kích hoạt retry. Nếu một bước bị timeout thì kill process group,
+  audit `timed_out`, dừng workflow, không bắt đầu dependency sau.
+- Cả RunAvailable của GUI và executor kiểm tra cùng một policy host-only.
+  Trước mỗi bước, host xác minh lại opt-in, quyền, source digest,
+  executable và audit. Metadata bổ sung như `condition`,
+  `continueOnError`, `outputs` vẫn bị từ chối.
+- Quyền timeout bị rút trong lúc workflow hoạt động sẽ ngăn bước kế
+  tiếp bắt đầu; không thay đổi quyền shell hay gửi tham số từ browser.
+- Test đã bổ sung: opt-in bật/tắt, giới hạn 1–30, chính sách kết hợp,
+  từ chối số không hợp lệ, timeout process thực tế và audit fail-fast.
