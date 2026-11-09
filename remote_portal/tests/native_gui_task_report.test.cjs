@@ -49,7 +49,13 @@ const fetch=async(path,opt)=>{
     status:'failed',exit_code:7,timestamp:epoch},
    {root_task_id:80,task_id:60,step:1,total:3,attempt:1,
     status:'completed',exit_code:0,timestamp:epoch-1},
-  ],remote_control_available:false,remaining:--remaining,
+  ],more:true,remote_control_available:false,remaining:--remaining,
+ })};
+ if(path==='/api/tasks-workflow-audit-next')return {ok:true,json:async()=>({
+  ok:true,items:[
+   {root_task_id:80,task_id:50,step:1,total:3,attempt:1,
+    status:'completed',exit_code:0,timestamp:epoch-2},
+  ],more:false,remote_control_available:false,remaining:--remaining,
  })};
  if(path==='/api/close')return {ok:true,json:async()=>({ok:true,closed:true})};
  throw Error('unexpected local endpoint '+path);
@@ -81,7 +87,17 @@ const flush=async()=>{for(let i=0;i<80;i++)await Promise.resolve()};
  assert.match(get('tasks-report-output').textContent,/Workflow #80/);
  assert.match(get('tasks-report-output').textContent,/Bước 2\/3 \(Task #70\)/);
  assert.match(get('tasks-report-output').textContent,/Lần 2 · failed · exit 7/);
- assert.match(get('tasks-report-output').textContent,/không phải lịch sử toàn bộ job/);
+ assert.match(get('tasks-report-output').textContent,/Còn trang; bấm Xem tiếp audit/);
+ assert.equal(get('tasks-workflow-audit-next').disabled,false,
+  'additional host-owned workflow audit page not offered');
+ get('tasks-workflow-audit-next').click();await flush();
+ assert.deepEqual(sent.filter(p=>p==='/api/tasks-workflow-audit-next'),
+  ['/api/tasks-workflow-audit-next'],
+  'next page must use a body-free native endpoint');
+ assert.match(get('tasks-report-output').textContent,/Task #70/);
+ assert.match(get('tasks-report-output').textContent,/Task #50/);
+ assert.equal(get('tasks-workflow-audit-next').disabled,true,
+  'next button remained active after final audit page');
  assert.equal(get('tasks-report-output').children.length,0,
   'host-owned audit content was inserted as HTML');
  get('disconnect').click();await flush();
@@ -90,5 +106,7 @@ const flush=async()=>{for(let i=0;i<80;i++)await Promise.resolve()};
  assert.equal(get('tasks-report').disabled,true,'report enabled after logout');
  assert.equal(get('tasks-workflow-audit').disabled,true,
   'workflow audit button enabled after logout');
+ assert.equal(get('tasks-workflow-audit-next').disabled,true,
+  'workflow audit next remained enabled after logout');
  console.log('PASS: principal-owned E2EE task outcome report, zero caller params, scrub on logout');
 })().catch(e=>{console.error(e);process.exitCode=1});

@@ -113,3 +113,50 @@ func TestRemoteWorkflowAuditNoCallerSelectedTaskOrProject(t *testing.T){
   }
  }
 }
+
+ 
+func TestRemoteWorkflowAuditMorePageStrictAndCompatible(t *testing.T){
+ now:=time.Now().UTC().Unix()
+ entry:=RemoteWorkflowAuditEntry{RootTaskID:3,TaskID:2,
+  Step:1,Total:2,Attempt:1,Status:"completed",ExitCode:0,Timestamp:now}
+ row:=RemoteWorkflowAudit{Items:[]RemoteWorkflowAuditEntry{entry,entry},More:true}
+ client,agent,_:=participants(t)
+ frame,err:=SealRemoteWorkflowAudit(agent,testActionID,row)
+ if err!=nil{t.Fatal(err)}
+ result,err:=OpenRemoteWorkflowAudit(client,frame,testActionID)
+ if err!=nil||!result.More||len(result.Items)!=2{
+  t.Fatalf("host next-page hint not authenticated: %+v %v",result,err)
+ }
+ for _,bad:=range []RemoteWorkflowAudit{
+  {Items:[]RemoteWorkflowAuditEntry{entry},More:true},
+  {Items:[]RemoteWorkflowAuditEntry{},More:true},
+ }{
+  _,agent,_:=participants(t)
+  if _,err:=SealRemoteWorkflowAudit(agent,testActionID,bad);err==nil{
+   t.Fatalf("partial page with more was sealed: %+v",bad)
+  }
+ }
+ c,agent,_:=participants(t)
+ legacy:=remoteWorkflowAuditWire{
+  Type:RemoteWorkflowAuditProtocol,RequestID:testActionID,
+  Items:[]RemoteWorkflowAuditEntry{entry},RemoteControlAvailable:false,
+ }
+ clear,err:=json.Marshal(legacy)
+ if err!=nil{t.Fatal(err)}
+ frame,err=agent.Seal(clear)
+ if err!=nil{t.Fatal(err)}
+ actual,err:=OpenRemoteWorkflowAudit(c,frame,testActionID)
+ if err!=nil||actual.More||len(actual.Items)!=1{
+  t.Fatalf("previous wire response no longer compatible: %+v %v",actual,err)
+ }
+ for _,rawMore:=range []string{"null",`"true"`,"0"}{
+  c,agent,_:=participants(t)
+  altered:=strings.Replace(string(clear),`"remote_control_available":false`,
+   `"remote_control_available":false,"more":`+rawMore,1)
+  frame,err:=agent.Seal([]byte(altered))
+  if err!=nil{t.Fatal(err)}
+  if _,err:=OpenRemoteWorkflowAudit(c,frame,testActionID);err==nil{
+   t.Fatalf("bad more boolean %s admitted",rawMore)
+  }
+ }
+}

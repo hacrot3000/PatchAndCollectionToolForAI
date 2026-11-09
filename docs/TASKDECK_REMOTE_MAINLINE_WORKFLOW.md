@@ -325,3 +325,23 @@ real-host testing are considered **code complete**.
   gần nhất**, KHÔNG đồng nghĩa bản báo cáo đầy đủ một workflow hay
   khôi phục công việc; truy vấn phân trang/báo cáo bền vững toàn bộ
   chuỗi vẫn chưa hoàn tất về mã nguồn.
+
+ 
+## 2026-11-09 — Phân trang audit workflow bằng cursor của Agent
+
+- Hành động mới **`tasks.workflow.audit.next`** chỉ đọc, không nhận
+  user/project/task ID, thời điểm, offset, token hay body. Cùng quyền
+  `tasks.view` và các opt-in của `tasks.workflow.audit`.
+- Khi bắt đầu, host quét tối đa **128 audit gần nhất** của đúng principal,
+  lọc kết quả bước cuối hợp lệ, giữ snapshot tối đa **32 sự kiện** trong
+  E2EE session. Mỗi trang chỉ tối đa **2 sự kiện**; trường `more`
+  có xác thực cho biết còn trang hay không. Cursor chỉ tăng sau khi
+  phản hồi E2EE được đóng gói thành công.
+- Snapshot không bị xô lệch khi audit mới xuất hiện. Không thể yêu
+  cầu Next trước Start, tua lại cursor, đọc trang quá cuối, hay sử
+  dụng cursor của session khác. Bắt đầu lại sẽ tạo snapshot mới.
+- Native GUI có nút “Xem tiếp audit”, ghép tối đa 32 sự kiện vào
+  vùng textContent và xóa khi logout; không đưa dữ liệu sang PHP.
+  Phiên vẫn chịu hạn mức 16 lượt E2EE, nên chưa chắc hiển thị hết
+  32 bản ghi trong một phiên. Không tự động nối/resume cursor giữa
+  các phiên; một phiên mới bắt đầu lại từ sự kiện mới nhất.

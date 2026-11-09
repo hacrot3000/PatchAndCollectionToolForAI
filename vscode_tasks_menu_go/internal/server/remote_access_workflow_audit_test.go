@@ -108,3 +108,94 @@ func TestRemoteWorkflowAuditStrictStoredSchema(t *testing.T){
   }
  }
 }
+
+ 
+func TestRemoteWorkflowAuditHostOwnedPaginationAndStableSnapshot(t *testing.T){
+ s,session,client,agent:=remoteDispatchFixture(t)
+ t.Setenv("TASKDECK_REMOTE_TASKS_PREVIEW","1")
+ t.Setenv("TASKDECK_REMOTE_TASKS_REPORT","1")
+ t.Setenv("TASKDECK_REMOTE_TASKS_WORKFLOW_REPORT","1")
+ project,err:=s.Identity.ProjectByKey(context.Background(),session.projectKey)
+ if err!=nil{t.Fatal(err)}
+ when:=time.Now().UTC().Truncate(time.Second)
+ for i:=5;i>=1;i--{
+  recordWorkflowAuditTestRow(t,s,project.ID,session.userID,
+   100+i,100+i,i%3+1,"completed",when.Add(-time.Duration(i)*time.Second),"")
+ }
+ // Cursor cannot be used before a successfully sealed Start page.
+ if _,err:=s.readRemoteWorkflowAuditNext(context.Background(),session);err==nil{
+  t.Fatal("unguarded Next allowed before E2EE start")
+ }
+ action:=func(op,id string)(remotetransport.RemoteWorkflowAudit,error){
+  t.Helper()
+  frame,err:=remotetransport.SealRemoteAction(client,remotetransport.RemoteAction{
+   RequestID:id,Operation:op,
+  })
+  if err!=nil{t.Fatal(err)}
+  reply,err:=s.executeRemoteE2EEPing(context.Background(),session,agent,frame)
+  if err!=nil{return remotetransport.RemoteWorkflowAudit{},err}
+  return remotetransport.OpenRemoteWorkflowAudit(client,reply,id)
+ }
+ first,err:=action(remotetransport.RemoteActionTasksWorkflowAudit,
+  "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+ if err!=nil||len(first.Items)!=2||!first.More||
+  first.Items[0].TaskID!=101||first.Items[1].TaskID!=102{
+  t.Fatalf("first persisted audit page: %+v %v",first,err)
+ }
+ // Newer audit appended after Start must not shift this issued cursor.
+ recordWorkflowAuditTestRow(t,s,project.ID,session.userID,
+  900,900,1,"completed",when.Add(time.Second),"")
+ second,err:=action(remotetransport.RemoteActionTasksWorkflowAuditNext,
+  "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
+ if err!=nil||len(second.Items)!=2||!second.More||
+  second.Items[0].TaskID!=103||second.Items[1].TaskID!=104{
+  t.Fatalf("snapshot shifted or wrong second page: %+v %v",second,err)
+ }
+ last,err:=action(remotetransport.RemoteActionTasksWorkflowAuditNext,
+  "cccccccccccccccccccccccccccccccc")
+ if err!=nil||len(last.Items)!=1||last.More||
+  last.Items[0].TaskID!=105{
+  t.Fatalf("last audit page incorrect: %+v %v",last,err)
+ }
+ if _,err:=action(remotetransport.RemoteActionTasksWorkflowAuditNext,
+  "dddddddddddddddddddddddddddddddd");err==nil{
+  t.Fatal("audit cursor replay after final page")
+ }
+ // A new Start is the only way to view audit entries added later.
+ refreshed,err:=action(remotetransport.RemoteActionTasksWorkflowAudit,
+  "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee")
+ if err!=nil||len(refreshed.Items)!=2||
+  refreshed.Items[0].TaskID!=900{
+  t.Fatalf("new E2EE start did not refresh host snapshot: %+v %v",refreshed,err)
+ }
+ t.Setenv("TASKDECK_REMOTE_TASKS_WORKFLOW_REPORT","0")
+ if _,err:=action(remotetransport.RemoteActionTasksWorkflowAuditNext,
+  "ffffffffffffffffffffffffffffffff");err==nil{
+  t.Fatal("audit Next bypassed host revocation")
+ }
+}
+
+func TestRemoteWorkflowAuditHistoryBoundedTo32Events(t *testing.T){
+ s,session,_,_:=remoteDispatchFixture(t)
+ t.Setenv("TASKDECK_REMOTE_TASKS_PREVIEW","1")
+ t.Setenv("TASKDECK_REMOTE_TASKS_REPORT","1")
+ t.Setenv("TASKDECK_REMOTE_TASKS_WORKFLOW_REPORT","1")
+ project,err:=s.Identity.ProjectByKey(context.Background(),session.projectKey)
+ if err!=nil{t.Fatal(err)}
+ now:=time.Now().UTC().Truncate(time.Second)
+ for i:=0;i<40;i++{
+  recordWorkflowAuditTestRow(t,s,project.ID,session.userID,
+   i+1,50,1,"failed",now.Add(-time.Duration(i)*time.Second),"")
+ }
+ page,err:=s.readRemoteWorkflowAudit(context.Background(),session)
+ if err!=nil||len(page.Items)!=2||!page.More||
+  len(session.workflowAuditPageItems)!=remoteWorkflowAuditSnapshotMaxEntries{
+  t.Fatalf("bounded 32-event snapshot absent: %+v %v",page,err)
+ }
+ session.workflowAuditPageReady=true
+ session.workflowAuditPageCursor=30
+ final,err:=s.readRemoteWorkflowAuditNext(context.Background(),session)
+ if err!=nil||len(final.Items)!=2||final.More{
+  t.Fatalf("bounded final page invalid: %+v %v",final,err)
+ }
+}
