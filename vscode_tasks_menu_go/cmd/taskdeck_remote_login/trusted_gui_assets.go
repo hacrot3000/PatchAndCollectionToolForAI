@@ -1834,6 +1834,36 @@ const trustedGUIJavaScript = `'use strict';
              stepStatus!=='')){
             throw new Error('Tiến độ workflow không hợp lệ');
           }
+          const detailsRaw=Object.prototype.hasOwnProperty.call(data,'step_details')?
+            data.step_details:'';
+          if(typeof detailsRaw!=='string'||detailsRaw.length>39||
+            (detailsRaw!==''&&(stepHistory===''||!workflowProgress))){
+            throw new Error('Mã thoát/thời gian workflow không hợp lệ');
+          }
+          let details=[];
+          if(detailsRaw!==''){
+            details=detailsRaw.split('|');
+            if(details.length!==stepTotal){
+              throw new Error('Số bước kết quả E2EE không khớp');
+            }
+            for(let i=0;i<details.length;i++){
+              const code=stepHistory[i];
+              const value=details[i];
+              if(code==='R'||code==='-'){
+                if(value!=='-')throw new Error('Bước đang chờ không thể có kết quả');
+              }else{
+                if(!/^-?(0|[1-9][0-9]{0,2}):(0|[1-9][0-9]{0,4})$/.test(value)){
+                  throw new Error('Mã thoát/thời gian bước sai định dạng');
+                }
+                const parts=value.split(':');
+                const exit=Number(parts[0]);
+                const ms=Number(parts[1]);
+                if(exit< -1||exit>255||ms>90000||(code==='C'&&exit!==0)){
+                  throw new Error('Mã thoát/thời gian bước vượt giới hạn');
+                }
+              }
+            }
+          }
           if(data.status==='started'){
             longTaskID=id;longTaskText='';
             longTaskAuto=true;
@@ -1859,7 +1889,10 @@ const trustedGUIJavaScript = `'use strict';
             C:'Hoàn tất',F:'Lỗi',X:'Đã hủy',T:'Hết thời gian'};
           const historyLines=stepHistory?
             Array.from(stepHistory).map((code,i)=>
-              'Bước '+String(i+1)+': '+historyLabels[code]).join(' · '):'';
+              'Bước '+String(i+1)+': '+historyLabels[code]+
+              (details[i]&&details[i]!=='-'?
+                ' (exit='+details[i].split(':')[0]+
+                ', '+details[i].split(':')[1]+' ms)':'')).join(' · '):'';
           longTaskOutput.textContent='Task '+String(id)+' · '+data.status+
             ' · exit='+String(data.exit_code)+
             (workflowProgress?' · Bước '+String(step)+'/'+String(stepTotal)+

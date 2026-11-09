@@ -959,7 +959,8 @@ func TestRemoteWorkflowPollReturnsAuthenticatedStepResult(t *testing.T){
   progress.Step!=3||progress.StepTotal!=3||
   progress.Attempt!=1||progress.AttemptTotal!=1||
   progress.StepStatus!="completed"||
-  progress.StepHistory!="CCC"||len(progress.Output)>64{
+  progress.StepHistory!="CCC"||len(progress.Output)>64||
+  progress.StepDetails==""{
   t.Fatalf("typed E2EE workflow progress unavailable: %+v %v",progress,err)
  }
  // The step record comes from the host, independent of a child process's
@@ -970,7 +971,8 @@ func TestRemoteWorkflowPollReturnsAuthenticatedStepResult(t *testing.T){
    remotetransport.RemoteActionTasksPoll,root,0,"",
    fmt.Sprintf("%032d",1000+pollIndex))
   if err!=nil||progress.Step!=3||progress.StepTotal!=3||
-   len(progress.Output)>64||progress.StepHistory!="CCC"{
+   len(progress.Output)>64||progress.StepHistory!="CCC"||
+   progress.StepDetails==""{
    t.Fatalf("subsequent E2EE page lost metadata: %+v %v",progress,err)
   }
  }
@@ -994,7 +996,7 @@ func TestRemoteWorkflowHostStepHistoryLiveAndFailed(t *testing.T){
    "10101010101010101010101010101010")
   if err!=nil||during.Status!="running"||during.Step!=1||
    during.StepTotal!=2||during.StepStatus!="running"||
-   during.StepHistory!="R-"{
+   during.StepHistory!="R-"||during.StepDetails!="-|-"{
    t.Fatalf("first step live history missing: %+v %v",during,err)
   }
   if state:=awaitRemoteWorkflow(t,session);state!="completed"{
@@ -1005,7 +1007,7 @@ func TestRemoteWorkflowHostStepHistoryLiveAndFailed(t *testing.T){
    "20202020202020202020202020202020")
   if err!=nil||final.Status!="completed"||
    final.Step!=2||final.StepStatus!="completed"||
-   final.StepHistory!="CC"{
+   final.StepHistory!="CC"||len(strings.Split(final.StepDetails,"|"))!=2{
    t.Fatalf("completed host history incorrect: %+v %v",final,err)
   }
  })
@@ -1029,7 +1031,8 @@ func TestRemoteWorkflowHostStepHistoryLiveAndFailed(t *testing.T){
    "30303030303030303030303030303030")
   if err!=nil||final.Status!="failed"||final.Step!=2||
    final.StepTotal!=3||final.StepStatus!="failed"||
-   final.StepHistory!="CF-"{
+   final.StepHistory!="CF-"||
+   !strings.HasSuffix(final.StepDetails,"|-"){
    t.Fatalf("failed workflow history leaked/omitted a step: %+v %v",final,err)
   }
  })

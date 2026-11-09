@@ -1134,6 +1134,7 @@ func (ui *trustedGUI) writeRemoteLongTaskResponse(
   "step":value.Step,"step_total":value.StepTotal,
   "attempt":value.Attempt,"attempt_total":value.AttemptTotal,
   "step_status":value.StepStatus,"step_history":value.StepHistory,
+  "step_details":value.StepDetails,
   "remote_control_available":false,
   "remaining":remaining,
  })

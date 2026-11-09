@@ -176,12 +176,13 @@ func TestRemoteLongTaskWorkflowStepEscapedOutputFitsE2EEEnvelope(t *testing.T){
    Output:strings.Repeat(char,64),Truncated:true,More:true,
    Step:4,StepTotal:4,Attempt:2,AttemptTotal:2,StepStatus:"completed",
    StepHistory:"CCCC",
+   StepDetails:"255:90000|255:90000|255:90000|255:90000",
   }
   frame,err:=SealRemoteLongTaskProgress(agent,testActionID,value)
   if err!=nil{t.Fatalf("escaped workflow output %q overflowed E2EE: %v",char,err)}
   got,err:=OpenRemoteLongTaskProgress(client,frame,testActionID,2147483647)
   if err!=nil||got.Output!=value.Output||got.Step!=4||got.Attempt!=2||
-   got.StepHistory!="CCCC"{
+   got.StepHistory!="CCCC"||got.StepDetails!=value.StepDetails{
    t.Fatalf("escaped workflow response corrupted: %+v %v",got,err)
   }
  }
@@ -251,5 +252,44 @@ func TestRemoteLongTaskWorkflowHistoryRejectsMalformedAuthenticatedFrames(t *tes
    t.Fatalf("malformed host step history accepted: %s",metadata)
   }
   if client.Established(){t.Fatal("invalid step history failed to close E2EE channel")}
+ }
+}
+
+ 
+func TestRemoteLongTaskStepDetailsBoundedAuthenticatedAndBackwardCompatible(t *testing.T){
+ base:=RemoteLongTaskProgress{
+  TaskID:31,Status:"completed",ExitCode:0,
+  Step:3,StepTotal:3,Attempt:1,AttemptTotal:1,
+  StepStatus:"completed",StepHistory:"CCC",
+  StepDetails:"0:5|0:100|0:90000",Output:"done",
+ }
+ client,agent,_:=participants(t)
+ frame,err:=SealRemoteLongTaskProgress(agent,testActionID,base)
+ if err!=nil{t.Fatal(err)}
+ got,err:=OpenRemoteLongTaskProgress(client,frame,testActionID,31)
+ if err!=nil||got.StepDetails!=base.StepDetails{
+  t.Fatalf("authenticated detailed result was corrupted: %+v %v",got,err)
+ }
+ for _,invalid:=range []string{
+  "0:1|0:2","0:1|0:2|0:3|0:4","0:1|0:2|-",
+  "01:2|0:2|0:3","0:01|0:2|0:3",
+  "0:1|0:2|1:3","0:1|0:2|0:90001",
+  "0:1|0:2|-1:90001","0:1|0:2|0:-1",
+  "0:1|0:2|0:0;echo injected",
+ }{
+  altered:=base;altered.StepDetails=invalid
+  _,agent,_:=participants(t)
+  if _,err:=SealRemoteLongTaskProgress(agent,testActionID,altered);err==nil{
+   t.Fatalf("invalid step result detail accepted: %q",invalid)
+  }
+ }
+ noDetails:=base
+ noDetails.StepDetails=""
+ client,agent,_=participants(t)
+ frame,err=SealRemoteLongTaskProgress(agent,testActionID,noDetails)
+ if err!=nil{t.Fatal(err)}
+ got,err=OpenRemoteLongTaskProgress(client,frame,testActionID,31)
+ if err!=nil||got.StepDetails!=""{
+  t.Fatalf("older workflow frame became incompatible: %+v %v",got,err)
  }
 }
