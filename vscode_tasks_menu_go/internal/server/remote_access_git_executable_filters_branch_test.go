@@ -13,7 +13,7 @@ import(
 // through gitattributes during status despite disabled fsmonitor/hooks.
 // Enforce a fail-closed executable-filter preflight on BOTH read-only
 // reviews and mutating calls.
-func TestRemoteGitBranchOperationsRejectExecutableFilters(t *testing.T){
+func TestRemoteGitBranchCreateSwitchDeleteRejectExecutableFilters(t *testing.T){
  t.Run("branch-create",func(t *testing.T){
   s,session,git,_,_,_:=setupRemoteGitSwitch(t)
   t.Setenv("TASKDECK_REMOTE_GIT_BRANCH_CREATE","1")
