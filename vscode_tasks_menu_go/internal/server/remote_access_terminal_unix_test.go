@@ -164,9 +164,14 @@ func TestRemoteTerminalNaturalShellExitKillsDetachedSessionChildren(t *testing.T
  // simply closing the PTY master or reaping the parent shell cannot
  // terminate this process. It must be killed as an authenticated
  // PTY-session descendant before the host releases the workspace.
- command:="nohup /bin/sh -c 'sleep 2; touch escaped' </dev/null >/dev/null 2>&1 &\n"
+ command:="nohup /bin/sh -c 'touch child-started; sleep 2; touch escaped' </dev/null >/dev/null 2>&1 &\n"
  if _,err:=s.writeRemoteTerminal(context.Background(),session,command);err!=nil{
   t.Fatalf("could not run detached PTY child: %v",err)
+ }
+ // Avoid a vacuous PASS if interactive shell parsing, job launch or
+ // platform-specific nohup behavior prevented the child from starting.
+ if !remoteTestAwaitFile(filepath.Join(s.Workspace,"child-started"),3*time.Second){
+  t.Fatal("background PTY child never started")
  }
  if _,err:=s.writeRemoteTerminal(context.Background(),session,"exit\n");err!=nil{
   t.Fatalf("cannot terminate parent shell: %v",err)
