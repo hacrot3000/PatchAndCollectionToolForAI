@@ -824,3 +824,54 @@ func TestRemoteWorkflowStepTimeoutNeverRetriesOrStartsNextTask(t *testing.T){
   }
  }
 }
+
+type remoteWorkflowRevokeHostAfterStep struct{
+ identity.Store
+ name string
+}
+func(store remoteWorkflowRevokeHostAfterStep)AppendAudit(
+ ctx context.Context,event identity.AuditEvent,
+)error{
+ err:=store.Store.AppendAudit(ctx,event)
+ if err==nil&&event.Action=="remote.action.tasks_workflow_step"&&
+  event.Result=="completed"&&strings.Contains(event.Details,`"step":1`){
+  // Deliberately revoke one HOST-owned, default-OFF opt-in after the
+  // first process and before the next process's admission check.
+  if setErr:=os.Setenv(store.name,"0");setErr!=nil{return setErr}
+ }
+ return err
+}
+func TestRemoteWorkflowHostRevocationStopsSubsequentSteps(t *testing.T){
+ for _,name:=range []string{
+  "TASKDECK_REMOTE_TASKS_PREVIEW",
+  "TASKDECK_REMOTE_TASKS_DEPS",
+  "TASKDECK_REMOTE_TASKS_RUN",
+  "TASKDECK_REMOTE_TASKS_LONG",
+  "TASKDECK_REMOTE_TASKS_WORKFLOW_RUN",
+ }{
+  t.Run(name,func(t *testing.T){
+   remoteWorkflowHostFlags(t)
+   s,session,client,agent:=remoteTaskOperatorFixture(t)
+   root:=remoteWorkflowIssuedRoot(t,s,session,client,agent,
+    remoteWorkflowLinearSource,"Step C")
+   original:=s.Identity
+   s.Identity=remoteWorkflowRevokeHostAfterStep{Store:original,name:name}
+   if err:=s.startRemoteLinearWorkflow(context.Background(),session,root);err!=nil{
+    t.Fatalf("workflow not admitted before revocation: %v",err)
+   }
+   if status:=awaitRemoteWorkflow(t,session);status!="cancelled"{
+    t.Fatalf("host revocation did not stop workflow: %s",status)
+   }
+   job:=session.longTask
+   job.capture.mu.Lock()
+   output:=string(append([]byte(nil),job.capture.data...))
+   job.capture.mu.Unlock()
+   if !strings.Contains(output,"ONE")||
+    strings.Contains(output,"TWO")||
+    strings.Contains(output,"THREE")||
+    strings.Contains(output,"Step 2/3"){
+    t.Fatalf("process executed after host opt-in revocation: %q",output)
+   }
+  })
+ }
+}

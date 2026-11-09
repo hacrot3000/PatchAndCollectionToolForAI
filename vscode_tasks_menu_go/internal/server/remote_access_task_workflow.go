@@ -192,6 +192,14 @@ func remoteWorkflowSafeSequentialGraph(items []tasks.Task,
  return len(reachable)==len(order)
 }
 
+func remoteWorkflowHostExecutionEnabled()bool{
+ return os.Getenv("TASKDECK_REMOTE_TASKS_PREVIEW")=="1"&&
+  os.Getenv("TASKDECK_REMOTE_TASKS_DEPS")=="1"&&
+  os.Getenv("TASKDECK_REMOTE_TASKS_RUN")=="1"&&
+  os.Getenv("TASKDECK_REMOTE_TASKS_LONG")=="1"&&
+  os.Getenv("TASKDECK_REMOTE_TASKS_WORKFLOW_RUN")=="1"
+}
+
 func(s *Server)prepareRemoteLinearWorkflow(ctx context.Context,
  session *remoteTaskDeckSession,rootTaskID int,
 )([]remoteWorkflowStep,[32]byte,error){
@@ -199,11 +207,7 @@ func(s *Server)prepareRemoteLinearWorkflow(ctx context.Context,
  var hash [32]byte
  if s==nil||ctx==nil||ctx.Err()!=nil||session==nil||
   runtime.GOOS=="windows"||
-  os.Getenv("TASKDECK_REMOTE_TASKS_PREVIEW")!="1"||
-  os.Getenv("TASKDECK_REMOTE_TASKS_DEPS")!="1"||
-  os.Getenv("TASKDECK_REMOTE_TASKS_RUN")!="1"||
-  os.Getenv("TASKDECK_REMOTE_TASKS_LONG")!="1"||
-  os.Getenv("TASKDECK_REMOTE_TASKS_WORKFLOW_RUN")!="1"||
+  !remoteWorkflowHostExecutionEnabled()||
   !session.taskPageReady||!session.taskIssuedIDs[rootTaskID]{
   return nil,hash,denied
  }
@@ -327,6 +331,11 @@ Workflow:
   // host-authorized retry:1 policy. Each try re-checks permission, source
   // hash, cwd, executable identity and durable start/finish audit.
   for attempt:=1;attempt<=step.retries+1;attempt++{
+   // Host revocation takes effect before the NEXT process/attempt,
+   // even when the E2EE session and TaskDeck role remain valid.
+   if !remoteWorkflowHostExecutionEnabled(){
+    status="cancelled";exitCode=-1;break Workflow
+   }
    // Disabling a host opt-in while a workflow is already running also
    // revokes future retries/timeout-governed steps.
    if (attempt>1&&os.Getenv("TASKDECK_REMOTE_TASKS_WORKFLOW_RETRY")!="1")||
