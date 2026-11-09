@@ -2868,3 +2868,62 @@ shared-PHP deployment validation remain required.
   completed for cooperating daemons), Terminal/PTY lifecycle,
   other Git commands, other GUI (Files/Editor/Patch/Collection),
   and remaining remote privilege/budget security.
+
+
+
+## 2026-11-09 — main: native Task/PTY activity truth and natural Terminal child teardown
+
+- **CI checkpoint before this increment:** Go Agent workflow
+  [`42594593029`](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/42594593029)
+  and PHP Portal workflow
+  [`42594593001`](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/42594593001)
+  both completed **SUCCESS** on the same compiled source
+  `3758b269`. This validates the prior cross-process workspace lease
+  and Git Pull/Fetch/Push HTTPS credential-helper guard test as exercised
+  by their current race-enabled Go and Portal suites.
+- **Commit `aeba51d` (trusted GUI):** Session activity previously showed
+  "Không có tác vụ đang chạy" even when the authenticated user owned a
+  live long-running host task or Terminal PTY. It now derives a concise,
+  text-only indicator from the LAST validated task progress/terminal
+  response: job ID and running status; cancellation acknowledged but
+  process still stopping; terminal completion and pending Clear;
+  unread result output; or active PTY. No E2EE round, background
+  poll, task execution or new action is performed for rendering.
+  The UI resets to idle after authenticated Clear/Terminal Close.
+  Five relevant mock-DOM JavaScript suites (long-task stream, pending
+  cancel, autopoll, lifecycle and Terminal) all passed on that source.
+- **Commit `e9a28ae` (host PTY):** A shell can exit normally after starting
+  `nohup ... &`. Its child may ignore SIGHUP and run in a separate
+  process group but in the same PTY session. The prior waiter closed
+  `job.done` BEFORE invoking the once-only cancel cleanup; this
+  deliberately suppressed all PID signals after Wait to avoid
+  targeting an accidentally recycled shell PID, but also allowed
+  orphaned same-session background children to outlive the
+  authenticated Terminal lease. The waiter now explicitly invokes
+  the OS-specific `remoteKillPTYSession` enumeration BEFORE marking
+  the PTY exited or releasing the canonical workspace. This
+  enumerates/kills only processes verified to have the original
+  session ID, never invokes `Kill` on the reaped shell process
+  itself. It preserves the nonblocking logout/revocation path.
+- **Commit `c5ff88e` (regression):** A real Unix PTY integration test
+  starts a background shell with SIGHUP ignored, confirms a
+  `child-started` marker exists, then types `exit` in the parent
+  shell. It awaits workspace release and asserts a delayed
+  `escaped` side effect never appears. Parent natural exit, child
+  execution, release and absence of delayed writes all matter;
+  this is not a mocked terminal test.
+- **CI checkpoint:** Full Go Agent/Portal workflows for final compiled
+  commit `c5ff88e` are pending at this handoff. Do not mark the
+  new natural-exit test as PASS before CI completes; JavaScript
+  suites have independently passed in the mock-DOM runner.
+- **Remaining source priorities:** additional native task GUI lifecycle
+  review; Git Pull/Commit/Push boundary checks (including
+  uncooperative OS process access, outside TaskDeck lock scope);
+  Terminal PTY cleanup and testing; other Git interactions;
+  Files/Editor/Patch/Collection GUI; remaining remote controls,
+  permissions and bounded-data audits. Cooperating TaskDeck daemons
+  share a fail-fast OS advisory workspace lease; unrelated local
+  tools not using that lease remain out of scope. Staged Remote
+  control remains `remote_control_available=false` / LIVE NO-GO.
+  Source-complete work is considered complete regardless of field
+  deployment tests.
