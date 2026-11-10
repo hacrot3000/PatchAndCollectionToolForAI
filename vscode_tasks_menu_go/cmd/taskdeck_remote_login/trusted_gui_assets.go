@@ -2349,6 +2349,9 @@ const trustedGUIJavaScript = `'use strict';
             longTaskText='';longTaskMore=false;
             longTaskCancelPending=false;
             longTaskAuto=false;
+            // The host slot is now gone: the final retained outcome is
+            // ordinary history and may be explicitly deleted by its owner.
+            renderTaskRunHistory();
           }
           const historyLabels={'-':'Chưa chạy',R:'Đang chạy',
             C:'Hoàn tất',S:'Bỏ qua',F:'Lỗi',X:'Đã hủy',T:'Hết thời gian'};
