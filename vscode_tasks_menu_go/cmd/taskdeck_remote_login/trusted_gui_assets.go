@@ -237,6 +237,7 @@ const trustedGUIHTML = `<!doctype html>
      <div class="actions terminal-actions">
       <button type="button" id="terminal-open" disabled>Mở Terminal</button>
       <button type="button" id="terminal-poll" disabled>Đọc output</button>
+      <button type="button" id="terminal-auto" disabled>Bật tự nhận output</button>
       <button type="button" id="terminal-interrupt" disabled>Ctrl+C</button>
       <button type="button" id="terminal-eof" disabled>Ctrl+D</button>
       <button type="button" id="terminal-close" disabled>Đóng Terminal</button>
@@ -255,7 +256,7 @@ const trustedGUIHTML = `<!doctype html>
       <label for="terminal-rows">Dòng</label><select id="terminal-rows"><option value="24">24</option><option value="32">32</option><option value="48">48</option></select>
       <button type="button" id="terminal-resize" disabled>Đổi kích thước</button>
      </div>
-     <p>Output là văn bản thuần, không chạy escape sequence từ host dưới dạng HTML. Nhấn “Đọc output” để lấy phần tiếp theo; mỗi lần sử dụng một lượt xác thực E2EE.</p>
+     <p>Output là văn bản thuần, không chạy escape sequence từ host dưới dạng HTML. “Tự nhận output” chỉ đọc sau khi mở/gửi lệnh/đổi kích thước hoặc khi Agent báo còn output; không Poll vô hạn lúc rảnh. Mỗi lần đọc sử dụng một lượt E2EE, luôn giữ lượt cuối để đóng Terminal.</p>
     </article>
    </section>
    <section class="result">
@@ -350,6 +351,7 @@ const trustedGUIJavaScript = `'use strict';
   const gitCommitMessage=document.getElementById('git-commit-message');
   const terminalOpen=document.getElementById('terminal-open');
   const terminalPoll=document.getElementById('terminal-poll');
+  const terminalAutoButton=document.getElementById('terminal-auto');
   const terminalInterrupt=document.getElementById('terminal-interrupt');
   const terminalEOF=document.getElementById('terminal-eof');
   const terminalClose=document.getElementById('terminal-close');
@@ -1060,6 +1062,11 @@ const trustedGUIJavaScript = `'use strict';
   // Timers belonging to a cleared execution may never poll its successor
   // when the operator restarts that same task ID in this native session.
   let terminalState='closed',terminalTranscript='';
+  // Automatic Terminal output is opt-in and event-driven, not a
+  // quota-burning idle poll loop. A queued timer belongs to one epoch;
+  // close, manual poll and pause invalidate all older callbacks.
+  let terminalAutoEnabled=false,terminalAutoPending=false;
+  let terminalAutoScheduled=false,terminalAutoEpoch=0;
   let gitPatchText='',gitPatchPage=0,gitPatchMore=false,gitPatchMode='head';
   let gitSwitchPreview=null,gitSwitchPending=null;
   let gitDeletePreview=null,gitDeletePending=null;
@@ -1152,6 +1159,8 @@ const trustedGUIJavaScript = `'use strict';
     longTaskMore=false;longTaskAuto=false;
     longTaskPollEpoch++;longTaskPollScheduled=false;
     terminalState='closed';terminalTranscript='';
+    terminalAutoEnabled=false;terminalAutoPending=false;
+    terminalAutoEpoch++;terminalAutoScheduled=false;
     gitPatchText='';gitPatchPage=0;gitPatchMore=false;
     gitPatchOutput.textContent='';gitPatchOutput.hidden=true;
     terminalInput.value='';terminalOutput.textContent='';
@@ -1306,6 +1315,10 @@ const trustedGUIJavaScript = `'use strict';
       !terminalCloseReserved;
     terminalPoll.disabled=busy||!canTerminal||terminalCloseReserved||
       terminalState==='closed';
+    terminalAutoButton.disabled=busy||!canTerminal||
+      (terminalState==='closed'&&budget<2);
+    terminalAutoButton.textContent=terminalAutoEnabled?
+      'Tắt tự nhận output':'Bật tự nhận output';
     terminalSend.disabled=busy||!terminalLive;
     terminalInput.disabled=terminalSend.disabled;
     terminalInterrupt.disabled=busy||!terminalLive;
@@ -1423,6 +1436,25 @@ const trustedGUIJavaScript = `'use strict';
       (['started','running','cancel_requested'].includes(longTaskState)||
         longTaskMore)&&
       taskMaintenanceAllowed('/api/tasks-poll/'+String(longTaskID));
+  }
+  function scheduleTerminalAutoPoll(){
+    if(!terminalAutoEnabled||!terminalAutoPending||terminalAutoScheduled||
+      !verified||busy||closed||closing||terminated||
+      !featuresKnown||!available.terminal||terminalState==='closed'||
+      !terminalMaintenanceAllowed('/api/terminal-poll'))return;
+    const epoch=terminalAutoEpoch;
+    terminalAutoScheduled=true;
+    setTimeout(()=>{
+      if(epoch!==terminalAutoEpoch)return;
+      terminalAutoScheduled=false;
+      if(terminalAutoEnabled&&terminalAutoPending&&!busy&&!closed&&
+        !closing&&!terminated&&
+        terminalMaintenanceAllowed('/api/terminal-poll')){
+        // The reply decides whether another bounded chunk remains.
+        terminalAutoPending=false;
+        invoke('/api/terminal-poll');
+      }
+    },350);
   }
   function scheduleLongTaskPoll(){
     if(!longTaskAuto||longTaskPollScheduled||
@@ -2705,6 +2737,14 @@ const trustedGUIJavaScript = `'use strict';
             throw new Error('Kết quả Terminal E2EE không hợp lệ');
           }
           terminalState=data.state;
+          if(isPTYClose){
+            terminalAutoEpoch++;terminalAutoScheduled=false;
+            terminalAutoPending=false;
+          }else if(isPTYOpen||isPTYWrite||isPTYResize){
+            terminalAutoPending=true;
+          }else if(isPTYPoll){
+            terminalAutoPending=data.more;
+          }
           if(endpoint==='/api/terminal-open'){
             terminalTranscript='';
             terminalOutput.textContent='';
@@ -2733,7 +2773,10 @@ const trustedGUIJavaScript = `'use strict';
       if(isClose)closing=false;
       if(isRun)taskRunning=false;
       busy=false;render();updateSessionClock();
-      if(!closed)scheduleLongTaskPoll();
+      if(!closed){
+        scheduleLongTaskPoll();
+        scheduleTerminalAutoPoll();
+      }
     }
   }
   async function loadLocalSession(){
@@ -3006,7 +3049,18 @@ const trustedGUIJavaScript = `'use strict';
   terminalPoll.addEventListener('click',()=>{
     if(busy||closed||!verified||budget<=0||terminalState==='closed'||
       !featuresKnown||!available.terminal)return;
+    // Manual Poll takes precedence over any queued automatic callback.
+    terminalAutoEpoch++;terminalAutoScheduled=false;
+    terminalAutoPending=false;
     invoke('/api/terminal-poll');
+  });
+  terminalAutoButton.addEventListener('click',()=>{
+    if(busy||closed||closing||terminated||!verified||budget<=0||
+      !featuresKnown||!available.terminal)return;
+    terminalAutoEpoch++;terminalAutoScheduled=false;
+    terminalAutoEnabled=!terminalAutoEnabled;
+    render();
+    if(terminalAutoEnabled)scheduleTerminalAutoPoll();
   });
   function sendTerminalText(input){
     if(busy||closed||!verified||budget<=0||terminalState!=='running'||

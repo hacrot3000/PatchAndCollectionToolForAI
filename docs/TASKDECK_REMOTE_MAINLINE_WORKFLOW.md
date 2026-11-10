@@ -734,3 +734,10 @@ real-host testing are considered **code complete**.
 
 - Mỗi lần native GUI dựng lại danh sách task sẽ tăng `taskPageRenderEpoch` của UI. Nút Kiểm tra ID và Chạy task chỉ gửi request nếu callback thuộc đúng bản render hiện hành, ngoài kiểm tra Task.ID đã phát hành và metadata inspect. Khi append trang mới không làm thay đổi các dòng đang hiển thị, giữ nguyên DOM và epoch như cơ chế tối ưu trước đó.
 - Git pull làm thay đổi HEAD cũng làm mất hiệu lực các callback cũ ngay lập tức. Test bổ sung tình huống snapshot mới phát hành lại cùng ID 55: nút cũ đã bị tháo khỏi DOM không thể tiêu thụ lượt E2EE hoặc chạy task.
+
+## 2026-11-10 — Terminal GUI: tự nhận output sau thao tác (opt-in)
+
+- Bổ sung **Bật/Tắt tự nhận output** ở native Remote Terminal. Mặc định tắt để không tiêu hao lượt E2EE ngoài ý muốn. Khi bật, GUI đọc một lần sau Open/Write/Resize và chỉ đọc tiếp nếu Poll xác thực báo `more=true`. Không chạy Poll định kỳ khi shell nhàn rỗi: tiến trình nền sinh output muộn vẫn dùng nút Đọc output thủ công.
+- Poll thủ công ưu tiên hơn callback đang lên lịch. Pause/Close/Logout tăng epoch để callback cũ không gửi request, và không Poll khi một action khác đang bận. Luồng vẫn dùng endpoint `/api/terminal-poll` E2EE cũ; không tạo route/socket/credential và không chuyển PTY qua PHP.
+- Bộ lập lịch kiểm tra `terminalMaintenanceAllowed('/api/terminal-poll')` trước khi đặt timer **và trước khi gửi request**, giữ lượt E2EE cuối cùng cho Close; status và output của host tiếp tục được xác thực ở dispatcher và render `textContent`.
+- Test native GUI dùng timer có kiểm soát để xác nhận bật/tắt, backlog nhiều chunk, Poll thủ công không bị nhân đôi, dừng khi idle và quota=1 vẫn Close thành công. Đã thêm vào Go CI.

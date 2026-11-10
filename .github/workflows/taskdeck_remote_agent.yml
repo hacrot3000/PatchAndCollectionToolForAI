@@ -37,6 +37,7 @@ on:
       - 'remote_portal/tests/native_gui_git_switch.test.cjs'
       - 'remote_portal/tests/native_gui_git_branch_delete.test.cjs'
       - 'remote_portal/tests/native_gui_terminal.test.cjs'
+      - 'remote_portal/tests/native_gui_terminal_auto_read.test.cjs'
       - 'vscode_tasks_menu_go/internal/config/**'
       - 'vscode_tasks_menu_go/internal/server/**'
       - 'vscode_tasks_menu_go/cmd/vscode_tasks_menu/**'
@@ -76,6 +77,7 @@ on:
       - 'remote_portal/tests/native_gui_git_switch.test.cjs'
       - 'remote_portal/tests/native_gui_git_branch_delete.test.cjs'
       - 'remote_portal/tests/native_gui_terminal.test.cjs'
+      - 'remote_portal/tests/native_gui_terminal_auto_read.test.cjs'
       - 'deploy/remote/verify_client.sh'
       - 'tests/test_remote_client_provenance.sh'
       - '.github/workflows/taskdeck_remote_client_provenance.yml'
@@ -174,6 +176,8 @@ jobs:
         run: node remote_portal/tests/native_gui_long_task_cancel_pending.test.cjs
       - name: Verify bounded automatic long-task polling and reserved cancellation quota
         run: node remote_portal/tests/native_gui_long_task_autopoll.test.cjs
+      - name: Verify opt-in Terminal automatic E2EE output draining and Close quota
+        run: node remote_portal/tests/native_gui_terminal_auto_read.test.cjs
       - name: Git pull invalidates old authenticated task selection while retaining output
         run: node remote_portal/tests/native_gui_git_pull_task_snapshot.test.cjs
       - name: Verify explicit GUI bulk task paging stop, quota and disconnect
