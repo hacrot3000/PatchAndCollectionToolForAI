@@ -516,8 +516,23 @@ const trustedGUIJavaScript = `'use strict';
       }
       if(view.body){
         view.body.hidden=!item.output;
-        if(view.body.textContent!==item.output)
-          view.body.textContent=item.output;
+        const previous=view.body.textContent;
+        if(previous!==item.output){
+          // Streaming output grows at the tail until the 2 KiB UTF-8
+          // history cap rolls forward. Append to the existing TEXT node
+          // when possible, preserving the reader's selection/caret while
+          // the host is still sending output. Never interpret host text
+          // as HTML, and replace on rotation/truncation or unsupported DOM.
+          const textNode=view.body.firstChild;
+          if(previous!==''&&item.output.startsWith(previous)&&
+             view.body.childNodes&&view.body.childNodes.length===1&&
+             textNode&&textNode.nodeType===3&&
+             typeof textNode.appendData==='function'){
+            textNode.appendData(item.output.slice(previous.length));
+          }else{
+            view.body.textContent=item.output;
+          }
+        }
       }
     }
     // Rearrange only when a result was added, deleted or actually moved.
