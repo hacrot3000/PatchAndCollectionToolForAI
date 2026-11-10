@@ -106,7 +106,7 @@ jobs:
         run: go test -race ./internal/server -run 'TestRemoteGitNetworkMutations(NeverExecuteRepositoryCredentialHelpers|RejectHTTPSRedirects)' -count=1 -timeout=90s
       - name: Preflight long task finalizing, workspace release and Poll cursor safety
         working-directory: vscode_tasks_menu_go
-        run: go test -race ./internal/server -run 'TestRemoteLongTask(FinalStateWaitsForWorkspaceRelease|PollTimeoutRechecksCaptureAndAdvancesCursor)' -count=1 -timeout=90s
+        run: go test -race ./internal/server -run 'TestRemoteLongTask(FinalStateWaitsForWorkspaceRelease|PollTimeoutRechecksCaptureAndAdvancesCursor|DeferredPollOnlyConsumesAfterAuthenticatedSeal|DeferredPollTimeoutPreservesOutput)' -count=1 -timeout=90s
       - name: Verify main's offline Pull review via authenticated GitStatus E2EE
         working-directory: vscode_tasks_menu_go
         run: go test -race ./internal/remotetransport ./internal/server ./cmd/taskdeck_remote_login -run 'Test(RemoteGitPullReview|TrustedGUIGitPullReview)' -count=1 -timeout=90s

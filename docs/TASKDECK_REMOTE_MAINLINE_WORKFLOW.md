@@ -582,3 +582,11 @@ real-host testing are considered **code complete**.
 - Kiểm thử thêm trường hợp không seal rồi Poll lại, seal thành công
   tiếp tục đọc phần đuôi, callback lỗi thời và Poll timeout recheck.
   Giữ nguyên timeout, giới hạn chunk và phân quyền hiện hữu.
+
+### 2026-11-10 — Đưa deferred task Poll vào CI race preflight
+
+- Workflow `TaskDeck Remote Agent (Go)` kiểm tra ngay đầu pipeline
+  bằng `go test -race` các hồi quy long task: finalization,
+  timeout recheck, cursor chưa Seal không được tăng, và timeout
+  có output chưa Seal. Không chờ chạy toàn bộ test Go sau cùng
+  mới phát hiện mất output trong giao thức task.
