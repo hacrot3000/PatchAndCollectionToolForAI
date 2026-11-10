@@ -26,7 +26,7 @@ const get=id=>{
  if(!elems.has(id))elems.set(id,new Element(id));
  return elems.get(id);
 };
-let remaining=16,confirmed=false,pushes=0;
+let remaining=16,confirmed=false,pushes=0,trackingStarts=0,trackingNexts=0;
 const token='0123456789abcdef'.repeat(4);
 const requests=[];
 const fetch=async (path,options)=>{
@@ -44,6 +44,17 @@ const fetch=async (path,options)=>{
   git_pull:false,git_commit:false,git_push:true,
   remote_control_available:false,remaining:--remaining,
  })};
+ if(path==='/api/git-tracking-start'){
+  trackingStarts++;
+  return {ok:true,json:async()=>({
+   ok:true,page:1,refs:'GIT_TRACKING_V1\norigin/main '+('a'.repeat(40))+'\n',
+   more:true,remote_control_available:false,remaining:--remaining,
+  })};
+ }
+ if(path==='/api/git-tracking-next'){
+  trackingNexts++;
+  throw Error('stale tracking continuation was submitted after Push');
+ }
  if(path==='/api/git-push'){
   pushes++;
   return {ok:true,json:async()=>({
@@ -70,6 +81,9 @@ const flush=async()=>{for(let i=0;i<80;i++)await Promise.resolve()};
  assert.equal(get('git-push').disabled,false,'host-enabled GitPush unavailable');
  assert.equal(get('git-pull').disabled,true,'feature flag unintentionally enabled pull');
  assert.equal(get('git-commit').disabled,true,'feature flag unintentionally enabled commit');
+ get('git-tracking-start').click();await flush();
+ assert.equal(trackingStarts,1);
+ assert.equal(get('git-tracking-next').disabled,false,'tracking first page was unavailable');
  get('git-push').click();await flush();
  assert.equal(pushes,0,'push executed despite rejected confirmation');
  confirmed=true;
@@ -77,6 +91,10 @@ const flush=async()=>{for(let i=0;i<80;i++)await Promise.resolve()};
  assert.equal(pushes,1,'push was not sent exactly once');
  assert.equal(get('git-summary').hidden,true,'stale status retained after push');
  assert.match(get('output').textContent,/Git push đã thành công trên upstream/);
+ assert.equal(get('git-tracking-next').disabled,true,
+  'Push allowed stale upstream tracking pagination');
+ get('git-tracking-next').click();await flush();
+ assert.equal(trackingNexts,0,'stale tracking Next consumed an authenticated round');
  get('disconnect').click();await flush();
  assert.equal(get('git-push').disabled,true,'push enabled after logout');
  console.log('PASS: explicit no-force Git push confirmation, host feature gate and status invalidation');

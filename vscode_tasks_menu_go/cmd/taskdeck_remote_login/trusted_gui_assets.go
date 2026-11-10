@@ -1388,6 +1388,13 @@ const trustedGUIJavaScript = `'use strict';
     gitSwitchPreview=null;gitSwitchPending=null;
     gitDeletePreview=null;gitDeletePending=null;
   }
+  // Git remote-tracking pages belong to a host-owned immutable snapshot.
+  // Fetch or Push can move remote-tracking refs; old page continuation is
+  // no longer a valid reader lease. Clearing only these four browser-local
+  // fields does not affect authenticated E2EE sessions or task history.
+  function invalidateGitTrackingPages(){
+    gitTrackingText='';gitTrackingPage=0;gitTrackingMore=false;gitTrackingLast='';
+  }
   function gitJobBlocksMutation(){
     const finished=['completed','failed','cancelled','timed_out'].includes(longTaskState);
     return terminalState!=='closed'||
@@ -1711,6 +1718,8 @@ const trustedGUIJavaScript = `'use strict';
     // A disabled button is UX; the endpoint also needs local admission.
     // Share the exact endpoint set with the reserved-E2EE-round gate.
     if(remoteGitMutations.includes(endpoint)&&gitJobBlocksMutation())return;
+    if(endpoint==='/api/git-tracking-next'&&
+      (!gitTrackingMore||gitTrackingPage<1))return;
     // An acknowledged cancel is irreversible for this job. The next
     // status read can legitimately be "running" while SIGTERM propagates;
     // it must never authorize a second cancel or consume cleanup quota.
@@ -2754,6 +2763,9 @@ const trustedGUIJavaScript = `'use strict';
           gitRows=[];gitFiles.replaceChildren();gitBranch.textContent='';
           gitSnapshotCount=0;gitSnapshotBranch='';
           gitDeltaSummary.textContent='';gitDeltaList.replaceChildren();
+          // Fetch may change OTHER refs even when selected upstream HEAD
+          // was unchanged; never continue a previously issued tracking page.
+          invalidateGitTrackingPages();
           output.textContent=data.updated?
             'Đã fetch upstream: '+data.after.slice(0,12)+
               '. HEAD cục bộ vẫn là '+data.head.slice(0,12)+'.':
@@ -2818,6 +2830,7 @@ const trustedGUIJavaScript = `'use strict';
           gitDeltaSummary.textContent='';gitDeltaList.replaceChildren();
           if(data.updated){
             invalidateGitPatchReview();invalidateGitBranchReview();
+            invalidateGitTrackingPages();
             invalidateTaskPreviewAfterPull();
           }
           output.textContent=data.updated?
@@ -2856,6 +2869,7 @@ const trustedGUIJavaScript = `'use strict';
           gitRows=[];gitFiles.replaceChildren();gitBranch.textContent='';
           gitSnapshotCount=0;gitSnapshotBranch='';
           gitDeltaSummary.textContent='';gitDeltaList.replaceChildren();
+          invalidateGitTrackingPages();
           output.textContent='Git push đã thành công trên upstream được cấu hình sẵn: '+
             data.head.slice(0,12)+'. Đọc lại Git status để cập nhật trạng thái.';
         }

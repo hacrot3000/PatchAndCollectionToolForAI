@@ -51,6 +51,10 @@ const fetch=async(path,options)=>{
    output:'authenticated prior result',truncated:false,
    remote_control_available:false,remaining:--remaining});
  }
+ if(path==='/api/git-tracking-start')return reply({
+  ok:true,page:1,refs:'GIT_TRACKING_V1\norigin/main '+sha+'\n',
+  more:true,remote_control_available:false,remaining:--remaining});
+ if(path==='/api/git-tracking-next')throw Error('stale tracking page was resumed after pull');
  if(path==='/api/git-pull')return reply({ok:true,before:sha,
   after:pullUpdated?shaAfter:sha,updated:pullUpdated,
   remote_control_available:false,remaining:--remaining});
@@ -80,9 +84,17 @@ const flush=async()=>{for(let i=0;i<90;i++)await Promise.resolve()};
  assert.equal(get('task-run-history-list').children.length,1);
  assert.match(get('task-run-history-list').children[0].children[1].textContent,
   /authenticated prior result/);
+ get('git-tracking-start').click();await flush();
+ assert.equal(get('git-tracking-next').disabled,false,'tracking page never issued');
  const callsBefore=calls.length;
  get('git-pull').click();await flush();
  assert.equal(calls.length,callsBefore+1,'fixed Git Pull endpoint not invoked');
+ assert.equal(get('git-tracking-next').disabled,true,
+  'HEAD-changing Pull retained stale host tracking pagination');
+ const beforeStaleTracking=calls.length;
+ get('git-tracking-next').click();await flush();
+ assert.equal(calls.length,beforeStaleTracking,
+  'retired tracking callback sent an E2EE request after Pull');
  assert.equal(get('task-preview').hidden,true,'old task list still visible after Pull');
  assert.equal(get('task-preview-labels').children.length,0,'old Task.ID remained in DOM');
  assert.equal(get('task-deps-select').children.length,0,'old dependency list survived Pull');

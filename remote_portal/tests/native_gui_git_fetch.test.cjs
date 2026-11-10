@@ -26,7 +26,7 @@ const get=id=>{
  if(!elems.has(id))elems.set(id,new Element(id));
  return elems.get(id);
 };
-let remaining=16,confirmed=false,fetches=0;
+let remaining=16,confirmed=false,fetches=0,trackingStarts=0,trackingNexts=0;
 const token='0123456789abcdef'.repeat(4);
 const request=async(path,options)=>{
  assert.equal(options.method,'POST');
@@ -43,6 +43,17 @@ const request=async(path,options)=>{
   git_log:false,git_diff:false,terminal:false,
   remote_control_available:false,remaining:--remaining,
  })};
+ if(path==='/api/git-tracking-start'){
+  trackingStarts++;
+  return {ok:true,json:async()=>({
+   ok:true,page:1,refs:'GIT_TRACKING_V1\norigin/main '+('a'.repeat(40))+'\n',
+   more:true,remote_control_available:false,remaining:--remaining,
+  })};
+ }
+ if(path==='/api/git-tracking-next'){
+  trackingNexts++;
+  throw Error('stale tracking continuation was submitted after Fetch');
+ }
  if(path==='/api/git-fetch'){
   fetches++;
   return {ok:true,json:async()=>({
@@ -71,6 +82,9 @@ const flush=async()=>{for(let i=0;i<80;i++)await Promise.resolve()};
  assert.equal(get('git-fetch').disabled,false,'host allowed GitFetch missing');
  assert.equal(get('git-pull').disabled,true,'fetch opt-in implicitly enabled pull');
  assert.equal(get('git-push').disabled,true,'fetch opt-in implicitly enabled push');
+ get('git-tracking-start').click();await flush();
+ assert.equal(trackingStarts,1);
+ assert.equal(get('git-tracking-next').disabled,false,'host tracking page not available');
  get('git-fetch').click();await flush();
  assert.equal(fetches,0,'fetch ignored explicit confirmation');
  confirmed=true;
@@ -79,6 +93,12 @@ const flush=async()=>{for(let i=0;i<80;i++)await Promise.resolve()};
  assert.match(get('output').textContent,/Đã fetch upstream/);
  assert.match(get('output').textContent,/HEAD cục bộ vẫn là/);
  assert.equal(get('git-summary').hidden,true,'stale Git Status retained');
+ assert.equal(get('git-tracking-next').disabled,true,
+  'Fetch retained a stale remote tracking cursor');
+ get('git-tracking-next').click();await flush();
+ assert.equal(trackingNexts,0,'retired tracking callback consumed E2EE quota');
+ get('git-tracking-start').click();await flush();
+ assert.equal(trackingStarts,2,'a fresh host tracking snapshot was not available');
  get('disconnect').click();await flush();
  assert.equal(get('git-fetch').disabled,true,'fetch remained enabled after logout');
  console.log('PASS: bounded GitFetch GUI confirmation, flag isolation, no args and logout');
