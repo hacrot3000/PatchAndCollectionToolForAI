@@ -8,8 +8,25 @@ class Element {
  constructor(tag='div',id=''){
   this.tagName=tag.toUpperCase();this.id=id;this.children=[];
   this.listeners={};this.value='';this.hidden=false;this.disabled=false;
+  this._textContent='';this.textResets=0;this.textAppends=0;this._textNode=null;
   this.textContent='';this.classList={toggle(){},add(){},remove(){}};
  }
+ set textContent(value){
+  this._textContent=String(value);
+  // A real PRE owns one text node. Instrument it so streaming tests
+  // distinguish safe appendData from replacing the selected text node.
+  if(this.tagName==='PRE'){
+   this.textResets++;
+   this._textNode=this._textContent?{
+    nodeType:3,appendData:suffix=>{
+     this._textContent+=suffix;this.textAppends++;
+    }
+   }:null;
+  }
+ }
+ get textContent(){return this._textContent;}
+ get firstChild(){return this._textNode;}
+ get childNodes(){return this._textNode?[this._textNode]:[];}
  append(...nodes){this.children.push(...nodes);}
  replaceChildren(...nodes){this.children=nodes;}
  addEventListener(event,fn){this.listeners[event]=fn;}
@@ -183,6 +200,8 @@ const controls=(parent,tag)=>parent.children.filter(child=>child.tagName===tag.t
   'first poll output must be visible in local task run history');
  const liveHistoryRow=historyRows[0];
  const liveHistoryBody=byText(liveHistoryRow,'chunk');
+ const liveTextNode=liveHistoryBody.firstChild;
+ const liveTextResets=liveHistoryBody.textResets;
  const liveCopyButton=byText(liveHistoryRow.children[0],'Sao chép output');
  assert.equal(row('One'),beforeStart,'job output replaced unchanged task row');
  assert.deepEqual(controls(row('One'),'select').map(x=>x.value),['2','2']);
@@ -199,6 +218,12 @@ const controls=(parent,tag)=>parent.children.filter(child=>child.tagName===tag.t
   'streaming poll must preserve the focused history row DOM');
  assert.equal(byText(liveHistoryRow,'chunkchunk'),liveHistoryBody,
   'streaming poll must update the existing output PRE, not replace it');
+ assert.equal(liveHistoryBody.firstChild,liveTextNode,
+  'append-only output must retain the original selected text node');
+ assert.equal(liveHistoryBody.textResets,liveTextResets,
+  'append-only Poll replaced the selected text with textContent');
+ assert.equal(liveHistoryBody.textAppends,1,
+  'append-only Poll did not extend the authenticated output text node');
  assert.equal(byText(liveHistoryRow.children[0],'Sao chép output'),liveCopyButton,
   'streaming poll must preserve the existing clipboard control');
  assert.equal(controls(row('Two'),'input')[0],input,
