@@ -30,6 +30,7 @@ on:
       - 'remote_portal/tests/native_gui_git_remotes.test.cjs'
       - 'remote_portal/tests/native_gui_git_tracking.test.cjs'
       - 'remote_portal/tests/native_gui_git_pull_review.test.cjs'
+      - 'remote_portal/tests/native_gui_git_pull_task_snapshot.test.cjs'
       - 'remote_portal/tests/native_gui_files_root.test.cjs'
       - 'remote_portal/tests/native_gui_git_patch.test.cjs'
       - 'remote_portal/tests/native_gui_git_branch_create.test.cjs'
@@ -68,6 +69,7 @@ on:
       - 'remote_portal/tests/native_gui_git_remotes.test.cjs'
       - 'remote_portal/tests/native_gui_git_tracking.test.cjs'
       - 'remote_portal/tests/native_gui_git_pull_review.test.cjs'
+      - 'remote_portal/tests/native_gui_git_pull_task_snapshot.test.cjs'
       - 'remote_portal/tests/native_gui_files_root.test.cjs'
       - 'remote_portal/tests/native_gui_git_patch.test.cjs'
       - 'remote_portal/tests/native_gui_git_branch_create.test.cjs'
@@ -110,6 +112,9 @@ jobs:
       - name: Preflight long task finalizing, workspace release and Poll cursor safety
         working-directory: vscode_tasks_menu_go
         run: go test -race ./internal/server -run 'TestRemoteLongTask(FinalStateWaitsForWorkspaceRelease|PollTimeoutRechecksCaptureAndAdvancesCursor|DeferredPollOnlyConsumesAfterAuthenticatedSeal|DeferredPollTimeoutPreservesOutput|E2EEFailedSealPreservesOutputCursor)' -count=1 -timeout=90s
+      - name: Preflight Git mutation only after completed task releases workspace
+        working-directory: vscode_tasks_menu_go
+        run: go test -race ./internal/server -run 'TestRemoteGit(AllowsCompletedRetainedTaskOnlyAfterWorkspaceRelease|RetainedJobWithInvalidDoneOrStatusDenied)' -count=1 -timeout=90s
       - name: Verify main's offline Pull review via authenticated GitStatus E2EE
         working-directory: vscode_tasks_menu_go
         run: go test -race ./internal/remotetransport ./internal/server ./cmd/taskdeck_remote_login -run 'Test(RemoteGitPullReview|TrustedGUIGitPullReview)' -count=1 -timeout=90s
