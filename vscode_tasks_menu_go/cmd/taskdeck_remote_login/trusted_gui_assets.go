@@ -534,6 +534,11 @@ const trustedGUIJavaScript = `'use strict';
   }
   function rememberTaskRun(taskID,kind,status,exitCode,outputText,truncated){
     const serial=++taskHistorySerial;
+    // The launch handler records the new job before it assigns the return
+    // value of this function. Reserve its history serial BEFORE rendering
+    // Clear, otherwise the active row is briefly offered as deletable and
+    // a later Poll cannot restore its missing transcript.
+    if(kind==='dài'&&longTaskID===taskID)longTaskHistorySerial=serial;
     // Capture the already verified host label now; a future snapshot can
     // change or remove the task without changing this historical result.
     const labelIndex=cachedTaskIDs.indexOf(taskID);
