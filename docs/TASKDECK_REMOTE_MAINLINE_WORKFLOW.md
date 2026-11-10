@@ -489,3 +489,24 @@ real-host testing are considered **code complete**.
   Hồi quy bổ sung kiểm tra snapshot cả khi có và không có Cancel trước
   boundary. Không thay đổi wire protocol, tối đa E2EE hay chính sách
   quyền. Kiểm tra workflow CI trên commit mới.
+
+## 2026-11-10 — Lịch sử bền vững cho recovery cuối không chạy
+
+- Khi task `condition:"failure"` ở bước cuối bị bỏ qua vì mọi
+  dependency đều thành công, host giờ ghi **một kết quả audit
+  `skipped`**, không ghi `attempted` và không tạo process.
+  Đường audit lỗi sẽ fail-closed thay vì báo workflow thành công
+  mà không có lịch sử. Audit `skipped` lưu `exit_code:-1` rõ
+  ràng, không giả kết quả chạy process thành công.
+- Bộ giải mã E2EE chỉ chấp nhận `skipped` ở **bước cuối/root**,
+  `attempt:1`, `exit_code:-1`; cùng phép kiểm tra độc lập
+  trong native GUI. Audit phiên cũ thiếu trạng thái skipped vẫn
+  hợp lệ. Trình xem hiển thị “bỏ qua (không chạy process)” và
+  có thể nhóm với `run_id` của execution sau khi đăng nhập lại.
+- Test Go xác minh audit bền vững, số bản ghi, không có attempted
+  cho recovery, truy xuất audit qua E2EE; test codec từ chối
+  skipped trung gian/sai task/sai exit/retry. Test DOM native
+  kiểm tra hiển thị bản ghi skipped và các run cũ.
+- Giữ giới hạn cửa sổ audit 32, phân trang 2, per-principal RBAC,
+  payload E2EE không chứa lệnh/output/password và default host opt-in
+  OFF. LIVE security gate vẫn NO-GO.

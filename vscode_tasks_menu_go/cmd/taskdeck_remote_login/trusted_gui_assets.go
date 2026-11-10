@@ -1784,9 +1784,12 @@ const trustedGUIJavaScript = `'use strict';
               !Number.isInteger(item.total)||item.total<2||item.total>4||
               item.step>item.total||
               !Number.isInteger(item.attempt)||item.attempt<1||item.attempt>2||
-              !['completed','failed','cancelled','timed_out'].includes(item.status)||
+              !['completed','failed','cancelled','timed_out','skipped'].includes(item.status)||
               !Number.isInteger(item.exit_code)||item.exit_code< -1||
               item.exit_code>255||(item.status==='completed'&&item.exit_code!==0)||
+              (item.status==='skipped'&&
+                (item.step!==item.total||item.task_id!==item.root_task_id||
+                 item.attempt!==1||item.exit_code!== -1))||
               !Number.isInteger(item.timestamp)||item.timestamp<1577836800||
               item.timestamp>Math.floor(Date.now()/1000)+300||
               (i>0&&item.timestamp>data.items[i-1].timestamp)||
@@ -1826,7 +1829,9 @@ const trustedGUIJavaScript = `'use strict';
               const when=new Date(item.timestamp*1000).toLocaleString('vi-VN');
               return when+' · Bước '+item.step+'/'+item.total+
                 ' (Task #'+item.task_id+') · Lần '+item.attempt+
-                ' · '+item.status+' · exit '+item.exit_code;
+                ' · '+(item.status==='skipped'?
+                  'bỏ qua (không chạy process)':item.status)+
+                (item.status==='skipped'?'':' · exit '+item.exit_code);
             }).join('\n');
           }).join('\n\n');
           tasksReportOutput.textContent=workflowAuditRows.length===0?

@@ -53,8 +53,10 @@ const fetch=async(path,opt)=>{
  })};
  if(path==='/api/tasks-workflow-audit-next')return {ok:true,json:async()=>({
   ok:true,items:[
+   {root_task_id:90,task_id:90,step:3,total:3,attempt:1,
+    status:'skipped',exit_code:-1,timestamp:epoch-2,run_id:'abcdef0123456789'},
    {root_task_id:80,task_id:50,step:1,total:3,attempt:1,
-    status:'completed',exit_code:0,timestamp:epoch-2},
+    status:'completed',exit_code:0,timestamp:epoch-3},
   ],more:false,remote_control_available:false,remaining:--remaining,
  })};
  if(path==='/api/close')return {ok:true,json:async()=>({ok:true,closed:true})};
@@ -103,6 +105,11 @@ const flush=async()=>{for(let i=0;i<80;i++)await Promise.resolve()};
  assert.match(get('tasks-report-output').textContent,/Task #50/);
  assert.match(get('tasks-report-output').textContent,/Lượt cũ/,
   'historical step records without execution correlation remain readable');
+ assert.match(get('tasks-report-output').textContent,
+  /Lượt abcdef0123456789 · Workflow #90/);
+ assert.match(get('tasks-report-output').textContent,
+  /Bước 3\/3 \(Task #90\) · Lần 1 · bỏ qua \(không chạy process\)/,
+  'skipped final recovery did not survive native GUI audit rendering');
  assert.equal((get('tasks-report-output').textContent.match(/Lượt 0123456789abcdef/g)||[]).length,1,
   'paging must not duplicate or split the per-run group');
  assert.equal(get('tasks-workflow-audit-next').disabled,true,

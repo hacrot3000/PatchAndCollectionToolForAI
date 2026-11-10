@@ -296,6 +296,21 @@ func(s *Server)auditRemoteWorkflowStep(session *remoteTaskDeckSession,
   index<1||index>total||total>remoteWorkflowMaxSteps||
   attempt<1||attempt>2||
   !validRemoteWorkflowRunID(runID){return denied}
+ // A skipped step is a verified decision, not a launched process:
+ // never allow a caller to forge skipped intermediate work or invent
+ // a successful exit. Its sole legal location is the final root step.
+ switch status{
+ case "attempted":
+  if exit!= -1{return denied}
+ case "skipped":
+  if index!=total||stepID!=rootID||attempt!=1||exit!= -1{return denied}
+ case "completed":
+  if exit!=0{return denied}
+ case "failed","cancelled","timed_out":
+  if exit< -1||exit>255{return denied}
+ default:
+  return denied
+ }
  ctx,cancel:=context.WithTimeout(context.Background(),2*time.Second)
  defer cancel()
  project,err:=s.Identity.ProjectByKey(ctx,session.projectKey)
@@ -405,6 +420,17 @@ Workflow:
     // The host-owned failure-only final step must not execute after
     // successful dependencies. It is a documented skip, not a fake
     // successful process (no attempted audit and no side effects).
+    // Persist a step outcome with NO attempted/process audit. Without
+    // this row, re-authenticating later falsely shows a partial run.
+    // Failure to append the host audit fails closed; no process is started.
+    if err:=s.auditRemoteWorkflowStep(session,job.taskID,step.taskID,
+     i+1,len(plan),1,job.workflowRunID,"skipped",-1);err!=nil{
+     status="failed";exitCode=-1
+     job.updateWorkflowStep(i+1,len(plan),1,step.retries+1,"failed",-1,0)
+     _,_=captureWorkflowText(job.capture,
+      "[TaskDeck workflow] Recovery skip audit unavailable; stopped\n")
+     break Workflow
+    }
     job.updateWorkflowStep(i+1,len(plan),1,step.retries+1,"skipped",-1,0)
     _,_=captureWorkflowText(job.capture,fmt.Sprintf(
      "[TaskDeck workflow] Step %d/%d: skipped (condition failure not met)\n",

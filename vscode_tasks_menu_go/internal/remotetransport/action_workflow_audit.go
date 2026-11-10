@@ -52,6 +52,10 @@ func ValidRemoteWorkflowAuditEntry(item RemoteWorkflowAuditEntry)bool{
  }
  switch item.Status{
  case "completed":return item.ExitCode==0
+ case "skipped":
+  // Only a terminal, non-executed recovery is allowed to skip.
+  return item.Step==item.Total&&item.ExitCode== -1&&item.Attempt==1&&
+   item.TaskID==item.RootTaskID
  case "failed","cancelled","timed_out":return true
  default:return false
  }

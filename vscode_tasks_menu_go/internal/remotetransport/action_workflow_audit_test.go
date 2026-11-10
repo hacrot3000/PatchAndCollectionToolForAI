@@ -79,6 +79,38 @@ func TestRemoteWorkflowAuditBoundedStrictE2EE(t *testing.T){
   })
  }
 }
+func TestRemoteWorkflowAuditSkippedFinalRecoveryStrict(t *testing.T){
+ now:=time.Now().UTC().Unix()
+ good:=RemoteWorkflowAuditEntry{
+  RootTaskID:44,TaskID:44,Step:3,Total:3,Attempt:1,
+  Status:"skipped",ExitCode:-1,Timestamp:now,
+  RunID:"abcdef0123456789",
+ }
+ if !ValidRemoteWorkflowAuditEntry(good){
+  t.Fatal("a host-audited, non-executed final recovery was rejected")
+ }
+ client,agent,_:=participants(t)
+ frame,err:=SealRemoteWorkflowAudit(agent,testActionID,RemoteWorkflowAudit{
+  Items:[]RemoteWorkflowAuditEntry{good},
+ })
+ if err!=nil{t.Fatal(err)}
+ restored,err:=OpenRemoteWorkflowAudit(client,frame,testActionID)
+ if err!=nil||len(restored.Items)!=1||restored.Items[0]!=good{
+  t.Fatalf("skipped final recovery E2EE mismatch: %+v %v",restored,err)
+ }
+ for name,change:=range map[string]func(*RemoteWorkflowAuditEntry){
+  "intermediate":func(x *RemoteWorkflowAuditEntry){x.Step=2},
+  "foreign-root":func(x *RemoteWorkflowAuditEntry){x.TaskID=45},
+  "fake-success":func(x *RemoteWorkflowAuditEntry){x.ExitCode=0},
+  "retry":func(x *RemoteWorkflowAuditEntry){x.Attempt=2},
+ }{
+  t.Run(name,func(t *testing.T){
+   bad:=good;change(&bad)
+   if ValidRemoteWorkflowAuditEntry(bad){t.Fatal("unsafe skipped state accepted")}
+  })
+ }
+}
+
 func TestRemoteWorkflowAuditNoCallerSelectedTaskOrProject(t *testing.T){
  client,agent,_:=participants(t)
  exchange:=pingExchangeFunc(func(_ context.Context,frame []byte)([]byte,error){

@@ -1376,13 +1376,26 @@ func TestRemoteWorkflowFinalFailureOnlySkippedWhenDependenciesSucceeded(t *testi
   ProjectID:project.ID,UserID:session.userID,
   Action:"remote.action.tasks_workflow_step",Limit:8,
  })
- if err!=nil||len(events)!=2{
-  t.Fatalf("skipped condition performed an attempted process/audit: %+v %v",events,err)
+ if err!=nil||len(events)!=3{
+  t.Fatalf("missing durable skipped result or unexpected process audit: %+v %v",events,err)
  }
+ skipped:=0
  for _,event:=range events{
   if strings.Contains(event.Details,`"step":2`){
-   t.Fatalf("skipped workflow step emitted process audit: %+v",event)
+   if event.Result!="skipped"||strings.Contains(event.Details,`"exit_code":0`){
+    t.Fatalf("skipped recovery invented a process or exit success: %+v",event)
+   }
+   skipped++
   }
+ }
+ if skipped!=1{t.Fatalf("expected exactly one skipped outcome, got %d",skipped)}
+ t.Setenv("TASKDECK_REMOTE_TASKS_REPORT","1")
+ t.Setenv("TASKDECK_REMOTE_TASKS_WORKFLOW_REPORT","1")
+ report,err:=s.readRemoteWorkflowAudit(context.Background(),session)
+ if err!=nil||len(report.Items)<1||report.Items[0].Status!="skipped"||
+  report.Items[0].Step!=2||report.Items[0].TaskID!=root||
+  report.Items[0].ExitCode!= -1||report.Items[0].RunID!=job.workflowRunID{
+  t.Fatalf("re-authenticatable audit missed skipped recovery: %+v %v",report,err)
  }
 }
 
