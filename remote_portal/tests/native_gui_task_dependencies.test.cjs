@@ -29,7 +29,7 @@ class Element{
 const nodes=new Map();
 const get=id=>{if(!nodes.has(id))nodes.set(id,new Element(id));return nodes.get(id)};
 const token='0123456789abcdef'.repeat(4);
-const calls=[];let remaining=16;let workflowPollCount=0;
+const calls=[],copied=[];let remaining=16;let workflowPollCount=0;
 let available=true,confirmAccept=false,previewLabel='Build <b>safe</b>';
 let delayDependencies=false,resolveDelayedDependencies=null;
 const fetch=async(path,opt)=>{
@@ -82,12 +82,19 @@ const fetch=async(path,opt)=>{
    remote_control_available:false,remaining:--remaining,
   })};
  }
+ if(path==='/api/tasks-clear/55')return {ok:true,json:async()=>({
+  ok:true,task_id:55,status:'cleared',exit_code:-1,
+  more:false,output:'',truncated:false,
+  remote_control_available:false,remaining:--remaining,
+ })};
  if(path==='/api/close')return {ok:true,json:async()=>({ok:true,closed:true})};
  throw Error('unexpected endpoint '+path);
 };
 const scope={document:{getElementById:get,createElement:x=>new Element(x)},
  window:{addEventListener(){},confirm(){return confirmAccept}},history:{replaceState(){}},
- location:{hash:'#'+token,pathname:'/'},fetch,Date,Number,String,Promise,setInterval(){},setTimeout(){}};
+ location:{hash:'#'+token,pathname:'/'},
+ navigator:{clipboard:{writeText(value){copied.push(value);return Promise.resolve()}}},
+ fetch,Date,Number,String,Promise,setInterval(){},setTimeout(){}};
 vm.createContext(scope);
 new vm.Script(match[1],{filename:'native-task-dependencies.js'}).runInContext(scope);
 const flush=async()=>{for(let i=0;i<70;i++)await Promise.resolve()};
@@ -272,7 +279,41 @@ async function assertGraphValidation(graph,description,accepted=false,abandonSel
   'task snapshot refresh replaced an already started workflow step label');
  assert.doesNotMatch(get('long-task-output').textContent,/RENAMED AFTER WORKFLOW/,
   'workflow map used unverified mutable task list labels');
+ // Each authenticated step outcome remains available after the host
+ // releases its job slot. It is a separate session-only report rather
+ // than part of the possibly truncated process stdout.
+ const historyRow=get('task-run-history-list').children[0];
+ const report=historyRow.children[1];
+ const reportCopy=historyRow.children[0].children[2];
+ assert.match(report.textContent,/Workflow Task #55 · completed/);
+ assert.match(report.textContent,/Bước 1 · Task #44 · Hoàn tất · exit=0 · 10 ms/);
+ assert.match(report.textContent,/Bước 2 · Task #55 · Build <b>safe<\/b> · Bỏ qua/);
+ assert.doesNotMatch(report.textContent,/RENAMED AFTER WORKFLOW/,
+  'history report used an unverified post-launch label');
+ assert.equal(report.children.length,0,'workflow report must be literal text');
+ assert.equal(reportCopy.textContent,'Sao chép báo cáo');
+ reportCopy.click();await flush();
+ assert.equal(copied.at(-1),report.textContent,
+  'report clipboard must contain the verified per-step outcomes only');
+ assert.ok(!copied.at(-1).includes('authenticated-child-output'),
+  'report unexpectedly included raw child process stdout');
+ get('long-task-clear').click();await flush();
+ assert.equal(get('long-task-controls').hidden,true,
+  'host Clear should release the active long-job slot');
+ assert.equal(get('task-run-history-list').children[0],historyRow,
+  'host Clear detached the previously authenticated history row');
+ assert.equal(historyRow.children[1],report,
+  'host Clear discarded the step report DOM');
+ assert.equal(reportCopy.disabled,false,
+  'completed report should remain copyable after Clear');
+ reportCopy.click();await flush();
+ assert.equal(copied.at(-1),report.textContent,
+  'host Clear lost the retained per-step outcome');
  get('disconnect').click();await flush();
+ const copiedAfterLogout=copied.length;
+ reportCopy.click();await flush();
+ assert.equal(copied.length,copiedAfterLogout,
+  'a detached report button leaked workflow data after logout');
  assert.equal(get('task-deps-select').children.length,0,'issued IDs persisted after logout');
  assert.equal(get('task-deps-output').textContent,'','dependency graph persisted after logout');
  assert.equal(get('task-deps-output').hidden,true,'graph visible after logout');
