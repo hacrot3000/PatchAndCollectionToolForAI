@@ -82,6 +82,10 @@ const sandbox={
 vm.createContext(sandbox);
 const injected=script[1].replace('  let inspectButtons=[];',
  `  globalThis.__oldResult=()=>rememberTaskRun(77,'ngắn','completed',0,'prior',false);
+  // Inject a local quota snapshot, without changing the mock Agent's E2EE
+  // round count, to test both visual and direct-endpoint admission.
+  globalThis.__setQuotaForTest=n=>{budget=n;render();};
+  globalThis.__invokeForTest=endpoint=>invoke(endpoint);
   let inspectButtons=[];`);
 new vm.Script(injected,{filename:'native-long-task.js'}).runInContext(sandbox);
 const flush=async()=>{for(let i=0;i<45;i++)await Promise.resolve()};
@@ -97,6 +101,21 @@ const flush=async()=>{for(let i=0;i<45;i++)await Promise.resolve()};
  row=get('task-preview-labels').children[0];
  assert.equal(row.children[3].textContent,'Chạy task dài');
  assert.equal(row.children[3].disabled,false);
+ const requestsBeforeQuotaGuard=sent.length;
+ sandbox.__setQuotaForTest(3);
+ assert.equal(row.children[3].disabled,true,
+  'long task start must reserve three E2EE cleanup rounds');
+ assert.equal(row.children[2].disabled,false,
+  'short task remains available with three authenticated rounds');
+ row.children[3].click();await flush();
+ await sandbox.__invokeForTest('/api/tasks-start/123');await flush();
+ assert.equal(sent.length,requestsBeforeQuotaGuard,
+  'stale DOM click or direct invocation bypassed long-task cleanup reserve');
+ sandbox.__setQuotaForTest(4);
+ assert.equal(row.children[3].disabled,false,
+  'four E2EE rounds should allow start with three reserved for cleanup');
+ // Restore the last authenticated host quota; no E2EE request occurred.
+ sandbox.__setQuotaForTest(13);
  row.children[3].click();await flush();
  assert.equal(timers.length,1,'first task run did not schedule its poll');
  assert.deepEqual(sent.filter(x=>x.startsWith('/api/tasks-start/')),['/api/tasks-start/123']);

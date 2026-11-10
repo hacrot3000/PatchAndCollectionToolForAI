@@ -837,7 +837,7 @@ const trustedGUIJavaScript = `'use strict';
               taskPreviewSection.hidden||!cachedTaskIDs.includes(item.id)||
               inspectedTasks.get(item.id)!==selection||
               !featuresKnown||!available.task_run||terminalState!=='closed'||
-              longTaskID!==0||(isLong&&!available.task_long))return;
+              longTaskID!==0||(isLong&&(!available.task_long||budget<=3)))return;
             const choice=choiceSelect?Number(choiceSelect.value):0;
             if(choiceSelect&&(!Number.isInteger(choice)||choice<1||
               choice>selection.choices.length))return;
@@ -899,8 +899,10 @@ const trustedGUIJavaScript = `'use strict';
             runLong.taskRun=true;
             runLong.taskLong=true;
             runLong.taskID=item.id;
-            runLong.disabled=!selection||closed||busy||budget<=0||
+            runLong.disabled=!selection||closed||busy||budget<=3||
               longTaskID!==0||terminalState!=='closed';
+            runLong.setAttribute('title',
+              'Cần ít nhất 4 lượt E2EE trước khi khởi chạy task dài để giữ quyền Hủy, Poll và Dọn job.');
             runLong.addEventListener('click',()=>launch(true));
             li.append(runLong);
             inspectButtons.push(runLong);
@@ -1530,7 +1532,8 @@ const trustedGUIJavaScript = `'use strict';
         (button.taskRun&&!inspectedTasks.has(
           Number(button.taskID||0)))||
         (button.taskRun&&(terminalState!=='closed'||longTaskID!==0))||
-        (button.taskLong===true&&(!available.task_long||longTaskID!==0));
+        (button.taskLong===true&&(!available.task_long||longTaskID!==0||
+          budget<=3));
     }
     if(taskPreviewSection.hidden===false){renderTaskCoverage();}
     // Keep Disconnect available even after a revoked/failed operation.
@@ -1663,6 +1666,9 @@ const trustedGUIJavaScript = `'use strict';
       endpoint.startsWith('/api/tasks-start-input/');
     const isRun=endpoint.startsWith('/api/tasks-run/')||
       endpoint.startsWith('/api/tasks-run-input/');
+    const isLongStart=endpoint.startsWith('/api/tasks-workflow-start/')||
+      endpoint.startsWith('/api/tasks-start/')||
+      endpoint.startsWith('/api/tasks-start-input/');
     const isLongAction=endpoint.startsWith('/api/tasks-workflow-start/')||
       endpoint.startsWith('/api/tasks-start/')||
       endpoint.startsWith('/api/tasks-start-input/')||
@@ -1712,6 +1718,10 @@ const trustedGUIJavaScript = `'use strict';
       endpoint==='/api/tasks-cancel/'+String(longTaskID))return;
     if(!verified||(busy&&!isClose)||(closed&&!isClose)||
       (!isClose&&budget<=0)||
+      // A new long job must leave three authenticated E2EE rounds for
+      // Cancel acknowledgement, final Poll and explicit host Clear.
+      // Disable both the UI button and synthetic direct invoke attempts.
+      (!isClose&&isLongStart&&budget<=3)||
       (!isClose&&!taskMaintenanceAllowed(endpoint))||
       (!isClose&&!terminalMaintenanceAllowed(endpoint))||
       (!isClose&&bulkLoading&&endpoint!='/api/tasks-preview-next')||
