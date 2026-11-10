@@ -570,3 +570,15 @@ real-host testing are considered **code complete**.
   trang preview, rồi nhận Poll kết thúc. Xác minh đường render
   **sau** refresh vẫn giữ Task.ID/nhãn đã chốt khi start.
   Tránh kiểm thử giả chỉ xem nội dung DOM cũ chưa được render lại.
+
+## 2026-11-10 — Poll output chỉ commit sau E2EE Seal
+
+- E2EE Poll nay trả snapshot và commit closure, không tăng con trỏ
+  output ngay lúc đọc. Chỉ sau khi SealRemoteLongTaskProgress mã hóa
+  thành công mới tăng cursor dưới job.mu. Seal lỗi giữ nguyên output
+  để request sau đọc lại, không làm mất dữ liệu âm thầm.
+- Poll trực tiếp nội bộ giữ nguyên cơ chế tiêu thụ ngay sau đọc;
+  commit lỗi thời không được ghi đè cursor của reader khác.
+- Kiểm thử thêm trường hợp không seal rồi Poll lại, seal thành công
+  tiếp tục đọc phần đuôi, callback lỗi thời và Poll timeout recheck.
+  Giữ nguyên timeout, giới hạn chunk và phân quyền hiện hữu.

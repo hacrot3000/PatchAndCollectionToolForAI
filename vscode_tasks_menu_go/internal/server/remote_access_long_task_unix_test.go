@@ -477,3 +477,82 @@ func TestRemoteLongTaskPollTimeoutRechecksCaptureAndAdvancesCursor(t *testing.T)
   t.Fatalf("long-task output was replayed after timed poll: %+v %v",second,err)
  }
 }
+
+func TestRemoteLongTaskDeferredPollOnlyConsumesAfterAuthenticatedSeal(t *testing.T){
+ capture:=newRemoteLongTaskCapture()
+ content:=strings.Repeat("A",remoteLongTaskMaxChunkBytes)+"tail"
+ if _,err:=capture.Write([]byte(content));err!=nil{t.Fatal(err)}
+ job:=&remoteLongTaskJob{
+  taskID:83,status:"completed",exitCode:0,
+  done:make(chan struct{}),capture:capture,
+ }
+ close(job.done)
+ session:=&remoteTaskDeckSession{longTask:job}
+ read:=func()(remoteLongTaskSnapshot,func()){
+  t.Helper()
+  result,commit,err:=session.pollRemoteLongTaskWithWaitMode(
+   context.Background(),83,10*time.Millisecond,true)
+  if err!=nil||commit==nil{
+   t.Fatalf("deferred Poll failed: %+v %v",result,err)
+  }
+  return result,commit
+ }
+ first,unsealedCommit:=read()
+ if len(first.Output)!=remoteLongTaskMaxChunkBytes||!first.More{
+  t.Fatalf("first bounded output invalid: %+v",first)
+ }
+ // Simulate an E2EE Seal error: do not call the commit closure.
+ replay,commit:=read()
+ if replay.Output!=first.Output||!replay.More{
+  t.Fatalf("failed seal lost host output: %+v %+v",first,replay)
+ }
+ job.mu.Lock()
+ cursor:=job.outputCursor
+ job.mu.Unlock()
+ if cursor!=0{t.Fatalf("unsealed output consumed %d bytes",cursor)}
+ // Successful seal advances exactly once; a stale completion never rewinds.
+ commit()
+ unsealedCommit()
+ second,finalCommit:=read()
+ if second.Output!="tail"||second.More{
+  t.Fatalf("final output missing after seal: %+v",second)
+ }
+ finalCommit()
+ job.mu.Lock()
+ cursor=job.outputCursor
+ job.mu.Unlock()
+ if cursor!=len(content){t.Fatalf("output cursor=%d want=%d",cursor,len(content))}
+ final,err:=session.pollRemoteLongTask(context.Background(),83)
+ if err!=nil||final.Output!=""||final.More{
+  t.Fatalf("direct Poll replayed consumed output: %+v %v",final,err)
+ }
+}
+
+func TestRemoteLongTaskDeferredPollTimeoutPreservesOutput(t *testing.T){
+ job:=&remoteLongTaskJob{
+  taskID:84,status:"running",exitCode:-1,
+  done:make(chan struct{}),capture:newRemoteLongTaskCapture(),
+ }
+ session:=&remoteTaskDeckSession{longTask:job}
+ go func(){
+  time.Sleep(10*time.Millisecond)
+  job.capture.mu.Lock()
+  job.capture.data=append(job.capture.data,[]byte("late-output")...)
+  job.capture.mu.Unlock()
+  // No notify: timeout must re-check and still defer consumption.
+ }()
+ result,commit,err:=session.pollRemoteLongTaskWithWaitMode(
+  context.Background(),84,50*time.Millisecond,true)
+ if err!=nil||result.Output!="late-output"||commit==nil{
+  t.Fatalf("timeout lost late output: %+v %v",result,err)
+ }
+ job.mu.Lock()
+ cursor:=job.outputCursor
+ job.mu.Unlock()
+ if cursor!=0{t.Fatalf("unsealed timeout advanced cursor: %d",cursor)}
+ commit()
+ job.mu.Lock()
+ cursor=job.outputCursor
+ job.mu.Unlock()
+ if cursor!=len("late-output"){t.Fatalf("timeout commit lost data: %d",cursor)}
+}

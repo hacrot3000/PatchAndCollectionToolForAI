@@ -255,6 +255,7 @@ func (s *Server) executeRemoteE2EEPing(
  var dependencies remotetransport.RemoteTaskDependencies
  var taskRun remotetransport.RemoteTaskRun
  var longTask remotetransport.RemoteLongTaskProgress
+ var longTaskPollCommit func()
  startedLongTask:=false
  var nextTaskCursor int
  var taskPageHash [32]byte
@@ -455,8 +456,9 @@ func (s *Server) executeRemoteE2EEPing(
     }
     // Audit before advancing this session's incremental output cursor.
     if err:=s.auditRemoteReadOnlyAction(session,request.Operation);err!=nil{return err}
-    progress,pollErr:=session.pollRemoteLongTask(actionCtx,request.TaskID)
+    progress,commit,pollErr:=session.pollRemoteLongTaskForSeal(actionCtx,request.TaskID)
     if pollErr!=nil{return pollErr}
+    longTaskPollCommit=commit
     longTask=remotetransport.RemoteLongTaskProgress{
      TaskID:progress.TaskID,Status:progress.Status,ExitCode:progress.ExitCode,
      Output:progress.Output,Truncated:progress.Truncated,More:progress.More,
@@ -653,6 +655,9 @@ func (s *Server) executeRemoteE2EEPing(
   return nil,remotetransport.ErrRemoteActionDenied
  }
  if err!=nil{return nil,remotetransport.ErrRemoteActionDenied}
+ // A failed AEAD seal must not consume the host's captured task output.
+ if request.Operation==remotetransport.RemoteActionTasksPoll&&
+  longTaskPollCommit!=nil{longTaskPollCommit()}
  if request.Operation==remotetransport.RemoteActionTasksWorkflowAudit||
   request.Operation==remotetransport.RemoteActionTasksWorkflowAuditStart||
   request.Operation==remotetransport.RemoteActionTasksWorkflowAuditNext{

@@ -319,6 +319,15 @@ func (session *remoteTaskDeckSession) pollRemoteLongTask(
  return session.pollRemoteLongTaskWithWait(ctx,taskID,remoteLongTaskPollWait)
 }
 
+// E2EE Polls must not consume output before the authenticated response
+// has been sealed; a failed seal must leave the same bytes for next Poll.
+func (session *remoteTaskDeckSession) pollRemoteLongTaskForSeal(
+ ctx context.Context,taskID int,
+)(remoteLongTaskSnapshot,func(),error){
+ return session.pollRemoteLongTaskWithWaitMode(
+  ctx,taskID,remoteLongTaskPollWait,true)
+}
+
 // A bounded wait is injected only by host-side regression tests; the E2EE
 // action always uses remoteLongTaskPollWait. A missed/coalesced capture
 // notification must not turn an already buffered chunk into a false empty
@@ -326,16 +335,40 @@ func (session *remoteTaskDeckSession) pollRemoteLongTask(
 func (session *remoteTaskDeckSession)pollRemoteLongTaskWithWait(
  ctx context.Context,taskID int,wait time.Duration,
 )(remoteLongTaskSnapshot,error){
+ snapshot,_,err:=session.pollRemoteLongTaskWithWaitMode(
+  ctx,taskID,wait,false)
+ return snapshot,err
+}
+
+// Host Poll consumes immediately, while E2EE returns a callback which
+// advances the cursor only after successful AEAD Seal. E2EE taskPageMu
+// serializes authenticated task operations through sealing.
+func (session *remoteTaskDeckSession)pollRemoteLongTaskWithWaitMode(
+ ctx context.Context,taskID int,wait time.Duration,deferCursor bool,
+)(remoteLongTaskSnapshot,func(),error){
  denied:=remoteLongTaskSnapshot{}
  if session==nil||ctx==nil||ctx.Err()!=nil||session.closed.Load(){
-  return denied,remotetransport.ErrRemoteActionDenied
+  return denied,nil,remotetransport.ErrRemoteActionDenied
  }
  session.longTaskMu.Lock()
  job:=session.longTask
  session.longTaskMu.Unlock()
- if job==nil||job.taskID!=taskID{return denied,remotetransport.ErrRemoteActionDenied}
+ if job==nil||job.taskID!=taskID{return denied,nil,remotetransport.ErrRemoteActionDenied}
  deadlineCtx,cancel:=context.WithTimeout(ctx,wait)
  defer cancel()
+ // Called with job.mu held. A stale deferred commit cannot overwrite
+ // a cursor already advanced by another host reader.
+ consume:=func(from,to int)func(){
+  if !deferCursor{
+   job.outputCursor=to
+   return nil
+  }
+  return func(){
+   job.mu.Lock()
+   if job.outputCursor==from{job.outputCursor=to}
+   job.mu.Unlock()
+  }
+ }
  for{
   // Serialize snapshot and cursor consumption. Two concurrent native GUI
   // polls must not both send the same chunk or rewind an advanced cursor.
@@ -356,19 +389,19 @@ func (session *remoteTaskDeckSession)pollRemoteLongTaskWithWait(
   if chunk!=""||status!="running"{
    if ctx.Err()!=nil||session.closed.Load(){
     job.mu.Unlock()
-    return denied,remotetransport.ErrRemoteActionDenied
+    return denied,nil,remotetransport.ErrRemoteActionDenied
    }
-   job.outputCursor=next
+   commit:=consume(cursor,next)
    job.mu.Unlock()
    state.Output=chunk
    state.Truncated=truncated
    state.More=more
-   return state,nil
+   return state,commit,nil
   }
   job.mu.Unlock()
   select{
   case <-deadlineCtx.Done():
-   if ctx.Err()!=nil||session.closed.Load(){return denied,remotetransport.ErrRemoteActionDenied}
+   if ctx.Err()!=nil||session.closed.Load(){return denied,nil,remotetransport.ErrRemoteActionDenied}
    job.mu.Lock()
    state=remoteLongTaskSnapshot{
     TaskID:taskID,Status:job.status,ExitCode:job.exitCode,
@@ -384,17 +417,18 @@ func (session *remoteTaskDeckSession)pollRemoteLongTaskWithWait(
    // cursor lock before returning an empty 7-second timeout snapshot.
    limit:=remoteLongTaskMaxChunkBytes
    if state.Step>0{limit=64}
-   chunk,next,truncated,more:=job.capture.nextBounded(job.outputCursor,limit)
+   cursor:=job.outputCursor
+   chunk,next,truncated,more:=job.capture.nextBounded(cursor,limit)
    if ctx.Err()!=nil||session.closed.Load(){
     job.mu.Unlock()
-    return denied,remotetransport.ErrRemoteActionDenied
+    return denied,nil,remotetransport.ErrRemoteActionDenied
    }
-   job.outputCursor=next
+   commit:=consume(cursor,next)
    job.mu.Unlock()
    state.Output=chunk
    state.Truncated=truncated
    state.More=more
-   return state,nil
+   return state,commit,nil
   case <-job.capture.notify:
   case <-job.done:
   }
