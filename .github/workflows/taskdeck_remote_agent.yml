@@ -42,6 +42,9 @@ on:
       - 'vscode_tasks_menu_go/cmd/taskdeck_remote_login/**'
       - 'vscode_tasks_menu_go/cmd/taskdeck_remote_probe/**'
       - 'vscode_tasks_menu_go/cmd/taskdeck_remote_relay/**'
+      - 'vscode_tasks_menu_go/web/featuremods/remotehelp.js'
+      - 'vscode_tasks_menu_go/web/featuremods/help.js'
+      - 'vscode_tasks_menu_go/test_settings_help.cjs'
       - 'vscode_tasks_menu_go/web/featuremods/remoteaccess.js'
       - 'vscode_tasks_menu_go/web/featuremods/menus.js'
       - 'vscode_tasks_menu_go/web/featuremods/next.js'
@@ -107,6 +110,12 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - name: Verify Help Remote installation guide, tabs, search and command copy
+        working-directory: vscode_tasks_menu_go
+        run: |
+          node --check web/featuremods/remotehelp.js
+          node --check web/featuremods/help.js
+          node --test test_settings_help.cjs
       - name: Check Remote browser and administrative Settings JavaScript syntax
         run: |
           node --check remote_portal/public/remote_probe.js

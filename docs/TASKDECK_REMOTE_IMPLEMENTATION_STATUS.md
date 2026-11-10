@@ -3095,3 +3095,62 @@ shared-PHP deployment validation remain required.
   No Windows-specific remote expansion was made.
   Keep `remote_control_available=false` and LIVE NO-GO until
   intentionally released.
+
+
+## 2026-11-10 — main: Help · TaskDeck Remote installation and onboarding guide
+
+- **Commits `9a02186`, `989eed8`, `54ebd78`:** Added a new navigation
+  tab `Remote · Cài đặt từ A–Z` to the existing read-only
+  `Help · TaskDeck` interface. Guide content is kept in
+  `web/featuremods/remotehelp.js` and imported BEFORE
+  `help.js` by `featuremods/next.js`. It includes 28 numbered
+  items and 19 shell snippets, covering:
+  (A) installation/start of Linux/macOS TaskDeck host, actual
+  TaskDeck identity/RBAC configuration and `remote-key`
+  commands; (B) PHP >=8.1 + Sodium + PDO SQLite, private
+  owner-only storage, correct `remote_portal/public`
+  document root, PHP-FPM/CLI env, Portal initialization,
+  signing public key, TOTP/MFA and device pairing; (C)
+  separately hosted TLS/WSS Go Relay with ticket replay
+  ledger, the exact Portal public signing key and controlled
+  opt-ins; (D) independently verified local trusted client
+  build, Device ID pin, first client Ed25519 approval,
+  signed one-use ticket, password ONLY in the native TTY,
+  local-only `-gui` activation and key revocation;
+  (E) troubleshooting, self-test and release status.
+  All locations/domains/device IDs are clearly marked
+  placeholders. No host credentials, private keys or
+  secrets appear in samples.
+- **UI safety:** Existing global Help search matches command
+  text in addition to descriptions. Every command is
+  rendered using `textContent` in a bounded scrollable
+  `<pre>`, with an explicit user-click `Sao chép lệnh`
+  button (Clipboard API and document selection fallback).
+  Help does not execute commands, dynamically generate
+  privileged actions, send network traffic or trust PHP
+  HTML. It remains responsive and supports existing
+  light/dark themes, keyboard navigation and search.
+- **Tests and CI:** `test_settings_help.cjs` now loads
+  `remotehelp.js` before `help.js`, asserts import order,
+  all four required deployment components, the key
+  security commands/flags, navigation, search and
+  byte-exact clipboard copy. Seven Help tests passed in
+  the standalone V8 DOM simulation during authoring.
+  The automatic Remote Agent GitHub Actions workflow
+  now includes `node --check` for both Help modules
+  and `node --test test_settings_help.cjs` to catch
+  regressions on future source changes. Verify the
+  workflow's actual result separately.
+- **Security / rollout gate:** This is deployment
+  documentation, not authorization to turn on Remote
+  Control LIVE. PHP alone is insufficient; a separately
+  running Go Relay WSS is required. Host- and Relay-
+  controlled experimental flags remain OFF by default,
+  and `remote_control_available=false` remains unchanged.
+  No support for Windows-specific remote setup was added.
+- **Remaining feature priorities** stay the same:
+  Remote Task GUI edge cases, Git Pull/Commit/Push,
+  Terminal PTY, other Git commands, Files/Editor/
+  Patch/Collection GUI, then further Remote features.
+  Source-complete functionality counts as complete
+  even if real end-to-end field trials are pending.
