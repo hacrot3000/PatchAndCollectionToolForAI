@@ -16,6 +16,9 @@ func (s *Server) startRemoteTerminal(context.Context,*remoteTaskDeckSession)erro
 func (session *remoteTaskDeckSession) pollRemoteTerminal(context.Context)(remotetransport.RemoteTerminalProgress,error){
  return remotetransport.RemoteTerminalProgress{},remotetransport.ErrRemoteActionDenied
 }
+func (session *remoteTaskDeckSession) pollRemoteTerminalForSeal(context.Context)(remotetransport.RemoteTerminalProgress,func(),error){
+ return remotetransport.RemoteTerminalProgress{},nil,remotetransport.ErrRemoteActionDenied
+}
 func (s *Server) writeRemoteTerminal(context.Context,*remoteTaskDeckSession,string)(remotetransport.RemoteTerminalProgress,error){
  return remotetransport.RemoteTerminalProgress{},remotetransport.ErrRemoteActionDenied
 }

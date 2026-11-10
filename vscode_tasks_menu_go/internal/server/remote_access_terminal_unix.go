@@ -161,6 +161,14 @@ func (session *remoteTaskDeckSession) pollRemoteTerminal(
  return session.remoteTerminalSnapshot()
 }
 
+func (session *remoteTaskDeckSession) pollRemoteTerminalForSeal(
+ ctx context.Context)(remotetransport.RemoteTerminalProgress,func(),error){
+ if session==nil||ctx==nil||ctx.Err()!=nil||session.closed.Load(){
+  return remotetransport.RemoteTerminalProgress{},nil,remotetransport.ErrRemoteActionDenied
+ }
+ return session.remoteTerminalSnapshotWithMode(true)
+}
+
 func (s *Server) writeRemoteTerminal(ctx context.Context,
  session *remoteTaskDeckSession,input string)(remotetransport.RemoteTerminalProgress,error){
  denied:=remotetransport.ErrRemoteActionDenied
