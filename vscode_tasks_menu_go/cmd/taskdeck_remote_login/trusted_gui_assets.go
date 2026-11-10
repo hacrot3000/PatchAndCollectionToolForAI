@@ -501,6 +501,37 @@ const trustedGUIJavaScript = `'use strict';
     renderTaskRunHistory();
     return serial;
   }
+  // Keep at most maxBytes of the *decrypted* UTF-8 transcript in the
+  // history preview. JS .slice(-N) counts UTF-16 code units and can
+  // bisect a surrogate pair (emoji), producing a value that cannot be
+  // encoded back to UTF-8 or copied faithfully. Walk whole code points
+  // backwards; never synthesize replacement characters or split a rune.
+  function boundedUTF8HistoryTail(value,maxBytes){
+    let start=value.length,bytes=0;
+    while(start>0){
+      const last=value.charCodeAt(start-1);
+      let cp=last,units=1;
+      if(last>=0xdc00&&last<=0xdfff&&start>1){
+        const high=value.charCodeAt(start-2);
+        if(high>=0xd800&&high<=0xdbff){
+          cp=0x10000+((high-0xd800)<<10)+(last-0xdc00);
+          units=2;
+        }
+      }
+      // Every caller provides E2EE-validated UTF-8. A lone surrogate
+      // cannot be re-encoded safely: discard it instead of returning a
+      // broken clipboard string if an internal caller violates that gate.
+      if(cp>=0xd800&&cp<=0xdfff){
+        start-=units;
+        break;
+      }
+      const width=cp<=0x7f?1:cp<=0x7ff?2:cp<=0xffff?3:4;
+      if(bytes+width>maxBytes)break;
+      bytes+=width;
+      start-=units;
+    }
+    return {text:value.slice(start),clipped:start>0};
+  }
   function updateLongTaskHistory(taskID,status,exitCode,truncated,receivedOutput){
     const item=taskRunHistory.find(entry=>entry.serial===longTaskHistorySerial&&
       entry.taskID===taskID&&entry.kind==='dài');
@@ -510,8 +541,9 @@ const trustedGUIJavaScript = `'use strict';
     // Keep a bounded, local-only tail of output for the history view. The
     // full 16 KiB transcript remains in the active job panel until cleared.
     // No task output is persisted or returned to PHP/Relay as plaintext.
-    item.output=receivedOutput.slice(-2048);
-    item.truncated=item.truncated||truncated||receivedOutput.length>2048;
+    const tail=boundedUTF8HistoryTail(receivedOutput,2048);
+    item.output=tail.text;
+    item.truncated=item.truncated||truncated||tail.clipped;
     renderTaskRunHistory();
   }
   let inspectButtons=[];

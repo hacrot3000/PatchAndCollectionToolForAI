@@ -741,3 +741,9 @@ real-host testing are considered **code complete**.
 - Poll thủ công ưu tiên hơn callback đang lên lịch. Pause/Close/Logout tăng epoch để callback cũ không gửi request, và không Poll khi một action khác đang bận. Luồng vẫn dùng endpoint `/api/terminal-poll` E2EE cũ; không tạo route/socket/credential và không chuyển PTY qua PHP.
 - Bộ lập lịch kiểm tra `terminalMaintenanceAllowed('/api/terminal-poll')` trước khi đặt timer **và trước khi gửi request**, giữ lượt E2EE cuối cùng cho Close; status và output của host tiếp tục được xác thực ở dispatcher và render `textContent`.
 - Test native GUI dùng timer có kiểm soát để xác nhận bật/tắt, backlog nhiều chunk, Poll thủ công không bị nhân đôi, dừng khi idle và quota=1 vẫn Close thành công. Đã thêm vào Go CI.
+
+## 2026-11-10 — Lịch sử output task đúng giới hạn UTF-8
+
+- Preview lịch sử output của một job dài giờ giữ đúng tối đa **2.048 byte UTF-8 cuối** đã giải mã thay vì 2.048 UTF-16 code unit. Các chuỗi có emoji/ký tự nhiều byte không bị cắt đôi surrogate pair, không tạo chuỗi invalid khiến Clipboard copy lỗi.
+- Dấu `output đã cắt` xuất hiện nếu preview buộc phải bỏ ký tự đầu, bất kể JS `.length` còn thấp. Toàn bộ transcript job trong panel đang chạy vẫn giữ nguyên (host giới hạn capture 16 KiB). Không thay đổi API, quyền E2EE, cơ chế Poll/cursor, PHP/Relay.
+- Test native GUI kiểm tra 1.024 emoji chỉ giữ 512 emoji (2.048 byte), cắt chính xác ranh giới UTF-8, không sinh unpaired surrogate, sao chép output xác thực nguyên văn và nút copy cũ mất hiệu lực sau logout. Thêm vào Go CI.

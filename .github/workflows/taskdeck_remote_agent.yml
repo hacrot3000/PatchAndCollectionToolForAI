@@ -170,6 +170,8 @@ jobs:
         run: node remote_portal/tests/native_gui_two_picks.test.cjs
       - name: Verify native GUI long task progress and independent cancellation
         run: node remote_portal/tests/native_gui_long_task.test.cjs
+      - name: Verify task history UTF-8 byte caps and Unicode-safe copying
+        run: node remote_portal/tests/native_gui_long_task_utf8_history.test.cjs
       - name: Reject stale or regressed native GUI task lifecycle responses
         run: node remote_portal/tests/native_gui_long_task_lifecycle.test.cjs
       - name: Preserve pending cancellation across intermediate running job polls
