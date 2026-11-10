@@ -10,6 +10,7 @@ const taskdeckHelpTopics=[
   ['Operation Center','Review running, completed and failed operations, including transfers, Git operations and Patch Tool jobs.'],
   ['Safety','Review changes and backups before destructive Git, database, patch, and remote-file operations. Auto-reconnect does not re-run interrupted commands.']
  ]},
+ {id:'remote-setup',title:'Remote · Cài đặt từ A–Z',items:globalThis.TaskMenuRemoteSetupGuide||[]},
  {id:'shortcuts',title:'General shortcuts',items:[
   ['Ctrl/Cmd + Shift + P','Open the Command Palette to find tools and actions.'],
   ['Ctrl/Cmd + P','Quick Open: find files, tabs, and resources.'],
@@ -184,6 +185,10 @@ style.textContent=[
 '.taskdeck-help-key,.taskdeck-help-description{font-size:12px;line-height:1.55;padding:9px 10px;border-bottom:1px solid #344052}',
 '.taskdeck-help-key{background:#202c3a;color:#e4f0ff;overflow-wrap:anywhere}.taskdeck-help-key kbd{font:600 11px/1.5 ui-monospace,monospace}',
 '.taskdeck-help-description{color:#e1eaf4}.taskdeck-help-key[hidden],.taskdeck-help-description[hidden]{display:none!important}',
+'.taskdeck-help-command{box-sizing:border-box;max-width:100%;overflow:auto;margin:9px 0 0;padding:10px 12px;border:1px solid #4d6380;border-radius:6px;background:#0b1520;color:#d7e8fb;white-space:pre;font:11px/1.65 ui-monospace,SFMono-Regular,Consolas,monospace;tab-size:2}',
+'.taskdeck-help-copy{margin-top:7px;padding:5px 9px;border:1px solid #587695;border-radius:5px;background:#22384f;color:#eaf3ff;cursor:pointer;font-size:11px}.taskdeck-help-copy:focus-visible{outline:2px solid #9ed1ff;outline-offset:2px}',
+'html[data-taskmenu-theme="light"] .taskdeck-help-command{background:#f3f7fc;color:#163653;border-color:#b8cbdc}',
+'html[data-taskmenu-theme="light"] .taskdeck-help-copy{background:#e4eef8;color:#183e63;border-color:#9fb8cf}',
 '.taskdeck-help-empty{font-size:12px;opacity:.7;padding:12px}',
 'html[data-taskmenu-theme="light"] .taskdeck-help-dialog{background:#fff;color:#182738;border-color:#bac5d2}',
 'html[data-taskmenu-theme="light"] .taskdeck-help-head,html[data-taskmenu-theme="light"] .taskdeck-help-layout,html[data-taskmenu-theme="light"] .taskdeck-help-nav{border-color:#d4deea}',
@@ -233,12 +238,38 @@ for(const topic of taskdeckHelpTopics){
  const title=document.createElement('h3');title.textContent=topic.title;
  const grid=document.createElement('div');grid.className='taskdeck-help-grid';
  const entries=[];
- for(const [key,description] of topic.items){
+ for(const [key,description,command] of topic.items){
    const left=document.createElement('div');left.className='taskdeck-help-key';
    const kbd=document.createElement('kbd');kbd.textContent=key;left.append(kbd);
    const right=document.createElement('div');right.className='taskdeck-help-description';right.textContent=description;
+   if(typeof command==='string'&&command){
+     const snippet=document.createElement('pre');snippet.className='taskdeck-help-command';
+     snippet.textContent=command;
+     const copy=document.createElement('button');copy.type='button';
+     copy.className='taskdeck-help-copy';copy.textContent='Sao chép lệnh';
+     copy.setAttribute('aria-label','Sao chép lệnh: '+key);
+     copy.onclick=async()=>{
+       try{
+         // Commands are never executed: user explicitly copies static help.
+         if(globalThis.navigator?.clipboard?.writeText){
+           await globalThis.navigator.clipboard.writeText(command);
+         }else{
+           const temporary=document.createElement('textarea');
+           temporary.value=command;temporary.setAttribute('readonly','');
+           temporary.style.position='fixed';temporary.style.opacity='0';
+           document.body.append(temporary);temporary.select();
+           let copied=false;
+           try{copied=document.execCommand?.('copy')===true;}
+           finally{temporary.remove();}
+           if(!copied)throw new Error('Clipboard unavailable');
+         }
+         copy.textContent='Đã sao chép';
+       }catch(error){copy.textContent='Không thể sao chép';}
+     };
+     right.append(snippet,copy);
+   }
    grid.append(left,right);
-   entries.push({left,right,needle:(key+' '+description).toLocaleLowerCase('vi')});
+   entries.push({left,right,needle:(key+' '+description+' '+(command||'')).toLocaleLowerCase('vi')});
  }
  section.append(title,grid);scroll.append(section);
  viewSections.push({topic,button,section,entries});

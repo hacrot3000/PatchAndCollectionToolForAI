@@ -6,6 +6,7 @@ const test=require('node:test');
 
 const root=__dirname;
 const helpCode=fs.readFileSync(path.join(root,'web/featuremods/help.js'),'utf8');
+const remoteHelpCode=fs.readFileSync(path.join(root,'web/featuremods/remotehelp.js'),'utf8');
 const menuCode=fs.readFileSync(path.join(root,'web/featuremods/menus.js'),'utf8');
 const loadCode=fs.readFileSync(path.join(root,'web/featuremods/next.js'),'utf8');
 const helpLabels=[
@@ -16,6 +17,8 @@ const helpLabels=[
 ];
 
 test('Settings Help is loaded before the Settings menu and has a real entry point',()=>{
+  assert.ok(loadCode.indexOf("import '/featuremods/remotehelp.js';")<
+    loadCode.indexOf("import '/featuremods/help.js';"));
   assert.ok(loadCode.indexOf("import '/featuremods/help.js';")<loadCode.indexOf("import '/featuremods/menus.js';"));
   assert.match(menuCode,/addSection\(settings\.pop,'HELP',\[helpButton\]\)/);
   assert.match(menuCode,/globalThis\.TaskMenuHelp\?\.open\?\.\(\)/);
@@ -44,8 +47,11 @@ function harness(){
   }
   const document={createElement:element,head:{append(){}},body:{append(){}},activeElement:currentActive};
   const global={};
+  const copied=[];
+  global.navigator={clipboard:{writeText:async value=>{copied.push(value);}}};
+  vm.runInNewContext(remoteHelpCode,{globalThis:global},{filename:'remotehelp.js',timeout:1000});
   vm.runInNewContext(helpCode,{document,globalThis:global}, {filename:'help.js',timeout:1000});
-  return {nodes,document,api:global.TaskMenuHelp,prior:currentActive};
+  return {nodes,document,api:global.TaskMenuHelp,prior:currentActive,copied};
 }
 test('Help opens, filters topics, and closes without touching browser tabs',()=>{
   const {nodes,document,api,prior}=harness();
@@ -145,4 +151,46 @@ test('Help covers recent features but omits Restricted Developer mode',()=>{
   'Create project launcher icon','Workspace snapshots','Project profiles','Broadcast groups'
  ])assert.ok(content.includes(term),'Missing Help feature: '+term);
  assert.ok(!/restricted[ -]?develop/i.test(content+' '+titles.join(' ')));
+});
+
+
+test('Remote installation tab covers TaskDeck, private PHP Portal, Go Relay and pinned client onboarding',async()=>{
+  const {nodes,api,copied}=harness();
+  const topic=api.topics.find(t=>t.id==='remote-setup');
+  assert.ok(topic,'Remote installation tab missing');
+  assert.equal(topic.title,'Remote · Cài đặt từ A–Z');
+  assert.ok(topic.items.length>=25,'guide must cover all setup stages');
+  const labels=topic.items.map(row=>row[0]);
+  for(const prefix of ['A1','B1','C1','D1','E1']){
+    assert.ok(labels.some(label=>label.startsWith(prefix)),'missing setup stage '+prefix);
+  }
+  const all=topic.items.map(row=>row.join(' ')).join('\n');
+  for(const fragment of [
+    './install.sh','taskdeck remote-key','remote_portal/public/',
+    'REMOTE_PORTAL_DB_PATH','REMOTE_PORTAL_SIGNING_SEED_PATH',
+    'init-ticket-key','relay-public-key','create-admin',
+    'pdo_sqlite','sodium','TOTP','taskdeck_remote_relay',
+    '-allow-offline-login-probe','taskdeck_remote_login',
+    '-pin-file','CLIENT_ED25519_PUBLIC_KEY_BASE64','-gui',
+    'remote_control_available=false'
+  ])assert.ok(all.includes(fragment),'Remote setup missing '+fragment);
+  assert.ok(!helpCode.includes('innerHTML'),'Help text must stay inert');
+  api.open('remote-setup');
+  const visible=nodes.filter(n=>n.className==='taskdeck-help-section'&&!n.hidden);
+  assert.equal(visible.length,1,'Remote tab should be its own help section');
+  assert.equal(visible[0].children[0].textContent,topic.title);
+  const snippets=nodes.filter(n=>n.className==='taskdeck-help-command');
+  assert.ok(snippets.length>=17,'guide command examples missing');
+  assert.ok(snippets.every(n=>typeof n.textContent==='string'));
+  const buttons=nodes.filter(n=>n.className==='taskdeck-help-copy');
+  assert.equal(buttons.length,snippets.length);
+  await buttons[0].onclick();
+  assert.equal(copied.length,1);
+  assert.equal(copied[0],snippets[0].textContent,'Copy must preserve exact command bytes');
+  assert.equal(buttons[0].textContent,'Đã sao chép');
+  const search=nodes.find(n=>n.className==='taskdeck-help-search');
+  search.value='init-ticket-key';search.oninput();
+  const results=nodes.filter(n=>n.className==='taskdeck-help-description'&&!n.hidden);
+  assert.ok(results.length>=1,'Search must include setup commands');
+  assert.ok(results.some(n=>n.textContent.includes('Khởi tạo')));
 });
