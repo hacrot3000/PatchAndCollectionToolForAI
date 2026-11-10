@@ -113,8 +113,9 @@ func TestGitSyncDiffRemoteOpensDirectoryCompare(t *testing.T) {
     if !strings.Contains(js,required){t.Errorf("SYNC Diff remote missing contract %q",required)}
   }
   start:=strings.Index(js,"async function openRemoteDiff(){")
+  if start<0 {t.Fatal("Diff remote handler missing")}
   end:=strings.Index(js[start:],"quickGroup('SYNC',[")
-  if start<0||end<0 {t.Fatal("Diff remote handler missing")}
+  if end<0 {t.Fatal("Diff remote handler end missing")}
   handler:=js[start:start+end]
   for _,forbidden:=range []string{"action('pull'","action('merge'","action('push'","action('switch'","window.prompt("}{
     if strings.Contains(handler,forbidden){t.Errorf("Diff remote must not change local branch or worktree: %q",forbidden)}
