@@ -953,7 +953,10 @@ const trustedGUIJavaScript = `'use strict';
   // Cancel acknowledgement is distinct from process exit. Poll may still
   // report "running" while the host is terminating the process group.
   let longTaskCancelPending=false;
-  let longTaskAuto=false,longTaskPollScheduled=false;
+  let longTaskAuto=false,longTaskPollScheduled=false,longTaskPollEpoch=0;
+  // A task ID identifies a configured task, NOT one process execution.
+  // Timers belonging to a cleared execution may never poll its successor
+  // when the operator restarts that same task ID in this native session.
   let terminalState='closed',terminalTranscript='';
   let gitPatchText='',gitPatchPage=0,gitPatchMore=false,gitPatchMode='head';
   let gitSwitchPreview=null,gitSwitchPending=null;
@@ -1044,6 +1047,7 @@ const trustedGUIJavaScript = `'use strict';
     taskRunHistory=[];taskRunHistoryList.replaceChildren();
     taskRunHistoryView.hidden=true;taskRunHistoryClear.disabled=true;
     longTaskMore=false;longTaskAuto=false;
+    longTaskPollEpoch++;longTaskPollScheduled=false;
     terminalState='closed';terminalTranscript='';
     gitPatchText='';gitPatchPage=0;gitPatchMore=false;
     gitPatchOutput.textContent='';gitPatchOutput.hidden=true;
@@ -1309,9 +1313,12 @@ const trustedGUIJavaScript = `'use strict';
     if(!longTaskAuto||longTaskPollScheduled||
       !verified||busy||closed||closing||terminated||bulkLoading||
       !mayAutoPollLongTask())return;
-    const selectedID=longTaskID;
+    const selectedID=longTaskID,selectedEpoch=longTaskPollEpoch;
     longTaskPollScheduled=true;
     setTimeout(()=>{
+      // Do not disturb a newer execution's scheduled timer if this
+      // callback belongs to a previously cleared job or paused run.
+      if(selectedEpoch!==longTaskPollEpoch)return;
       longTaskPollScheduled=false;
       if(selectedID===longTaskID&&longTaskAuto&&!busy&&!closed&&
         !closing&&!terminated&&!bulkLoading&&mayAutoPollLongTask()){
@@ -2059,6 +2066,7 @@ const trustedGUIJavaScript = `'use strict';
             }
           }
           if(launching){
+            longTaskPollEpoch++;longTaskPollScheduled=false;
             longTaskID=id;longTaskText='';
             longTaskCancelPending=false;
             longTaskAuto=!finalStates.includes(data.status);
@@ -2077,6 +2085,7 @@ const trustedGUIJavaScript = `'use strict';
             updateLongTaskHistory(id,data.status,data.exit_code,data.truncated,longTaskText);
           }
           if(data.status==='cleared'){
+            longTaskPollEpoch++;longTaskPollScheduled=false;
             longTaskHistorySerial=0;
             longTaskID=0;
             longTaskText='';longTaskMore=false;
@@ -3008,6 +3017,7 @@ const trustedGUIJavaScript = `'use strict';
   });
   longTaskAutoButton.addEventListener('click',()=>{
     if(longTaskID===0||closed)return;
+    longTaskPollEpoch++;longTaskPollScheduled=false;
     longTaskAuto=!longTaskAuto;
     render();
     if(longTaskAuto)scheduleLongTaskPoll();

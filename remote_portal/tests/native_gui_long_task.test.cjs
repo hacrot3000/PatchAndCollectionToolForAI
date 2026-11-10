@@ -25,7 +25,7 @@ const get=id=>{
 };
 const token='0123456789abcdef'.repeat(4);
 let remaining=16,pollCount=0;
-const sent=[];
+const sent=[],timers=[];
 const fetch=async(endpoint,opts)=>{
  sent.push(endpoint);
  assert.equal(opts.method,'POST');
@@ -76,7 +76,7 @@ const sandbox={
  document:{getElementById:get,createElement:tag=>new Element(tag)},
  window:{confirm(){return true},addEventListener(){}},history:{replaceState(){}},
  location:{hash:'#'+token,pathname:'/'},
- fetch,setInterval(){},setTimeout(){},Date,Number,String,Promise,
+ fetch,setInterval(){},setTimeout(fn){timers.push(fn);return timers.length;},Date,Number,String,Promise,
 };
 vm.createContext(sandbox);
 new vm.Script(script[1],{filename:'native-long-task.js'}).runInContext(sandbox);
@@ -94,6 +94,7 @@ const flush=async()=>{for(let i=0;i<45;i++)await Promise.resolve()};
  assert.equal(row.children[3].textContent,'Chạy task dài');
  assert.equal(row.children[3].disabled,false);
  row.children[3].click();await flush();
+ assert.equal(timers.length,1,'first task run did not schedule its poll');
  assert.deepEqual(sent.filter(x=>x.startsWith('/api/tasks-start/')),['/api/tasks-start/123']);
  assert.equal(get('long-task-controls').hidden,false);
  assert.equal(get('long-task-cancel').disabled,false);
@@ -126,6 +127,22 @@ const flush=async()=>{for(let i=0;i<45;i++)await Promise.resolve()};
  assert.equal(get('long-task-controls').hidden,true);
  assert.equal(get('task-run-history-list').children.length,1,
   'clear may remove host job but keep locally verified final outcome');
+ // The first execution still has a queued callback. Reusing the same
+ // published task ID must schedule a fresh callback immediately; the
+ // stale callback cannot poll the new execution or reset its timer flag.
+ row.children[3].click();await flush();
+ assert.equal(sent.filter(x=>x==='/api/tasks-start/123').length,2,
+  'same verified task ID could not be run again after Clear');
+ assert.equal(timers.length,2,
+  'a stale timer incorrectly prevented scheduling the new execution');
+ const oldTimer=timers.shift(),currentTimer=timers.shift();
+ const pollsBefore=sent.filter(x=>x==='/api/tasks-poll/123').length;
+ oldTimer();await flush();
+ assert.equal(sent.filter(x=>x==='/api/tasks-poll/123').length,pollsBefore,
+  'stale timer polled a new execution sharing the previous task ID');
+ currentTimer();await flush();
+ assert.equal(sent.filter(x=>x==='/api/tasks-poll/123').length,pollsBefore+1,
+  'new execution timer was cleared by the previous execution');
  get('disconnect').click();await flush();
  assert.equal(get('task-run-history-list').children.length,0);
  assert.equal(get('task-run-history').hidden,true);
