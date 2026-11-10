@@ -192,5 +192,6 @@ test('Remote installation tab covers TaskDeck, private PHP Portal, Go Relay and 
   search.value='init-ticket-key';search.oninput();
   const results=nodes.filter(n=>n.className==='taskdeck-help-description'&&!n.hidden);
   assert.ok(results.length>=1,'Search must include setup commands');
-  assert.ok(results.some(n=>n.textContent.includes('Khởi tạo')));
+  assert.ok(results.some(n=>n.textContent.includes('Chạy các lệnh')),
+    'search should reveal the Portal initialization instructions');
 });
