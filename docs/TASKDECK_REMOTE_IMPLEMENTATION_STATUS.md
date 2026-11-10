@@ -3154,3 +3154,85 @@ shared-PHP deployment validation remain required.
   Patch/Collection GUI, then further Remote features.
   Source-complete functionality counts as complete
   even if real end-to-end field trials are pending.
+
+
+
+## 2026-11-10 — main: exact task completion barrier and fixed Git Push/Commit policy
+
+- **Baseline check:** Go Agent and PHP Portal CI were confirmed
+  SUCCESS for prior source `cd2a4dbaa7` before this increment.
+  The current `main` HEAD below is newer and requires its own CI.
+- **Commit `36e4b175` (Remote GUI task host):** A long task waiter used to
+  set `completed/failed/cancelled/timed_out` before releasing its exclusive
+  canonical workspace lease. A final authenticated Poll could therefore
+  tell the client that the job was done while a subsequent Task/Git/PTY
+  request still received a spurious workspace-busy denial. Extracted
+  `remoteLongTaskJob.publishCompletion`: finish host audit, release
+  the workspace lease FIRST, then publish final status/exit code,
+  close `job.done` and notify captures. Added a deterministic
+  Unix Go regression that holds the release callback and checks
+  all four final statuses cannot appear early. It also verifies
+  the done channel closes after release.
+- **Commit `49d273ca` (Git Push):** Repository config can attach
+  `push.pushOption` values forwarded to server receive hooks,
+  `push.gpgSign` that invokes a host GPG program, and
+  `push.recurseSubmodules` that contacts additional remotes.
+  The audited exact-upstream push now explicitly resets the option
+  list, disables signed push and disables recursive submodule
+  push (both Git config and command-line flags); the previously
+  pinned `--receive-pack=git-receive-pack`, `--no-tags`,
+  no-force refspec and disabled local hooks remain intact.
+  The real Git integration test configures all three unsafe
+  settings, proves a normal control push passes the extra
+  push option to a local bare repository's pre-receive hook,
+  then verifies the audited push succeeds but sends ZERO
+  push options. Independently reproduced using Git 2.47.3:
+  control hook saw `1 / UNAPPROVED` and hardened hook saw `0`.
+- **Commit `9e302666` (typed E2EE task status):** The host issues
+  Start/Cancel/Clear as state-only ACKs; none advances the
+  output cursor or carries buffer truncation. The Go
+  `remotetransport` codec and trusted native GUI now reject
+  any nonempty output, `more`, or `truncated` on those three
+  ACK statuses. Go regression cases include seal denials and
+  manually forged encrypted frames, all required to fail
+  closed and revoke the E2EE channel. The JS GUI regression
+  verifies a malicious localhost Start reply cannot inject
+  task output or survive a nonempty/truncated ACK.
+- **Commit `60ece6b3` (Git Commit):** Remote commit previously
+  only required a nonempty `git symbolic-ref -q HEAD`.
+  A Git HEAD can point outside `refs/heads/`, so the
+  authenticated Git write could target a custom symbolic
+  ref. Now require an existing properly bounded
+  `refs/heads/<branch>` target before diff/status/audit
+  or `git commit`. Regression fixture stages a real
+  file change after making HEAD point to a valid
+  `refs/taskdeck/unapproved` ref and asserts the
+  operation fails without moving the arbitrary ref.
+  A local Git 2.47.3 reproduction confirms the fixture
+  is possible.
+- **Commit `d2f229e4` (Remote task GUI):** The progress banner
+  previously claimed automatic polling had paused as soon
+  as E2EE quota dropped to 3, even when a previously
+  acknowledged Cancel lowered the reserved-round count
+  and background Poll was still active. The banner
+  now checks the SAME `mayAutoPollLongTask()` predicate
+  used by actual scheduling. Added a regression
+  asserting that Cancel → Poll(running) with only
+  two rounds left must not display a false pause notice.
+- **Verification:** Five native GUI/Terminal JavaScript
+  mock-DOM suites passed on current `d2f229e4`:
+  long task lifecycle, stream, cancellation pending,
+  Auto Poll and Terminal. The current Go Agent and PHP
+  Portal GitHub Actions were running at handoff time;
+  no new Go/PHP CI success is claimed yet. This
+  documentation update is source-neutral.
+- **Remaining source priority:** inspect any further native
+  task GUI code gaps, then Git Pull/Commit/Push (fixed
+  network operations and exact refs have extensive
+  guards), Terminal PTY lifecycle, other Git
+  interactions, other GUI Files/Editor/Patch/Collection,
+  then remaining Remote security/data limits. Code-only
+  completion is sufficient; absence of manual live
+  host testing does not reopen an already implemented
+  source feature. The production feature gate remains
+  `remote_control_available=false` / LIVE NO-GO.
