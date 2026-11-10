@@ -41,6 +41,10 @@ type remoteLongTaskJob struct {
  // A duplicate or a request after completion must not re-arm the
  // context or report a fake "cancel_requested" E2EE acknowledgement.
  cancelRequested bool
+ // Wait has reaped the process, but the exclusive workspace lease may
+ // still be retiring. Do not accept Cancel during this transition even
+ // though Poll must continue reporting running until release completes.
+ finalizing bool
  exitCode int
  outputCursor int
  workflowStep int
@@ -236,6 +240,9 @@ func (s *Server) startRemoteLongTask(
 // are ordered AFTER release; a running snapshot may still be returned
 // while the host is in the final cleanup phase.
 func (job *remoteLongTaskJob)publishCompletion(status string,exitCode int){
+ job.mu.Lock()
+ job.finalizing=true
+ job.mu.Unlock()
  job.workspaceRelease()
  job.mu.Lock()
  job.status=status
@@ -386,10 +393,10 @@ func (session *remoteTaskDeckSession) cancelRemoteLongTask(taskID int)error{
  job:=session.longTask
  if job==nil||job.taskID!=taskID{return remotetransport.ErrRemoteActionDenied}
  job.mu.Lock()
- // The waiter publishes a terminal status before closing job.done;
- // looking only at done can acknowledge a cancellation after the
- // process has already exited. Deny both final and duplicate requests.
- if job.status!="running"||job.cancelRequested {
+ // The waiter marks finalizing immediately after process exit and
+ // before releasing the workspace lock. An authenticated Cancel in
+ // that gap must not acknowledge cancellation of a dead process.
+ if job.status!="running"||job.finalizing||job.cancelRequested {
   job.mu.Unlock()
   return remotetransport.ErrRemoteActionDenied
  }

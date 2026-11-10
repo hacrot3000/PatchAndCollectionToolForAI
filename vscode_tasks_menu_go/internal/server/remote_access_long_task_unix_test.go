@@ -334,8 +334,21 @@ func TestRemoteLongTaskFinalStateWaitsForWorkspaceRelease(t *testing.T){
     t.Fatal("completion never began workspace release")
    }
    job.mu.Lock()
-   premature,exitCode:=job.status,job.exitCode
+   premature,exitCode,finalizing:=job.status,job.exitCode,job.finalizing
    job.mu.Unlock()
+   if !finalizing{
+    close(releaseAllowed)
+    t.Fatal("job waiter reached workspace release without marking finalizing")
+   }
+   // A Cancel after process Wait but before lease release MUST fail;
+   // otherwise a client receives a fake cancel_requested ACK even
+   // though it can no longer stop this already finished process.
+   session:=&remoteTaskDeckSession{longTask:job}
+   if err:=session.cancelRemoteLongTask(41);
+    !errors.Is(err,remotetransport.ErrRemoteActionDenied){
+    close(releaseAllowed)
+    t.Fatalf("post-exit Cancel was accepted during final cleanup: %v",err)
+   }
    if premature!="running"||exitCode!=-1{
     close(releaseAllowed)
     t.Fatalf("terminal status visible before workspace release: %q / %d",premature,exitCode)
