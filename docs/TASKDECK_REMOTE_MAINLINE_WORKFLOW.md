@@ -601,3 +601,21 @@ real-host testing are considered **code complete**.
   trả đúng nguyên đoạn output, Poll lần ba không trả trùng.
 - Đưa test này vào bước `go test -race` preflight đầu pipeline,
   cùng với test deferred cursor. Không thay đổi schema hay host opt-in.
+
+## 2026-11-10 — Terminal Poll chỉ tiêu thụ output sau E2EE Seal
+
+- Terminal Poll của native E2EE dispatcher nay đọc snapshot deferred.
+  Cursor PTY chỉ tăng sau khi Seal AEAD hoàn tất thành công;
+  nếu lỗi kiểm tra schema/kênh, một Poll hợp lệ sau đó nhận lại
+  chính xác đoạn dữ liệu chưa gửi. Poll trực tiếp nội bộ vẫn tiêu
+  thụ khi đọc như trước, không đổi API host.
+- Tạo `terminalActionMu` scoped theo session để tuần tự hóa
+  Open/Poll/Write/Resize/Close qua bước Seal và cập nhật cursor,
+  không cho hai Poll cùng tiêu thụ một đoạn hay Close vượt Poll.
+  Session.Close không đợi mutex này. Commit chỉ thuộc đúng job
+  đã đọc và không ghi đè con trỏ do reader khác cập nhật.
+- Test `go test -race`: dispatcher E2EE trả lỗi khi host PTY
+  state không hợp lệ, không mất output; Poll hợp lệ kế tiếp đọc
+  chính xác dữ liệu, Poll sau không trùng. Unit test khác kiểm tra
+  callback lỗi thời không ghi đè cursor và vẫn đọc được phần đuôi.
+  Windows vẫn từ chối Terminal, không mở rộng quyền/route PHP.

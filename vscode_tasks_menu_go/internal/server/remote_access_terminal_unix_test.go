@@ -65,6 +65,81 @@ func terminalAuthenticatedAction(t *testing.T,s *Server,session *remoteTaskDeckS
  return remotetransport.OpenRemoteTerminalProgress(client,reply,requestID)
 }
 
+
+func TestRemoteTerminalE2EEFailedSealPreservesOutputCursor(t *testing.T){
+ t.Setenv("TASKDECK_REMOTE_TERMINAL","1")
+ s,session,client,agent:=remoteTerminalAdminFixture(t)
+ capture:=newRemoteLongTaskCapture()
+ const output="HOST-PTY-UNDELIVERED"
+ if _,err:=capture.Write([]byte(output));err!=nil{t.Fatal(err)}
+ job:=&remoteTerminalJob{
+  state:"invalid", // Typed AEAD response must reject this state.
+  capture:capture,cancel:func(){},
+ }
+ session.terminalMu.Lock()
+ session.terminal=job
+ session.terminalMu.Unlock()
+ invalid,err:=terminalAuthenticatedAction(t,s,session,client,agent,
+  "81818181818181818181818181818181",
+  remotetransport.RemoteActionTerminalPoll,"",0,0)
+ if err==nil||invalid.Output!=""{
+  t.Fatalf("invalid PTY status unexpectedly sealed: %+v %v",invalid,err)
+ }
+ job.mu.Lock()
+ cursor:=job.cursor
+ job.state="running"
+ job.mu.Unlock()
+ if cursor!=0{t.Fatalf("failed E2EE seal lost %d PTY bytes",cursor)}
+ restored,err:=terminalAuthenticatedAction(t,s,session,client,agent,
+  "82828282828282828282828282828282",
+  remotetransport.RemoteActionTerminalPoll,"",0,0)
+ if err!=nil||restored.Output!=output||restored.More||
+  restored.State!="running"{
+  t.Fatalf("next authenticated Poll lost PTY data: %+v %v",restored,err)
+ }
+ job.mu.Lock()
+ cursor=job.cursor
+ job.mu.Unlock()
+ if cursor!=len(output){t.Fatalf("successful Seal cursor=%d",cursor)}
+ again,err:=terminalAuthenticatedAction(t,s,session,client,agent,
+  "83838383838383838383838383838383",
+  remotetransport.RemoteActionTerminalPoll,"",0,0)
+ if err!=nil||again.Output!=""||again.More{
+  t.Fatalf("previously sealed PTY output replayed: %+v %v",again,err)
+ }
+}
+
+func TestRemoteTerminalDeferredCursorDoesNotOverwriteNewerRead(t *testing.T){
+ capture:=newRemoteLongTaskCapture()
+ content:=strings.Repeat("X",remoteLongTaskMaxChunkBytes)+"TAIL"
+ if _,err:=capture.Write([]byte(content));err!=nil{t.Fatal(err)}
+ job:=&remoteTerminalJob{capture:capture,state:"exited"}
+ session:=&remoteTaskDeckSession{terminal:job}
+ first,stale,err:=session.remoteTerminalSnapshotWithMode(true)
+ if err!=nil||stale==nil||len(first.Output)!=remoteLongTaskMaxChunkBytes||
+  !first.More{t.Fatalf("deferred PTY snapshot invalid: %+v %v",first,err)}
+ job.mu.Lock();cursor:=job.cursor;job.mu.Unlock()
+ if cursor!=0{t.Fatalf("unsealed PTY output consumed: %d",cursor)}
+ direct,err:=session.remoteTerminalSnapshot()
+ if err!=nil||direct.Output!=first.Output{
+  t.Fatalf("direct host read did not consume first chunk: %+v %v",direct,err)
+ }
+ stale()
+ job.mu.Lock();cursor=job.cursor;job.mu.Unlock()
+ if cursor!=remoteLongTaskMaxChunkBytes{
+  t.Fatalf("stale E2EE commit overwrote newer cursor: %d",cursor)
+ }
+ tail,commit,err:=session.remoteTerminalSnapshotWithMode(true)
+ if err!=nil||commit==nil||tail.Output!="TAIL"||tail.More{
+  t.Fatalf("remaining PTY tail missing: %+v %v",tail,err)
+ }
+ commit()
+ final,err:=session.remoteTerminalSnapshot()
+ if err!=nil||final.Output!=""||final.More{
+  t.Fatalf("already committed PTY tail replayed: %+v %v",final,err)
+ }
+}
+
 func TestRemoteTerminalHostPTYOpenWriteReadResizeAndClose(t *testing.T){
  t.Setenv("TASKDECK_REMOTE_TERMINAL","1")
  s,session,client,agent:=remoteTerminalAdminFixture(t)
