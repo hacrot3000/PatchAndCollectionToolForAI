@@ -150,7 +150,7 @@ func TestRemoteGitAllowsCompletedRetainedTaskOnlyAfterWorkspaceRelease(t *testin
  done:=make(chan struct{})
  job:=&remoteLongTaskJob{
   taskID:127,done:done,status:"running",exitCode:-1,
-  capture:capture,finalizing:false,
+  capture:capture,finalizing:false,cancel:func(){},
  }
  session.longTaskMu.Lock()
  session.longTask=job
