@@ -169,6 +169,8 @@ jobs:
         run: node remote_portal/tests/native_gui_long_task_cancel_pending.test.cjs
       - name: Verify bounded automatic long-task polling and reserved cancellation quota
         run: node remote_portal/tests/native_gui_long_task_autopoll.test.cjs
+      - name: Git pull invalidates old authenticated task selection while retaining output
+        run: node remote_portal/tests/native_gui_git_pull_task_snapshot.test.cjs
       - name: Verify explicit GUI bulk task paging stop, quota and disconnect
         run: node remote_portal/tests/native_gui_bulk_task_pages.test.cjs
       - name: Verify bounded native Git commit message and explicit confirmation

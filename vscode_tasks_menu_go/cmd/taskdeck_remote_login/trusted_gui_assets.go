@@ -586,6 +586,28 @@ const trustedGUIJavaScript = `'use strict';
         ' nhãn chưa tải. Tải thêm từ host sẽ dùng 1 trong '+String(budget)+' lượt E2EE còn lại.';
     }
   }
+  // A successful fast-forward may change .vscode/tasks.json and every
+  // Task.ID authorization. Discard the old browser snapshot even if the
+  // host task list was previously inspected. The next Tasks Preview
+  // obtains a new host-issued page digest. Historical output is separate.
+  function invalidateTaskPreviewAfterPull(){
+    taskWorkflowReadyID=0;taskDepsPendingID=0;
+    preparedWorkflowSteps=null;
+    taskDepsSelect.replaceChildren();taskDepsSelect.value='';
+    taskDepsOutput.textContent='';taskDepsOutput.hidden=true;
+    taskPreviewSection.hidden=true;
+    taskLabels.replaceChildren();inspectButtons=[];
+    taskPaging.hidden=true;
+    cachedTaskIDs=[];cachedTaskLabels=[];
+    inspectedTasks.clear();taskInputDrafts.clear();
+    remoteTaskTotal=0;canFetchTaskNext=false;taskPage=0;
+    lastCompleteTaskLabels=null;
+    taskFilter.value='';taskSort.value='host';
+    taskTotal.textContent='';
+    taskCompareSummary.textContent='';
+    taskCompareList.replaceChildren();
+    taskLoadStatus.textContent='Git pull đã thay đổi HEAD. Hãy xem trước task để xác minh lại.';
+  }
   function renderTaskPage(){
     const labels=filteredTaskLabels();
     const count=Math.max(1,Math.ceil(labels.length/taskPageSize));
@@ -2600,6 +2622,7 @@ const trustedGUIJavaScript = `'use strict';
           gitRows=[];gitFiles.replaceChildren();gitBranch.textContent='';
           gitSnapshotCount=0;gitSnapshotBranch='';
           gitDeltaSummary.textContent='';gitDeltaList.replaceChildren();
+          if(data.updated)invalidateTaskPreviewAfterPull();
           output.textContent=data.updated?
             'Git pull fast-forward thành công: '+data.before.slice(0,12)+
             ' → '+data.after.slice(0,12)+'. Đọc Git status để lấy trạng thái mới.':

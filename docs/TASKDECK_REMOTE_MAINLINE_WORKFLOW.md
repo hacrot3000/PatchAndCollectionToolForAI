@@ -723,3 +723,9 @@ real-host testing are considered **code complete**.
 - CI Go phát hiện các thay thế quá rộng: điều kiện giữ quota 3 lượt E2EE của bulk task paging dùng nhầm cờ Git-mutation, khiến regression autopolled fail. Khôi phục đúng `longTaskID!==0` cho tất cả nhánh bulk, không đổi cơ chế Poll/Cancel/Clear.
 - Khôi phục cấm mở Terminal mới và khởi chạy workflow khi job hoàn tất vẫn đang giữ slot (chưa Clear). Chỉ **Git** được phép tiếp tục khi host đã xác nhận nhả khóa workspace; không mở rộng sang task hoặc PTY khác.
 - Test native GUI kiểm tra rằng một job completed giữ output vẫn chặn TerminalOpen kể cả khi click giả; test autopolled tiếp tục kiểm tra điều kiện giữ quota 3 lượt.
+
+## 2026-11-10 — Git Pull làm mới tính hợp lệ danh sách Remote Task
+
+- Sau khi E2EE `Git pull --ff-only` được xác nhận đã thay đổi HEAD, native GUI ẩn toàn bộ danh sách task đã tải, Task.ID đã inspect, bản đồ dependency có thể chạy, các prompt draft và phân trang cũ. Người dùng phải chọn Xem trước task để lấy snapshot/digest mới từ Agent trước khi chạy task. Tránh gọi một Task.ID cũ và bị Agent từ chối theo hash của `.vscode/tasks.json` mới.
+- Chỉ thay đổi khi kết quả Pull có `updated=true`; Pull không cập nhật HEAD không cần xóa danh sách. Kết quả thực thi đã giải mã trong lịch sử và output của job kết thúc được giữ độc lập. Không cấp thêm quyền hay tự khởi chạy task.
+- Test native DOM tái hiện host trả ID 55 trước Pull và 66 sau Pull: nút của dòng cũ không thể gửi lệnh, danh sách cũ biến mất, prompt draft không hồi sinh, ID mới phải inspect lại. Đưa test vào CI Go.
