@@ -451,10 +451,20 @@ const trustedGUIJavaScript = `'use strict';
       }
     }
   }
+  // An uncleared host job owns its live result row. The operator can
+  // clear older results, but must not disconnect the row from the Poll
+  // updater before the final authenticated status/output is received.
+  function activeTaskHistorySerial(){
+    return longTaskID>0&&longTaskHistorySerial>0?longTaskHistorySerial:0;
+  }
   function renderTaskRunHistory(){
     taskRunHistoryList.replaceChildren();
     taskRunHistoryView.hidden=taskRunHistory.length===0;
-    taskRunHistoryClear.disabled=taskRunHistory.length===0||closed;
+    const activeSerial=activeTaskHistorySerial();
+    taskRunHistoryClear.disabled=closed||!taskRunHistory.some(
+      item=>item.serial!==activeSerial);
+    taskRunHistoryClear.textContent=activeSerial?
+      'Xóa kết quả cũ':'Xóa kết quả';
     for(const item of taskRunHistory){
       const li=document.createElement('li');
       const header=document.createElement('strong');
@@ -3341,8 +3351,12 @@ const trustedGUIJavaScript = `'use strict';
   });
   taskRunHistoryClear.addEventListener('click',()=>{
     if(closed)return;
-    taskRunHistory=[];
-    longTaskHistorySerial=0;
+    const activeSerial=activeTaskHistorySerial();
+    // Only an explicit job Clear releases the active history record.
+    // A user clearing old results must not sever live Poll updates.
+    taskRunHistory=activeSerial?
+      taskRunHistory.filter(item=>item.serial===activeSerial):[];
+    if(!activeSerial)longTaskHistorySerial=0;
     renderTaskRunHistory();
   });
   taskRunStop.addEventListener('click',()=>{

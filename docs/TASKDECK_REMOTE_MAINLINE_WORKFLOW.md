@@ -770,3 +770,8 @@ real-host testing are considered **code complete**.
 
 - Khi nhận Poll mới, GUI dùng `textContent` như cũ nhưng chỉ tự cuộn vùng output về đáy khi người dùng đang ở gần đáy (khoảng 28px) hoặc toàn bộ nội dung trước đó vừa màn hình. Nếu đang cuộn lên đọc log cũ, giữ nguyên `scrollTop`; đến gần đáy thì tự theo log mới. Khi một job mới bắt đầu hoặc Clear, đặt scroll về đầu.
 - Thao tác chỉ cập nhật DOM trên client, không tăng lượt E2EE, không gửi dữ liệu tới PHP/Relay, không đổi logic output cursor hay quyền thực thi task. Thêm test Node VM cho các trường hợp đang đọc cuối/đọc đầu/quay lại cuối/reset và chạy trong CI Go.
+
+## 2026-11-10 — Xóa lịch sử không làm mất kết quả của job đang chạy
+
+- Khi người dùng chọn Xóa kết quả, native GUI chỉ xóa các bản ghi đã hoàn tất trước đó nếu host vẫn đang giữ một job dài chưa Clear. Bản ghi job hiện tại được bảo lưu theo serial của **lượt chạy** (không chỉ theo Task.ID), nên các Poll sau đó còn cập nhật đúng trạng thái/output cuối. Khi chỉ còn một bản ghi active, nút xóa bị vô hiệu và hiển thị nhãn **Xóa kết quả cũ**; sau khi Clear host, bản ghi cuối có thể xóa bình thường.
+- Test GUI tái hiện lịch sử có một task cũ và một long job đang chạy, xóa kết quả, Poll rồi Cancel/đọc final và chạy lại cùng Task.ID. Không thay đổi E2EE, hành vi Cancel/Clear, output limit hoặc lưu trữ lịch sử chỉ trong phiên.

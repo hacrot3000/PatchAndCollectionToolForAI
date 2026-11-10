@@ -80,7 +80,10 @@ const sandbox={
  fetch,setInterval(){},setTimeout(fn){timers.push(fn);return timers.length;},Date,Number,String,Promise,
 };
 vm.createContext(sandbox);
-new vm.Script(script[1],{filename:'native-long-task.js'}).runInContext(sandbox);
+const injected=script[1].replace('  let inspectButtons=[];',
+ `  globalThis.__oldResult=()=>rememberTaskRun(77,'ngắn','completed',0,'prior',false);
+  let inspectButtons=[];`);
+new vm.Script(injected,{filename:'native-long-task.js'}).runInContext(sandbox);
 const flush=async()=>{for(let i=0;i<45;i++)await Promise.resolve()};
 (async()=>{
  await flush();
@@ -103,6 +106,19 @@ const flush=async()=>{for(let i=0;i<45;i++)await Promise.resolve()};
  assert.equal(get('task-run-history-list').children.length,1);
  assert.match(get('task-run-history-list').children[0].children[0].textContent,
   /Task 123 .* dài .* started/);
+ assert.equal(get('task-run-history-clear').disabled,true,
+  'active job result must not be cleared while it is the only row');
+ sandbox.__oldResult();await flush();
+ assert.equal(get('task-run-history-list').children.length,2);
+ assert.equal(get('task-run-history-clear').disabled,false);
+ assert.equal(get('task-run-history-clear').textContent,'Xóa kết quả cũ');
+ get('task-run-history-clear').click();await flush();
+ assert.equal(get('task-run-history-list').children.length,1,
+  'clearing old results destroyed the active host job row');
+ assert.match(get('task-run-history-list').children[0].children[0].textContent,
+  /Task 123 .* dài .* started/);
+ assert.equal(get('task-run-history-clear').disabled,true,
+  'the active-only result is still being updated by Poll');
  get('long-task-poll').click();await flush();
  assert.match(get('long-task-output').textContent,/safe <script>alert\(1\)<\/script>/);
  assert.equal(get('long-task-output').children.length,0,
@@ -139,6 +155,8 @@ const flush=async()=>{for(let i=0;i<45;i++)await Promise.resolve()};
  assert.equal(get('long-task-controls').hidden,true);
  assert.equal(get('task-run-history-list').children.length,1,
   'clear may remove host job but keep locally verified final outcome');
+ assert.equal(get('task-run-history-clear').disabled,false,
+  'final retained result should be deletable after host job Clear');
  assert.equal(get('long-task-copy').disabled,true,
   'cleared job still exposed an active-output clipboard action');
  // The first execution still has a queued callback. Reusing the same
@@ -147,6 +165,12 @@ const flush=async()=>{for(let i=0;i<45;i++)await Promise.resolve()};
  row.children[3].click();await flush();
  assert.equal(sent.filter(x=>x==='/api/tasks-start/123').length,2,
   'same verified task ID could not be run again after Clear');
+ assert.equal(get('task-run-history-list').children.length,2);
+ get('task-run-history-clear').click();await flush();
+ assert.equal(get('task-run-history-list').children.length,1,
+  'clearing prior execution removed the new in-progress execution');
+ assert.match(get('task-run-history-list').children[0].children[0].textContent,
+  /Task 123 .* dài .* started/);
  assert.equal(timers.length,2,
   'a stale timer incorrectly prevented scheduling the new execution');
  const oldTimer=timers.shift(),currentTimer=timers.shift();
