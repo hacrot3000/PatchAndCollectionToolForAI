@@ -3307,3 +3307,63 @@ shared-PHP deployment validation remain required.
   code count as complete without independent LIVE
   deployment. Production Remote remains
   `remote_control_available=false` / LIVE NO-GO.
+
+
+
+## 2026-11-10 — main: stale native task timers and exact Git HTTP destination
+
+- **Prior source CI:** The Go Agent and PHP Portal workflows for
+  `35bb020e` completed SUCCESS before starting this increment.
+- **Commit `beb4cffc` (Task GUI):** Native task IDs identify configured
+  commands, NOT unique executions. If Auto Poll had a pending
+  `setTimeout`, the user could manually Poll a final result,
+  Clear the host job and start the same Task ID again before
+  the timer fired. Previously the stale callback could poll the
+  new execution or suppress its own new timer through a shared
+  `longTaskPollScheduled` flag. Introduced a monotonic native
+  `longTaskPollEpoch`, advanced at Start, Clear, logout, and
+  Auto Poll pause/resume. Each timer captures and compares its
+  epoch before modifying the scheduling flag or invoking a
+  typed E2EE action. A regression now exercises old-run Clear,
+  rerun with the SAME task ID, invokes the stale callback,
+  asserts no extra Poll, then verifies the new callback
+  still Polls the new execution. All five focused native
+  Task/Terminal mock-DOM suites passed with this change.
+- **Commits `76f77092`, `e0ef4df1` (Git Pull/Fetch/Push):**
+  A fixed HTTPS URL was previously still subject to Git's
+  default initial HTTP redirect or a repository's
+  `http.followRedirects` override, potentially allowing the
+  network mutation to contact another server beyond the
+  audited destination. Expanded the bounded repository
+  config preflight to fail closed for any global or URL-specific
+  `http.*.followRedirects` alongside `sslVerify` keys.
+  All three typed network actions now force
+  `http.followRedirects=false` and a matching URL-specific
+  false override in their fixed Git argv, while retaining TLS
+  verification, denied credential helpers, single-upstream
+  targeting and E2EE audit. Added a real-Git integration
+  test with an origin HTTPS server returning 302 and a
+  second independently observed target HTTPS server; the
+  target must receive zero requests. Existing HTTPS auth
+  tests now reject repository redirect overrides too.
+  The first patch accidentally corrupted the Go regex
+  literal during string replacement and caused a compile
+  error in CI `42757585960`; immediately repaired the
+  file by writing the complete Go source in
+  `e0ef4df1`. The restored regex was verified against
+  Git 2.47.3 with both global and per-URL entries.
+- **Verification:** Native JavaScript mock-DOM suites 5/5 PASS.
+  PHP Portal CI for `76f77092` passed. The Go Agent
+  workflow for repaired source `e0ef4df1` was still
+  in progress at handoff time; it had passed build and
+  initial protocol/GUI tests but had not yet reached the
+  new Git redirect integration test. Do NOT mark this
+  new Git patch complete based on a still-running CI.
+  The handoff commit changes markdown only.
+- **Remaining priority:** Task GUI lifecycle and final test review;
+  Git Pull/Commit/Push remote safety checks; Terminal PTY;
+  other Git review/interaction; Editor/Files/Patch/Collection
+  GUI; remaining Remote RBAC/data-limit security checks.
+  Windows-specific expansion remains excluded. Treat code-
+  complete features as complete even without live deployment.
+  Keep `remote_control_available=false`, LIVE NO-GO.
