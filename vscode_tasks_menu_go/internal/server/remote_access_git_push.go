@@ -172,6 +172,7 @@ func (s *Server) executeRemoteGitPush(ctx context.Context,
  // Reject multiple destinations before starting a network mutation.
  pushURL,err:=run(ctx,"remote","get-url","--push","--all",remote)
  if err!=nil||!validRemoteGitPushURL(pushURL){return empty,denied}
+ if !remoteGitNoRepositoryTLSOverride(ctx,root,env){return empty,denied}
  head,err:=run(ctx,"rev-parse","--verify","HEAD^{commit}")
  if err!=nil||!remoteGitObjectID.MatchString(head){return empty,denied}
  upstream,err:=run(ctx,"rev-parse","--verify","@{upstream}^{commit}")
@@ -197,11 +198,15 @@ func (s *Server) executeRemoteGitPush(ctx context.Context,
  // Pin the already verified HEAD object ID to guard against concurrent
  // local branch movement. The single refspec contains no leading '+' and
  // no tag ref; hooks and non-fast-forward updates remain disabled.
- _,err=run(pushCtx,
-  "-c","remote."+remote+".mirror=false",
+ tlsFlags:=[]string{"-c","http.sslVerify=true"}
+ if strings.HasPrefix(pushURL,"https://"){
+  tlsFlags=append(tlsFlags,"-c","http."+pushURL+".sslVerify=true")
+ }
+ args:=append(tlsFlags,"-c","remote."+remote+".mirror=false",
   "push","--no-verify","--no-tags","--no-signed",
   "--recurse-submodules=no","--receive-pack=git-receive-pack",
   remote,head+":"+localRef)
+ _,err=run(pushCtx,args...)
  if err!=nil||pushCtx.Err()!=nil||session.closed.Load(){return empty,denied}
  return remotetransport.RemoteGitPushResult{Head:head},nil
 }

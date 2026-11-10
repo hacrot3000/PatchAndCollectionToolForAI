@@ -115,6 +115,7 @@ func (s *Server) executeRemoteGitPull(
   "-c","core.fsmonitor=false","-C",root,
   "remote","get-url","--all",remote)
  if err!=nil||!validRemoteGitPushURL(fetchURL){return empty,denied}
+ if !remoteGitNoRepositoryTLSOverride(ctx,root,gitEnv){return empty,denied}
  // A fixed, no-command Git config scan must precede even a read-only
  // status: local clean filters can execute while Git checks worktree files.
  if !remoteGitNoExecutableFilters(ctx,root,gitEnv){return empty,denied}
@@ -133,7 +134,11 @@ func (s *Server) executeRemoteGitPull(
  pullCtx,cancel:=context.WithTimeout(ctx,remoteGitPullTimeout)
  defer cancel()
  if pullCtx.Err()!=nil||session.closed.Load(){return empty,denied}
- _,err=run(pullCtx,0,
+ tlsFlags:=[]string{"-c","http.sslVerify=true"}
+ if strings.HasPrefix(fetchURL,"https://"){
+  tlsFlags=append(tlsFlags,"-c","http."+fetchURL+".sslVerify=true")
+ }
+ pullArgs:=append(tlsFlags,
   "-c","core.hooksPath="+os.DevNull,
   "-c","core.fsmonitor=false",
   // An HTTPS remote must never launch a repo-owned credential.helper
@@ -154,6 +159,7 @@ func (s *Server) executeRemoteGitPull(
   // and auto-follow tags, mutating unrelated tracking refs/tags.
   "-C",root,"pull","--ff-only","--no-recurse-submodules","--no-edit",
   "--no-tags","--upload-pack=git-upload-pack",remote,branch)
+ _,err=run(pullCtx,0,pullArgs...)
  if err!=nil||pullCtx.Err()!=nil||session.closed.Load(){return empty,denied}
  after,err:=read(ctx,"rev-parse","--verify","HEAD")
  if err!=nil||!remoteGitObjectID.MatchString(after){return empty,denied}

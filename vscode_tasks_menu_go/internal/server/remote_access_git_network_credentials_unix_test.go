@@ -4,6 +4,7 @@ package server
 
 import (
  "context"
+ "encoding/pem"
  "net/http"
  "net/http/httptest"
  "os"
@@ -54,7 +55,14 @@ func TestRemoteGitNetworkMutationsNeverExecuteRepositoryCredentialHelpers(t *tes
  }))
  defer remote.Close()
  run("remote","add","origin",remote.URL+"/repo.git")
- run("config","http.sslVerify","false") // local test-only self-signed fixture
+ // Trust only this fixture certificate while keeping HTTPS peer
+ // verification enabled. Do not disable SSL verification for testing.
+ certificate:=pem.EncodeToMemory(&pem.Block{
+  Type:"CERTIFICATE",Bytes:remote.Certificate().Raw,
+ })
+ caFile:=filepath.Join(t.TempDir(),"trusted-fixture-ca.pem")
+ if err:=os.WriteFile(caFile,certificate,0600);err!=nil{t.Fatal(err)}
+ run("config","http.sslCAInfo",caFile)
  run("config","branch."+branch+".remote","origin")
  run("config","branch."+branch+".merge","refs/heads/"+branch)
  run("update-ref","refs/remotes/origin/"+branch,"HEAD")
@@ -86,6 +94,37 @@ func TestRemoteGitNetworkMutationsNeverExecuteRepositoryCredentialHelpers(t *tes
    }
   })
  }
+
+ // After the positive HTTPS 401 test, prove both a general repository
+ // downgrade and a longer, URL-specific downgrade are refused BEFORE
+ // contacting the HTTPS server. Git's URL-specific SSL policy can
+ // otherwise override generic http.sslVerify=true.
+ for _,name:=range []string{
+  "http.sslVerify",
+  "http."+remote.URL+"/repo.git/info.sslVerify",
+ }{
+  t.Run("reject-"+name,func(t *testing.T){
+   run("config",name,"false")
+   for _,action:=range []struct{
+    name string
+    invoke func()error
+   }{
+    {"pull",func()error{_,e:=s.executeRemoteGitPull(context.Background(),session);return e}},
+    {"fetch",func()error{_,e:=s.executeRemoteGitFetch(context.Background(),session);return e}},
+    {"push",func()error{_,e:=s.executeRemoteGitPush(context.Background(),session);return e}},
+   }{
+    before:=requests.Load()
+    if err:=action.invoke();err==nil{
+     t.Fatalf("%s admitted repository TLS verification override",action.name)
+    }
+    if requests.Load()!=before{
+     t.Fatalf("%s contacted server with unsafe TLS config",action.name)
+    }
+   }
+   run("config","--unset",name)
+  })
+ }
+
  // Prove that this configuration and script would execute when Git is
  // invoked without the hardened -c credential.helper= override.
  prove:=exec.Command(gitBin,"-C",s.Workspace,"credential","fill")

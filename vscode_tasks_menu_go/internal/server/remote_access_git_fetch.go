@@ -103,6 +103,7 @@ func(s *Server)executeRemoteGitFetch(
  // Resolve insteadOf rewrites and reject multiple fetch URLs.
  fetchURL,err:=run(ctx,1024,"remote","get-url","--all",remote)
  if err!=nil||!validRemoteGitPushURL(fetchURL){return empty,denied}
+ if !remoteGitNoRepositoryTLSOverride(ctx,root,env){return empty,denied}
  head,err:=run(ctx,256,"rev-parse","--verify","HEAD^{commit}")
  if err!=nil||!remoteGitObjectID.MatchString(head){return empty,denied}
  tracking:="refs/remotes/"+remote+"/"+branch
@@ -120,9 +121,14 @@ func(s *Server)executeRemoteGitFetch(
  // No "+" refspec: rewritten/non-fast-forward remote branches fail closed.
  // The host's worktree, index, local HEAD, tags and other refs are not
  // selected for updates.
- _,err=run(fetchCtx,0,"fetch","--no-tags","--no-recurse-submodules",
+ tlsFlags:=[]string{"-c","http.sslVerify=true"}
+ if strings.HasPrefix(fetchURL,"https://"){
+  tlsFlags=append(tlsFlags,"-c","http."+fetchURL+".sslVerify=true")
+ }
+ args:=append(tlsFlags,"fetch","--no-tags","--no-recurse-submodules",
   "--no-write-fetch-head","--upload-pack=git-upload-pack",remote,
   "refs/heads/"+branch+":"+tracking)
+ _,err=run(fetchCtx,0,args...)
  if err!=nil||fetchCtx.Err()!=nil||session.closed.Load(){return empty,denied}
  after,err:=run(ctx,256,"rev-parse","--verify",tracking+"^{commit}")
  if err!=nil||!remoteGitObjectID.MatchString(after){return empty,denied}
