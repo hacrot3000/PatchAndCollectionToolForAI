@@ -717,3 +717,9 @@ real-host testing are considered **code complete**.
   chưa nhận hết, chặn Git khi running, cho Git sau completed
   và giữ nguyên transcript/history. Không thêm API, quyền
   hoặc token Git mới.
+
+### 2026-11-10 — Sửa hồi quy giới hạn Git-only sau khi job kết thúc
+
+- CI Go phát hiện các thay thế quá rộng: điều kiện giữ quota 3 lượt E2EE của bulk task paging dùng nhầm cờ Git-mutation, khiến regression autopolled fail. Khôi phục đúng `longTaskID!==0` cho tất cả nhánh bulk, không đổi cơ chế Poll/Cancel/Clear.
+- Khôi phục cấm mở Terminal mới và khởi chạy workflow khi job hoàn tất vẫn đang giữ slot (chưa Clear). Chỉ **Git** được phép tiếp tục khi host đã xác nhận nhả khóa workspace; không mở rộng sang task hoặc PTY khác.
+- Test native GUI kiểm tra rằng một job completed giữ output vẫn chặn TerminalOpen kể cả khi click giả; test autopolled tiếp tục kiểm tra điều kiện giữ quota 3 lượt.

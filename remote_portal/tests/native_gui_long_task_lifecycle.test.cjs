@@ -50,6 +50,7 @@ async function scenario(startStatus,pollStates,expectStartRejected=false){
   if(endpoint==='/api/features')return reply({
    ok:true,session_ping:true,project_info:false,tasks_preview:true,
    task_run:true,task_long:true,git_status:false,git_fetch:true,
+   terminal:true,
    remote_control_available:false,remaining:--budget
   });
   if(endpoint==='/api/tasks-preview')return reply({
@@ -128,6 +129,12 @@ async function scenario(startStatus,pollStates,expectStartRejected=false){
  retained.get('long-task-poll').click();await retained.flush();
  assert.equal(retained.get('git-fetch').disabled,false,
   'completed task unnecessarily held Git until manual Clear');
+ assert.equal(retained.get('terminal-open').disabled,true,
+  'finished but retained job incorrectly allowed a new PTY');
+ const beforeNewPTY=retained.calls.length;
+ retained.get('terminal-open').click();await retained.flush();
+ assert.equal(retained.calls.length,beforeNewPTY,
+  'forged Terminal click bypassed retained job exclusion');
  assert.equal(retained.get('long-task-controls').hidden,false,
   'Git readiness cleared the retained task slot');
  assert.match(retained.get('long-task-output').textContent,/saved-output/);

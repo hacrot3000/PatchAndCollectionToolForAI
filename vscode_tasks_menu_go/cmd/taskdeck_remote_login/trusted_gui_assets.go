@@ -2958,7 +2958,7 @@ const trustedGUIJavaScript = `'use strict';
   // server; they are never dispatched via an arbitrary URL or PHP page.
   terminalOpen.addEventListener('click',()=>{
     if(busy||closed||!verified||budget<=0||terminalState!=='closed'||
-      gitJobBlocksMutation()||!featuresKnown||!available.terminal)return;
+      longTaskID!==0||!featuresKnown||!available.terminal)return;
     if(!window.confirm('Mở một shell /bin/sh trên TaskDeck host? Chỉ dùng với thiết bị và tài khoản bạn kiểm soát.'))return;
     invoke('/api/terminal-open');
   });
@@ -3062,7 +3062,7 @@ const trustedGUIJavaScript = `'use strict';
     const id=Number(taskDepsSelect.value);
     if(busy||closed||bulkLoading||!verified||!featuresKnown||
       !available.task_run||!available.task_long||budget<=3||
-      gitJobBlocksMutation()||!Number.isInteger(id)||id<1||
+      longTaskID!==0||!Number.isInteger(id)||id<1||
       id!==taskWorkflowReadyID||!cachedTaskIDs.includes(id))return;
     if(!window.confirm('Chạy tối đa 4 bước process theo thứ tự phụ thuộc trên host? '+
       'Các nhánh chỉ được chạy tuần tự khi host khai báo dependsOrder: sequence. '+
@@ -3088,7 +3088,7 @@ const trustedGUIJavaScript = `'use strict';
   });
   async function loadRemainingTaskPages(){
     if(bulkLoading||busy||closed||terminated||budget<=0||
-      (gitJobBlocksMutation()&&budget<=3)||
+      (longTaskID!==0&&budget<=3)||
       !canFetchTaskNext||!featuresKnown||!available.tasks_preview)return;
     bulkLoading=true;
     bulkStopRequested=false;
@@ -3101,7 +3101,7 @@ const trustedGUIJavaScript = `'use strict';
       // Bulk reads must not consume the last three authenticated actions
       // needed to cancel/inspect/clear an active long-running host job.
       for(let i=0;i<16&&!bulkStopRequested&&!closed&&!terminated&&
-          canFetchTaskNext&&budget>(gitJobBlocksMutation()?3:0);i++){
+          canFetchTaskNext&&budget>(longTaskID!==0?3:0);i++){
         const countBefore=cachedTaskLabels.length;
         await invoke('/api/tasks-preview-next');
         if(closed||terminated||cachedTaskLabels.length<=countBefore)break;
@@ -3121,7 +3121,7 @@ const trustedGUIJavaScript = `'use strict';
           'Đã dừng. Dữ liệu đã tải vẫn có thể tìm kiếm và phân trang cục bộ.':
           !canFetchTaskNext?'Đã tải đủ các nhãn task hợp lệ.':
           budget===0?'Đã hết lượt E2EE. Cần phiên native mới để tải tiếp.':
-          gitJobBlocksMutation()&&budget<=3?
+          longTaskID!==0&&budget<=3?
             'Đã dừng tải tự động để giữ ba lượt E2EE cho job đang chạy.':
             'Đã dừng tải tự động; có thể chọn tải thêm.';
       }else{
