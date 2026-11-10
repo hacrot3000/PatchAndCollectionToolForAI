@@ -9,6 +9,26 @@ import (
  "bletonfc/vscode_tasks_menu/internal/remotetransport"
 )
 
+// A completed job can remain attached for authenticated output Poll and
+// explicit Clear, without continuing to own the workspace. Do not admit
+// Git from a merely finalizing job: its done channel closes only after
+// Wait, process-group cleanup and workspace release. Fail closed for
+// nil done channels, inconsistent states or unreaped processes.
+func remoteLongTaskBlocksGit(job *remoteLongTaskJob)bool{
+ if job==nil{return false}
+ if job.done==nil{return true}
+ select{
+ case <-job.done:
+ default:return true
+ }
+ job.mu.Lock()
+ finished:=job.finalizing&&
+  (job.status=="completed"||job.status=="failed"||
+   job.status=="cancelled"||job.status=="timed_out")
+ job.mu.Unlock()
+ return !finished
+}
+
 // reserveRemoteGitMutation prevents per-session task/PTY execution from
 // overlapping Git operations that mutate the workspace index, HEAD,
 // branch refs or remote-tracking refs on that same TaskDeck workspace.
@@ -31,7 +51,7 @@ func (session *remoteTaskDeckSession) reserveRemoteGitMutation(
   return nil,denied
  }
  if ctx.Err()!=nil||session.closed.Load()||
-  session.terminal!=nil||session.longTask!=nil{
+  session.terminal!=nil||remoteLongTaskBlocksGit(session.longTask){
   session.longTaskMu.Unlock()
   session.terminalMu.Unlock()
   return nil,denied

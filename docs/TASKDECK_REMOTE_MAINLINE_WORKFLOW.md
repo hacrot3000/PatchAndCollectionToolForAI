@@ -695,3 +695,25 @@ real-host testing are considered **code complete**.
 - Bổ sung timer no-op trong test fixture, giống các fixture native
   khác. Không chạy Poll nền trong test bảo mật input vì auto-Poll
   đã có bộ test riêng; production GUI không đổi.
+
+## 2026-11-10 — Remote Git sau khi job dài hoàn tất (giữ output)
+
+- Git workspace mutation của host nay cho phép một job dài
+  **đã finalizing, có done channel đóng, trạng thái terminal
+  completed/failed/cancelled/timed_out** vẫn được giữ ở phiên
+  để xem output/lịch sử. Không yêu cầu Clear trước khi Fetch/
+  Pull/Commit/Push hoặc thao tác Git được duyệt khác.
+- Trạng thái đang chạy, đang nhả workspace, channel nil,
+  kết quả bất nhất và PTY đang mở vẫn chặn Git. Lease canonical
+  per-workspace và OS directory lock tiếp tục chống tranh chấp
+  giữa nhiều E2EE session, kể cả job kết thúc bất thường.
+- GUI chỉ bật Git khi đã nhận **phản hồi cuối từ Agent**, vẫn
+  giữ ba E2EE round cho Cancel/Poll/Clear nếu quota thấp.
+  Output và lịch sử task không bị xóa khi chạy Git; chỉ Clear
+  hoặc logout mới ảnh hưởng trạng thái job.
+- Test Go kiểm tra chạy/finalizing/lease còn giữ bị từ chối,
+  cho Git khi done & lease đã nhả, Poll output vẫn nhận được,
+  Clear vẫn hoạt động. Test native GUI dùng job có output
+  chưa nhận hết, chặn Git khi running, cho Git sau completed
+  và giữ nguyên transcript/history. Không thêm API, quyền
+  hoặc token Git mới.

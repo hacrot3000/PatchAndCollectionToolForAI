@@ -140,3 +140,83 @@ func TestRemoteWorkspaceExecutionBlocksCrossSessionGit(t *testing.T){
  if err!=nil{t.Fatal(err)}
  releaseOther()
 }
+
+ 
+func TestRemoteGitAllowsCompletedRetainedTaskOnlyAfterWorkspaceRelease(t *testing.T){
+ s,session,_,_:=remoteDispatchFixture(t)
+ ctx:=context.Background()
+ capture:=newRemoteLongTaskCapture()
+ if _,err:=capture.Write([]byte("retained-output"));err!=nil{t.Fatal(err)}
+ done:=make(chan struct{})
+ job:=&remoteLongTaskJob{
+  taskID:127,done:done,status:"running",exitCode:-1,
+  capture:capture,finalizing:false,
+ }
+ session.longTaskMu.Lock()
+ session.longTask=job
+ session.longTaskMu.Unlock()
+ if _,err:=s.reserveRemoteGitMutation(ctx,session);
+  !errors.Is(err,remotetransport.ErrRemoteActionDenied){
+  t.Fatalf("running long task admitted Git mutation: %v",err)
+ }
+ // Host has classified exit but has NOT released process-group lease.
+ job.mu.Lock()
+ job.finalizing=true
+ job.status="completed"
+ job.exitCode=0
+ job.mu.Unlock()
+ if _,err:=s.reserveRemoteGitMutation(ctx,session);
+  !errors.Is(err,remotetransport.ErrRemoteActionDenied){
+  t.Fatalf("finalizing task admitted Git before done: %v",err)
+ }
+ // Even if an incorrect caller closed done prematurely, the independent
+ // canonical workspace lease still rejects mutation across E2EE sessions.
+ releaseWorkspace,err:=reserveRemoteWorkspaceExecution(ctx,s.Workspace)
+ if err!=nil{t.Fatal(err)}
+ close(done)
+ if _,err:=s.reserveRemoteGitMutation(ctx,session);
+  !errors.Is(err,remotetransport.ErrRemoteActionDenied){
+  releaseWorkspace()
+  t.Fatalf("workspace lease did not guard Git after task completion: %v",err)
+ }
+ releaseWorkspace()
+ releaseGit,err:=s.reserveRemoteGitMutation(ctx,session)
+ if err!=nil{t.Fatalf("finished retained task unexpectedly blocked Git: %v",err)}
+ releaseGit()
+ if session.longTask!=job{
+  t.Fatal("Git mutation discarded the completed task's output history")
+ }
+ remaining,err:=session.pollRemoteLongTaskWithWait(ctx,127,10*time.Millisecond)
+ if err!=nil||remaining.Status!="completed"||remaining.Output!="retained-output"{
+  t.Fatalf("completed task output lost after Git: %+v %v",remaining,err)
+ }
+ if err:=session.clearRemoteLongTask(127);err!=nil{
+  t.Fatalf("completed task can no longer be cleared: %v",err)
+ }
+}
+
+func TestRemoteGitRetainedJobWithInvalidDoneOrStatusDenied(t *testing.T){
+ session:=&remoteTaskDeckSession{}
+ for _,tt:=range []struct{
+  name string
+  status string
+  finalize bool
+  closeDone bool
+ }{
+  {"nil_done","completed",true,false},
+  {"done_open","completed",true,false},
+  {"not_finalizing","completed",false,true},
+  {"still_running","running",true,true},
+ }{
+  t.Run(tt.name,func(t *testing.T){
+   job:=&remoteLongTaskJob{status:tt.status,finalizing:tt.finalize}
+   if tt.name!="nil_done"{job.done=make(chan struct{})}
+   if tt.closeDone{close(job.done)}
+   session.longTask=job
+   release,err:=session.reserveRemoteGitMutation(context.Background())
+   if release!=nil||!errors.Is(err,remotetransport.ErrRemoteActionDenied){
+    t.Fatalf("inconsistent host task state admitted Git: %v",err)
+   }
+  })
+ }
+}

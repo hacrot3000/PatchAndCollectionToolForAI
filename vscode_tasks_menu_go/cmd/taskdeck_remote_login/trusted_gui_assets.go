@@ -1197,11 +1197,21 @@ const trustedGUIJavaScript = `'use strict';
     available={session_ping:false,project_info:false,files_root:false,tasks_preview:false,task_run:false,task_long:false,git_status:false,git_log:false,git_branches:false,git_branch_create:false,git_diff:false,git_patch:false,git_fetch:false,git_stage_tracked:false,git_unstage_all:false,git_stage_file:false,git_unstage_file:false,git_pull:false,git_commit:false,git_push:false,terminal:false};
     featureSummary.textContent='Phiên đã đóng. Đăng nhập lại bằng client TaskDeck tin cậy.';
   }
+  // Host guarantees terminal task status is published only after the
+  // process group has exited and its workspace lease was released.
+  // Preserve the completed job's output while allowing the next Git
+  // operation; keep three E2EE rounds reserved for explicit Clear.
+  function gitJobBlocksMutation(){
+    return terminalState!=='closed'||
+      (longTaskID!==0&&
+        (budget<=3||
+         !['completed','failed','cancelled','timed_out'].includes(longTaskState)));
+  }
   function render(){
     if(closed)clearPrivateViews();
     const terminalCloseReserved=terminalState!=='closed'&&budget<=1;
     const maintenanceOnly=(longTaskID!==0&&budget<=3)||terminalCloseReserved;
-    const gitWorkspaceBusy=longTaskID!==0||terminalState!=='closed';
+    const gitWorkspaceBusy=gitJobBlocksMutation();
     // Only definitive native close or browser pagehide can destroy the
     // local capability. A denied E2EE action still permits authenticated
     // /api/close to revoke the native server before expiry.
@@ -1490,8 +1500,7 @@ const trustedGUIJavaScript = `'use strict';
       '/api/git-stage-file','/api/git-unstage-file','/api/git-fetch',
       '/api/git-pull','/api/git-commit','/api/git-push'
     ];
-    if(gitMutations.includes(endpoint)&&
-      (longTaskID!==0||terminalState!=='closed'))return;
+    if(gitMutations.includes(endpoint)&&gitJobBlocksMutation())return;
     // An acknowledged cancel is irreversible for this job. The next
     // status read can legitimately be "running" while SIGTERM propagates;
     // it must never authorize a second cancel or consume cleanup quota.
@@ -2834,13 +2843,13 @@ const trustedGUIJavaScript = `'use strict';
     if(gitTrackingMore&&gitTrackingPage>0)invoke('/api/git-tracking-next');
   });
   gitBranchDeleteReview.addEventListener('click',()=>{
-    if(busy||closed||!verified||budget<=0||longTaskID!==0||
+    if(busy||closed||!verified||budget<=0||gitJobBlocksMutation()||
       terminalState!=='closed'||!featuresKnown||!available.git_branches)return;
     gitDeletePreview=null;gitDeletePending=null;
     invoke('/api/git-branch-delete-review');
   });
   gitBranchDelete.addEventListener('click',()=>{
-    if(busy||closed||!verified||budget<=0||longTaskID!==0||
+    if(busy||closed||!verified||budget<=0||gitJobBlocksMutation()||
       terminalState!=='closed'||!featuresKnown||!available.git_branches||
       !gitDeletePreview)return;
     const plan=gitDeletePreview;
@@ -2852,13 +2861,13 @@ const trustedGUIJavaScript = `'use strict';
     invoke('/api/git-branch-delete');
   });
   gitSwitchReview.addEventListener('click',()=>{
-    if(busy||closed||!verified||budget<=0||longTaskID!==0||
+    if(busy||closed||!verified||budget<=0||gitJobBlocksMutation()||
       terminalState!=='closed'||!featuresKnown||!available.git_branches)return;
     gitSwitchPreview=null;gitSwitchPending=null;
     invoke('/api/git-switch-review');
   });
   gitSwitchSameHead.addEventListener('click',()=>{
-    if(busy||closed||!verified||budget<=0||longTaskID!==0||
+    if(busy||closed||!verified||budget<=0||gitJobBlocksMutation()||
       terminalState!=='closed'||!featuresKnown||!available.git_branches||
       !gitSwitchPreview)return;
     const plan=gitSwitchPreview;
@@ -2870,7 +2879,7 @@ const trustedGUIJavaScript = `'use strict';
     invoke('/api/git-switch-same-head');
   });
   gitBranchCreate.addEventListener('click',()=>{
-    if(busy||closed||!verified||longTaskID!==0||!featuresKnown||
+    if(busy||closed||!verified||gitJobBlocksMutation()||!featuresKnown||
       !available.git_branch_create||budget<=0)return;
     if(!window.confirm('Tạo một nhánh Git MỚI tại HEAD, với tên được quản trị viên cấu hình sẵn trên host? Không checkout, không push và không thay đổi working tree.'))return;
     invoke('/api/git-branch-create');
@@ -2889,7 +2898,7 @@ const trustedGUIJavaScript = `'use strict';
     return {index,snapshot:gitRawSnapshot};
   }
   gitStageFile.addEventListener('click',()=>{
-    if(busy||closed||!verified||longTaskID!==0||!featuresKnown||
+    if(busy||closed||!verified||gitJobBlocksMutation()||!featuresKnown||
       !available.git_stage_file||budget<=0)return;
     const selection=chosenGitFile();
     if(!selection||!['M','D'].includes(gitRows[selection.index-1].code[1]))return;
@@ -2897,7 +2906,7 @@ const trustedGUIJavaScript = `'use strict';
     invoke('/api/git-stage-file',selection);
   });
   gitUnstageFile.addEventListener('click',()=>{
-    if(busy||closed||!verified||longTaskID!==0||!featuresKnown||
+    if(busy||closed||!verified||gitJobBlocksMutation()||!featuresKnown||
       !available.git_unstage_file||budget<=0)return;
     const selection=chosenGitFile();
     if(!selection||!['M','A','D'].includes(gitRows[selection.index-1].code[0]))return;
@@ -2905,19 +2914,19 @@ const trustedGUIJavaScript = `'use strict';
     invoke('/api/git-unstage-file',selection);
   });
   gitStageTracked.addEventListener('click',()=>{
-    if(busy||closed||!verified||longTaskID!==0||!featuresKnown||
+    if(busy||closed||!verified||gitJobBlocksMutation()||!featuresKnown||
       !available.git_stage_tracked||budget<=0)return;
     if(!window.confirm('STAGE toàn bộ thay đổi của file đã được theo dõi trên host (bao gồm xóa file)? Không thêm untracked.'))return;
     invoke('/api/git-stage-tracked');
   });
   gitUnstageAll.addEventListener('click',()=>{
-    if(busy||closed||!verified||longTaskID!==0||!featuresKnown||
+    if(busy||closed||!verified||gitJobBlocksMutation()||!featuresKnown||
       !available.git_unstage_all||budget<=0)return;
     if(!window.confirm('UNSTAGE toàn bộ index trên host? Nội dung working tree không thay đổi.'))return;
     invoke('/api/git-unstage-all');
   });
   gitFetch.addEventListener('click',()=>{
-    if(busy||closed||!verified||longTaskID!==0||!featuresKnown||
+    if(busy||closed||!verified||gitJobBlocksMutation()||!featuresKnown||
       !available.git_fetch||budget<=0)return;
     if(!window.confirm('Git fetch chỉ từ upstream cùng nhánh đã cấu hình trên host? Không cập nhật HEAD, không tải tags/submodules.'))return;
     invoke('/api/git-fetch');
@@ -2925,18 +2934,18 @@ const trustedGUIJavaScript = `'use strict';
   gitPullReview.addEventListener('click',()=>invoke('/api/git-pull-review'));
    gitPullChanges.addEventListener('click',()=>invoke('/api/git-pull-changes'));
   gitPull.addEventListener('click',()=>{
-    if(busy||closed||!verified||longTaskID!==0||!featuresKnown||!available.git_pull||budget<=0)return;
+    if(busy||closed||!verified||gitJobBlocksMutation()||!featuresKnown||!available.git_pull||budget<=0)return;
     if(!window.confirm('Thực hiện Git pull --ff-only trên repository gốc của host? Worktree phải sạch và đã cấu hình upstream.'))return;
     invoke('/api/git-pull');
   });
   gitPush.addEventListener('click',()=>{
-    if(busy||closed||!verified||longTaskID!==0||!featuresKnown||
+    if(busy||closed||!verified||gitJobBlocksMutation()||!featuresKnown||
       !available.git_push||budget<=0)return;
     if(!window.confirm('Đẩy đúng commit HEAD hiện tại lên upstream cùng tên nhánh? Không force, không gửi tags, không chọn repository khác.'))return;
     invoke('/api/git-push');
   });
   gitCommit.addEventListener('click',()=>{
-    if(busy||closed||!verified||longTaskID!==0||!featuresKnown||!available.git_commit||budget<=0)return;
+    if(busy||closed||!verified||gitJobBlocksMutation()||!featuresKnown||!available.git_commit||budget<=0)return;
     const message=gitCommitMessage.value;
     if(!validCommitSubject(message)){
       output.textContent='Commit message cần một dòng, không có ký tự điều khiển và tối đa 120 byte UTF-8.';
@@ -2949,7 +2958,7 @@ const trustedGUIJavaScript = `'use strict';
   // server; they are never dispatched via an arbitrary URL or PHP page.
   terminalOpen.addEventListener('click',()=>{
     if(busy||closed||!verified||budget<=0||terminalState!=='closed'||
-      longTaskID!==0||!featuresKnown||!available.terminal)return;
+      gitJobBlocksMutation()||!featuresKnown||!available.terminal)return;
     if(!window.confirm('Mở một shell /bin/sh trên TaskDeck host? Chỉ dùng với thiết bị và tài khoản bạn kiểm soát.'))return;
     invoke('/api/terminal-open');
   });
@@ -3053,7 +3062,7 @@ const trustedGUIJavaScript = `'use strict';
     const id=Number(taskDepsSelect.value);
     if(busy||closed||bulkLoading||!verified||!featuresKnown||
       !available.task_run||!available.task_long||budget<=3||
-      longTaskID!==0||!Number.isInteger(id)||id<1||
+      gitJobBlocksMutation()||!Number.isInteger(id)||id<1||
       id!==taskWorkflowReadyID||!cachedTaskIDs.includes(id))return;
     if(!window.confirm('Chạy tối đa 4 bước process theo thứ tự phụ thuộc trên host? '+
       'Các nhánh chỉ được chạy tuần tự khi host khai báo dependsOrder: sequence. '+
@@ -3079,7 +3088,7 @@ const trustedGUIJavaScript = `'use strict';
   });
   async function loadRemainingTaskPages(){
     if(bulkLoading||busy||closed||terminated||budget<=0||
-      (longTaskID!==0&&budget<=3)||
+      (gitJobBlocksMutation()&&budget<=3)||
       !canFetchTaskNext||!featuresKnown||!available.tasks_preview)return;
     bulkLoading=true;
     bulkStopRequested=false;
@@ -3092,7 +3101,7 @@ const trustedGUIJavaScript = `'use strict';
       // Bulk reads must not consume the last three authenticated actions
       // needed to cancel/inspect/clear an active long-running host job.
       for(let i=0;i<16&&!bulkStopRequested&&!closed&&!terminated&&
-          canFetchTaskNext&&budget>(longTaskID!==0?3:0);i++){
+          canFetchTaskNext&&budget>(gitJobBlocksMutation()?3:0);i++){
         const countBefore=cachedTaskLabels.length;
         await invoke('/api/tasks-preview-next');
         if(closed||terminated||cachedTaskLabels.length<=countBefore)break;
@@ -3112,7 +3121,7 @@ const trustedGUIJavaScript = `'use strict';
           'Đã dừng. Dữ liệu đã tải vẫn có thể tìm kiếm và phân trang cục bộ.':
           !canFetchTaskNext?'Đã tải đủ các nhãn task hợp lệ.':
           budget===0?'Đã hết lượt E2EE. Cần phiên native mới để tải tiếp.':
-          longTaskID!==0&&budget<=3?
+          gitJobBlocksMutation()&&budget<=3?
             'Đã dừng tải tự động để giữ ba lượt E2EE cho job đang chạy.':
             'Đã dừng tải tự động; có thể chọn tải thêm.';
       }else{

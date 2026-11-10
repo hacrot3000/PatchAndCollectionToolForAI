@@ -49,7 +49,7 @@ async function scenario(startStatus,pollStates,expectStartRejected=false){
   });
   if(endpoint==='/api/features')return reply({
    ok:true,session_ping:true,project_info:false,tasks_preview:true,
-   task_run:true,task_long:true,git_status:false,
+   task_run:true,task_long:true,git_status:false,git_fetch:true,
    remote_control_available:false,remaining:--budget
   });
   if(endpoint==='/api/tasks-preview')return reply({
@@ -71,6 +71,11 @@ async function scenario(startStatus,pollStates,expectStartRejected=false){
    const status=typeof next==='string'?next:next.status;
    return reply(Object.assign(progress(status,pollStates.length>0),
      typeof next==='object'?next:{}));
+  }
+  if(endpoint==='/api/git-fetch'){
+   return reply({ok:true,head:'a'.repeat(40),before:'b'.repeat(40),
+    after:'b'.repeat(40),updated:false,remote_control_available:false,
+    remaining:--budget});
   }
   throw Error('unexpected native route '+endpoint);
  };
@@ -107,6 +112,32 @@ async function scenario(startStatus,pollStates,expectStartRejected=false){
  assert.equal(immediate.get('long-task-clear').disabled,false,
   'immediate successful completion was not adopted');
  assert.equal(immediate.get('task-run-history-list').children.length,1);
+
+ // A final job still has buffered output/history but no longer occupies
+ // the workspace execution lease. Git fetch can proceed before Clear.
+ // This must NEVER be true for the same job while running.
+ const retained=await scenario('started',[{
+  status:'completed',output:'saved-output',more:true
+ }]);
+ assert.equal(retained.get('git-fetch').disabled,true,
+  'Git incorrectly admitted while task process was active');
+ const beforeStartGit=retained.calls.length;
+ retained.get('git-fetch').click();await retained.flush();
+ assert.equal(retained.calls.length,beforeStartGit,
+  'forged click allowed Git during running task');
+ retained.get('long-task-poll').click();await retained.flush();
+ assert.equal(retained.get('git-fetch').disabled,false,
+  'completed task unnecessarily held Git until manual Clear');
+ assert.equal(retained.get('long-task-controls').hidden,false,
+  'Git readiness cleared the retained task slot');
+ assert.match(retained.get('long-task-output').textContent,/saved-output/);
+ retained.get('git-fetch').click();await retained.flush();
+ assert.equal(retained.calls.filter(x=>x==='/api/git-fetch').length,1,
+  'Git fetch was not admitted after task completion');
+ assert.match(retained.get('long-task-output').textContent,/saved-output/,
+  'Git fetch erased the previously authenticated task transcript');
+ assert.equal(retained.get('task-run-history-list').children.length,1,
+  'Git fetch erased the finished task history');
 
  // Start/Cancel/Clear acknowledge only a state transition. The native
  // browser must also reject impossible nonempty output and truncation
