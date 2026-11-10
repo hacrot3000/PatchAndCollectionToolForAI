@@ -8,23 +8,49 @@ import (
  "time"
 )
 
-// Git's URL-specific http.<url>.sslVerify outranks a generic
-// command-line http.sslVerify=true. A repository can therefore force
-// HTTPS verification OFF even when the fixed Remote action uses HTTPS.
+// Git's URL-specific HTTP settings can outrank generic command-line
+// flags. Repo-local sslVerify=false can turn off HTTPS verification;
+// followRedirects=always can send a fixed remote operation to a new host.
 //
-// Refuse all repo-local TLS verification overrides (including includeIf
-// files) BEFORE any network action. System/global config and inherited
+// Refuse all repository-owned TLS and redirect overrides (including
+// includeIf files) BEFORE any network action. System/global config and inherited
 // Git environment are separately disabled by callers. This is
 // intentionally conservative; administrators should install their
 // approved CA using http.sslCAInfo without disabling verification.
-func remoteGitNoRepositoryTLSOverride(parent context.Context,root string,env []string)bool{
+func remoteGitNoRepositoryHTTPOverride(parent context.Context,root string,env []string)bool{
  if parent==nil||parent.Err()!=nil||root==""||len(env)==0{return false}
  ctx,cancel:=context.WithTimeout(parent,2*time.Second)
  defer cancel()
  cmd:=exec.CommandContext(ctx,"git",
   "-c","core.fsmonitor=false","-C",root,
   "config","--includes","--get-regexp",
-  `^http(\..*)?\.sslverify$`)
+  `^http(\..*)?\.(sslverify|followredirects)package server
+
+import (
+ "context"
+ "errors"
+ "io"
+ "os/exec"
+ "time"
+)
+
+// Git's URL-specific HTTP settings can outrank generic command-line
+// flags. Repo-local sslVerify=false can turn off HTTPS verification;
+// followRedirects=always can send a fixed remote operation to a new host.
+//
+// Refuse all repository-owned TLS and redirect overrides (including
+// includeIf files) BEFORE any network action. System/global config and inherited
+// Git environment are separately disabled by callers. This is
+// intentionally conservative; administrators should install their
+// approved CA using http.sslCAInfo without disabling verification.
+func remoteGitNoRepositoryHTTPOverride(parent context.Context,root string,env []string)bool{
+ if parent==nil||parent.Err()!=nil||root==""||len(env)==0{return false}
+ ctx,cancel:=context.WithTimeout(parent,2*time.Second)
+ defer cancel()
+ cmd:=exec.CommandContext(ctx,"git",
+  "-c","core.fsmonitor=false","-C",root,
+  "config","--includes","--get-regexp",
+  )
  cmd.Dir=root
  cmd.Env=env
  cmd.Stdout=io.Discard

@@ -102,6 +102,8 @@ func TestRemoteGitNetworkMutationsNeverExecuteRepositoryCredentialHelpers(t *tes
  for _,name:=range []string{
   "http.sslVerify",
   "http."+remote.URL+"/repo.git/info.sslVerify",
+  "http.followRedirects",
+  "http."+remote.URL+"/repo.git/info.followRedirects",
  }{
   t.Run("reject-"+name,func(t *testing.T){
    run("config",name,"false")
@@ -135,5 +137,69 @@ func TestRemoteGitNetworkMutationsNeverExecuteRepositoryCredentialHelpers(t *tes
  }
  if _,err:=os.Stat(marker);err!=nil{
   t.Fatal("fixture never demonstrated repo-controlled helper execution")
+ }
+}
+
+
+// The origin supplied by the host owner is the *only* network destination
+// for this typed operation. A remote HTTPS server may send a redirect to
+// a new origin, but neither Git nor a repository-local followRedirects
+// policy may silently expand the audited E2EE destination.
+func TestRemoteGitNetworkMutationsRejectHTTPSRedirects(t *testing.T){
+ requireGit(t)
+ if runtime.GOOS=="windows"{t.Skip("Unix-only Git process-group execution")}
+ t.Setenv("TASKDECK_REMOTE_GIT_PULL","1")
+ t.Setenv("TASKDECK_REMOTE_GIT_FETCH","1")
+ t.Setenv("TASKDECK_REMOTE_GIT_PUSH","1")
+ s,session,_,_:=remoteDispatchFixture(t)
+ gitInitRemoteTest(t,s.Workspace)
+ gitPath,err:=exec.LookPath("git")
+ if err!=nil{t.Fatal(err)}
+ run:=func(args ...string)string{
+  t.Helper()
+  cmd:=exec.Command(gitPath,append([]string{"-C",s.Workspace},args...)...)
+  output,e:=cmd.CombinedOutput()
+  if e!=nil{t.Fatalf("Git test setup %v: %v: %s",args,e,output)}
+  return strings.TrimSpace(string(output))
+ }
+ run("config","user.name","Remote test")
+ run("config","user.email","remote@example.invalid")
+ if err:=os.WriteFile(filepath.Join(s.Workspace,"tracked.txt"),[]byte("base\n"),0600);err!=nil{t.Fatal(err)}
+ run("add","tracked.txt")
+ run("commit","-qm","Base")
+ branch:=run("symbolic-ref","--short","HEAD")
+ var unexpected,original atomic.Int64
+ target:=httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter,r *http.Request){
+  unexpected.Add(1)
+  w.WriteHeader(http.StatusNoContent)
+ }))
+ defer target.Close()
+ origin:=httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter,r *http.Request){
+  original.Add(1)
+  http.Redirect(w,r,target.URL+"/foreign-repo.git",http.StatusFound)
+ }))
+ defer origin.Close()
+ run("remote","add","origin",origin.URL+"/repo.git")
+ cert:=pem.EncodeToMemory(&pem.Block{Type:"CERTIFICATE",Bytes:origin.Certificate().Raw})
+ pemPath:=filepath.Join(t.TempDir(),"origin-ca.pem")
+ if err:=os.WriteFile(pemPath,cert,0600);err!=nil{t.Fatal(err)}
+ run("config","http.sslCAInfo",pemPath)
+ run("config","branch."+branch+".remote","origin")
+ run("config","branch."+branch+".merge","refs/heads/"+branch)
+ run("update-ref","refs/remotes/origin/"+branch,"HEAD")
+ for _,action:=range []struct{
+  name string
+  invoke func()error
+ }{
+  {"pull",func()error{_,e:=s.executeRemoteGitPull(context.Background(),session);return e}},
+  {"fetch",func()error{_,e:=s.executeRemoteGitFetch(context.Background(),session);return e}},
+  {"push",func()error{_,e:=s.executeRemoteGitPush(context.Background(),session);return e}},
+ }{
+  t.Run(action.name,func(t *testing.T){
+   before:=original.Load()
+   if err:=action.invoke();err==nil{t.Fatal("Git followed redirect and succeeded")}
+   if original.Load()<=before{t.Fatal("Git did not reach test HTTPS origin")}
+   if n:=unexpected.Load();n!=0{t.Fatalf("Git followed a redirect to another HTTPS origin: %d",n)}
+  })
  }
 }

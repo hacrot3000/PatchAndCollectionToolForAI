@@ -103,7 +103,7 @@ func(s *Server)executeRemoteGitFetch(
  // Resolve insteadOf rewrites and reject multiple fetch URLs.
  fetchURL,err:=run(ctx,1024,"remote","get-url","--all",remote)
  if err!=nil||!validRemoteGitPushURL(fetchURL){return empty,denied}
- if !remoteGitNoRepositoryTLSOverride(ctx,root,env){return empty,denied}
+ if !remoteGitNoRepositoryHTTPOverride(ctx,root,env){return empty,denied}
  head,err:=run(ctx,256,"rev-parse","--verify","HEAD^{commit}")
  if err!=nil||!remoteGitObjectID.MatchString(head){return empty,denied}
  tracking:="refs/remotes/"+remote+"/"+branch
@@ -121,9 +121,11 @@ func(s *Server)executeRemoteGitFetch(
  // No "+" refspec: rewritten/non-fast-forward remote branches fail closed.
  // The host's worktree, index, local HEAD, tags and other refs are not
  // selected for updates.
- tlsFlags:=[]string{"-c","http.sslVerify=true"}
+ tlsFlags:=[]string{"-c","http.sslVerify=true","-c","http.followRedirects=false"}
  if strings.HasPrefix(fetchURL,"https://"){
-  tlsFlags=append(tlsFlags,"-c","http."+fetchURL+".sslVerify=true")
+  tlsFlags=append(tlsFlags,
+   "-c","http."+fetchURL+".sslVerify=true",
+   "-c","http."+fetchURL+".followRedirects=false")
  }
  args:=append(tlsFlags,"fetch","--no-tags","--no-recurse-submodules",
   "--no-write-fetch-head","--upload-pack=git-upload-pack",remote,

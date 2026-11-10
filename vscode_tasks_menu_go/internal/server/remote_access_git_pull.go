@@ -115,7 +115,7 @@ func (s *Server) executeRemoteGitPull(
   "-c","core.fsmonitor=false","-C",root,
   "remote","get-url","--all",remote)
  if err!=nil||!validRemoteGitPushURL(fetchURL){return empty,denied}
- if !remoteGitNoRepositoryTLSOverride(ctx,root,gitEnv){return empty,denied}
+ if !remoteGitNoRepositoryHTTPOverride(ctx,root,gitEnv){return empty,denied}
  // A fixed, no-command Git config scan must precede even a read-only
  // status: local clean filters can execute while Git checks worktree files.
  if !remoteGitNoExecutableFilters(ctx,root,gitEnv){return empty,denied}
@@ -134,9 +134,11 @@ func (s *Server) executeRemoteGitPull(
  pullCtx,cancel:=context.WithTimeout(ctx,remoteGitPullTimeout)
  defer cancel()
  if pullCtx.Err()!=nil||session.closed.Load(){return empty,denied}
- tlsFlags:=[]string{"-c","http.sslVerify=true"}
+ tlsFlags:=[]string{"-c","http.sslVerify=true","-c","http.followRedirects=false"}
  if strings.HasPrefix(fetchURL,"https://"){
-  tlsFlags=append(tlsFlags,"-c","http."+fetchURL+".sslVerify=true")
+  tlsFlags=append(tlsFlags,
+   "-c","http."+fetchURL+".sslVerify=true",
+   "-c","http."+fetchURL+".followRedirects=false")
  }
  pullArgs:=append(tlsFlags,
   "-c","core.hooksPath="+os.DevNull,
