@@ -562,3 +562,11 @@ real-host testing are considered **code complete**.
   `textContent`, snapshot được đổi tên sau khi job đã chạy không
   làm lệch nhãn trong tiến độ. Không thay đổi giao thức E2EE hay
   giới hạn 16 lượt hành động và 16 KiB output.
+
+### 2026-11-10 — Kiểm thử giữa hai lần Poll
+
+- Tăng cường test native: trong lúc workflow vẫn `running`,
+  đọc lại dependency (host trả unavailable), đổi nhãn task trên
+  trang preview, rồi nhận Poll kết thúc. Xác minh đường render
+  **sau** refresh vẫn giữ Task.ID/nhãn đã chốt khi start.
+  Tránh kiểm thử giả chỉ xem nội dung DOM cũ chưa được render lại.

@@ -191,6 +191,15 @@ async function assertGraphValidation(graph,description,accepted=false){
   'verified dependency labels did not appear in workflow progress');
  assert.equal(get('long-task-output').children.length,0,
   'task names must remain literal text, never executable HTML');
+ // A second authenticated Poll must continue to display the step
+ // identities from the accepted workflow start, not the current task
+ // list. Refresh the preview while the job is still running.
+ available=false;
+ get('task-deps-view').click();await flush();
+ assert.match(get('task-deps-output').textContent,/Host chưa bật/);
+ assert.equal(get('task-deps-output').children.length,0);
+ previewLabel='RENAMED AFTER WORKFLOW';
+ get('tasks-preview').click();await flush();
  get('long-task-poll').click();await flush();
  assert.match(get('long-task-output').textContent,
   /Bước 1: Hoàn tất \(exit=0, 10 ms\) · Bước 2: Bỏ qua/,
@@ -202,14 +211,8 @@ async function assertGraphValidation(graph,description,accepted=false){
  assert.match(get('long-task-output').textContent,/SKIPPED/,
   'completed workflow output was not appended');
  assert.equal(workflowPollCount,2,'workflow report needed additional arbitrary polling');
- available=false;
- get('task-deps-view').click();await flush();
- assert.match(get('task-deps-output').textContent,/Host chưa bật/);
- assert.equal(get('task-deps-output').children.length,0);
- // New task snapshots can rename or reorder their labels while a
- // terminal workflow is still present. Its per-run step map is immutable.
- previewLabel='RENAMED AFTER WORKFLOW';
- get('tasks-preview').click();await flush();
+ // The output above was rendered after a fresh authenticated Poll.
+ // A changed preview cannot silently relabel the earlier process.
  assert.match(get('long-task-output').textContent,
   /Bước 2 → Task #55 · Build <b>safe<\/b>/,
   'task snapshot refresh replaced an already started workflow step label');
