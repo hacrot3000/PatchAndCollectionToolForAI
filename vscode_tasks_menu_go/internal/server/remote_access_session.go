@@ -122,6 +122,9 @@ type remoteTaskDeckSession struct {
  longTaskMu sync.Mutex
  longTask *remoteLongTaskJob
  // One host PTY, bound to this exact authenticated session; never a token.
+ // Serialize native Terminal Open/Poll/Write/Resize/Close through response
+ // sealing. Revocation Close() never waits on this action mutex.
+ terminalActionMu sync.Mutex
  terminalMu sync.Mutex
  terminal *remoteTerminalJob
 	// No live Portal authorizer means NO TaskDeck application permission.

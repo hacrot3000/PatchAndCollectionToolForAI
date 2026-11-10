@@ -127,6 +127,14 @@ func (s *Server) executeRemoteE2EEPing(
   session.workflowAuditPageMu.Lock()
   defer session.workflowAuditPageMu.Unlock()
  }
+ if request.Operation==remotetransport.RemoteActionTerminalOpen||
+  request.Operation==remotetransport.RemoteActionTerminalPoll||
+  request.Operation==remotetransport.RemoteActionTerminalWrite||
+  request.Operation==remotetransport.RemoteActionTerminalResize||
+  request.Operation==remotetransport.RemoteActionTerminalClose{
+  session.terminalActionMu.Lock()
+  defer session.terminalActionMu.Unlock()
+ }
  if paging || request.Operation==remotetransport.RemoteActionTasksInspect ||
   request.Operation==remotetransport.RemoteActionTasksDependencies ||
   request.Operation==remotetransport.RemoteActionTasksRun ||
@@ -244,6 +252,7 @@ func (s *Server) executeRemoteE2EEPing(
  var gitFetch remotetransport.RemoteGitFetchResult
  var gitIndex remotetransport.RemoteGitIndexResult
  var terminal remotetransport.RemoteTerminalProgress
+ var terminalPollCommit func()
  startedTerminal:=false
  var filesRoot remotetransport.RemoteFilesRoot
  var filesRead remotetransport.RemoteFilesReadPage
@@ -280,7 +289,7 @@ func (s *Server) executeRemoteE2EEPing(
     }
     if err:=s.auditRemoteReadOnlyAction(session,request.Operation);err!=nil{return err}
     var termErr error
-    terminal,termErr=session.pollRemoteTerminal(actionCtx)
+    terminal,terminalPollCommit,termErr=session.pollRemoteTerminalForSeal(actionCtx)
     return termErr
    case remotetransport.RemoteActionTerminalWrite:
     var termErr error
@@ -655,6 +664,9 @@ func (s *Server) executeRemoteE2EEPing(
   return nil,remotetransport.ErrRemoteActionDenied
  }
  if err!=nil{return nil,remotetransport.ErrRemoteActionDenied}
+ // Only authenticated E2EE Terminal Poll frames can consume PTY output.
+ if request.Operation==remotetransport.RemoteActionTerminalPoll&&
+  terminalPollCommit!=nil{terminalPollCommit()}
  // A failed AEAD seal must not consume the host's captured task output.
  if request.Operation==remotetransport.RemoteActionTasksPoll&&
   longTaskPollCommit!=nil{longTaskPollCommit()}
