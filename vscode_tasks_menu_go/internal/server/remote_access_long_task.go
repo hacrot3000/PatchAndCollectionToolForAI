@@ -214,7 +214,7 @@ func (s *Server) startRemoteLongTask(
   killGitJobProcess(command)
   // The subprocess is already reaped; deny any further Cancel even while
   // result classification and the mandatory finish audit are pending.
-  job.beginFinalizing()
+  acceptedCancel:=job.beginFinalizing()
   exitCode:=0
   if processErr!=nil {
    var exit *exec.ExitError
@@ -225,7 +225,7 @@ func (s *Server) startRemoteLongTask(
   status:="completed"
   if errors.Is(jobCtx.Err(),context.DeadlineExceeded){
    status="timed_out"
-  }else if jobCtx.Err()!=nil||session.closed.Load(){status="cancelled"
+  }else if acceptedCancel||jobCtx.Err()!=nil||session.closed.Load(){status="cancelled"
   }else if processErr!=nil{status="failed"}
   // A revocation cannot prevent a host-local final audit attempt.
   s.auditRemoteTaskRunFinish(session,taskID,status,exitCode,time.Since(job.started))
@@ -245,10 +245,15 @@ func (s *Server) startRemoteLongTask(
 // beginFinalizing closes the cancellation admission window BEFORE final
 // result classification/audit. Cancel arriving first may still win; once
 // this lock is released a dead process can never acknowledge new Cancel.
-func (job *remoteLongTaskJob)beginFinalizing(){
+// The snapshot is taken under the SAME lock as cancelRemoteLongTask:
+// if Cancel won admission immediately before process exit, retain its
+// acknowledged intent even if context cancellation is still in flight.
+func (job *remoteLongTaskJob)beginFinalizing()bool{
  job.mu.Lock()
  job.finalizing=true
+ acceptedCancel:=job.cancelRequested
  job.mu.Unlock()
+ return acceptedCancel
 }
 
 func (job *remoteLongTaskJob)publishCompletion(status string,exitCode int){

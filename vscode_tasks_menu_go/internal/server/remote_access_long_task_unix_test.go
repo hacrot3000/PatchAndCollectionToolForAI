@@ -393,7 +393,7 @@ func TestRemoteLongTaskBeginFinalizingRejectsCancelBeforeAudit(t *testing.T){
   workspaceRelease:func(){released=true},
  }
  session:=&remoteTaskDeckSession{longTask:job}
- job.beginFinalizing()
+ if job.beginFinalizing(){t.Fatal("job without cancellation had accepted Cancel")}
  if err:=session.cancelRemoteLongTask(55);
   !errors.Is(err,remotetransport.ErrRemoteActionDenied){
   t.Fatalf("Cancel accepted after process exit but before result audit: %v",err)
@@ -412,6 +412,18 @@ func TestRemoteLongTaskBeginFinalizingRejectsCancelBeforeAudit(t *testing.T){
  if err:=session.clearRemoteLongTask(55);err!=nil{
   t.Fatalf("finished job cannot clear: %v",err)
  }
+}
+
+// A Cancel which acquired job.mu just BEFORE finalization must remain an
+// accepted cancellation even if its context cancellation callback has not
+// run yet. The waiter classifies that snapshot as cancelled, not completed.
+func TestRemoteLongTaskBeginFinalizingCapturesAcceptedCancel(t *testing.T){
+ job:=&remoteLongTaskJob{status:"running",cancelRequested:true}
+ if !job.beginFinalizing(){t.Fatal("lost a Cancel acknowledged before process exit")}
+ job.mu.Lock()
+ finalizing,accepted:=job.finalizing,job.cancelRequested
+ job.mu.Unlock()
+ if !finalizing||!accepted{t.Fatal("finalization lost the accepted cancellation")}
 }
 
 // A capture notification can be consumed by a different concurrent poll;

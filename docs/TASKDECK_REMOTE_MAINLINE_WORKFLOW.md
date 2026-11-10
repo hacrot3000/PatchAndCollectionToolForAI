@@ -476,3 +476,16 @@ real-host testing are considered **code complete**.
   bắt đầu release, giữ nguyên trạng thái đang chờ audit; kiểm tra
   Clear sau khi publish. Workflow success/failure integration ở commit
   trước vẫn kiểm tra cùng helper. CI phải được kiểm tra trên SHA mới.
+
+## 2026-11-10 — Atomic snapshot của Cancel trước phân loại trạng thái
+
+- `beginFinalizing()` đánh dấu rào chắn và chụp `cancelRequested`
+  trong cùng critical section của `job.mu`, cũng là lock mà
+  `cancelRemoteLongTask` sử dụng. Cancel đã nhận ACK trước rào chắn
+  không thể bị bỏ sót dù lời gọi `job.cancel()` chưa kịp truyền
+  vào `context`. Cancel tới sau rào chắn bị từ chối.
+- Task đơn và workflow đều tính `cancelled` từ snapshot này hoặc
+  context đã hủy, trừ trường hợp deadline đã hết (giữ ưu tiên timeout).
+  Hồi quy bổ sung kiểm tra snapshot cả khi có và không có Cancel trước
+  boundary. Không thay đổi wire protocol, tối đa E2EE hay chính sách
+  quyền. Kiểm tra workflow CI trên commit mới.
