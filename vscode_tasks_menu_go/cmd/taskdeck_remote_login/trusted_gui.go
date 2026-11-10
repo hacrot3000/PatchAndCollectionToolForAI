@@ -490,6 +490,19 @@ func (ui *trustedGUI) action(w http.ResponseWriter,r *http.Request){
   ui.mu.Unlock()
   http.Error(w,"another operation is active",409);return
  }
+ // Defense in depth: a localhost caller holding the native activation
+ // capability must not bypass the GUI's long-task maintenance reserve by
+ // POSTing an old start route directly. Five available AEAD rounds fund
+ // Start, an initial Poll, Cancel, final Poll and explicit Clear. Reject
+ // BEFORE spending the quota or dispatching any work to the Agent.
+ _,workflowStart:=selectedWorkflowStartFromPath(r.URL.Path)
+ _,_,choiceStart:=selectedStartLongTaskChoiceFromPath(r.URL.Path)
+ _,textStart:=selectedStartLongTaskTextFromPath(r.URL.Path)
+ if (workflowStart||choiceStart||textStart)&&ui.remaining<5{
+  ui.mu.Unlock()
+  http.Error(w,"insufficient authenticated rounds for long task cleanup",http.StatusConflict)
+  return
+ }
  ui.active=true
  ui.remaining--
  remaining:=ui.remaining

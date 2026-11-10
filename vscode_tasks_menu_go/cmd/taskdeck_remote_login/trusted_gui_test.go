@@ -826,6 +826,72 @@ func TestTrustedGUIMultiplePickIndexCanonicalBound(t *testing.T){
  if actions.runCount.Load()!=2{t.Fatal("multi-input GUI sent unexpected requests")}
 }
 
+
+func TestTrustedGUILongTaskStartReservesCleanupRoundsInNativeBridge(t *testing.T){
+ for _,route:=range []string{
+  "/api/tasks-start/123",
+  "/api/tasks-start/123/2",
+  "/api/tasks-start-input/123",
+  "/api/tasks-workflow-start/123",
+ }{
+  t.Run(strings.ReplaceAll(strings.TrimPrefix(route,"/api/"),"/","_"),func(t *testing.T){
+   actions:=&fakeGUIActions{}
+   ui,_:=newUITest(t,actions)
+   ui.mu.Lock()
+   ui.remaining=4
+   ui.mu.Unlock()
+   makeRequest:=func()*http.Request{
+    if strings.HasPrefix(route,"/api/tasks-start-input/"){
+     req:=httptest.NewRequest("POST",route,strings.NewReader(`{"value":"safe-1"}`))
+     req.Host="127.0.0.1:49237"
+     req.Header.Set("Origin",uiTestOrigin)
+     req.Header.Set("X-TaskDeck-Local-Capability",uiTestToken)
+     req.Header.Set("Content-Type","application/json")
+     return req
+    }
+    return localRequest("POST",route,uiTestOrigin,uiTestToken)
+   }
+   denied:=httptest.NewRecorder()
+   ui.ServeHTTP(denied,makeRequest())
+   if denied.Code!=http.StatusConflict||actions.longCount.Load()!=0{
+    t.Fatalf("long start bypassed native cleanup reserve: %s => %d %s",
+     route,denied.Code,denied.Body.String())
+   }
+   ui.mu.Lock()
+   remaining:=ui.remaining
+   active:=ui.active
+   ui.mu.Unlock()
+   if remaining!=4||active{
+    t.Fatalf("denied start spent a round or retained execution slot: %d active=%t",
+     remaining,active)
+   }
+   // Maintenance of an already running job must remain usable with
+   // scarce quota; the reserve only prohibits NEW long-task launches.
+   poll:=httptest.NewRecorder()
+   ui.ServeHTTP(poll,localRequest("POST","/api/tasks-poll/123",uiTestOrigin,uiTestToken))
+   if poll.Code!=http.StatusOK||actions.longOperation!="poll"{
+    t.Fatalf("native reserve blocked an existing job's Poll: %d %s",poll.Code,poll.Body.String())
+   }
+  })
+ }
+ // Five rounds permit one valid start, leaving four for maintenance.
+ actions:=&fakeGUIActions{}
+ ui,_:=newUITest(t,actions)
+ ui.mu.Lock()
+ ui.remaining=5
+ ui.mu.Unlock()
+ started:=httptest.NewRecorder()
+ ui.ServeHTTP(started,localRequest("POST","/api/tasks-start/123",uiTestOrigin,uiTestToken))
+ if started.Code!=http.StatusOK||actions.longCount.Load()!=1||
+  actions.longOperation!="start"{
+  t.Fatalf("five rounds must admit a native long start: %d %s",started.Code,started.Body.String())
+ }
+ ui.mu.Lock()
+ remaining:=ui.remaining
+ ui.mu.Unlock()
+ if remaining!=4{t.Fatalf("long start failed to preserve four post-start rounds: %d",remaining)}
+}
+
 func TestTrustedGUILongTaskRoutesRemainNativeAndIDOnly(t *testing.T){
  actions:=&fakeGUIActions{}
  ui,_:=newUITest(t,actions)
