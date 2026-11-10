@@ -33,9 +33,12 @@ const fetch=async(path,options)=>{
  if(path==='/api/features')return reply({ok:true,session_ping:true,project_info:false,
   tasks_preview:true,task_run:true,task_long:false,git_status:true,git_pull:true,
   remote_control_available:false,remaining:--remaining});
- if(path==='/api/tasks-preview')return reply({ok:true,total:1,
-  labels:previewVersion++===0?['OLD task']:['NEW task'],
-  ids:previewVersion===1?[55]:[66],remaining:--remaining});
+ if(path==='/api/tasks-preview'){
+  const version=previewVersion++;
+  return reply({ok:true,total:1,
+   labels:version===0?['OLD task']:version===1?['NEW task']:['REUSED Task.ID'],
+   ids:[version===1?66:55],remaining:--remaining});
+ }
  if(path==='/api/tasks-inspect/55'||path==='/api/tasks-inspect/66')return reply({
   ok:true,task_id:Number(path.slice('/api/tasks-inspect/'.length)),
   eligible:true,input_id:'tag',input_type:'promptString',choices:[],
@@ -105,6 +108,16 @@ const flush=async()=>{for(let i=0;i<90;i++)await Promise.resolve()};
  const freshInput=get('task-preview-labels').children[0].children[3];
  assert.equal(freshInput.value,'','old prompt draft was restored for new Task.ID');
  assert.equal(get('task-preview-labels').children[0].children[4].disabled,false);
+ // The same Task.ID can be issued again with a new snapshot. A detached
+ // button is not valid simply because its numeric ID happens to match.
+ get('tasks-preview').click();await flush();
+ assert.match(get('task-preview-labels').children[0].textContent,/REUSED Task.ID/);
+ const beforeSameID=calls.length;
+ oldRow.children[1].click();
+ oldRow.children[4].click();
+ await flush();
+ assert.equal(calls.length,beforeSameID,
+  'retired row callback escaped on a newly issued matching Task.ID');
  assert.equal(calls.filter(x=>x.startsWith('/api/tasks-run')).length,1);
  console.log('PASS: Git pull invalidates stale E2EE tasks without executing or persisting inputs');
 })().catch(err=>{console.error(err);process.exitCode=1});

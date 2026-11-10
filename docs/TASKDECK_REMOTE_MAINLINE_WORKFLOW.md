@@ -729,3 +729,8 @@ real-host testing are considered **code complete**.
 - Sau khi E2EE `Git pull --ff-only` được xác nhận đã thay đổi HEAD, native GUI ẩn toàn bộ danh sách task đã tải, Task.ID đã inspect, bản đồ dependency có thể chạy, các prompt draft và phân trang cũ. Người dùng phải chọn Xem trước task để lấy snapshot/digest mới từ Agent trước khi chạy task. Tránh gọi một Task.ID cũ và bị Agent từ chối theo hash của `.vscode/tasks.json` mới.
 - Chỉ thay đổi khi kết quả Pull có `updated=true`; Pull không cập nhật HEAD không cần xóa danh sách. Kết quả thực thi đã giải mã trong lịch sử và output của job kết thúc được giữ độc lập. Không cấp thêm quyền hay tự khởi chạy task.
 - Test native DOM tái hiện host trả ID 55 trước Pull và 66 sau Pull: nút của dòng cũ không thể gửi lệnh, danh sách cũ biến mất, prompt draft không hồi sinh, ID mới phải inspect lại. Đưa test vào CI Go.
+
+### 2026-11-10 — Chặn callback cũ ngay cả khi Task.ID được dùng lại
+
+- Mỗi lần native GUI dựng lại danh sách task sẽ tăng `taskPageRenderEpoch` của UI. Nút Kiểm tra ID và Chạy task chỉ gửi request nếu callback thuộc đúng bản render hiện hành, ngoài kiểm tra Task.ID đã phát hành và metadata inspect. Khi append trang mới không làm thay đổi các dòng đang hiển thị, giữ nguyên DOM và epoch như cơ chế tối ưu trước đó.
+- Git pull làm thay đổi HEAD cũng làm mất hiệu lực các callback cũ ngay lập tức. Test bổ sung tình huống snapshot mới phát hành lại cùng ID 55: nút cũ đã bị tháo khỏi DOM không thể tiêu thụ lượt E2EE hoặc chạy task.

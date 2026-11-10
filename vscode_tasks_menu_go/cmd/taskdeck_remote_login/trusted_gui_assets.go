@@ -404,6 +404,11 @@ const trustedGUIJavaScript = `'use strict';
   const taskPageSize=4;
   let cachedTaskLabels=[];
   let cachedTaskIDs=[];
+  // A Task.ID alone is not a valid event-handler lease. Rendering a new
+  // row (including a refreshed host snapshot with identical IDs) retires
+  // its previous callbacks. Appending an unchanged page preserves its DOM
+  // and epoch to avoid breaking focused input fields.
+  let taskPageRenderEpoch=0;
   let workflowAuditRows=[],workflowAuditMore=false;
   let taskDepsPendingID=0,taskWorkflowReadyID=0;
   // A verified host dependency snapshot supplies display labels only.
@@ -597,6 +602,7 @@ const trustedGUIJavaScript = `'use strict';
     taskDepsOutput.textContent='';taskDepsOutput.hidden=true;
     taskPreviewSection.hidden=true;
     taskLabels.replaceChildren();inspectButtons=[];
+    taskPageRenderEpoch++;
     taskPaging.hidden=true;
     cachedTaskIDs=[];cachedTaskLabels=[];
     inspectedTasks.clear();taskInputDrafts.clear();
@@ -609,6 +615,7 @@ const trustedGUIJavaScript = `'use strict';
     taskLoadStatus.textContent='Git pull đã thay đổi HEAD. Hãy xem trước task để xác minh lại.';
   }
   function renderTaskPage(){
+    const rowEpoch=++taskPageRenderEpoch;
     const labels=filteredTaskLabels();
     const count=Math.max(1,Math.ceil(labels.length/taskPageSize));
     taskPage=Math.max(0,Math.min(taskPage,count-1));
@@ -631,6 +638,7 @@ const trustedGUIJavaScript = `'use strict';
           // is never permission to inspect that ID after Git Pull, a new
           // Tasks Preview, or logout.
           if(closed||busy||bulkLoading||budget<=0||
+            rowEpoch!==taskPageRenderEpoch||
             taskPreviewSection.hidden||!cachedTaskIDs.includes(item.id)||
             !featuresKnown||!available.tasks_preview)return;
           invoke('/api/tasks-inspect/'+String(item.id));
@@ -714,6 +722,7 @@ const trustedGUIJavaScript = `'use strict';
             // Inspect permission is snapshot-scoped: the SAME task ID in
             // another host preview still requires a fresh inspect.
             if(!selection||closed||busy||bulkLoading||budget<=0||
+              rowEpoch!==taskPageRenderEpoch||
               taskPreviewSection.hidden||!cachedTaskIDs.includes(item.id)||
               inspectedTasks.get(item.id)!==selection||
               !featuresKnown||!available.task_run||terminalState!=='closed'||
