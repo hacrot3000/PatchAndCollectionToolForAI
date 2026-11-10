@@ -176,6 +176,8 @@ jobs:
         run: node remote_portal/tests/native_gui_long_task_utf8_history.test.cjs
       - name: Reject stale or regressed native GUI task lifecycle responses
         run: node remote_portal/tests/native_gui_long_task_lifecycle.test.cjs
+      - name: Keep live task output scroll position across authenticated Polls
+        run: node remote_portal/tests/native_gui_long_task_scroll_follow.test.cjs
       - name: Preserve pending cancellation across intermediate running job polls
         run: node remote_portal/tests/native_gui_long_task_cancel_pending.test.cjs
       - name: Verify bounded automatic long-task polling and reserved cancellation quota

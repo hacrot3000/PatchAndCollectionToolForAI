@@ -506,6 +506,20 @@ const trustedGUIJavaScript = `'use strict';
   // bisect a surrogate pair (emoji), producing a value that cannot be
   // encoded back to UTF-8 or copied faithfully. Walk whole code points
   // backwards; never synthesize replacement characters or split a rune.
+
+  // Follow the last output chunk only if the reader is already near the
+  // bottom; never steal the scroll position from someone reading older log.
+  function renderLongTaskTranscript(value,reset=false){
+    const node=longTaskOutput;
+    const top=node.scrollTop,height=node.scrollHeight,viewport=node.clientHeight;
+    const measurable=Number.isFinite(top)&&Number.isFinite(height)&&
+      Number.isFinite(viewport)&&height>=0&&viewport>=0;
+    const follow=reset||(measurable&&
+      (height<=viewport||height-top-viewport<=28));
+    node.textContent=value;
+    if(reset)node.scrollTop=0;
+    else if(follow)node.scrollTop=node.scrollHeight;
+  }
   function boundedUTF8HistoryTail(value,maxBytes){
     let start=value.length,bytes=0;
     while(start>0){
@@ -2342,7 +2356,7 @@ const trustedGUIJavaScript = `'use strict';
             'Bước '+String(i+1)+' → Task #'+String(node.id)+
             (node.label?' · '+node.label:'')).join(' | '):'';
           const currentStepNode=verifiedStepMap?verifiedStepMap[step-1]:null;
-          longTaskOutput.textContent='Task '+String(id)+' · '+data.status+
+          renderLongTaskTranscript('Task '+String(id)+' · '+data.status+
             ' · exit='+String(data.exit_code)+
             (workflowProgress?' · Bước '+String(step)+'/'+String(stepTotal)+
               ' · Lần '+String(attempt)+'/'+String(attemptTotal)+
@@ -2353,7 +2367,7 @@ const trustedGUIJavaScript = `'use strict';
             (longTaskMore?' · còn output chưa nhận':'')+
             (historyLines?'\n'+historyLines:'')+
             (stepMapLine?'\n'+stepMapLine:'')+
-            '\n'+longTaskText;
+            '\n'+longTaskText,launching||clearing);
           output.textContent='Trạng thái job E2EE: '+data.status+
             ' (Task ID '+String(id)+').'+
             (longTaskCancelPending&&

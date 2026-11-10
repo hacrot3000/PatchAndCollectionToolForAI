@@ -765,3 +765,8 @@ real-host testing are considered **code complete**.
 
 - Hoàn thiện cùng một quy tắc thu hồi preview cho `git-branch-create`, `git-switch-same-head`, `git-branch-delete`: sau mutation thành công, kế hoạch branch switch/delete được duyệt từ danh sách nhánh trước đó không còn bấm được. Tạo/chuyển nhánh cũng xóa diff đã giải mã vì nguồn review có thể cần được đọc lại.
 - Test native GUI mô phỏng nhánh tạo mới ngay sau một switch review, và switch thực hiện sau khi đã duyệt delete: các nút xác nhận từ kế hoạch cũ tự vô hiệu. Không đổi API/RBAC/arg Git, mọi lệnh vẫn xác minh lại trên Agent.
+
+## 2026-11-10 — Theo cuối output task dài, không làm mất vị trí đang đọc
+
+- Khi nhận Poll mới, GUI dùng `textContent` như cũ nhưng chỉ tự cuộn vùng output về đáy khi người dùng đang ở gần đáy (khoảng 28px) hoặc toàn bộ nội dung trước đó vừa màn hình. Nếu đang cuộn lên đọc log cũ, giữ nguyên `scrollTop`; đến gần đáy thì tự theo log mới. Khi một job mới bắt đầu hoặc Clear, đặt scroll về đầu.
+- Thao tác chỉ cập nhật DOM trên client, không tăng lượt E2EE, không gửi dữ liệu tới PHP/Relay, không đổi logic output cursor hay quyền thực thi task. Thêm test Node VM cho các trường hợp đang đọc cuối/đọc đầu/quay lại cuối/reset và chạy trong CI Go.
