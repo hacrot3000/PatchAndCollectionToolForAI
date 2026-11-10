@@ -3029,3 +3029,69 @@ shared-PHP deployment validation remain required.
   in code stay complete even without actual Internet deployment
   trials. Production remote-control gate still
   `remote_control_available=false` (LIVE NO-GO).
+
+
+
+## 2026-11-10 — main: strict native Terminal response lifecycle and reserved Close quota
+
+- **Pre-increment validation:** Go Agent and PHP Portal workflows for compiled source
+  `60d4e4b` both completed SUCCESS:
+  `https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/42610316828`
+  (Go) and
+  `https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/42610316721`
+  (PHP). Prior task Auto Poll, cancel-pending E2EE quota and Project notes
+  tests were therefore accepted by the project's current CI.
+- **Commit `a2d5868` (native Terminal lifecycle):** Terminal replies
+  from the localhost bridge must now match their exact authenticated
+  operation. Open/Write/Resize acknowledge `running` only and carry
+  no output, `more` flag or truncated flag. Close acknowledges
+  `closed` only and likewise has no output. Only Poll carries
+  bounded escaped-free text and may report `running` or `exited`.
+  A forged Poll-`closed` must never convince the UI that the host
+  PTY lease was released. Once observed `exited`, subsequent
+  Poll may not regress to `running`. The existing native
+  Terminal integration suite was extended to exercise a real
+  exited-state transition and fail-close behavior for malformed
+  Poll-`closed` response.
+- **Commit `9aa7c44` (native Terminal E2EE quota):** A PTY cannot be
+  created if the authenticated session has fewer than TWO rounds
+  left: Open + eventual Close. With an owned PTY and a single
+  round left, all non-Close E2EE actions are denied, even through
+  synthetic clicks bypassing disabled buttons. The Close action
+  remains available while running or exited; native controls,
+  read/resize/typing state, task bulk loading, nonmutating Git
+  buttons and session activity label all reflect the reservation.
+  This prevents accidental depletion of the final action round
+  which would strand a host shell until automatic expiration.
+- **Commit `4674d1e` (regression harness):** The native GUI DOM test
+  injects a test-only quota probe into the existing function
+  closure. It tests one-round denied Open, two-round allowed Open,
+  one-round denied Poll while PTY is running/exited, disabled
+  Send/Resize, and continued availability of Close, and proves
+  denied synthetic action invocation cannot call the localhost
+  API. The test hook is NOT included in production GUI source.
+- **Commit `cc8360c` (stateful request admission):** The terminal
+  admission predicate also refuses duplicate Open while PTY
+  running, Poll and Close before Open, and Write/Resize after
+  shell has exited. This is checked before sending any local
+  request, independently of button disabled states, to avoid
+  a rejected host request consuming the last permitted round
+  or ending the authenticated browser session unnecessarily.
+  Test cases exercise these state boundaries and a valid
+  two-round Poll while running.
+- **Verification:** All FIVE focused native mock-DOM suites
+  (Terminal, long task stream, cancel pending, autopoll,
+  long task lifecycle) PASS on compiled source `cc8360c`.
+  CI for Go Agent and PHP Portal on `cc8360c` was still
+  IN_PROGRESS at the time of writing. Do not treat it as
+  green before actual completion.
+- **Remaining ordered source work:** task GUI final edge
+  cases; additional Git Pull/Commit/Push checks; Terminal
+  PTY errors, revocation and cleanup; other Git read/review/
+  branch/conflict functions; GUI Files/Editor/Patch/Collection;
+  additional Remote access and data-limit audits. Cooperating
+  host Agents' OS workspace lease, credential-helper
+  isolation, and prior core task flows are source-complete.
+  No Windows-specific remote expansion was made.
+  Keep `remote_control_available=false` and LIVE NO-GO until
+  intentionally released.
