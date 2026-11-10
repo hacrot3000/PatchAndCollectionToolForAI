@@ -164,6 +164,10 @@ const controls=(parent,tag)=>parent.children.filter(child=>child.tagName===tag.t
  assert.ok(requests.includes('/api/tasks-start/1/4'),
   'two picks must retain the combined host-issued choice index');
  assert.equal(row('One'),beforeStart,'job start replaced unchanged task row');
+ assert.equal(el('task-run-history-clear').disabled,true,
+  'starting a long job briefly exposed its active history row to Delete');
+ assert.equal(el('task-run-history-clear').textContent,'Xóa kết quả cũ',
+  'newly started long job must be recognized as the active history owner');
  // TasksStart returns before a host job finishes; a regular short run
  // must be unavailable throughout the same long-job ownership.
  assert.equal(byText(row('One'),'Chạy task').disabled,true);
