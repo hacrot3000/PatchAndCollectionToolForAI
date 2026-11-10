@@ -112,8 +112,15 @@ const flush=async()=>{for(let i=0;i<45;i++)await Promise.resolve()};
  assert.equal(sent.length,requestsBeforeQuotaGuard,
   'stale DOM click or direct invocation bypassed long-task cleanup reserve');
  sandbox.__setQuotaForTest(4);
+ assert.equal(row.children[3].disabled,true,
+  'four rounds cannot fund the first Poll and three cleanup actions');
+ row.children[3].click();await flush();
+ await sandbox.__invokeForTest('/api/tasks-start/123');await flush();
+ assert.equal(sent.length,requestsBeforeQuotaGuard,
+  'a four-round long task start bypassed the safety reserve');
+ sandbox.__setQuotaForTest(5);
  assert.equal(row.children[3].disabled,false,
-  'four E2EE rounds should allow start with three reserved for cleanup');
+  'five rounds must allow Start, first Poll and three cleanup rounds');
  // Restore the last authenticated host quota; no E2EE request occurred.
  sandbox.__setQuotaForTest(13);
  row.children[3].click();await flush();

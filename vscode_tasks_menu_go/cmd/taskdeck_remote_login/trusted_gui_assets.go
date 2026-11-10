@@ -837,7 +837,7 @@ const trustedGUIJavaScript = `'use strict';
               taskPreviewSection.hidden||!cachedTaskIDs.includes(item.id)||
               inspectedTasks.get(item.id)!==selection||
               !featuresKnown||!available.task_run||terminalState!=='closed'||
-              longTaskID!==0||(isLong&&(!available.task_long||budget<=3)))return;
+              longTaskID!==0||(isLong&&(!available.task_long||budget<=4)))return;
             const choice=choiceSelect?Number(choiceSelect.value):0;
             if(choiceSelect&&(!Number.isInteger(choice)||choice<1||
               choice>selection.choices.length))return;
@@ -899,10 +899,10 @@ const trustedGUIJavaScript = `'use strict';
             runLong.taskRun=true;
             runLong.taskLong=true;
             runLong.taskID=item.id;
-            runLong.disabled=!selection||closed||busy||budget<=3||
+            runLong.disabled=!selection||closed||busy||budget<=4||
               longTaskID!==0||terminalState!=='closed';
             runLong.setAttribute('title',
-              'Cần ít nhất 4 lượt E2EE trước khi khởi chạy task dài để giữ quyền Hủy, Poll và Dọn job.');
+              'Cần ít nhất 5 lượt E2EE: Start, Poll đầu, Hủy, Poll cuối và Dọn job.');
             runLong.addEventListener('click',()=>launch(true));
             li.append(runLong);
             inspectButtons.push(runLong);
@@ -1495,7 +1495,7 @@ const trustedGUIJavaScript = `'use strict';
       !cachedTaskIDs.includes(depsID);
     taskWorkflowStart.disabled=taskDepsView.disabled||
       taskWorkflowReadyID!==depsID||!available.task_long||
-      !available.task_run||longTaskID!==0||budget<=3||bulkLoading;
+      !available.task_run||longTaskID!==0||budget<=4||bulkLoading;
     taskRunStop.hidden=!taskRunning||closed;
     taskRunStop.disabled=!taskRunning||!verified||closed||closing||terminated;
     longTaskControls.hidden=longTaskID===0||closed;
@@ -1533,7 +1533,7 @@ const trustedGUIJavaScript = `'use strict';
           Number(button.taskID||0)))||
         (button.taskRun&&(terminalState!=='closed'||longTaskID!==0))||
         (button.taskLong===true&&(!available.task_long||longTaskID!==0||
-          budget<=3));
+          budget<=4));
     }
     if(taskPreviewSection.hidden===false){renderTaskCoverage();}
     // Keep Disconnect available even after a revoked/failed operation.
@@ -1718,10 +1718,10 @@ const trustedGUIJavaScript = `'use strict';
       endpoint==='/api/tasks-cancel/'+String(longTaskID))return;
     if(!verified||(busy&&!isClose)||(closed&&!isClose)||
       (!isClose&&budget<=0)||
-      // A new long job must leave three authenticated E2EE rounds for
-      // Cancel acknowledgement, final Poll and explicit host Clear.
+      // Reserve one initial Poll PLUS three authenticated E2EE rounds
+      // for Cancel acknowledgement, final Poll and explicit host Clear.
       // Disable both the UI button and synthetic direct invoke attempts.
-      (!isClose&&isLongStart&&budget<=3)||
+      (!isClose&&isLongStart&&budget<=4)||
       (!isClose&&!taskMaintenanceAllowed(endpoint))||
       (!isClose&&!terminalMaintenanceAllowed(endpoint))||
       (!isClose&&bulkLoading&&endpoint!='/api/tasks-preview-next')||
@@ -3304,7 +3304,7 @@ const trustedGUIJavaScript = `'use strict';
   taskWorkflowStart.addEventListener('click',()=>{
     const id=Number(taskDepsSelect.value);
     if(busy||closed||bulkLoading||!verified||!featuresKnown||
-      !available.task_run||!available.task_long||budget<=3||
+      !available.task_run||!available.task_long||budget<=4||
       longTaskID!==0||!Number.isInteger(id)||id<1||
       id!==taskWorkflowReadyID||!cachedTaskIDs.includes(id))return;
     if(!window.confirm('Chạy tối đa 4 bước process theo thứ tự phụ thuộc trên host? '+
