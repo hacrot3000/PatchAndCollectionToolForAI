@@ -19,7 +19,7 @@ const elements=new Map();
 const get=id=>{if(!elements.has(id))elements.set(id,new Element(id));return elements.get(id)};
 const token='0123456789abcdef'.repeat(4);
 const shaA='a'.repeat(40),shaB='b'.repeat(40),shaC='c'.repeat(40);
-let remaining=16,patchStarts=0,patchNexts=0;
+let remaining=16,patchStarts=0,patchNexts=0,reviewHead=shaA;
 const endpoints=[];
 const reply=data=>({ok:true,json:async()=>data});
 const fetch=async(path,options)=>{
@@ -32,6 +32,7 @@ const fetch=async(path,options)=>{
   session_ping:true,project_info:false,tasks_preview:false,task_run:false,
   task_long:false,git_status:true,git_branches:true,git_patch:true,
   git_stage_tracked:true,git_commit:true,git_pull:true,
+  git_branch_create:true,
   remote_control_available:false,remaining:--remaining});
  if(path==='/api/git-patch-start'){
   patchStarts++;
@@ -47,10 +48,16 @@ const fetch=async(path,options)=>{
   ok:true,operation:'git.stage_tracked',head:shaA,
   remote_control_available:false,remaining:--remaining});
  if(path==='/api/git-switch-review')return reply({
-  ok:true,from:'main',branch:'review',head:shaA,
+  ok:true,from:'main',branch:'review',head:reviewHead,
   remote_control_available:false,remaining:--remaining});
  if(path==='/api/git-branch-delete-review')return reply({
-  ok:true,current:'main',branch:'taskdeck/old',head:shaA,
+  ok:true,current:'main',branch:'taskdeck/old',head:reviewHead,
+  remote_control_available:false,remaining:--remaining});
+ if(path==='/api/git-branch-create')return reply({
+  ok:true,branch:'freshreview',head:reviewHead,
+  remote_control_available:false,remaining:--remaining});
+ if(path==='/api/git-switch-same-head')return reply({
+  ok:true,from:'main',branch:'review',head:reviewHead,
   remote_control_available:false,remaining:--remaining});
  if(path==='/api/git-commit'){
   assert.equal(options.headers['Content-Type'],'application/json');
@@ -58,9 +65,11 @@ const fetch=async(path,options)=>{
   return reply({ok:true,before:shaA,after:shaB,
    remote_control_available:false,remaining:--remaining});
  }
- if(path==='/api/git-pull')return reply({
-  ok:true,before:shaB,after:shaC,updated:true,
-  remote_control_available:false,remaining:--remaining});
+ if(path==='/api/git-pull'){
+  reviewHead=shaC;
+  return reply({ok:true,before:shaB,after:shaC,updated:true,
+   remote_control_available:false,remaining:--remaining});
+ }
  if(path==='/api/close')return reply({ok:true,closed:true});
  throw Error('unexpected route '+path);
 };
@@ -108,6 +117,22 @@ const assertPatchCleared=()=>{
  assertPatchCleared();
  assert.equal(patchNexts,0,'old HEAD diff was continued after mutation');
  assert.equal(patchStarts,3);
+ // Creating a branch invalidates any reviewed switch at the old branch
+ // inventory, even if HEAD remains at exactly the same commit.
+ get('git-switch-review').click();await flush();
+ assert.equal(get('git-switch-same-head').disabled,false);
+ get('git-branch-create').click();await flush();
+ assert.equal(get('git-switch-same-head').disabled,true,
+  'branch creation left stale switch review active');
+ // Switching branches must clear previously reviewed deletion plans,
+ // since their host-current-branch constraint has changed.
+ get('git-branch-delete-review').click();await flush();
+ assert.equal(get('git-branch-delete').disabled,false);
+ get('git-switch-review').click();await flush();
+ get('git-switch-same-head').click();await flush();
+ assert.equal(get('git-branch-delete').disabled,true,
+  'same-HEAD switch left a deletion preview from the old branch active');
+ assertPatchCleared();
  get('disconnect').click();await flush();
  console.log('PASS: stage/commit/pull invalidate old patch and branch previews without extra E2EE calls');
 })().catch(err=>{console.error(err);process.exitCode=1});

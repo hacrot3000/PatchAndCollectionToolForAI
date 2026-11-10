@@ -2494,7 +2494,7 @@ const trustedGUIJavaScript = `'use strict';
               gitDeletePending=null;
               throw new Error('Kết quả xoá nhánh khác bản đã xác nhận');
             }
-            gitDeletePending=null;gitDeletePreview=null;
+            invalidateGitBranchReview();
             output.textContent='Đã xoá nhánh dư thừa cục bộ '+plan.branch+
               '. Nhánh hiện tại '+plan.current+' và HEAD '+
               plan.head.slice(0,12)+' vẫn được giữ nguyên.';
@@ -2532,9 +2532,7 @@ const trustedGUIJavaScript = `'use strict';
               gitSwitchPending=null;
               throw new Error('Git switch khác với bản xem trước');
             }
-            gitSwitchPending=null;gitSwitchPreview=null;
-            gitPatchText='';gitPatchPage=0;gitPatchMore=false;
-            gitPatchOutput.textContent='';gitPatchOutput.hidden=true;
+            invalidateGitBranchReview();invalidateGitPatchReview();
             output.textContent='Đã chuyển nhánh cục bộ từ '+plan.from+
               ' sang '+plan.branch+' tại HEAD '+plan.head.slice(0,12)+
               '. Không fetch, reset hoặc thay đổi commit.';
@@ -2549,8 +2547,7 @@ const trustedGUIJavaScript = `'use strict';
             typeof data.head!=='string'||!/^[0-9a-f]{40}$/.test(data.head)){
             throw new Error('Kết quả tạo nhánh host không hợp lệ');
           }
-          gitPatchText='';gitPatchPage=0;gitPatchMore=false;
-          gitPatchOutput.textContent='';gitPatchOutput.hidden=true;
+          invalidateGitBranchReview();invalidateGitPatchReview();
           output.textContent='Đã tạo nhánh cục bộ '+data.branch+
             ' tại '+data.head.slice(0,12)+'. HEAD hiện tại không đổi.';
         }

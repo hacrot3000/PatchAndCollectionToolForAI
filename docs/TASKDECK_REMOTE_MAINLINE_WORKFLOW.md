@@ -760,3 +760,8 @@ real-host testing are considered **code complete**.
 - Sau Stage/Unstage (file hoặc toàn bộ): không tiếp tục đọc staged patch cũ và không cho xác nhận bản review nhánh đã lập trước khi index đổi.
 - Sau Commit: xóa patch và review nhánh cũ; sau Pull `updated=true`: xóa patch/review nhánh, đồng thời giữ cơ chế làm mới Task.ID đã có. Pull không làm thay đổi HEAD vẫn giữ patch, tránh làm mất bản xem hợp lệ không cần thiết.
 - Các nút `Git patch Next` đã bị vô hiệu sẽ không gửi lệnh kể cả khi bị gọi bằng callback cũ. Mọi thao tác đọc lại bắt đầu từ `/api/git-patch-start` đã xác thực; không thêm route/permission/đối số hoặc chạm lịch sử/output task. Test native DOM mô phỏng Stage→Commit→Pull và kiểm tra không còn cache cũ hay lệnh Next dư.
+
+### 2026-11-10 — Đồng bộ bản xem trước nhánh sau tạo/chuyển/xóa
+
+- Hoàn thiện cùng một quy tắc thu hồi preview cho `git-branch-create`, `git-switch-same-head`, `git-branch-delete`: sau mutation thành công, kế hoạch branch switch/delete được duyệt từ danh sách nhánh trước đó không còn bấm được. Tạo/chuyển nhánh cũng xóa diff đã giải mã vì nguồn review có thể cần được đọc lại.
+- Test native GUI mô phỏng nhánh tạo mới ngay sau một switch review, và switch thực hiện sau khi đã duyệt delete: các nút xác nhận từ kế hoạch cũ tự vô hiệu. Không đổi API/RBAC/arg Git, mọi lệnh vẫn xác minh lại trên Agent.
