@@ -53,6 +53,12 @@ func TestRemoteLongTaskProgressRejectsUnsafeOutputAndState(t *testing.T){
   {TaskID:1,Status:"started",ExitCode:-1,More:true},
   {TaskID:1,Status:"cancel_requested",ExitCode:-1,More:true},
   {TaskID:1,Status:"cleared",ExitCode:-1,More:true},
+  {TaskID:1,Status:"started",ExitCode:-1,Output:"untrusted"},
+  {TaskID:1,Status:"cancel_requested",ExitCode:-1,Output:"untrusted"},
+  {TaskID:1,Status:"cleared",ExitCode:-1,Output:"untrusted"},
+  {TaskID:1,Status:"started",ExitCode:-1,Truncated:true},
+  {TaskID:1,Status:"cancel_requested",ExitCode:-1,Truncated:true},
+  {TaskID:1,Status:"cleared",ExitCode:-1,Truncated:true},
  }{
   _,agent,_:=participants(t)
   if _,err:=SealRemoteLongTaskProgress(agent,testActionID,progress);err==nil{
@@ -390,5 +396,32 @@ func TestRemoteLongTaskFailureOnlyFinalSkippedState(t *testing.T){
     t.Fatalf("unsafe E2EE skipped step accepted: %+v",value)
    }
   })
+ }
+}
+
+
+func TestRemoteLongTaskMalformedAckFrameRevokesE2EE(t *testing.T){
+ for _,status:=range []string{"started","cancel_requested","cleared"}{
+  for _,variant:=range []string{"output","truncated"}{
+   t.Run(status+"/"+variant,func(t *testing.T){
+    client,agent,_:=participants(t)
+    message:=`{"type":"`+RemoteLongTaskProgressProtocol+
+     `","request_id":"`+testActionID+
+     `","task_id":41,"status":"`+status+`","exit_code":-1,
+      "output":"","truncated":false,"more":false,
+      "remote_control_available":false}`
+    if variant=="output"{
+     message=strings.Replace(message,`"output":""`,`"output":"injected"`,1)
+    }else{
+     message=strings.Replace(message,`"truncated":false`,`"truncated":true`,1)
+    }
+    frame,err:=agent.Seal([]byte(message))
+    if err!=nil{t.Fatal(err)}
+    if _,err:=OpenRemoteLongTaskProgress(client,frame,testActionID,41);err==nil{
+     t.Fatalf("impossible %s ACK %s was accepted",status,variant)
+    }
+    if client.Established(){t.Fatal("invalid task ACK did not revoke E2EE")}
+   })
+  }
  }
 }

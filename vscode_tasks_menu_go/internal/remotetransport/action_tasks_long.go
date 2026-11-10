@@ -88,8 +88,12 @@ func validLongTaskProgress(p RemoteLongTaskProgress)bool{
  }
  if (p.Status=="started"||p.Status=="running"||
   p.Status=="cancel_requested"||p.Status=="cleared")&&p.ExitCode!= -1{return false}
- if (p.Status=="started"||p.Status=="cancel_requested"||p.Status=="cleared")&&p.More{
-  return false
+ // Start, Cancel and Clear are acknowledgements with no captured task
+ // output. Only authenticated Poll may advance the host cursor or report
+ // capture truncation; rejecting impossible ACK payloads prevents a
+ // compromised localhost bridge from inventing task text or backlog.
+ if p.Status=="started"||p.Status=="cancel_requested"||p.Status=="cleared"{
+  if p.Output!=""||p.More||p.Truncated{return false}
  }
  workflow:=p.Step!=0||p.StepTotal!=0||p.Attempt!=0||
   p.AttemptTotal!=0||p.StepStatus!=""||p.StepHistory!=""||

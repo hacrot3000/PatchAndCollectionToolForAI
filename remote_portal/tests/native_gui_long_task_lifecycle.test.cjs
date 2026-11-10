@@ -24,7 +24,7 @@ class Element {
  }
 }
 
-async function scenario(startStatus,pollStates){
+async function scenario(startStatus,pollStates,expectStartRejected=false){
  const elements=new Map();
  const get=id=>{
   if(!elements.has(id))elements.set(id,new Element(id));
@@ -60,7 +60,11 @@ async function scenario(startStatus,pollStates){
    input_type:'',input_id_2:'',choices_2:[],
    remote_control_available:false,remaining:--budget
   });
-  if(endpoint==='/api/tasks-start/123')return reply(progress(startStatus,false));
+  if(endpoint==='/api/tasks-start/123'){
+   const initial=typeof startStatus==='string'?startStatus:startStatus.status;
+   return reply(Object.assign(progress(initial,false),
+     typeof startStatus==='object'?startStatus:{}));
+  }
   if(endpoint==='/api/tasks-poll/123'){
    assert.ok(pollStates.length,'unexpected extra poll');
    const next=pollStates.shift();
@@ -87,7 +91,12 @@ async function scenario(startStatus,pollStates){
  row.children[1].click();await flush();
  row=get('task-preview-labels').children[0];
  row.children[3].click();await flush();
- assert.equal(get('long-task-controls').hidden,false,'valid start rejected');
+ if(expectStartRejected){
+  assert.equal(get('long-task-controls').hidden,true,
+   'invalid start ACK did not lock and scrub GUI');
+ }else{
+  assert.equal(get('long-task-controls').hidden,false,'valid start rejected');
+ }
  return {get,flush,calls};
 }
 
@@ -99,6 +108,19 @@ async function scenario(startStatus,pollStates){
   'immediate successful completion was not adopted');
  assert.equal(immediate.get('task-run-history-list').children.length,1);
 
+ // Start/Cancel/Clear acknowledge only a state transition. The native
+ // browser must also reject impossible nonempty output and truncation
+ // on an ACK, even when a malicious localhost bridge returns HTTP 200.
+ for(const forged of [
+  {status:'started',output:'injected-host-output'},
+  {status:'started',truncated:true},
+ ]){
+  const bad=await scenario(forged,[],true);
+  assert.match(bad.get('output').textContent,/Trạng thái\/exit code/,
+   'forged ACK was not rejected by typed browser validation');
+  assert.equal(bad.get('long-task-output').textContent,'',
+   'forged ACK leaked task output into the UI');
+ }
  // A second "started" cannot overwrite the existing job/output/history.
  const restarted=await scenario('started',['started']);
  restarted.get('long-task-poll').click();await restarted.flush();

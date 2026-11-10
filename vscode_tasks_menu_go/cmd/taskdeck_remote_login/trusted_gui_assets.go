@@ -2034,7 +2034,8 @@ const trustedGUIJavaScript = `'use strict';
           // typed AEAD protocol even if the localhost bridge is corrupted.
           if((['started','running','cancel_requested','cleared'].includes(data.status)&&
               data.exit_code!==-1)||
-             (['started','cancel_requested','cleared'].includes(data.status)&&data.more)||
+             (['started','cancel_requested','cleared'].includes(data.status)&&
+              (data.output!==''||data.more||data.truncated))||
              (cancelling&&data.status!=='cancel_requested')||
              (polling&&['cancel_requested','started','cleared'].includes(data.status))){
             throw new Error('Trạng thái/exit code job dài E2EE không hợp lệ');
