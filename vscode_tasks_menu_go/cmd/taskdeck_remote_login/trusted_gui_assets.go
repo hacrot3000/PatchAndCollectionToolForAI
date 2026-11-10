@@ -424,6 +424,9 @@ const trustedGUIJavaScript = `'use strict';
   // Only locally decrypted task outcomes, never written to browser storage
   // or Relay. Bounded so repeated actions cannot inflate retained output.
   let taskRunHistory=[],taskHistorySerial=0,longTaskHistorySerial=0;
+  // Reconcile by host-result serial so streaming Poll never detaches unchanged
+  // history rows, text selections, clipboard buttons or their scroll state.
+  let taskRunHistoryDOM=new Map(),taskRunHistoryOrder='';
   // Clipboard is a deliberately user-triggered local browser operation.
   // Never persist task output in Web Storage or send it to PHP/Relay.
   // If Firefox disallows clipboard writes, fail visibly and do not
@@ -458,45 +461,75 @@ const trustedGUIJavaScript = `'use strict';
     return longTaskID>0&&longTaskHistorySerial>0?longTaskHistorySerial:0;
   }
   function renderTaskRunHistory(){
-    taskRunHistoryList.replaceChildren();
     taskRunHistoryView.hidden=taskRunHistory.length===0;
     const activeSerial=activeTaskHistorySerial();
     taskRunHistoryClear.disabled=closed||!taskRunHistory.some(
       item=>item.serial!==activeSerial);
     taskRunHistoryClear.textContent=activeSerial?
       'Xóa kết quả cũ':'Xóa kết quả';
+    const serials=new Set();
     for(const item of taskRunHistory){
-      const li=document.createElement('li');
-      const header=document.createElement('strong');
-      header.textContent='Task '+String(item.taskID)+
+      serials.add(item.serial);
+      let view=taskRunHistoryDOM.get(item.serial);
+      if(!view){
+        const li=document.createElement('li');
+        const header=document.createElement('strong');
+        const caption=document.createElement('span');
+        header.append(caption);
+        li.append(header);
+        view={li,header,caption,copy:null,body:null,copyOutput:''};
+        taskRunHistoryDOM.set(item.serial,view);
+      }
+      const heading='Task '+String(item.taskID)+
         (item.label?' · '+item.label:'')+' · '+
         item.kind+' · '+item.status+
         (item.exitCode>=0?' · exit='+String(item.exitCode):'')+
         (item.truncated?' · output đã cắt':'');
-      // Keep the existing header and <pre> positions; the copy action
-      // is nested in the header and cannot interpret host text as HTML.
-      if(item.output){
+      if(view.caption.textContent!==heading)view.caption.textContent=heading;
+      if(item.output&&!view.copy){
         const copy=document.createElement('button');
         copy.type='button';
         copy.textContent='Sao chép output';
         copy.setAttribute('aria-label','Sao chép output Task '+String(item.taskID));
-        copy.disabled=closed||terminated||!verified;
+        const serial=item.serial;
         copy.addEventListener('click',()=>{
-          const current=taskRunHistory.find(x=>x.serial===item.serial);
+          const current=taskRunHistory.find(x=>x.serial===serial);
           if(!current||!current.output)return;
           const snapshot=current.output;
           copyVerifiedTaskOutput(snapshot,copy,()=>
-            taskRunHistory.some(x=>x.serial===item.serial&&x.output===snapshot));
+            taskRunHistory.some(x=>x.serial===serial&&x.output===snapshot));
         });
-        header.append(copy);
+        view.header.append(copy);
+        view.copy=copy;
       }
-      li.append(header);
-      if(item.output){
-        const body=document.createElement('pre');
-        body.textContent=item.output;
-        li.append(body);
+      if(view.copy){
+        view.copy.disabled=closed||terminated||!verified||!item.output;
+        view.copy.hidden=!item.output;
+        if(view.copyOutput!==item.output){
+          view.copy.textContent='Sao chép output';
+          view.copyOutput=item.output;
+        }
       }
-      taskRunHistoryList.append(li);
+      if(item.output&&!view.body){
+        view.body=document.createElement('pre');
+        view.li.append(view.body);
+      }
+      if(view.body){
+        view.body.hidden=!item.output;
+        if(view.body.textContent!==item.output)
+          view.body.textContent=item.output;
+      }
+    }
+    // Rearrange only when a result was added, deleted or actually moved.
+    // Ordinary streaming chunks update existing text nodes in place.
+    const order=taskRunHistory.map(item=>item.serial).join(',');
+    if(order!==taskRunHistoryOrder){
+      taskRunHistoryList.replaceChildren(...taskRunHistory.map(
+        item=>taskRunHistoryDOM.get(item.serial).li));
+      taskRunHistoryOrder=order;
+    }
+    for(const serial of taskRunHistoryDOM.keys()){
+      if(!serials.has(serial))taskRunHistoryDOM.delete(serial);
     }
   }
   function rememberTaskRun(taskID,kind,status,exitCode,outputText,truncated){
@@ -1225,6 +1258,7 @@ const trustedGUIJavaScript = `'use strict';
     longTaskCancelPending=false;
     longTaskHistorySerial=0;
     taskRunHistory=[];taskRunHistoryList.replaceChildren();
+    taskRunHistoryDOM.clear();taskRunHistoryOrder='';
     taskRunHistoryView.hidden=true;taskRunHistoryClear.disabled=true;
     longTaskMore=false;longTaskAuto=false;
     longTaskPollEpoch++;longTaskPollScheduled=false;
