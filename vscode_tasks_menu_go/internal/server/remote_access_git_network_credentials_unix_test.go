@@ -128,6 +128,57 @@ func TestRemoteGitNetworkMutationsNeverExecuteRepositoryCredentialHelpers(t *tes
   })
  }
 
+ // The Git transport must not honor repository-controlled HTTP
+ // proxies or outbound authentication material. A valid host-owned URL
+ // and http.sslCAInfo do not make an unrelated proxy, extra header,
+ // cookie store or client private key an approved destination/credential.
+ // Inspect the same include-aware policy used by all three operations.
+ safeEnv:=[]string{
+  "PATH="+os.Getenv("PATH"),"HOME="+os.Getenv("HOME"),
+  "GIT_CONFIG_NOSYSTEM=1","GIT_CONFIG_GLOBAL="+os.DevNull,
+  "GIT_PROTOCOL_FROM_USER=0","LC_ALL=C",
+ }
+ if !remoteGitNoRepositoryHTTPOverride(context.Background(),s.Workspace,safeEnv){
+  t.Fatal("safe HTTPS CA fixture rejected before optional HTTP overrides")
+ }
+ for _,tc:=range []struct{key,value string}{
+  {"http.proxy","http://127.0.0.1:31415"},
+  {"http."+remote.URL+"/repo.git/info.proxy","http://127.0.0.1:31415"},
+  {"http.proxyAuthMethod","basic"},
+  {"http.extraHeader","Authorization: Basic dGVzdDp0ZXN0"},
+  {"http."+remote.URL+"/repo.git/info.extraHeader","X-Unsafe: test"},
+  {"http.cookieFile","/tmp/taskdeck-repo-cookie"},
+  {"http.saveCookies","true"},
+  {"http.emptyAuth","true"},
+  {"http.sslCert","/tmp/taskdeck-repo-client.pem"},
+  {"http.sslKey","/tmp/taskdeck-repo-client.key"},
+  {"http.curloptResolve","example.org:443:127.0.0.1"},
+ }{
+  t.Run("reject-sensitive-"+tc.key,func(t *testing.T){
+   run("config",tc.key,tc.value)
+   if remoteGitNoRepositoryHTTPOverride(context.Background(),s.Workspace,safeEnv){
+    t.Fatalf("unsafe repository HTTP config escaped preflight: %s",tc.key)
+   }
+   for _,action:=range []struct{name string;invoke func()error}{
+    {"pull",func()error{_,e:=s.executeRemoteGitPull(context.Background(),session);return e}},
+    {"fetch",func()error{_,e:=s.executeRemoteGitFetch(context.Background(),session);return e}},
+    {"push",func()error{_,e:=s.executeRemoteGitPush(context.Background(),session);return e}},
+   }{
+    before:=requests.Load()
+    if err:=action.invoke();err==nil{
+     t.Fatalf("%s admitted unsafe repository HTTP config %s",action.name,tc.key)
+    }
+    if requests.Load()!=before{
+     t.Fatalf("%s contacted network despite unsafe HTTP config %s",action.name,tc.key)
+    }
+   }
+   run("config","--unset",tc.key)
+  })
+ }
+ if !remoteGitNoRepositoryHTTPOverride(context.Background(),s.Workspace,safeEnv){
+  t.Fatal("HTTP policy remained blocked after removing unsafe configuration")
+ }
+
  // Prove that this configuration and script would execute when Git is
  // invoked without the hardened -c credential.helper= override.
  prove:=exec.Command(gitBin,"-C",s.Workspace,"credential","fill")

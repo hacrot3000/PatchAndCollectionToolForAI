@@ -525,3 +525,21 @@ real-host testing are considered **code complete**.
   thấy bản ghi skipped + run_id, v1 chỉ thấy kết quả bước đã chạy,
   không có metadata mới, không có cursor. Không thay đổi quyền,
   giới hạn audit, transport hoặc khả năng thực thi.
+
+## 2026-11-10 — Git Pull/Fetch/Push: ngăn proxy và bí mật HTTP trong repo
+
+- Git config của repository, kể cả `includeIf` và các khóa scoped theo URL,
+  không còn được phép điều hướng request qua `http.proxy` hoặc
+  `http.proxyAuthMethod`; không được tự thêm `http.extraHeader`,
+  `http.cookieFile`, `http.saveCookies`, `http.emptyAuth`,
+  `http.sslCert`, `http.sslKey` hay `http.curloptResolve`.
+  Đây là các kênh có thể đổi endpoint hoặc chuyển dữ liệu xác thực/
+  private-key ngoài chính sách remote được phê duyệt.
+- Các lệnh Pull/Fetch/Push dùng chung preflight fail-closed cũ,
+  giữ nguyên chính sách chặn `sslVerify` và `followRedirects`.
+  `http.sslCAInfo` của host vẫn được chấp nhận để hỗ trợ CA doanh
+  nghiệp hoặc chứng chỉ test HTTPS, nhưng TLS verification bắt buộc.
+- Test tích hợp thêm các cấu hình local/URL-specific, kiểm tra
+  policy từ chối và **không có request tới server** cho cả ba
+  thao tác. Không cho browser truyền config/path/remote/credential.
+  Cần xác nhận PASS của CI Go/PHP trên SHA cuối trước release.
