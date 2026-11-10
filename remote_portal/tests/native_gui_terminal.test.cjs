@@ -69,13 +69,38 @@ const sandbox={
  fetch,Date,Promise,Number,String,encodeURIComponent,setInterval(){},setTimeout(){},
 };
 vm.createContext(sandbox);
-new vm.Script(js,{filename:'native-terminal.js'}).runInContext(sandbox);
+sandbox.__terminalQuotaRequestCount=()=>terminalCalls.length;
+const anchor='  function render(){';
+assert.ok(js.includes(anchor),'native GUI render injection anchor missing');
+const instrumented=js.replace(anchor,"\n  globalThis.__testTerminalQuota=async (rounds,ptyState,route)=>{\n    const savedBudget=budget,savedState=terminalState;\n    budget=rounds;terminalState=ptyState;\n    render();\n    const ui={\n      openDisabled:terminalOpen.disabled,pollDisabled:terminalPoll.disabled,\n      sendDisabled:terminalSend.disabled,resizeDisabled:terminalResize.disabled,\n      closeDisabled:terminalClose.disabled,\n      featureDisabled:features.disabled,\n      allowed:terminalMaintenanceAllowed(route)\n    };\n    const before=globalThis.__terminalQuotaRequestCount();\n    await invoke(route);\n    ui.sent=globalThis.__terminalQuotaRequestCount()>before;\n    budget=savedBudget;terminalState=savedState;render();\n    return ui;\n  };\n"+'\n'+anchor);
+new vm.Script(instrumented,{filename:'native-terminal.js'}).runInContext(sandbox);
 const flush=async()=>{for(let i=0;i<80;i++)await Promise.resolve()};
 (async()=>{
  await flush();
  assert.equal(get('terminal-open').disabled,true,'PTY enabled before feature verification');
  get('features').click();await flush();
  assert.equal(get('terminal-open').disabled,false,'host-approved PTY not available');
+ const insufficientOpen=await sandbox.__testTerminalQuota(1,'closed','/api/terminal-open');
+ assert.equal(insufficientOpen.openDisabled,true,'PTY opened with no Close quota');
+ assert.equal(insufficientOpen.allowed,false);
+ assert.equal(insufficientOpen.sent,false,'synthetic Open bypassed one-round quota');
+ const sufficientOpen=await sandbox.__testTerminalQuota(2,'closed','/api/terminal-open');
+ assert.equal(sufficientOpen.openDisabled,false);
+ assert.equal(sufficientOpen.allowed,true);
+ // All non-Close requests must preserve the final authenticated Close
+ // round, including synthetic clicks which bypass the disabled button.
+ const lastPoll=await sandbox.__testTerminalQuota(1,'running','/api/terminal-poll');
+ assert.equal(lastPoll.pollDisabled,true);
+ assert.equal(lastPoll.sendDisabled,true);
+ assert.equal(lastPoll.resizeDisabled,true);
+ assert.equal(lastPoll.featureDisabled,true);
+ assert.equal(lastPoll.closeDisabled,false);
+ assert.equal(lastPoll.allowed,false);
+ assert.equal(lastPoll.sent,false,'synthetic Poll used reserved Close quota');
+ const exitedLast=await sandbox.__testTerminalQuota(1,'exited','/api/terminal-poll');
+ assert.equal(exitedLast.pollDisabled,true);
+ assert.equal(exitedLast.closeDisabled,false);
+ assert.equal(exitedLast.sent,false);
   for(const id of ['git-pull','git-commit','git-push']){
     assert.equal(get(id).disabled,false,id+' unavailable before PTY opened');
   }

@@ -972,6 +972,14 @@ const trustedGUIJavaScript = `'use strict';
   let expiresAt=0,expiredByClock=false;
   // Native quota guard: retain Cancel -> Poll -> Clear when a host job
   // owns the session. The Agent also independently authorizes every action.
+  function terminalMaintenanceAllowed(endpoint){
+    // A live PTY needs one authenticated Close round. Reading output,
+    // writing input, resizing or even unrelated E2EE reads must not
+    // exhaust that last round and leave the host shell uncloseable.
+    if(endpoint==='/api/terminal-open')return budget>=2;
+    return terminalState==='closed'||budget>1||
+      endpoint==='/api/terminal-close'||endpoint==='/api/close';
+  }
   function taskMaintenanceAllowed(endpoint){
     if(longTaskID===0||budget>3||endpoint==='/api/close')return true;
     const id=String(longTaskID);
@@ -1117,7 +1125,8 @@ const trustedGUIJavaScript = `'use strict';
   }
   function render(){
     if(closed)clearPrivateViews();
-    const maintenanceOnly=longTaskID!==0&&budget<=3;
+    const terminalCloseReserved=terminalState!=='closed'&&budget<=1;
+    const maintenanceOnly=(longTaskID!==0&&budget<=3)||terminalCloseReserved;
     const gitWorkspaceBusy=longTaskID!==0||terminalState!=='closed';
     // Only definitive native close or browser pagehide can destroy the
     // local capability. A denied E2EE action still permits authenticated
@@ -1127,8 +1136,8 @@ const trustedGUIJavaScript = `'use strict';
       localToken.value='';
     }
     activate.disabled=activationConsumed||verified||closed||closing||terminated;
-    quickCommand.disabled=busy||closed||!verified;
-    quickRun.disabled=busy||closed||!verified;
+    quickCommand.disabled=busy||closed||!verified||maintenanceOnly;
+    quickRun.disabled=busy||closed||!verified||maintenanceOnly;
     ping.disabled=busy||closed||!verified||budget<=0||maintenanceOnly||
       (featuresKnown&&!available.session_ping);
     features.disabled=busy||closed||!verified||budget<=0||maintenanceOnly;
@@ -1167,9 +1176,12 @@ const trustedGUIJavaScript = `'use strict';
     gitPush.disabled=busy||closed||!verified||budget<=0||gitWorkspaceBusy||!featuresKnown||!available.git_push;
     gitCommitMessage.disabled=gitCommit.disabled;
     const canTerminal=featuresKnown&&available.terminal&&verified&&!closed&&budget>0;
-    terminalOpen.disabled=busy||!canTerminal||terminalState!=='closed'||longTaskID!==0;
-    const terminalLive=canTerminal&&terminalState==='running';
-    terminalPoll.disabled=busy||!canTerminal||terminalState==='closed';
+    terminalOpen.disabled=busy||!canTerminal||budget<2||
+      terminalState!=='closed'||longTaskID!==0;
+    const terminalLive=canTerminal&&terminalState==='running'&&
+      !terminalCloseReserved;
+    terminalPoll.disabled=busy||!canTerminal||terminalCloseReserved||
+      terminalState==='closed';
     terminalSend.disabled=busy||!terminalLive;
     terminalInput.disabled=terminalSend.disabled;
     terminalInterrupt.disabled=busy||!terminalLive;
@@ -1229,7 +1241,7 @@ const trustedGUIJavaScript = `'use strict';
     taskFetchNext.disabled=busy||bulkLoading||closed||!verified||budget<=0||
       maintenanceOnly||!featuresKnown||!available.tasks_preview;
     taskFetchAll.disabled=busy||bulkLoading||closed||!verified||budget<=0||
-      (longTaskID!==0&&budget<=3)||
+      maintenanceOnly||
       !featuresKnown||!available.tasks_preview;
     // Ending a bulk run does not re-render the task page. Keep visibility
     // derived from state so Stop/Resume cannot leave stale controls.
@@ -1270,7 +1282,8 @@ const trustedGUIJavaScript = `'use strict';
       }
     }
     sessionActivity.textContent=closed?'Phiên không còn hợp lệ':
-      busy?'Đang chờ phản hồi E2EE':activity;
+      busy?'Đang chờ phản hồi E2EE':
+      terminalCloseReserved?activity+' · Giữ lượt cuối để đóng Terminal':activity;
   }
   // A running job needs Cancel + Poll + Clear. Once cancellation has
   // already been acknowledged, reserve only the final Clear E2EE round.
@@ -1405,6 +1418,7 @@ const trustedGUIJavaScript = `'use strict';
     if(!verified||(busy&&!isClose)||(closed&&!isClose)||
       (!isClose&&budget<=0)||
       (!isClose&&!taskMaintenanceAllowed(endpoint))||
+      (!isClose&&!terminalMaintenanceAllowed(endpoint))||
       (!isClose&&bulkLoading&&endpoint!='/api/tasks-preview-next')||
       (isClose&&(closing||terminated)))return;
     // Closing the UI scrubs its token synchronously. Capture the
