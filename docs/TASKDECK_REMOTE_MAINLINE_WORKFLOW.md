@@ -747,3 +747,9 @@ real-host testing are considered **code complete**.
 - Preview lịch sử output của một job dài giờ giữ đúng tối đa **2.048 byte UTF-8 cuối** đã giải mã thay vì 2.048 UTF-16 code unit. Các chuỗi có emoji/ký tự nhiều byte không bị cắt đôi surrogate pair, không tạo chuỗi invalid khiến Clipboard copy lỗi.
 - Dấu `output đã cắt` xuất hiện nếu preview buộc phải bỏ ký tự đầu, bất kể JS `.length` còn thấp. Toàn bộ transcript job trong panel đang chạy vẫn giữ nguyên (host giới hạn capture 16 KiB). Không thay đổi API, quyền E2EE, cơ chế Poll/cursor, PHP/Relay.
 - Test native GUI kiểm tra 1.024 emoji chỉ giữ 512 emoji (2.048 byte), cắt chính xác ranh giới UTF-8, không sinh unpaired surrogate, sao chép output xác thực nguyên văn và nút copy cũ mất hiệu lực sau logout. Thêm vào Go CI.
+
+## 2026-11-10 — Giữ đúng một lượt Clear sau job đã hoàn tất và hết output
+
+- Giảm mức bảo lưu quota **chỉ cho mutation Git** khi Agent đã xác nhận trạng thái terminal của job và `more=false`. Với hai lượt E2EE còn lại, người dùng có thể Git một lần, vẫn giữ lượt cuối để Clear. Nếu còn output chưa đọc (`more=true`) ở mức quota thấp, hoặc job vẫn chạy/đang finalizing, Git vẫn bị khóa.
+- Giữ ba lượt để Cancel/Poll/Clear trong vòng đời job đang hoạt động. Các thao tác task/PTY khác vẫn chặn đến khi Clear; không thay đổi host RBAC, E2EE, `session.longTask`, workflow hay nút Poll.
+- Dùng chung danh sách endpoint Git chính xác cho khóa mutation và khóa quota để tránh nới lỏng nhầm bất kỳ route nào. Test native giả lập quota=2: Git hợp lệ khi job completed + hết output và tiếp đó Clear thành công, nhưng không được Git khi vẫn còn output cần Poll/Clear.

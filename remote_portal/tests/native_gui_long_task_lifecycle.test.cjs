@@ -78,6 +78,9 @@ async function scenario(startStatus,pollStates,expectStartRejected=false){
     after:'b'.repeat(40),updated:false,remote_control_available:false,
     remaining:--budget});
   }
+  if(endpoint==='/api/tasks-clear/123'){
+   return reply(progress('cleared',false));
+  }
   throw Error('unexpected native route '+endpoint);
  };
  const sandbox={
@@ -87,7 +90,10 @@ async function scenario(startStatus,pollStates,expectStartRejected=false){
   fetch,setInterval(){},setTimeout(){},Date,Number,String,Promise
  };
  vm.createContext(sandbox);
- new vm.Script(match[1],{filename:'native-gui-lifecycle.js'}).runInContext(sandbox);
+ const instrumented=match[1].replace('  function render(){',
+  '  globalThis.__testSetQuota=(value)=>{budget=value;render();};\n'+
+  '  function render(){');
+ new vm.Script(instrumented,{filename:'native-gui-lifecycle.js'}).runInContext(sandbox);
  const flush=async()=>{for(let n=0;n<50;n++)await Promise.resolve()};
  await flush();
  get('features').click();await flush();
@@ -103,7 +109,7 @@ async function scenario(startStatus,pollStates,expectStartRejected=false){
  }else{
   assert.equal(get('long-task-controls').hidden,false,'valid start rejected');
  }
- return {get,flush,calls};
+ return {get,flush,calls,setQuota(value){sandbox.__testSetQuota(value);}};
 }
 
 (async()=>{
@@ -145,6 +151,38 @@ async function scenario(startStatus,pollStates,expectStartRejected=false){
   'Git fetch erased the previously authenticated task transcript');
  assert.equal(retained.get('task-run-history-list').children.length,1,
   'Git fetch erased the finished task history');
+
+ // When all output has been received, a final job only needs one E2EE
+ // action for Clear. With two rounds remaining the operator can perform
+ // one Git mutation first, then still clear the host job explicitly.
+ const scarce=await scenario('started',['completed']);
+ scarce.get('long-task-poll').click();await scarce.flush();
+ scarce.setQuota(2);
+ assert.equal(scarce.get('git-fetch').disabled,false,
+  'finished/drained job needlessly reserved three Cancel/Poll/Clear rounds');
+ const scarceBefore=scarce.calls.length;
+ scarce.get('git-fetch').click();await scarce.flush();
+ assert.equal(scarce.calls.length,scarceBefore+1,
+  'Git fetch was not allowed despite preserving the last Clear round');
+ assert.equal(scarce.get('long-task-clear').disabled,false,
+  'Git fetch consumed the final E2EE round needed for job cleanup');
+ scarce.get('long-task-clear').click();await scarce.flush();
+ assert.equal(scarce.get('long-task-controls').hidden,true,
+  'finished job could not be cleared with the final preserved E2EE round');
+
+ // In contrast, a finished job with unread output must preserve two
+ // actions for Poll plus Clear even when Git could mutate the workspace.
+ const pendingTail=await scenario('started',[{status:'completed',more:true}]);
+ pendingTail.get('long-task-poll').click();await pendingTail.flush();
+ pendingTail.setQuota(2);
+ assert.equal(pendingTail.get('git-fetch').disabled,true,
+  'pending task output permitted Git to consume the Poll/Clear quota');
+ const pendingBefore=pendingTail.calls.length;
+ pendingTail.get('git-fetch').click();await pendingTail.flush();
+ assert.equal(pendingTail.calls.length,pendingBefore,
+  'synthetic Git click spent reserved output and cleanup rounds');
+ assert.equal(pendingTail.get('long-task-poll').disabled,false,
+  'finished job was unable to drain remaining output');
 
  // Start/Cancel/Clear acknowledge only a state transition. The native
  // browser must also reject impossible nonempty output and truncation

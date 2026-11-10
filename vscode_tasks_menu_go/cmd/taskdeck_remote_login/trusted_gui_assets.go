@@ -1131,8 +1131,22 @@ const trustedGUIJavaScript = `'use strict';
       return terminalState==='running'&&budget>1;
     return terminalState==='closed'||budget>1||endpoint==='/api/close';
   }
+  // Git alone may resume after the host has confirmed a terminal task
+  // status and all output has been received. Keep the LAST authenticated
+  // round for explicit Clear. Running jobs still reserve Cancel/Poll/Clear.
+  // The exact same immutable endpoint list is used by invoke's Git gate.
+  const remoteGitMutations=Object.freeze([
+    '/api/git-branch-create','/api/git-switch-same-head','/api/git-branch-delete',
+    '/api/git-stage-tracked','/api/git-unstage-all',
+    '/api/git-stage-file','/api/git-unstage-file','/api/git-fetch',
+    '/api/git-pull','/api/git-commit','/api/git-push'
+  ]);
   function taskMaintenanceAllowed(endpoint){
     if(longTaskID===0||budget>3||endpoint==='/api/close')return true;
+    if(remoteGitMutations.includes(endpoint)&&budget>1&&!longTaskMore&&
+       ['completed','failed','cancelled','timed_out'].includes(longTaskState)){
+      return true;
+    }
     const id=String(longTaskID);
     if(endpoint==='/api/tasks-cancel/'+id)
       // At least three rounds: Cancel ACK, final status Poll, and Clear.
@@ -1283,10 +1297,10 @@ const trustedGUIJavaScript = `'use strict';
   // Preserve the completed job's output while allowing the next Git
   // operation; keep three E2EE rounds reserved for explicit Clear.
   function gitJobBlocksMutation(){
+    const finished=['completed','failed','cancelled','timed_out'].includes(longTaskState);
     return terminalState!=='closed'||
       (longTaskID!==0&&
-        (budget<=3||
-         !['completed','failed','cancelled','timed_out'].includes(longTaskState)));
+        (!finished||(budget<=3&&(longTaskMore||budget<=1))));
   }
   function render(){
     if(closed)clearPrivateViews();
@@ -1599,12 +1613,8 @@ const trustedGUIJavaScript = `'use strict';
     }
     if((isTextRun||isCommit||isGitFile||isFilesSelect||isTerminalWrite||isTerminalResize)&&payload===undefined)return;
     // A disabled button is UX; the endpoint also needs local admission.
-    const gitMutations=[
-      '/api/git-branch-create','/api/git-switch-same-head','/api/git-branch-delete','/api/git-stage-tracked','/api/git-unstage-all',
-      '/api/git-stage-file','/api/git-unstage-file','/api/git-fetch',
-      '/api/git-pull','/api/git-commit','/api/git-push'
-    ];
-    if(gitMutations.includes(endpoint)&&gitJobBlocksMutation())return;
+    // Share the exact endpoint set with the reserved-E2EE-round gate.
+    if(remoteGitMutations.includes(endpoint)&&gitJobBlocksMutation())return;
     // An acknowledged cancel is irreversible for this job. The next
     // status read can legitimately be "running" while SIGTERM propagates;
     // it must never authorize a second cancel or consume cleanup quota.
