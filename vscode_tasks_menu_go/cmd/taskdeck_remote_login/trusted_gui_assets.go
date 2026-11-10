@@ -1695,7 +1695,13 @@ const trustedGUIJavaScript = `'use strict';
             }
             return reached.size===order.length;
           };
-          if(!validID(id)||id!==taskDepsPendingID||
+          // A local task selection can change while an authenticated
+          // dependency read is still awaiting its E2EE reply. This is a
+          // discarded UI selection, not an invalid remote message.
+          // Fully validate the host's graph before considering it stale.
+          const stillSelected=id===taskDepsPendingID&&
+            Number(taskDepsSelect.value)===id;
+          if(!validID(id)||
             !cachedTaskIDs.includes(id)||data.task_id!==id||
             data.remote_control_available!==false||
             typeof data.available!=='boolean'||typeof data.run_available!=='boolean'||
@@ -1725,6 +1731,7 @@ const trustedGUIJavaScript = `'use strict';
             const i=cachedTaskIDs.indexOf(x);
             return i>=0?cachedTaskLabels[i]+' (#'+x+')':'Task #'+x;
           };
+          if(stillSelected){
           taskDepsOutput.textContent=!data.available?
             'Host chưa bật xem phụ thuộc cho TaskDeck Remote.':
             'Thứ tự topo (chỉ xem, không tự chạy):\n'+
@@ -1750,6 +1757,10 @@ const trustedGUIJavaScript = `'use strict';
             })
           }:null;
           taskDepsPendingID=0;
+          }
+          // Obsolete but correctly authenticated responses only consume
+          // their own E2EE round; never re-arm the old workflow button or
+          // close the native session for a harmless local selection change.
          }
          if(endpoint==='/api/tasks-report'){
           workflowAuditRows=[];workflowAuditMore=false;
@@ -2962,7 +2973,10 @@ const trustedGUIJavaScript = `'use strict';
   });
   tasksPreview.addEventListener('click',()=>invoke('/api/tasks-preview'));
   taskDepsSelect.addEventListener('change',()=>{
-    taskWorkflowReadyID=0;preparedWorkflowSteps=null;render();
+    taskWorkflowReadyID=0;taskDepsPendingID=0;
+    preparedWorkflowSteps=null;
+    taskDepsOutput.textContent='';taskDepsOutput.hidden=true;
+    render();
   });
   taskDepsView.addEventListener('click',()=>{
     const id=Number(taskDepsSelect.value);

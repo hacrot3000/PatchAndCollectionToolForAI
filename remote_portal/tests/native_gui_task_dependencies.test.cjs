@@ -31,6 +31,7 @@ const get=id=>{if(!nodes.has(id))nodes.set(id,new Element(id));return nodes.get(
 const token='0123456789abcdef'.repeat(4);
 const calls=[];let remaining=16;let workflowPollCount=0;
 let available=true,confirmAccept=false,previewLabel='Build <b>safe</b>';
+let delayDependencies=false,resolveDelayedDependencies=null;
 const fetch=async(path,opt)=>{
  calls.push({path,body:opt.body});
  assert.equal(opt.method,'POST');
@@ -48,11 +49,17 @@ const fetch=async(path,opt)=>{
   ok:true,total:1,labels:[previewLabel],ids:[55],
   remaining:--remaining,
  })};
- if(path==='/api/tasks-dependencies/55')return {ok:true,json:async()=>({
-  ok:true,task_id:55,available,run_available:available,
-  order:available?[44,55]:[],edges:available?[[44,55]]:[],
-  remote_control_available:false,remaining:--remaining,
- })};
+ if(path==='/api/tasks-dependencies/55'){
+  const response={ok:true,json:async()=>({
+   ok:true,task_id:55,available,run_available:available,
+   order:available?[44,55]:[],edges:available?[[44,55]]:[],
+   remote_control_available:false,remaining:--remaining,
+  })};
+  if(delayDependencies){
+   return new Promise(resolve=>{resolveDelayedDependencies=()=>resolve(response)});
+  }
+  return response;
+ }
  if(path==='/api/tasks-workflow-start/55')return {ok:true,json:async()=>({
   ok:true,task_id:55,status:'started',exit_code:-1,
   more:false,output:'',truncated:false,
@@ -163,6 +170,33 @@ async function assertGraphValidation(graph,description,accepted=false){
  assert.equal(get('task-deps-output').children.length,0,'HTML from a task label executed');
  assert.equal(get('task-workflow-start').disabled,false,
   'reviewed linear workflow did not enable host-gated button');
+ // A user may change the native <select> while the next dependency
+ // request is in flight. The authenticated reply for the abandoned
+ // choice must not restore that graph, enable Run or revoke the session.
+ delayDependencies=true;
+ get('task-deps-view').click();await flush();
+ assert.ok(resolveDelayedDependencies,'fixture did not pause dependency reply');
+ get('task-deps-select').value='';
+ get('task-deps-select').listeners.change();
+ assert.equal(get('task-deps-output').hidden,true,
+  'changing selection left the previous dependency graph visible');
+ assert.equal(get('task-deps-output').textContent,'',
+  'changing selection retained an outdated graph');
+ assert.equal(get('task-workflow-start').disabled,true,
+  'old workflow remained runnable after changing selection');
+ delayDependencies=false;
+ resolveDelayedDependencies();await flush();
+ assert.equal(get('task-deps-output').hidden,true,
+  'late authenticated reply repainted an obsolete selection');
+ assert.equal(get('task-workflow-start').disabled,true,
+  'late authenticated reply re-authorized the old workflow');
+ assert.equal(calls.filter(x=>x.path==='/api/close').length,0,
+  'harmless selection change caused E2EE session revocation');
+ get('task-deps-select').value='55';
+ get('task-deps-select').listeners.change();
+ get('task-deps-view').click();await flush();
+ assert.equal(get('task-workflow-start').disabled,false,
+  'current selection could not re-inspect dependencies after stale reply');
  get('task-workflow-start').click();await flush();
  assert.equal(calls.filter(x=>x.path==='/api/tasks-workflow-start/55').length,0,
   'workflow launched without confirmation');

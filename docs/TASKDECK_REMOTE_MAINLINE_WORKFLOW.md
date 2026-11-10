@@ -619,3 +619,19 @@ real-host testing are considered **code complete**.
   chính xác dữ liệu, Poll sau không trùng. Unit test khác kiểm tra
   callback lỗi thời không ghi đè cursor và vẫn đọc được phần đuôi.
   Windows vẫn từ chối Terminal, không mở rộng quyền/route PHP.
+
+## 2026-11-10 — Native Remote Task GUI: bỏ qua dependency reply lỗi thời
+
+- Người dùng có thể đổi task đang chọn trong khi lệnh xem dependency
+  đang đợi phản hồi từ Agent. Việc đổi lựa chọn lập tức xóa đồ thị
+  đang hiển thị, hủy trạng thái `run_available` và bản đồ workflow
+  đã chuẩn bị; không gửi lệnh hoặc tự động chạy task.
+- Nếu phản hồi cũ đến sau, GUI vẫn **kiểm tra đầy đủ** ID, schema,
+  edges, topo, giới hạn DAG và cờ `remote_control_available` của
+  dữ liệu E2EE; nhưng không dùng đồ thị đó để khôi phục nút chạy và
+  không thu hồi phiên chỉ vì người dùng thay đổi lựa chọn.
+  Chỉ kết quả đúng lựa chọn đang chờ mới được hiển thị.
+- Kiểm thử DOM giữ một request đang chờ, đổi lựa chọn, giải phóng
+  phản hồi, xác minh phiên không bị đóng và nút Run vẫn vô hiệu,
+  rồi chọn lại task và kiểm tra workflow được duyệt bình thường.
+  Không thay đổi giới hạn action, quyền hoặc giao thức.
