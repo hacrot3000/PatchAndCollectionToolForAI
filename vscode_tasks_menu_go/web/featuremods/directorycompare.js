@@ -246,24 +246,38 @@ function propagateChanges(rows){
  }
 }
 const stateLabel={'left-only':'Left only','right-only':'Right only','type-mismatch':'Type mismatch',changed:'Different',important:'Important',unimportant:'Minor',same:'Same',unknown:'Not checked'};
-function visibleRows(){
- if(!session)return [];
- const keep=new Set();
- for(const row of session.rows){
-  const filter=statusFilter.value;
-  const wanted=filter==='all'||row.state===filter||(filter==='changed'&&row.state==='changed');
-  const matchPath=!search.value||row.path.toLowerCase().includes(search.value.toLowerCase());
-  if(wanted&&matchPath&&(showIdentical||!['same','unknown'].includes(row.state)||(row.state==='unknown'&&row.detail))){
-   keep.add(row.path);
-   const pieces=row.path.split('/');for(let i=1;i<pieces.length;i++)keep.add(pieces.slice(0,i).join('/'));
+// A folder is structural context, not an independent filter match.
+// Keep it only if at least one visible file underneath matches the active
+// status/search filter. This applies equally to one-sided and two-sided folders.
+function filterDirectoryCompareRows(rows,filter,query,includeIdentical,collapsedPaths){
+ const keep=new Set(),needle=String(query||'').toLowerCase();
+ for(const row of rows){
+  // A type mismatch with a file on either side is also a file-level match.
+  if(row.left?.kind!=='file'&&row.right?.kind!=='file')continue;
+  if(filter!=='all'&&row.state!==filter)continue;
+  if(needle&&!row.path.toLowerCase().includes(needle))continue;
+  if(!includeIdentical&&(row.state==='same'||(row.state==='unknown'&&!row.detail)))continue;
+  keep.add(row.path);
+  // Retain ancestors only for qualifying files, never solely because a
+  // directory itself is left-only, right-only, or marked changed.
+  let cut=row.path.lastIndexOf('/');
+  while(cut>0){
+   keep.add(row.path.slice(0,cut));
+   cut=row.path.lastIndexOf('/',cut-1);
   }
  }
- return session.rows.filter(row=>{
+ return rows.filter(row=>{
   if(!keep.has(row.path))return false;
-  const parts=row.path.split('/');
-  for(let i=1;i<parts.length;i++)if(collapsed.has(parts.slice(0,i).join('/')))return false;
+  let cut=row.path.lastIndexOf('/');
+  while(cut>0){
+   if(collapsedPaths.has(row.path.slice(0,cut)))return false;
+   cut=row.path.lastIndexOf('/',cut-1);
+  }
   return true;
  });
+}
+function visibleRows(){
+ return session?filterDirectoryCompareRows(session.rows,statusFilter.value,search.value,showIdentical,collapsed):[];
 }
 function compareFileSource(src,entry){
  const api=globalThis.TaskMenuFileCompare;
