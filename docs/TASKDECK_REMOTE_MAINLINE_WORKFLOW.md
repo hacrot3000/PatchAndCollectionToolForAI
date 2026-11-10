@@ -635,3 +635,11 @@ real-host testing are considered **code complete**.
   phản hồi, xác minh phiên không bị đóng và nút Run vẫn vô hiệu,
   rồi chọn lại task và kiểm tra workflow được duyệt bình thường.
   Không thay đổi giới hạn action, quyền hoặc giao thức.
+
+### 2026-11-10 — Hồi quy bảo mật khi selection bị bỏ giữa request
+
+- Kiểm thử thêm trường hợp người dùng đổi lựa chọn trong lúc phản hồi
+  dependency **không hợp lệ** đang chờ: GUI vẫn phải kiểm tra graph
+  được giải mã, từ chối cạnh ngược topo và đóng/xóa phiên theo
+  fail-closed. Phân biệt rõ reply hợp lệ nhưng lỗi thời (bỏ qua UI)
+  với reply sai cấu trúc (tiếp tục từ chối theo giao thức).

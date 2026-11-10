@@ -92,7 +92,7 @@ vm.createContext(scope);
 new vm.Script(match[1],{filename:'native-task-dependencies.js'}).runInContext(scope);
 const flush=async()=>{for(let i=0;i<70;i++)await Promise.resolve()};
 
-async function assertGraphValidation(graph,description,accepted=false){
+async function assertGraphValidation(graph,description,accepted=false,abandonSelection=false){
  const localNodes=new Map();
  const getLocal=id=>{
   if(!localNodes.has(id))localNodes.set(id,new Element(id));
@@ -100,6 +100,7 @@ async function assertGraphValidation(graph,description,accepted=false){
  };
  let left=16;
  const requests=[];
+ let resumeDependencyReply=null;
  const badFetch=async(path,opt)=>{
   requests.push(path);
   assert.equal(opt.headers['X-TaskDeck-Local-Capability'],token);
@@ -115,10 +116,16 @@ async function assertGraphValidation(graph,description,accepted=false){
   if(path==='/api/tasks-preview')return {ok:true,json:async()=>({
    ok:true,total:1,labels:['Workflow'],ids:[55],remaining:--left
   })};
-  if(path==='/api/tasks-dependencies/55')return {ok:true,json:async()=>({
-   ok:true,task_id:55,remote_control_available:false,remaining:--left,
-   ...graph
-  })};
+  if(path==='/api/tasks-dependencies/55'){
+   const reply={ok:true,json:async()=>({
+    ok:true,task_id:55,remote_control_available:false,remaining:--left,
+    ...graph
+   })};
+   if(abandonSelection){
+    return new Promise(resolve=>{resumeDependencyReply=()=>resolve(reply)});
+   }
+   return reply;
+  }
   if(path==='/api/close')return {ok:true,json:async()=>({ok:true,closed:true})};
   throw Error('malformed graph initiated an unexpected action '+path);
  };
@@ -138,6 +145,19 @@ async function assertGraphValidation(graph,description,accepted=false){
  getLocal('task-deps-select').value='55';
  getLocal('task-deps-select').listeners.change();
  getLocal('task-deps-view').click();await drain();
+ if(abandonSelection){
+  assert.ok(resumeDependencyReply,
+   description+': invalid graph reply was not held in flight');
+  getLocal('task-deps-select').value='';
+  getLocal('task-deps-select').listeners.change();
+  assert.equal(getLocal('task-deps-output').hidden,true,
+   description+': local selection change kept old graph visible');
+  resumeDependencyReply();await drain();
+  // Even an abandoned local request must still validate the authenticated
+  // E2EE schema/DAG. It is NOT permission to accept hostile graph content.
+  assert.equal(getLocal('task-deps-select').children.length,0,
+   description+': malformed obsolete graph bypassed fail-closed session scrub');
+ }
  assert.equal(getLocal('task-workflow-start').disabled,!accepted,
   description+': wrong workflow start availability');
  assert.equal(getLocal('task-deps-output').hidden,!accepted,
@@ -283,5 +303,9 @@ async function assertGraphValidation(graph,description,accepted=false){
   available:true,run_available:false,
   order:[44,33,55],edges:[[44,33],[44,33]]
  },'duplicate read-only graph edge');
- console.log('PASS: native E2EE workflow DAG preview, strict graph validation, scrubbed on logout');
+ await assertGraphValidation({
+  available:true,run_available:true,
+  order:[44,55],edges:[[55,44]]
+ },'malformed graph after selection abandoned',false,true);
+ console.log('PASS: native E2EE workflow DAG preview, stale selection and strict graph validation');
 })().catch(err=>{console.error(err);process.exitCode=1});
