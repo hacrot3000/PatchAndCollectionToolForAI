@@ -72,12 +72,19 @@ const flush=async()=>{for(let i=0;i<90;i++)await Promise.resolve()};
  assert.equal(get('task-deps-select').children.length,0,'old dependency list survived Pull');
  assert.equal(get('task-run-history').hidden,true,'an empty history was unexpectedly changed');
  const afterPull=calls.length;
- oldRow.children[4].click();await flush();
- assert.equal(calls.length,afterPull,'detached old task button launched after Git pull');
+ oldRow.children[4].click();
+ oldRow.children[1].click();
+ await flush();
+ assert.equal(calls.length,afterPull,
+  'detached old task controls sent requests after Git pull');
  get('tasks-preview').click();await flush();
  const freshRow=get('task-preview-labels').children[0];
  assert.match(freshRow.textContent,/NEW task/);
  assert.equal(freshRow.children[2].disabled,true,'fresh host Task.ID was runnable before inspect');
+ // The previous row remains detached; its callback cannot run just
+ // because the user has now loaded a different Task.ID from the Agent.
+ oldRow.children[4].click();oldRow.children[1].click();await flush();
+ assert.equal(calls.filter(x=>x.startsWith('/api/tasks-run')).length,0);
  freshRow.children[1].click();await flush();
  const freshInput=get('task-preview-labels').children[0].children[3];
  assert.equal(freshInput.value,'','old prompt draft was restored for new Task.ID');

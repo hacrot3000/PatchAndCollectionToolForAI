@@ -627,7 +627,11 @@ const trustedGUIJavaScript = `'use strict';
         verify.disabled=closed||busy||!verified||budget<=0||
           !featuresKnown||!available.tasks_preview;
         verify.addEventListener('click',()=>{
+          // A detached button from an obsolete host-issued task snapshot
+          // is never permission to inspect that ID after Git Pull, a new
+          // Tasks Preview, or logout.
           if(closed||busy||bulkLoading||budget<=0||
+            taskPreviewSection.hidden||!cachedTaskIDs.includes(item.id)||
             !featuresKnown||!available.tasks_preview)return;
           invoke('/api/tasks-inspect/'+String(item.id));
         });
@@ -706,7 +710,12 @@ const trustedGUIJavaScript = `'use strict';
           run.disabled=!selection||closed||busy||bulkLoading||budget<=0||
             longTaskID!==0||terminalState!=='closed';
           const launch=(isLong)=>{
+            // A native row's old event handler can outlive its DOM node.
+            // Inspect permission is snapshot-scoped: the SAME task ID in
+            // another host preview still requires a fresh inspect.
             if(!selection||closed||busy||bulkLoading||budget<=0||
+              taskPreviewSection.hidden||!cachedTaskIDs.includes(item.id)||
+              inspectedTasks.get(item.id)!==selection||
               !featuresKnown||!available.task_run||terminalState!=='closed'||
               longTaskID!==0||(isLong&&!available.task_long))return;
             const choice=choiceSelect?Number(choiceSelect.value):0;
