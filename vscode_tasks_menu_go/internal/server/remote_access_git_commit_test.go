@@ -168,3 +168,46 @@ func TestRemoteGitCommitRejectsExecutableFiltersBeforeCommit(t *testing.T){
   run("config","--unset",key)
  }
 }
+
+
+func TestRemoteGitCommitRejectsNonBranchSymbolicHEAD(t *testing.T){
+ requireGit(t)
+ if runtime.GOOS=="windows"{t.Skip("Unix-only Git process-group execution")}
+ t.Setenv("TASKDECK_REMOTE_GIT_COMMIT","1")
+ s,session,_,_:=remoteDispatchFixture(t)
+ gitInitRemoteTest(t,s.Workspace)
+ run:=func(args ...string)string{
+  t.Helper()
+  command:=exec.Command("git",append([]string{"-C",s.Workspace},args...)...)
+  result,err:=command.CombinedOutput()
+  if err!=nil{t.Fatalf("git fixture %v: %v %s",args,err,result)}
+  return strings.TrimSpace(string(result))
+ }
+ run("config","user.name","TaskDeck Test")
+ run("config","user.email","test@example.invalid")
+ tracked:=filepath.Join(s.Workspace,"tracked.txt")
+ if err:=os.WriteFile(tracked,[]byte("baseline\n"),0600);err!=nil{t.Fatal(err)}
+ run("add","tracked.txt")
+ run("commit","-qm","baseline")
+ head:=run("rev-parse","HEAD")
+ // Deliberately make HEAD a valid symbolic ref outside refs/heads/.
+ // Checking only git symbolic-ref -q would admit this state.
+ run("update-ref","refs/taskdeck/unapproved",head)
+ run("symbolic-ref","HEAD","refs/taskdeck/unapproved")
+ if resolved:=run("symbolic-ref","-q","HEAD");
+  resolved!="refs/taskdeck/unapproved"{
+  t.Fatalf("malformed branch fixture: %q",resolved)
+ }
+ if err:=os.WriteFile(tracked,[]byte("changed\n"),0600);err!=nil{t.Fatal(err)}
+ run("add","tracked.txt")
+ if _,err:=s.executeRemoteGitCommit(context.Background(),session,"Unsafe ref"); 
+  !errors.Is(err,remotetransport.ErrRemoteActionDenied){
+  t.Fatalf("Remote Commit permitted a non-branch symbolic HEAD: %v",err)
+ }
+ if got:=run("rev-parse","refs/taskdeck/unapproved");got!=head{
+  t.Fatalf("Remote Commit moved arbitrary refs namespace: %s != %s",got,head)
+ }
+ if got:=run("show","HEAD:tracked.txt");got!="baseline"{
+  t.Fatalf("Remote Commit altered committed content: %q",got)
+ }
+}

@@ -91,7 +91,13 @@ func (s *Server) executeRemoteGitCommit(
  canonicalTop,err=filepath.Abs(canonicalTop)
  if err!=nil||filepath.Clean(canonicalTop)!=filepath.Clean(root){return empty,denied}
  branchRef,err:=run(ctx,256,"symbolic-ref","-q","HEAD")
- if err!=nil||branchRef==""{return empty,denied}
+ // HEAD can be manually pointed at arbitrary refs/ namespaces. Remote
+ // Commit is authorized only to advance an existing local branch,
+ // never tags, notes or a custom symbolic ref under refs/.
+ if err!=nil||!strings.HasPrefix(branchRef,"refs/heads/")||
+  len(branchRef)<=len("refs/heads/")||len(branchRef)>256{
+  return empty,denied
+ }
  before,err:=run(ctx,256,"rev-parse","--verify","HEAD")
  if err!=nil||!remoteGitObjectID.MatchString(before){return empty,denied}
  // git diff --cached --quiet returns 1 only when the index differs from
