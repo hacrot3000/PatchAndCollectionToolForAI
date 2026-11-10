@@ -477,7 +477,8 @@ const trustedGUIJavaScript = `'use strict';
         const caption=document.createElement('span');
         header.append(caption);
         li.append(header);
-        view={li,header,caption,copy:null,body:null,copyOutput:''};
+        view={li,header,caption,copy:null,body:null,copyOutput:'',
+          reportCopy:null,reportBody:null,reportCopyText:''};
         taskRunHistoryDOM.set(item.serial,view);
       }
       const heading='Task '+String(item.taskID)+
@@ -509,6 +510,43 @@ const trustedGUIJavaScript = `'use strict';
           view.copy.textContent='Sao chép output';
           view.copyOutput=item.output;
         }
+      }
+      if(item.workflowReport&&!view.reportCopy){
+        const reportCopy=document.createElement('button');
+        reportCopy.type='button';
+        reportCopy.textContent='Sao chép báo cáo';
+        reportCopy.setAttribute('aria-label',
+          'Sao chép báo cáo workflow Task '+String(item.taskID));
+        const serial=item.serial;
+        reportCopy.addEventListener('click',()=>{
+          const current=taskRunHistory.find(x=>x.serial===serial);
+          if(!current||!current.workflowReport)return;
+          const snapshot=current.workflowReport;
+          copyVerifiedTaskOutput(snapshot,reportCopy,()=>
+            taskRunHistory.some(x=>x.serial===serial&&
+              x.workflowReport===snapshot));
+        });
+        view.header.append(reportCopy);
+        view.reportCopy=reportCopy;
+      }
+      if(view.reportCopy){
+        view.reportCopy.disabled=closed||terminated||!verified||
+          !item.workflowReport;
+        view.reportCopy.hidden=!item.workflowReport;
+        if(view.reportCopyText!==item.workflowReport){
+          view.reportCopy.textContent='Sao chép báo cáo';
+          view.reportCopyText=item.workflowReport;
+        }
+      }
+      if(item.workflowReport&&!view.reportBody){
+        view.reportBody=document.createElement('pre');
+        view.reportBody.setAttribute('aria-label','Báo cáo từng bước workflow');
+        view.li.append(view.reportBody);
+      }
+      if(view.reportBody){
+        view.reportBody.hidden=!item.workflowReport;
+        if(view.reportBody.textContent!==item.workflowReport)
+          view.reportBody.textContent=item.workflowReport;
       }
       if(item.output&&!view.body){
         view.body=document.createElement('pre');
@@ -559,7 +597,7 @@ const trustedGUIJavaScript = `'use strict';
     const labelIndex=cachedTaskIDs.indexOf(taskID);
     const label=labelIndex<0?'':cachedTaskLabels[labelIndex];
     taskRunHistory.unshift({serial,taskID,label,kind,status,exitCode,
-      output:outputText,truncated});
+      output:outputText,truncated,workflowReport:''});
     if(taskRunHistory.length>6)taskRunHistory.length=6;
     renderTaskRunHistory();
     return serial;
@@ -609,7 +647,8 @@ const trustedGUIJavaScript = `'use strict';
     }
     return {text:value.slice(start),clipped:start>0};
   }
-  function updateLongTaskHistory(taskID,status,exitCode,truncated,receivedOutput){
+  function updateLongTaskHistory(taskID,status,exitCode,truncated,receivedOutput,
+    workflowReport=''){
     const item=taskRunHistory.find(entry=>entry.serial===longTaskHistorySerial&&
       entry.taskID===taskID&&entry.kind==='dài');
     if(!item)return;
@@ -621,6 +660,13 @@ const trustedGUIJavaScript = `'use strict';
     const tail=boundedUTF8HistoryTail(receivedOutput,2048);
     item.output=tail.text;
     item.truncated=item.truncated||truncated||tail.clipped;
+    // This text is derived ONLY from validated E2EE step codes, bounded
+    // durations/exits and the immutable host-issued workflow plan. Store
+    // it in the six-entry session-only history so Clear does not destroy
+    // the operator's verified per-step outcome.
+    if(workflowReport){
+      item.workflowReport=boundedUTF8HistoryTail(workflowReport,2048).text;
+    }
     renderTaskRunHistory();
   }
   let inspectButtons=[];
@@ -2411,21 +2457,6 @@ const trustedGUIJavaScript = `'use strict';
           }
           longTaskState=data.status;
           longTaskMore=data.more;
-          if(data.status!=='cleared'){
-            updateLongTaskHistory(id,data.status,data.exit_code,data.truncated,longTaskText);
-          }
-          if(data.status==='cleared'){
-            longTaskPollEpoch++;longTaskPollScheduled=false;
-            longTaskHistorySerial=0;
-            longTaskID=0;
-            activeWorkflowSteps=null;
-            longTaskText='';longTaskMore=false;
-            longTaskCancelPending=false;
-            longTaskAuto=false;
-            // The host slot is now gone: the final retained outcome is
-            // ordinary history and may be explicitly deleted by its owner.
-            renderTaskRunHistory();
-          }
           const historyLabels={'-':'Chưa chạy',R:'Đang chạy',
             C:'Hoàn tất',S:'Bỏ qua',F:'Lỗi',X:'Đã hủy',T:'Hết thời gian'};
           const historyLines=stepHistory?
@@ -2442,6 +2473,34 @@ const trustedGUIJavaScript = `'use strict';
             'Bước '+String(i+1)+' → Task #'+String(node.id)+
             (node.label?' · '+node.label:'')).join(' | '):'';
           const currentStepNode=verifiedStepMap?verifiedStepMap[step-1]:null;
+          const workflowReport=stepHistory?
+            'Workflow Task #'+String(id)+' · '+data.status+'\n'+
+            Array.from(stepHistory).map((code,i)=>{
+              const node=verifiedStepMap?verifiedStepMap[i]:null;
+              const result=details[i]&&details[i]!=='-'?
+                ' · exit='+details[i].split(':')[0]+
+                ' · '+details[i].split(':')[1]+' ms':'';
+              return 'Bước '+String(i+1)+
+                (node?' · Task #'+String(node.id)+
+                  (node.label?' · '+node.label:''):'')+
+                ' · '+historyLabels[code]+result;
+            }).join('\n'):'';
+          if(data.status!=='cleared'){
+            updateLongTaskHistory(id,data.status,data.exit_code,
+              data.truncated,longTaskText,workflowReport);
+          }
+          if(data.status==='cleared'){
+            longTaskPollEpoch++;longTaskPollScheduled=false;
+            longTaskHistorySerial=0;
+            longTaskID=0;
+            activeWorkflowSteps=null;
+            longTaskText='';longTaskMore=false;
+            longTaskCancelPending=false;
+            longTaskAuto=false;
+            // A successful host Clear frees its slot, not the authenticated
+            // workflow report already retained in this browser session.
+            renderTaskRunHistory();
+          }
           renderLongTaskTranscript('Task '+String(id)+' · '+data.status+
             ' · exit='+String(data.exit_code)+
             (workflowProgress?' · Bước '+String(step)+'/'+String(stepTotal)+
