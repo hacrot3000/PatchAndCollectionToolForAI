@@ -30,7 +30,7 @@ const nodes=new Map();
 const get=id=>{if(!nodes.has(id))nodes.set(id,new Element(id));return nodes.get(id)};
 const token='0123456789abcdef'.repeat(4);
 const calls=[];let remaining=16;let workflowPollCount=0;
-let available=true,confirmAccept=false;
+let available=true,confirmAccept=false,previewLabel='Build <b>safe</b>';
 const fetch=async(path,opt)=>{
  calls.push({path,body:opt.body});
  assert.equal(opt.method,'POST');
@@ -45,7 +45,7 @@ const fetch=async(path,opt)=>{
   remaining:--remaining,
  })};
  if(path==='/api/tasks-preview')return {ok:true,json:async()=>({
-  ok:true,total:1,labels:['Build <b>safe</b>'],ids:[55],
+  ok:true,total:1,labels:[previewLabel],ids:[55],
   remaining:--remaining,
  })};
  if(path==='/api/tasks-dependencies/55')return {ok:true,json:async()=>({
@@ -184,6 +184,13 @@ async function assertGraphValidation(graph,description,accepted=false){
   'unfinished steps must not render a fabricated exit result');
  assert.match(get('long-task-output').textContent,/authenticated-child-output/,
   'workflow output was not preserved alongside typed progress');
+ assert.match(get('long-task-output').textContent,/Bước 1 → Task #44/,
+  'workflow progress did not map its first step to the real Task.ID');
+ assert.match(get('long-task-output').textContent,
+  /Bước 2 → Task #55 · Build <b>safe<\/b>/,
+  'verified dependency labels did not appear in workflow progress');
+ assert.equal(get('long-task-output').children.length,0,
+  'task names must remain literal text, never executable HTML');
  get('long-task-poll').click();await flush();
  assert.match(get('long-task-output').textContent,
   /Bước 1: Hoàn tất \(exit=0, 10 ms\) · Bước 2: Bỏ qua/,
@@ -199,6 +206,15 @@ async function assertGraphValidation(graph,description,accepted=false){
  get('task-deps-view').click();await flush();
  assert.match(get('task-deps-output').textContent,/Host chưa bật/);
  assert.equal(get('task-deps-output').children.length,0);
+ // New task snapshots can rename or reorder their labels while a
+ // terminal workflow is still present. Its per-run step map is immutable.
+ previewLabel='RENAMED AFTER WORKFLOW';
+ get('tasks-preview').click();await flush();
+ assert.match(get('long-task-output').textContent,
+  /Bước 2 → Task #55 · Build <b>safe<\/b>/,
+  'task snapshot refresh replaced an already started workflow step label');
+ assert.doesNotMatch(get('long-task-output').textContent,/RENAMED AFTER WORKFLOW/,
+  'workflow map used unverified mutable task list labels');
  get('disconnect').click();await flush();
  assert.equal(get('task-deps-select').children.length,0,'issued IDs persisted after logout');
  assert.equal(get('task-deps-output').textContent,'','dependency graph persisted after logout');

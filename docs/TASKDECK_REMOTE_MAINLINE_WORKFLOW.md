@@ -543,3 +543,22 @@ real-host testing are considered **code complete**.
   policy từ chối và **không có request tới server** cho cả ba
   thao tác. Không cho browser truyền config/path/remote/credential.
   Cần xác nhận PASS của CI Go/PHP trên SHA cuối trước release.
+
+## 2026-11-10 — Remote GUI: gắn Task.ID và nhãn đã xác thực vào tiến độ workflow
+
+- Sau khi người dùng xem dependency graph đã xác thực qua E2EE,
+  native GUI ghi tạm thứ tự bước và nhãn task (tối đa bốn bước,
+  nhãn tối đa 72 ký tự). Khi phản hồi workflow-start hợp lệ, GUI
+  **đóng băng bản đồ bước cho đúng lượt chạy**. Không dùng nhãn
+  này để cấp phép hoặc gửi đối số mới tới host.
+- Màn hình Poll trình bày cả `step/step_total`, attempt, trạng thái,
+  mã thoát/thời gian và `Task #ID · tên task` cho từng bước. Nếu
+  dependency chưa được tải vào danh sách preview, chỉ hiển thị ID
+  đã được host gửi trong graph; không suy đoán nhãn.
+- Làm mới/chỉnh sắp xếp danh sách task không sửa bản đồ của job
+  đang chạy. Clear và logout xóa bản đồ riêng tư, trong khi start
+  một task đơn không được thừa hưởng nhãn của workflow trước.
+- Test native DOM kiểm tra DAG ID, tên có HTML đặc biệt vẫn chỉ là
+  `textContent`, snapshot được đổi tên sau khi job đã chạy không
+  làm lệch nhãn trong tiến độ. Không thay đổi giao thức E2EE hay
+  giới hạn 16 lượt hành động và 16 KiB output.

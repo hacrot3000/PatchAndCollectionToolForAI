@@ -404,6 +404,10 @@ const trustedGUIJavaScript = `'use strict';
   let cachedTaskIDs=[];
   let workflowAuditRows=[],workflowAuditMore=false;
   let taskDepsPendingID=0,taskWorkflowReadyID=0;
+  // A verified host dependency snapshot supplies display labels only.
+  // Once a workflow starts, freeze the <=4 step-to-Task.ID mapping:
+  // refreshing/reordering the task list must not rename a running step.
+  let preparedWorkflowSteps=null,activeWorkflowSteps=null;
   let inspectedTasks=new Map();
   // Transient, local-only drafts survive pagination, sorting and job polls.
   // Never retain them across a new host snapshot, re-inspection or logout.
@@ -1035,6 +1039,7 @@ const trustedGUIJavaScript = `'use strict';
   // or revocation. Do not persist previous remote metadata in the browser.
   function clearPrivateViews(){
     taskWorkflowReadyID=0;taskDepsPendingID=0;
+    preparedWorkflowSteps=null;activeWorkflowSteps=null;
     taskDepsSelect.replaceChildren();taskDepsSelect.value='';
     taskDepsOutput.textContent='';taskDepsOutput.hidden=true;
     tasksReportOutput.textContent='';tasksReportOutput.hidden=true;
@@ -1732,6 +1737,18 @@ const trustedGUIJavaScript = `'use strict';
           // process-only steps and fresh permission. The browser checks
           // structural consistency above and never invents run authority.
           taskWorkflowReadyID=data.available&&data.run_available?id:0;
+          // Capture immutable display metadata only AFTER strict ID/DAG
+          // validation. These labels never authorize execution or become
+          // browser-controlled task arguments in the E2EE start request.
+          preparedWorkflowSteps=taskWorkflowReadyID?{
+            root:id,
+            steps:order.map(stepID=>{
+              const known=cachedTaskIDs.indexOf(stepID);
+              return {id:stepID,
+                label:known<0?'':String(cachedTaskLabels[known])
+                  .replace(/[\r\n\t]/g,' ').slice(0,72)};
+            })
+          }:null;
           taskDepsPendingID=0;
          }
          if(endpoint==='/api/tasks-report'){
@@ -1859,6 +1876,7 @@ const trustedGUIJavaScript = `'use strict';
           }
           if(!appendPage){
             taskWorkflowReadyID=0;
+            preparedWorkflowSteps=null;
             taskDepsPendingID=0;
             taskDepsOutput.textContent='';taskDepsOutput.hidden=true;
             cachedTaskLabels=data.labels.slice();
@@ -2071,6 +2089,10 @@ const trustedGUIJavaScript = `'use strict';
             }
           }
           if(launching){
+            activeWorkflowSteps=prefix==='/api/tasks-workflow-start/'&&
+              preparedWorkflowSteps&&preparedWorkflowSteps.root===id?
+              preparedWorkflowSteps.steps.map(node=>({id:node.id,label:node.label})):null;
+            preparedWorkflowSteps=null;
             longTaskPollEpoch++;longTaskPollScheduled=false;
             longTaskID=id;longTaskText='';
             longTaskCancelPending=false;
@@ -2093,6 +2115,7 @@ const trustedGUIJavaScript = `'use strict';
             longTaskPollEpoch++;longTaskPollScheduled=false;
             longTaskHistorySerial=0;
             longTaskID=0;
+            activeWorkflowSteps=null;
             longTaskText='';longTaskMore=false;
             longTaskCancelPending=false;
             longTaskAuto=false;
@@ -2105,14 +2128,25 @@ const trustedGUIJavaScript = `'use strict';
               (details[i]&&details[i]!=='-'?
                 ' (exit='+details[i].split(':')[0]+
                 ', '+details[i].split(':')[1]+' ms)':'')).join(' · '):'';
+          const verifiedStepMap=workflowProgress&&activeWorkflowSteps&&
+            activeWorkflowSteps.length===stepTotal?activeWorkflowSteps:null;
+          // Show real host-issued Task IDs and names alongside typed
+          // workflow progress, never guess names from a refreshed list.
+          const stepMapLine=verifiedStepMap?verifiedStepMap.map((node,i)=>
+            'Bước '+String(i+1)+' → Task #'+String(node.id)+
+            (node.label?' · '+node.label:'')).join(' | '):'';
+          const currentStepNode=verifiedStepMap?verifiedStepMap[step-1]:null;
           longTaskOutput.textContent='Task '+String(id)+' · '+data.status+
             ' · exit='+String(data.exit_code)+
             (workflowProgress?' · Bước '+String(step)+'/'+String(stepTotal)+
               ' · Lần '+String(attempt)+'/'+String(attemptTotal)+
               ' · '+stepStatus:'')+
+            (currentStepNode?' · Task #'+String(currentStepNode.id)+
+              (currentStepNode.label?' · '+currentStepNode.label:''):'')+
             (data.truncated?' · output vượt giới hạn':'')+
             (longTaskMore?' · còn output chưa nhận':'')+
             (historyLines?'\n'+historyLines:'')+
+            (stepMapLine?'\n'+stepMapLine:'')+
             '\n'+longTaskText;
           output.textContent='Trạng thái job E2EE: '+data.status+
             ' (Task ID '+String(id)+').'+
@@ -2927,13 +2961,16 @@ const trustedGUIJavaScript = `'use strict';
     if(filesRootMore)invoke('/api/files-root-next');
   });
   tasksPreview.addEventListener('click',()=>invoke('/api/tasks-preview'));
-  taskDepsSelect.addEventListener('change',()=>{taskWorkflowReadyID=0;render();});
+  taskDepsSelect.addEventListener('change',()=>{
+    taskWorkflowReadyID=0;preparedWorkflowSteps=null;render();
+  });
   taskDepsView.addEventListener('click',()=>{
     const id=Number(taskDepsSelect.value);
     if(busy||closed||bulkLoading||!verified||!featuresKnown||
       !available.tasks_preview||budget<=0||!Number.isInteger(id)||
       id<=0||id>2147483647||!cachedTaskIDs.includes(id))return;
     taskWorkflowReadyID=0;
+    preparedWorkflowSteps=null;
     taskDepsPendingID=id;
     taskDepsOutput.textContent='';taskDepsOutput.hidden=true;
     invoke('/api/tasks-dependencies/'+String(id));
