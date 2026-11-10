@@ -492,9 +492,44 @@ function bindActionButton(button,run){
 }
 
 function quickGroup(label,buttons){const group=el('div','git-quick-group');group.append(el('strong','',label));for(const spec of buttons){const b=el('button','',spec.label);b.title=spec.title||spec.label;bindActionButton(b,spec.run);group.append(b);}quickGroups.append(group);}
+// Compare the checked-out commit with its freshly fetched remote-tracking tip.
+// HEAD remains on the left; remote changes therefore appear on the right.
+// Fetch updates remote-tracking refs, but never pulls or modifies the worktree.
+async function openRemoteDiff(){
+  const repoID=activeRepoID;
+  if(!repoID||!currentStatus?.repository)throw new Error('Select a Git repository first');
+  const compare=globalThis.TaskMenuDirectoryCompare;
+  if(!compare?.openGitBranches)throw new Error('Directory Compare module unavailable');
+  const fetched=await action('fetch',{},'',{repoID,refresh:false});
+  if(fetched===false||activeRepoID!==repoID)return false;
+  const branches=await gitView('branches');
+  if(!branches||activeRepoID!==repoID)return false;
+  const current=(branches.local||[]).find(branch=>branch.current);
+  if(!current)throw new Error('Diff remote requires a checked-out local branch (HEAD is detached or unborn)');
+  const remoteBranches=branches.remote||[];
+  const available=new Set(remoteBranches.map(branch=>String(branch.name||'')));
+  let upstream=String(current.upstream||'').trim();
+  if(upstream&&!available.has(upstream)){
+    throw new Error('Upstream '+upstream+' is not available as a fetched remote-tracking branch. Check your Git upstream configuration.');
+  }
+  if(!upstream){
+    // No upstream configured: only infer the matching remote branch when
+    // there is exactly one. Never silently select between multiple remotes.
+    const matches=remoteBranches.filter(branch=>String(branch.name||'').endsWith('/'+current.name));
+    if(matches.length===1)upstream=matches[0].name;
+    else throw new Error(matches.length
+      ?'Multiple remote branches match '+current.name+'. Configure an upstream or select one under Compare.'
+      :'No fetched remote branch matches '+current.name+'. Configure its upstream or select one under Compare.');
+  }
+  const opened=await compare.openGitBranches(repoID,'HEAD','refs/remotes/'+upstream);
+  if(opened!==false&&activeRepoID===repoID)panel.classList.remove('visible');
+  return opened;
+}
+
 quickGroup('SYNC',[
   {label:'Refresh',run:async()=>{await refresh();await loadCurrentView();}},
   {label:'Fetch',run:()=>action('fetch')},
+  {label:'Diff remote',title:'Fetch upstream, then compare local HEAD ↔ remote-tracking branch in Directory Compare (no pull, merge or worktree changes)',run:openRemoteDiff},
   {label:'Pull FF',title:'git pull --ff-only',run:()=>action('pull')},
   {label:'Push',run:()=>action('push')}
 ]);
