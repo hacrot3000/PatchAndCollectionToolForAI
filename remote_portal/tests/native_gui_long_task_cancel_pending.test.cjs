@@ -105,6 +105,8 @@ const flush=async()=>{for(let i=0;i<50;i++)await Promise.resolve()};
  timers.shift()();await flush();
  assert.match(get('long-task-output').textContent,/terminating/);
  assert.match(get('output').textContent,/Đã yêu cầu hủy/);
+ assert.doesNotMatch(get('output').textContent,/Đã tạm dừng tự nhận/,
+  'cancel-pending Poll is still scheduled; GUI must not claim it was paused');
  assert.equal(get('long-task-cancel').disabled,true,
   'intermediate running poll must not re-arm the cancel button');
  assert.equal(remaining,2);

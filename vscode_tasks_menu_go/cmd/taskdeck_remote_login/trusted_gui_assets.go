@@ -2102,8 +2102,9 @@ const trustedGUIJavaScript = `'use strict';
             (longTaskCancelPending&&
              ['running','cancel_requested'].includes(longTaskState)?
               ' Đã yêu cầu hủy; đang chờ tiến trình kết thúc.':'')+
-            (budget<=3&&longTaskID>0&&
-              (longTaskMore||['started','running','cancel_requested'].includes(longTaskState))?
+            (longTaskID>0&&longTaskAuto&&
+              (longTaskMore||['started','running','cancel_requested'].includes(longTaskState))&&
+              !mayAutoPollLongTask()?
               ' Đã tạm dừng tự nhận để giữ lượt cho hủy/dọn job.':'');
           // Job output/status does not change the task list. Rebuilding the
           // controls here would erase the operator's in-progress input/focus.
