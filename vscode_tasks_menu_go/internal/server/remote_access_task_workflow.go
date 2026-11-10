@@ -522,6 +522,9 @@ Workflow:
    break Workflow
   }
  }
+ // No workflow subprocess is still running after this loop. Close Cancel
+ // admission BEFORE the final aggregate status read and host-local audit.
+ job.beginFinalizing()
  if errors.Is(ctx.Err(),context.DeadlineExceeded){status="timed_out"
  }else if ctx.Err()!=nil||session.closed.Load(){status="cancelled"}
  s.auditRemoteTaskRunFinish(session,job.taskID,status,exitCode,

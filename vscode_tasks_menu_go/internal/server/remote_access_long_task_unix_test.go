@@ -379,6 +379,41 @@ func TestRemoteLongTaskFinalStateWaitsForWorkspaceRelease(t *testing.T){
 }
 
 
+// After the last process is reaped, final audit may still be pending.
+// Cancellation must be denied already in that window, before lease release
+// or publication, not merely after the final result is visible to Poll.
+func TestRemoteLongTaskBeginFinalizingRejectsCancelBeforeAudit(t *testing.T){
+ cancelled:=false
+ released:=false
+ job:=&remoteLongTaskJob{
+  taskID:55,status:"running",exitCode:-1,
+  done:make(chan struct{}),
+  capture:newRemoteLongTaskCapture(),
+  cancel:func(){cancelled=true},
+  workspaceRelease:func(){released=true},
+ }
+ session:=&remoteTaskDeckSession{longTask:job}
+ job.beginFinalizing()
+ if err:=session.cancelRemoteLongTask(55);
+  !errors.Is(err,remotetransport.ErrRemoteActionDenied){
+  t.Fatalf("Cancel accepted after process exit but before result audit: %v",err)
+ }
+ if cancelled||released||job.cancelRequested{
+  t.Fatal("late Cancel executed or finalization released workspace before audit")
+ }
+ job.mu.Lock()
+ state,finalizing:=job.status,job.finalizing
+ job.mu.Unlock()
+ if state!="running"||!finalizing{
+  t.Fatalf("final status leaked or finalization not armed: %q %v",state,finalizing)
+ }
+ job.publishCompletion("completed",0)
+ if !released{t.Fatal("final publication did not release workspace")}
+ if err:=session.clearRemoteLongTask(55);err!=nil{
+  t.Fatalf("finished job cannot clear: %v",err)
+ }
+}
+
 // A capture notification can be consumed by a different concurrent poll;
 // the remaining waiter must still see newly buffered output at its timeout.
 // The test injects an unnotified capture write to deterministically model

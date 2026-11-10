@@ -212,6 +212,9 @@ func (s *Server) startRemoteLongTask(
  go func(){
   processErr:=command.Wait()
   killGitJobProcess(command)
+  // The subprocess is already reaped; deny any further Cancel even while
+  // result classification and the mandatory finish audit are pending.
+  job.beginFinalizing()
   exitCode:=0
   if processErr!=nil {
    var exit *exec.ExitError
@@ -239,10 +242,17 @@ func (s *Server) startRemoteLongTask(
 // spuriously denied as busy. Publication, done and capture notification
 // are ordered AFTER release; a running snapshot may still be returned
 // while the host is in the final cleanup phase.
-func (job *remoteLongTaskJob)publishCompletion(status string,exitCode int){
+// beginFinalizing closes the cancellation admission window BEFORE final
+// result classification/audit. Cancel arriving first may still win; once
+// this lock is released a dead process can never acknowledge new Cancel.
+func (job *remoteLongTaskJob)beginFinalizing(){
  job.mu.Lock()
  job.finalizing=true
  job.mu.Unlock()
+}
+
+func (job *remoteLongTaskJob)publishCompletion(status string,exitCode int){
+ job.beginFinalizing()
  job.workspaceRelease()
  job.mu.Lock()
  job.status=status

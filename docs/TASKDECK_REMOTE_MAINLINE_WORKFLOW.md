@@ -461,3 +461,18 @@ real-host testing are considered **code complete**.
   chặn release với bốn trạng thái task đơn.
 - Xác nhận Go CI trên commit mới trước khi khẳng định PASS.
   Remote live gate vẫn mặc định OFF/NO-GO; không mở rộng Windows.
+
+## 2026-11-10 — Khép cửa sổ Cancel trước audit cuối
+
+- Khóa `finalizing` ngay sau khi task đơn đã reaped process, hoặc sau
+  vòng lặp chạy workflow, **trước** khi phân loại kết quả và ghi audit
+  kết thúc. Trước đây Cancel có thể đến trong lúc audit và nhận ACK
+  dù không còn process để hủy.
+- `publishCompletion` tiếp tục nhắc lại trạng thái `finalizing`
+  (idempotent), chờ release workspace rồi mới công bố trạng thái cuối,
+  đóng `done` và đánh thức Poll. Cancel trước `beginFinalizing`
+  vẫn được xử lý theo đường hủy hợp lệ; Cancel sau đó bị từ chối.
+- Thêm test chặn Cancel giữa lúc đã bắt đầu finalization và trước khi
+  bắt đầu release, giữ nguyên trạng thái đang chờ audit; kiểm tra
+  Clear sau khi publish. Workflow success/failure integration ở commit
+  trước vẫn kiểm tra cùng helper. CI phải được kiểm tra trên SHA mới.
