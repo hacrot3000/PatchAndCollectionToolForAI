@@ -150,7 +150,7 @@ const flush=async()=>{for(let n=0;n<30;n++)await Promise.resolve()};
  // host process returned a nonzero failure code.
  nextExitCode=0;
  btn.click();await flush();
- assert.match(get('task-run-history-list').children[0].children[0].textContent,
+ assert.match(get('task-run-history-list').children[0].children[0].children[0].textContent,
   /Task 55 .* ngắn .* completed .* exit=0/);
  get('disconnect').click();await flush();
  assert.equal(get('task-run-history-list').children.length,0,
