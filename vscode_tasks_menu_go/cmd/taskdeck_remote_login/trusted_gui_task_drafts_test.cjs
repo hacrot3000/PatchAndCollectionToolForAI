@@ -177,6 +177,9 @@ const controls=(parent,tag)=>parent.children.filter(child=>child.tagName===tag.t
  assert.equal(historyRows.length,1,'long-running job should have one history entry');
  assert.equal(byText(historyRows[0],'chunk').tagName,'PRE',
   'first poll output must be visible in local task run history');
+ const liveHistoryRow=historyRows[0];
+ const liveHistoryBody=byText(liveHistoryRow,'chunk');
+ const liveCopyButton=byText(liveHistoryRow.children[0],'Sao chép output');
  assert.equal(row('One'),beforeStart,'job output replaced unchanged task row');
  assert.deepEqual(controls(row('One'),'select').map(x=>x.value),['2','2']);
 
@@ -188,6 +191,12 @@ const controls=(parent,tag)=>parent.children.filter(child=>child.tagName===tag.t
  await action(el('long-task-poll'));
  assert.equal(byText(el('task-run-history-list').children[0],'chunkchunk').tagName,'PRE',
   'later poll output must accumulate in the same bounded history entry');
+ assert.equal(el('task-run-history-list').children[0],liveHistoryRow,
+  'streaming poll must preserve the focused history row DOM');
+ assert.equal(byText(liveHistoryRow,'chunkchunk'),liveHistoryBody,
+  'streaming poll must update the existing output PRE, not replace it');
+ assert.equal(byText(liveHistoryRow.children[0],'Sao chép output'),liveCopyButton,
+  'streaming poll must preserve the existing clipboard control');
  assert.equal(controls(row('Two'),'input')[0],input,
   'poll discarded focused prompt element');
  assert.equal(input.value,'release-4.2');
