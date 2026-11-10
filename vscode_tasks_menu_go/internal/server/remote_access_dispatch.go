@@ -622,9 +622,19 @@ func (s *Server) executeRemoteE2EEPing(
  case remotetransport.RemoteActionTasksReport:
   sealed,err=remotetransport.SealRemoteTaskReport(channel,request.RequestID,taskReport)
  case remotetransport.RemoteActionTasksWorkflowAudit:
-  // Old exact-key clients must not receive the optional pagination hint.
-  workflowAudit.More=false
-  for i:=range workflowAudit.Items{workflowAudit.Items[i].RunID=""}
+  // Legacy v1 clients recognize only completed/failed/cancelled/timed_out.
+  // Skipped is a new final recovery outcome and MUST NOT break older
+  // exact-key/status decoders. Refill from the frozen host snapshot,
+  // rather than merely filtering the two-item current page.
+  legacy:=make([]remotetransport.RemoteWorkflowAuditEntry,0,
+   remotetransport.MaxRemoteWorkflowAuditEntries)
+  for _,item:=range session.workflowAuditPageItems{
+   if item.Status=="skipped"{continue}
+   item.RunID=""
+   legacy=append(legacy,item)
+   if len(legacy)==remotetransport.MaxRemoteWorkflowAuditEntries{break}
+  }
+  workflowAudit=remotetransport.RemoteWorkflowAudit{Items:legacy}
   sealed,err=remotetransport.SealRemoteWorkflowAudit(channel,request.RequestID,workflowAudit)
  case remotetransport.RemoteActionTasksWorkflowAuditStart,
   remotetransport.RemoteActionTasksWorkflowAuditNext:
@@ -648,11 +658,19 @@ func (s *Server) executeRemoteE2EEPing(
   request.Operation==remotetransport.RemoteActionTasksWorkflowAuditNext{
   // Cursor advances only for a successfully sealed authenticated page.
   // The E2EE operation lock excludes concurrent Start/Next requests.
-  session.workflowAuditPageReady=true
-  if request.Operation!=remotetransport.RemoteActionTasksWorkflowAuditNext{
-   session.workflowAuditPageCursor=len(workflowAudit.Items)
+  if request.Operation==remotetransport.RemoteActionTasksWorkflowAudit{
+   // The legacy operation has no paging contract. It cannot mint a
+   // resumable snapshot for a subsequent modern Next request.
+   session.workflowAuditPageReady=false
+   session.workflowAuditPageCursor=0
+   session.workflowAuditPageItems=nil
   }else{
-   session.workflowAuditPageCursor+=len(workflowAudit.Items)
+   session.workflowAuditPageReady=true
+   if request.Operation==remotetransport.RemoteActionTasksWorkflowAuditStart{
+    session.workflowAuditPageCursor=len(workflowAudit.Items)
+   }else{
+    session.workflowAuditPageCursor+=len(workflowAudit.Items)
+   }
   }
  }
  if paging {

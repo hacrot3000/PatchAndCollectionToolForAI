@@ -510,3 +510,18 @@ real-host testing are considered **code complete**.
 - Giữ giới hạn cửa sổ audit 32, phân trang 2, per-principal RBAC,
   payload E2EE không chứa lệnh/output/password và default host opt-in
   OFF. LIVE security gate vẫn NO-GO.
+
+## 2026-11-10 — Tương thích client cũ sau khi thêm audit skipped
+
+- `tasks.workflow.audit` v1 giữ nguyên đúng hai slot tối đa,
+  không `run_id`, không `more`, và chỉ phát hành bốn trạng thái
+  cũ `completed/failed/cancelled/timed_out`.
+  Lọc các bản ghi `skipped` từ snapshot host **trước khi chọn
+  tối đa hai kết quả**, để không làm mất các bản ghi cũ còn hợp lệ.
+- V1 không tạo/cấp quyền cursor tiếp theo; giải phóng snapshot ngay
+  sau khi seal. Chỉ `tasks.workflow.audit.start/next` được phát hành
+  skipped, run ID và cursor snapshot hiện đại.
+- Kiểm thử integration tạo workflow recovery bị bỏ qua: giao thức mới
+  thấy bản ghi skipped + run_id, v1 chỉ thấy kết quả bước đã chạy,
+  không có metadata mới, không có cursor. Không thay đổi quyền,
+  giới hạn audit, transport hoặc khả năng thực thi.

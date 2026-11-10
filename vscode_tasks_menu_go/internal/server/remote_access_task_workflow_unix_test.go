@@ -1397,6 +1397,25 @@ func TestRemoteWorkflowFinalFailureOnlySkippedWhenDependenciesSucceeded(t *testi
   report.Items[0].ExitCode!= -1||report.Items[0].RunID!=job.workflowRunID{
   t.Fatalf("re-authenticatable audit missed skipped recovery: %+v %v",report,err)
  }
+ // The pre-pagination v1 contract has no skipped status, run_id or more.
+ // Refill its two-event window with supported outcomes from the snapshot.
+ // Otherwise a newly recorded skipped step would crash older clients.
+ legacyID:="78787878787878787878787878787878"
+ legacyRequest,err:=remotetransport.SealRemoteAction(client,remotetransport.RemoteAction{
+  RequestID:legacyID,Operation:remotetransport.RemoteActionTasksWorkflowAudit,
+ })
+ if err!=nil{t.Fatal(err)}
+ legacyFrame,err:=s.executeRemoteE2EEPing(context.Background(),session,agent,legacyRequest)
+ if err!=nil{t.Fatal(err)}
+ legacy,err:=remotetransport.OpenRemoteWorkflowAudit(client,legacyFrame,legacyID)
+ if err!=nil||len(legacy.Items)!=1||legacy.Items[0].Status!="completed"||
+  legacy.Items[0].RunID!=""||legacy.More{
+  t.Fatalf("legacy audit exposed skipped/new fields: %+v %v",legacy,err)
+ }
+ if session.workflowAuditPageReady||session.workflowAuditPageCursor!=0||
+  len(session.workflowAuditPageItems)!=0{
+  t.Fatal("v1 audit incorrectly authorized a modern continuation cursor")
+ }
 }
 
 func TestRemoteWorkflowFailureRecoveryKeepsFirstExitIfRecoveryAlsoFails(t *testing.T){
