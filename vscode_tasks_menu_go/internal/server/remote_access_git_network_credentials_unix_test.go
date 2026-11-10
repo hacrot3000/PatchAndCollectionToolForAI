@@ -5,6 +5,7 @@ package server
 import (
  "context"
  "encoding/pem"
+ "io"
  "net/http"
  "net/http/httptest"
  "os"
@@ -187,6 +188,30 @@ func TestRemoteGitNetworkMutationsRejectHTTPSRedirects(t *testing.T){
  run("config","branch."+branch+".remote","origin")
  run("config","branch."+branch+".merge","refs/heads/"+branch)
  run("update-ref","refs/remotes/origin/"+branch,"HEAD")
+ // Git may reject an action during its strict preflight, even BEFORE
+ // it opens HTTPS. Such a denial is safe and must not be misclassified
+ // as a redirect failure. First prove that this exact Git/certificate
+ // fixture performs an HTTPS request, and that the actual pinned flags
+ // prevent Git from following its 302 to a second origin.
+ originURL:=origin.URL+"/repo.git"
+ control:=exec.Command(gitPath,
+  "-c","http.sslVerify=true",
+  "-c","http.followRedirects=false",
+  "-c","http."+originURL+".sslVerify=true",
+  "-c","http."+originURL+".followRedirects=false",
+  "-C",s.Workspace,"ls-remote",originURL)
+ control.Env=[]string{
+  "PATH="+os.Getenv("PATH"),"HOME="+os.Getenv("HOME"),
+  "LC_ALL=C","GIT_TERMINAL_PROMPT=0","GCM_INTERACTIVE=never",
+  "GIT_CONFIG_NOSYSTEM=1","GIT_CONFIG_GLOBAL="+os.DevNull,
+ }
+ control.Stdout=io.Discard
+ control.Stderr=io.Discard
+ if err:=control.Run();err==nil{
+  t.Fatal("redirect fixture unexpectedly succeeded without following the redirect")
+ }
+ if n:=original.Load();n==0{t.Fatal("Git fixture never contacted the HTTPS origin")}
+ if n:=unexpected.Load();n!=0{t.Fatalf("pinned Git flags followed HTTPS redirect: %d",n)}
  for _,action:=range []struct{
   name string
   invoke func()error
@@ -196,10 +221,14 @@ func TestRemoteGitNetworkMutationsRejectHTTPSRedirects(t *testing.T){
   {"push",func()error{_,e:=s.executeRemoteGitPush(context.Background(),session);return e}},
  }{
   t.Run(action.name,func(t *testing.T){
-   before:=original.Load()
-   if err:=action.invoke();err==nil{t.Fatal("Git followed redirect and succeeded")}
-   if original.Load()<=before{t.Fatal("Git did not reach test HTTPS origin")}
-   if n:=unexpected.Load();n!=0{t.Fatalf("Git followed a redirect to another HTTPS origin: %d",n)}
+   if err:=action.invoke();err==nil{
+    t.Fatal("Git network mutation unexpectedly succeeded against a 302 origin")
+   }
+   // A safely denied preflight needs not contact the server at all.
+   // Any network request that IS made must stay at the chosen origin.
+   if n:=unexpected.Load();n!=0{
+    t.Fatalf("%s followed a redirect to an unauthorized HTTPS origin: %d",action.name,n)
+   }
   })
  }
 }

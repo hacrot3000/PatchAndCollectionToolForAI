@@ -101,6 +101,9 @@ jobs:
       - name: Go test identity and protocol
         working-directory: vscode_tasks_menu_go
         run: go test -race ./internal/remoteclientkey ./internal/remoteportal ./internal/remoterelay ./internal/remotetransport ./cmd/taskdeck_remote_probe ./cmd/taskdeck_remote_login ./cmd/taskdeck_remote_relay
+      - name: Preflight Git HTTPS TLS, redirect and credential hardening
+        working-directory: vscode_tasks_menu_go
+        run: go test -race ./internal/server -run 'TestRemoteGitNetworkMutations(NeverExecuteRepositoryCredentialHelpers|RejectHTTPSRedirects)' -count=1 -timeout=90s
       - name: Verify main's offline Pull review via authenticated GitStatus E2EE
         working-directory: vscode_tasks_menu_go
         run: go test -race ./internal/remotetransport ./internal/server ./cmd/taskdeck_remote_login -run 'Test(RemoteGitPullReview|TrustedGUIGitPullReview)' -count=1 -timeout=90s
