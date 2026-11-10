@@ -222,18 +222,27 @@ func (s *Server) startRemoteLongTask(
   }else if processErr!=nil{status="failed"}
   // A revocation cannot prevent a host-local final audit attempt.
   s.auditRemoteTaskRunFinish(session,taskID,status,exitCode,time.Since(job.started))
-  job.mu.Lock()
-  job.status=status
-  job.exitCode=exitCode
-  job.mu.Unlock()
-  // Completion is observable only AFTER the workspace is safe for a
-  // new authenticated Git/task/PTY operation in another session.
-  job.workspaceRelease()
-  close(job.done)
-  select{case capture.notify<-struct{}{}:default:}
+  job.publishCompletion(status,exitCode)
   cancel()
  }()
  return nil
+}
+
+// Release the canonical workspace lease BEFORE making a final status
+// observable to Poll. The previous order published completed/failed/
+// cancelled and only then released the OS lock, so a GUI could receive
+// a terminal reply yet its next authenticated Task/Git action would be
+// spuriously denied as busy. Publication, done and capture notification
+// are ordered AFTER release; a running snapshot may still be returned
+// while the host is in the final cleanup phase.
+func (job *remoteLongTaskJob)publishCompletion(status string,exitCode int){
+ job.workspaceRelease()
+ job.mu.Lock()
+ job.status=status
+ job.exitCode=exitCode
+ job.mu.Unlock()
+ close(job.done)
+ select{case job.capture.notify<-struct{}{}:default:}
 }
 
 // Polling never starts a process or accepts an offset/filename from client.

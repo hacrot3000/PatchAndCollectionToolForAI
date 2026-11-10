@@ -299,3 +299,68 @@ func TestRemoteLongTaskCancelRejectsAlreadyCompletedJob(t *testing.T){
  }
  if err:=session.clearRemoteLongTask(id);err!=nil{t.Fatal(err)}
 }
+
+
+// A job's final status is a promise that its workspace is safe for the
+// next authenticated operation. Exercise the exact admission ordering by
+// deliberately blocking release of the OS lease; a completed process may
+// already have exited but Poll must not report completed/failed/cancelled
+// before the release function returns.
+func TestRemoteLongTaskFinalStateWaitsForWorkspaceRelease(t *testing.T){
+ for _,finalState:=range []struct{status string;code int}{
+  {"completed",0},{"failed",1},{"cancelled",-1},{"timed_out",-1},
+ }{
+  t.Run(finalState.status,func(t *testing.T){
+   releaseStarted:=make(chan struct{})
+   releaseAllowed:=make(chan struct{})
+   job:=&remoteLongTaskJob{
+    taskID:41,status:"running",exitCode:-1,
+    done:make(chan struct{}),
+    capture:newRemoteLongTaskCapture(),
+    workspaceRelease:func(){
+     close(releaseStarted)
+     <-releaseAllowed
+    },
+   }
+   finished:=make(chan struct{})
+   go func(){
+    job.publishCompletion(finalState.status,finalState.code)
+    close(finished)
+   }()
+   select{
+   case <-releaseStarted:
+   case <-time.After(2*time.Second):
+    close(releaseAllowed)
+    t.Fatal("completion never began workspace release")
+   }
+   job.mu.Lock()
+   premature,exitCode:=job.status,job.exitCode
+   job.mu.Unlock()
+   if premature!="running"||exitCode!=-1{
+    close(releaseAllowed)
+    t.Fatalf("terminal status visible before workspace release: %q / %d",premature,exitCode)
+   }
+   select{
+   case <-job.done:
+    close(releaseAllowed)
+    t.Fatal("job.done closed while the workspace was still leased")
+   default:
+   }
+   close(releaseAllowed)
+   select{
+   case <-finished:
+   case <-time.After(2*time.Second):t.Fatal("completion stuck after workspace release")
+   }
+   job.mu.Lock()
+   observed,code:=job.status,job.exitCode
+   job.mu.Unlock()
+   if observed!=finalState.status||code!=finalState.code{
+    t.Fatalf("unexpected completed job: %q exit=%d",observed,code)
+   }
+   select{
+   case <-job.done:
+   default:t.Fatal("completion did not close job.done after workspace release")
+   }
+  })
+ }
+}
