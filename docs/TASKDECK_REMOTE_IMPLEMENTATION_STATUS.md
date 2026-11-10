@@ -3236,3 +3236,74 @@ shared-PHP deployment validation remain required.
   host testing does not reopen an already implemented
   source feature. The production feature gate remains
   `remote_control_available=false` / LIVE NO-GO.
+
+
+
+## 2026-11-10 — main: task Poll deadline delivery, HTTPS Git TLS safety, completed-job Auto Poll
+
+- **Baseline:** Both Go Agent and PHP Portal CI completed SUCCESS for
+  prior compiled source `cd2a4dbaa7`. Later Go workflows were cancelled
+  by subsequent pushes due `cancel-in-progress`; cancellation is not
+  a test pass or a test failure.
+- **Commit `28806235` (host long task):** The bounded seven-second
+  `pollRemoteLongTask` wait path used to return only the job
+  state when its deadline expired. If the single capture notification
+  had been consumed by a different concurrent reader, the capture
+  might already contain a new text chunk, but Poll returned empty
+  output and `more=false`. The timeout branch now reacquires
+  `job.mu`, reads one bounded text-safe output chunk from the
+  capture, advances its cursor exactly once and includes
+  `truncated` / `more` flags before responding. No client
+  offset, filename or unbounded wait was added. A deterministic
+  Unix test models an unnotified capture write with a short
+  internal wait and checks data delivery, cursor advancement
+  and no replay.
+- **Commit `7be065b5` (Git Pull/Fetch/Push HTTPS):** Generic
+  `-c http.sslVerify=true` alone is NOT sufficient to block
+  repository-local `http.<url>.sslVerify=false` config, as
+  Git's per-URL matching may outrank the generic option.
+  Added `remoteGitNoRepositoryTLSOverride` to fail closed
+  when a workspace Git config or included config sets ANY
+  `http[.<url>].sslVerify` override. A bounded Git config
+  scan uses the fixed host environment with system/global
+  config disabled; only a no-matches exit status permits
+  network access. Pull/Fetch/Push additionally set the
+  generic and exact HTTPS remote's `sslVerify=true` at
+  invocation. Approved custom CA bundles may be configured
+  without disabling verification. Existing live local HTTPS
+  401 tests now use the test server's PEM certificate as
+  trusted CA rather than `http.sslVerify=false`; they
+  also assert a global and more-specific URL downgrade are
+  denied before contacting the server. Credential-helper
+  non-execution is still covered.
+- **Commit `35bb020e` (native GUI):** Automatic long-job output
+  draining previously reserved Cancel + Poll + Clear for a
+  job even AFTER a final `completed` / `failed` /
+  `cancelled` / `timed_out` state. This stopped automatic
+  capture delivery prematurely when `more=true`.
+  `mayAutoPollLongTask` now reserves three rounds only
+  for a still-running, not-yet-cancelled job; once the
+  Cancel ACK or final state has arrived, it preserves only
+  one round for explicit Clear. Scheduling and queued
+  timer execution share the predicate and typed host RBAC
+  admission. An updated DOM regression requires a
+  finished job to automatically retrieve its remaining
+  buffered tail and not schedule an extra Poll after
+  `more=false`. Declining to discard unread output
+  never sends Clear.
+- **Focused verification:** Five browser-native mock-DOM
+  tests PASSED after the final source commit: task
+  lifecycle, long-running task stream, pending cancellation,
+  automatic output polling, and Terminal PTY.
+  Go Agent / PHP Portal Actions on compiled source
+  `35bb020e` were running at handoff. Do NOT call the
+  new host Go tests green until CI completes. This handoff
+  changes only markdown, not compiled source.
+- **Remaining source order:** task GUI edge-case review;
+  Git Pull / Commit / Push safety checks; Terminal PTY;
+  other Git review and interaction; GUI Files/Editor/
+  Patch/Collection; and remaining Remote security/RBAC/
+  bounded-data work. Core features already finished in
+  code count as complete without independent LIVE
+  deployment. Production Remote remains
+  `remote_control_available=false` / LIVE NO-GO.
