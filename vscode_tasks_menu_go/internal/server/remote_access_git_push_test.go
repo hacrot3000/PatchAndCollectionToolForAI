@@ -169,6 +169,16 @@ func TestRemoteGitPushFastForwardAndRejectRemoteDivergence(t *testing.T){
  run(s.Workspace,"remote","add","origin","ssh://git@example.invalid/team/repo.git")
  run(s.Workspace,"config","branch."+branch+".remote","origin")
  run(s.Workspace,"config","branch."+branch+".merge","refs/heads/"+branch)
+ // Ensure a repository's configured push options, GPG signing and
+ // recursive submodule policy cannot expand the trusted E2EE action.
+ run(s.Workspace,"config","push.pushOption","TASKDECK_UNAPPROVED_OPTION")
+ run(s.Workspace,"config","push.gpgSign","true")
+ run(s.Workspace,"config","push.recurseSubmodules","on-demand")
+ run(s.Workspace,"--git-dir",bare,"config","receive.advertisePushOptions","true")
+ optionLog:=filepath.Join(t.TempDir(),"received-options")
+ hook:="#!/bin/sh\nprintf '%s\\n' \"$GIT_PUSH_OPTION_COUNT\" > "+strconv.Quote(optionLog)+
+  "\nif [ \"$GIT_PUSH_OPTION_COUNT\" != \"0\" ]; then printf '%s\\n' \"$GIT_PUSH_OPTION_0\" >> "+strconv.Quote(optionLog)+"; fi\ncat >/dev/null\n"
+ if err:=os.WriteFile(filepath.Join(bare,"hooks","pre-receive"),[]byte(hook),0700);err!=nil{t.Fatal(err)}
  base:=run(s.Workspace,"rev-parse","HEAD")
  run(s.Workspace,"update-ref","refs/remotes/origin/"+branch,base)
  if err:=os.WriteFile(file,[]byte("second\n"),0600);err!=nil{t.Fatal(err)}
@@ -183,9 +193,21 @@ func TestRemoteGitPushFastForwardAndRejectRemoteDivergence(t *testing.T){
  commandScript:="#!/bin/sh\nexec "+strconv.Quote(gitPath)+" receive-pack "+strconv.Quote(bare)+"\n"
  if err:=os.WriteFile(ssh,[]byte(commandScript),0700);err!=nil{t.Fatal(err)}
  t.Setenv("PATH",mockBin+string(os.PathListSeparator)+os.Getenv("PATH"))
+ // Unhardened Git must demonstrably forward the configured push option.
+ // The control is pushed only to an unrelated temporary test-only ref.
+ run(s.Workspace,"-c","push.gpgSign=false",
+  "push","origin","HEAD:refs/heads/unapproved-control")
+ uncontrolled,err:=os.ReadFile(optionLog)
+ if err!=nil||!strings.Contains(string(uncontrolled),"TASKDECK_UNAPPROVED_OPTION"){
+  t.Fatalf("Git fixture did not forward repository push option: %q %v",uncontrolled,err)
+ }
  result,err:=s.executeRemoteGitPush(context.Background(),session)
  if err!=nil||result.Head!=head{
   t.Fatalf("bounded fast-forward push failed: %+v %v",result,err)
+ }
+ authorized,err:=os.ReadFile(optionLog)
+ if err!=nil||strings.TrimSpace(string(authorized))!="0"{
+  t.Fatalf("E2EE Git Push forwarded unapproved push options: %q %v",authorized,err)
  }
  got:=run(s.Workspace,"--git-dir",bare,"rev-parse","refs/heads/"+branch)
  if got!=head{t.Fatalf("pushed HEAD mismatch: %s != %s",got,head)}

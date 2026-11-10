@@ -120,6 +120,12 @@ func (s *Server) executeRemoteGitPush(ctx context.Context,
   "-c","protocol.ext.allow=never",
   "-c","protocol.file.allow=never",
   "-c","push.followTags=false",
+  // Repo-owned push.pushOption values are sent to remote receive hooks.
+  // Reset them, disable repo-configured GPG executables, and forbid
+  // recursive pushes to submodules beyond this audited upstream branch.
+  "-c","push.pushOption=",
+  "-c","push.gpgSign=false",
+  "-c","push.recurseSubmodules=no",
   "-C",root,
  }
  run:=func(callCtx context.Context,args ...string)(string,error){
@@ -193,7 +199,8 @@ func (s *Server) executeRemoteGitPush(ctx context.Context,
  // no tag ref; hooks and non-fast-forward updates remain disabled.
  _,err=run(pushCtx,
   "-c","remote."+remote+".mirror=false",
-  "push","--no-verify","--no-tags","--receive-pack=git-receive-pack",
+  "push","--no-verify","--no-tags","--no-signed",
+  "--recurse-submodules=no","--receive-pack=git-receive-pack",
   remote,head+":"+localRef)
  if err!=nil||pushCtx.Err()!=nil||session.closed.Load(){return empty,denied}
  return remotetransport.RemoteGitPushResult{Head:head},nil
