@@ -294,6 +294,16 @@ func (job *remoteLongTaskJob) updateWorkflowStep(index,total,attempt,attemptTota
 func (session *remoteTaskDeckSession) pollRemoteLongTask(
  ctx context.Context,taskID int,
 )(remoteLongTaskSnapshot,error){
+ return session.pollRemoteLongTaskWithWait(ctx,taskID,remoteLongTaskPollWait)
+}
+
+// A bounded wait is injected only by host-side regression tests; the E2EE
+// action always uses remoteLongTaskPollWait. A missed/coalesced capture
+// notification must not turn an already buffered chunk into a false empty
+// timeout response.
+func (session *remoteTaskDeckSession)pollRemoteLongTaskWithWait(
+ ctx context.Context,taskID int,wait time.Duration,
+)(remoteLongTaskSnapshot,error){
  denied:=remoteLongTaskSnapshot{}
  if session==nil||ctx==nil||ctx.Err()!=nil||session.closed.Load(){
   return denied,remotetransport.ErrRemoteActionDenied
@@ -302,7 +312,7 @@ func (session *remoteTaskDeckSession) pollRemoteLongTask(
  job:=session.longTask
  session.longTaskMu.Unlock()
  if job==nil||job.taskID!=taskID{return denied,remotetransport.ErrRemoteActionDenied}
- deadlineCtx,cancel:=context.WithTimeout(ctx,remoteLongTaskPollWait)
+ deadlineCtx,cancel:=context.WithTimeout(ctx,wait)
  defer cancel()
  for{
   // Serialize snapshot and cursor consumption. Two concurrent native GUI
@@ -347,7 +357,21 @@ func (session *remoteTaskDeckSession) pollRemoteLongTask(
     StepDetails:strings.Join(job.workflowStepDetails,"|"),
    }
    if state.Step==0{state.StepHistory="";state.StepDetails=""}
+   // A notification is coalesced (one-slot channel) and can be consumed
+   // by another concurrent Poll. Recheck the capture under the same
+   // cursor lock before returning an empty 7-second timeout snapshot.
+   limit:=remoteLongTaskMaxChunkBytes
+   if state.Step>0{limit=64}
+   chunk,next,truncated,more:=job.capture.nextBounded(job.outputCursor,limit)
+   if ctx.Err()!=nil||session.closed.Load(){
+    job.mu.Unlock()
+    return denied,remotetransport.ErrRemoteActionDenied
+   }
+   job.outputCursor=next
    job.mu.Unlock()
+   state.Output=chunk
+   state.Truncated=truncated
+   state.More=more
    return state,nil
   case <-job.capture.notify:
   case <-job.done:

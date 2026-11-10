@@ -364,3 +364,56 @@ func TestRemoteLongTaskFinalStateWaitsForWorkspaceRelease(t *testing.T){
   })
  }
 }
+
+
+// A capture notification can be consumed by a different concurrent poll;
+// the remaining waiter must still see newly buffered output at its timeout.
+// The test injects an unnotified capture write to deterministically model
+// this coalescing, without waiting the production seven-second deadline.
+func TestRemoteLongTaskPollTimeoutRechecksCaptureAndAdvancesCursor(t *testing.T){
+ job:=&remoteLongTaskJob{
+  taskID:71,status:"running",exitCode:-1,
+  done:make(chan struct{}),
+  capture:newRemoteLongTaskCapture(),
+ }
+ session:=&remoteTaskDeckSession{longTask:job}
+ type observed struct{
+  result remoteLongTaskSnapshot
+  err error
+ }
+ reply:=make(chan observed,1)
+ go func(){
+  progress,err:=session.pollRemoteLongTaskWithWait(
+   context.Background(),71,100*time.Millisecond)
+  reply<-observed{progress,err}
+ }()
+ // Wait until the first empty snapshot has entered its wait. A direct
+ // capture write intentionally carries no notify, as when another
+ // concurrent Poll consumed the single coalesced signal.
+ time.Sleep(15*time.Millisecond)
+ job.capture.mu.Lock()
+ job.capture.data=append(job.capture.data,[]byte("unnotified-output")...)
+ job.capture.mu.Unlock()
+ select{
+ case got:=<-reply:
+  if got.err!=nil||got.result.Status!="running"||
+   got.result.Output!="unnotified-output"||got.result.More{
+   t.Fatalf("timeout ignored output that arrived during wait: %+v %v",got.result,got.err)
+  }
+ case <-time.After(time.Second):
+  t.Fatal("bounded long-task Poll never returned")
+ }
+ job.mu.Lock()
+ consumed:=job.outputCursor
+ job.mu.Unlock()
+ if consumed!=len("unnotified-output"){
+  t.Fatalf("timeout delivered data without advancing cursor: %d",consumed)
+ }
+ // Subsequent reads cannot replay the already delivered chunk.
+ doneCtx,cancel:=context.WithTimeout(context.Background(),300*time.Millisecond)
+ defer cancel()
+ second,err:=session.pollRemoteLongTaskWithWait(doneCtx,71,5*time.Millisecond)
+ if err!=nil||second.Output!=""||second.More{
+  t.Fatalf("long-task output was replayed after timed poll: %+v %v",second,err)
+ }
+}
