@@ -2485,15 +2485,28 @@ const trustedGUIJavaScript = `'use strict';
             data.head.slice(0,12)+'. Đọc lại Git status để cập nhật trạng thái.';
         }
         if(endpoint.startsWith('/api/terminal-')){
+          const isPTYOpen=endpoint==='/api/terminal-open';
+          const isPTYPoll=endpoint==='/api/terminal-poll';
+          const isPTYClose=endpoint==='/api/terminal-close';
+          const isPTYWrite=endpoint==='/api/terminal-write';
+          const isPTYResize=endpoint==='/api/terminal-resize';
+          // Only Poll can return captured output or report "exited".
+          // Open/Write/Resize acknowledge running; Close acknowledges closed.
+          // Poll never closes/clears a host PTY lease and an exited shell
+          // cannot spontaneously become running again.
+          const expectsRunning=isPTYOpen||isPTYWrite||isPTYResize;
           if(data.remote_control_available!==false||
             typeof data.state!=='string'||
             !['running','exited','closed'].includes(data.state)||
             typeof data.output!=='string'||
             typeof data.truncated!=='boolean'||typeof data.more!=='boolean'||
             !validTerminalOutput(data.output)||
-            (data.state==='closed'&&(data.output!==''||data.more))||
-            (endpoint==='/api/terminal-open'&&data.state!=='running')||
-            (endpoint==='/api/terminal-close'&&data.state!=='closed')){
+            (expectsRunning&&data.state!=='running')||
+            (isPTYClose&&data.state!=='closed')||
+            (isPTYPoll&&(terminalState==='closed'||
+              data.state==='closed'||
+              (terminalState==='exited'&&data.state!=='exited')))||
+            (!isPTYPoll&&(data.output!==''||data.more||data.truncated))){
             throw new Error('Kết quả Terminal E2EE không hợp lệ');
           }
           terminalState=data.state;

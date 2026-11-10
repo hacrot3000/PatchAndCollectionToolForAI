@@ -24,7 +24,7 @@ const get=id=>{
  return elements.get(id);
 };
 const token='0123456789abcdef'.repeat(4);
-let budget=16,confirmed=false,terminalCalls=[];
+let budget=16,confirmed=false,terminalCalls=[],pollState='running';
 const fetch=async (path,options)=>{
  assert.equal(options.method,'POST');
  assert.equal(options.headers['X-TaskDeck-Local-Capability'],token);
@@ -51,8 +51,10 @@ const fetch=async (path,options)=>{
    assert.deepEqual(payload,{cols:120,rows:32});
   }else assert.equal(payload,null);
   return {ok:true,json:async()=>({
-   ok:true,state:path==='/api/terminal-close'?'closed':'running',
-   output:path==='/api/terminal-poll'?'remote-ready\n':'',
+   ok:true,state:path==='/api/terminal-close'?'closed':
+     path==='/api/terminal-poll'?pollState:'running',
+   output:path==='/api/terminal-poll'&&pollState!=='closed'?
+     (pollState==='exited'?'shell-finished\n':'remote-ready\n'):'',
    more:false,truncated:false,remote_control_available:false,
    remaining:--budget,
   })};
@@ -113,6 +115,13 @@ const flush=async()=>{for(let i=0;i<80;i++)await Promise.resolve()};
  assert.equal(JSON.parse(terminalCalls[4][1]).input,String.fromCharCode(3));
  get('terminal-eof').click();await flush();
  assert.equal(JSON.parse(terminalCalls[5][1]).input,String.fromCharCode(4));
+ pollState='exited';
+ get('terminal-poll').click();await flush();
+ assert.match(get('terminal-output').textContent,/shell-finished/);
+ assert.equal(get('terminal-send').disabled,true,
+   'exited PTY still accepted shell input');
+ assert.equal(get('terminal-close').disabled,false,
+   'exited PTY must remain closeable');
  get('terminal-close').click();await flush();
  assert.equal(get('session-activity').textContent,'Không có tác vụ đang chạy');
  assert.equal(get('terminal-send').disabled,true);
@@ -120,6 +129,17 @@ const flush=async()=>{for(let i=0;i<80;i++)await Promise.resolve()};
   for(const id of ['git-pull','git-commit','git-push']){
     assert.equal(get(id).disabled,false,id+' remained disabled after PTY close');
   }
+ // A malicious or stale localhost bridge must not persuade the client
+ // that terminal.poll itself closed the host lease. Even if the local
+ // HTTP request is 200, the typed lifecycle violation fails closed.
+ pollState='closed';
+ get('terminal-open').click();await flush();
+ assert.equal(get('terminal-open').disabled,true);
+ get('terminal-poll').click();await flush();
+ assert.match(get('output').textContent,/Kết quả Terminal E2EE không hợp lệ/,
+  'terminal.poll incorrectly accepted an impossible closed state');
+ assert.equal(get('terminal-output').textContent,'',
+  'invalid PTY state must scrub authenticated terminal output');
  get('disconnect').click();await flush();
  assert.equal(get('terminal-output').textContent,'','logout retained PTY output');
  assert.equal(get('terminal-input').value,'','logout retained typed shell input');
