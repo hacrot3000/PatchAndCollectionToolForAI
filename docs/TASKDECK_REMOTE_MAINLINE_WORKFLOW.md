@@ -590,3 +590,14 @@ real-host testing are considered **code complete**.
   timeout recheck, cursor chưa Seal không được tăng, và timeout
   có output chưa Seal. Không chờ chạy toàn bộ test Go sau cùng
   mới phát hiện mất output trong giao thức task.
+
+### 2026-11-10 — Hồi quy dispatcher E2EE Seal lỗi
+
+- Bổ sung test thực tế đi xuyên `executeRemoteE2EEPing` với
+  client/agent E2EE đã xác thực, job hoàn tất và một đoạn output đang chờ.
+  Cố tình tạo tiến độ workflow có `step_status` không hợp lệ để bộ
+  mã hóa phản hồi từ chối. Xác nhận **không trả frame** và
+  `outputCursor` vẫn bằng 0; sửa metadata rồi Poll lần hai phải
+  trả đúng nguyên đoạn output, Poll lần ba không trả trùng.
+- Đưa test này vào bước `go test -race` preflight đầu pipeline,
+  cùng với test deferred cursor. Không thay đổi schema hay host opt-in.

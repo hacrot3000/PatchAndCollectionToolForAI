@@ -28,6 +28,71 @@ func longTaskE2EEAction(
  return remotetransport.OpenRemoteLongTaskProgress(client,frame,requestID,taskID)
 }
 
+
+func TestRemoteLongTaskE2EEFailedSealPreservesOutputCursor(t *testing.T){
+ t.Setenv("TASKDECK_REMOTE_TASKS_PREVIEW","1")
+ t.Setenv("TASKDECK_REMOTE_TASKS_RUN","1")
+ t.Setenv("TASKDECK_REMOTE_TASKS_LONG","1")
+ s,session,client,agent:=remoteTaskOperatorFixture(t)
+ capture:=newRemoteLongTaskCapture()
+ const output="AUTHENTICATED-TAIL"
+ if _,err:=capture.Write([]byte(output));err!=nil{t.Fatal(err)}
+ job:=&remoteLongTaskJob{
+  taskID:91,status:"completed",exitCode:0,
+  cancel:func(){},workspaceRelease:func(){},
+  done:make(chan struct{}),capture:capture,
+  workflowStep:1,workflowTotal:2,
+  workflowAttempt:1,workflowAttemptTotal:1,
+  workflowStepStatus:"invalid", // Fails the actual typed AEAD sealer.
+  workflowStepHistory:"C-",
+  workflowStepDetails:[]string{"0:0","-"},
+ }
+ close(job.done)
+ session.longTaskMu.Lock()
+ session.longTask=job
+ session.longTaskMu.Unlock()
+ // This is an authenticated E2EE Poll through the real dispatcher,
+ // not a unit test that merely omits a commit closure.
+ invalidID:="71717171717171717171717171717171"
+ frame,err:=remotetransport.SealRemoteAction(client,remotetransport.RemoteAction{
+  RequestID:invalidID,Operation:remotetransport.RemoteActionTasksPoll,TaskID:91,
+ })
+ if err!=nil{t.Fatal(err)}
+ sealed,err:=s.executeRemoteE2EEPing(context.Background(),session,agent,frame)
+ if err==nil||len(sealed)!=0{
+  t.Fatalf("invalid workflow metadata unexpectedly sealed: %d %v",len(sealed),err)
+ }
+ job.mu.Lock()
+ cursor:=job.outputCursor
+ job.workflowStepStatus="completed"
+ job.mu.Unlock()
+ if cursor!=0{
+  t.Fatalf("failed E2EE Seal consumed %d output bytes",cursor)
+ }
+ // The channel and output must survive a rejected local response. The
+ // next correctly typed Poll delivers the exact undelivered bytes.
+ restored,err:=longTaskE2EEAction(t,s,session,client,agent,
+  remotetransport.RemoteActionTasksPoll,91,0,"",
+  "72727272727272727272727272727272")
+ if err!=nil||restored.Status!="completed"||
+  restored.StepStatus!="completed"||
+  restored.Output!=output||restored.More{
+  t.Fatalf("valid E2EE Poll failed to replay unsealed output: %+v %v",restored,err)
+ }
+ job.mu.Lock()
+ cursor=job.outputCursor
+ job.mu.Unlock()
+ if cursor!=len(output){
+  t.Fatalf("successful Seal failed to commit output cursor: %d",cursor)
+ }
+ again,err:=longTaskE2EEAction(t,s,session,client,agent,
+  remotetransport.RemoteActionTasksPoll,91,0,"",
+  "73737373737373737373737373737373")
+ if err!=nil||again.Output!=""||again.More{
+  t.Fatalf("already sealed output was delivered twice: %+v %v",again,err)
+ }
+}
+
 func TestRemoteLongTaskAuthenticatedStartPollCancelClear(t *testing.T){
  t.Setenv("TASKDECK_REMOTE_TASKS_PREVIEW","1")
  t.Setenv("TASKDECK_REMOTE_TASKS_RUN","1")
