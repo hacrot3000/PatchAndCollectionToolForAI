@@ -15,7 +15,7 @@ class Element{
  setAttribute(k,v){this.attributes[k]=v}
  getAttribute(k){return this.attributes[k]||null}
  append(...els){this.children.push(...els)}
- replaceChildren(){this.children=[]}
+ replaceChildren(...nodes){this.children=nodes}
  click(){assert.ok(this.listeners.click,'missing click '+this.id);this.listeners.click()}
 }
 const elements=new Map();
@@ -104,7 +104,7 @@ const flush=async()=>{for(let i=0;i<45;i++)await Promise.resolve()};
  assert.equal(get('long-task-cancel').disabled,false);
  assert.match(get('session-activity').textContent,/Task 123 đang chạy/);
  assert.equal(get('task-run-history-list').children.length,1);
- assert.match(get('task-run-history-list').children[0].children[0].textContent,
+ assert.match(get('task-run-history-list').children[0].children[0].children[0].textContent,
   /Task 123 .* dài .* started/);
  assert.equal(get('task-run-history-clear').disabled,true,
   'active job result must not be cleared while it is the only row');
@@ -115,7 +115,7 @@ const flush=async()=>{for(let i=0;i<45;i++)await Promise.resolve()};
  get('task-run-history-clear').click();await flush();
  assert.equal(get('task-run-history-list').children.length,1,
   'clearing old results destroyed the active host job row');
- assert.match(get('task-run-history-list').children[0].children[0].textContent,
+ assert.match(get('task-run-history-list').children[0].children[0].children[0].textContent,
   /Task 123 .* dài .* started/);
  assert.equal(get('task-run-history-clear').disabled,true,
   'the active-only result is still being updated by Poll');
@@ -133,7 +133,7 @@ const flush=async()=>{for(let i=0;i<45;i++)await Promise.resolve()};
  get('long-task-poll').click();await flush();
  assert.match(get('long-task-output').textContent,/cancelled/);
  assert.match(get('session-activity').textContent,/Task 123 đã kết thúc \(cancelled\) — chờ dọn job/);
- assert.match(get('task-run-history-list').children[0].children[0].textContent,
+ assert.match(get('task-run-history-list').children[0].children[0].children[0].textContent,
   /Task 123 .* dài .* cancelled/);
  const historyEntry=get('task-run-history-list').children[0];
  assert.equal(historyEntry.children.length,2,
@@ -142,9 +142,9 @@ const flush=async()=>{for(let i=0;i<45;i++)await Promise.resolve()};
   'history must capture exactly the authenticated output once');
  assert.equal(historyEntry.children[1].children.length,0,
   'history output must be textContent, never injected as HTML');
- assert.equal(historyEntry.children[0].children.length,1,
+ assert.equal(historyEntry.children[0].children.length,2,
   'history copy action should not replace the literal output pre');
- const historyCopy=historyEntry.children[0].children[0];
+ const historyCopy=historyEntry.children[0].children[1];
  historyCopy.click();await flush();
  assert.deepEqual(copied,['safe <script>alert(1)</script>',
   'safe <script>alert(1)</script>'],
@@ -169,7 +169,7 @@ const flush=async()=>{for(let i=0;i<45;i++)await Promise.resolve()};
  get('task-run-history-clear').click();await flush();
  assert.equal(get('task-run-history-list').children.length,1,
   'clearing prior execution removed the new in-progress execution');
- assert.match(get('task-run-history-list').children[0].children[0].textContent,
+ assert.match(get('task-run-history-list').children[0].children[0].children[0].textContent,
   /Task 123 .* dài .* started/);
  assert.equal(timers.length,2,
   'a stale timer incorrectly prevented scheduling the new execution');

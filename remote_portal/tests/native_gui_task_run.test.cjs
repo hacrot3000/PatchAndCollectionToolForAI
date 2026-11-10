@@ -17,7 +17,7 @@ class Element{
  setAttribute(k,v){this.attributes[k]=v}
  getAttribute(k){return this.attributes[k]||null}
  append(...nodes){this.children.push(...nodes)}
- replaceChildren(){this.children=[]}
+ replaceChildren(...nodes){this.children=nodes}
  click(){assert.ok(this.listeners.click,'missing click handler '+this.id);this.listeners.click()}
 }
 const elements=new Map();
@@ -120,11 +120,11 @@ const flush=async()=>{for(let n=0;n<30;n++)await Promise.resolve()};
  assert.equal(get('task-run-history').hidden,false);
  assert.equal(get('task-run-history-list').children.length,1);
  let entry=get('task-run-history-list').children[0];
- assert.match(entry.children[0].textContent,/Task 55 .* ngắn .* failed .* exit=7/);
- assert.match(entry.children[0].textContent,/Short <script>/);
- assert.equal(entry.children[0].children.length,1,
-  'task history should expose one explicit copy button');
- const copy=entry.children[0].children[0];
+ assert.match(entry.children[0].children[0].textContent,/Task 55 .* ngắn .* failed .* exit=7/);
+ assert.match(entry.children[0].children[0].textContent,/Short <script>/);
+ assert.equal(entry.children[0].children.length,2,
+  'task history must contain its stable caption and one copy button');
+ const copy=entry.children[0].children[1];
  assert.equal(copy.textContent,'Sao chép output');
  copy.click();await flush();
  assert.deepEqual(copied,['safe <script>alert(1)</script>'],

@@ -14,7 +14,7 @@ class Element{
  setAttribute(k,v){this.attributes[k]=v}
  getAttribute(k){return this.attributes[k]||null}
  append(...items){this.children.push(...items)}
- replaceChildren(){this.children=[]}
+ replaceChildren(...nodes){this.children=nodes}
  click(){assert.ok(this.listeners.click,'missing click '+this.id);this.listeners.click()}
 }
 const elements=new Map();

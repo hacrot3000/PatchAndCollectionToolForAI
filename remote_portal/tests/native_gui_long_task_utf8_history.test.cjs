@@ -23,7 +23,7 @@ class Element{
  setAttribute(k,v){this.attributes[k]=v}
  getAttribute(k){return this.attributes[k]||null}
  append(...children){this.children.push(...children)}
- replaceChildren(){this.children=[]}
+ replaceChildren(...nodes){this.children=nodes}
  click(){assert.ok(this.listeners.click,'missing click: '+this.id);this.listeners.click()}
 }
 const elements=new Map();
@@ -56,7 +56,7 @@ const flush=async()=>{for(let n=0;n<70;n++)await Promise.resolve()};
  assert.equal(item.truncated,true);
  let entry=get('task-run-history-list').children[0];
  assert.equal(entry.children[1].textContent,emoji.repeat(512));
- entry.children[0].children[0].click();await flush();
+ entry.children[0].children[1].click();await flush();
  assert.equal(copied.at(-1),emoji.repeat(512));
  // Old .slice(-2048) started at the LOW surrogate of this emoji.
  // New tail strips that whole rune and preserves the ASCII suffix.
@@ -65,7 +65,7 @@ const flush=async()=>{for(let n=0;n<70;n++)await Promise.resolve()};
  assert.doesNotMatch(item.output,/\uFFFD/);
  assert.equal(Buffer.byteLength(item.output,'utf8'),2047);
  entry=get('task-run-history-list').children[0];
- entry.children[0].children[0].click();await flush();
+ entry.children[0].children[1].click();await flush();
  assert.equal(copied.at(-1),'x'.repeat(2047));
  // Exactly 2048 UTF-8 bytes must not be marked clipped or mangled.
  item=sandbox.__exerciseTaskHistory(emoji+'x'.repeat(2044));
@@ -77,7 +77,7 @@ const flush=async()=>{for(let n=0;n<70;n++)await Promise.resolve()};
  assert.equal(item.output,'é'.repeat(1024));
  assert.equal(item.truncated,true);
  assert.equal(Buffer.byteLength(item.output,'utf8'),2048);
- const detached=get('task-run-history-list').children[0].children[0].children[0];
+ const detached=get('task-run-history-list').children[0].children[0].children[1];
  get('disconnect').click();await flush();
  const count=copied.length;
  detached.click();await flush();

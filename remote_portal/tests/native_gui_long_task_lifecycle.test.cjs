@@ -17,7 +17,7 @@ class Element {
  setAttribute(key,value){this.attributes[key]=value}
  getAttribute(key){return this.attributes[key]||null}
  append(...nodes){this.children.push(...nodes)}
- replaceChildren(){this.children=[]}
+ replaceChildren(...nodes){this.children=nodes}
  click(){
   assert.ok(this.listeners.click,'missing click handler: '+this.id);
   this.listeners.click();
