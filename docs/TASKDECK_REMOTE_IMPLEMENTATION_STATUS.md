@@ -3367,3 +3367,57 @@ shared-PHP deployment validation remain required.
   Windows-specific expansion remains excluded. Treat code-
   complete features as complete even without live deployment.
   Keep `remote_control_available=false`, LIVE NO-GO.
+
+
+
+## 2026-11-10 — main: Git redirect CI fixture and long-task completion cancellation race
+
+- **Earlier full CI diagnosis:** Go Agent run `42757807192` for
+  compiled `e0ef4df1` failed only at
+  `TestRemoteGitNetworkMutationsRejectHTTPSRedirects/pull` because
+  the regression demanded that EVERY rejected host Git mutation
+  contact the test origin. A strict local Pull preflight can deny
+  before any network request and correctly fail closed. This was a
+  test assumption, not evidence of a redirect leak.
+- **Commit `6a05c579` (Git HTTPS fixture + early CI):** A direct,
+  bounded local Git `ls-remote` now proves the HTTPS fixture
+  actually contacts its declared origin, and the exact hardened
+  flags reject 302 instead of contacting another origin. The
+  typed Remote Pull/Fetch/Push tests then require denial and
+  ZERO requests to the unauthorized target. A safe preflight
+  rejection does not have to contact the origin. Added an early
+  `go test -race` CI stage for credential helpers and redirects,
+  ahead of the expensive full server test. This early stage
+  completed successfully in run `42765785658`; that later
+  full workflow was cancelled by a new commit, not failed.
+  PHP Portal CI on `6a05c579` completed SUCCESS.
+- **Commit `47aa5031` (Task host finalization):** A long-task waiter
+  first released the exclusive workspace lease and only then
+  published its final status. During that intentional gap, the
+  cancel handler still saw `running` and could acknowledge
+  `cancel_requested` after the process had already exited.
+  The waiter now sets `job.finalizing=true` under `job.mu`
+  immediately after its process/audit completes, BEFORE
+  entering workspace release. `cancelRemoteLongTask` rejects
+  this finalizing phase, but Poll retains the previous running
+  status until workspace release is complete. The existing
+  deterministic Go regression blocks the release callback for
+  each of completed/failed/cancelled/timed_out, confirms
+  finalizing=true and a denied cancellation while waiting,
+  and verifies the final state and done channel are published
+  only after release. No workflow permissions or E2EE data
+  formats changed.
+- **This handoff CI update:** Added an early targeted race test
+  for the finalization barrier and Poll timeout capture cursor.
+  Go Agent full and PHP Portal CI on compiled `47aa5031`
+  were running when reviewed. Do not interpret in-progress
+  results as success. The current change is documentation
+  and CI configuration only.
+- **Remaining code priority:** final Remote Task GUI/host edge
+  cases, then Git Pull/Commit/Push and Terminal PTY, then
+  other Git review/branch actions, remaining GUI
+  Files/Editor/Patch/Collection, and further remote
+  policy/data bounds. Existing code-complete functionality
+  is not blocked by missing manual LIVE trials. The
+  production gate stays `remote_control_available=false`
+  and LIVE NO-GO.
