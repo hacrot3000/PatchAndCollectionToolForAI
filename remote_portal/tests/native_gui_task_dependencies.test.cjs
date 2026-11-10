@@ -22,7 +22,7 @@ class Element{
  addEventListener(name,fn){this.listeners[name]=fn}
  setAttribute(k,v){this.attributes[k]=v}
  getAttribute(k){return this.attributes[k]||null}
- replaceChildren(){this.children=[]}
+ replaceChildren(...nodes){this.children=nodes}
  append(...nodes){this.children.push(...nodes)}
  click(){assert.ok(this.listeners.click,'missing click '+this.id);this.listeners.click()}
 }
