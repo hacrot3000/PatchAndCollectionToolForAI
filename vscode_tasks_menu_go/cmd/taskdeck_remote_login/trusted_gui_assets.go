@@ -1296,6 +1296,18 @@ const trustedGUIJavaScript = `'use strict';
   // process group has exited and its workspace lease was released.
   // Preserve the completed job's output while allowing the next Git
   // operation; keep three E2EE rounds reserved for explicit Clear.
+  // Git index/HEAD changes invalidate previously decrypted diff pages.
+  // The host will enforce its own source snapshot; clearing the client
+  // cursor first prevents stale output and synthetic Next clicks.
+  function invalidateGitPatchReview(){
+    gitPatchText='';gitPatchPage=0;gitPatchMore=false;
+    gitPatchMode='head';
+    gitPatchOutput.textContent='';gitPatchOutput.hidden=true;
+  }
+  function invalidateGitBranchReview(){
+    gitSwitchPreview=null;gitSwitchPending=null;
+    gitDeletePreview=null;gitDeletePending=null;
+  }
   function gitJobBlocksMutation(){
     const finished=['completed','failed','cancelled','timed_out'].includes(longTaskState);
     return terminalState!=='closed'||
@@ -2616,6 +2628,7 @@ const trustedGUIJavaScript = `'use strict';
           gitRows=[];gitFiles.replaceChildren();gitBranch.textContent='';
           gitSnapshotCount=0;gitSnapshotBranch='';
           gitDeltaSummary.textContent='';gitDeltaList.replaceChildren();
+          invalidateGitPatchReview();invalidateGitBranchReview();
           output.textContent=want==='git.stage_file'?
             'Đã stage đúng file đã chọn. Đọc lại Git Status để tiếp tục.':
             'Đã unstage đúng file đã chọn. Working tree không thay đổi.';
@@ -2632,6 +2645,7 @@ const trustedGUIJavaScript = `'use strict';
           gitRows=[];gitFiles.replaceChildren();gitBranch.textContent='';
           gitSnapshotCount=0;gitSnapshotBranch='';
           gitDeltaSummary.textContent='';gitDeltaList.replaceChildren();
+          invalidateGitPatchReview();invalidateGitBranchReview();
           output.textContent=want==='git.stage_tracked'?
             'Đã stage thay đổi của các file được Git theo dõi. Không tự thêm untracked.':
             'Đã unstage toàn bộ index. Working tree không thay đổi.';
@@ -2714,7 +2728,10 @@ const trustedGUIJavaScript = `'use strict';
           gitRows=[];gitFiles.replaceChildren();gitBranch.textContent='';
           gitSnapshotCount=0;gitSnapshotBranch='';
           gitDeltaSummary.textContent='';gitDeltaList.replaceChildren();
-          if(data.updated)invalidateTaskPreviewAfterPull();
+          if(data.updated){
+            invalidateGitPatchReview();invalidateGitBranchReview();
+            invalidateTaskPreviewAfterPull();
+          }
           output.textContent=data.updated?
             'Git pull fast-forward thành công: '+data.before.slice(0,12)+
             ' → '+data.after.slice(0,12)+'. Đọc Git status để lấy trạng thái mới.':
@@ -2735,6 +2752,7 @@ const trustedGUIJavaScript = `'use strict';
           gitRows=[];gitFiles.replaceChildren();gitBranch.textContent='';
           gitSnapshotCount=0;gitSnapshotBranch='';
           gitDeltaSummary.textContent='';gitDeltaList.replaceChildren();
+          invalidateGitPatchReview();invalidateGitBranchReview();
           output.textContent='Đã commit nội dung đã stage trên host: '+
             data.after.slice(0,12)+'. Đọc lại Git status để cập nhật.';
         }

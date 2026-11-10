@@ -753,3 +753,10 @@ real-host testing are considered **code complete**.
 - Giảm mức bảo lưu quota **chỉ cho mutation Git** khi Agent đã xác nhận trạng thái terminal của job và `more=false`. Với hai lượt E2EE còn lại, người dùng có thể Git một lần, vẫn giữ lượt cuối để Clear. Nếu còn output chưa đọc (`more=true`) ở mức quota thấp, hoặc job vẫn chạy/đang finalizing, Git vẫn bị khóa.
 - Giữ ba lượt để Cancel/Poll/Clear trong vòng đời job đang hoạt động. Các thao tác task/PTY khác vẫn chặn đến khi Clear; không thay đổi host RBAC, E2EE, `session.longTask`, workflow hay nút Poll.
 - Dùng chung danh sách endpoint Git chính xác cho khóa mutation và khóa quota để tránh nới lỏng nhầm bất kỳ route nào. Test native giả lập quota=2: Git hợp lệ khi job completed + hết output và tiếp đó Clear thành công, nhưng không được Git khi vẫn còn output cần Poll/Clear.
+
+## 2026-11-10 — Xóa Git diff/review lỗi thời sau mutation thành công
+
+- Bổ sung hai helper nội bộ native GUI để thu hồi cache xem diff (HEAD/staged, trang tiếp theo, mode và nội dung cũ) và hai bản xem trước branch switch/delete khi Git index hoặc HEAD vừa đổi.
+- Sau Stage/Unstage (file hoặc toàn bộ): không tiếp tục đọc staged patch cũ và không cho xác nhận bản review nhánh đã lập trước khi index đổi.
+- Sau Commit: xóa patch và review nhánh cũ; sau Pull `updated=true`: xóa patch/review nhánh, đồng thời giữ cơ chế làm mới Task.ID đã có. Pull không làm thay đổi HEAD vẫn giữ patch, tránh làm mất bản xem hợp lệ không cần thiết.
+- Các nút `Git patch Next` đã bị vô hiệu sẽ không gửi lệnh kể cả khi bị gọi bằng callback cũ. Mọi thao tác đọc lại bắt đầu từ `/api/git-patch-start` đã xác thực; không thêm route/permission/đối số hoặc chạm lịch sử/output task. Test native DOM mô phỏng Stage→Commit→Pull và kiểm tra không còn cache cũ hay lệnh Next dư.

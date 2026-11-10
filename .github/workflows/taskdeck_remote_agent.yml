@@ -30,6 +30,7 @@ on:
       - 'remote_portal/tests/native_gui_git_remotes.test.cjs'
       - 'remote_portal/tests/native_gui_git_tracking.test.cjs'
       - 'remote_portal/tests/native_gui_git_pull_review.test.cjs'
+      - 'remote_portal/tests/native_gui_git_review_invalidation.test.cjs'
       - 'remote_portal/tests/native_gui_git_pull_task_snapshot.test.cjs'
       - 'remote_portal/tests/native_gui_files_root.test.cjs'
       - 'remote_portal/tests/native_gui_git_patch.test.cjs'
@@ -70,6 +71,7 @@ on:
       - 'remote_portal/tests/native_gui_git_remotes.test.cjs'
       - 'remote_portal/tests/native_gui_git_tracking.test.cjs'
       - 'remote_portal/tests/native_gui_git_pull_review.test.cjs'
+      - 'remote_portal/tests/native_gui_git_review_invalidation.test.cjs'
       - 'remote_portal/tests/native_gui_git_pull_task_snapshot.test.cjs'
       - 'remote_portal/tests/native_gui_files_root.test.cjs'
       - 'remote_portal/tests/native_gui_git_patch.test.cjs'
@@ -234,6 +236,8 @@ jobs:
       - name: Verify paged offline Git tracking refs and snapshot rejection
         working-directory: vscode_tasks_menu_go
         run: go test -race ./internal/remotetransport ./internal/server ./cmd/taskdeck_remote_login -run 'Test(RemoteGitTracking|TrustedGUIGitTracking)' -count=1 -timeout=90s
+      - name: Git index and HEAD mutations retire stale native diff and branch reviews
+        run: node remote_portal/tests/native_gui_git_review_invalidation.test.cjs
       - name: Verify fixed Git branches protocol and real-repository safeguards first
         working-directory: vscode_tasks_menu_go
         run: go test -race ./internal/remotetransport ./internal/server -run 'TestRemoteGitBranches' -count=1 -timeout=90s
