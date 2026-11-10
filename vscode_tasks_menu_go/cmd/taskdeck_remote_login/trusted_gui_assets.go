@@ -973,12 +973,19 @@ const trustedGUIJavaScript = `'use strict';
   // Native quota guard: retain Cancel -> Poll -> Clear when a host job
   // owns the session. The Agent also independently authorizes every action.
   function terminalMaintenanceAllowed(endpoint){
-    // A live PTY needs one authenticated Close round. Reading output,
-    // writing input, resizing or even unrelated E2EE reads must not
-    // exhaust that last round and leave the host shell uncloseable.
-    if(endpoint==='/api/terminal-open')return budget>=2;
-    return terminalState==='closed'||budget>1||
-      endpoint==='/api/terminal-close'||endpoint==='/api/close';
+    // The host has ONE PTY per authenticated session. The GUI cannot
+    // dispatch a duplicate Open, a Poll/Close before Open, or a Write/
+    // Resize after exit even through a synthetic click on a disabled
+    // button. Preserve the last E2EE round for explicit PTY Close.
+    if(endpoint==='/api/terminal-open')
+      return terminalState==='closed'&&longTaskID===0&&budget>=2;
+    if(endpoint==='/api/terminal-close')
+      return terminalState!=='closed';
+    if(endpoint==='/api/terminal-poll')
+      return terminalState!=='closed'&&budget>1;
+    if(endpoint==='/api/terminal-write'||endpoint==='/api/terminal-resize')
+      return terminalState==='running'&&budget>1;
+    return terminalState==='closed'||budget>1||endpoint==='/api/close';
   }
   function taskMaintenanceAllowed(endpoint){
     if(longTaskID===0||budget>3||endpoint==='/api/close')return true;

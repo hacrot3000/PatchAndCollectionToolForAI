@@ -101,6 +101,24 @@ const flush=async()=>{for(let i=0;i<80;i++)await Promise.resolve()};
  assert.equal(exitedLast.pollDisabled,true);
  assert.equal(exitedLast.closeDisabled,false);
  assert.equal(exitedLast.sent,false);
+ const duplicateOpen=await sandbox.__testTerminalQuota(3,'running','/api/terminal-open');
+ assert.equal(duplicateOpen.allowed,false,'synthetic duplicate PTY Open admitted');
+ assert.equal(duplicateOpen.openDisabled,true);
+ assert.equal(duplicateOpen.sent,false);
+ const pollWithoutPTY=await sandbox.__testTerminalQuota(3,'closed','/api/terminal-poll');
+ assert.equal(pollWithoutPTY.allowed,false,'Poll admitted without an owned PTY');
+ assert.equal(pollWithoutPTY.pollDisabled,true);
+ assert.equal(pollWithoutPTY.sent,false);
+ const closeWithoutPTY=await sandbox.__testTerminalQuota(3,'closed','/api/terminal-close');
+ assert.equal(closeWithoutPTY.allowed,false,'Close admitted without an owned PTY');
+ assert.equal(closeWithoutPTY.closeDisabled,true);
+ assert.equal(closeWithoutPTY.sent,false);
+ const writeAfterExit=await sandbox.__testTerminalQuota(3,'exited','/api/terminal-write');
+ assert.equal(writeAfterExit.allowed,false,'Write admitted after shell exit');
+ assert.equal(writeAfterExit.sendDisabled,true);
+ const readWhileRunning=await sandbox.__testTerminalQuota(2,'running','/api/terminal-poll');
+ assert.equal(readWhileRunning.allowed,true);
+ assert.equal(readWhileRunning.pollDisabled,false);
   for(const id of ['git-pull','git-commit','git-push']){
     assert.equal(get(id).disabled,false,id+' unavailable before PTY opened');
   }
