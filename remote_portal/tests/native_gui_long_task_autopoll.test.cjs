@@ -146,8 +146,10 @@ const flush=async()=>{for(let i=0;i<45;i++)await Promise.resolve()};
   'declining output discard triggered a destructive clear');
  assert.equal(remaining,budgetBeforeDiscard,'declining discard spent an E2EE action');
  assert.equal(get('long-task-controls').hidden,false);
- assert.equal(timers.length,0,'automatic polling exhausted reserved cancel/clear actions');
- assert.match(get('output').textContent,/Đã tạm dừng tự nhận/);
+ assert.equal(timers.length,1,
+  'completed task must keep draining unread output with Clear quota reserved');
+ assert.doesNotMatch(get('output').textContent,/Đã tạm dừng tự nhận/,
+  'finished job no longer needs a Cancel reservation');
  assert.equal(get('task-fetch-all').disabled,true,'bulk button must reserve cancel quota');
  assert.equal(get('task-fetch-next').disabled,true,'manual next must preserve cleanup rounds');
  assert.equal(get('features').disabled,true,'features must preserve cleanup rounds');
@@ -164,8 +166,9 @@ const flush=async()=>{for(let i=0;i<45;i++)await Promise.resolve()};
  assert.equal(sent.length,beforeReserved,'unrelated clicks consumed job cleanup rounds');
  assert.equal(nextCount,1,'manual and bulk page fetches must both preserve quota');
  assert.match(get('quick-hint').textContent,/giữ lượt E2EE/);
- get('long-task-poll').click();await flush();
- assert.equal(pollCount,2);
+ timers.shift()();await flush();
+ assert.equal(pollCount,2,'finished job did not automatically drain its output');
+ assert.equal(timers.length,0,'auto poll did not stop when output was fully drained');
  assert.equal(get('long-task-clear').textContent,'Dọn job đã kết thúc');
  assert.equal(get('long-task-poll').disabled,true);
  assert.match(get('long-task-output').textContent,/TAIL/);

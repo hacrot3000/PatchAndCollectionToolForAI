@@ -1292,12 +1292,15 @@ const trustedGUIJavaScript = `'use strict';
       busy?'Đang chờ phản hồi E2EE':
       terminalCloseReserved?activity+' · Giữ lượt cuối để đóng Terminal':activity;
   }
-  // A running job needs Cancel + Poll + Clear. Once cancellation has
-  // already been acknowledged, reserve only the final Clear E2EE round.
-  // Recheck this at timer execution, since Cancel can arrive meanwhile.
+  // Running jobs reserve Cancel + Poll + Clear. After a Cancel ACK or
+  // any terminal state, Cancel is no longer legal: automatic draining
+  // may spend remaining rounds down to ONE final Clear. Recheck both
+  // the session quota and ownership when each timer actually fires.
   function mayAutoPollLongTask(){
+    const requiresCancelReserve=
+      ['started','running'].includes(longTaskState)&&!longTaskCancelPending;
     return longTaskID!==0&&
-      (longTaskCancelPending?budget>1:budget>3)&&
+      (requiresCancelReserve?budget>3:budget>1)&&
       (['started','running','cancel_requested'].includes(longTaskState)||
         longTaskMore)&&
       taskMaintenanceAllowed('/api/tasks-poll/'+String(longTaskID));
