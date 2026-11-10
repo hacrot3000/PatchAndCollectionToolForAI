@@ -20,7 +20,7 @@ class Element{
 const elements=new Map();
 const get=id=>{if(!elements.has(id))elements.set(id,new Element(id));return elements.get(id)};
 const token='0123456789abcdef'.repeat(4);
-let remaining=16,previewVersion=0,pullUpdated=true;
+let remaining=16,previewVersion=0,pullUpdated=true,shortRunCount=0;
 const calls=[];
 const reply=data=>({ok:true,json:async()=>data});
 const sha='a'.repeat(40),shaAfter='b'.repeat(40);
@@ -40,6 +40,14 @@ const fetch=async(path,options)=>{
   ok:true,task_id:Number(path.slice('/api/tasks-inspect/'.length)),
   eligible:true,input_id:'tag',input_type:'promptString',choices:[],
   remote_control_available:false,remaining:--remaining});
+ if(path==='/api/tasks-run-input/55'){
+  shortRunCount++;
+  assert.equal(shortRunCount,1,'stale Task.ID was run after Git pull');
+  assert.equal(options.body,JSON.stringify({value:'release-1'}));
+  return reply({ok:true,task_id:55,exit_code:0,
+   output:'authenticated prior result',truncated:false,
+   remote_control_available:false,remaining:--remaining});
+ }
  if(path==='/api/git-pull')return reply({ok:true,before:sha,
   after:pullUpdated?shaAfter:sha,updated:pullUpdated,
   remote_control_available:false,remaining:--remaining});
@@ -64,13 +72,21 @@ const flush=async()=>{for(let i=0;i<90;i++)await Promise.resolve()};
  assert.equal(oldRow.children[4].disabled,false,'host-inspected old task was not runnable');
  oldRow.children[3].value='release-1';
  oldRow.children[3].listeners.input();
+ oldRow.children[4].click();await flush();
+ assert.equal(shortRunCount,1,'first verified short task did not execute');
+ assert.equal(get('task-run-history-list').children.length,1);
+ assert.match(get('task-run-history-list').children[0].children[1].textContent,
+  /authenticated prior result/);
  const callsBefore=calls.length;
  get('git-pull').click();await flush();
  assert.equal(calls.length,callsBefore+1,'fixed Git Pull endpoint not invoked');
  assert.equal(get('task-preview').hidden,true,'old task list still visible after Pull');
  assert.equal(get('task-preview-labels').children.length,0,'old Task.ID remained in DOM');
  assert.equal(get('task-deps-select').children.length,0,'old dependency list survived Pull');
- assert.equal(get('task-run-history').hidden,true,'an empty history was unexpectedly changed');
+ assert.equal(get('task-run-history-list').children.length,1,
+  'Git pull erased the last decrypted task result');
+ assert.match(get('task-run-history-list').children[0].children[1].textContent,
+  /authenticated prior result/);
  const afterPull=calls.length;
  oldRow.children[4].click();
  oldRow.children[1].click();
@@ -84,11 +100,11 @@ const flush=async()=>{for(let i=0;i<90;i++)await Promise.resolve()};
  // The previous row remains detached; its callback cannot run just
  // because the user has now loaded a different Task.ID from the Agent.
  oldRow.children[4].click();oldRow.children[1].click();await flush();
- assert.equal(calls.filter(x=>x.startsWith('/api/tasks-run')).length,0);
+ assert.equal(calls.filter(x=>x.startsWith('/api/tasks-run')).length,1);
  freshRow.children[1].click();await flush();
  const freshInput=get('task-preview-labels').children[0].children[3];
  assert.equal(freshInput.value,'','old prompt draft was restored for new Task.ID');
  assert.equal(get('task-preview-labels').children[0].children[4].disabled,false);
- assert.equal(calls.filter(x=>x.startsWith('/api/tasks-run')).length,0);
+ assert.equal(calls.filter(x=>x.startsWith('/api/tasks-run')).length,1);
  console.log('PASS: Git pull invalidates stale E2EE tasks without executing or persisting inputs');
 })().catch(err=>{console.error(err);process.exitCode=1});
