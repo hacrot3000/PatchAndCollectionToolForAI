@@ -62,10 +62,12 @@ const fetch=async(path,options)=>{
  if(path==='/api/close')return {ok:true,json:async()=>({ok:true,closed:true})};
  throw new Error('unexpected endpoint '+path);
 };
+const copied=[];
 const sandbox={
  document:{getElementById:get,createElement:tag=>new Element(tag)},
  window:{confirm(message){confirmationMessages.push(message);return approveTask},addEventListener(){}},history:{replaceState(){}}, 
  location:{hash:'#'+token,pathname:'/'},
+ navigator:{clipboard:{writeText(value){copied.push(value);return Promise.resolve()}}},
  fetch,setInterval(){},Date,Number,String,Promise,
 };
 vm.createContext(sandbox);
@@ -120,7 +122,13 @@ const flush=async()=>{for(let n=0;n<30;n++)await Promise.resolve()};
  let entry=get('task-run-history-list').children[0];
  assert.match(entry.children[0].textContent,/Task 55 .* ngắn .* failed .* exit=7/);
  assert.match(entry.children[0].textContent,/Short <script>/);
- assert.equal(entry.children[0].children.length,0,'task label was interpreted as HTML');
+ assert.equal(entry.children[0].children.length,1,
+  'task history should expose one explicit copy button');
+ const copy=entry.children[0].children[0];
+ assert.equal(copy.textContent,'Sao chép output');
+ copy.click();await flush();
+ assert.deepEqual(copied,['safe <script>alert(1)</script>'],
+  'short task copy must not include task label or HTML markup');
  assert.equal(entry.children[1].textContent,'safe <script>alert(1)</script>');
  assert.equal(entry.children[1].children.length,0,'history output was interpreted as HTML');
  for(let i=0;i<7;i++){btn.click();await flush();}

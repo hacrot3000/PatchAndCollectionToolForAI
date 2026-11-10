@@ -126,6 +126,7 @@ const trustedGUIHTML = `<!doctype html>
      </div>
      <div class="actions" id="long-task-controls" hidden>
       <button type="button" id="long-task-poll">Nhận output tiếp</button>
+      <button type="button" id="long-task-copy" disabled>Sao chép output đã nhận</button>
       <button type="button" id="long-task-auto">Tạm dừng tự nhận</button>
       <button type="button" id="long-task-cancel">Hủy job (giữ phiên)</button>
       <button type="button" id="long-task-clear">Dọn job đã kết thúc</button>
@@ -368,6 +369,7 @@ const trustedGUIJavaScript = `'use strict';
   const taskRunStop=document.getElementById('task-run-stop');
   const longTaskControls=document.getElementById('long-task-controls');
   const longTaskPoll=document.getElementById('long-task-poll');
+  const longTaskCopy=document.getElementById('long-task-copy');
   const longTaskAutoButton=document.getElementById('long-task-auto');
   const longTaskCancel=document.getElementById('long-task-cancel');
   const longTaskClear=document.getElementById('long-task-clear');
@@ -415,6 +417,33 @@ const trustedGUIJavaScript = `'use strict';
   // Only locally decrypted task outcomes, never written to browser storage
   // or Relay. Bounded so repeated actions cannot inflate retained output.
   let taskRunHistory=[],taskHistorySerial=0,longTaskHistorySerial=0;
+  // Clipboard is a deliberately user-triggered local browser operation.
+  // Never persist task output in Web Storage or send it to PHP/Relay.
+  // If Firefox disallows clipboard writes, fail visibly and do not
+  // fall back to a hidden textarea or an unsafe auto-copy mechanism.
+  function copyVerifiedTaskOutput(value,button,stillPresent){
+    if(closed||terminated||!verified||!value||!stillPresent())return;
+    if(typeof navigator==='undefined'||!navigator.clipboard||
+       typeof navigator.clipboard.writeText!=='function'){
+      button.textContent='Clipboard không khả dụng';
+      return;
+    }
+    try{
+      Promise.resolve(navigator.clipboard.writeText(value)).then(()=>{
+        if(!closed&&!terminated&&stillPresent()){
+          button.textContent='Đã sao chép';
+        }
+      },()=>{
+        if(!closed&&!terminated&&stillPresent()){
+          button.textContent='Không thể sao chép';
+        }
+      });
+    }catch(error){
+      if(!closed&&!terminated&&stillPresent()){
+        button.textContent='Không thể sao chép';
+      }
+    }
+  }
   function renderTaskRunHistory(){
     taskRunHistoryList.replaceChildren();
     taskRunHistoryView.hidden=taskRunHistory.length===0;
@@ -427,6 +456,23 @@ const trustedGUIJavaScript = `'use strict';
         item.kind+' · '+item.status+
         (item.exitCode>=0?' · exit='+String(item.exitCode):'')+
         (item.truncated?' · output đã cắt':'');
+      // Keep the existing header and <pre> positions; the copy action
+      // is nested in the header and cannot interpret host text as HTML.
+      if(item.output){
+        const copy=document.createElement('button');
+        copy.type='button';
+        copy.textContent='Sao chép output';
+        copy.setAttribute('aria-label','Sao chép output Task '+String(item.taskID));
+        copy.disabled=closed||terminated||!verified;
+        copy.addEventListener('click',()=>{
+          const current=taskRunHistory.find(x=>x.serial===item.serial);
+          if(!current||!current.output)return;
+          const snapshot=current.output;
+          copyVerifiedTaskOutput(snapshot,copy,()=>
+            taskRunHistory.some(x=>x.serial===item.serial&&x.output===snapshot));
+        });
+        header.append(copy);
+      }
       li.append(header);
       if(item.output){
         const body=document.createElement('pre');
@@ -1241,6 +1287,8 @@ const trustedGUIJavaScript = `'use strict';
     taskRunStop.disabled=!taskRunning||!verified||closed||closing||terminated;
     longTaskControls.hidden=longTaskID===0||closed;
     longTaskOutput.hidden=longTaskID===0||closed;
+    longTaskCopy.disabled=closed||terminated||!verified||
+      longTaskID===0||longTaskText.length===0;
     longTaskPoll.disabled=busy||closed||!verified||budget<=0||longTaskID===0||
       !taskMaintenanceAllowed('/api/tasks-poll/'+String(longTaskID))||
       (!['started','running','cancel_requested'].includes(longTaskState)&&!longTaskMore);
@@ -3080,6 +3128,12 @@ const trustedGUIJavaScript = `'use strict';
   });
   longTaskPoll.addEventListener('click',()=>{
     if(longTaskID>0&&budget>0&&!busy)invoke('/api/tasks-poll/'+String(longTaskID));
+  });
+  longTaskCopy.addEventListener('click',()=>{
+    if(longTaskID===0||closed||terminated||!verified||!longTaskText)return;
+    const id=longTaskID,outputSnapshot=longTaskText;
+    copyVerifiedTaskOutput(outputSnapshot,longTaskCopy,()=>
+      longTaskID===id&&longTaskText===outputSnapshot);
   });
   longTaskCancel.addEventListener('click',()=>{
     if(longTaskID>0&&budget>0&&!busy&&!longTaskCancelPending&&

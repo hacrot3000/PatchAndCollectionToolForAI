@@ -25,7 +25,7 @@ const get=id=>{
 };
 const token='0123456789abcdef'.repeat(4);
 let remaining=16,pollCount=0;
-const sent=[],timers=[];
+const sent=[],timers=[],copied=[];
 const fetch=async(endpoint,opts)=>{
  sent.push(endpoint);
  assert.equal(opts.method,'POST');
@@ -76,6 +76,7 @@ const sandbox={
  document:{getElementById:get,createElement:tag=>new Element(tag)},
  window:{confirm(){return true},addEventListener(){}},history:{replaceState(){}},
  location:{hash:'#'+token,pathname:'/'},
+ navigator:{clipboard:{writeText(value){copied.push(value);return Promise.resolve()}}},
  fetch,setInterval(){},setTimeout(fn){timers.push(fn);return timers.length;},Date,Number,String,Promise,
 };
 vm.createContext(sandbox);
@@ -106,6 +107,10 @@ const flush=async()=>{for(let i=0;i<45;i++)await Promise.resolve()};
  assert.match(get('long-task-output').textContent,/safe <script>alert\(1\)<\/script>/);
  assert.equal(get('long-task-output').children.length,0,
   'output must be textContent only, never HTML');
+ get('long-task-copy').click();await flush();
+ assert.deepEqual(copied,['safe <script>alert(1)</script>'],
+  'explicit active-job copy must use authenticated output only');
+ assert.equal(get('long-task-copy').textContent,'Đã sao chép');
  get('long-task-cancel').click();await flush();
  assert.match(get('session-activity').textContent,/Task 123 đã yêu cầu hủy/);
  assert.equal(get('long-task-controls').hidden,false);
@@ -121,12 +126,21 @@ const flush=async()=>{for(let i=0;i<45;i++)await Promise.resolve()};
   'history must capture exactly the authenticated output once');
  assert.equal(historyEntry.children[1].children.length,0,
   'history output must be textContent, never injected as HTML');
+ assert.equal(historyEntry.children[0].children.length,1,
+  'history copy action should not replace the literal output pre');
+ const historyCopy=historyEntry.children[0].children[0];
+ historyCopy.click();await flush();
+ assert.deepEqual(copied,['safe <script>alert(1)</script>',
+  'safe <script>alert(1)</script>'],
+  'history copy must use the bounded decrypted local output only');
  assert.equal(get('long-task-clear').disabled,false);
  get('long-task-clear').click();await flush();
  assert.equal(get('session-activity').textContent,'Không có tác vụ đang chạy');
  assert.equal(get('long-task-controls').hidden,true);
  assert.equal(get('task-run-history-list').children.length,1,
   'clear may remove host job but keep locally verified final outcome');
+ assert.equal(get('long-task-copy').disabled,true,
+  'cleared job still exposed an active-output clipboard action');
  // The first execution still has a queued callback. Reusing the same
  // published task ID must schedule a fresh callback immediately; the
  // stale callback cannot poll the new execution or reset its timer flag.
@@ -144,6 +158,10 @@ const flush=async()=>{for(let i=0;i<45;i++)await Promise.resolve()};
  assert.equal(sent.filter(x=>x==='/api/tasks-poll/123').length,pollsBefore+1,
   'new execution timer was cleared by the previous execution');
  get('disconnect').click();await flush();
+ const beforeStaleCopy=copied.length;
+ historyCopy.click();await flush();
+ assert.equal(copied.length,beforeStaleCopy,
+  'detached history button copied sensitive output after logout');
  assert.equal(get('task-run-history-list').children.length,0);
  assert.equal(get('task-run-history').hidden,true);
  assert.equal(get('long-task-output').textContent,'');

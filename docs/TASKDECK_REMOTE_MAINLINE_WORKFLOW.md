@@ -643,3 +643,23 @@ real-host testing are considered **code complete**.
   được giải mã, từ chối cạnh ngược topo và đóng/xóa phiên theo
   fail-closed. Phân biệt rõ reply hợp lệ nhưng lỗi thời (bỏ qua UI)
   với reply sai cấu trúc (tiếp tục từ chối theo giao thức).
+
+## 2026-11-10 — Copy output trong Remote GUI chạy task
+
+- Bổ sung nút sao chép output **đã nhận** của job dài, cùng nút
+  sao chép trong từng kết quả lịch sử (task ngắn và dài).
+  Chỉ kích hoạt khi người dùng bấm và phiên browser E2EE vẫn
+  hợp lệ. Output được copy là đúng chuỗi text đã giải mã trong
+  bộ nhớ, không kèm nhãn/task ID và không đánh giá HTML.
+- Dùng `navigator.clipboard.writeText` của trình duyệt an toàn;
+  khi không khả dụng hoặc bị từ chối, hiển thị trạng thái lỗi
+  tại nút và không tự chuyển sang đường copy kém an toàn.
+  Không lưu output lên localStorage/sessionStorage, PHP/Relay
+  hoặc audit. Job đã Clear không còn nút copy active, nhưng
+  kết quả còn trong lịch sử phiên vẫn được sao chép.
+- Callback và nút lịch sử cũ không được phép copy sau logout,
+  kể cả khi DOM cũ còn bị bên thứ ba giữ tham chiếu; kết quả
+  async về muộn không được cập nhật giao diện đã thu hồi.
+- Test Node GUI kiểm tra output có chuỗi HTML đặc biệt được
+  copy đúng nguyên văn, không lẫn header, không copy khi đóng
+  phiên, và nút active vô hiệu sau Clear.
