@@ -663,3 +663,18 @@ real-host testing are considered **code complete**.
 - Test Node GUI kiểm tra output có chuỗi HTML đặc biệt được
   copy đúng nguyên văn, không lẫn header, không copy khi đóng
   phiên, và nút active vô hiệu sau Clear.
+
+## 2026-11-10 — Xóa promptString khỏi GUI sau xác nhận chạy
+
+- Remote GUI hiện xóa mã tham số `promptString` khỏi ô nhập
+  và bộ nhớ nháp của task sau khi người dùng xác nhận thực thi
+  một lệnh task ngắn/dài. Bản POST đã chốt vẫn được gửi qua
+  E2EE như trước; task không thay đổi đầu vào.
+- Nếu người dùng từ chối xác nhận hoặc nhập mã không hợp lệ,
+  giữ nguyên dữ liệu trong ô để chỉnh sửa, không gửi lệnh.
+  Các lựa chọn `pickString` từ host không bị xóa.
+- Kiểm thử Node tái tạo việc người dùng điền và ghi nháp mã,
+  từ chối rồi xác nhận, kiểm tra không còn mã trên DOM và
+  không khôi phục sau filter/rerender. Đây không phải cơ chế
+  nhập secret; giới hạn token và chính sách không hỗ trợ
+  `secretEnv` từ xa vẫn giữ nguyên.

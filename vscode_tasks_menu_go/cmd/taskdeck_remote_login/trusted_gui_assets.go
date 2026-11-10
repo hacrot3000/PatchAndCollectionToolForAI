@@ -724,6 +724,18 @@ const trustedGUIJavaScript = `'use strict';
               ': '+item.label+' (ID '+String(item.id)+')?'+chosen+chosen2+
               (textInput?'\nĐã nhập mã tham số tại client.':'')+
               '\nTask này có thể thay đổi dữ liệu trên máy host.'))return;
+            if(textInput){
+              // Only the already-confirmed POST body retains the bounded
+              // token until dispatch. Never keep a second copy in a focused
+              // input or a draft after it has been submitted. A canceled
+              // confirmation and a locally invalid token remain editable.
+              textInput.value='';
+              const draft=taskInputDrafts.get(item.id);
+              if(draft){
+                delete draft.text;
+                if(Object.keys(draft).length===0)taskInputDrafts.delete(item.id);
+              }
+            }
             invoke(endpoint,payload);
           };
           run.addEventListener('click',()=>launch(false));

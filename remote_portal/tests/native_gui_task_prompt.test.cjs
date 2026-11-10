@@ -24,7 +24,7 @@ const elements=new Map(),get=id=>{
  return elements.get(id);
 };
 const token='0123456789abcdef'.repeat(4),sent=[];
-let remaining=16;
+let remaining=16,confirmNext=true;
 const fetch=async(endpoint,options)=>{
  sent.push({endpoint,options});
  assert.equal(options.method,'POST');
@@ -62,7 +62,7 @@ const fetch=async(endpoint,options)=>{
 };
 const sandbox={
  document:{getElementById:get,createElement:tag=>new Element(tag)},
- window:{confirm(){return true},addEventListener(){}},history:{replaceState(){}},
+ window:{confirm(){return confirmNext},addEventListener(){}},history:{replaceState(){}},
  location:{hash:'#'+token,pathname:'/'},fetch,
  setInterval(){},Date,Number,String,Promise,
 };
@@ -88,9 +88,29 @@ const flush=async()=>{for(let i=0;i<40;i++)await Promise.resolve()};
  assert.equal(sent.filter(r=>r.endpoint.startsWith('/api/tasks-run-input/')).length,0,
   'shell metacharacters must fail in the native GUI before Relay');
  input.value='release-1.2.3';
+ input.listeners.input();
+ confirmNext=false;
  run.click();await flush();
+ assert.equal(sent.filter(r=>r.endpoint.startsWith('/api/tasks-run-input/')).length,0,
+  'declined prompt confirmation must not execute any task');
+ assert.equal(input.value,'release-1.2.3',
+  'declined confirmation must preserve editable prompt');
+ confirmNext=true;
+ run.click();
+ assert.equal(input.value,'',
+  'confirmed prompt was retained in the active input element');
+ await flush();
  assert.equal(sent.filter(r=>r.endpoint.startsWith('/api/tasks-run-input/')).length,1);
  assert.match(get('output').textContent,/completed/);
+ // Rebuilding the task page must not restore a submitted prompt from
+ // cached drafts. The chosen host-owned task ID and inspection persist.
+ get('task-filter').value='deploy';
+ get('task-filter').listeners.input();
+ const refreshed=get('task-preview-labels').children[0];
+ assert.equal(refreshed.children[3].value,'',
+  'confirmed prompt was resurrected from local draft after rerender');
+ assert.equal(refreshed.children[4].disabled,false,
+  'scrubbing submitted token incorrectly removed authenticated Task.ID');
  get('disconnect').click();await flush();
  assert.equal(get('task-preview-labels').children.length,0);
  assert.equal(get('task-preview').hidden,true);
