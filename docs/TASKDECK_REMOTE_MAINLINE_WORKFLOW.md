@@ -686,3 +686,12 @@ real-host testing are considered **code complete**.
   bản E2EE POST vẫn nhận đúng token, sau filter/rerender không
   khôi phục token, job được giữ trong session. Không có quyền
   mới hay nguồn input ngoài `promptString` token hiện hữu.
+
+### 2026-11-10 — Fix fixture test promptString cho task dài
+
+- CI Go đã bắt đúng lỗi fixture: nhánh task dài lên lịch auto-Poll
+  nhưng mock VM của test promptString chưa khai báo `setTimeout`,
+  làm Node ném ReferenceError *sau khi* các assert đã PASS.
+- Bổ sung timer no-op trong test fixture, giống các fixture native
+  khác. Không chạy Poll nền trong test bảo mật input vì auto-Poll
+  đã có bộ test riêng; production GUI không đổi.

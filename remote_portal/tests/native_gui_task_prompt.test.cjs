@@ -75,7 +75,10 @@ const sandbox={
  document:{getElementById:get,createElement:tag=>new Element(tag)},
  window:{confirm(){return confirmNext},addEventListener(){}},history:{replaceState(){}},
  location:{hash:'#'+token,pathname:'/'},fetch,
- setInterval(){},Date,Number,String,Promise,
+ // A successfully started long task schedules an automatic Poll. Do not
+ // execute timers in this synchronous security fixture; other tests
+ // exercise the real bounded auto-poll scheduler independently.
+ setInterval(){},setTimeout(){},Date,Number,String,Promise,
 };
 vm.createContext(sandbox);
 new vm.Script(script[1],{filename:'trusted-native-prompt.js'}).runInContext(sandbox);
