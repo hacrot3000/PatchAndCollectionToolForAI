@@ -678,3 +678,11 @@ real-host testing are considered **code complete**.
   không khôi phục sau filter/rerender. Đây không phải cơ chế
   nhập secret; giới hạn token và chính sách không hỗ trợ
   `secretEnv` từ xa vẫn giữ nguyên.
+
+### 2026-11-10 — Long-task promptString scrub regression
+
+- Test thêm nhánh `tasks-start-input/<Task.ID>`: xác minh
+  cùng cơ chế xóa prompt sau xác nhận áp dụng cho job dài,
+  bản E2EE POST vẫn nhận đúng token, sau filter/rerender không
+  khôi phục token, job được giữ trong session. Không có quyền
+  mới hay nguồn input ngoài `promptString` token hiện hữu.

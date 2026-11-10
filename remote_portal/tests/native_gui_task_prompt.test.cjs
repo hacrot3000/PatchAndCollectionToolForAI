@@ -36,7 +36,7 @@ const fetch=async(endpoint,options)=>{
  })};
  if(endpoint==='/api/features')return {ok:true,json:async()=>({
   ok:true,session_ping:true,project_info:false,tasks_preview:true,
-  task_run:true,git_status:false,remote_control_available:false,
+  task_run:true,task_long:true,git_status:false,remote_control_available:false,
   remaining:--remaining,
  })};
  if(endpoint==='/api/tasks-preview')return {ok:true,json:async()=>({
@@ -55,6 +55,17 @@ const fetch=async(endpoint,options)=>{
   return {ok:true,json:async()=>({
    ok:true,task_id:123,exit_code:0,output:'completed',
    truncated:false,remote_control_available:false,remaining:--remaining,
+  })};
+ }
+ if(endpoint==='/api/tasks-start-input/123'){
+  assert.equal(options.headers['Content-Type'],'application/json');
+  assert.equal(options.body,JSON.stringify({value:'release-2.0.0'}));
+  assert.ok(!endpoint.includes('release-2.0.0'),
+   'long-task input must never leak into localhost URL');
+  return {ok:true,json:async()=>({
+   ok:true,task_id:123,status:'started',exit_code:-1,output:'',
+   more:false,truncated:false,
+   remote_control_available:false,remaining:--remaining,
   })};
  }
  if(endpoint==='/api/close')return {ok:true,json:async()=>({ok:true,closed:true})};
@@ -78,7 +89,7 @@ const flush=async()=>{for(let i=0;i<40;i++)await Promise.resolve()};
   'task must be inspected before any process can start');
  row.children[1].click();await flush();
  row=get('task-preview-labels').children[0];
- assert.equal(row.children.length,5);
+ assert.equal(row.children.length,6);
  const input=row.children[3],run=row.children[4];
  assert.equal(input.type,'text');
  assert.equal(input.maxLength,64);
@@ -111,6 +122,22 @@ const flush=async()=>{for(let i=0;i<40;i++)await Promise.resolve()};
   'confirmed prompt was resurrected from local draft after rerender');
  assert.equal(refreshed.children[4].disabled,false,
   'scrubbing submitted token incorrectly removed authenticated Task.ID');
+ const longInput=refreshed.children[3],runLong=refreshed.children[5];
+ assert.equal(runLong.textContent,'Chạy task dài');
+ longInput.value='release-2.0.0';
+ longInput.listeners.input();
+ runLong.click();
+ assert.equal(longInput.value,'',
+  'confirmed long-task prompt remained on the visible DOM');
+ await flush();
+ assert.equal(sent.filter(r=>r.endpoint==='/api/tasks-start-input/123').length,1,
+  'long task was not started with the confirmed E2EE prompt body');
+ assert.equal(get('long-task-controls').hidden,false,
+  'accepted long-task start did not create a host-owned job');
+ get('task-filter').value='';
+ get('task-filter').listeners.input();
+ assert.equal(get('task-preview-labels').children[0].children[3].value,'',
+  'long-task prompt was restored from cached draft after rerender');
  get('disconnect').click();await flush();
  assert.equal(get('task-preview-labels').children.length,0);
  assert.equal(get('task-preview').hidden,true);
