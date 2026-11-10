@@ -115,6 +115,52 @@ func TestRemoteWorkflowStartE2EELinearAuditAndClear(t *testing.T){
  if err!=nil||cleared.Status!="cleared"{t.Fatalf("workflow slot not released: %+v %v",cleared,err)}
 }
 
+// Workflow completion must share the finalization barrier of ordinary
+// long tasks. A late Cancel cannot acknowledge an already-exited workflow.
+func TestRemoteWorkflowFinalizationClosesCancelWindow(t *testing.T){
+ remoteWorkflowHostFlags(t)
+ cases:=[]struct{name,source,root,want string}{
+  {"completed",remoteWorkflowLinearSource,"Step C","completed"},
+  {"failed",`{"tasks":[
+   {"label":"First","type":"process","command":"/bin/echo","args":["READY"]},
+   {"label":"Second","type":"process","command":"/bin/false","dependsOn":"First"}
+  ]}`,"Second","failed"},
+ }
+ for _,tc:=range cases{
+  t.Run(tc.name,func(t *testing.T){
+   s,session,client,agent:=remoteTaskOperatorFixture(t)
+   id:=remoteWorkflowIssuedRoot(t,s,session,client,agent,tc.source,tc.root)
+   if err:=s.startRemoteLinearWorkflow(context.Background(),session,id);err!=nil{
+    t.Fatalf("start workflow: %v",err)
+   }
+   if got:=awaitRemoteWorkflow(t,session);got!=tc.want{
+    t.Fatalf("workflow status = %q, want %q",got,tc.want)
+   }
+   session.longTaskMu.Lock()
+   job:=session.longTask
+   session.longTaskMu.Unlock()
+   job.mu.Lock()
+   finalizing,status,code:=job.finalizing,job.status,job.exitCode
+   job.mu.Unlock()
+   if !finalizing||status!=tc.want{
+    t.Fatalf("workflow bypassed finalization barrier: finalizing=%v status=%q",finalizing,status)
+   }
+   if err:=session.cancelRemoteLongTask(id);!errors.Is(err,remotetransport.ErrRemoteActionDenied){
+    t.Fatalf("Cancel accepted after workflow %s: %v",tc.want,err)
+   }
+   job.mu.Lock()
+   finalStatus,finalCode,requested:=job.status,job.exitCode,job.cancelRequested
+   job.mu.Unlock()
+   if finalStatus!=tc.want||finalCode!=code||requested{
+    t.Fatalf("late Cancel changed result: status=%q exit=%d requested=%v",finalStatus,finalCode,requested)
+   }
+   if err:=session.clearRemoteLongTask(id);err!=nil{
+    t.Fatalf("clear finalized workflow: %v",err)
+   }
+  })
+ }
+}
+
 func TestRemoteWorkflowFailureStopsNextStep(t *testing.T){
  remoteWorkflowHostFlags(t)
  s,session,client,agent:=remoteTaskOperatorFixture(t)

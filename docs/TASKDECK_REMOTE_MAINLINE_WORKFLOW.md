@@ -444,3 +444,20 @@ real-host testing are considered **code complete**.
 - Báo cáo audit bền vững hiện lưu kết quả các process đã chạy, không
   tạo bản ghi process giả cho bước bỏ qua; báo cáo workflow trọn
   vẹn gồm các bước skipped vẫn thuộc backlog.
+
+## 2026-11-10 — Workflow completion barrier dùng chung với task đơn
+
+- `runRemoteLinearWorkflow` trước đây công bố `job.status` trước
+  `workspaceRelease`, và không đánh dấu `job.finalizing`. Vì thế
+  `tasks.cancel` có thể ACK một workflow đã chạy xong nhưng còn
+  đang giải phóng workspace; Poll cũng có thể thấy kết quả cuối quá sớm.
+- Sử dụng `job.publishCompletion(status,exitCode)` đã kiểm thử của task
+  đơn: đánh dấu `finalizing` trước release, công bố trạng thái và đóng
+  `done` sau release. Cancel muộn bị từ chối; không đổi E2EE, RBAC,
+  quota, lệnh thực thi, retry hoặc workflow conditions.
+- Hồi quy mới kiểm tra workflow `completed` và `failed`: đã qua
+  finalization barrier, Cancel muộn bị từ chối, kết quả giữ nguyên,
+  và Clear vẫn thành công. Test helper hiện có đã kiểm tra barrier
+  chặn release với bốn trạng thái task đơn.
+- Xác nhận Go CI trên commit mới trước khi khẳng định PASS.
+  Remote live gate vẫn mặc định OFF/NO-GO; không mở rộng Windows.

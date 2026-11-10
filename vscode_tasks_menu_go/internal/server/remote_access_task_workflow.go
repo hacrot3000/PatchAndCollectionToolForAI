@@ -526,13 +526,9 @@ Workflow:
  }else if ctx.Err()!=nil||session.closed.Load(){status="cancelled"}
  s.auditRemoteTaskRunFinish(session,job.taskID,status,exitCode,
   time.Since(job.started))
- job.mu.Lock()
- job.status=status
- job.exitCode=exitCode
- job.mu.Unlock()
- job.workspaceRelease()
- close(job.done)
- select{case job.capture.notify<-struct{}{}:default:}
+ // Share the long-task finalization barrier: reject Cancel during
+ // workspace release, and publish a final Poll status only AFTER release.
+ job.publishCompletion(status,exitCode)
  job.cancel()
 }
 
