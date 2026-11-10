@@ -90,3 +90,33 @@ func TestLargeGitBranchCompareFallsBackToChangedPaths(t *testing.T) {
 		if !strings.Contains(js,required){t.Errorf("large Git branch compare fallback missing %q",required)}
 	}
 }
+
+func TestGitSyncDiffRemoteOpensDirectoryCompare(t *testing.T) {
+  source,err:=webassets.Files.ReadFile("featuremods/gitstatus.js")
+  if err!=nil {t.Fatal(err)}
+  js:=string(source)
+  for _,required:=range []string{
+    "quickGroup('SYNC',[",
+    "{label:'Diff remote'",
+    "run:openRemoteDiff",
+    "async function openRemoteDiff(){",
+    "const repoID=activeRepoID",
+    "await action('fetch',{},'',{repoID,refresh:false})",
+    "if(fetched===false||activeRepoID!==repoID)return false",
+    "const current=(branches.local||[]).find(branch=>branch.current)",
+    "let upstream=String(current.upstream||'').trim()",
+    "upstream&&!available.has(upstream)",
+    "if(matches.length===1)upstream=matches[0].name",
+    "compare.openGitBranches(repoID,'HEAD','refs/remotes/'+upstream)",
+    "if(opened!==false&&activeRepoID===repoID)panel.classList.remove('visible')",
+  }{
+    if !strings.Contains(js,required){t.Errorf("SYNC Diff remote missing contract %q",required)}
+  }
+  start:=strings.Index(js,"async function openRemoteDiff(){")
+  end:=strings.Index(js[start:],"quickGroup('SYNC',[")
+  if start<0||end<0 {t.Fatal("Diff remote handler missing")}
+  handler:=js[start:start+end]
+  for _,forbidden:=range []string{"action('pull'","action('merge'","action('push'","action('switch'","window.prompt("}{
+    if strings.Contains(handler,forbidden){t.Errorf("Diff remote must not change local branch or worktree: %q",forbidden)}
+  }
+}
