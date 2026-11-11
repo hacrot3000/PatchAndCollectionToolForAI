@@ -543,7 +543,8 @@ const trustedGUIJavaScript = `'use strict';
   // only for an explicitly approved three-step fork/join workflow. This
   // narrow status shape is read-only; it never changes caller authority.
   function validParallelForkProgress(step,total,attempt,attemptTotal,
-    state,history,status){
+    state,history,status,parallel){
+    if(parallel!==true)return false;
     if(total!==3||step<1||step>2||attempt!==1||attemptTotal!==1||
       history.length!==3||history[2]!=='-'||state==='skipped'||
       status==='completed'||!/^[-RCFXT]{2}-$/.test(history)||
@@ -2442,6 +2443,11 @@ const trustedGUIJavaScript = `'use strict';
           const stepStatus=present.length?data.step_status:'';
           const workflowProgress=step!==0||stepTotal!==0||
             attempt!==0||attemptTotal!==0||stepStatus!=='';
+          const parallel=Object.prototype.hasOwnProperty.call(data,'parallel')?
+            data.parallel:false;
+          if(typeof parallel!=='boolean'||(parallel&&!workflowProgress)){
+            throw new Error('Cờ workflow song song E2EE không hợp lệ');
+          }
           const hasStepHistory=Object.prototype.hasOwnProperty.call(data,'step_history');
           const stepHistory=hasStepHistory?data.step_history:'';
           if(typeof stepHistory!=='string'||stepHistory.length>4||
@@ -2458,7 +2464,12 @@ const trustedGUIJavaScript = `'use strict';
               throw new Error('Bước bỏ qua chỉ hợp lệ ở cuối workflow thành công');
             }
             const parallelFork=validParallelForkProgress(step,stepTotal,
-              attempt,attemptTotal,stepStatus,stepHistory,data.status);
+              attempt,attemptTotal,stepStatus,stepHistory,data.status,parallel);
+            if(parallel&&(stepTotal!==3||stepHistory===''||
+              attempt!==1||attemptTotal!==1||stepStatus==='skipped'||
+              (step<3&&!parallelFork))){
+              throw new Error('Báo cáo workflow song song E2EE không hợp lệ');
+            }
             for(let i=0;i<stepHistory.length;i++){
               if(parallelFork)continue;
               const expected=i<step-1?'C':i===step-1?codes[stepStatus]:'-';

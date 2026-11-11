@@ -181,19 +181,20 @@ async function assertGraphValidation(graph,description,accepted=false,abandonSel
 }
 
 (async()=>{
- assert.equal(scope.__testParallelFork(2,3,1,1,'running','RR-','running'),true,
+ assert.equal(scope.__testParallelFork(2,3,1,1,'running','RR-','running',true),true,
   'two independent running workflow children denied');
- assert.equal(scope.__testParallelFork(1,3,1,1,'completed','CR-','running'),true,
+ assert.equal(scope.__testParallelFork(1,3,1,1,'completed','CR-','running',true),true,
   'one completed child and its live sibling denied');
- assert.equal(scope.__testParallelFork(2,3,1,1,'cancelled','FX-','failed'),true,
+ assert.equal(scope.__testParallelFork(2,3,1,1,'cancelled','FX-','failed',true),true,
   'failed join did not allow a cancelled sibling result');
  for(const bad of [
-  [2,3,1,1,'running','RRR','running'],
-  [2,3,1,2,'running','RR-','running'],
-  [2,3,1,1,'running','R?-','running'],
-  [3,3,1,1,'running','RR-','running'],
-  [2,3,1,1,'running','RR-','completed'],
-  [2,3,1,1,'running','RR-','failed'],
+  [2,3,1,1,'running','RR-','running',false],
+  [2,3,1,1,'running','RRR','running',true],
+  [2,3,1,2,'running','RR-','running',true],
+  [2,3,1,1,'running','R?-','running',true],
+  [3,3,1,1,'running','RR-','running',true],
+  [2,3,1,1,'running','RR-','completed',true],
+  [2,3,1,1,'running','RR-','failed',true],
  ]){
   assert.equal(scope.__testParallelFork(...bad),false,
    'unsafe parallel E2EE step history admitted: '+bad.join('|'));
