@@ -127,6 +127,12 @@ func(s *Server)executeRemoteParallelPrepared(ctx context.Context,
  result="completed"
  if errors.Is(ctx.Err(),context.DeadlineExceeded){result="timed_out"
  }else if ctx.Err()!=nil||session.closed.Load(){result="cancelled"
+ }else if !s.remoteWorkflowPostExitAuthorized(ctx,session,step,1,true){
+  // A sibling/root may have exited in the gap before the 500ms watcher.
+  // Deny any subsequent root and never record a false completed result.
+  result="cancelled";exitCode=-1
+  _,_=captureWorkflowText(job.capture,
+   "[TaskDeck workflow] Post-exit host permission denied; root blocked\n")
  }else if err!=nil{result="failed"}
  if auditErr:=s.auditRemoteWorkflowStep(session,job.taskID,step.taskID,
   index,total,1,job.workflowRunID,result,exitCode);auditErr!=nil{

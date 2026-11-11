@@ -295,6 +295,28 @@ func(s *Server)remoteWorkflowLocalRunAllowed(ctx context.Context,
    session.projectKey,identity.PermissionTasksRun)==nil
 }
 
+
+// After a process exits, re-check host-local RBAC before persisting a
+// successful/failed outcome or admitting a retry/cleanup/root. The 500ms
+// active-process watcher cannot catch a permission downgrade that races a
+// short-lived process. This cannot undo already completed side effects:
+// it only denies a false success and any following workflow process.
+func(s *Server)remoteWorkflowPostExitAuthorized(ctx context.Context,
+ session *remoteTaskDeckSession,step remoteWorkflowStep,attempt int,
+ parallel bool)bool{
+ if ctx==nil||ctx.Err()!=nil||session==nil||session.closed.Load()||
+  !remoteWorkflowHostExecutionEnabled()||
+  (parallel&&os.Getenv("TASKDECK_REMOTE_TASKS_WORKFLOW_PARALLEL")!="1")||
+  (attempt>1&&os.Getenv("TASKDECK_REMOTE_TASKS_WORKFLOW_RETRY")!="1")||
+  (step.timeout>0&&os.Getenv("TASKDECK_REMOTE_TASKS_WORKFLOW_TIMEOUT")!="1")||
+  (step.condition!=""&&os.Getenv("TASKDECK_REMOTE_TASKS_WORKFLOW_CONDITION")!="1"){
+  return false
+ }
+ checkCtx,done:=context.WithTimeout(ctx,remoteLocalRevokeCheckDeadline)
+ defer done()
+ return s.remoteWorkflowLocalRunAllowed(checkCtx,session)
+}
+
 func(s *Server)prepareRemoteLinearWorkflow(ctx context.Context,
  session *remoteTaskDeckSession,rootTaskID int,
 )([]remoteWorkflowStep,[32]byte,error){
@@ -678,6 +700,12 @@ Workflow:
      _,_=captureWorkflowText(job.capture,
       "[TaskDeck workflow] Host permission revoked; active step stopped\n")
     }
+   }else if !s.remoteWorkflowPostExitAuthorized(ctx,session,step,attempt,false){
+    // Covers the interval between the last watcher tick and cmd.Run exit.
+    // Do not report a successful dependency or start its retry/cleanup.
+    stepStatus="cancelled";code=-1
+    _,_=captureWorkflowText(job.capture,
+     "[TaskDeck workflow] Post-exit host permission denied; next step blocked\n")
    }else if err!=nil{stepStatus="failed"}
    // The result audit is a hard boundary between attempts, including
    // retries of the SAME step. A failed audit can never trigger a replay.

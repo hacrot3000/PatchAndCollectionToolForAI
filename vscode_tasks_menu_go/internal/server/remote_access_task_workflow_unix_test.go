@@ -2331,3 +2331,54 @@ func TestRemoteWorkflowTaskRunRoleDowngradeStopsActiveProcesses(t *testing.T){
   })
  }
 }
+
+
+// Exercise the final local RBAC barrier independently of the timer cadence.
+// In particular, even a process that finishes before its next 500ms watcher
+// tick cannot be recorded completed after its TasksRun grant disappears.
+func TestRemoteWorkflowPostExitRechecksHostRBACAndOptIns(t *testing.T){
+ for _,parallel:=range []bool{false,true}{
+  name:="sequential"
+  if parallel{name="parallel"}
+  t.Run(name,func(t *testing.T){
+   remoteWorkflowHostFlags(t)
+   if parallel{t.Setenv("TASKDECK_REMOTE_TASKS_WORKFLOW_PARALLEL","1")}
+   s,session,_,_:=remoteTaskOperatorFixture(t)
+   ctx:=context.Background()
+   step:=remoteWorkflowStep{taskID:1}
+   if !s.remoteWorkflowPostExitAuthorized(ctx,session,step,1,parallel){
+    t.Fatal("valid host-owned TasksRun permission rejected after process exit")
+   }
+   project,err:=s.Identity.ProjectByKey(ctx,session.projectKey)
+   if err!=nil{t.Fatal(err)}
+   member,err:=s.Identity.ProjectMember(ctx,project.ID,session.userID)
+   if err!=nil{t.Fatal(err)}
+   member.RoleID=identity.RestrictedDeveloperRoleID
+   member.UpdatedAt=time.Now().UTC()
+   if err:=s.Identity.UpsertProjectMember(ctx,member);err!=nil{t.Fatal(err)}
+   if s.remoteWorkflowPostExitAuthorized(ctx,session,step,1,parallel){
+    t.Fatal("post-exit guard accepted revoked TasksRun role")
+   }
+   // Read-only TaskDeck rights need not be revoked with TasksRun.
+   principal,err:=s.verifyRemoteSessionLocalPrincipal(ctx,session)
+   if err!=nil||principal.Allowed(identity.PermissionTasksRun){
+    t.Fatalf("expected live read-only principal after downgrade: %v",err)
+   }
+  })
+ }
+ t.Run("host opt-out and expired context",func(t *testing.T){
+  remoteWorkflowHostFlags(t)
+  s,session,_,_:=remoteTaskOperatorFixture(t)
+  step:=remoteWorkflowStep{taskID:1}
+  t.Setenv("TASKDECK_REMOTE_TASKS_WORKFLOW_RUN","0")
+  if s.remoteWorkflowPostExitAuthorized(context.Background(),session,step,1,false){
+   t.Fatal("post-exit guard allowed disabled host workflow policy")
+  }
+  t.Setenv("TASKDECK_REMOTE_TASKS_WORKFLOW_RUN","1")
+  ctx,cancel:=context.WithCancel(context.Background())
+  cancel()
+  if s.remoteWorkflowPostExitAuthorized(ctx,session,step,1,false){
+   t.Fatal("post-exit guard allowed cancelled workflow context")
+  }
+ })
+}

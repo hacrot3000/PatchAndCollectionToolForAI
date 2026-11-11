@@ -775,3 +775,22 @@ real-host testing are considered **code complete**.
 
 - Khi người dùng chọn Xóa kết quả, native GUI chỉ xóa các bản ghi đã hoàn tất trước đó nếu host vẫn đang giữ một job dài chưa Clear. Bản ghi job hiện tại được bảo lưu theo serial của **lượt chạy** (không chỉ theo Task.ID), nên các Poll sau đó còn cập nhật đúng trạng thái/output cuối. Khi chỉ còn một bản ghi active, nút xóa bị vô hiệu và hiển thị nhãn **Xóa kết quả cũ**; sau khi Clear host, bản ghi cuối có thể xóa bình thường.
 - Test GUI tái hiện lịch sử có một task cũ và một long job đang chạy, xóa kết quả, Poll rồi Cancel/đọc final và chạy lại cùng Task.ID. Không thay đổi E2EE, hành vi Cancel/Clear, output limit hoặc lưu trữ lịch sử chỉ trong phiên.
+
+
+## 2026-11-11 — Kiểm tra quyền lần cuối sau khi workflow process thoát
+
+- Một process ngắn có thể thoát giữa hai lượt watchdog (500ms) trong khi host
+  đã thu hồi `TasksRun`. Trước khi ghi audit thành công/thất bại cho từng
+  bước, executor hiện xác minh lại **quyền RBAC trên host** và mọi cờ opt-in
+  liên quan, với giới hạn đọc identity 2 giây. Không có round E2EE hay
+  kết nối Portal mới chỉ để thực hiện xác minh này.
+- Áp dụng cho cả workflow tuần tự và từng sibling/final root song song.
+  Khi quyền không còn, kết quả bước thành `cancelled`, exit=-1 và
+  không chạy retry/cleanup/root sau đó. Đây là fail-closed accounting,
+  **không** thể hoàn tác side effect mà process đã thực hiện trước lúc bị
+  thu hồi quyền.
+- Bổ sung regression test cho TasksRun role downgrade, opt-out host và
+  context hủy tại điểm post-exit. Không mở rộng quyền chạy task, input,
+  session lifetime, giao thức PHP/Relay hay hỗ trợ Windows.
+- Chỉ tính code hoàn tất sau khi CI Go và PHP đúng SHA PASS; chạy thực địa
+  không phải điều kiện để đánh dấu hoàn tất về mặt mã nguồn.
