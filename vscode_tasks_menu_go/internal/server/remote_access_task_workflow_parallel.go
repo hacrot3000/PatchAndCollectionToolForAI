@@ -136,16 +136,58 @@ func(s *Server)runRemoteParallelJoinWorkflow(ctx context.Context,
  }
  // Strict audit barrier: no sibling process starts until BOTH attempted
  // rows have been durably written for this unique workflow run.
+ // An attempted audit is NOT proof that a process started. If the
+ // second audit or a host guard fails, close every already-attempted
+ // outcome and stop without launching either child.
+ attempted:=0
+ finishUnlaunched:=func(result string){
+  for i:=0;i<attempted;i++{
+   // A failed final audit still fails closed: no process was launched.
+   if err:=s.auditRemoteWorkflowStep(session,job.taskID,plan[i].taskID,
+    i+1,len(plan),1,job.workflowRunID,result,-1);err!=nil{
+    status="failed"
+   }
+   job.updateWorkflowStep(i+1,len(plan),1,1,result,-1,0)
+  }
+ }
  for i:=0;i<2;i++{
   if ctx.Err()!=nil||session.closed.Load()||
    !remoteWorkflowHostExecutionEnabled()||
    os.Getenv("TASKDECK_REMOTE_TASKS_WORKFLOW_PARALLEL")!="1"{
-   status="cancelled";exitCode=-1;return
+   status="cancelled";exitCode=-1
+   finishUnlaunched(status)
+   return
   }
   if err:=s.auditRemoteWorkflowStep(session,job.taskID,plan[i].taskID,
    i+1,len(plan),1,job.workflowRunID,"attempted",-1);err!=nil{
-   status="failed";exitCode=-1;return
+   status="failed";exitCode=-1
+   finishUnlaunched(status)
+   return
   }
+  attempted++
+ }
+ // Both attempted rows have been persisted. A local host may revoke
+ // permission, replace tasks.json, or change a cwd symlink during either
+ // database write. Recheck BOTH siblings *after* the audit barrier and
+ // *before* starting ANY process, so one stale dependency cannot begin
+ // while its peer fails final preflight.
+ for i:=0;i<2;i++{
+  verified,err:=s.prepareRemoteParallelStep(ctx,session,plan[i],hash)
+  if err!=nil||verified.executable!=prepared[i].executable||
+   verified.execution.TaskID!=prepared[i].execution.TaskID||
+   verified.execution.Cwd!=prepared[i].execution.Cwd{
+   status="failed";exitCode=-1
+   if ctx.Err()!=nil||session.closed.Load()||
+    !remoteWorkflowHostExecutionEnabled()||
+    os.Getenv("TASKDECK_REMOTE_TASKS_WORKFLOW_PARALLEL")!="1"{
+    status="cancelled"
+   }
+   finishUnlaunched(status)
+   _,_=captureWorkflowText(job.capture,
+    "[TaskDeck workflow] Parallel prelaunch revalidation denied; no child started\n")
+   return
+  }
+  prepared[i]=verified
  }
  type outcome struct{status string;code int}
  siblingCtx,cancelSibling:=context.WithCancel(ctx)
