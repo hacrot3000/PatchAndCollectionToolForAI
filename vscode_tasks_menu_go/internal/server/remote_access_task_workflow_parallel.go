@@ -13,7 +13,7 @@ import(
  "bletonfc/vscode_tasks_menu/internal/tasks"
 )
 
-// The only parallel shape is two independent, fully validated processes
+// The only parallel shapes are two or three independent, fully validated processes
 // followed by a successful-only root. The existing E2EE workflow start
 // carries the host-issued root Task.ID and never a graph or command.
 type remoteParallelPrepared struct{
@@ -122,12 +122,14 @@ func(s *Server)runRemoteParallelJoinWorkflow(ctx context.Context,
   job.publishCompletion(status,exitCode)
   job.cancel()
  }()
- if len(plan)!=3||!plan[2].parallelJoin||
+ if len(plan)<3||len(plan)>remoteWorkflowMaxSteps||
+  !plan[len(plan)-1].parallelJoin||
   os.Getenv("TASKDECK_REMOTE_TASKS_WORKFLOW_PARALLEL")!="1"{
   status="failed";exitCode=-1;return
  }
- var prepared [2]remoteParallelPrepared
- for i:=0;i<2;i++{
+ leafCount:=len(plan)-1
+ prepared:=make([]remoteParallelPrepared,leafCount)
+ for i:=0;i<leafCount;i++{
   item,err:=s.prepareRemoteParallelStep(ctx,session,plan[i],hash)
   if err!=nil{
    status="failed";exitCode=-1;return
@@ -150,7 +152,7 @@ func(s *Server)runRemoteParallelJoinWorkflow(ctx context.Context,
    job.updateWorkflowStep(i+1,len(plan),1,1,result,-1,0)
   }
  }
- for i:=0;i<2;i++{
+ for i:=0;i<leafCount;i++{
   if ctx.Err()!=nil||session.closed.Load()||
    !remoteWorkflowHostExecutionEnabled()||
    os.Getenv("TASKDECK_REMOTE_TASKS_WORKFLOW_PARALLEL")!="1"{
@@ -171,7 +173,7 @@ func(s *Server)runRemoteParallelJoinWorkflow(ctx context.Context,
  // database write. Recheck BOTH siblings *after* the audit barrier and
  // *before* starting ANY process, so one stale dependency cannot begin
  // while its peer fails final preflight.
- for i:=0;i<2;i++{
+ for i:=0;i<leafCount;i++{
   verified,err:=s.prepareRemoteParallelStep(ctx,session,plan[i],hash)
   if err!=nil||verified.executable!=prepared[i].executable||
    verified.execution.TaskID!=prepared[i].execution.TaskID||
@@ -192,15 +194,15 @@ func(s *Server)runRemoteParallelJoinWorkflow(ctx context.Context,
  type outcome struct{status string;code int}
  siblingCtx,cancelSibling:=context.WithCancel(ctx)
  defer cancelSibling()
- outcomes:=make(chan outcome,2)
- for i:=0;i<2;i++{
+ outcomes:=make(chan outcome,leafCount)
+ for i:=0;i<leafCount;i++{
   go func(index int){
    state,code:=s.executeRemoteParallelPrepared(siblingCtx,session,job,
     plan[index],prepared[index],index+1,len(plan))
    outcomes<-outcome{status:state,code:code}
   }(i)
  }
- for i:=0;i<2;i++{
+ for i:=0;i<leafCount;i++{
   result:=<-outcomes
   if result.status!="completed"{
    if status=="completed"||result.status=="failed"{
@@ -212,12 +214,13 @@ func(s *Server)runRemoteParallelJoinWorkflow(ctx context.Context,
   }
  }
  if status!="completed"||ctx.Err()!=nil{return}
- root,err:=s.prepareRemoteParallelStep(ctx,session,plan[2],hash)
+ rootIndex:=len(plan)-1
+ root,err:=s.prepareRemoteParallelStep(ctx,session,plan[rootIndex],hash)
  if err!=nil{status="failed";exitCode=-1;return}
- if err:=s.auditRemoteWorkflowStep(session,job.taskID,plan[2].taskID,
-  3,3,1,job.workflowRunID,"attempted",-1);err!=nil{
+ if err:=s.auditRemoteWorkflowStep(session,job.taskID,plan[rootIndex].taskID,
+  len(plan),len(plan),1,job.workflowRunID,"attempted",-1);err!=nil{
   status="failed";exitCode=-1;return
  }
  status,exitCode=s.executeRemoteParallelPrepared(ctx,session,job,
-  plan[2],root,3,3)
+  plan[rootIndex],root,len(plan),len(plan))
 }

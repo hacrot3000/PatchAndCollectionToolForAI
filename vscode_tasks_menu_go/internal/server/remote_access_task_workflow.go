@@ -30,7 +30,7 @@ type remoteWorkflowStep struct{
  retries int
  timeout time.Duration
  condition string // "" or "success" normally; "always" only at the final root.
- parallelJoin bool // Opted-in two-leaf fork/join; never caller supplied.
+ parallelJoin bool // Opted-in two/three-leaf join; never caller supplied.
 }
 
 // Process workflows intentionally exclude executable scripts, including
@@ -228,8 +228,9 @@ func remoteWorkflowSafeSequentialGraph(items []tasks.Task,
 // remote execution; the local host must enable the extra capability.
 func remoteWorkflowSafeParallelJoinGraph(items []tasks.Task,
  order []int,edges [][2]int)bool{
+ n:=len(order)
  if os.Getenv("TASKDECK_REMOTE_TASKS_WORKFLOW_PARALLEL")!="1"||
-  len(order)!=3||len(edges)!=2{return false}
+  n<3||n>remoteWorkflowMaxSteps||len(edges)!=n-1{return false}
  byID:=make(map[int]tasks.Task,len(items))
  byLabel:=make(map[string]tasks.Task,len(items))
  for _,task:=range items{
@@ -238,7 +239,7 @@ func remoteWorkflowSafeParallelJoinGraph(items []tasks.Task,
   byID[task.ID]=task
   byLabel[task.Label]=task
  }
- seen:=make(map[int]bool,3)
+ seen:=make(map[int]bool,n)
  for _,id:=range order{
   task,ok:=byID[id]
   if !ok||seen[id]||!remoteWorkflowSafeProcess(task){return false}
@@ -246,20 +247,20 @@ func remoteWorkflowSafeParallelJoinGraph(items []tasks.Task,
   retry,timeout,condition,ok:=remoteWorkflowPolicyForTask(task)
   if !ok||retry!=0||timeout!=0||condition!=""{return false}
  }
- root:=byID[order[2]]
+ root:=byID[order[n-1]]
  node:=tasks.WorkflowNodeForTask(root)
- if node.DependsOrder!="parallel"||len(node.DependsOn)!=2{return false}
- for _,id:=range order[:2]{
+ if node.DependsOrder!="parallel"||len(node.DependsOn)!=n-1{return false}
+ for _,id:=range order[:n-1]{
   leaf:=tasks.WorkflowNodeForTask(byID[id])
   if len(leaf.DependsOn)!=0{return false}
  }
- expected:=make(map[[2]int]bool,2)
+ expected:=make(map[[2]int]bool,n-1)
  for _,label:=range node.DependsOn{
   leaf,ok:=byLabel[label]
-  if !ok||(leaf.ID!=order[0]&&leaf.ID!=order[1]){return false}
-  expected[[2]int{leaf.ID,order[2]}]=true
+  if !ok||!seen[leaf.ID]||leaf.ID==order[n-1]{return false}
+  expected[[2]int{leaf.ID,order[n-1]}]=true
  }
- if len(expected)!=2{return false}
+ if len(expected)!=n-1{return false}
  for _,edge:=range edges{
   if !expected[edge]{return false}
   delete(expected,edge)
@@ -414,7 +415,7 @@ func(s *Server)startRemoteLinearWorkflow(ctx context.Context,
   done:make(chan struct{}),capture:capture,status:"running",exitCode:-1,
   workspaceRelease:releaseWorkspace,
   workflowRunID:runID,
-  workflowParallel:len(plan)==3&&plan[2].parallelJoin,
+  workflowParallel:len(plan)>=3&&plan[len(plan)-1].parallelJoin,
   workflowStepHistory:strings.Repeat("-",len(plan)),
   workflowStepDetails:func()[]string{
    parts:=make([]string,len(plan))
@@ -432,7 +433,7 @@ func(s *Server)startRemoteLinearWorkflow(ctx context.Context,
   case <-job.done:
   }
  }()
- if len(plan)==3&&plan[2].parallelJoin{
+ if len(plan)>=3&&plan[len(plan)-1].parallelJoin{
   go s.runRemoteParallelJoinWorkflow(jobCtx,session,job,plan,hash)
  }else{
   go s.runRemoteLinearWorkflow(jobCtx,session,job,plan,hash)

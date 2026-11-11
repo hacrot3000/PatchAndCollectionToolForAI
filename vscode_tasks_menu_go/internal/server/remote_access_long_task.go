@@ -387,7 +387,14 @@ func (session *remoteTaskDeckSession)pollRemoteLongTaskWithWaitMode(
   }
   if state.Step==0{state.StepHistory="";state.StepDetails=""}
   limit:=remoteLongTaskMaxChunkBytes
-  if state.Step>0{limit=64} // Reserve E2EE envelope for five typed fields.
+  if state.Step>0{
+   limit=64 // Unchanged for sequential and two-leaf workflows.
+   if state.Parallel&&state.StepTotal==4{
+    // A fourth result and the mode bit consume AEAD record space.
+    // 48 escaped bytes fit the strict 512-byte plaintext bound.
+    limit=48
+   }
+  }
   chunk,next,truncated,more:=job.capture.nextBounded(cursor,limit)
   if chunk!=""||status!="running"{
    if ctx.Err()!=nil||session.closed.Load(){

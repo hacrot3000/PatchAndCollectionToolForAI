@@ -85,22 +85,24 @@ func validLongTaskStepDetails(p RemoteLongTaskProgress)bool{
 // contract (CC- -> CCR -> CCC). No arbitrary DAG state or new job command
 // is accepted from a native client. Both leaves may be running at once.
 func validParallelForkProgress(p RemoteLongTaskProgress,expected rune)bool{
- if p.StepTotal!=3||p.Step<1||p.Step>2||
+ if (p.StepTotal!=3&&p.StepTotal!=4)||
+  p.Step<1||p.Step>=p.StepTotal||
   p.Attempt!=1||p.AttemptTotal!=1||
-  len(p.StepHistory)!=3||p.StepHistory[2]!='-'||
+  len(p.StepHistory)!=p.StepTotal||
+  p.StepHistory[p.StepTotal-1]!='-'||
   p.StepStatus=="skipped"||p.Status=="completed"{
   return false
  }
- for i:=0;i<2;i++{
+ for i:=0;i<p.StepTotal-1;i++{
   switch p.StepHistory[i]{
   case '-','R','C','F','X','T':
   default:return false
   }
  }
- if p.StepHistory[:2]=="--"||
+ if strings.Count(p.StepHistory[:p.StepTotal-1],"-")==p.StepTotal-1||
   rune(p.StepHistory[p.Step-1])!=expected{return false}
  if (p.Status=="failed"||p.Status=="cancelled"||
-  p.Status=="timed_out")&&strings.Contains(p.StepHistory[:2],"R"){
+  p.Status=="timed_out")&&strings.Contains(p.StepHistory[:p.StepTotal-1],"R"){
   return false
  }
  return true
@@ -132,7 +134,8 @@ func validLongTaskProgress(p RemoteLongTaskProgress)bool{
    p.Status=="cleared"||p.Step<1||p.StepTotal<2||
    p.StepTotal>4||p.Step>p.StepTotal||
    p.Attempt<1||p.AttemptTotal<1||p.AttemptTotal>2||
-   p.Attempt>p.AttemptTotal||len(p.Output)>64{return false}
+   p.Attempt>p.AttemptTotal||len(p.Output)>64||
+   (p.Parallel&&p.StepTotal==4&&len(p.Output)>48){return false}
   expected:='?'
   switch p.StepStatus{
   case "running":expected='R'
@@ -150,7 +153,7 @@ func validLongTaskProgress(p RemoteLongTaskProgress)bool{
   case "timed_out":expected='T'
   default:return false
   }
-  if p.Parallel&&(p.StepTotal!=3||p.Attempt!=1||
+  if p.Parallel&&((p.StepTotal!=3&&p.StepTotal!=4)||p.Attempt!=1||
    p.AttemptTotal!=1||p.StepStatus=="skipped"||p.StepHistory==""){
    return false
   }

@@ -545,15 +545,16 @@ const trustedGUIJavaScript = `'use strict';
   function validParallelForkProgress(step,total,attempt,attemptTotal,
     state,history,status,parallel){
     if(parallel!==true)return false;
-    if(total!==3||step<1||step>2||attempt!==1||attemptTotal!==1||
-      history.length!==3||history[2]!=='-'||state==='skipped'||
-      status==='completed'||!/^[-RCFXT]{2}-$/.test(history)||
-      history.slice(0,2)==='--')return false;
+    if(![3,4].includes(total)||step<1||step>=total||
+      attempt!==1||attemptTotal!==1||history.length!==total||
+      history[total-1]!=='-'||state==='skipped'||
+      status==='completed'||!/^[-RCFXT]+-$/.test(history)||
+      /^-+$/.test(history))return false;
     const codes={running:'R',completed:'C',failed:'F',
       cancelled:'X',timed_out:'T'};
     if(history[step-1]!==codes[state])return false;
     if(['failed','cancelled','timed_out'].includes(status)&&
-      history.slice(0,2).includes('R'))return false;
+      history.slice(0,total-1).includes('R'))return false;
     return true;
   }
 
@@ -2465,7 +2466,7 @@ const trustedGUIJavaScript = `'use strict';
             }
             const parallelFork=validParallelForkProgress(step,stepTotal,
               attempt,attemptTotal,stepStatus,stepHistory,data.status,parallel);
-            if(parallel&&(stepTotal!==3||stepHistory===''||
+            if(parallel&&(![3,4].includes(stepTotal)||stepHistory===''||
               attempt!==1||attemptTotal!==1||stepStatus==='skipped'||
               (step<3&&!parallelFork))){
               throw new Error('Báo cáo workflow song song E2EE không hợp lệ');
@@ -2488,7 +2489,8 @@ const trustedGUIJavaScript = `'use strict';
              attempt>attemptTotal||
              !['running','completed','skipped','failed','cancelled','timed_out'].includes(stepStatus)||
              ['started','cleared','cancel_requested'].includes(data.status)||
-             !validTerminalOutput(data.output,64))){
+             !validTerminalOutput(data.output,
+               parallel&&stepTotal===4?48:64))){
             throw new Error('Tiến độ bước workflow E2EE không hợp lệ');
           }
           if(!workflowProgress&&present.length&&
