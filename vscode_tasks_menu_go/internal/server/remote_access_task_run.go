@@ -179,26 +179,31 @@ func (s *Server)runRemoteTaskBoundedWithInput(ctx context.Context,session *remot
  if taskCtx.Err()!=nil||session.closed.Load(){
   return denied,remotetransport.ErrRemoteActionDenied
  }
- cmd:=exec.CommandContext(taskCtx,spec.Command,spec.Args...)
- cmd.Dir=cwd
- cmd.Env=spec.Env
  capture:=&remoteTaskCapture{}
- cmd.Stdout=capture
- cmd.Stderr=capture
- // Reuse the established TaskDeck process-group cleanup for shell children,
- // rather than killing only bash and leaving its descendants behind.
- prepareGitJobProcess(cmd)
- cmd.Cancel=func()error{killGitJobProcess(cmd);return nil}
- cmd.WaitDelay=time.Second
- if taskCtx.Err()!=nil||session.closed.Load(){
-  return denied,remotetransport.ErrRemoteActionDenied
- }
  startedAt:=time.Now()
- err=cmd.Run()
- // Even when the short parent shell exits successfully, it may leave
- // children in its dedicated process group. This API never authorizes
- // detached background jobs; clean them up before returning the reply.
- killGitJobProcess(cmd)
+ // The attempted audit may block while the host disables TasksRun.
+ // Recheck just before exec, continue checking during the process, and
+ // recheck after exit. Only the child context can cancel descendants.
+ var authErr error
+ err,authErr=s.runRemoteShortTaskWithLiveRBAC(taskCtx,session,
+  func(runCtx context.Context)error{
+   if runCtx.Err()!=nil||session.closed.Load(){
+    return remotetransport.ErrRemoteActionDenied
+   }
+   cmd:=exec.CommandContext(runCtx,spec.Command,spec.Args...)
+   cmd.Dir=cwd
+   cmd.Env=spec.Env
+   cmd.Stdout=capture
+   cmd.Stderr=capture
+   // Do not kill only /bin/sh: retire its entire process group.
+   prepareGitJobProcess(cmd)
+   cmd.Cancel=func()error{killGitJobProcess(cmd);return nil}
+   cmd.WaitDelay=time.Second
+   runErr:=cmd.Run()
+   // Even a naturally reaped parent may leave background children.
+   killGitJobProcess(cmd)
+   return runErr
+  })
  exitCode:=0
  if err!=nil{
   var exit *exec.ExitError
@@ -209,11 +214,11 @@ func (s *Server)runRemoteTaskBoundedWithInput(ctx context.Context,session *remot
  outcome:="completed"
  if errors.Is(taskCtx.Err(),context.DeadlineExceeded){
   outcome="timed_out"
- }else if taskCtx.Err()!=nil||session.closed.Load(){
+ }else if authErr!=nil||taskCtx.Err()!=nil||session.closed.Load(){
   outcome="cancelled"
  }else if err!=nil{outcome="failed"}
  s.auditRemoteTaskRunFinish(session,taskID,outcome,exitCode,time.Since(startedAt))
- if taskCtx.Err()!=nil||session.closed.Load()||exitCode<0{
+ if authErr!=nil||taskCtx.Err()!=nil||session.closed.Load()||exitCode<0{
   return denied,remotetransport.ErrRemoteActionDenied
  }
  output,truncated:=capture.snapshot()

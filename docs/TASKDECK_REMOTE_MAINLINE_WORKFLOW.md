@@ -999,3 +999,35 @@ real-host testing are considered **code complete**.
 - This is one more supported *bounded sequential shape*, not a general
   workflow engine, shell-script executor, secret entry mechanism,
   background session reconnect or authorization to deploy LIVE.
+
+
+## 2026-11-11 — Short Task: thu hồi quyền sau attempted audit và khi đang chạy
+
+- Trước đây Task chạy ngắn đã kiểm tra quyền ở E2EE dispatcher và
+  ghi audit trước khi thực thi, nhưng thao tác SQLite `attempted`
+  có thể mất thời gian. Nếu host tắt `TASKDECK_REMOTE_TASKS_RUN` hoặc
+  thu hồi quyền local `TasksRun` trong khoảng thời gian đó, thao tác
+  `cmd.Run` vẫn có thể chạy với quyền cũ.
+- Thêm `remoteShortTaskHostConsent` tái kiểm tra opt-in
+  `TASKDECK_REMOTE_TASKS_PREVIEW/RUN`, TaskDeck-local RBAC, grant và
+  channel; với `remoteShortTaskRunWithLiveRBAC` bao quanh riêng tiến
+  trình thực thi (tên hàm thực tế: `runRemoteShortTaskWithLiveRBAC`).
+  Callback bắt buộc dùng `exec.CommandContext` của child context và
+  lệnh hủy process-group hiện hành.
+- Khi lệnh đang chạy, watchdog kiểm tra theo
+  `remoteLocalRevokePoll`, fail-closed khi mất opt-in, role hoặc
+  session. Sau khi tiến trình kết thúc, kiểm tra lại để ngăn gửi false
+  success khi quyền bị thu hồi giữa hai tick. Watchdog được join để
+  tránh giữ goroutine sau khi Task kết thúc.
+- Giữ phân biệt giữa exit code không bằng 0 (Task hợp lệ đã thất bại)
+  và mất quyền thực thi (không được trả stdout/exit như một lệnh được
+  phép). Audit chỉ chứa ID/status/duration/exit code; không chứa command,
+  args, stdout hoặc secret. Không đổi 6s process timeout, E2EE quota,
+  phần mềm native, hoặc giới hạn output.
+- Regression `-race`: tắt preview/run hay hạ vai trò trong lúc
+  attempted-audit để xác nhận chưa start process; tắt run khi
+  shell thực sự đang chạy để dừng toàn bộ process-group; hạ vai trò
+  trong lúc callback đang chạy; bảo toàn exit code khác 0 của task
+  được phép. Cấu hình CI preflight mới.
+- Phạm vi chỉ là Task chạy ngắn; workflow dài đã có cơ chế giám sát
+  quyền riêng. Production tiếp tục LIVE NO-GO.
