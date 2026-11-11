@@ -2102,3 +2102,95 @@ func TestRemoteParallelHostRevocationStopsActiveRoot(t *testing.T){
   })
  }
 }
+
+
+// Host-owned audit hooks inject a local mutation exactly after the durable
+// step "attempted" row. These are not client-supplied commands or values.
+func TestRemoteSequentialPostAuditPrelaunchRejectsDrift(t *testing.T){
+ for _,tc:=range []struct{
+  name string
+  step int
+  sourceChange bool
+  wantHistory string
+  wantLeafOutput bool
+ }{
+  {"environment changes at first step",1,false,"F--",false},
+  {"tasks.json changes before root",3,true,"CCF",true},
+ }{
+  t.Run(tc.name,func(t *testing.T){
+   remoteWorkflowHostFlags(t)
+   t.Setenv("TASKDECK_TEST_SEQUENTIAL_AUDIT_ENV","original")
+   s,session,client,agent:=remoteTaskOperatorFixture(t)
+   root:=remoteWorkflowIssuedRoot(t,s,session,client,agent,
+    remoteWorkflowLinearSource,"Step C")
+   original:=s.Identity
+   if tc.sourceChange{
+    s.Identity=remoteParallelRootAuditMutation{
+     Store:original,
+     sourcePath:filepath.Join(s.Workspace,".vscode","tasks.json"),
+     source:remoteWorkflowLinearSource,
+    }
+   }else{
+    s.Identity=remoteParallelEnvDriftAudit{
+     Store:original,afterStep:tc.step,
+     envName:"TASKDECK_TEST_SEQUENTIAL_AUDIT_ENV",
+    }
+   }
+   if err:=s.startRemoteLinearWorkflow(context.Background(),session,root);err!=nil{
+    t.Fatalf("approved sequential workflow could not start: %v",err)
+   }
+   if got:=awaitRemoteWorkflow(t,session);got!="failed"{
+    t.Fatalf("stale sequential workflow continued: status=%q",got)
+   }
+   job:=session.longTask
+   job.mu.Lock()
+   history,exit:=job.workflowStepHistory,job.exitCode
+   job.mu.Unlock()
+   if history!=tc.wantHistory||exit!= -1{
+    t.Fatalf("stale step ran or history lost: got %q exit %d, want %q",
+     history,exit,tc.wantHistory)
+   }
+   job.capture.mu.Lock()
+   output:=string(append([]byte(nil),job.capture.data...))
+   job.capture.mu.Unlock()
+   if !strings.Contains(output,"post-audit prelaunch denied; not started"){
+    t.Fatalf("missing fail-closed transcript: %q",output)
+   }
+   if tc.wantLeafOutput{
+    if !strings.Contains(output,"\nONE\n")||
+     !strings.Contains(output,"\nTWO\n")||
+     strings.Contains(output,"\nTHREE\n"){
+     t.Fatalf("completed dependencies were lost or stale root executed: %q",output)
+    }
+   }else if strings.Contains(output,"\nONE\n")||
+    strings.Contains(output,"\nTWO\n")||
+    strings.Contains(output,"\nTHREE\n"){
+    t.Fatalf("unapproved sequential process executed: %q",output)
+   }
+   project,err:=original.ProjectByKey(context.Background(),session.projectKey)
+   if err!=nil{t.Fatal(err)}
+   audits,err:=original.ListAudit(context.Background(),identity.AuditQuery{
+    ProjectID:project.ID,UserID:session.userID,
+    Action:"remote.action.tasks_workflow_step",Limit:12,
+   })
+   if err!=nil{t.Fatal(err)}
+   attempted,closed:=0,0
+   for _,entry:=range audits{
+    if !strings.Contains(entry.Details,
+     fmt.Sprintf(`"step":%d`,tc.step)){continue}
+    if entry.Result=="attempted"{attempted++}
+    if entry.Result=="failed"{closed++}
+    if entry.Result=="completed"{
+     t.Fatalf("stale process recorded success: %+v",entry)
+    }
+   }
+   if attempted!=1||closed!=1{
+    t.Fatalf("stale attempted audit not closed: attempted %d, failed %d",
+     attempted,closed)
+   }
+   if err:=session.clearRemoteLongTask(root);err!=nil{
+    t.Fatalf("failed workflow leaked host long-job slot: %v",err)
+   }
+  })
+ }
+}

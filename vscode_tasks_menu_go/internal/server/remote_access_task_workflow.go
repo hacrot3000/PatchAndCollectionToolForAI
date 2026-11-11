@@ -517,6 +517,50 @@ Workflow:
     job.updateWorkflowStep(i+1,len(plan),attempt,step.retries+1,"failed",-1,0)
     status="failed";exitCode=-1;break Workflow
    }
+   // A durable "attempted" record does NOT authorize executing a
+   // stale command. The host can change tasks.json, inherited environment,
+   // permissions or approved client keys during the audit write. Recheck
+   // the full process identity BEFORE ANY subprocess (including retries
+   // and conditional cleanup) and persist the aborted outcome. Never
+   // replay an attempt just because the prelaunch guard failed.
+   deniedState:=""
+   if ctx.Err()!=nil||session.closed.Load()||
+    !remoteWorkflowHostExecutionEnabled()||
+    (step.timeout>0&&os.Getenv("TASKDECK_REMOTE_TASKS_WORKFLOW_TIMEOUT")!="1")||
+    (attempt>1&&os.Getenv("TASKDECK_REMOTE_TASKS_WORKFLOW_RETRY")!="1")||
+    (step.condition!=""&&os.Getenv("TASKDECK_REMOTE_TASKS_WORKFLOW_CONDITION")!="1"){
+    deniedState="cancelled"
+   }else if err:=s.authorizeRemoteAuthenticatedSession(ctx,session,
+    session.channel,identity.PermissionTasksRun);err!=nil{
+    deniedState="cancelled"
+   }else{
+    verified,_,checkErr:=prepareRemoteTaskExecutionInputMode(
+     ctx,s.Workspace,hash,step.taskID,0,false,"",true)
+    freshRoot,rootErr:=filepath.EvalSymlinks(s.Workspace)
+    if rootErr==nil{freshRoot,rootErr=filepath.Abs(freshRoot)}
+    freshExecutable,exeOK:=remoteWorkflowResolvedExecutable(verified.Command)
+    if checkErr!=nil||rootErr!=nil||freshRoot!=root||
+     validateRemoteWorkflowStepCwd(root,verified.Cwd)!=nil||
+     !exeOK||!tasks.RemoteExecutableAllowed(root,freshExecutable)||
+     !remoteParallelSameExecution(
+      remoteParallelPrepared{execution:spec,executable:executable},
+      remoteParallelPrepared{execution:verified,executable:freshExecutable}){
+     deniedState="failed"
+    }
+   }
+   if deniedState!=""{
+    if err:=s.auditRemoteWorkflowStep(session,job.taskID,
+     step.taskID,i+1,len(plan),attempt,job.workflowRunID,
+     deniedState,-1);err!=nil{
+     deniedState="failed"
+    }
+    job.updateWorkflowStep(i+1,len(plan),attempt,step.retries+1,
+     deniedState,-1,0)
+    _,_=captureWorkflowText(job.capture,fmt.Sprintf(
+     "[TaskDeck workflow] Step %d/%d: post-audit prelaunch denied; not started\n",
+     i+1,len(plan)))
+    status=deniedState;exitCode=-1;break Workflow
+   }
    job.updateWorkflowStep(i+1,len(plan),attempt,step.retries+1,"running",-1,0)
    _,_=captureWorkflowText(job.capture,fmt.Sprintf(
     "[TaskDeck workflow] Step %d/%d: Task #%d (attempt %d/%d)\n",
