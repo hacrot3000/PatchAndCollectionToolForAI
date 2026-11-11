@@ -1911,3 +1911,131 @@ func TestRemoteParallelJoinRootAuditBarrierPreventsStaleExecution(t *testing.T){
   })
  }
 }
+
+
+// A process identity includes every argument AND every inherited
+// environment entry. In particular tasks.ResolveExecutionWithInputs
+// refreshes os.Environ() each time, independent of tasks.json's hash.
+func TestRemoteParallelSameExecutionRejectsEnvironmentAndArgDrift(t *testing.T){
+ original:=remoteParallelPrepared{
+  executable:"/usr/bin/echo",
+  execution:tasks.Execution{
+   TaskID:17,Command:"/usr/bin/echo",Cwd:"/workspace",
+   Args:[]string{"hello","world"},
+   Env:[]string{"A=one","B=two"},
+  },
+ }
+ if !remoteParallelSameExecution(original,original){
+  t.Fatal("unchanged host-issued process rejected")
+ }
+ clone:=func()remoteParallelPrepared{
+  item:=original
+  item.execution.Args=append([]string(nil),original.execution.Args...)
+  item.execution.Env=append([]string(nil),original.execution.Env...)
+  return item
+ }
+ for name,change:=range map[string]func(*remoteParallelPrepared){
+  "executable":func(x *remoteParallelPrepared){x.executable="/usr/bin/false"},
+  "task ID":func(x *remoteParallelPrepared){x.execution.TaskID=19},
+  "command":func(x *remoteParallelPrepared){x.execution.Command="/usr/bin/true"},
+  "cwd":func(x *remoteParallelPrepared){x.execution.Cwd="/tmp"},
+  "argument":func(x *remoteParallelPrepared){x.execution.Args[1]="changed"},
+  "argument count":func(x *remoteParallelPrepared){
+   x.execution.Args=append(x.execution.Args,"extra")
+  },
+  "environment value":func(x *remoteParallelPrepared){x.execution.Env[0]="A=changed"},
+  "environment count":func(x *remoteParallelPrepared){
+   x.execution.Env=append(x.execution.Env,"C=three")
+  },
+ }{
+  t.Run(name,func(t *testing.T){
+   item:=clone()
+   change(&item)
+   if remoteParallelSameExecution(original,item){
+    t.Fatal("prelaunch identity silently ignored host process changes")
+   }
+  })
+ }
+}
+
+// Revoke a process's inherited environment after the attempted audit,
+// without touching its stable ID or tasks.json. The executable, argument
+// list and working directory all remain the same: only the NEW stricter
+// prelaunch identity comparison can stop the unsafe root execution.
+type remoteParallelEnvDriftAudit struct{
+ identity.Store
+ afterStep int
+ envName string
+}
+func(store remoteParallelEnvDriftAudit)AppendAudit(
+ ctx context.Context,event identity.AuditEvent,
+)error{
+ if err:=store.Store.AppendAudit(ctx,event);err!=nil{return err}
+ if event.Action=="remote.action.tasks_workflow_step"&&
+  event.Result=="attempted"&&
+  strings.Contains(event.Details,fmt.Sprintf(`"step":%d`,store.afterStep)){
+  return os.Setenv(store.envName,"changed-after-attempted-audit")
+ }
+ return nil
+}
+func TestRemoteParallelPrelaunchDeniesInheritedEnvironmentDrift(t *testing.T){
+ const source=`{"tasks":[
+  {"label":"A","type":"process","command":"/bin/echo","args":["FIRST-CHILD-OUTPUT"]},
+  {"label":"B","type":"process","command":"/bin/echo","args":["SECOND-CHILD-OUTPUT"]},
+  {"label":"Join","type":"process","command":"/bin/echo","args":["ROOT-MUST-NOT-RUN"],
+   "dependsOn":["A","B"],"dependsOrder":"parallel"}
+ ]}`
+ for _,tc:=range []struct{
+  name string
+  afterStep int
+  wantedHistory string
+  childOutput bool
+ }{
+  {"sibling drift after second audit",2,"FF-",false},
+  {"root drift after all leaves succeeded",3,"CCF",true},
+ }{
+  t.Run(tc.name,func(t *testing.T){
+   remoteWorkflowHostFlags(t)
+   t.Setenv("TASKDECK_REMOTE_TASKS_WORKFLOW_PARALLEL","1")
+   t.Setenv("TASKDECK_TEST_PARALLEL_ENV_DRIFT","before")
+   s,session,client,agent:=remoteTaskOperatorFixture(t)
+   root:=remoteWorkflowIssuedRoot(t,s,session,client,agent,source,"Join")
+   previous:=s.Identity
+   s.Identity=remoteParallelEnvDriftAudit{
+    Store:previous,afterStep:tc.afterStep,
+    envName:"TASKDECK_TEST_PARALLEL_ENV_DRIFT",
+   }
+   if err:=s.startRemoteLinearWorkflow(context.Background(),session,root);err!=nil{
+    t.Fatalf("host approved initial fork: %v",err)
+   }
+   if got:=awaitRemoteWorkflow(t,session);got!="failed"{
+    t.Fatalf("changed process environment did not fail closed: %s",got)
+   }
+   job:=session.longTask
+   job.mu.Lock()
+   history:=job.workflowStepHistory
+   job.mu.Unlock()
+   if history!=tc.wantedHistory{
+    t.Fatalf("env drift history=%q want=%q",history,tc.wantedHistory)
+   }
+   job.capture.mu.Lock()
+   output:=string(append([]byte(nil),job.capture.data...))
+   job.capture.mu.Unlock()
+   if strings.Contains(output,"ROOT-MUST-NOT-RUN"){
+    t.Fatalf("stale root ran despite environment drift: %q",output)
+   }
+   if tc.childOutput{
+    if !strings.Contains(output,"FIRST-CHILD-OUTPUT")||
+     !strings.Contains(output,"SECOND-CHILD-OUTPUT"){
+     t.Fatalf("prepared independent siblings did not run: %q",output)
+    }
+   }else if strings.Contains(output,"FIRST-CHILD-OUTPUT")||
+    strings.Contains(output,"SECOND-CHILD-OUTPUT"){
+    t.Fatalf("sibling fork ran despite prelaunch env drift: %q",output)
+   }
+   if err:=session.clearRemoteLongTask(root);err!=nil{
+    t.Fatalf("denied run retained an active job: %v",err)
+   }
+  })
+ }
+}

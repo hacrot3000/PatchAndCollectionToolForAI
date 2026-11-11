@@ -22,6 +22,30 @@ type remoteParallelPrepared struct{
  executable string
 }
 
+// A re-prepared task must be EXACTLY the same process. Merely comparing
+// Task ID, cwd and executable path is insufficient: the process inherits
+// os.Environ, whose values can change while the attempted audit is being
+// written, even when tasks.json and all Task IDs remain unchanged.
+// Native workflows accept neither browser-selected env nor argument
+// overrides. A mismatch denies the ENTIRE fork before any worker runs.
+func remoteParallelSameExecution(a,b remoteParallelPrepared)bool{
+ if a.executable!=b.executable||
+  a.execution.TaskID!=b.execution.TaskID||
+  a.execution.Command!=b.execution.Command||
+  a.execution.Cwd!=b.execution.Cwd||
+  len(a.execution.Args)!=len(b.execution.Args)||
+  len(a.execution.Env)!=len(b.execution.Env){
+  return false
+ }
+ for i,arg:=range a.execution.Args{
+  if arg!=b.execution.Args[i]{return false}
+ }
+ for i,variable:=range a.execution.Env{
+  if variable!=b.execution.Env[i]{return false}
+ }
+ return true
+}
+
 // A host can revoke process permission while a fork is already running.
 // Unlike a one-shot preflight, this cheap host-owned check is safe to
 // repeat while the bounded native worker pool is active.
@@ -185,9 +209,7 @@ func(s *Server)runRemoteParallelJoinWorkflow(ctx context.Context,
  // while its peer fails final preflight.
  for i:=0;i<leafCount;i++{
   verified,err:=s.prepareRemoteParallelStep(ctx,session,plan[i],hash)
-  if err!=nil||verified.executable!=prepared[i].executable||
-   verified.execution.TaskID!=prepared[i].execution.TaskID||
-   verified.execution.Cwd!=prepared[i].execution.Cwd{
+  if err!=nil||!remoteParallelSameExecution(verified,prepared[i]){
    status="failed";exitCode=-1
    if ctx.Err()!=nil||session.closed.Load()||
     !remoteWorkflowHostExecutionEnabled()||
@@ -268,9 +290,7 @@ func(s *Server)runRemoteParallelJoinWorkflow(ctx context.Context,
  // cannot authorize execution after that gap. Revalidate the exact issued
  // snapshot and process before starting, just as for every sibling.
  verified,err:=s.prepareRemoteParallelStep(ctx,session,plan[rootIndex],hash)
- if err!=nil||verified.executable!=root.executable||
-  verified.execution.TaskID!=root.execution.TaskID||
-  verified.execution.Cwd!=root.execution.Cwd{
+ if err!=nil||!remoteParallelSameExecution(verified,root){
   status="failed";exitCode=-1
   if ctx.Err()!=nil||!remoteParallelHostConsent(session){
    status="cancelled"
