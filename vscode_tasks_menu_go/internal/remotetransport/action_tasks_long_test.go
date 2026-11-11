@@ -503,7 +503,7 @@ func TestRemoteLongTaskFourStepForkBoundedEscapedE2EEOutput(t *testing.T){
   {"RRR-","running",3,"running"},
   {"CCR-","running",3,"running"},
   {"FCX-","cancelled",3,"cancelled"},
-  {"CCC-","completed",3,"running"},
+  {"CCC-","running",3,"completed"},
  }{
   report:=RemoteLongTaskProgress{
    TaskID:44,Status:state.status,ExitCode:-1,
