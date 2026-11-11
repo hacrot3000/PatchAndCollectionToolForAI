@@ -617,7 +617,34 @@ const trustedGUIJavaScript = `'use strict';
       Number.isFinite(viewport)&&height>=0&&viewport>=0;
     const follow=reset||(measurable&&
       (height<=viewport||height-top-viewport<=28));
-    node.textContent=value;
+    if(node.textContent!==value){
+      const previous=node.textContent;
+      const textNode=node.firstChild;
+      // Keep the active log's TEXT node attached while E2EE Poll updates
+      // its header and/or adds output. Reassigning textContent on every
+      // Poll destroys Firefox's selected text even when the operator is
+      // reading a stable portion of a long-running task.
+      if(!reset&&previous&&node.childNodes&&node.childNodes.length===1&&
+        textNode&&textNode.nodeType===3){
+        if(value.startsWith(previous)&&typeof textNode.appendData==='function'){
+          textNode.appendData(value.slice(previous.length));
+        }else if(typeof textNode.replaceData==='function'){
+          let prefix=0,suffix=0;
+          const shared=Math.min(previous.length,value.length);
+          while(prefix<shared&&previous[prefix]===value[prefix])prefix++;
+          while(suffix<shared-prefix&&
+            previous[previous.length-suffix-1]===value[value.length-suffix-1]){
+            suffix++;
+          }
+          textNode.replaceData(prefix,previous.length-prefix-suffix,
+            value.slice(prefix,value.length-suffix));
+        }else{
+          node.textContent=value;
+        }
+      }else{
+        node.textContent=value;
+      }
+    }
     if(reset)node.scrollTop=0;
     else if(follow)node.scrollTop=node.scrollHeight;
   }
@@ -637,7 +664,10 @@ const trustedGUIJavaScript = `'use strict';
       // cannot be re-encoded safely: discard it instead of returning a
       // broken clipboard string if an internal caller violates that gate.
       if(cp>=0xd800&&cp<=0xdfff){
-        start-=units;
+        // This is NOT a complete UTF-8 scalar. Stop BEFORE it, so the
+        // returned suffix contains only whole Unicode characters. The
+        // surrounding E2EE codec rejects malformed strings; this is a
+        // fail-closed guard for accidental internal or test-only input.
         break;
       }
       const width=cp<=0x7f?1:cp<=0x7ff?2:cp<=0xffff?3:4;

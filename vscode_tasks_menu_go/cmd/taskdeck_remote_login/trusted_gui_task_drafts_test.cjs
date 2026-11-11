@@ -8,18 +8,25 @@ class Element {
  constructor(tag='div',id=''){
   this.tagName=tag.toUpperCase();this.id=id;this.children=[];
   this.listeners={};this.value='';this.hidden=false;this.disabled=false;
-  this._textContent='';this.textResets=0;this.textAppends=0;this._textNode=null;
+  this._textContent='';this.textResets=0;this.textAppends=0;
+  this.textReplaces=0;this._textNode=null;
   this.textContent='';this.classList={toggle(){},add(){},remove(){}};
  }
  set textContent(value){
   this._textContent=String(value);
   // A real PRE owns one text node. Instrument it so streaming tests
   // distinguish safe appendData from replacing the selected text node.
-  if(this.tagName==='PRE'){
+  if(this.tagName==='PRE'||this.id==='long-task-output'){
    this.textResets++;
    this._textNode=this._textContent?{
-    nodeType:3,appendData:suffix=>{
+    nodeType:3,
+    appendData:suffix=>{
      this._textContent+=suffix;this.textAppends++;
+    },
+    replaceData:(offset,length,replacement)=>{
+     this._textContent=this._textContent.slice(0,offset)+replacement+
+       this._textContent.slice(offset+length);
+     this.textReplaces++;
     }
    }:null;
   }
@@ -193,7 +200,16 @@ const controls=(parent,tag)=>parent.children.filter(child=>child.tagName===tag.t
  await action(byText(row('One'),'Chạy task'));
  await action(byText(row('One'),'Chạy task dài'));
  assert.equal(requests.length,whileLong,'parallel task launch escaped long-job guard');
+ const activeText=el('long-task-output');
+ const activeNodeBeforePoll=activeText.firstChild;
+ const activeResetBeforePoll=activeText.textResets;
  await action(el('long-task-poll'));
+ assert.equal(activeText.firstChild,activeNodeBeforePoll,
+  'first Poll detached the running task transcript text node');
+ assert.equal(activeText.textResets,activeResetBeforePoll,
+  'state change rewrote active transcript using textContent');
+ assert.ok(activeText.textReplaces>0,
+  'state change did not update the active transcript in place');
  const historyRows=el('task-run-history-list').children;
  assert.equal(historyRows.length,1,'long-running job should have one history entry');
  assert.equal(byText(historyRows[0],'chunk').tagName,'PRE',
@@ -211,7 +227,16 @@ const controls=(parent,tag)=>parent.children.filter(child=>child.tagName===tag.t
  let input=controls(row('Two'),'input')[0];
  assert.ok(input,'missing prompt input');
  input.value='release-4.2';input.emit('input');
+ const liveActiveTextNode=activeText.firstChild;
+ const liveActiveTextResets=activeText.textResets;
+ const liveActiveAppends=activeText.textAppends;
  await action(el('long-task-poll'));
+ assert.equal(activeText.firstChild,liveActiveTextNode,
+  'streaming Poll detached the selected live transcript node');
+ assert.equal(activeText.textResets,liveActiveTextResets,
+  'streaming Poll reset selected live text content');
+ assert.ok(activeText.textAppends>liveActiveAppends,
+  'append-only live transcript used a full rewrite');
  assert.equal(byText(el('task-run-history-list').children[0],'chunkchunk').tagName,'PRE',
   'later poll output must accumulate in the same bounded history entry');
  assert.equal(el('task-run-history-list').children[0],liveHistoryRow,

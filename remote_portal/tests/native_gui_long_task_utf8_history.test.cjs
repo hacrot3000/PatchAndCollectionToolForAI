@@ -21,6 +21,8 @@ const js=extracted[1].replace(anchor,`
   globalThis.__resetActiveOutput=()=>{
     longTaskText='';longTaskClipped=false;
   };
+  globalThis.__boundedUTF8Tail=(value,maxBytes)=>
+    boundedUTF8HistoryTail(value,maxBytes);
   globalThis.__captureActiveOutputHistory=()=>{
     const serial=rememberTaskRun(55,'dài','running',-1,'',false);
     longTaskHistorySerial=serial;
@@ -90,6 +92,17 @@ const flush=async()=>{for(let n=0;n<70;n++)await Promise.resolve()};
  assert.equal(item.output,'é'.repeat(1024));
  assert.equal(item.truncated,true);
  assert.equal(Buffer.byteLength(item.output,'utf8'),2048);
+ // A malformed lone UTF-16 surrogate can never be returned as an
+ // apparently valid output tail, even in a synthetic internal call.
+ let malformed=sandbox.__boundedUTF8Tail('left\\uD800right',2048);
+ assert.equal(malformed.text,'right');
+ assert.equal(malformed.clipped,true);
+ malformed=sandbox.__boundedUTF8Tail('left\\uDC00right',2048);
+ assert.equal(malformed.text,'right');
+ assert.equal(malformed.clipped,true);
+ malformed=sandbox.__boundedUTF8Tail('left\\uD800',2048);
+ assert.equal(malformed.text,'');
+ assert.equal(malformed.clipped,true);
  // The active panel must preserve the latest *UTF-8 bytes*, not the
  // earliest UTF-16 units (which previously lost recent output).
  let active=sandbox.__appendActiveOutput(emoji.repeat(4096));
