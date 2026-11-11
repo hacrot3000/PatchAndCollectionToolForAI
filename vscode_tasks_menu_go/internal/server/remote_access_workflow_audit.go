@@ -63,7 +63,10 @@ func (s *Server)readRemoteWorkflowAudit(ctx context.Context,
   snapshot=append(snapshot,item)
  }
  if ctx.Err()!=nil||session.closed.Load()||
-  !session.portalGrant.ActiveForSession(session.channel){return empty,denied}
+  !session.portalGrant.ActiveForSession(session.channel)||
+  !remotetransport.ValidRemoteWorkflowAuditRunMapping(snapshot){
+  return empty,denied
+ }
  // executeRemoteE2EEPing holds workflowAuditPageMu until the response
  // seals. An unsuccessful seal cannot advance or authorize a next page.
  session.workflowAuditPageReady=false

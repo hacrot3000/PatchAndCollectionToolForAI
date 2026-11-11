@@ -67,7 +67,10 @@ const context={document:{getElementById:get,createElement:x=>new Element(x)},
  history:{replaceState(){}},location:{hash:'#'+token,pathname:'/'},
  fetch,Date,Number,String,Promise,setInterval(){},setTimeout(){}};
 vm.createContext(context);
-new vm.Script(match[1],{filename:'native-task-report.js'}).runInContext(context);
+const instrumented=match[1].replace('  let inspectButtons=[];',
+ '  globalThis.__workflowAuditGroupText=workflowAuditGroupText;\n'+
+ '  let inspectButtons=[];');
+new vm.Script(instrumented,{filename:'native-task-report.js'}).runInContext(context);
 const flush=async()=>{for(let i=0;i<80;i++)await Promise.resolve()};
 (async()=>{
  await flush();
@@ -114,6 +117,37 @@ const flush=async()=>{for(let i=0;i<80;i++)await Promise.resolve()};
   'paging must not duplicate or split the per-run group');
  assert.equal(get('tasks-workflow-audit-next').disabled,true,
   'next button remained active after final audit page');
+ // Corruption can straddle the host's two-row E2EE audit pages.
+ // The GUI must NEVER group contradictory Task IDs into one run.
+ const auditRows=[
+  {root_task_id:80,task_id:80,step:3,total:3,attempt:1,
+   status:'completed',exit_code:0,timestamp:epoch,run_id:'0123456789abcdef'},
+  {root_task_id:80,task_id:70,step:2,total:3,attempt:2,
+   status:'completed',exit_code:0,timestamp:epoch-1,run_id:'0123456789abcdef'},
+  {root_task_id:80,task_id:70,step:2,total:3,attempt:1,
+   status:'failed',exit_code:7,timestamp:epoch-2,run_id:'0123456789abcdef'},
+ ];
+ assert.match(context.__workflowAuditGroupText(auditRows),/Workflow #80/);
+ const inconsistent=[
+  {...auditRows[2],task_id:71},
+  {...auditRows[2],root_task_id:81},
+  {...auditRows[2],total:4},
+  {...auditRows[2],attempt:2},
+  {...auditRows[0],task_id:69},
+ ];
+ for(const altered of inconsistent){
+  const index=altered.step===3?0:2;
+  const corrupted=auditRows.slice();
+  corrupted[index]=altered;
+  assert.throws(()=>context.__workflowAuditGroupText(corrupted),
+   /Audit workflow|Audit lượt workflow/,
+   'contradictory same-run audit was presented as a recovery report');
+ }
+ const incomplete=context.__workflowAuditGroupText(auditRows.slice(1));
+ assert.match(incomplete,/Chưa thấy kết quả bước cuối trong các trang đã đọc/);
+ assert.match(incomplete,/không tự chạy lại/);
+ assert.equal(sent.some(path=>path.includes('workflow-start')),false,
+  'recovery review must never auto-restart a host task');
  assert.equal(get('tasks-report-output').children.length,0,
   'host-owned audit content was inserted as HTML');
  get('disconnect').click();await flush();

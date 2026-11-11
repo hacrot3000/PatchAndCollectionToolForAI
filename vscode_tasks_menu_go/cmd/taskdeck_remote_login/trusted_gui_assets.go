@@ -460,6 +460,61 @@ const trustedGUIJavaScript = `'use strict';
   function activeTaskHistorySerial(){
     return longTaskID>0&&longTaskHistorySerial>0?longTaskHistorySerial:0;
   }
+  // Reconstruct a read-only review from principal-scoped, verified audit
+  // rows. Run IDs are correlation labels, not a resume token or an
+  // authority to replay a previously attempted process.
+  function workflowAuditGroupText(rows){
+    const groups=[];
+    const byRun=new Map();
+    for(const item of rows){
+      const id=item.run_id||'';
+      let group=id?byRun.get(id):null;
+      if(group){
+        if(group.root!==item.root_task_id||group.total!==item.total){
+          throw new Error('Audit lượt workflow có metadata không thống nhất');
+        }
+      }else{
+        group={run:id,root:item.root_task_id,total:item.total,
+          rows:[],stepTasks:new Map(),stepAttempts:new Set()};
+        groups.push(group);
+        if(id)byRun.set(id,group);
+      }
+      if(id){
+        if((item.step===item.total)!==(item.task_id===item.root_task_id)){
+          throw new Error('Audit workflow gán sai Task ID cho bước cuối');
+        }
+        const earlier=group.stepTasks.get(item.step);
+        if(earlier!==undefined&&earlier!==item.task_id){
+          throw new Error('Audit workflow thay đổi Task ID trong cùng bước');
+        }
+        group.stepTasks.set(item.step,item.task_id);
+        const key=String(item.step)+':'+String(item.attempt);
+        if(group.stepAttempts.has(key)){
+          throw new Error('Audit workflow lặp lại kết quả cùng lần chạy');
+        }
+        group.stepAttempts.add(key);
+      }
+      group.rows.push(item);
+    }
+    return groups.map(group=>{
+      const covered=new Set(group.rows.map(item=>item.step)).size;
+      const hasRootOutcome=group.rows.some(item=>item.step===group.total);
+      const header=(group.run?'Lượt '+group.run:'Lượt cũ')+
+        ' · Workflow #'+group.root+' · '+covered+'/'+group.total+
+        ' bước có kết quả trong snapshot'+
+        (group.run&&!hasRootOutcome?
+          '\nChưa thấy kết quả bước cuối trong các trang đã đọc; không tự chạy lại.':'');
+      return header+'\n'+group.rows.map(item=>{
+        const when=new Date(item.timestamp*1000).toLocaleString('vi-VN');
+        return when+' · Bước '+item.step+'/'+item.total+
+          ' (Task #'+item.task_id+') · Lần '+item.attempt+
+          ' · '+(item.status==='skipped'?
+            'bỏ qua (không chạy process)':item.status)+
+          (item.status==='skipped'?'':' · exit '+item.exit_code);
+      }).join('\n');
+    }).join('\n\n');
+  }
+
   function renderTaskRunHistory(){
     taskRunHistoryView.hidden=taskRunHistory.length===0;
     const activeSerial=activeTaskHistorySerial();
@@ -2207,40 +2262,7 @@ const trustedGUIJavaScript = `'use strict';
           if(!next){workflowAuditRows=[];}
           workflowAuditRows=workflowAuditRows.concat(data.items);
           workflowAuditMore=data.more;
-          // Group only records bearing the same authenticated per-run ID.
-          // Older records have no ID, so never guess that two happened in
-          // one execution merely because their task IDs look alike.
-          const groups=[];
-          const groupByRun=new Map();
-          for(let i=0;i<workflowAuditRows.length;i++){
-            const item=workflowAuditRows[i];
-            let group=item.run_id?groupByRun.get(item.run_id):null;
-            if(group){
-              if(group.root!==item.root_task_id||group.total!==item.total){
-                throw new Error('Audit lượt workflow có metadata không thống nhất');
-              }
-            }else{
-              group={run:item.run_id||'',root:item.root_task_id,
-                total:item.total,rows:[]};
-              groups.push(group);
-              if(item.run_id)groupByRun.set(item.run_id,group);
-            }
-            group.rows.push(item);
-          }
-          const groupText=groups.map(group=>{
-            const covered=new Set(group.rows.map(item=>item.step)).size;
-            const header=(group.run?'Lượt '+group.run:'Lượt cũ')+
-              ' · Workflow #'+group.root+' · '+covered+'/'+group.total+
-              ' bước có kết quả trong snapshot';
-            return header+'\n'+group.rows.map(item=>{
-              const when=new Date(item.timestamp*1000).toLocaleString('vi-VN');
-              return when+' · Bước '+item.step+'/'+item.total+
-                ' (Task #'+item.task_id+') · Lần '+item.attempt+
-                ' · '+(item.status==='skipped'?
-                  'bỏ qua (không chạy process)':item.status)+
-                (item.status==='skipped'?'':' · exit '+item.exit_code);
-            }).join('\n');
-          }).join('\n\n');
+          const groupText=workflowAuditGroupText(workflowAuditRows);
           tasksReportOutput.textContent=workflowAuditRows.length===0?
             'Không có kết quả bước workflow hợp lệ của tài khoản này.':
             'Audit workflow của tài khoản này (tối đa 32 sự kiện từ 128 audit gần nhất):\n'+

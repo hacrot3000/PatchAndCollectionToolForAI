@@ -242,3 +242,50 @@ func TestRemoteWorkflowRunIdentifierBoundedE2EEOptionalField(t *testing.T){
   }
  }
 }
+
+
+func TestRemoteWorkflowAuditRunMappingAcrossE2EEPages(t *testing.T){
+ now:=time.Now().UTC().Unix()
+ base:=[]RemoteWorkflowAuditEntry{
+  {RootTaskID:90,TaskID:90,Step:3,Total:3,Attempt:1,
+   Status:"completed",ExitCode:0,Timestamp:now,RunID:"0123456789abcdef"},
+  {RootTaskID:90,TaskID:70,Step:2,Total:3,Attempt:2,
+   Status:"completed",ExitCode:0,Timestamp:now-1,RunID:"0123456789abcdef"},
+  {RootTaskID:90,TaskID:70,Step:2,Total:3,Attempt:1,
+   Status:"failed",ExitCode:1,Timestamp:now-2,RunID:"0123456789abcdef"},
+  {RootTaskID:90,TaskID:60,Step:1,Total:3,Attempt:1,
+   Status:"completed",ExitCode:0,Timestamp:now-3,RunID:"0123456789abcdef"},
+ }
+ if !ValidRemoteWorkflowAuditRunMapping(base){
+  t.Fatal("valid host-authored workflow retry and final root failed snapshot validation")
+ }
+ // The first two rows are individually valid on the wire. Their
+ // correlation must remain valid after additional authenticated pages.
+ for name,mutate:=range map[string]func([]RemoteWorkflowAuditEntry){
+  "changed task for step":func(x []RemoteWorkflowAuditEntry){x[2].TaskID=71},
+  "changed root":func(x []RemoteWorkflowAuditEntry){x[2].RootTaskID=91},
+  "changed total":func(x []RemoteWorkflowAuditEntry){x[2].Total=4},
+  "duplicate final attempt":func(x []RemoteWorkflowAuditEntry){x[2].Attempt=2},
+  "root impersonates dependency":func(x []RemoteWorkflowAuditEntry){x[3].TaskID=90},
+  "final step is foreign task":func(x []RemoteWorkflowAuditEntry){x[0].TaskID=89},
+ }{
+  t.Run(name,func(t *testing.T){
+   rows:=append([]RemoteWorkflowAuditEntry{},base...)
+   mutate(rows)
+   if ValidRemoteWorkflowAuditRunMapping(rows){
+    t.Fatal("contradictory per-run audit accepted as recoverable evidence")
+   }
+  })
+ }
+ // Older audits predate RunID and must remain independent records.
+ legacy:=append([]RemoteWorkflowAuditEntry{},base[1],base[1])
+ legacy[0].RunID="";legacy[1].RunID=""
+ if !ValidRemoteWorkflowAuditRunMapping(legacy){
+  t.Fatal("legacy uncorrelated workflow audit rows were falsely combined")
+ }
+ // Even a single page cannot seal a duplicated authenticated outcome.
+ pair:=RemoteWorkflowAudit{Items:[]RemoteWorkflowAuditEntry{base[1],base[1]}}
+ if ValidRemoteWorkflowAudit(pair){
+  t.Fatal("duplicate same-run step attempt accepted in a sealed page")
+ }
+}

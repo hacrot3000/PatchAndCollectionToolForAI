@@ -60,6 +60,47 @@ func ValidRemoteWorkflowAuditEntry(item RemoteWorkflowAuditEntry)bool{
  default:return false
  }
 }
+
+ // Existing E2EE pages contain at most two rows, while the host may
+ // assemble 32 rows across page boundaries. A public RunID correlates
+ // verified results but NEVER authorizes execution. Reject inconsistent
+ // per-run step identities and duplicate terminal outcomes rather than
+ // silently presenting contradictory process histories.
+type remoteWorkflowAuditRunMapping struct{
+ root,total int
+ stepTasks map[int]int
+ attempts map[[2]int]bool
+}
+func ValidRemoteWorkflowAuditRunMapping(items []RemoteWorkflowAuditEntry)bool{
+ runs:=make(map[string]*remoteWorkflowAuditRunMapping)
+ for _,item:=range items{
+  if !ValidRemoteWorkflowAuditEntry(item){return false}
+  // Historical results without a random run correlation ID cannot be
+  // grouped safely. Preserve their backward compatibility as individual
+  // outcomes rather than inventing a shared workflow execution.
+  if item.RunID==""{continue}
+  if (item.Step==item.Total)!=(item.TaskID==item.RootTaskID){return false}
+  run:=runs[item.RunID]
+  if run==nil{
+   run=&remoteWorkflowAuditRunMapping{
+    root:item.RootTaskID,total:item.Total,
+    stepTasks:make(map[int]int),attempts:make(map[[2]int]bool),
+   }
+   runs[item.RunID]=run
+  }else if run.root!=item.RootTaskID||run.total!=item.Total{
+   return false
+  }
+  if taskID,known:=run.stepTasks[item.Step];known&&taskID!=item.TaskID{
+   return false
+  }
+  run.stepTasks[item.Step]=item.TaskID
+  key:=[2]int{item.Step,item.Attempt}
+  if run.attempts[key]{return false}
+  run.attempts[key]=true
+ }
+ return true
+}
+
 func ValidRemoteWorkflowAudit(report RemoteWorkflowAudit)bool{
  if len(report.Items)>MaxRemoteWorkflowAuditEntries||
   (report.More&&len(report.Items)!=MaxRemoteWorkflowAuditEntries){return false}
@@ -67,7 +108,7 @@ func ValidRemoteWorkflowAudit(report RemoteWorkflowAudit)bool{
   if !ValidRemoteWorkflowAuditEntry(item)||
    (i>0&&item.Timestamp>report.Items[i-1].Timestamp){return false}
  }
- return true
+ return ValidRemoteWorkflowAuditRunMapping(report.Items)
 }
 func SealRemoteWorkflowAudit(ch *Channel,id string,report RemoteWorkflowAudit)([]byte,error){
  if ch==nil||!ch.Established()||!validActionID(id)||
