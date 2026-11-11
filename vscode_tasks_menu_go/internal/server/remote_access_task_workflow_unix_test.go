@@ -1553,3 +1553,113 @@ func TestRemoteWorkflowParallelFailFastAndUnsupportedShapes(t *testing.T){
   })
  }
 }
+
+
+ 
+// A host-local audit storage hook exercises the exact gap between the
+// second durable "attempted" row and launching two sibling processes.
+// No browser request can choose this mutation or the workflow commands.
+type remoteParallelChangeDuringAttemptAudit struct{
+ identity.Store
+ filename,source,flag string
+ rejectSecond bool
+}
+func(store remoteParallelChangeDuringAttemptAudit)AppendAudit(
+ ctx context.Context,event identity.AuditEvent,
+)error{
+ if event.Action!="remote.action.tasks_workflow_step"||
+  event.Result!="attempted"||
+  !strings.Contains(event.Details,`"step":2`){
+  return store.Store.AppendAudit(ctx,event)
+ }
+ if store.rejectSecond{return errors.New("second attempted audit unavailable")}
+ if err:=store.Store.AppendAudit(ctx,event);err!=nil{return err}
+ if store.filename!=""{
+  // Keep the same source file and content semantics but change the
+  // authenticated bytes so its source digest no longer matches.
+  return os.WriteFile(store.filename,[]byte(store.source+" "),0600)
+ }
+ if store.flag!=""{return os.Setenv(store.flag,"0")}
+ return nil
+}
+
+func TestRemoteParallelJoinNeverStartsEitherChildAfterAttemptAuditDrift(t *testing.T){
+ const source=`{"tasks":[
+  {"label":"Fork A","type":"process","command":"/bin/echo","args":["NEVER-CHILD-A"]},
+  {"label":"Fork B","type":"process","command":"/bin/echo","args":["NEVER-CHILD-B"]},
+  {"label":"Join","type":"process","command":"/bin/echo","args":["NEVER-JOIN"],
+   "dependsOn":["Fork A","Fork B"],"dependsOrder":"parallel"}
+ ]}`
+ for _,tc:=range []struct{
+  name,flag,want,history string
+  drift,reject bool
+ }{
+  {"source digest drift","","failed","FF-",true,false},
+  {"parallel host opt-in revoked",
+   "TASKDECK_REMOTE_TASKS_WORKFLOW_PARALLEL","cancelled","XX-",false,false},
+  {"second attempted audit denied","","failed","F--",false,true},
+ }{
+  t.Run(tc.name,func(t *testing.T){
+   remoteWorkflowHostFlags(t)
+   t.Setenv("TASKDECK_REMOTE_TASKS_WORKFLOW_PARALLEL","1")
+   s,session,client,agent:=remoteTaskOperatorFixture(t)
+   root:=remoteWorkflowIssuedRoot(t,s,session,client,agent,source,"Join")
+   original:=s.Identity
+   hook:=remoteParallelChangeDuringAttemptAudit{
+    Store:original,source:source,flag:tc.flag,rejectSecond:tc.reject,
+   }
+   if tc.drift{
+    hook.filename=filepath.Join(s.Workspace,".vscode","tasks.json")
+   }
+   s.Identity=hook
+   if err:=s.startRemoteLinearWorkflow(context.Background(),session,root);err!=nil{
+    t.Fatalf("parallel fork not admitted before audit mutation: %v",err)
+   }
+   if state:=awaitRemoteWorkflow(t,session);state!=tc.want{
+    t.Fatalf("post-audit mutation returned %q, expected %q",state,tc.want)
+   }
+   job:=session.longTask
+   job.mu.Lock()
+   history,code:=job.workflowStepHistory,job.exitCode
+   job.mu.Unlock()
+   if history!=tc.history||code!= -1{
+    t.Fatalf("unlaunched fork status=%q exit=%d, expected %q/-1",
+     history,code,tc.history)
+   }
+   job.capture.mu.Lock()
+   output:=string(append([]byte(nil),job.capture.data...))
+   job.capture.mu.Unlock()
+   if strings.Contains(output,"NEVER-CHILD-A")||
+    strings.Contains(output,"NEVER-CHILD-B")||
+    strings.Contains(output,"NEVER-JOIN")||
+    strings.Contains(output,"parallel attempt 1/1"){
+    t.Fatalf("a child process started after audit mutation: %q",output)
+   }
+   project,err:=original.ProjectByKey(context.Background(),session.projectKey)
+   if err!=nil{t.Fatal(err)}
+   rows,err:=original.ListAudit(context.Background(),identity.AuditQuery{
+    ProjectID:project.ID,UserID:session.userID,
+    Action:"remote.action.tasks_workflow_step",Limit:12,
+   })
+   if err!=nil{t.Fatal(err)}
+   attempts,finals:=0,0
+   for _,row:=range rows{
+    if strings.Contains(row.Details,`"step":3`){
+     t.Fatalf("root task audited without both children completing: %+v",row)
+    }
+    if row.Result=="attempted"{attempts++}
+    if row.Result=="failed"||row.Result=="cancelled"{finals++}
+   }
+   expected:=2
+   if tc.reject{expected=1}
+   if attempts!=expected||finals!=expected{
+    t.Fatalf("orphan attempted audits after denied fork: attempts=%d finals=%d",
+     attempts,finals)
+   }
+   // The final long-job slot is still readable and explicitly clearable.
+   if err:=session.clearRemoteLongTask(root);err!=nil{
+    t.Fatalf("failed fork leaked its host long-job slot: %v",err)
+   }
+  })
+ }
+}
