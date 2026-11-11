@@ -263,6 +263,31 @@ func(s *Server)runRemoteParallelJoinWorkflow(ctx context.Context,
   len(plan),len(plan),1,job.workflowRunID,"attempted",-1);err!=nil{
   status="failed";exitCode=-1;return
  }
+ // The root is side-effecting too: a host may revoke approval or mutate
+ // tasks.json DURING its attempted-audit write. The pre-audit approval
+ // cannot authorize execution after that gap. Revalidate the exact issued
+ // snapshot and process before starting, just as for every sibling.
+ verified,err:=s.prepareRemoteParallelStep(ctx,session,plan[rootIndex],hash)
+ if err!=nil||verified.executable!=root.executable||
+  verified.execution.TaskID!=root.execution.TaskID||
+  verified.execution.Cwd!=root.execution.Cwd{
+  status="failed";exitCode=-1
+  if ctx.Err()!=nil||!remoteParallelHostConsent(session){
+   status="cancelled"
+  }
+  result:=status
+  if auditErr:=s.auditRemoteWorkflowStep(session,job.taskID,
+   plan[rootIndex].taskID,len(plan),len(plan),1,job.workflowRunID,
+   result,-1);auditErr!=nil{
+   // No process was launched. Failure to record that fact is itself
+   // a hard failure; do not pretend the aborted root completed.
+   status="failed"
+  }
+  job.updateWorkflowStep(len(plan),len(plan),1,1,result,-1,0)
+  _,_=captureWorkflowText(job.capture,
+   "[TaskDeck workflow] Root prelaunch revalidation denied; root not started\n")
+  return
+ }
  status,exitCode=s.executeRemoteParallelPrepared(ctx,session,job,
-  plan[rootIndex],root,len(plan),len(plan))
+  plan[rootIndex],verified,len(plan),len(plan))
 }

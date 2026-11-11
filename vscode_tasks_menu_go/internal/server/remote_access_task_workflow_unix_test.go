@@ -1804,3 +1804,110 @@ func TestRemoteParallelHostRevocationCancelsActiveWorkers(t *testing.T){
   })
  }
 }
+
+
+// A successful fork never grants persistent authority to the root: the
+// host can mutate the TaskDeck source, withdraw consent or fail its audit
+// write at the exact root-attempt boundary. No root process may execute.
+type remoteParallelRootAuditMutation struct{
+ identity.Store
+ sourcePath,source,flag string
+ reject bool
+}
+func(store remoteParallelRootAuditMutation)AppendAudit(
+ ctx context.Context,event identity.AuditEvent,
+)error{
+ if event.Action!="remote.action.tasks_workflow_step"||
+  event.Result!="attempted"||
+  !strings.Contains(event.Details,`"step":3`){
+  return store.Store.AppendAudit(ctx,event)
+ }
+ if store.reject{
+  return errors.New("injected unavailable root attempt audit")
+ }
+ if err:=store.Store.AppendAudit(ctx,event);err!=nil{return err}
+ if store.sourcePath!=""{
+  return os.WriteFile(store.sourcePath,[]byte(store.source+" "),0600)
+ }
+ if store.flag!=""{return os.Setenv(store.flag,"0")}
+ return nil
+}
+func TestRemoteParallelJoinRootAuditBarrierPreventsStaleExecution(t *testing.T){
+ const source=`{"tasks":[
+  {"label":"A","type":"process","command":"/bin/echo","args":["ALLOWED-LEAF-A"]},
+  {"label":"B","type":"process","command":"/bin/echo","args":["ALLOWED-LEAF-B"]},
+  {"label":"Join","type":"process","command":"/bin/echo","args":["DENIED-ROOT-PROCESS"],
+   "dependsOn":["A","B"],"dependsOrder":"parallel"}
+ ]}`
+ for _,tc:=range []struct{
+  name,flag,status,history string
+  mutate,reject bool
+ }{
+  {"tasks.json changed after root attempted","","failed","CCF",true,false},
+  {"host opt-in revoked at root audit",
+   "TASKDECK_REMOTE_TASKS_WORKFLOW_PARALLEL","cancelled","CCX",false,false},
+  {"root attempted audit unavailable","","failed","CC-",false,true},
+ }{
+  t.Run(tc.name,func(t *testing.T){
+   remoteWorkflowHostFlags(t)
+   t.Setenv("TASKDECK_REMOTE_TASKS_WORKFLOW_PARALLEL","1")
+   s,session,client,agent:=remoteTaskOperatorFixture(t)
+   root:=remoteWorkflowIssuedRoot(t,s,session,client,agent,source,"Join")
+   original:=s.Identity
+   hook:=remoteParallelRootAuditMutation{
+    Store:original,source:source,flag:tc.flag,reject:tc.reject,
+   }
+   if tc.mutate{
+    hook.sourcePath=filepath.Join(s.Workspace,".vscode","tasks.json")
+   }
+   s.Identity=hook
+   if err:=s.startRemoteLinearWorkflow(context.Background(),session,root);err!=nil{
+    t.Fatalf("parallel workflow denied before injected root mutation: %v",err)
+   }
+   if result:=awaitRemoteWorkflow(t,session);result!=tc.status{
+    t.Fatalf("root audit gap yielded %q, expected %q",result,tc.status)
+   }
+   job:=session.longTask
+   job.mu.Lock()
+   history,exit:=job.workflowStepHistory,job.exitCode
+   job.mu.Unlock()
+   if history!=tc.history||exit!= -1{
+    t.Fatalf("root ran or lost attempted audit: history=%q exit=%d",history,exit)
+   }
+   job.capture.mu.Lock()
+   output:=string(append([]byte(nil),job.capture.data...))
+   job.capture.mu.Unlock()
+   if !strings.Contains(output,"ALLOWED-LEAF-A")||
+    !strings.Contains(output,"ALLOWED-LEAF-B")||
+    strings.Contains(output,"DENIED-ROOT-PROCESS")||
+    strings.Contains(output,"Step 3/3: Task #"){
+    t.Fatalf("root process crossed an invalid audit barrier: %q",output)
+   }
+   project,err:=original.ProjectByKey(context.Background(),session.projectKey)
+   if err!=nil{t.Fatal(err)}
+   rows,err:=original.ListAudit(context.Background(),identity.AuditQuery{
+    ProjectID:project.ID,UserID:session.userID,
+    Action:"remote.action.tasks_workflow_step",Limit:12,
+   })
+   if err!=nil{t.Fatal(err)}
+   rootAttempted,rootFinal:=0,0
+   for _,row:=range rows{
+    if !strings.Contains(row.Details,`"step":3`){continue}
+    if row.Result=="attempted"{rootAttempted++}
+    if row.Result=="failed"||row.Result=="cancelled"{rootFinal++}
+    if row.Result=="completed"{
+     t.Fatal("unexecuted root was recorded as successfully completed")
+    }
+   }
+   expected:=1
+   if tc.reject{expected=0}
+   if rootAttempted!=expected||rootFinal!=expected{
+    t.Fatalf("root attempted/final audit mismatch: %d/%d expected %d",
+     rootAttempted,rootFinal,expected)
+   }
+   if err:=session.clearRemoteLongTask(root);err!=nil{
+    t.Fatalf("failed root left occupied long-task slot: %v",err)
+   }
+  })
+ }
+}
