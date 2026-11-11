@@ -30,6 +30,7 @@ type remoteWorkflowStep struct{
  retries int
  timeout time.Duration
  condition string // "" or "success" normally; "always" only at the final root.
+ parallelJoin bool // Opted-in two-leaf fork/join; never caller supplied.
 }
 
 // Process workflows intentionally exclude executable scripts, including
@@ -219,6 +220,53 @@ func remoteWorkflowSafeSequentialGraph(items []tasks.Task,
  return len(reachable)==len(order)
 }
 
+
+// Explicit opt-in for a bounded parallel fork/join: exactly two independent
+// native process leaves and their final root. This deliberately excludes
+// nested branches, conditional recovery, retries and per-step timeouts.
+// The ordinary TaskDeck "dependsOrder":"parallel" is NOT enough to grant
+// remote execution; the local host must enable the extra capability.
+func remoteWorkflowSafeParallelJoinGraph(items []tasks.Task,
+ order []int,edges [][2]int)bool{
+ if os.Getenv("TASKDECK_REMOTE_TASKS_WORKFLOW_PARALLEL")!="1"||
+  len(order)!=3||len(edges)!=2{return false}
+ byID:=make(map[int]tasks.Task,len(items))
+ byLabel:=make(map[string]tasks.Task,len(items))
+ for _,task:=range items{
+  if _,duplicate:=byID[task.ID];duplicate{return false}
+  if _,duplicate:=byLabel[task.Label];duplicate{return false}
+  byID[task.ID]=task
+  byLabel[task.Label]=task
+ }
+ seen:=make(map[int]bool,3)
+ for _,id:=range order{
+  task,ok:=byID[id]
+  if !ok||seen[id]||!remoteWorkflowSafeProcess(task){return false}
+  seen[id]=true
+  retry,timeout,condition,ok:=remoteWorkflowPolicyForTask(task)
+  if !ok||retry!=0||timeout!=0||condition!=""{return false}
+ }
+ root:=byID[order[2]]
+ node:=tasks.WorkflowNodeForTask(root)
+ if node.DependsOrder!="parallel"||len(node.DependsOn)!=2{return false}
+ for _,id:=range order[:2]{
+  leaf:=tasks.WorkflowNodeForTask(byID[id])
+  if len(leaf.DependsOn)!=0{return false}
+ }
+ expected:=make(map[[2]int]bool,2)
+ for _,label:=range node.DependsOn{
+  leaf,ok:=byLabel[label]
+  if !ok||(leaf.ID!=order[0]&&leaf.ID!=order[1]){return false}
+  expected[[2]int{leaf.ID,order[2]}]=true
+ }
+ if len(expected)!=2{return false}
+ for _,edge:=range edges{
+  if !expected[edge]{return false}
+  delete(expected,edge)
+ }
+ return len(expected)==0
+}
+
 func remoteWorkflowHostExecutionEnabled()bool{
  return os.Getenv("TASKDECK_REMOTE_TASKS_PREVIEW")=="1"&&
   os.Getenv("TASKDECK_REMOTE_TASKS_DEPS")=="1"&&
@@ -248,7 +296,8 @@ func(s *Server)prepareRemoteLinearWorkflow(ctx context.Context,
  if err!=nil{return nil,hash,denied}
  list,err:=tasks.Load(root)
  if err!=nil||len(list)>remotetransport.MaxRemoteTasksCount{return nil,hash,denied}
- if !remoteWorkflowSafeSequentialGraph(list,deps.Order,deps.Edges){
+ parallel:=remoteWorkflowSafeParallelJoinGraph(list,deps.Order,deps.Edges)
+ if !remoteWorkflowSafeSequentialGraph(list,deps.Order,deps.Edges)&&!parallel{
   return nil,hash,denied
  }
  byID:=make(map[int]tasks.Task,len(list))
@@ -271,6 +320,7 @@ func(s *Server)prepareRemoteLinearWorkflow(ctx context.Context,
   }
   plan=append(plan,remoteWorkflowStep{
    taskID:id,retries:retries,timeout:timeout,condition:condition,
+   parallelJoin:parallel&&id==rootTaskID,
   })
  }
  if ctx.Err()!=nil||session.closed.Load(){return nil,hash,denied}
@@ -381,7 +431,11 @@ func(s *Server)startRemoteLinearWorkflow(ctx context.Context,
   case <-job.done:
   }
  }()
- go s.runRemoteLinearWorkflow(jobCtx,session,job,plan,hash)
+ if len(plan)==3&&plan[2].parallelJoin{
+  go s.runRemoteParallelJoinWorkflow(jobCtx,session,job,plan,hash)
+ }else{
+  go s.runRemoteLinearWorkflow(jobCtx,session,job,plan,hash)
+ }
  return nil
 }
 

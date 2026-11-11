@@ -110,7 +110,8 @@ func (s *Server)readRemoteTaskDependencies(ctx context.Context,
   os.Getenv("TASKDECK_REMOTE_TASKS_RUN")=="1"&&
   os.Getenv("TASKDECK_REMOTE_TASKS_LONG")=="1"&&
   len(result.Order)>=2&&len(result.Order)<=remoteWorkflowMaxSteps{
-  sequential:=remoteWorkflowSafeSequentialGraph(list,result.Order,result.Edges)
+  sequential:=remoteWorkflowSafeSequentialGraph(list,result.Order,result.Edges)||
+   remoteWorkflowSafeParallelJoinGraph(list,result.Order,result.Edges)
   if sequential{
    for _,n:=range graph.Nodes{
     // The GUI must not offer Start unless every step passes the same

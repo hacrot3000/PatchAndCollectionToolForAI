@@ -1446,3 +1446,110 @@ func TestRemoteWorkflowFailureRecoveryKeepsFirstExitIfRecoveryAlsoFails(t *testi
    history,exit,details)
  }
 }
+
+
+func TestRemoteWorkflowHostOptInTwoParallelLeavesAndJoin(t *testing.T){
+ remoteWorkflowHostFlags(t)
+ source:=`{"tasks":[
+  {"label":"Independent A","type":"process","command":"/bin/sleep","args":["1"]},
+  {"label":"Independent B","type":"process","command":"/bin/sleep","args":["1"]},
+  {"label":"Join","type":"process","command":"/bin/echo","args":["JOIN-ONLY-AFTER-BOTH"],
+   "dependsOn":["Independent A","Independent B"],"dependsOrder":"parallel"}
+ ]}`
+ t.Run("denied without separate opt-in",func(t *testing.T){
+  t.Setenv("TASKDECK_REMOTE_TASKS_WORKFLOW_PARALLEL","0")
+  s,session,client,agent:=remoteTaskOperatorFixture(t)
+  root:=remoteWorkflowIssuedRoot(t,s,session,client,agent,source,"Join")
+  deps,err:=s.readRemoteTaskDependencies(context.Background(),session,root)
+  if err!=nil||!deps.Available||deps.RunAvailable{
+   t.Fatalf("parallel join unexpectedly offered without host consent: %+v %v",deps,err)
+  }
+  if err:=s.startRemoteLinearWorkflow(context.Background(),session,root);err==nil{
+   t.Fatal("parallel worker started without host opt-in")
+  }
+ })
+ t.Run("two simultaneous children then single root",func(t *testing.T){
+  t.Setenv("TASKDECK_REMOTE_TASKS_WORKFLOW_PARALLEL","1")
+  s,session,client,agent:=remoteTaskOperatorFixture(t)
+  root:=remoteWorkflowIssuedRoot(t,s,session,client,agent,source,"Join")
+  deps,err:=s.readRemoteTaskDependencies(context.Background(),session,root)
+  if err!=nil||!deps.Available||!deps.RunAvailable||len(deps.Order)!=3{
+   t.Fatalf("host-approved parallel join not offered: %+v %v",deps,err)
+  }
+  if err:=s.startRemoteLinearWorkflow(context.Background(),session,root);err!=nil{
+   t.Fatalf("parallel join start denied: %v",err)
+  }
+  job:=session.longTask
+  concurrentlyRunning:=false
+  until:=time.Now().Add(900*time.Millisecond)
+  for time.Now().Before(until){
+   job.mu.Lock()
+   state:=job.workflowStepHistory
+   job.mu.Unlock()
+   if state=="RR-"{concurrentlyRunning=true;break}
+   time.Sleep(10*time.Millisecond)
+  }
+  if !concurrentlyRunning{t.Fatal("parallel leaves did not overlap in RUNNING state")}
+  if got:=awaitRemoteWorkflow(t,session);got!="completed"{
+   t.Fatalf("join status %q",got)
+  }
+  job.mu.Lock()
+  history:=job.workflowStepHistory
+  job.mu.Unlock()
+  if history!="CCC"{t.Fatalf("parallel join did not audit all three outcomes: %q",history)}
+  job.capture.mu.Lock()
+  transcript:=string(append([]byte(nil),job.capture.data...))
+  job.capture.mu.Unlock()
+  if !strings.Contains(transcript,"JOIN-ONLY-AFTER-BOTH")||
+   strings.Count(transcript,"parallel attempt 1/1")!=3{
+   t.Fatalf("missing exactly-once steps: %q",transcript)
+  }
+ })
+}
+func TestRemoteWorkflowParallelFailFastAndUnsupportedShapes(t *testing.T){
+ remoteWorkflowHostFlags(t)
+ t.Setenv("TASKDECK_REMOTE_TASKS_WORKFLOW_PARALLEL","1")
+ source:=`{"tasks":[
+  {"label":"Failure","type":"process","command":"/bin/false"},
+  {"label":"Sibling","type":"process","command":"/bin/sleep","args":["1"]},
+  {"label":"Join","type":"process","command":"/bin/echo","args":["MUST-NOT-RUN"],
+   "dependsOn":["Failure","Sibling"],"dependsOrder":"parallel"}
+ ]}`
+ s,session,client,agent:=remoteTaskOperatorFixture(t)
+ root:=remoteWorkflowIssuedRoot(t,s,session,client,agent,source,"Join")
+ if err:=s.startRemoteLinearWorkflow(context.Background(),session,root);err!=nil{
+  t.Fatalf("host opt-in did not admit safe graph: %v",err)
+ }
+ if got:=awaitRemoteWorkflow(t,session);got!="failed"{
+  t.Fatalf("failed sibling incorrectly completed parallel join: %s",got)
+ }
+ job:=session.longTask
+ job.capture.mu.Lock()
+ output:=string(append([]byte(nil),job.capture.data...))
+ job.capture.mu.Unlock()
+ if strings.Contains(output,"MUST-NOT-RUN"){
+  t.Fatalf("join ran even though a dependency failed: %q",output)
+ }
+ for label,source:=range map[string]string{
+  "nested dependency":`{"tasks":[
+    {"label":"A","type":"process","command":"/bin/echo"},
+    {"label":"B","type":"process","command":"/bin/echo","dependsOn":"A"},
+    {"label":"C","type":"process","command":"/bin/echo","dependsOn":["A","B"],
+     "dependsOrder":"parallel"}]}`,
+  "retry policy":`{"tasks":[
+    {"label":"A","type":"process","command":"/bin/echo",
+     "taskdeck":{"workflow":{"retry":1}}},
+    {"label":"B","type":"process","command":"/bin/echo"},
+    {"label":"C","type":"process","command":"/bin/echo",
+     "dependsOn":["A","B"],"dependsOrder":"parallel"}]}`,
+ }{
+  t.Run(label,func(t *testing.T){
+   s,session,client,agent:=remoteTaskOperatorFixture(t)
+   root:=remoteWorkflowIssuedRoot(t,s,session,client,agent,source,"C")
+   deps,err:=s.readRemoteTaskDependencies(context.Background(),session,root)
+   if err!=nil||deps.RunAvailable{
+    t.Fatalf("unsupported parallel DAG was offered: %+v %v",deps,err)
+   }
+  })
+ }
+}
