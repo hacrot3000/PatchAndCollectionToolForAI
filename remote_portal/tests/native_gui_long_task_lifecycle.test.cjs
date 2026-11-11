@@ -239,6 +239,36 @@ async function scenario(startStatus,pollStates,expectStartRejected=false){
    'forged parallel Poll accepted without authenticated mode/byte budget');
  }
 
+ // Five-step sequential workflows remain opt-in and carry five signed
+ // outcomes, but NEVER an unbounded output chunk or a five-worker fork.
+ const five=await scenario('started',[{
+  status:'completed',step:5,step_total:5,
+  attempt:2,attempt_total:2,step_status:'completed',
+  step_history:'CCCCC',step_details:'0:10|0:20|0:30|0:40|0:50',
+  output:'F'.repeat(32),more:false,
+ }]);
+ five.get('long-task-poll').click();await five.flush();
+ assert.equal(five.get('long-task-controls').hidden,false,
+  'signed five-step sequential outcome was denied by native GUI');
+ assert.match(five.get('long-task-output').textContent,/Bước 5\/5/,
+  'native GUI lost the fifth verified step');
+ assert.match(five.get('long-task-output').textContent,/F{32}/,
+  'native five-step progress clipped the valid 32-byte chunk');
+ for(const bad of [
+  {status:'completed',step:5,step_total:5,
+   attempt:2,attempt_total:2,step_status:'completed',
+   step_history:'CCCCC',step_details:'0:10|0:20|0:30|0:40|0:50',
+   output:'X'.repeat(33)},
+  {status:'running',step:3,step_total:5,parallel:true,
+   attempt:1,attempt_total:1,step_status:'running',
+   step_history:'RRR--',step_details:'-|-|-|-|-'},
+ ]) {
+  const malformed=await scenario('started',[bad]);
+  malformed.get('long-task-poll').click();await malformed.flush();
+  assert.equal(malformed.get('long-task-controls').hidden,true,
+   'native GUI accepted forged fifth-step output/fork');
+ }
+
  // Start/Cancel/Clear acknowledge only a state transition. The native
  // browser must also reject impossible nonempty output and truncation
  // on an ACK, even when a malicious localhost bridge returns HTTP 200.

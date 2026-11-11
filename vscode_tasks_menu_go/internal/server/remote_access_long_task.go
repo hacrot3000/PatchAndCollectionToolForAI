@@ -423,6 +423,17 @@ func (session *remoteTaskDeckSession)pollRemoteLongTaskWithWait(
  return snapshot,err
 }
 
+// Both normal and deadline-returned Polls must use the SAME payload
+// limit. Five-step sequential workflows carry extra signed history and
+// detail fields; reduce only their output chunk to preserve the 512-byte
+// authenticated envelope. Parallel joins remain capped at four steps.
+func remoteLongTaskWorkflowChunkLimit(step,total int,parallel bool)int{
+ if step==0{return remoteLongTaskMaxChunkBytes}
+ if total==5{return 32}
+ if parallel&&total==4{return 48}
+ return 64
+}
+
 // Host Poll consumes immediately, while E2EE returns a callback which
 // advances the cursor only after successful AEAD Seal. E2EE taskPageMu
 // serializes authenticated task operations through sealing.
@@ -467,15 +478,8 @@ func (session *remoteTaskDeckSession)pollRemoteLongTaskWithWaitMode(
    Parallel:job.workflowParallel&&job.workflowStep>0,
   }
   if state.Step==0{state.StepHistory="";state.StepDetails=""}
-  limit:=remoteLongTaskMaxChunkBytes
-  if state.Step>0{
-   limit=64 // Unchanged for sequential and two-leaf workflows.
-   if state.Parallel&&state.StepTotal==4{
-    // A fourth result and the mode bit consume AEAD record space.
-    // 48 escaped bytes fit the strict 512-byte plaintext bound.
-    limit=48
-   }
-  }
+  limit:=remoteLongTaskWorkflowChunkLimit(
+   state.Step,state.StepTotal,state.Parallel)
   chunk,next,truncated,more:=job.capture.nextBounded(cursor,limit)
   if chunk!=""||status!="running"{
    if ctx.Err()!=nil||session.closed.Load(){
@@ -507,8 +511,8 @@ func (session *remoteTaskDeckSession)pollRemoteLongTaskWithWaitMode(
    // A notification is coalesced (one-slot channel) and can be consumed
    // by another concurrent Poll. Recheck the capture under the same
    // cursor lock before returning an empty 7-second timeout snapshot.
-   limit:=remoteLongTaskMaxChunkBytes
-   if state.Step>0{limit=64}
+   limit:=remoteLongTaskWorkflowChunkLimit(
+    state.Step,state.StepTotal,state.Parallel)
    cursor:=job.outputCursor
    chunk,next,truncated,more:=job.capture.nextBounded(cursor,limit)
    if ctx.Err()!=nil||session.closed.Load(){

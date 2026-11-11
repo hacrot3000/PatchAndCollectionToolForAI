@@ -964,3 +964,38 @@ real-host testing are considered **code complete**.
 - Caveat: cancellation is best-effort; an operation already finalized
   by the filesystem or remote server cannot be rolled back. E2EE,
   host opt-ins and LIVE NO-GO remain unchanged. No Windows-specific code.
+
+
+## 2026-11-11 — Remote GUI Task: host-owned 5-step sequential DAG
+
+- Expanded the *explicitly sequential* workflow execution boundary from
+  4 to **5 host-defined, non-interactive process tasks**. The selected
+  client still supplies ONLY an E2EE-issued root Task.ID, not a process,
+  dependency graph, argument, environment variable or secret.
+- A fifth step is usable in linear chains or in a multi-parent join
+  whose author explicitly writes `dependsOrder: "sequence"`.
+  Rooted reachability, stable source hash, local TasksRun RBAC, live
+  Portal grant, per-step opt-ins, attempted/finished audits, strict cwd
+  and native executable checks, process group cancellation and the
+  existing 90-second overall deadline remain mandatory.
+- Fork/join execution continues to support **only 2–3 independent
+  leaves plus their final root**, never a 4-leaf/5-step parallel DAG.
+  Host `TASKDECK_REMOTE_TASKS_WORKFLOW_PARALLEL` is still
+  independently required. Implicit parallel diamonds remain rejected.
+- E2EE codec, native GUI, host execution and graph codec all accept
+  a 5-step **sequential** status. The extra signed step history/outcome
+  consumes more of the fixed plaintext envelope, so 5-step Poll output
+  is reduced to **32 UTF-8 bytes** per response. The previous
+  4-step parallel limit remains 48 bytes, and 2–4-step sequential
+  limit remains 64 bytes. Both normal and timeout Poll branches use
+  one shared limit helper (the timeout branch previously overlooked
+  the 4-step parallel reduction).
+- Regression: E2EE-initiated native 5-step process DAG with explicit
+  sequence and multi-parent final step, checks exact order and
+  authenticated five-element history; codec tests for a runnable
+  five-node graph, six-node denial, escaped 5-step E2EE output bounds,
+  malformed parallel five-node progress; Node native GUI tests for
+  five-step DAG and progress acceptance plus >32-byte denial.
+- This is one more supported *bounded sequential shape*, not a general
+  workflow engine, shell-script executor, secret entry mechanism,
+  background session reconnect or authorization to deploy LIVE.

@@ -132,10 +132,11 @@ func validLongTaskProgress(p RemoteLongTaskProgress)bool{
  if workflow{
   if p.Status=="started"||p.Status=="cancel_requested"||
    p.Status=="cleared"||p.Step<1||p.StepTotal<2||
-   p.StepTotal>4||p.Step>p.StepTotal||
+   p.StepTotal>5||p.Step>p.StepTotal||
    p.Attempt<1||p.AttemptTotal<1||p.AttemptTotal>2||
    p.Attempt>p.AttemptTotal||len(p.Output)>64||
-   (p.Parallel&&p.StepTotal==4&&len(p.Output)>48){return false}
+   (p.Parallel&&p.StepTotal==4&&len(p.Output)>48)||
+   (p.StepTotal==5&&len(p.Output)>32){return false}
   expected:='?'
   switch p.StepStatus{
   case "running":expected='R'

@@ -160,6 +160,9 @@ jobs:
       - name: Verify strict dependency graph codec, host snapshot and workflow safety
         working-directory: vscode_tasks_menu_go
         run: go test -race ./internal/remotetransport ./internal/server -run 'TestRemoteTaskDependencies' -count=1 -timeout=120s
+      - name: Preflight five-step sequential DAG E2EE and shared Poll bounds
+        working-directory: vscode_tasks_menu_go
+        run: go test -race ./internal/remotetransport ./internal/server -run 'TestRemote(LongTaskFiveStepSequentialEscapedE2EEBounds|TaskDependenciesSequentialDAGCodecBounds|WorkflowFiveStepSequentialJoinE2EE|WorkflowChunkLimitSameAcrossPollPaths)' -count=1 -timeout=90s
       - name: Verify ID-only linear workflow execution, failure, cancellation and audit
         working-directory: vscode_tasks_menu_go
         run: go test -race ./internal/server -run 'TestRemoteWorkflow' -count=1 -timeout=150s

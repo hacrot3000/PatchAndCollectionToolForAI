@@ -111,6 +111,27 @@ func TestRemoteTaskDependenciesSequentialDAGCodecBounds(t *testing.T){
  if err!=nil||!got.RunAvailable||len(got.Edges)!=4{
   t.Fatalf("sequential DAG E2EE codec: %+v %v",got,err)
  }
+ five:=RemoteTaskDependencies{
+  TaskID:17,Available:true,RunAvailable:true,
+  Order:[]int{2,8,11,13,17},
+  Edges:[][2]int{{2,8},{8,11},{11,13},{13,17},{8,17}},
+ }
+ client5,agent5,_:=participants(t)
+ fiveFrame,err:=SealRemoteTaskDependencies(agent5,testActionID,five)
+ if err!=nil{t.Fatalf("five-step E2EE graph rejected: %v",err)}
+ decoded,err:=OpenRemoteTaskDependencies(client5,fiveFrame,testActionID,17)
+ if err!=nil||!decoded.RunAvailable||len(decoded.Order)!=5||
+  len(decoded.Edges)!=5{
+  t.Fatalf("five-step executable graph corrupted: %+v %v",decoded,err)
+ }
+ six:=RemoteTaskDependencies{
+  TaskID:17,Available:true,RunAvailable:true,
+  Order:[]int{2,8,9,11,13,17},
+  Edges:[][2]int{{2,8},{8,9},{9,11},{11,13},{13,17}},
+ }
+ if ValidRemoteTaskDependencies(six){
+  t.Fatal("six-step remote workflow admitted without its own contract")
+ }
  cases:=[]RemoteTaskDependencies{
   {TaskID:17,Available:true,RunAvailable:true,
    Order:[]int{2,11,17},Edges:[][2]int{{2,11},{2,17}}},

@@ -371,6 +371,11 @@ async function assertGraphValidation(graph,description,accepted=false,abandonSel
   order:[22,33,44,55],edges:[[22,33],[22,44],[33,55],[44,55]]
  },'explicit sequential diamond',true);
  await assertGraphValidation({
+  available:true,run_available:true,
+  order:[11,22,33,44,55],
+  edges:[[11,22],[22,33],[33,44],[44,55],[22,55]]
+ },'host-approved five-step sequential DAG',true);
+ await assertGraphValidation({
   available:false,run_available:true,order:[],edges:[]
  },'false available with true run flag');
  await assertGraphValidation({

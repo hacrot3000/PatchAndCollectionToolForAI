@@ -20,11 +20,12 @@ import(
  "bletonfc/vscode_tasks_menu/internal/tasks"
 )
 
-// Bounded workflow executor: two to four fixed, non-interactive process
-// tasks. In addition to linear chains it accepts explicitly sequential DAG
-// joins; implicit parallel joins, shell tasks, policies, secrets and
+// Bounded workflow executor: two to five fixed, non-interactive process
+// tasks for explicit sequential dependencies (linear or multi-parent).
+// Parallel joins remain limited to two or three independent leaves plus
+// one root. Implicit parallel diamonds, shell scripts, secrets and
 // interpolated inputs remain denied. No browser-supplied graph or command.
-const remoteWorkflowMaxSteps=4
+const remoteWorkflowMaxSteps=5
 
 type remoteWorkflowStep struct{
  taskID int
@@ -231,7 +232,7 @@ func remoteWorkflowSafeParallelJoinGraph(items []tasks.Task,
  order []int,edges [][2]int)bool{
  n:=len(order)
  if os.Getenv("TASKDECK_REMOTE_TASKS_WORKFLOW_PARALLEL")!="1"||
-  n<3||n>remoteWorkflowMaxSteps||len(edges)!=n-1{return false}
+  n<3||n>4||len(edges)!=n-1{return false}
  byID:=make(map[int]tasks.Task,len(items))
  byLabel:=make(map[string]tasks.Task,len(items))
  for _,task:=range items{

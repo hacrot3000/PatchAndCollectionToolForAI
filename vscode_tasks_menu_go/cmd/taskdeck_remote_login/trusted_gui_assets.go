@@ -2212,7 +2212,7 @@ const trustedGUIJavaScript = `'use strict';
             (!data.available&&(data.run_available||order.length!==0||edges.length!==0))||
             (data.available&&(order.length===0||order[order.length-1]!==id))||
             (data.run_available&&(!data.available||order.length<2||
-              order.length>4||edges.length<order.length-1))||
+              order.length>5||edges.length<order.length-1))||
             edges.some(e=>{
               if(!Array.isArray(e)||e.length!==2||
                 !positions.has(e[0])||!positions.has(e[1])||
@@ -2466,7 +2466,7 @@ const trustedGUIJavaScript = `'use strict';
           }
           const hasStepHistory=Object.prototype.hasOwnProperty.call(data,'step_history');
           const stepHistory=hasStepHistory?data.step_history:'';
-          if(typeof stepHistory!=='string'||stepHistory.length>4||
+          if(typeof stepHistory!=='string'||stepHistory.length>5||
             (stepHistory!==''&&(!workflowProgress||
               stepHistory.length!==stepTotal))){
             throw new Error('Báo cáo từng bước workflow không hợp lệ');
@@ -2499,13 +2499,13 @@ const trustedGUIJavaScript = `'use strict';
           if(workflowProgress&&
             (!Number.isInteger(step)||!Number.isInteger(stepTotal)||
              !Number.isInteger(attempt)||!Number.isInteger(attemptTotal)||
-             step<1||stepTotal<2||stepTotal>4||step>stepTotal||
+             step<1||stepTotal<2||stepTotal>5||step>stepTotal||
              attempt<1||attemptTotal<1||attemptTotal>2||
              attempt>attemptTotal||
              !['running','completed','skipped','failed','cancelled','timed_out'].includes(stepStatus)||
              ['started','cleared','cancel_requested'].includes(data.status)||
              !validTerminalOutput(data.output,
-               parallel&&stepTotal===4?48:64))){
+               stepTotal===5?32:(parallel&&stepTotal===4?48:64)))){
             throw new Error('Tiến độ bước workflow E2EE không hợp lệ');
           }
           if(!workflowProgress&&present.length&&
@@ -2515,7 +2515,7 @@ const trustedGUIJavaScript = `'use strict';
           }
           const detailsRaw=Object.prototype.hasOwnProperty.call(data,'step_details')?
             data.step_details:'';
-          if(typeof detailsRaw!=='string'||detailsRaw.length>39||
+          if(typeof detailsRaw!=='string'||detailsRaw.length>49||
             (detailsRaw!==''&&(stepHistory===''||!workflowProgress))){
             throw new Error('Mã thoát/thời gian workflow không hợp lệ');
           }

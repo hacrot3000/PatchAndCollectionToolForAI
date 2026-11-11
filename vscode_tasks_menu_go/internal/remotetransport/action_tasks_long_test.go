@@ -134,7 +134,7 @@ func TestRemoteLongTaskWorkflowStepTypedE2EERoundTrip(t *testing.T){
 func TestRemoteLongTaskRejectsPartialOrOutOfBoundsWorkflowMetadata(t *testing.T){
  invalid:=[]RemoteLongTaskProgress{
   {TaskID:3,Status:"running",ExitCode:-1,Step:1},
-  {TaskID:3,Status:"running",ExitCode:-1,Step:1,StepTotal:5,
+  {TaskID:3,Status:"running",ExitCode:-1,Step:1,StepTotal:6,
    Attempt:1,AttemptTotal:1,StepStatus:"running"},
   {TaskID:3,Status:"running",ExitCode:-1,Step:2,StepTotal:1,
    Attempt:1,AttemptTotal:1,StepStatus:"running"},
@@ -522,6 +522,42 @@ func TestRemoteLongTaskFourStepForkBoundedEscapedE2EEOutput(t *testing.T){
    StepStatus:"running",StepHistory:history,Parallel:true}
   if validLongTaskProgress(report){
    t.Fatalf("unsafe 3-worker state accepted: %q",history)
+  }
+ }
+}
+
+
+// The fifth sequential step carries one additional signed status/exit/
+// duration. Its chunk is smaller than a four-step response so even
+// JSON-escaped shell text fits the E2EE plaintext limit.
+func TestRemoteLongTaskFiveStepSequentialEscapedE2EEBounds(t *testing.T){
+ for _,character:=range []string{"<",">","&","\\","\"","\n","\t"}{
+  client,agent,_:=participants(t)
+  report:=RemoteLongTaskProgress{
+   TaskID:2147483647,Status:"completed",ExitCode:0,
+   Output:strings.Repeat(character,32),Truncated:true,More:true,
+   Step:5,StepTotal:5,Attempt:2,AttemptTotal:2,
+   StepStatus:"completed",StepHistory:"CCCCC",
+   StepDetails:"0:90000|0:90000|0:90000|0:90000|0:90000",
+  }
+  sealed,err:=SealRemoteLongTaskProgress(agent,testActionID,report)
+  if err!=nil{
+   t.Fatalf("32-byte fifth-step E2EE envelope overflow (%q): %v",character,err)
+  }
+  got,err:=OpenRemoteLongTaskProgress(client,sealed,testActionID,report.TaskID)
+  if err!=nil||got.Step!=5||got.StepTotal!=5||got.StepHistory!="CCCCC"||
+   got.Output!=report.Output||got.StepDetails!=report.StepDetails||got.Parallel{
+   t.Fatalf("five-step signed progress corrupted: %+v %v",got,err)
+  }
+  invalid:=report
+  invalid.Output=strings.Repeat(character,33)
+  if validLongTaskProgress(invalid){
+   t.Fatal("five-step output bypassed authenticated 32-byte cap")
+  }
+  invalid=report
+  invalid.Parallel=true
+  if validLongTaskProgress(invalid){
+   t.Fatal("unsupported five-step parallel fork was accepted")
   }
  }
 }

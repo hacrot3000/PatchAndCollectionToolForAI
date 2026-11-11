@@ -37,7 +37,7 @@ func ValidRemoteTaskDependencies(result RemoteTaskDependencies)bool{
   return !result.RunAvailable&&len(result.Order)==0&&len(result.Edges)==0
  }
  if result.RunAvailable{
-  if len(result.Order)<2||len(result.Order)>4||
+  if len(result.Order)<2||len(result.Order)>5||
    len(result.Edges)<len(result.Order)-1{return false}
  }
  if len(result.Order)==0||result.Order[len(result.Order)-1]!=result.TaskID{
