@@ -29,7 +29,10 @@ func TestRemoteGitNetworkMutationsNeverExecuteRepositoryCredentialHelpers(t *tes
  t.Setenv("TASKDECK_REMOTE_GIT_PULL","1")
  t.Setenv("TASKDECK_REMOTE_GIT_FETCH","1")
  t.Setenv("TASKDECK_REMOTE_GIT_PUSH","1")
- s,session,_,_:=remoteDispatchFixture(t)
+ // Network-policy tests must reach the outbound HTTPS command. A
+ // viewer-only session correctly fails GitWrite before contacting the
+ // fixture, which would make this regression vacuous.
+ s,session,_,_:=remoteTerminalAdminFixture(t)
  gitInitRemoteTest(t,s.Workspace)
  gitBin,err:=exec.LookPath("git")
  if err!=nil{t.Fatal(err)}
@@ -203,7 +206,10 @@ func TestRemoteGitNetworkMutationsRejectHTTPSRedirects(t *testing.T){
  t.Setenv("TASKDECK_REMOTE_GIT_PULL","1")
  t.Setenv("TASKDECK_REMOTE_GIT_FETCH","1")
  t.Setenv("TASKDECK_REMOTE_GIT_PUSH","1")
- s,session,_,_:=remoteDispatchFixture(t)
+ // Network-policy tests must reach the outbound HTTPS command. A
+ // viewer-only session correctly fails GitWrite before contacting the
+ // fixture, which would make this regression vacuous.
+ s,session,_,_:=remoteTerminalAdminFixture(t)
  gitInitRemoteTest(t,s.Workspace)
  gitPath,err:=exec.LookPath("git")
  if err!=nil{t.Fatal(err)}
