@@ -647,6 +647,16 @@ const trustedGUIJavaScript = `'use strict';
     }
     return {text:value.slice(start),clipped:start>0};
   }
+  function appendLongTaskOutput(chunk){
+    // Retain the newest authenticated host output within 16 KiB of
+    // whole UTF-8 code points. UTF-16 slice(0,N) both discards later
+    // diagnostics and can cut a surrogate pair in half. The cumulative
+    // local clipping flag is separate from the host's truncated bit.
+    if(!chunk)return;
+    const tail=boundedUTF8HistoryTail(longTaskText+chunk,16384);
+    longTaskText=tail.text;
+    longTaskClipped=longTaskClipped||tail.clipped;
+  }
   function updateLongTaskHistory(taskID,status,exitCode,truncated,receivedOutput,
     workflowReport=''){
     const item=taskRunHistory.find(entry=>entry.serial===longTaskHistorySerial&&
@@ -1211,6 +1221,7 @@ const trustedGUIJavaScript = `'use strict';
   let busy=false,closed=false,terminated=false,closing=false,budget=16;
   let taskRunning=false; // Short tasks: stop revokes E2EE.
   let longTaskID=0,longTaskState='',longTaskText='',longTaskMore=false;
+  let longTaskClipped=false;
   // Cancel acknowledgement is distinct from process exit. Poll may still
   // report "running" while the host is terminating the process group.
   let longTaskCancelPending=false;
@@ -1322,7 +1333,7 @@ const trustedGUIJavaScript = `'use strict';
     workflowAuditRows=[];workflowAuditMore=false;
     gitSwitchPreview=null;gitSwitchPending=null;
     gitDeletePreview=null;gitDeletePending=null;
-    longTaskID=0;longTaskState='';longTaskText='';
+    longTaskID=0;longTaskState='';longTaskText='';longTaskClipped=false;
     longTaskCancelPending=false;
     longTaskHistorySerial=0;
     taskRunHistory=[];taskRunHistoryList.replaceChildren();
@@ -2443,15 +2454,13 @@ const trustedGUIJavaScript = `'use strict';
               preparedWorkflowSteps.steps.map(node=>({id:node.id,label:node.label})):null;
             preparedWorkflowSteps=null;
             longTaskPollEpoch++;longTaskPollScheduled=false;
-            longTaskID=id;longTaskText='';
+            longTaskID=id;longTaskText='';longTaskClipped=false;
             longTaskCancelPending=false;
             longTaskAuto=!finalStates.includes(data.status);
             longTaskHistorySerial=rememberTaskRun(
               id,'dài',data.status,data.exit_code,'',data.truncated);
           }
-          if(data.output){
-            longTaskText=(longTaskText+data.output).slice(0,16384);
-          }
+          if(data.output)appendLongTaskOutput(data.output);
           if(prefix==='/api/tasks-cancel/'&&data.status==='cancel_requested'){
             longTaskCancelPending=true;
           }
@@ -2487,14 +2496,14 @@ const trustedGUIJavaScript = `'use strict';
             }).join('\n'):'';
           if(data.status!=='cleared'){
             updateLongTaskHistory(id,data.status,data.exit_code,
-              data.truncated,longTaskText,workflowReport);
+              data.truncated||longTaskClipped,longTaskText,workflowReport);
           }
           if(data.status==='cleared'){
             longTaskPollEpoch++;longTaskPollScheduled=false;
             longTaskHistorySerial=0;
             longTaskID=0;
             activeWorkflowSteps=null;
-            longTaskText='';longTaskMore=false;
+            longTaskText='';longTaskClipped=false;longTaskMore=false;
             longTaskCancelPending=false;
             longTaskAuto=false;
             // A successful host Clear frees its slot, not the authenticated
@@ -2508,7 +2517,7 @@ const trustedGUIJavaScript = `'use strict';
               ' · '+stepStatus:'')+
             (currentStepNode?' · Task #'+String(currentStepNode.id)+
               (currentStepNode.label?' · '+currentStepNode.label:''):'')+
-            (data.truncated?' · output vượt giới hạn':'')+
+            ((data.truncated||longTaskClipped)?' · output vượt giới hạn':'')+
             (longTaskMore?' · còn output chưa nhận':'')+
             (historyLines?'\n'+historyLines:'')+
             (stepMapLine?'\n'+stepMapLine:'')+

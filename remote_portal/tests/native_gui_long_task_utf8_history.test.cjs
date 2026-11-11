@@ -14,6 +14,13 @@ const js=extracted[1].replace(anchor,`
     updateLongTaskHistory(55,'completed',0,false,output);
     return taskRunHistory.find(x=>x.serial===serial);
   };
+  globalThis.__appendActiveOutput=(chunk)=>{
+    appendLongTaskOutput(chunk);
+    return {text:longTaskText,clipped:longTaskClipped};
+  };
+  globalThis.__resetActiveOutput=()=>{
+    longTaskText='';longTaskClipped=false;
+  };
 `+anchor);
 class Element{
  constructor(id){this.id=id;this.value='';this.textContent='';this.disabled=false;
@@ -77,6 +84,25 @@ const flush=async()=>{for(let n=0;n<70;n++)await Promise.resolve()};
  assert.equal(item.output,'é'.repeat(1024));
  assert.equal(item.truncated,true);
  assert.equal(Buffer.byteLength(item.output,'utf8'),2048);
+ // The active panel must preserve the latest *UTF-8 bytes*, not the
+ // earliest UTF-16 units (which previously lost recent output).
+ let active=sandbox.__appendActiveOutput(emoji.repeat(4096));
+ assert.equal(Buffer.byteLength(active.text,'utf8'),16384);
+ assert.equal(active.clipped,false);
+ active=sandbox.__appendActiveOutput('\\nLATEST'+emoji);
+ assert.equal(active.clipped,true,'local 16 KiB overflow was not recorded');
+ assert.ok(active.text.endsWith('\\nLATEST'+emoji),
+  'append after 16 KiB silently discarded the newest host diagnostics');
+ assert.ok(!active.text.includes('\\uFFFD'),'active transcript broke Unicode');
+ assert.ok(Buffer.byteLength(active.text,'utf8')<=16384,
+  'active transcript exceeded its UTF-8 byte budget');
+ // Cross a surrogate boundary: preserve the LAST complete emoji and
+ // the exact final 16 KiB rather than splitting the trailing rune.
+ sandbox.__resetActiveOutput();
+ active=sandbox.__appendActiveOutput('x'.repeat(16383)+emoji);
+ assert.equal(active.text,'x'.repeat(16380)+emoji);
+ assert.equal(Buffer.byteLength(active.text,'utf8'),16384);
+ assert.equal(active.clipped,true);
  const detached=get('task-run-history-list').children[0].children[0].children[1];
  get('disconnect').click();await flush();
  const count=copied.length;
