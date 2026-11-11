@@ -414,6 +414,7 @@ func(s *Server)startRemoteLinearWorkflow(ctx context.Context,
   done:make(chan struct{}),capture:capture,status:"running",exitCode:-1,
   workspaceRelease:releaseWorkspace,
   workflowRunID:runID,
+  workflowParallel:len(plan)==3&&plan[2].parallelJoin,
   workflowStepHistory:strings.Repeat("-",len(plan)),
   workflowStepDetails:func()[]string{
    parts:=make([]string,len(plan))

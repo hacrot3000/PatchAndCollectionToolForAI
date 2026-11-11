@@ -54,6 +54,7 @@ type remoteLongTaskJob struct {
  workflowStepStatus string
  workflowStepHistory string
  workflowStepDetails []string
+ workflowParallel bool
  workflowRunID string // Random per execution; never sent as a command token.
 }
 
@@ -127,6 +128,7 @@ type remoteLongTaskSnapshot struct {
  StepStatus string
  StepHistory string
  StepDetails string
+ Parallel bool
 }
 
 // Must be entered only from TaskDeck's verified tasks.run role, live
@@ -381,6 +383,7 @@ func (session *remoteTaskDeckSession)pollRemoteLongTaskWithWaitMode(
    StepStatus:job.workflowStepStatus,
    StepHistory:job.workflowStepHistory,
    StepDetails:strings.Join(job.workflowStepDetails,"|"),
+   Parallel:job.workflowParallel&&job.workflowStep>0,
   }
   if state.Step==0{state.StepHistory="";state.StepDetails=""}
   limit:=remoteLongTaskMaxChunkBytes
@@ -410,6 +413,7 @@ func (session *remoteTaskDeckSession)pollRemoteLongTaskWithWaitMode(
     StepStatus:job.workflowStepStatus,
     StepHistory:job.workflowStepHistory,
     StepDetails:strings.Join(job.workflowStepDetails,"|"),
+   Parallel:job.workflowParallel&&job.workflowStep>0,
    }
    if state.Step==0{state.StepHistory="";state.StepDetails=""}
    // A notification is coalesced (one-slot channel) and can be consumed

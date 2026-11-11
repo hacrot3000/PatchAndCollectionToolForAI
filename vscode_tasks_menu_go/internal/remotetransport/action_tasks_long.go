@@ -34,6 +34,7 @@ type RemoteLongTaskProgress struct {
  StepStatus string
  StepHistory string // Optional host-owned step status summary.
  StepDetails string // Exit code and milliseconds for each finished step.
+ Parallel bool // Authenticated host-selected two-worker join.
 }
 type remoteLongTaskProgressWire struct {
  Type string `json:"type"`
@@ -52,6 +53,7 @@ type remoteLongTaskProgressWire struct {
  StepStatus string `json:"step_status,omitempty"`
  StepHistory string `json:"step_history,omitempty"`
  StepDetails string `json:"step_details,omitempty"`
+ Parallel bool `json:"parallel,omitempty"`
 }
 // Compact, canonical per-step exit codes and elapsed milliseconds.
 func validLongTaskStepDetails(p RemoteLongTaskProgress)bool{
@@ -148,9 +150,14 @@ func validLongTaskProgress(p RemoteLongTaskProgress)bool{
   case "timed_out":expected='T'
   default:return false
   }
+  if p.Parallel&&(p.StepTotal!=3||p.Attempt!=1||
+   p.AttemptTotal!=1||p.StepStatus=="skipped"||p.StepHistory==""){
+   return false
+  }
   if p.StepHistory!=""{
    if len(p.StepHistory)!=p.StepTotal{return false}
-   parallelFork:=validParallelForkProgress(p,expected)
+   parallelFork:=p.Parallel&&p.Step<3&&validParallelForkProgress(p,expected)
+   if p.Parallel&&p.Step<3&&!parallelFork{return false}
    for i:=0;i<len(p.StepHistory);i++{
     if parallelFork{continue}
     switch{
@@ -168,7 +175,7 @@ func validLongTaskProgress(p RemoteLongTaskProgress)bool{
    }
   }
   if !validLongTaskStepDetails(p){return false}
- }
+ }else if p.Parallel{return false}
  for _,r:=range p.Output{
   if r=='\n'||r=='\t'{continue}
   if unicode.IsControl(r)||unicode.In(r,unicode.Cf,unicode.Zl,unicode.Zp){return false}
@@ -189,6 +196,7 @@ func SealRemoteLongTaskProgress(ch *Channel,id string,p RemoteLongTaskProgress)(
   Step:p.Step,StepTotal:p.StepTotal,Attempt:p.Attempt,
   AttemptTotal:p.AttemptTotal,StepStatus:p.StepStatus,
   StepHistory:p.StepHistory,StepDetails:p.StepDetails,
+  Parallel:p.Parallel,
  })
  if err!=nil{return nil,ErrInvalidRemoteAction}
  clear:=bytes.TrimSuffix(clearBuffer.Bytes(),[]byte{10})
@@ -207,7 +215,7 @@ func OpenRemoteLongTaskProgress(ch *Channel,frame []byte,id string,taskID int)(R
   []string{"type","request_id","task_id","status","exit_code",
    "output","truncated","more","remote_control_available"},
   []string{"step","step_total","attempt","attempt_total","step_status",
-   "step_history","step_details"})
+   "step_history","step_details","parallel"})
  if err!=nil{ch.Close();return zero,ErrInvalidRemoteAction}
  var typ,requestID string
  var p RemoteLongTaskProgress
@@ -253,6 +261,12 @@ func OpenRemoteLongTaskProgress(ch *Channel,frame []byte,id string,taskID int)(R
    p.StepDetails==""{
    ch.Close();return zero,ErrInvalidRemoteAction
   }
+ }
+ if raw,exists:=fields["parallel"];exists{
+  // Absent = previous sequential contract. Only true opts into the
+  // strict bounded concurrent-fork status shape; reject all other types.
+  if string(raw)!="true"{ch.Close();return zero,ErrInvalidRemoteAction}
+  p.Parallel=true
  }
  if p.TaskID!=taskID||!validLongTaskProgress(p){
   ch.Close();return zero,ErrInvalidRemoteAction

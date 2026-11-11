@@ -474,7 +474,7 @@ func (s *Server) executeRemoteE2EEPing(
      Step:progress.Step,StepTotal:progress.StepTotal,
      Attempt:progress.Attempt,AttemptTotal:progress.AttemptTotal,
      StepStatus:progress.StepStatus,StepHistory:progress.StepHistory,
-     StepDetails:progress.StepDetails,
+     StepDetails:progress.StepDetails,Parallel:progress.Parallel,
     }
     return nil
    case remotetransport.RemoteActionTasksCancel:

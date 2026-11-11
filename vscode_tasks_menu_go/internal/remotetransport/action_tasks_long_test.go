@@ -430,7 +430,7 @@ func TestRemoteLongTaskParallelForkAuthenticatedHistory(t *testing.T){
  good:=RemoteLongTaskProgress{
   TaskID:77,Status:"running",ExitCode:-1,
   Step:2,StepTotal:3,Attempt:1,AttemptTotal:1,
-  StepStatus:"running",StepHistory:"RR-",StepDetails:"-|-|-",
+  StepStatus:"running",StepHistory:"RR-",StepDetails:"-|-|-",Parallel:true,
  }
  if !validLongTaskProgress(good){t.Fatal("two concurrent native children refused by E2EE codec")}
  client,agent,_:=participants(t)
@@ -446,14 +446,15 @@ func TestRemoteLongTaskParallelForkAuthenticatedHistory(t *testing.T){
  for _,value:=range []RemoteLongTaskProgress{
   {TaskID:77,Status:"running",ExitCode:-1,Step:1,StepTotal:3,
    Attempt:1,AttemptTotal:1,StepStatus:"completed",
-   StepHistory:"CR-",StepDetails:"0:20|-|-"},
+   StepHistory:"CR-",StepDetails:"0:20|-|-",Parallel:true},
   {TaskID:77,Status:"failed",ExitCode:1,Step:2,StepTotal:3,
    Attempt:1,AttemptTotal:1,StepStatus:"cancelled",
-   StepHistory:"FX-",StepDetails:"1:10|-1:20|-"},
+   StepHistory:"FX-",StepDetails:"1:10|-1:20|-",Parallel:true},
  }{
   if !validLongTaskProgress(value){t.Fatalf("valid fork transition denied: %+v",value)}
  }
  for name,change:=range map[string]func(*RemoteLongTaskProgress){
+  "missing parallel marker":func(x *RemoteLongTaskProgress){x.Parallel=false},
   "wrong total":func(x *RemoteLongTaskProgress){x.StepTotal=4},
   "future root running":func(x *RemoteLongTaskProgress){x.StepHistory="RRR"},
   "invalid code":func(x *RemoteLongTaskProgress){x.StepHistory="R?-"},
