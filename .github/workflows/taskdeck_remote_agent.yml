@@ -113,9 +113,9 @@ jobs:
       - name: Preflight Git post-audit host opt-in and GitWrite RBAC
         working-directory: vscode_tasks_menu_go
         run: go test -race ./internal/server -run 'TestRemoteGit(PostAudit|Commit(AuditRevocationCannotMutateHEAD|RejectsRoleRevokedDuringAttemptAudit))' -count=1 -timeout=90s
-      - name: Preflight Unix PTY host consent and final output drain
+      - name: Preflight Unix PTY consent, rolling output and final drain
         working-directory: vscode_tasks_menu_go
-        run: go test -race ./internal/server -run 'TestRemoteTerminal(OpenRejectsHostRoleRevokedDuringAudit|ActivePTYStopsOnHostOptOutOrRoleDowngrade|NaturalExitRetainsFinalPTYOutput)' -count=1 -timeout=90s
+        run: go test -race ./internal/server -run 'TestRemoteTerminal(OpenRejectsHostRoleRevokedDuringAudit|ActivePTYStopsOnHostOptOutOrRoleDowngrade|NaturalExitRetainsFinalPTYOutput|RollingCapture)' -count=1 -timeout=90s
       - name: Preflight deferred Terminal E2EE output cursor and seal rejection
         working-directory: vscode_tasks_menu_go
         run: go test -race ./internal/server -run 'TestRemoteTerminal(E2EEFailedSealPreservesOutputCursor|DeferredCursorDoesNotOverwriteNewerRead)' -count=1 -timeout=90s

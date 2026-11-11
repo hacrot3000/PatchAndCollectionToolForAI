@@ -63,22 +63,89 @@ type remoteLongTaskCapture struct {
  data []byte
  truncated bool
  notify chan struct{}
+ // Terminal-only rolling output. Long-running Tasks retain their
+ // original first-16KiB capture semantics and cursor behavior.
+ rolling bool
+ rollingBase int // Absolute UTF-8 byte offset of data[0].
+ rollingPending []byte // Incomplete UTF-8 sequence across PTY reads.
+ finalized bool // Prevent a tardy PTY reader from mutating a final Poll.
 }
 func newRemoteLongTaskCapture()*remoteLongTaskCapture{
  return &remoteLongTaskCapture{data:make([]byte,0,512),notify:make(chan struct{},1)}
 }
+// A remote PTY must keep yielding new output after its first 16KiB have
+// been displayed. This bounded sliding window stores only sanitized
+// UTF-8, never shell bytes or credentials in a persistent audit.
+func newRemoteTerminalCapture()*remoteLongTaskCapture{
+ c:=newRemoteLongTaskCapture()
+ c.rolling=true
+ return c
+}
 func (c *remoteLongTaskCapture)Write(p []byte)(int,error){
  n:=len(p)
  c.mu.Lock()
- space:=remoteLongTaskMaxCaptureBytes-len(c.data)
- if space>0{
-  if space>len(p){space=len(p)}
-  c.data=append(c.data,p[:space]...)
+ if !c.finalized{
+  if c.rolling{
+   c.writeTerminalRollingLocked(p)
+  }else{
+   space:=remoteLongTaskMaxCaptureBytes-len(c.data)
+   if space>0{
+    if space>len(p){space=len(p)}
+    c.data=append(c.data,p[:space]...)
+   }
+   if space<n{c.truncated=true}
+  }
  }
- if space<n{c.truncated=true}
  c.mu.Unlock()
  select{case c.notify<-struct{}{}:default:}
  return n,nil // always drain the command's stdout/stderr
+}
+
+// Sanitize every complete UTF-8 rune incrementally; io.Copy may split a
+// rune between Write calls. Prune in bounded batches at rune boundaries.
+// Retain a monotonic absolute cursor so a deferred, authenticated E2EE
+// Seal cannot accidentally replay or skip newer output after compaction.
+func(c *remoteLongTaskCapture)writeTerminalRollingLocked(p []byte){
+ for len(p)>0{
+  count:=len(p)
+  if count>4096{count=4096}
+  block:=make([]byte,0,len(c.rollingPending)+count)
+  block=append(block,c.rollingPending...)
+  block=append(block,p[:count]...)
+  c.rollingPending=c.rollingPending[:0]
+  for len(block)>0{
+   if !utf8.FullRune(block){
+    c.rollingPending=append(c.rollingPending,block...)
+    break
+   }
+   r,width:=utf8.DecodeRune(block)
+   if (r!=utf8.RuneError||width>1)&&
+    (r=='\n'||r=='\t'||(!unicode.IsControl(r)&&
+     !unicode.In(r,unicode.Cf,unicode.Zl,unicode.Zp))){
+    c.data=append(c.data,block[:width]...)
+   }
+   block=block[width:]
+  }
+  if len(c.data)>remoteLongTaskMaxCaptureBytes{
+   cut:=len(c.data)-remoteLongTaskMaxCaptureBytes
+   for cut<len(c.data)&&!utf8.RuneStart(c.data[cut]){cut++}
+   c.rollingBase+=cut
+   copy(c.data,c.data[cut:])
+   c.data=c.data[:len(c.data)-cut]
+  }
+  p=p[count:]
+ }
+}
+
+// Once the PTY has been closed and its output reader drained (or timed
+// out), freeze the capture before exposing 'exited'. A late io.Copy
+// Write must never append data after the client saw a final state.
+func(c *remoteLongTaskCapture)finishRemoteTerminal(incomplete bool){
+ c.mu.Lock()
+ if incomplete||len(c.rollingPending)>0{c.truncated=true}
+ c.rollingPending=nil
+ c.finalized=true
+ c.mu.Unlock()
 }
 
 func sanitizeLongTaskOutput(raw []byte)string{
@@ -103,6 +170,20 @@ func (c *remoteLongTaskCapture)next(cursor int)(string,int,bool,bool){
 func (c *remoteLongTaskCapture)nextBounded(cursor,limit int)(string,int,bool,bool){
  c.mu.Lock()
  defer c.mu.Unlock()
+ if c.rolling{
+  lost:=cursor<c.rollingBase
+  if lost{cursor=c.rollingBase}
+  last:=c.rollingBase+len(c.data)
+  if cursor>last{cursor=last}
+  text:=string(c.data[cursor-c.rollingBase:])
+  end:=cursor
+  for index,r:=range text{
+   width:=utf8.RuneLen(r)
+   if width<1||index+width>limit{break}
+   end=cursor+index+width
+  }
+  return text[:end-cursor],end,lost||c.truncated,end<last
+ }
  clean:=sanitizeLongTaskOutput(c.data)
  if cursor<0||cursor>len(clean){cursor=len(clean)}
  end:=cursor

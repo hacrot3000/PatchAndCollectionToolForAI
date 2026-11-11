@@ -3113,7 +3113,7 @@ const trustedGUIJavaScript = `'use strict';
             terminalState==='running'?'Terminal đang chạy (giới hạn 90 giây).':
             terminalState==='exited'?'Shell đã thoát. Có thể đọc output còn lại hoặc đóng phiên.':
             'Terminal đã đóng.';
-          if(data.truncated)terminalStateText.textContent+=' Output đã đạt giới hạn capture 16 KiB.';
+          if(data.truncated)terminalStateText.textContent+=' Một phần output không còn trong bộ đệm 16 KiB hoặc chưa được ghi nhận đầy đủ.';
           if(data.more)terminalStateText.textContent+=' Còn output để đọc.';
           output.textContent='Terminal '+terminalState+' · PTY host đã xác thực qua E2EE.';
         }

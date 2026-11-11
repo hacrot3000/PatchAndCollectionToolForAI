@@ -119,7 +119,7 @@ func(s *Server) startRemoteTerminal(ctx context.Context,session *remoteTaskDeckS
  }
  tty,err=pty.StartWithSize(cmd,&pty.Winsize{Rows:24,Cols:80})
  if err!=nil{cancelContext();return denied}
- capture:=newRemoteLongTaskCapture()
+ capture:=newRemoteTerminalCapture()
  job:=&remoteTerminalJob{
   ptyFile:tty,process:cmd,done:make(chan struct{}),
   capture:capture,started:time.Now(),state:"running",
@@ -190,22 +190,23 @@ func(s *Server) startRemoteTerminal(ctx context.Context,session *remoteTaskDeckS
   // Command.Wait can complete before io.Copy has read the last PTY
   // bytes. Do not advertise 'exited' to the client or allow Clear
   // while the output reader is still appending to the capture.
+  readerFinished:=false
   select{
-  case <-readerDone:
+  case <-readerDone:readerFinished=true
   case <-time.After(remoteTerminalReaderDrainGrace):
    // A background process may keep the slave open. Retire the
    // master even if its reader did not see EOF naturally.
   }
   job.cancel() // idempotent; reaped PID must not be signalled
-  select{
-  case <-readerDone:
-  case <-time.After(remoteTerminalReaderCloseGrace):
-   // If an OS read refuses to unblock after Close, never hold the
-   // workspace forever or claim its transcript was complete.
-   capture.mu.Lock()
-   capture.truncated=true
-   capture.mu.Unlock()
+  if !readerFinished{
+   select{
+   case <-readerDone:readerFinished=true
+   case <-time.After(remoteTerminalReaderCloseGrace):
+    // If an OS read refuses to unblock after Close, never hold the
+    // workspace forever or claim its transcript was complete.
+   }
   }
+  capture.finishRemoteTerminal(!readerFinished)
   job.mu.Lock()
   job.state="exited"
   job.mu.Unlock()

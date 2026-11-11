@@ -869,3 +869,30 @@ real-host testing are considered **code complete**.
 - Regression dùng PTY thật in giá trị chỉ được tính tại host, sau đó
   thoát ngay; khi `job.done` đóng, Poll phải nhận giá trị đầy đủ
   đúng một lần và workspace phải đã nhả. Thêm preflight Go `-race`.
+
+
+## 2026-11-11 — Terminal PTY: cửa sổ output cuộn trong giới hạn 16 KiB
+
+- Trước thay đổi, `remoteLongTaskCapture.Write` chỉ giữ 16 KiB đầu và
+  đánh dấu `truncated` vĩnh viễn, khiến Terminal không nhận được output
+  mới khi shell tiếp tục chạy, dù client đã Poll hết nội dung cũ.
+- Thêm constructor `newRemoteTerminalCapture` **riêng cho PTY**,
+  dùng bộ đệm rolling UTF-8 tối đa 16 KiB, cursor byte tuyệt đối tăng
+  đơn điệu và chỉ drop dữ liệu cũ ở ranh giới rune. Stream rất dài có
+  thể liên tục được Poll nếu người dùng theo kịp; nếu consumer chậm
+  đến mức bị ghi đè, response `truncated=true` và trả về tail mới,
+  không trả lại dữ liệu cũ hoặc mất cursor E2EE.
+- Sanitize control/format characters ngay khi nhận từ PTY; giữ tối đa
+  3 byte UTF-8 còn dở giữa các `io.Copy.Write`. Xử lý theo từng khối
+  4096 byte để giới hạn cấp phát tức thời. Sau khi reader kết thúc
+  hoặc hết drain deadline, đóng băng capture; output đến muộn không
+  thay đổi transcript đã đánh dấu `exited`.
+- Không thay đổi cơ chế `newRemoteLongTaskCapture` của Task, không
+  đổi kích thước E2EE response 128 byte, quota 16 action, lifetime
+  90 giây, grant hoặc giới hạn bộ nhớ 16 KiB. PHP/Relay không lưu
+  plaintext. Native GUI hiển thị đúng ý nghĩa `truncated`: dữ liệu
+  quá cũ đã bị ghi đè **hoặc** không thể thu đủ sau khi đóng PTY.
+- Kiểm thử `-race`: nhiều cửa sổ đã Poll vượt 16 KiB không mất dữ
+  liệu, client chậm nhận tail cùng dấu truncated, UTF-8 bị chia giữa
+  Write, freeze sau finalize và deferred E2EE cursor vẫn đúng khi
+  rolling window đã bị ghi đè.
