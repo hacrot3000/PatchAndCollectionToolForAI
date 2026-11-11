@@ -94,13 +94,13 @@ const flush=async()=>{for(let n=0;n<70;n++)await Promise.resolve()};
  assert.equal(Buffer.byteLength(item.output,'utf8'),2048);
  // A malformed lone UTF-16 surrogate can never be returned as an
  // apparently valid output tail, even in a synthetic internal call.
- let malformed=sandbox.__boundedUTF8Tail('left\\uD800right',2048);
+ let malformed=sandbox.__boundedUTF8Tail('left\uD800right',2048);
  assert.equal(malformed.text,'right');
  assert.equal(malformed.clipped,true);
- malformed=sandbox.__boundedUTF8Tail('left\\uDC00right',2048);
+ malformed=sandbox.__boundedUTF8Tail('left\uDC00right',2048);
  assert.equal(malformed.text,'right');
  assert.equal(malformed.clipped,true);
- malformed=sandbox.__boundedUTF8Tail('left\\uD800',2048);
+ malformed=sandbox.__boundedUTF8Tail('left\uD800',2048);
  assert.equal(malformed.text,'');
  assert.equal(malformed.clipped,true);
  // The active panel must preserve the latest *UTF-8 bytes*, not the
