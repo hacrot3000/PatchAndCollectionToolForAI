@@ -238,10 +238,23 @@ func(s *Server)runRemoteParallelJoinWorkflow(ctx context.Context,
   defer close(watchDone)
   ticker:=time.NewTicker(100*time.Millisecond)
   defer ticker.Stop()
+  permissionTicker:=time.NewTicker(500*time.Millisecond)
+  defer permissionTicker.Stop()
   for{
    select{
    case <-stopWatch:return
    case <-siblingCtx.Done():return
+   case <-permissionTicker.C:
+    // The login may remain valid after a TaskDeck role downgrade.
+    // Explicitly revoke the active fork/root when TasksRun disappears.
+    checkCtx,done:=context.WithTimeout(siblingCtx,2*time.Second)
+    allowed:=s.remoteWorkflowLocalRunAllowed(checkCtx,session)
+    done()
+    if !allowed{
+     hostRevoked.Store(true)
+     cancelSibling()
+     return
+    }
    case <-ticker.C:
     if !remoteParallelHostConsent(session){
      hostRevoked.Store(true)

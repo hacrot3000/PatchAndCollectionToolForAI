@@ -277,6 +277,24 @@ func remoteWorkflowHostExecutionEnabled()bool{
   os.Getenv("TASKDECK_REMOTE_TASKS_WORKFLOW_RUN")=="1"
 }
 
+
+ // Only active workflows need the TasksRun capability. The independent
+ // session watcher validates account/key/membership, but a valid user may
+ // lose just TasksRun while retaining read-only Git access. Cancel the
+ // current process without revoking that unrelated read-only session.
+ // This check is host-local: PHP never supplies a role or process policy.
+func(s *Server)remoteWorkflowLocalRunAllowed(ctx context.Context,
+ session *remoteTaskDeckSession)bool{
+ if s==nil||session==nil||ctx==nil||ctx.Err()!=nil||
+  session.closed.Load()||session.channel==nil||
+  !session.channel.Established()||session.portalGrant==nil||
+  !session.portalGrant.ActiveForSession(session.channel){return false}
+ principal,err:=s.verifyRemoteSessionLocalPrincipal(ctx,session)
+ return err==nil&&ctx.Err()==nil&&
+  remotetransport.AuthorizeAction(true,session.role,&principal,
+   session.projectKey,identity.PermissionTasksRun)==nil
+}
+
 func(s *Server)prepareRemoteLinearWorkflow(ctx context.Context,
  session *remoteTaskDeckSession,rootTaskID int,
 )([]remoteWorkflowStep,[32]byte,error){
@@ -606,10 +624,24 @@ Workflow:
     defer close(watcherDone)
     ticker:=time.NewTicker(100*time.Millisecond)
     defer ticker.Stop()
+    permissionTicker:=time.NewTicker(500*time.Millisecond)
+    defer permissionTicker.Stop()
     for{
      select{
      case <-stopWatch:return
      case <-runCtx.Done():return
+     case <-permissionTicker.C:
+      // A host may downgrade this user's TasksRun permission without
+      // disabling the account or revoking the E2EE login. Never let a
+      // previously admitted child keep mutating after that downgrade.
+      checkCtx,done:=context.WithTimeout(runCtx,2*time.Second)
+      allowed:=s.remoteWorkflowLocalRunAllowed(checkCtx,session)
+      done()
+      if !allowed{
+       revokedDuringStep.Store(true)
+       cancelStep()
+       return
+      }
      case <-ticker.C:
       if !remoteWorkflowHostExecutionEnabled()||
        (step.timeout>0&&os.Getenv("TASKDECK_REMOTE_TASKS_WORKFLOW_TIMEOUT")!="1")||

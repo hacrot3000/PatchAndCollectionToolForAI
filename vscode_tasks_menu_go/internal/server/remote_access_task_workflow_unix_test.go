@@ -2257,3 +2257,77 @@ func TestRemoteSequentialHostRevocationCancelsActiveStep(t *testing.T){
   })
  }
 }
+
+
+// A TaskDeck role downgrade can remove TasksRun while leaving the E2EE
+// session itself valid for read-only operations. Both workflow modes must
+// cancel the *currently executing* native process, not only deny the next
+// dependency or a later independent GUI request.
+func TestRemoteWorkflowTaskRunRoleDowngradeStopsActiveProcesses(t *testing.T){
+ for _,tc:=range []struct{name,source,root,running,stopped string;parallel bool}{
+  {"sequential",`{"tasks":[
+   {"label":"Slow","type":"process","command":"/bin/sleep","args":["5"]},
+   {"label":"Never","type":"process","command":"/bin/echo",
+    "args":["MUST-NOT-RUN"],"dependsOn":"Slow"}]}`,"Never","R-","X-",false},
+  {"parallel root",`{"tasks":[
+   {"label":"Leaf A","type":"process","command":"/bin/echo","args":["LEAF-A"]},
+   {"label":"Leaf B","type":"process","command":"/bin/echo","args":["LEAF-B"]},
+   {"label":"Join","type":"process","command":"/bin/sleep","args":["5"],
+    "dependsOn":["Leaf A","Leaf B"],"dependsOrder":"parallel"}]}`,
+    "Join","CCR","CCX",true},
+ }{
+  t.Run(tc.name,func(t *testing.T){
+   remoteWorkflowHostFlags(t)
+   if tc.parallel{t.Setenv("TASKDECK_REMOTE_TASKS_WORKFLOW_PARALLEL","1")}
+   s,session,client,agent:=remoteTaskOperatorFixture(t)
+   root:=remoteWorkflowIssuedRoot(t,s,session,client,agent,tc.source,tc.root)
+   if err:=s.startRemoteLinearWorkflow(context.Background(),session,root);err!=nil{
+    t.Fatalf("workflow was denied before TasksRun removal: %v",err)
+   }
+   job:=session.longTask
+   seen:=false
+   deadline:=time.Now().Add(2*time.Second)
+   for time.Now().Before(deadline){
+    job.mu.Lock()
+    history:=job.workflowStepHistory
+    job.mu.Unlock()
+    if history==tc.running{seen=true;break}
+    time.Sleep(10*time.Millisecond)
+   }
+   if !seen{t.Fatal("did not observe active process before role downgrade")}
+   project,err:=s.Identity.ProjectByKey(context.Background(),session.projectKey)
+   if err!=nil{t.Fatal(err)}
+   member,err:=s.Identity.ProjectMember(context.Background(),project.ID,session.userID)
+   if err!=nil{t.Fatal(err)}
+   member.RoleID=identity.RestrictedDeveloperRoleID
+   member.UpdatedAt=time.Now().UTC()
+   if err:=s.Identity.UpsertProjectMember(context.Background(),member);err!=nil{t.Fatal(err)}
+   principal,err:=s.verifyRemoteSessionLocalPrincipal(context.Background(),session)
+   if err!=nil||principal.Allowed(identity.PermissionTasksRun){
+    t.Fatalf("role downgrade did not remove TasksRun: err=%v",err)
+   }
+   started:=time.Now()
+   if got:=awaitRemoteWorkflow(t,session);got!="cancelled"{
+    t.Fatalf("active process escaped TasksRun revocation: %s",got)
+   }
+   if time.Since(started)>4*time.Second{
+    t.Fatal("role downgrade waited for native sleep to complete")
+   }
+   job.mu.Lock()
+   history,code:=job.workflowStepHistory,job.exitCode
+   job.mu.Unlock()
+   if history!=tc.stopped||code!= -1{
+    t.Fatalf("role downgrade left incorrect step history %q exit=%d",history,code)
+   }
+   job.capture.mu.Lock()
+   transcript:=string(append([]byte(nil),job.capture.data...))
+   job.capture.mu.Unlock()
+   if strings.Contains(transcript,"MUST-NOT-RUN"){
+    t.Fatal("workflow started next step after TaskRun permission revocation")
+   }
+   if err:=session.clearRemoteLongTask(root);err!=nil{
+    t.Fatalf("revoked workflow left long-task slot: %v",err)
+   }
+  })
+ }
+}
