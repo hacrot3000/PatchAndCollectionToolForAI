@@ -273,7 +273,7 @@ func TestRemoteGitCommitAuditRevocationCannotMutateHEAD(t *testing.T){
 type remoteGitCommitAuditRoleDowngrade struct{
  identity.Store
  projectKey string
- userID string
+ userID identity.ID
 }
 func(store remoteGitCommitAuditRoleDowngrade)AppendAudit(ctx context.Context,
  event identity.AuditEvent)error{
