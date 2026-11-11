@@ -62,6 +62,27 @@ func (session *remoteTaskDeckSession) reserveRemoteGitMutation(
  },nil
 }
 
+
+// A successful durable attempted-audit is not an execution grant. Host
+// consent can change while SQLite persists the row, even when the same
+// E2EE request and caller context are still alive. Recheck BEFORE running
+// the fixed, side-effecting Git command. This is not a substitute for the
+// dispatcher's live GitWrite RBAC check, cross-session workspace lease or
+// the OS-enforced remote server's own push permissions.
+func remoteGitMutationPostAuditAllowed(ctx context.Context,
+ session *remoteTaskDeckSession,flag string)bool{
+ switch flag{
+ case "TASKDECK_REMOTE_GIT_PULL","TASKDECK_REMOTE_GIT_COMMIT",
+  "TASKDECK_REMOTE_GIT_PUSH":
+ default:return false
+ }
+ return ctx!=nil&&ctx.Err()==nil&&session!=nil&&!session.closed.Load()&&
+  session.channel!=nil&&session.channel.Established()&&
+  session.portalGrant!=nil&&
+  session.portalGrant.ActiveForSession(session.channel)&&
+  os.Getenv(flag)=="1"
+}
+
 // Remote Git, Task and PTY executions share this workspace guard across
 // authenticated E2EE sessions. Paths are canonical host-owned directories;
 // the OS advisory directory lock also excludes distinct Agent processes

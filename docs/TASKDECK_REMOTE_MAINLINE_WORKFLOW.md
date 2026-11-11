@@ -794,3 +794,19 @@ real-host testing are considered **code complete**.
   session lifetime, giao thức PHP/Relay hay hỗ trợ Windows.
 - Chỉ tính code hoàn tất sau khi CI Go và PHP đúng SHA PASS; chạy thực địa
   không phải điều kiện để đánh dấu hoàn tất về mặt mã nguồn.
+
+
+## 2026-11-11 — Git Pull / Commit / Push: host opt-out tại biên audit
+
+- Mỗi thao tác Git ghi có một bước audit `attempted` bền vững trước khi
+  thay đổi HEAD/index/ref hoặc gọi network. Nếu chủ host chuyển cờ opt-in
+  về `0` trong lúc ghi audit, quyền trước audit không được phép tiếp tục.
+- Ba chức năng Pull / Commit / Push nay xác minh lại **đúng cờ host**
+  đã cho phép, trạng thái E2EE, grant đã ký và context ngay sau audit,
+  trước khi phát lệnh Git side-effect. Cờ không thuộc danh sách cố định
+  bị từ chối. Không thay đổi args Git, URL/credentials, force/rebase,
+  PHP Portal hay giao thức E2EE.
+- Regression test gồm cờ của cả ba thao tác, giả lập close/context hủy,
+  và SQLite audit callback đổi cờ Commit ngay sau `attempted`: HEAD
+  phải giữ nguyên, staged index phải còn nguyên. Không khẳng định thao
+  tác Git đã thực hiện là có thể rollback nếu quyền bị thu hồi muộn hơn.

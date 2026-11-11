@@ -211,3 +211,56 @@ func TestRemoteGitCommitRejectsNonBranchSymbolicHEAD(t *testing.T){
   t.Fatalf("Remote Commit altered committed content: %q",got)
  }
 }
+
+
+// The test store changes a host-owned environment opt-in ONLY after the
+// attempted audit has really been persisted. This is not browser input.
+type remoteGitCommitAuditOptOut struct{
+ identity.Store
+ flag string
+}
+func(store remoteGitCommitAuditOptOut)AppendAudit(ctx context.Context,
+ event identity.AuditEvent)error{
+ err:=store.Store.AppendAudit(ctx,event)
+ if err==nil&&event.Action=="remote.action.git_commit"&&
+  event.Result=="attempted"{
+  if setErr:=os.Setenv(store.flag,"0");setErr!=nil{return setErr}
+ }
+ return err
+}
+
+func TestRemoteGitCommitAuditRevocationCannotMutateHEAD(t *testing.T){
+ requireGit(t)
+ if runtime.GOOS=="windows"{t.Skip("Unix-only Git process cleanup")}
+ t.Setenv("TASKDECK_REMOTE_GIT_COMMIT","1")
+ s,session,_,_:=remoteDispatchFixture(t)
+ gitInitRemoteTest(t,s.Workspace)
+ run:=func(args ...string)string{
+  t.Helper()
+  cmd:=exec.Command("git",append([]string{"-C",s.Workspace},args...)...)
+  out,err:=cmd.CombinedOutput()
+  if err!=nil{t.Fatalf("git %v: %v %s",args,err,out)}
+  return strings.TrimSpace(string(out))
+ }
+ run("config","user.name","Remote Test")
+ run("config","user.email","remote@example.invalid")
+ filename:=filepath.Join(s.Workspace,"tracked.txt")
+ if err:=os.WriteFile(filename,[]byte("original\n"),0600);err!=nil{t.Fatal(err)}
+ run("add","tracked.txt")
+ run("commit","-qm","Baseline")
+ before:=run("rev-parse","HEAD")
+ if err:=os.WriteFile(filename,[]byte("new content\n"),0600);err!=nil{t.Fatal(err)}
+ run("add","tracked.txt")
+ s.Identity=remoteGitCommitAuditOptOut{Store:s.Identity,
+  flag:"TASKDECK_REMOTE_GIT_COMMIT"}
+ _,err:=s.executeRemoteGitCommit(context.Background(),session,"MUST NOT COMMIT")
+ if !errors.Is(err,remotetransport.ErrRemoteActionDenied){
+  t.Fatalf("audit-time host opt-out did not deny commit: %v",err)
+ }
+ if after:=run("rev-parse","HEAD");after!=before{
+  t.Fatalf("commit mutated HEAD after host opt-out: %s -> %s",before,after)
+ }
+ if staged:=run("diff","--cached","--name-only");staged!="tracked.txt"{
+  t.Fatalf("post-audit denial incorrectly changed staged index: %q",staged)
+ }
+}

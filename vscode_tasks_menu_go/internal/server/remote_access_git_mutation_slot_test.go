@@ -220,3 +220,40 @@ func TestRemoteGitRetainedJobWithInvalidDoneOrStatusDenied(t *testing.T){
   })
  }
 }
+
+
+// All three Git network/write actions need fresh host consent after their
+// attempted audit; the caller cannot choose an arbitrary environment flag.
+func TestRemoteGitPostAuditConsentIsStrictlyScoped(t *testing.T){
+ s,session,_,_:=remoteDispatchFixture(t)
+ _=s
+ for _,flag:=range []string{
+  "TASKDECK_REMOTE_GIT_PULL",
+  "TASKDECK_REMOTE_GIT_COMMIT",
+  "TASKDECK_REMOTE_GIT_PUSH",
+ }{
+  t.Run(flag,func(t *testing.T){
+   t.Setenv(flag,"1")
+   if !remoteGitMutationPostAuditAllowed(context.Background(),session,flag){
+    t.Fatal("valid host consent did not authorize prelaunch check")
+   }
+   t.Setenv(flag,"0")
+   if remoteGitMutationPostAuditAllowed(context.Background(),session,flag){
+    t.Fatal("host opt-out was ignored after attempted audit")
+   }
+  })
+ }
+ t.Setenv("TASKDECK_REMOTE_GIT_COMMIT","1")
+ if remoteGitMutationPostAuditAllowed(context.Background(),session,"TASKDECK_REMOTE_GIT_REMOVE"){
+  t.Fatal("unknown environment flag authorized a Git mutation")
+ }
+ ctx,cancel:=context.WithCancel(context.Background())
+ cancel()
+ if remoteGitMutationPostAuditAllowed(ctx,session,"TASKDECK_REMOTE_GIT_COMMIT"){
+  t.Fatal("cancelled action retained Git authority")
+ }
+ session.Close()
+ if remoteGitMutationPostAuditAllowed(context.Background(),session,"TASKDECK_REMOTE_GIT_COMMIT"){
+  t.Fatal("revoked E2EE session retained Git mutation authority")
+ }
+}
