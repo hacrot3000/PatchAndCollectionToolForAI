@@ -21,7 +21,7 @@ class Element{
 const nodes=new Map();
 const get=id=>{if(!nodes.has(id))nodes.set(id,new Element(id));return nodes.get(id)};
 const token='0123456789abcdef'.repeat(4);
-const sent=[];
+const sent=[],copied=[];
 let remaining=16;
 const epoch=Math.floor(Date.now()/1000);
 const fetch=async(path,opt)=>{
@@ -63,6 +63,7 @@ const fetch=async(path,opt)=>{
  throw Error('unexpected local endpoint '+path);
 };
 const context={document:{getElementById:get,createElement:x=>new Element(x)},
+ navigator:{clipboard:{writeText(value){copied.push(value);return Promise.resolve()}}},
  window:{addEventListener(){},confirm(){return false}},
  history:{replaceState(){}},location:{hash:'#'+token,pathname:'/'},
  fetch,Date,Number,String,Promise,setInterval(){},setTimeout(){}};
@@ -75,6 +76,8 @@ const flush=async()=>{for(let i=0;i<80;i++)await Promise.resolve()};
 (async()=>{
  await flush();
  assert.equal(get('tasks-report').disabled,true,'report enabled before features');
+ assert.equal(get('tasks-workflow-audit-copy').disabled,true,
+  'workflow audit clipboard should be unavailable before authentication');
  get('features').click();await flush();
  assert.equal(get('tasks-report').disabled,false,'tasks.view report not shown');
  get('tasks-report').click();await flush();
@@ -82,6 +85,8 @@ const flush=async()=>{for(let i=0;i<80;i++)await Promise.resolve()};
  assert.equal(get('tasks-report-output').hidden,false);
  assert.match(get('tasks-report-output').textContent,/Task #42 · failed · exit 7 · 120 ms/);
  assert.match(get('tasks-report-output').textContent,/Task #12 · completed · exit 0/);
+ assert.equal(get('tasks-workflow-audit-copy').disabled,true,
+  'ordinary task results exposed the workflow audit clipboard');
  assert.equal(get('tasks-report-output').children.length,0,'audit metadata became HTML');
  assert.equal(get('tasks-workflow-audit').disabled,false,
   'principal-only audit button not shown after features');
@@ -98,6 +103,16 @@ const flush=async()=>{for(let i=0;i<80;i++)await Promise.resolve()};
   /Lượt 0123456789abcdef · Workflow #80 · 2\/3 bước có kết quả trong snapshot/,
   'a partial per-run summary must not claim the workflow fully finished');
  assert.match(get('tasks-report-output').textContent,/Còn trang; bấm Xem tiếp audit/);
+ assert.match(get('tasks-report-output').textContent,/Đối chiếu phục hồi/);
+ assert.match(get('tasks-report-output').textContent,
+  /Bước 3: chưa có kết quả trong snapshot; không kết luận chưa từng chạy/,
+  'missing result was treated as a safely restartable step');
+ assert.equal(get('tasks-workflow-audit-copy').disabled,false,
+  'validated audit was not copyable locally');
+ get('tasks-workflow-audit-copy').click();await flush();
+ const partialCopy=copied.at(-1);
+ assert.equal(partialCopy,get('tasks-report-output').textContent,
+  'partial workflow audit copied different content');
  assert.equal(get('tasks-workflow-audit-next').disabled,false,
   'additional host-owned workflow audit page not offered');
  get('tasks-workflow-audit-next').click();await flush();
@@ -117,6 +132,11 @@ const flush=async()=>{for(let i=0;i<80;i++)await Promise.resolve()};
   'paging must not duplicate or split the per-run group');
  assert.equal(get('tasks-workflow-audit-next').disabled,true,
   'next button remained active after final audit page');
+ get('tasks-workflow-audit-copy').click();await flush();
+ assert.equal(copied.at(-1),get('tasks-report-output').textContent,
+  'clipboard did not reflect the latest authenticated audit page');
+ assert.ok(copied.at(-1).length>partialCopy.length,
+  'audit copy omitted the new E2EE page');
  // Corruption can straddle the host's two-row E2EE audit pages.
  // The GUI must NEVER group contradictory Task IDs into one run.
  const auditRows=[
@@ -145,12 +165,31 @@ const flush=async()=>{for(let i=0;i<80;i++)await Promise.resolve()};
  }
  const incomplete=context.__workflowAuditGroupText(auditRows.slice(1));
  assert.match(incomplete,/Chưa thấy kết quả bước cuối trong các trang đã đọc/);
+ assert.match(incomplete,/Bước 1: chưa có kết quả trong snapshot/);
+ assert.match(incomplete,/Bước 3: chưa có kết quả trong snapshot/);
+ const retried=context.__workflowAuditGroupText(auditRows);
+ assert.match(retried,/Bước 2 · Task #70: đã ghi nhận thành công \(lần 2\)/,
+  'recovery review did not use the final authenticated retry outcome');
  assert.match(incomplete,/không tự chạy lại/);
  assert.equal(sent.some(path=>path.includes('workflow-start')),false,
   'recovery review must never auto-restart a host task');
  assert.equal(get('tasks-report-output').children.length,0,
   'host-owned audit content was inserted as HTML');
+ const copyButton=get('tasks-workflow-audit-copy');
+ get('tasks-report').click();await flush();
+ assert.equal(copyButton.disabled,true,
+  'switching to an ordinary report retained a stale audit copy');
+ const beforeOldCopy=copied.length;
+ copyButton.click();await flush();
+ assert.equal(copied.length,beforeOldCopy,
+  'stale audit control copied a replaced report');
+ get('tasks-workflow-audit').click();await flush();
+ assert.equal(copyButton.disabled,false,'fresh E2EE audit not copyable');
  get('disconnect').click();await flush();
+ const afterLogoutCopy=copied.length;
+ copyButton.click();await flush();
+ assert.equal(copied.length,afterLogoutCopy,
+  'audit clipboard leaked metadata after logout');
  assert.equal(get('tasks-report-output').hidden,true,'audit report visible after logout');
  assert.equal(get('tasks-report-output').textContent,'','audit persisted after logout');
  assert.equal(get('tasks-report').disabled,true,'report enabled after logout');
