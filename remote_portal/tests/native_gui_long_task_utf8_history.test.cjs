@@ -23,6 +23,19 @@ const js=extracted[1].replace(anchor,`
   };
   globalThis.__boundedUTF8Tail=(value,maxBytes)=>
     boundedUTF8HistoryTail(value,maxBytes);
+  globalThis.__appendTerminalUnicode=(chunk)=>{
+    appendTerminalOutput(chunk);
+    return {text:terminalTranscript,clipped:terminalLocalClipped,
+      shown:terminalOutput.textContent};
+  };
+  globalThis.__resetTerminalUnicode=()=>{
+    terminalTranscript='';terminalLocalClipped=false;
+    terminalOutput.textContent='';
+  };
+  globalThis.__terminalUnicodeState=()=>({
+    text:terminalTranscript,clipped:terminalLocalClipped,
+    shown:terminalOutput.textContent,
+  });
   globalThis.__captureActiveOutputHistory=()=>{
     const serial=rememberTaskRun(55,'dài','running',-1,'',false);
     longTaskHistorySerial=serial;
@@ -128,10 +141,37 @@ const flush=async()=>{for(let n=0;n<70;n++)await Promise.resolve()};
  assert.equal(Buffer.byteLength(clippedItem.output,'utf8'),2048);
  assert.ok(clippedItem.output.endsWith(emoji),
   'retained history lost the final complete emoji');
+ // Terminal has its own rolling, short-lived display. Its 8 KiB bound
+ // must count actual UTF-8 bytes, NEVER UTF-16 code units or half-surrogates.
+ let terminal=sandbox.__appendTerminalUnicode(emoji.repeat(2048));
+ assert.equal(terminal.text,emoji.repeat(2048));
+ assert.equal(Buffer.byteLength(terminal.text,'utf8'),8192);
+ assert.equal(terminal.clipped,false);
+ terminal=sandbox.__appendTerminalUnicode('LATEST'+emoji);
+ assert.equal(terminal.text,emoji.repeat(2045)+'LATEST'+emoji);
+ assert.equal(Buffer.byteLength(terminal.text,'utf8'),8190);
+ assert.equal(terminal.clipped,true);
+ assert.equal(terminal.shown,terminal.text);
+ assert.ok(!terminal.text.includes('\uFFFD'),
+  'Terminal GUI split a UTF-16 surrogate during transcript compaction');
+ sandbox.__resetTerminalUnicode();
+ terminal=sandbox.__appendTerminalUnicode('x'.repeat(8191)+emoji);
+ assert.equal(terminal.text,'x'.repeat(8188)+emoji);
+ assert.equal(Buffer.byteLength(terminal.text,'utf8'),8192);
+ assert.equal(terminal.clipped,true);
+ sandbox.__resetTerminalUnicode();
+ terminal=sandbox.__appendTerminalUnicode('ế'.repeat(4000));
+ assert.ok(Buffer.byteLength(terminal.text,'utf8')<=8192);
+ assert.ok(terminal.text.endsWith('ế'));
+ assert.ok(!terminal.text.includes('\uFFFD'));
  const detached=get('task-run-history-list').children[0].children[0].children[1];
  get('disconnect').click();await flush();
+ const logoutTerminal=sandbox.__terminalUnicodeState();
+ assert.equal(logoutTerminal.text,'','Terminal transcript survived logout');
+ assert.equal(logoutTerminal.shown,'','Terminal DOM survived logout');
+ assert.equal(logoutTerminal.clipped,false,'Terminal clipping flag survived logout');
  const count=copied.length;
  detached.click();await flush();
  assert.equal(copied.length,count,'logout left a detached sensitive copy action active');
- console.log('PASS: byte-bounded task history preserves Unicode, copy and logout');
+ console.log('PASS: UTF-8 bounded task history and Terminal display preserve Unicode and logout');
 })().catch(err=>{console.error(err);process.exitCode=1});

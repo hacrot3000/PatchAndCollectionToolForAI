@@ -896,3 +896,23 @@ real-host testing are considered **code complete**.
   liệu, client chậm nhận tail cùng dấu truncated, UTF-8 bị chia giữa
   Write, freeze sau finalize và deferred E2EE cursor vẫn đúng khi
   rolling window đã bị ghi đè.
+
+
+## 2026-11-11 — Native Terminal GUI: giữ UTF-8 đúng khi transcript vượt 8 KiB
+
+- Host Terminal đã có rolling capture 16 KiB nhưng GUI native vẫn
+  giữ transcript bằng JavaScript `slice(-8192)`: sai đơn vị (UTF-16
+  code units, không phải UTF-8 bytes) và có thể chặt đôi một
+  surrogate pair khi log chứa emoji/Unicode.
+- Chuyển GUI sang helper byte-bounded `boundedUTF8HistoryTail` hiện
+  dùng cho Task; giữ tối đa 8192 **UTF-8 bytes**, bỏ phần cũ chỉ ở
+  ranh giới code point. Ghi nhận trạng thái `terminalLocalClipped`
+  riêng với host `data.truncated`; thông báo cho người dùng khi
+  màn hình chỉ hiển thị tail 8 KiB. Không ảnh hưởng dữ liệu ở host.
+- Mở PTY mới và logout xóa cả transcript, DOM và cờ clipping.
+  Không lưu file, không đổi giao thức/giới hạn lượt gọi; chỉ hiển
+  thị text đã xác thực bằng E2EE.
+- Mở rộng Node regression vốn có trong CI để bao phủ chuỗi emoji
+  vừa đúng 8 KiB, tràn ranh giới surrogate, tiếng Việt đa byte và
+  việc xóa dữ liệu/cờ clipping khi logout. Bài test Task UTF-8 lịch
+  sử vẫn giữ nguyên. Chưa mở rộng remote session reconnect.

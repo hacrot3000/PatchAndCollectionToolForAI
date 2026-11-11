@@ -785,6 +785,16 @@ const trustedGUIJavaScript = `'use strict';
     longTaskText=tail.text;
     longTaskClipped=longTaskClipped||tail.clipped;
   }
+  function appendTerminalOutput(chunk){
+    if(!chunk)return;
+    // UTF-16 slice(-8192) can split a surrogate and used to retain
+    // more than 8 KiB when the PTY emitted multi-byte Unicode.
+    // Keep only the latest complete UTF-8 scalars on this native GUI.
+    const tail=boundedUTF8HistoryTail(terminalTranscript+chunk,8192);
+    terminalTranscript=tail.text;
+    terminalLocalClipped=terminalLocalClipped||tail.clipped;
+    terminalOutput.textContent=terminalTranscript;
+  }
   function updateLongTaskHistory(taskID,status,exitCode,truncated,receivedOutput,
     workflowReport=''){
     const item=taskRunHistory.find(entry=>entry.serial===longTaskHistorySerial&&
@@ -1357,7 +1367,7 @@ const trustedGUIJavaScript = `'use strict';
   // A task ID identifies a configured task, NOT one process execution.
   // Timers belonging to a cleared execution may never poll its successor
   // when the operator restarts that same task ID in this native session.
-  let terminalState='closed',terminalTranscript='';
+  let terminalState='closed',terminalTranscript='',terminalLocalClipped=false;
   // Automatic Terminal output is opt-in and event-driven, not a
   // quota-burning idle poll loop. A queued timer belongs to one epoch;
   // close, manual poll and pause invalidate all older callbacks.
@@ -1471,7 +1481,7 @@ const trustedGUIJavaScript = `'use strict';
     taskRunHistoryView.hidden=true;taskRunHistoryClear.disabled=true;
     longTaskMore=false;longTaskAuto=false;
     longTaskPollEpoch++;longTaskPollScheduled=false;
-    terminalState='closed';terminalTranscript='';
+    terminalState='closed';terminalTranscript='';terminalLocalClipped=false;
     terminalAutoEnabled=false;terminalAutoPending=false;
     terminalAutoEpoch++;terminalAutoScheduled=false;
     gitPatchText='';gitPatchPage=0;gitPatchMore=false;
@@ -3101,19 +3111,17 @@ const trustedGUIJavaScript = `'use strict';
             terminalAutoPending=data.more;
           }
           if(endpoint==='/api/terminal-open'){
-            terminalTranscript='';
+            terminalTranscript='';terminalLocalClipped=false;
             terminalOutput.textContent='';
           }
-          if(data.output){
-            terminalTranscript=(terminalTranscript+data.output).slice(-8192);
-            terminalOutput.textContent=terminalTranscript;
-          }
+          appendTerminalOutput(data.output);
           if(endpoint==='/api/terminal-close')terminalInput.value='';
           terminalStateText.textContent=
             terminalState==='running'?'Terminal đang chạy (giới hạn 90 giây).':
             terminalState==='exited'?'Shell đã thoát. Có thể đọc output còn lại hoặc đóng phiên.':
             'Terminal đã đóng.';
           if(data.truncated)terminalStateText.textContent+=' Một phần output không còn trong bộ đệm 16 KiB hoặc chưa được ghi nhận đầy đủ.';
+          if(terminalLocalClipped)terminalStateText.textContent+=' Chỉ hiển thị 8 KiB output mới nhất.';
           if(data.more)terminalStateText.textContent+=' Còn output để đọc.';
           output.textContent='Terminal '+terminalState+' · PTY host đã xác thực qua E2EE.';
         }
