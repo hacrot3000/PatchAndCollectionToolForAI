@@ -380,3 +380,48 @@ func TestRemoteTerminalActivePTYStopsOnHostOptOutOrRoleDowngrade(t *testing.T){
   })
  }
 }
+
+
+// A natural shell exit may race the asynchronous io.Copy of its last
+// PTY bytes. Once done closes, the final E2EE-visible state and output
+// must already be stable: the GUI must not miss a short-lived task's tail.
+func TestRemoteTerminalNaturalExitRetainsFinalPTYOutput(t *testing.T){
+ if os.Geteuid()==0{t.Skip("PTY must not run as root")}
+ t.Setenv("TASKDECK_REMOTE_TERMINAL","1")
+ s,session,_,_:=remoteTerminalAdminFixture(t)
+ if err:=s.startRemoteTerminal(context.Background(),session);err!=nil{
+  t.Fatalf("cannot start host PTY: %v",err)
+ }
+ job:=session.terminal
+ // The expected result is NOT present in the typed command; accepting
+ // the terminal's echoed input is therefore insufficient to pass.
+ input:="printf '%s\\n' \"$((31000+701))\"; exit\n"
+ if _,err:=s.writeRemoteTerminal(context.Background(),session,input);err!=nil{
+  t.Fatalf("cannot write exit command to PTY: %v",err)
+ }
+ select{
+ case <-job.done:
+ case <-time.After(4*time.Second):
+  t.Fatal("natural PTY exit did not finish reader and workspace cleanup")
+ }
+ select{
+ case <-job.workspaceReleased:
+ default:t.Fatal("terminal done closed before workspace lease was released")
+ }
+ result,err:=session.pollRemoteTerminal(context.Background())
+ if err!=nil||result.State!="exited"||result.Truncated||result.More{
+  t.Fatalf("post-exit output/state was not final: %+v %v",result,err)
+ }
+ if !strings.Contains(result.Output,"\n31701\n"){
+  t.Fatalf("terminal final stdout was lost after shell exit: %q",result.Output)
+ }
+ // A second Poll must never receive late output after the final state
+ // has been published and the first snapshot consumed.
+ again,err:=session.pollRemoteTerminal(context.Background())
+ if err!=nil||again.Output!=""||again.State!="exited"||again.More{
+  t.Fatalf("output arrived after terminal was marked fully done: %+v %v",again,err)
+ }
+ release,err:=reserveRemoteWorkspaceExecution(context.Background(),s.Workspace)
+ if err!=nil{t.Fatalf("finalized terminal leaked workspace: %v",err)}
+ release()
+}

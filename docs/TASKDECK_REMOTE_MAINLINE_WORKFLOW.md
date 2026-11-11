@@ -849,3 +849,23 @@ real-host testing are considered **code complete**.
   preflight với race detector, không mở rộng windows/credential/PHP.
 - Mức độ bảo đảm: đây là giới hạn quyền và cleanup của PTY đã tạo;
   không thể rollback lệnh đã thực thi trước thời điểm thu hồi quyền.
+
+ 
+## 2026-11-11 — Remote Terminal: chờ drain output PTY trước trạng thái exited
+
+- Một shell có thể thoát ngay sau khi in output. Trước đây `cmd.Wait`
+  đánh dấu `exited`, đóng `job.done`, rồi đóng TTY ngay trong khi
+  `io.Copy` còn đang đọc. GUI có thể nhìn thấy trạng thái cuối và
+  bỏ lỡ đoạn output cuối cùng (đặc biệt với lệnh ngắn).
+- Sau `cmd.Wait`, tạo sự kiện `reaped` riêng với `done` để tránh
+  gửi SIGKILL tới PID đã được Wait, đồng thời đợi reader nhận EOF
+  trong giới hạn thời gian. Nếu slave không đóng, cưỡng bức đóng
+  master và đợi reader thêm một khoảng giới hạn; trường hợp hiếm
+  quá hạn được đánh dấu `truncated` thay vì khai báo log đầy đủ.
+- Chỉ công bố `exited`, nhả workspace và đóng `job.done` sau khi
+  đã xử lý drain và cleanup. Không ghi output lên audit/PHP/Relay,
+  không thêm E2EE round, không mở lại PTY sau mất kết nối, không
+  thay đổi quota 16 round, giới hạn capture 16 KiB hoặc 90 giây.
+- Regression dùng PTY thật in giá trị chỉ được tính tại host, sau đó
+  thoát ngay; khi `job.done` đóng, Poll phải nhận giá trị đầy đủ
+  đúng một lần và workspace phải đã nhả. Thêm preflight Go `-race`.

@@ -20,6 +20,12 @@ import (
 
 const remoteTerminalMaxLifetime=90*time.Second
 
+// Allow a shell that exited naturally to flush its already queued PTY
+// output before closing the master. A stuck slave/reader must never hold
+// the workspace lease indefinitely after process cleanup.
+const remoteTerminalReaderDrainGrace=350*time.Millisecond
+const remoteTerminalReaderCloseGrace=time.Second
+
 // An already-open PTY is side-effecting even without another E2EE Write:
 // it can keep running a command after the owner's Terminal permission is
 // downgraded. This host-local check never relies on stale browser/Portal
@@ -119,13 +125,18 @@ func(s *Server) startRemoteTerminal(ctx context.Context,session *remoteTaskDeckS
   capture:capture,started:time.Now(),state:"running",
   workspaceRelease:releaseWorkspace,workspaceReleased:make(chan struct{}),
  }
+ // Distinguish OS process reaping from the final, fully drained job.
+ // 'done' is closed only once output is stable and the workspace lease
+ // has been released; that must not cause SIGKILL of a reaped PID.
+ reaped:=make(chan struct{})
+ readerDone:=make(chan struct{})
  var stopOnce sync.Once
  job.cancel=func(){
   stopOnce.Do(func(){
    // Do not signal a PID after Wait has reaped the shell; the kernel may
    // already have recycled it for an unrelated process/session.
    select{
-   case <-job.done:
+   case <-reaped:
    default:
     if cmd.Process!=nil&&cmd.Process.Pid>0{
      remoteKillPTYSession(cmd.Process.Pid)
@@ -161,30 +172,50 @@ func(s *Server) startRemoteTerminal(ctx context.Context,session *remoteTaskDeckS
   // io.Copy drains the PTY regardless of the native client polling speed.
   // Capture is limited to 16 KiB and never written to local audit or PHP.
   _,_=io.Copy(capture,tty)
+  close(readerDone)
  }()
  go func(){
   _=cmd.Wait()
+  close(reaped)
   // A user can type "nohup command &; exit": the interactive shell
   // exits while children in DIFFERENT process groups still belong to
   // its PTY session. Closing the master TTY alone does not stop a
   // child which deliberately ignores SIGHUP. Retire session members
   // before making the workspace available to other E2EE sessions.
-  // IMPORTANT: Do not signal the already-reaped shell PID or its
-  // process group here: it may have been recycled. The session helper
-  // inspects the live session ID of each process before signalling it.
+  // The helper identifies live members of the old session ID and
+  // never signals an already reaped shell PID.
   if cmd.Process!=nil&&cmd.Process.Pid>0{
    remoteKillPTYSession(cmd.Process.Pid)
+  }
+  // Command.Wait can complete before io.Copy has read the last PTY
+  // bytes. Do not advertise 'exited' to the client or allow Clear
+  // while the output reader is still appending to the capture.
+  select{
+  case <-readerDone:
+  case <-time.After(remoteTerminalReaderDrainGrace):
+   // A background process may keep the slave open. Retire the
+   // master even if its reader did not see EOF naturally.
+  }
+  job.cancel() // idempotent; reaped PID must not be signalled
+  select{
+  case <-readerDone:
+  case <-time.After(remoteTerminalReaderCloseGrace):
+   // If an OS read refuses to unblock after Close, never hold the
+   // workspace forever or claim its transcript was complete.
+   capture.mu.Lock()
+   capture.truncated=true
+   capture.mu.Unlock()
   }
   job.mu.Lock()
   job.state="exited"
   job.mu.Unlock()
-  close(job.done)
   select{case capture.notify<-struct{}{}:default:}
-  job.cancel()
-  // Release only after the shell has exited and its controlling PTY
-  // has been closed, including when logout asynchronously kills it.
+  // Final status is published only after process cleanup, PTY close
+  // and bounded output drain. An authenticated terminal Poll after
+  // done sees a stable transcript and cannot silently lose a tail.
   job.workspaceRelease()
   close(job.workspaceReleased)
+  close(job.done)
  }()
  go func(){
   select{
