@@ -121,7 +121,7 @@ const trustedGUIHTML = `<!doctype html>
      <div class="tile-heading"><span class="dot"></span><h2>Task của workspace</h2></div>
      <p>Xem task qua E2EE. Khi host bật quyền, chạy task ngắn hoặc job dài có giới hạn; hỗ trợ các input process token/pickString đã xác minh. Không nhập lệnh shell tùy ý từ client.</p>
      <div class="actions">
-      <button type="button" id="tasks-preview">Xem trước task</button><button type="button" id="tasks-report" disabled>Xem báo cáo task gần đây</button><button type="button" id="tasks-workflow-audit" disabled>Xem audit bước workflow</button><button type="button" id="tasks-workflow-audit-next" disabled>Xem tiếp audit</button>
+      <button type="button" id="tasks-preview">Xem trước task</button><button type="button" id="tasks-report" disabled>Xem báo cáo task gần đây</button><button type="button" id="tasks-workflow-audit" disabled>Xem audit bước workflow</button><button type="button" id="tasks-workflow-audit-next" disabled>Xem tiếp audit</button><button type="button" id="tasks-workflow-audit-copy" disabled>Sao chép đối chiếu workflow</button>
       <button type="button" id="task-run-stop" hidden>Dừng task và ngắt phiên</button>
      </div>
      <div class="actions" id="long-task-controls" hidden>
@@ -367,6 +367,7 @@ const trustedGUIJavaScript = `'use strict';
   const tasksReport=document.getElementById('tasks-report');
   const workflowAuditButton=document.getElementById('tasks-workflow-audit');
   const workflowAuditNext=document.getElementById('tasks-workflow-audit-next');
+  const workflowAuditCopy=document.getElementById('tasks-workflow-audit-copy');
   const tasksReportOutput=document.getElementById('tasks-report-output');
   const taskRunStop=document.getElementById('task-run-stop');
   const longTaskControls=document.getElementById('long-task-controls');
@@ -411,7 +412,7 @@ const trustedGUIJavaScript = `'use strict';
   // its previous callbacks. Appending an unchanged page preserves its DOM
   // and epoch to avoid breaking focused input fields.
   let taskPageRenderEpoch=0;
-  let workflowAuditRows=[],workflowAuditMore=false;
+  let workflowAuditRows=[],workflowAuditMore=false,workflowAuditText='';
   let taskDepsPendingID=0,taskWorkflowReadyID=0;
   // A verified host dependency snapshot supplies display labels only.
   // Once a workflow starts, freeze the <=4 step-to-Task.ID mapping:
@@ -504,6 +505,29 @@ const trustedGUIJavaScript = `'use strict';
         ' bước có kết quả trong snapshot'+
         (group.run&&!hasRootOutcome?
           '\nChưa thấy kết quả bước cuối trong các trang đã đọc; không tự chạy lại.':'');
+      // Audit proves only RECORDED outcomes. Missing rows can belong to
+      // older pages, a stopped execution, or an audit write failure.
+      // They never authorize implicit replay of a side-effecting task.
+      const diagnosis=group.run?
+        '\nĐối chiếu phục hồi (chỉ đọc; không tự tiếp tục/chạy lại):\n'+
+        Array.from({length:group.total},(_,i)=>{
+          const step=i+1;
+          const outcomes=group.rows.filter(item=>item.step===step);
+          if(!outcomes.length){
+            return 'Bước '+String(step)+
+              ': chưa có kết quả trong snapshot; không kết luận chưa từng chạy';
+          }
+          const latest=outcomes.reduce((best,item)=>
+            !best||item.attempt>best.attempt?item:best,null);
+          const label={completed:'đã ghi nhận thành công',
+            failed:'đã ghi nhận lỗi',cancelled:'đã ghi nhận hủy',
+            timed_out:'đã ghi nhận hết thời gian',
+            skipped:'đã xác nhận bỏ qua, không chạy process'}[latest.status];
+          return 'Bước '+String(step)+' · Task #'+String(latest.task_id)+
+            ': '+label+' (lần '+String(latest.attempt)+')';
+        }).join('\n')+
+        '\nChỉ đối chiếu audit đã xác thực với trạng thái host; '+
+        'không dùng báo cáo này để tái chạy tác vụ có tác dụng phụ.':'';
       return header+'\n'+group.rows.map(item=>{
         const when=new Date(item.timestamp*1000).toLocaleString('vi-VN');
         return when+' · Bước '+item.step+'/'+item.total+
@@ -511,7 +535,7 @@ const trustedGUIJavaScript = `'use strict';
           ' · '+(item.status==='skipped'?
             'bỏ qua (không chạy process)':item.status)+
           (item.status==='skipped'?'':' · exit '+item.exit_code);
-      }).join('\n');
+      }).join('\n')+diagnosis;
     }).join('\n\n');
   }
 
@@ -1415,7 +1439,9 @@ const trustedGUIJavaScript = `'use strict';
     taskDepsSelect.replaceChildren();taskDepsSelect.value='';
     taskDepsOutput.textContent='';taskDepsOutput.hidden=true;
     tasksReportOutput.textContent='';tasksReportOutput.hidden=true;
-    workflowAuditRows=[];workflowAuditMore=false;
+    workflowAuditRows=[];workflowAuditMore=false;workflowAuditText='';
+    workflowAuditCopy.disabled=true;
+    workflowAuditCopy.textContent='Sao chép đối chiếu workflow';
     gitSwitchPreview=null;gitSwitchPending=null;
     gitDeletePreview=null;gitDeletePending=null;
     longTaskID=0;longTaskState='';longTaskText='';longTaskClipped=false;longTaskHostTruncated=false;
@@ -1636,6 +1662,10 @@ const trustedGUIJavaScript = `'use strict';
     workflowAuditButton.disabled=tasksReport.disabled;
     workflowAuditNext.disabled=tasksReport.disabled||!workflowAuditMore||
       workflowAuditRows.length>=32;
+    // Audited output is local clipboard-only; no additional E2EE round.
+    workflowAuditCopy.disabled=busy||closed||terminated||!verified||
+      !workflowAuditText||tasksReportOutput.hidden||
+      tasksReportOutput.textContent!==workflowAuditText;
     const depsID=Number(taskDepsSelect.value);
     taskDepsSelect.disabled=tasksPreview.disabled||
       !cachedTaskIDs.some(id=>Number.isInteger(id)&&id>0);
@@ -2197,7 +2227,8 @@ const trustedGUIJavaScript = `'use strict';
           // close the native session for a harmless local selection change.
          }
          if(endpoint==='/api/tasks-report'){
-          workflowAuditRows=[];workflowAuditMore=false;
+          workflowAuditRows=[];workflowAuditMore=false;workflowAuditText='';
+          workflowAuditCopy.textContent='Sao chép đối chiếu workflow';
           if(data.remote_control_available!==false||!Array.isArray(data.items)||
             data.items.length>3||data.items.some((item,i)=>
               !item||typeof item!=='object'||
@@ -2263,10 +2294,12 @@ const trustedGUIJavaScript = `'use strict';
           workflowAuditRows=workflowAuditRows.concat(data.items);
           workflowAuditMore=data.more;
           const groupText=workflowAuditGroupText(workflowAuditRows);
-          tasksReportOutput.textContent=workflowAuditRows.length===0?
-            'Không có kết quả bước workflow hợp lệ của tài khoản này.':
-            'Audit workflow của tài khoản này (tối đa 32 sự kiện từ 128 audit gần nhất):\n'+
+          workflowAuditText=workflowAuditRows.length===0?''
+            :'Audit workflow của tài khoản này (tối đa 32 sự kiện từ 128 audit gần nhất):\n'+
             groupText+(workflowAuditMore?'\nCòn trang; bấm Xem tiếp audit.':'');
+          tasksReportOutput.textContent=workflowAuditText||
+            'Không có kết quả bước workflow hợp lệ của tài khoản này.';
+          workflowAuditCopy.textContent='Sao chép đối chiếu workflow';
           tasksReportOutput.hidden=false;
          }
          if(endpoint==='/api/tasks-preview'||endpoint==='/api/tasks-preview-next'){
@@ -3464,6 +3497,14 @@ const trustedGUIJavaScript = `'use strict';
   tasksReport.addEventListener('click',()=>invoke('/api/tasks-report'));
   workflowAuditButton.addEventListener('click',()=>invoke('/api/tasks-workflow-audit'));
   workflowAuditNext.addEventListener('click',()=>invoke('/api/tasks-workflow-audit-next'));
+  workflowAuditCopy.addEventListener('click',()=>{
+    const snapshot=workflowAuditText;
+    if(!snapshot||busy||closed||terminated||!verified||
+      tasksReportOutput.hidden||tasksReportOutput.textContent!==snapshot)return;
+    copyVerifiedTaskOutput(snapshot,workflowAuditCopy,()=>
+      workflowAuditText===snapshot&&!tasksReportOutput.hidden&&
+      tasksReportOutput.textContent===snapshot);
+  });
   taskFetchNext.addEventListener('click',()=>{
     if(!canFetchTaskNext||bulkLoading||closed||busy||budget<=0)return;
     invoke('/api/tasks-preview-next');
