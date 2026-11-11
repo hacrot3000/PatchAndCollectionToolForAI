@@ -263,7 +263,9 @@ func TestRemoteGitPostAuditConsentIsStrictlyScoped(t *testing.T){
 // GitStatus may remain permitted while GitWrite is removed. A durable
 // attempted-audit cannot preserve the original write authority.
 func TestRemoteGitPostAuditRejectsGitWriteRoleDowngrade(t *testing.T){
- s,session,_,_:=remoteDispatchFixture(t)
+ // Role-downgrade tests must start with a real GitWrite principal.
+ // A viewer would be denied before the host's permission change.
+ s,session,_,_:=remoteTerminalAdminFixture(t)
  ctx:=context.Background()
  flags:=[]string{
   "TASKDECK_REMOTE_GIT_PULL",
