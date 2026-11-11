@@ -159,8 +159,8 @@ func validLongTaskProgress(p RemoteLongTaskProgress)bool{
   }
   if p.StepHistory!=""{
    if len(p.StepHistory)!=p.StepTotal{return false}
-   parallelFork:=p.Parallel&&p.Step<3&&validParallelForkProgress(p,expected)
-   if p.Parallel&&p.Step<3&&!parallelFork{return false}
+   parallelFork:=p.Parallel&&p.Step<p.StepTotal&&validParallelForkProgress(p,expected)
+   if p.Parallel&&p.Step<p.StepTotal&&!parallelFork{return false}
    for i:=0;i<len(p.StepHistory);i++{
     if parallelFork{continue}
     switch{
