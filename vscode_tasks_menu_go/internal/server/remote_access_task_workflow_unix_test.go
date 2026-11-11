@@ -2039,3 +2039,66 @@ func TestRemoteParallelPrelaunchDeniesInheritedEnvironmentDrift(t *testing.T){
   })
  }
 }
+
+
+// Revocation of a host-owned Remote flag must terminate the actual final
+// root process too, not only its completed dependencies. The root is the
+// step that may mutate the workspace after the fork; a new E2EE Poll or
+// Cancel request is not required for host-initiated revocation.
+func TestRemoteParallelHostRevocationStopsActiveRoot(t *testing.T){
+ source:=`{"tasks":[
+  {"label":"Leaf A","type":"process","command":"/bin/echo","args":["LEAF-A-OK"]},
+  {"label":"Leaf B","type":"process","command":"/bin/echo","args":["LEAF-B-OK"]},
+  {"label":"Join","type":"process","command":"/bin/sleep","args":["4"],
+   "dependsOn":["Leaf A","Leaf B"],"dependsOrder":"parallel"}
+ ]}`
+ for _,flag:=range []string{
+  "TASKDECK_REMOTE_TASKS_WORKFLOW_PARALLEL",
+  "TASKDECK_REMOTE_TASKS_RUN",
+  "TASKDECK_REMOTE_TASKS_WORKFLOW_RUN",
+ }{
+  t.Run(flag,func(t *testing.T){
+   remoteWorkflowHostFlags(t)
+   t.Setenv("TASKDECK_REMOTE_TASKS_WORKFLOW_PARALLEL","1")
+   s,session,client,agent:=remoteTaskOperatorFixture(t)
+   root:=remoteWorkflowIssuedRoot(t,s,session,client,agent,source,"Join")
+   if err:=s.startRemoteLinearWorkflow(context.Background(),session,root);err!=nil{
+    t.Fatalf("approved fork rejected before root: %v",err)
+   }
+   job:=session.longTask
+   seenRoot:=false
+   waitUntil:=time.Now().Add(2*time.Second)
+   for time.Now().Before(waitUntil){
+    job.mu.Lock()
+    history:=job.workflowStepHistory
+    job.mu.Unlock()
+    if history=="CCR"{seenRoot=true;break}
+    time.Sleep(10*time.Millisecond)
+   }
+   if !seenRoot{t.Fatal("did not observe active root after completed fork")}
+   if err:=os.Setenv(flag,"0");err!=nil{t.Fatal(err)}
+   start:=time.Now()
+   if got:=awaitRemoteWorkflow(t,session);got!="cancelled"{
+    t.Fatalf("revoked host flag did not cancel active root: %s",got)
+   }
+   if time.Since(start)>2*time.Second{
+    t.Fatal("active root ignored host revocation and ran to completion")
+   }
+   job.mu.Lock()
+   history,exit:=job.workflowStepHistory,job.exitCode
+   job.mu.Unlock()
+   if history!="CCX"||exit!= -1{
+    t.Fatalf("root not recorded cancelled: history %q exit %d",history,exit)
+   }
+   job.capture.mu.Lock()
+   text:=string(append([]byte(nil),job.capture.data...))
+   job.capture.mu.Unlock()
+   if !strings.Contains(text,"Parallel host consent revoked; root stopped"){
+    t.Fatalf("root revocation was not visible in authenticated transcript: %q",text)
+   }
+   if err:=session.clearRemoteLongTask(root);err!=nil{
+    t.Fatalf("revoked root left the long task slot occupied: %v",err)
+   }
+  })
+ }
+}

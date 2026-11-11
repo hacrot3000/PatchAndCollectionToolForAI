@@ -308,6 +308,14 @@ func(s *Server)runRemoteParallelJoinWorkflow(ctx context.Context,
    "[TaskDeck workflow] Root prelaunch revalidation denied; root not started\n")
   return
  }
- status,exitCode=s.executeRemoteParallelPrepared(ctx,session,job,
+ // Use the SAME watchdog-cancellable context for the final root.
+ // Cancelling only siblingCtx while the root uses ctx would allow an
+ // already-running root to ignore host-side privilege revocation.
+ status,exitCode=s.executeRemoteParallelPrepared(siblingCtx,session,job,
   plan[rootIndex],verified,len(plan),len(plan))
+ if hostRevoked.Load(){
+  status="cancelled";exitCode=-1
+  _,_=captureWorkflowText(job.capture,
+   "[TaskDeck workflow] Parallel host consent revoked; root stopped\n")
+ }
 }
