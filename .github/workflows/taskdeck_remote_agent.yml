@@ -162,7 +162,7 @@ jobs:
         run: go test -race ./internal/remotetransport ./internal/server -run 'TestRemoteTaskDependencies' -count=1 -timeout=120s
       - name: Preflight short Task host opt-in, post-audit and active TasksRun revocation
         working-directory: vscode_tasks_menu_go
-        run: go test -race ./internal/server -run 'TestRemoteShortTask(PostAuditRevocationPreventsExecution|LiveGuardStopsActiveProcessAfterHostOptOut|LiveGuardStopsActiveProcessAfterRoleDowngrade|GuardPreservesNormalNonzeroExit)' -count=1 -timeout=90s
+        run: go test -race ./internal/server -run 'TestRemoteShortTask(PostAudit(RevocationPreventsExecution|SnapshotDriftRejectsExecution)|LiveGuardStopsActiveProcessAfterHostOptOut|LiveGuardStopsActiveProcessAfterRoleDowngrade|GuardPreservesNormalNonzeroExit)' -count=1 -timeout=90s
       - name: Preflight five-step sequential DAG E2EE and shared Poll bounds
         working-directory: vscode_tasks_menu_go
         run: go test -race ./internal/remotetransport ./internal/server -run 'TestRemote(LongTaskFiveStepSequentialEscapedE2EEBounds|TaskDependenciesSequentialDAGCodecBounds|WorkflowFiveStepSequentialJoinE2EE|WorkflowChunkLimitSameAcrossPollPaths)' -count=1 -timeout=90s

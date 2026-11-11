@@ -1031,3 +1031,25 @@ real-host testing are considered **code complete**.
   được phép. Cấu hình CI preflight mới.
 - Phạm vi chỉ là Task chạy ngắn; workflow dài đã có cơ chế giám sát
   quyền riêng. Production tiếp tục LIVE NO-GO.
+
+
+## 2026-11-11 — Short Task: kiểm tra lại source/cwd sau audit
+
+- Bổ sung một ranh giới nữa trước lệnh side-effecting: sau khi
+  `remote.action.tasks_run:attempted` được ghi bền vững, host
+  tái chạy toàn bộ `prepareRemoteTaskExecutionInput` với cùng
+  Task.ID, choice/text, chính xác snapshot hash đã phát cho client.
+- So sánh lại command, argv, env, cwd và Task ID với bản pre-audit
+  bằng helper kiểm tra tương đương execution hiện dùng cho workflow
+  song song. Đồng thời resolve lại workspace và đường dẫn cwd để
+  phát hiện symlink thay đổi trong lúc audit I/O.
+- Nếu source `.vscode/tasks.json` bị thay đổi dù stable ID giữ
+  nguyên, hay cwd symlink bị đổi sang thư mục khác giữa preflight
+  và exec, từ chối thực thi; không có bất kỳ process side effect
+  nào từ spec cũ. Các thay đổi sau ranh giới cuối vẫn chịu kiểm
+  soát bởi hệ điều hành/workspace lease; không tuyên bố đây là
+  transaction filesystem nguyên tử.
+- Regression `-race`: identity audit store giả lập cập nhật một byte
+  của tasks.json hoặc thay mục tiêu cwd symlink sau khi ghi attempted
+  audit; xác minh Task chạy ngắn không được phép tạo file. Không
+  thêm round E2EE, không cho client chọn command hoặc đường dẫn.

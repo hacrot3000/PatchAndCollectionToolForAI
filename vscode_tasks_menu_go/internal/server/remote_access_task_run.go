@@ -174,6 +174,22 @@ func (s *Server)runRemoteTaskBoundedWithInput(ctx context.Context,session *remot
  if err:=s.auditRemoteTaskRunAttempt(ctx,session,taskID);err!=nil{
   return denied,remotetransport.ErrRemoteActionDenied
  }
+ // SQLite audit storage is an asynchronous boundary. The workspace owner
+ // might change tasks.json, a cwd symlink, or an inherited host environment
+ // value during that write. Never execute a specification from BEFORE
+ // the audit if the same host preflight now resolves differently.
+ fresh,_,freshErr:=prepareRemoteTaskExecutionInput(
+  ctx,s.Workspace,session.taskPageHash,taskID,choice,false,textInput)
+ freshRoot,rootErr:=filepath.EvalSymlinks(s.Workspace)
+ freshCwd,cwdErr:=filepath.EvalSymlinks(fresh.Cwd)
+ if freshErr!=nil||rootErr!=nil||cwdErr!=nil||
+  !remoteParallelSameExecution(
+   remoteParallelPrepared{execution:spec,executable:spec.Command},
+   remoteParallelPrepared{execution:fresh,executable:fresh.Command})||
+  filepath.Clean(freshRoot)!=filepath.Clean(root)||
+  filepath.Clean(freshCwd)!=filepath.Clean(cwd){
+  return denied,remotetransport.ErrRemoteActionDenied
+ }
  taskCtx,cancel:=context.WithTimeout(ctx,remoteTaskRunTimeout)
  defer cancel()
  if taskCtx.Err()!=nil||session.closed.Load(){

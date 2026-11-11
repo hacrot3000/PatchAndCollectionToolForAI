@@ -162,3 +162,75 @@ func TestRemoteShortTaskGuardPreservesNormalNonzeroExit(t *testing.T){
   t.Fatalf("nonzero process exit was wrongly treated as loss of authority: %v / %v",execErr,authErr)
  }
 }
+
+
+type remoteShortTaskAuditDrift struct{
+ identity.Store
+ filename string
+ symlink string
+ target string
+}
+func(store remoteShortTaskAuditDrift)AppendAudit(ctx context.Context,
+ event identity.AuditEvent)error{
+ if err:=store.Store.AppendAudit(ctx,event);err!=nil{return err}
+ if event.Action!="remote.action.tasks_run"||event.Result!="attempted"{
+  return nil
+ }
+ if store.filename!=""{
+  original,err:=os.ReadFile(store.filename)
+  if err!=nil{return err}
+  // Stable Task.ID remains unchanged. Only the authoritative source
+  // hash can catch this update after the attempted-audit I/O.
+  return os.WriteFile(store.filename,append(original,' '),0600)
+ }
+ if store.symlink!=""{
+  if err:=os.Remove(store.symlink);err!=nil{return err}
+  return os.Symlink(store.target,store.symlink)
+ }
+ return nil
+}
+
+func TestRemoteShortTaskPostAuditSnapshotDriftRejectsExecution(t *testing.T){
+ t.Setenv("TASKDECK_REMOTE_TASKS_PREVIEW","1")
+ t.Setenv("TASKDECK_REMOTE_TASKS_RUN","1")
+ for _,which:=range []string{"source_change","cwd_symlink_change"}{
+  t.Run(which,func(t *testing.T){
+   s,session,client,agent:=remoteTaskOperatorFixture(t)
+   source:=`{"tasks":[{"label":"Post-audit-bound","type":"process",
+    "command":"/bin/sh","args":["-c","touch stale-process-ran"]}]}`
+   var injected remoteShortTaskAuditDrift
+   if which=="cwd_symlink_change"{
+    for _,directory:=range []string{"original-dir","new-dir"}{
+     if err:=os.Mkdir(filepath.Join(s.Workspace,directory),0700);err!=nil{
+      t.Fatal(err)
+     }
+    }
+    link:=filepath.Join(s.Workspace,"working")
+    if err:=os.Symlink("original-dir",link);err!=nil{t.Fatal(err)}
+    source=`{"tasks":[{"label":"Post-audit-bound","type":"process",
+     "command":"/bin/sh","args":["-c","touch stale-process-ran"],
+     "options":{"cwd":"working"}}]}`
+    injected.symlink=link
+    injected.target="new-dir"
+   }else{
+    injected.filename=filepath.Join(s.Workspace,".vscode","tasks.json")
+   }
+   taskID:=previewOneRemoteRunTask(t,s,session,client,agent,source)
+   injected.Store=s.Identity
+   s.Identity=injected
+   if result,err:=s.runRemoteTaskBounded(context.Background(),session,taskID,0);
+    err==nil||result.Output!=""{
+    t.Fatalf("stale Task launched after audit source/cwd drift: %+v %v",result,err)
+   }
+   for _,path:=range []string{
+    filepath.Join(s.Workspace,"stale-process-ran"),
+    filepath.Join(s.Workspace,"original-dir","stale-process-ran"),
+    filepath.Join(s.Workspace,"new-dir","stale-process-ran"),
+   }{
+    if _,err:=os.Stat(path);!os.IsNotExist(err){
+     t.Fatalf("post-audit changed Task had side effects at %q: %v",path,err)
+    }
+   }
+  })
+ }
+}
