@@ -810,3 +810,22 @@ real-host testing are considered **code complete**.
   và SQLite audit callback đổi cờ Commit ngay sau `attempted`: HEAD
   phải giữ nguyên, staged index phải còn nguyên. Không khẳng định thao
   tác Git đã thực hiện là có thể rollback nếu quyền bị thu hồi muộn hơn.
+
+
+## 2026-11-11 — Remote Git Pull/Commit/Push: bảo vệ GitWrite sau audit
+
+- Git Pull, Commit, Push trước đây đã kiểm tra RBAC khi vào dispatcher
+  và kiểm tra cờ host sau audit `attempted`. Tuy nhiên, một thay đổi
+  vai trò TaskDeck trong lúc ghi audit có thể thu hồi `GitWrite`
+  mà không đóng session E2EE hoặc tắt cờ host.
+- Ba action giờ xác minh lại TaskDeck principal/membership/approved-key
+  **trên host** (timeout giới hạn), đối chiếu `PermissionGitWrite`
+  và vai trò Portal, sau đó kiểm tra lại cờ host/phiên/grant trước
+  khi khởi chạy Git side-effect. Không sử dụng quyền cũ trong GUI.
+- Regression gồm test cho cả ba action và SQLite audit wrapper thu hồi
+  GitWrite ngay sau `AppendAudit` của Commit. Xác nhận HEAD bất biến,
+  staged index không mất, `attempted` audit vẫn tồn tại. Go CI kiểm tra
+  sớm nhóm regression này bằng `-race`.
+- Không đổi URL, argv, credential policy, force/rebase, PHP/Relay hay
+  bất kỳ giao thức mới nào. Không thể hoàn tác thay đổi mà Git đã hoàn
+  thành nếu quyền bị thu hồi *sau khi* side effect bắt đầu.

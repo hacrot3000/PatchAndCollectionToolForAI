@@ -9,6 +9,7 @@ import (
  "runtime"
  "strings"
  "testing"
+ "time"
 
  "bletonfc/vscode_tasks_menu/internal/identity"
  "bletonfc/vscode_tasks_menu/internal/remotetransport"
@@ -262,5 +263,79 @@ func TestRemoteGitCommitAuditRevocationCannotMutateHEAD(t *testing.T){
  }
  if staged:=run("diff","--cached","--name-only");staged!="tracked.txt"{
   t.Fatalf("post-audit denial incorrectly changed staged index: %q",staged)
+ }
+}
+
+
+// Test-only host-local Store turns GitWrite off immediately after the
+// attempted audit has successfully reached SQLite. No client/Portal input
+// controls the role mutation.
+type remoteGitCommitAuditRoleDowngrade struct{
+ identity.Store
+ projectKey string
+ userID string
+}
+func(store remoteGitCommitAuditRoleDowngrade)AppendAudit(ctx context.Context,
+ event identity.AuditEvent)error{
+ if err:=store.Store.AppendAudit(ctx,event);err!=nil{return err}
+ if event.Action!="remote.action.git_commit"||event.Result!="attempted"{
+  return nil
+ }
+ project,err:=store.Store.ProjectByKey(ctx,store.projectKey)
+ if err!=nil{return err}
+ member,err:=store.Store.ProjectMember(ctx,project.ID,store.userID)
+ if err!=nil{return err}
+ member.RoleID=identity.RestrictedDeveloperRoleID
+ member.UpdatedAt=time.Now().UTC()
+ return store.Store.UpsertProjectMember(ctx,member)
+}
+
+func TestRemoteGitCommitRejectsRoleRevokedDuringAttemptAudit(t *testing.T){
+ requireGit(t)
+ if runtime.GOOS=="windows"{t.Skip("Unix-only Git process cleanup")}
+ t.Setenv("TASKDECK_REMOTE_GIT_COMMIT","1")
+ s,session,_,_:=remoteDispatchFixture(t)
+ gitInitRemoteTest(t,s.Workspace)
+ run:=func(args ...string)string{
+  t.Helper()
+  cmd:=exec.Command("git",append([]string{"-C",s.Workspace},args...)...)
+  output,err:=cmd.CombinedOutput()
+  if err!=nil{t.Fatalf("git %v: %v %s",args,err,output)}
+  return strings.TrimSpace(string(output))
+ }
+ run("config","user.name","TaskDeck Regression")
+ run("config","user.email","test@example.invalid")
+ tracked:=filepath.Join(s.Workspace,"tracked.txt")
+ if err:=os.WriteFile(tracked,[]byte("baseline\n"),0600);err!=nil{t.Fatal(err)}
+ run("add","tracked.txt")
+ run("commit","-qm","baseline")
+ before:=run("rev-parse","HEAD")
+ if err:=os.WriteFile(tracked,[]byte("staged\n"),0600);err!=nil{t.Fatal(err)}
+ run("add","tracked.txt")
+ s.Identity=remoteGitCommitAuditRoleDowngrade{
+  Store:s.Identity,projectKey:session.projectKey,userID:session.userID,
+ }
+ _,err:=s.executeRemoteGitCommit(context.Background(),session,"DENY AFTER AUDIT")
+ if !errors.Is(err,remotetransport.ErrRemoteActionDenied){
+  t.Fatalf("GitWrite role downgrade during audit did not deny Commit: %v",err)
+ }
+ if got:=run("rev-parse","HEAD");got!=before{
+  t.Fatalf("HEAD changed after GitWrite was revoked: %s -> %s",before,got)
+ }
+ if staged:=run("diff","--cached","--name-only");staged!="tracked.txt"{
+  t.Fatalf("denied commit lost staged contents: %q",staged)
+ }
+ principal,err:=s.verifyRemoteSessionLocalPrincipal(context.Background(),session)
+ if err!=nil||principal.Allowed(identity.PermissionGitWrite){
+  t.Fatalf("fixture unexpectedly retained GitWrite: %v",err)
+ }
+ project,pErr:=s.Identity.ProjectByKey(context.Background(),session.projectKey)
+ if pErr!=nil{t.Fatal(pErr)}
+ audits,aErr:=s.Identity.ListAudit(context.Background(),identity.AuditQuery{
+  ProjectID:project.ID,UserID:session.userID,
+  Action:"remote.action.git_commit",Limit:5,
+ })
+ if aErr!=nil||len(audits)!=1||audits[0].Result!="attempted"{
+  t.Fatalf("expected one attempted audit, got %+v %v",audits,aErr)
  }
 }

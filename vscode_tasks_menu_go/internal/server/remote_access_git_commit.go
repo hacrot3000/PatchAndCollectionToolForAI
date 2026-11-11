@@ -118,7 +118,7 @@ func (s *Server) executeRemoteGitCommit(
   ctx.Err()!=nil||session.closed.Load(){return empty,denied}
  // Persistent local audit before the commit is allowed to mutate HEAD.
  if err:=s.auditRemoteGitCommitAttempt(ctx,session);err!=nil{return empty,denied}
- if !remoteGitMutationPostAuditAllowed(ctx,session,"TASKDECK_REMOTE_GIT_COMMIT"){
+ if !s.remoteGitMutationPostAuditAuthorized(ctx,session,"TASKDECK_REMOTE_GIT_COMMIT"){
   return empty,denied
  }
  commitCtx,cancel:=context.WithTimeout(ctx,remoteGitCommitTimeout)

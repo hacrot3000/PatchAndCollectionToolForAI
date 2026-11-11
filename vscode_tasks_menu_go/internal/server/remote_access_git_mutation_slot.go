@@ -6,6 +6,7 @@ import (
  "path/filepath"
  "sync"
 
+ "bletonfc/vscode_tasks_menu/internal/identity"
  "bletonfc/vscode_tasks_menu/internal/remotetransport"
 )
 
@@ -81,6 +82,23 @@ func remoteGitMutationPostAuditAllowed(ctx context.Context,
   session.portalGrant!=nil&&
   session.portalGrant.ActiveForSession(session.channel)&&
   os.Getenv(flag)=="1"
+}
+
+// A durable attempted audit does not retain the caller's GitWrite grant.
+// The host may change its RBAC membership during the SQLite audit write;
+// check the current local identity again before any side-effecting Git.
+func(s *Server)remoteGitMutationPostAuditAuthorized(ctx context.Context,
+ session *remoteTaskDeckSession,flag string)bool{
+ if s==nil||!remoteGitMutationPostAuditAllowed(ctx,session,flag){
+  return false
+ }
+ checkCtx,cancel:=context.WithTimeout(ctx,remoteLocalRevokeCheckDeadline)
+ defer cancel()
+ principal,err:=s.verifyRemoteSessionLocalPrincipal(checkCtx,session)
+ return err==nil&&checkCtx.Err()==nil&&
+  remotetransport.AuthorizeAction(true,session.role,&principal,
+   session.projectKey,identity.PermissionGitWrite)==nil&&
+  remoteGitMutationPostAuditAllowed(ctx,session,flag)
 }
 
 // Remote Git, Task and PTY executions share this workspace guard across

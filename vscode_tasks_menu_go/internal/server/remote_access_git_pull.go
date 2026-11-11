@@ -131,7 +131,7 @@ func (s *Server) executeRemoteGitPull(
  if ctx.Err()!=nil||session.closed.Load(){return empty,denied}
  // The attempted audit is durable BEFORE the network fetch / branch update.
  if err:=s.auditRemoteGitPullAttempt(ctx,session);err!=nil{return empty,denied}
- if !remoteGitMutationPostAuditAllowed(ctx,session,"TASKDECK_REMOTE_GIT_PULL"){
+ if !s.remoteGitMutationPostAuditAuthorized(ctx,session,"TASKDECK_REMOTE_GIT_PULL"){
   return empty,denied
  }
  pullCtx,cancel:=context.WithTimeout(ctx,remoteGitPullTimeout)

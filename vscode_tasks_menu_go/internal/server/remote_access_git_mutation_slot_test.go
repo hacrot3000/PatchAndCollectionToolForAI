@@ -8,6 +8,7 @@ import (
  "testing"
  "time"
 
+ "bletonfc/vscode_tasks_menu/internal/identity"
  "bletonfc/vscode_tasks_menu/internal/remotetransport"
 )
 
@@ -255,5 +256,40 @@ func TestRemoteGitPostAuditConsentIsStrictlyScoped(t *testing.T){
  session.Close()
  if remoteGitMutationPostAuditAllowed(context.Background(),session,"TASKDECK_REMOTE_GIT_COMMIT"){
   t.Fatal("revoked E2EE session retained Git mutation authority")
+ }
+}
+
+
+// GitStatus may remain permitted while GitWrite is removed. A durable
+// attempted-audit cannot preserve the original write authority.
+func TestRemoteGitPostAuditRejectsGitWriteRoleDowngrade(t *testing.T){
+ s,session,_,_:=remoteDispatchFixture(t)
+ ctx:=context.Background()
+ flags:=[]string{
+  "TASKDECK_REMOTE_GIT_PULL",
+  "TASKDECK_REMOTE_GIT_COMMIT",
+  "TASKDECK_REMOTE_GIT_PUSH",
+ }
+ for _,flag:=range flags{
+  t.Setenv(flag,"1")
+  if !s.remoteGitMutationPostAuditAuthorized(ctx,session,flag){
+   t.Fatalf("valid GitWrite principal denied %s",flag)
+  }
+ }
+ project,err:=s.Identity.ProjectByKey(ctx,session.projectKey)
+ if err!=nil{t.Fatal(err)}
+ member,err:=s.Identity.ProjectMember(ctx,project.ID,session.userID)
+ if err!=nil{t.Fatal(err)}
+ member.RoleID=identity.RestrictedDeveloperRoleID
+ member.UpdatedAt=time.Now().UTC()
+ if err:=s.Identity.UpsertProjectMember(ctx,member);err!=nil{t.Fatal(err)}
+ principal,err:=s.verifyRemoteSessionLocalPrincipal(ctx,session)
+ if err!=nil||principal.Allowed(identity.PermissionGitWrite){
+  t.Fatalf("RBAC downgrade did not revoke GitWrite: %v",err)
+ }
+ for _,flag:=range flags{
+  if s.remoteGitMutationPostAuditAuthorized(ctx,session,flag){
+   t.Fatalf("stale GitWrite authorization accepted for %s",flag)
+  }
  }
 }

@@ -192,7 +192,7 @@ func (s *Server) executeRemoteGitPush(ctx context.Context,
  killGitJobProcess(ancestor)
  if err!=nil||ctx.Err()!=nil||session.closed.Load(){return empty,denied}
  if err:=s.auditRemoteGitPushAttempt(ctx,session);err!=nil{return empty,denied}
- if !remoteGitMutationPostAuditAllowed(ctx,session,"TASKDECK_REMOTE_GIT_PUSH"){
+ if !s.remoteGitMutationPostAuditAuthorized(ctx,session,"TASKDECK_REMOTE_GIT_PUSH"){
   return empty,denied
  }
  pushCtx,cancel:=context.WithTimeout(ctx,remoteGitPushTimeout)
