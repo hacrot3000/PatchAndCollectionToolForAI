@@ -2468,7 +2468,7 @@ const trustedGUIJavaScript = `'use strict';
               attempt,attemptTotal,stepStatus,stepHistory,data.status,parallel);
             if(parallel&&(![3,4].includes(stepTotal)||stepHistory===''||
               attempt!==1||attemptTotal!==1||stepStatus==='skipped'||
-              (step<3&&!parallelFork))){
+              (step<stepTotal&&!parallelFork))){
               throw new Error('Báo cáo workflow song song E2EE không hợp lệ');
             }
             for(let i=0;i<stepHistory.length;i++){
@@ -2604,7 +2604,8 @@ const trustedGUIJavaScript = `'use strict';
             (node.label?' · '+node.label:'')).join(' | '):'';
           const currentStepNode=verifiedStepMap?verifiedStepMap[step-1]:null;
           const workflowReport=stepHistory?
-            'Workflow Task #'+String(id)+' · '+data.status+'\n'+
+            'Workflow Task #'+String(id)+' · '+data.status+
+            (parallel?' · '+String(stepTotal-1)+' nhánh song song':'')+'\n'+
             Array.from(stepHistory).map((code,i)=>{
               const node=verifiedStepMap?verifiedStepMap[i]:null;
               const result=details[i]&&details[i]!=='-'?
@@ -2634,6 +2635,7 @@ const trustedGUIJavaScript = `'use strict';
           }
           renderLongTaskTranscript('Task '+String(id)+' · '+data.status+
             ' · exit='+String(data.exit_code)+
+            (parallel?' · '+String(stepTotal-1)+' nhánh song song':'')+
             (workflowProgress?' · Bước '+String(step)+'/'+String(stepTotal)+
               ' · Lần '+String(attempt)+'/'+String(attemptTotal)+
               ' · '+stepStatus:'')+

@@ -204,6 +204,41 @@ async function scenario(startStatus,pollStates,expectStartRejected=false){
  assert.equal(truncated.get('long-task-controls').hidden,true,
   'truncated final result could not release its native job slot');
 
+ // Three simultaneous child processes have a distinct E2EE-attested
+ // parallel mode. Show that mode in the transcript and history, but
+ // fail closed on an unsigned status or a 49-byte output in a 4-step Poll.
+ const three=await scenario('started',[{
+  status:'running',parallel:true,step:3,step_total:4,
+  attempt:1,attempt_total:1,step_status:'running',
+  step_history:'RRR-',step_details:'-|-|-|-',
+  output:'P'.repeat(48),more:true,
+ }]);
+ three.get('long-task-poll').click();await three.flush();
+ assert.equal(three.get('long-task-controls').hidden,false,
+  'authenticated parallel 4-step Poll incorrectly revoked the session');
+ assert.match(three.get('long-task-output').textContent,/3 nhánh song song/,
+  'the user cannot distinguish the parallel fork from sequential work');
+ assert.match(three.get('long-task-output').textContent,/Bước 3\/4/,
+  'third worker not recognized by native GUI');
+ assert.match(three.get('long-task-output').textContent,/P{48}/,
+  'valid authenticated 48-byte output was lost');
+ assert.match(three.get('task-run-history-list').children[0].children[0].children[0].textContent,
+  /3 nhánh song song/,
+  'retained history omitted the verified parallel workflow mode');
+ for(const malformed of [
+  {status:'running',parallel:false,step:3,step_total:4,
+   attempt:1,attempt_total:1,step_status:'running',
+   step_history:'RRR-',step_details:'-|-|-|-'},
+  {status:'running',parallel:true,step:3,step_total:4,
+   attempt:1,attempt_total:1,step_status:'running',
+   step_history:'RRR-',step_details:'-|-|-|-',output:'X'.repeat(49)},
+ ]){
+  const invalid=await scenario('started',[malformed]);
+  invalid.get('long-task-poll').click();await invalid.flush();
+  assert.equal(invalid.get('long-task-controls').hidden,true,
+   'forged parallel Poll accepted without authenticated mode/byte budget');
+ }
+
  // Start/Cancel/Clear acknowledge only a state transition. The native
  // browser must also reject impossible nonempty output and truncation
  // on an ACK, even when a malicious localhost bridge returns HTTP 200.
