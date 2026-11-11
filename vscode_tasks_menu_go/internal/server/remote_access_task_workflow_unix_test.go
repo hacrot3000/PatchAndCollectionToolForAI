@@ -1663,3 +1663,78 @@ func TestRemoteParallelJoinNeverStartsEitherChildAfterAttemptAuditDrift(t *testi
   })
  }
 }
+
+ 
+// Three independent siblings are the maximum host-approved parallel
+// fanout. An authenticated ID-only request cannot set worker count or a
+// dynamic dependency graph; the same trusted tasks.json snapshot is used.
+func TestRemoteWorkflowThreeParallelLeavesSingleJoin(t *testing.T){
+ remoteWorkflowHostFlags(t)
+ source:=`{"tasks":[
+  {"label":"Leaf 1","type":"process","command":"/bin/sleep","args":["2"]},
+  {"label":"Leaf 2","type":"process","command":"/bin/sleep","args":["2"]},
+  {"label":"Leaf 3","type":"process","command":"/bin/sleep","args":["2"]},
+  {"label":"Join","type":"process","command":"/bin/echo","args":["JOIN-THREE-LEAVES"],
+   "dependsOn":["Leaf 1","Leaf 2","Leaf 3"],"dependsOrder":"parallel"}
+ ]}`
+ t.Run("requires separate opt-in",func(t *testing.T){
+  t.Setenv("TASKDECK_REMOTE_TASKS_WORKFLOW_PARALLEL","0")
+  s,session,client,agent:=remoteTaskOperatorFixture(t)
+  root:=remoteWorkflowIssuedRoot(t,s,session,client,agent,source,"Join")
+  deps,err:=s.readRemoteTaskDependencies(context.Background(),session,root)
+  if err!=nil||!deps.Available||deps.RunAvailable{
+   t.Fatalf("unapproved three-way fork appeared executable: %+v %v",deps,err)
+  }
+  if err:=s.startRemoteLinearWorkflow(context.Background(),session,root);err==nil{
+   t.Fatal("unapproved three-way fork started")
+  }
+ })
+ t.Run("three workers overlap and root waits",func(t *testing.T){
+  t.Setenv("TASKDECK_REMOTE_TASKS_WORKFLOW_PARALLEL","1")
+  s,session,client,agent:=remoteTaskOperatorFixture(t)
+  root:=remoteWorkflowIssuedRoot(t,s,session,client,agent,source,"Join")
+  deps,err:=s.readRemoteTaskDependencies(context.Background(),session,root)
+  if err!=nil||!deps.RunAvailable||len(deps.Order)!=4||len(deps.Edges)!=3{
+   t.Fatalf("valid three-worker join was not offered: %+v %v",deps,err)
+  }
+  if err:=s.startRemoteLinearWorkflow(context.Background(),session,root);err!=nil{
+   t.Fatalf("three-worker fork start: %v",err)
+  }
+  job:=session.longTask
+  concurrent:=false
+  deadline:=time.Now().Add(1500*time.Millisecond)
+  for time.Now().Before(deadline){
+   job.mu.Lock()
+   current:=job.workflowStepHistory
+   parallel:=job.workflowParallel
+   job.mu.Unlock()
+   if parallel&&current=="RRR-"{concurrent=true;break}
+   time.Sleep(10*time.Millisecond)
+  }
+  if !concurrent{t.Fatal("three independent native processes did not overlap")}
+  if got:=awaitRemoteWorkflow(t,session);got!="completed"{
+   t.Fatalf("three-way root did not finish: %s",got)
+  }
+  job.mu.Lock()
+  history:=job.workflowStepHistory
+  code:=job.exitCode
+  job.mu.Unlock()
+  if history!="CCCC"||code!=0{
+   t.Fatalf("four authenticated steps were not completed: %q exit=%d",history,code)
+  }
+  job.capture.mu.Lock()
+  transcript:=string(append([]byte(nil),job.capture.data...))
+  job.capture.mu.Unlock()
+  if !strings.Contains(transcript,"JOIN-THREE-LEAVES")||
+   strings.Count(transcript,"parallel attempt 1/1")!=4{
+   t.Fatalf("root or exactly-once children missing: %q",transcript)
+  }
+  progress,err:=longTaskE2EEAction(t,s,session,client,agent,
+   remotetransport.RemoteActionTasksPoll,root,0,"",
+   "33333333333333333333333333333333")
+  if err!=nil||!progress.Parallel||progress.StepTotal!=4||
+   progress.StepHistory!="CCCC"||len(progress.Output)>48{
+   t.Fatalf("four-step fork E2EE status exceeded bounds: %+v %v",progress,err)
+  }
+ })
+}

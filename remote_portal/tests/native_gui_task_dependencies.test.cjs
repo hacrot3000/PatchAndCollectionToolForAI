@@ -187,9 +187,18 @@ async function assertGraphValidation(graph,description,accepted=false,abandonSel
   'one completed child and its live sibling denied');
  assert.equal(scope.__testParallelFork(2,3,1,1,'cancelled','FX-','failed',true),true,
   'failed join did not allow a cancelled sibling result');
+ assert.equal(scope.__testParallelFork(3,4,1,1,'running','RRR-','running',true),true,
+  'three concurrent E2EE workers were denied');
+ assert.equal(scope.__testParallelFork(3,4,1,1,'completed','CCC-','running',true),true,
+  'three succeeded workers awaiting root were denied');
+ assert.equal(scope.__testParallelFork(2,4,1,1,'failed','CFF-','failed',true),true,
+  'failed three-way fork not authenticated');
  for(const bad of [
   [2,3,1,1,'running','RR-','running',false],
   [2,3,1,1,'running','RRR','running',true],
+  [3,4,1,1,'running','RRRR','running',true],
+  [3,4,1,1,'running','RRR-','running',false],
+  [3,4,1,2,'running','RRR-','running',true],
   [2,3,1,2,'running','RR-','running',true],
   [2,3,1,1,'running','R?-','running',true],
   [3,3,1,1,'running','RR-','running',true],

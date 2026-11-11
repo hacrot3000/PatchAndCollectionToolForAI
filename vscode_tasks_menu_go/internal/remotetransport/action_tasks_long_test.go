@@ -474,3 +474,54 @@ func TestRemoteLongTaskParallelForkAuthenticatedHistory(t *testing.T){
   })
  }
 }
+
+ 
+func TestRemoteLongTaskFourStepForkBoundedEscapedE2EEOutput(t *testing.T){
+ for _,character:=range []string{"<",">","&","\\","\"","\n","\t"}{
+  client,agent,_:=participants(t)
+  report:=RemoteLongTaskProgress{
+   TaskID:2147483647,Status:"completed",ExitCode:0,
+   Output:strings.Repeat(character,48),Truncated:true,More:true,
+   Step:4,StepTotal:4,Attempt:1,AttemptTotal:1,
+   StepStatus:"completed",StepHistory:"CCCC",
+   StepDetails:"0:90000|0:90000|0:90000|0:90000",Parallel:true,
+  }
+  sealed,err:=SealRemoteLongTaskProgress(agent,testActionID,report)
+  if err!=nil{t.Fatalf("48-byte four-step escaped E2EE overflow (%q): %v",character,err)}
+  decoded,err:=OpenRemoteLongTaskProgress(client,sealed,testActionID,report.TaskID)
+  if err!=nil||!decoded.Parallel||decoded.StepHistory!="CCCC"||
+   decoded.Output!=report.Output{
+   t.Fatalf("authenticated four-step progress was corrupted: %+v %v",decoded,err)
+  }
+  invalid:=report
+  invalid.Output=strings.Repeat(character,49)
+  if validLongTaskProgress(invalid){
+   t.Fatal("parallel fourth step bypassed 48-byte E2EE size cap")
+  }
+ }
+ for _,state:=range []struct{history,status string;step int;result string}{
+  {"RRR-","running",3,"running"},
+  {"CCR-","running",3,"running"},
+  {"FCX-","cancelled",3,"cancelled"},
+  {"CCC-","completed",3,"running"},
+ }{
+  report:=RemoteLongTaskProgress{
+   TaskID:44,Status:state.status,ExitCode:-1,
+   Step:state.step,StepTotal:4,Attempt:1,AttemptTotal:1,
+   StepStatus:state.result,StepHistory:state.history,Parallel:true,
+  }
+  if state.status=="cancelled"{report.ExitCode= -1}
+  if state.status=="completed"{report.Status="running"}
+  if !validLongTaskProgress(report){
+   t.Fatalf("valid host-attested 3-worker state rejected: %+v",report)
+  }
+ }
+ for _,history:=range []string{"RRRR","RRR--","R?R-","----"}{
+  report:=RemoteLongTaskProgress{TaskID:44,Status:"running",ExitCode:-1,
+   Step:3,StepTotal:4,Attempt:1,AttemptTotal:1,
+   StepStatus:"running",StepHistory:history,Parallel:true}
+  if validLongTaskProgress(report){
+   t.Fatalf("unsafe 3-worker state accepted: %q",history)
+  }
+ }
+}
