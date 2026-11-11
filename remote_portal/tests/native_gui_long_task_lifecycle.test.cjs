@@ -222,7 +222,7 @@ async function scenario(startStatus,pollStates,expectStartRejected=false){
   'third worker not recognized by native GUI');
  assert.match(three.get('long-task-output').textContent,/P{48}/,
   'valid authenticated 48-byte output was lost');
- assert.match(three.get('task-run-history-list').children[0].children[0].children[0].textContent,
+ assert.match(three.get('task-run-history-list').children[0].children[1].textContent,
   /3 nhánh song song/,
   'retained history omitted the verified parallel workflow mode');
  for(const malformed of [
