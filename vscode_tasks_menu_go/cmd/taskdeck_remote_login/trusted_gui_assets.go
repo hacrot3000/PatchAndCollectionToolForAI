@@ -1221,7 +1221,7 @@ const trustedGUIJavaScript = `'use strict';
   let busy=false,closed=false,terminated=false,closing=false,budget=16;
   let taskRunning=false; // Short tasks: stop revokes E2EE.
   let longTaskID=0,longTaskState='',longTaskText='',longTaskMore=false;
-  let longTaskClipped=false;
+  let longTaskClipped=false,longTaskHostTruncated=false;
   // Cancel acknowledgement is distinct from process exit. Poll may still
   // report "running" while the host is terminating the process group.
   let longTaskCancelPending=false;
@@ -1333,7 +1333,7 @@ const trustedGUIJavaScript = `'use strict';
     workflowAuditRows=[];workflowAuditMore=false;
     gitSwitchPreview=null;gitSwitchPending=null;
     gitDeletePreview=null;gitDeletePending=null;
-    longTaskID=0;longTaskState='';longTaskText='';longTaskClipped=false;
+    longTaskID=0;longTaskState='';longTaskText='';longTaskClipped=false;longTaskHostTruncated=false;
     longTaskCancelPending=false;
     longTaskHistorySerial=0;
     taskRunHistory=[];taskRunHistoryList.replaceChildren();
@@ -2454,13 +2454,16 @@ const trustedGUIJavaScript = `'use strict';
               preparedWorkflowSteps.steps.map(node=>({id:node.id,label:node.label})):null;
             preparedWorkflowSteps=null;
             longTaskPollEpoch++;longTaskPollScheduled=false;
-            longTaskID=id;longTaskText='';longTaskClipped=false;
+            longTaskID=id;longTaskText='';longTaskClipped=false;longTaskHostTruncated=false;
             longTaskCancelPending=false;
             longTaskAuto=!finalStates.includes(data.status);
             longTaskHistorySerial=rememberTaskRun(
               id,'dài',data.status,data.exit_code,'',data.truncated);
           }
           if(data.output)appendLongTaskOutput(data.output);
+          // Once the host reports capture loss, a later clean Poll
+          // cannot restore those bytes or remove the warning.
+          longTaskHostTruncated=longTaskHostTruncated||data.truncated;
           if(prefix==='/api/tasks-cancel/'&&data.status==='cancel_requested'){
             longTaskCancelPending=true;
           }
@@ -2496,14 +2499,15 @@ const trustedGUIJavaScript = `'use strict';
             }).join('\n'):'';
           if(data.status!=='cleared'){
             updateLongTaskHistory(id,data.status,data.exit_code,
-              data.truncated||longTaskClipped,longTaskText,workflowReport);
+              longTaskHostTruncated||longTaskClipped,longTaskText,workflowReport);
           }
           if(data.status==='cleared'){
             longTaskPollEpoch++;longTaskPollScheduled=false;
             longTaskHistorySerial=0;
             longTaskID=0;
             activeWorkflowSteps=null;
-            longTaskText='';longTaskClipped=false;longTaskMore=false;
+            longTaskText='';longTaskClipped=false;longTaskHostTruncated=false;
+            longTaskMore=false;
             longTaskCancelPending=false;
             longTaskAuto=false;
             // A successful host Clear frees its slot, not the authenticated
@@ -2517,7 +2521,8 @@ const trustedGUIJavaScript = `'use strict';
               ' · '+stepStatus:'')+
             (currentStepNode?' · Task #'+String(currentStepNode.id)+
               (currentStepNode.label?' · '+currentStepNode.label:''):'')+
-            ((data.truncated||longTaskClipped)?' · output vượt giới hạn':'')+
+            ((longTaskHostTruncated||longTaskClipped)?' · output vượt giới hạn':'')+
+            (longTaskClipped?' · chỉ giữ 16 KiB cuối':'')+
             (longTaskMore?' · còn output chưa nhận':'')+
             (historyLines?'\n'+historyLines:'')+
             (stepMapLine?'\n'+stepMapLine:'')+

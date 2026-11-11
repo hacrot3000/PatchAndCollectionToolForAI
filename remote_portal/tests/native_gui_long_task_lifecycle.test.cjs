@@ -184,6 +184,26 @@ async function scenario(startStatus,pollStates,expectStartRejected=false){
  assert.equal(pendingTail.get('long-task-poll').disabled,false,
   'finished job was unable to drain remaining output');
 
+ // A host truncation warning is cumulative even if a later Poll
+ // correctly reports its own clean, final output chunk.
+ const truncated=await scenario('started',[
+  {status:'running',output:'part-one',truncated:true,more:true},
+  {status:'completed',output:'part-two',truncated:false,more:false},
+ ]);
+ truncated.get('long-task-poll').click();await truncated.flush();
+ assert.match(truncated.get('long-task-output').textContent,/output vượt giới hạn/,
+  'initial host truncation was not shown');
+ truncated.get('long-task-poll').click();await truncated.flush();
+ assert.match(truncated.get('long-task-output').textContent,/output vượt giới hạn/,
+  'later Poll erased a previously verified truncation warning');
+ assert.match(truncated.get('long-task-output').textContent,/part-onepart-two/,
+  'bounded transcript lost authenticated output after final Poll');
+ assert.match(truncated.get('task-run-history-list').children[0].children[0].children[0].textContent,
+  /output đã cắt/,'the retained result forgot the host truncation');
+ truncated.get('long-task-clear').click();await truncated.flush();
+ assert.equal(truncated.get('long-task-controls').hidden,true,
+  'truncated final result could not release its native job slot');
+
  // Start/Cancel/Clear acknowledge only a state transition. The native
  // browser must also reject impossible nonempty output and truncation
  // on an ACK, even when a malicious localhost bridge returns HTTP 200.
