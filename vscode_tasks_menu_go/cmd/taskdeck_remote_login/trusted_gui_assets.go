@@ -1373,6 +1373,10 @@ const trustedGUIJavaScript = `'use strict';
   // close, manual poll and pause invalidate all older callbacks.
   let terminalAutoEnabled=false,terminalAutoPending=false;
   let terminalAutoScheduled=false,terminalAutoEpoch=0;
+  // One extra quiet check per explicit Terminal Open/Write/Resize catches
+  // delayed shell output without an unbounded idle loop or leaking Close
+  // quota. Only auto Polls may consume this follow-up; manual Poll stops it.
+  let terminalAutoQuietChecks=0,terminalAutoQuietDelay=false;
   let gitPatchText='',gitPatchPage=0,gitPatchMore=false,gitPatchMode='head';
   let gitSwitchPreview=null,gitSwitchPending=null;
   let gitDeletePreview=null,gitDeletePending=null;
@@ -1483,6 +1487,7 @@ const trustedGUIJavaScript = `'use strict';
     longTaskPollEpoch++;longTaskPollScheduled=false;
     terminalState='closed';terminalTranscript='';terminalLocalClipped=false;
     terminalAutoEnabled=false;terminalAutoPending=false;
+    terminalAutoQuietChecks=0;terminalAutoQuietDelay=false;
     terminalAutoEpoch++;terminalAutoScheduled=false;
     gitPatchText='';gitPatchPage=0;gitPatchMore=false;
     gitPatchOutput.textContent='';gitPatchOutput.hidden=true;
@@ -1799,9 +1804,9 @@ const trustedGUIJavaScript = `'use strict';
         terminalMaintenanceAllowed('/api/terminal-poll')){
         // The reply decides whether another bounded chunk remains.
         terminalAutoPending=false;
-        invoke('/api/terminal-poll');
+        invoke('/api/terminal-poll',undefined,true);
       }
-    },350);
+    },terminalAutoQuietDelay?1300:350);
   }
   function scheduleLongTaskPoll(){
     if(!longTaskAuto||longTaskPollScheduled||
@@ -1868,7 +1873,7 @@ const trustedGUIJavaScript = `'use strict';
     }
     return true;
   }
-  async function invoke(endpoint,payload){
+  async function invoke(endpoint,payload,terminalAutoRequest=false){
     const isClose=endpoint==='/api/close';
     const isTextRun=endpoint.startsWith('/api/tasks-run-input/')||
       endpoint.startsWith('/api/tasks-start-input/');
@@ -3105,10 +3110,20 @@ const trustedGUIJavaScript = `'use strict';
           if(isPTYClose){
             terminalAutoEpoch++;terminalAutoScheduled=false;
             terminalAutoPending=false;
+            terminalAutoQuietChecks=0;terminalAutoQuietDelay=false;
           }else if(isPTYOpen||isPTYWrite||isPTYResize){
             terminalAutoPending=true;
+            terminalAutoQuietChecks=1;terminalAutoQuietDelay=false;
           }else if(isPTYPoll){
-            terminalAutoPending=data.more;
+            // After an automatic Poll sees the stream temporarily quiet,
+            // check once more after a bounded delay: sleep/compile output
+            // can arrive later. A manual read does not arm a timer. The
+            // scheduler still refuses to spend the final Close round.
+            const followup=terminalAutoRequest&&data.state==='running'&&
+              !data.more&&terminalAutoQuietChecks>0;
+            if(followup)terminalAutoQuietChecks--;
+            terminalAutoQuietDelay=followup;
+            terminalAutoPending=data.more||followup;
           }
           if(endpoint==='/api/terminal-open'){
             terminalTranscript='';terminalLocalClipped=false;

@@ -39,8 +39,12 @@ const fetch=async(endpoint,options)=>{
  if(endpoint==='/api/terminal-write')return reply(terminal('running'));
  if(endpoint==='/api/terminal-poll'){
   polls++;
-  return reply(terminal('running',polls===1?'first':polls===2?'tail':'last',
-    polls===1||polls===3));
+  // The third read occurs after an async shell command was submitted.
+  // It is quiet; the fourth delivers delayed output. The fifth tests
+  // that auto Poll still reserves the mandatory Close E2EE round.
+  const text=polls===1?'first':polls===2?'tail':
+    polls===3?'':polls===4?'delayed':'last';
+  return reply(terminal('running',text,polls===1||polls===5));
  }
  if(endpoint==='/api/terminal-close')return reply(terminal('closed'));
  if(endpoint==='/api/close')return reply({ok:true,closed:true});
@@ -49,7 +53,7 @@ const fetch=async(endpoint,options)=>{
 const sandbox={document:{getElementById:get,createElement:tag=>new Element(tag)},
  window:{confirm(){return true},addEventListener(){}},history:{replaceState(){}},
  location:{hash:'#'+token,pathname:'/'},fetch,setInterval(){},
- setTimeout(fn){timers.push(fn);return timers.length},Date,Number,String,Promise};
+ setTimeout(fn,delay){fn.delay=delay;timers.push(fn);return timers.length},Date,Number,String,Promise};
 vm.createContext(sandbox);
 new vm.Script(js[1],{filename:'trusted-terminal-auto.js'}).runInContext(sandbox);
 const flush=async()=>{for(let i=0;i<80;i++)await Promise.resolve()};
@@ -80,15 +84,31 @@ const flush=async()=>{for(let i=0;i<80;i++)await Promise.resolve()};
  assert.equal(polls,2);
  duplicateTimer();await flush();
  assert.equal(polls,2,'stale auto timer duplicated manual Poll');
- assert.equal(timers.length,0,'drained output caused an unbounded idle loop');
- // A write triggers a new one-shot read; without another more=true
- // indication, auto-drain does not burn the remaining budget at idle.
+ assert.equal(timers.length,0,'manual Poll accidentally started an idle loop');
+ // The shell may finish a command AFTER the first automatic poll, for
+ // example "sleep 1; echo done". Spend only ONE opt-in quiet follow-up,
+ // delayed rather than an unbounded idle poll, and respect manual reads.
+ get('terminal-input').value='sleep 1; echo delayed';
+ get('terminal-send').click();await flush();
+ assert.equal(timers.length,1,'delayed-output write did not arm auto Poll');
+ timers.shift()();await flush();
+ assert.equal(polls,3,'first quiet auto Poll was not sent');
+ assert.equal(timers.length,1,'quiet running shell did not get one delayed check');
+ const late=timers.shift();
+ assert.ok(late.delay>=1000,'quiet retry was not delayed');
+ late();await flush();
+ assert.equal(polls,4,'late terminal output was never automatically fetched');
+ assert.match(get('terminal-output').textContent,/delayed/,
+  'delayed PTY command output was missing from the native panel');
+ assert.equal(timers.length,0,'quiet retry spawned another idle poll');
+ // A later explicit Write re-arms output reading. Preserve the last
+ // E2EE round for Close even when an actual PTY returns more=true.
  get('terminal-input').value='pwd';
  get('terminal-send').click();await flush();
  assert.equal(timers.length,1,'write did not re-arm opt-in drain');
  remaining=2; // reserve the last authenticated E2EE round for Close
  timers.shift()();await flush();
- assert.equal(polls,3);
+ assert.equal(polls,5);
  assert.equal(remaining,1);
  assert.equal(timers.length,0,'auto poll exhausted the mandatory Close reserve');
  assert.equal(get('terminal-poll').disabled,true);
@@ -100,5 +120,5 @@ const flush=async()=>{for(let i=0;i<80;i++)await Promise.resolve()};
  get('disconnect').click();await flush();
  assert.equal(get('terminal-output').textContent,'');
  assert.ok(sent.length===beforeLogout+1,'logout did not revoke the session');
- console.log('PASS: opt-in Terminal auto drain, pause, stale timers, idle and Close reserve');
+ console.log('PASS: opt-in Terminal auto drain, delayed output, stale timers and Close reserve');
 })().catch(err=>{console.error(err);process.exitCode=1});

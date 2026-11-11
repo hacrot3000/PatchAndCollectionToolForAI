@@ -916,3 +916,26 @@ real-host testing are considered **code complete**.
   vừa đúng 8 KiB, tràn ranh giới surrogate, tiếng Việt đa byte và
   việc xóa dữ liệu/cờ clipping khi logout. Bài test Task UTF-8 lịch
   sử vẫn giữ nguyên. Chưa mở rộng remote session reconnect.
+
+
+## 2026-11-11 — Native Terminal Auto Read: một lượt đọc trễ có giới hạn
+
+- Khi bật `Tự nhận output`, GUI trước đây chỉ Poll tiếp khi
+  `more=true`; nếu shell đang thực hiện `sleep 1; echo DONE` và
+  lần Poll đầu trả `more=false`, GUI ngừng đọc dù output xuất hiện
+  ngay sau đó. Cơ chế đã có quota giới hạn và chỉ cho phép host
+  PTY mở tối đa 90 giây, nên không được thêm Poll vô hạn.
+- Sau Open/Write/Resize, **chỉ khi người dùng bật Auto Read**, cho
+  phép đúng *một* Poll trễ bổ sung (~1,3 giây) nếu lần Poll tự động
+  trước đó đang chạy nhưng `more=false`. Nếu quá lượt đó vẫn
+  không có `more`, dừng, chờ thao tác thực sự tiếp theo; nếu `more`
+  vẫn còn, tiếp tục drain đã có nhưng không tạo các vòng idle mới.
+- Manual Poll có ưu tiên và invalidates callback cũ qua epoch,
+  không tự sinh quiet check. Scheduler kiểm tra lại trạng thái phiên,
+  quyền feature, độ bận và `budget>1` ngay lúc timer thực thi:
+  luôn giữ lượt E2EE cuối cho Close; không tự mở lại Terminal.
+- Node mock regression bổ sung lệnh output trễ sau Poll rỗng,
+  xác nhận thời gian retry, không lặp vô hạn, giữ cơ chế pause/manual,
+  không tiêu lượt Close. Không thay đổi Wire codec, relay, agent hay
+  giới hạn 16 lượt. Hành vi auto vẫn chỉ là best-effort trong quota,
+  không phải streaming push liên tục.
