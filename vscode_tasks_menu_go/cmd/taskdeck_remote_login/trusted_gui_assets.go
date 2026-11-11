@@ -539,6 +539,23 @@ const trustedGUIJavaScript = `'use strict';
     }).join('\n\n');
   }
 
+  // The Agent may expose two simultaneous RUNNING dependency leaves
+  // only for an explicitly approved three-step fork/join workflow. This
+  // narrow status shape is read-only; it never changes caller authority.
+  function validParallelForkProgress(step,total,attempt,attemptTotal,
+    state,history,status){
+    if(total!==3||step<1||step>2||attempt!==1||attemptTotal!==1||
+      history.length!==3||history[2]!=='-'||state==='skipped'||
+      status==='completed'||!/^[-RCFXT]{2}-$/.test(history)||
+      history.slice(0,2)==='--')return false;
+    const codes={running:'R',completed:'C',failed:'F',
+      cancelled:'X',timed_out:'T'};
+    if(history[step-1]!==codes[state])return false;
+    if(['failed','cancelled','timed_out'].includes(status)&&
+      history.slice(0,2).includes('R'))return false;
+    return true;
+  }
+
   function renderTaskRunHistory(){
     taskRunHistoryView.hidden=taskRunHistory.length===0;
     const activeSerial=activeTaskHistorySerial();
@@ -2440,7 +2457,10 @@ const trustedGUIJavaScript = `'use strict';
                !['running','completed'].includes(data.status)||!stepHistory)){
               throw new Error('Bước bỏ qua chỉ hợp lệ ở cuối workflow thành công');
             }
+            const parallelFork=validParallelForkProgress(step,stepTotal,
+              attempt,attemptTotal,stepStatus,stepHistory,data.status);
             for(let i=0;i<stepHistory.length;i++){
+              if(parallelFork)continue;
               const expected=i<step-1?'C':i===step-1?codes[stepStatus]:'-';
               const finalCleanupFailure=stepStatus!=='skipped'&&
                 i===step-2&&step===stepTotal&&stepHistory[i]==='F';

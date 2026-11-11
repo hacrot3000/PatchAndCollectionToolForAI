@@ -425,3 +425,51 @@ func TestRemoteLongTaskMalformedAckFrameRevokesE2EE(t *testing.T){
   }
  }
 }
+
+func TestRemoteLongTaskParallelForkAuthenticatedHistory(t *testing.T){
+ good:=RemoteLongTaskProgress{
+  TaskID:77,Status:"running",ExitCode:-1,
+  Step:2,StepTotal:3,Attempt:1,AttemptTotal:1,
+  StepStatus:"running",StepHistory:"RR-",StepDetails:"-|-|-",
+ }
+ if !validLongTaskProgress(good){t.Fatal("two concurrent native children refused by E2EE codec")}
+ client,agent,_:=participants(t)
+ frame,err:=SealRemoteLongTaskProgress(agent,testActionID,good)
+ if err!=nil{t.Fatal(err)}
+ restored,err:=OpenRemoteLongTaskProgress(client,frame,testActionID,77)
+ if err!=nil||restored.StepHistory!="RR-"||restored.Step!=2{
+  t.Fatalf("parallel E2EE progress lost: %+v %v",restored,err)
+ }
+ // After one sibling exits, the other may still be active, but neither
+ // is a valid completed root. Final failure may contain two terminal
+ // dependency outcomes without any executed root.
+ for _,value:=range []RemoteLongTaskProgress{
+  {TaskID:77,Status:"running",ExitCode:-1,Step:1,StepTotal:3,
+   Attempt:1,AttemptTotal:1,StepStatus:"completed",
+   StepHistory:"CR-",StepDetails:"0:20|-|-"},
+  {TaskID:77,Status:"failed",ExitCode:1,Step:2,StepTotal:3,
+   Attempt:1,AttemptTotal:1,StepStatus:"cancelled",
+   StepHistory:"FX-",StepDetails:"1:10|-1:20|-"},
+ }{
+  if !validLongTaskProgress(value){t.Fatalf("valid fork transition denied: %+v",value)}
+ }
+ for name,change:=range map[string]func(*RemoteLongTaskProgress){
+  "wrong total":func(x *RemoteLongTaskProgress){x.StepTotal=4},
+  "future root running":func(x *RemoteLongTaskProgress){x.StepHistory="RRR"},
+  "invalid code":func(x *RemoteLongTaskProgress){x.StepHistory="R?-"},
+  "bad step":func(x *RemoteLongTaskProgress){x.Step=3},
+  "retry not supported":func(x *RemoteLongTaskProgress){x.AttemptTotal=2},
+  "status mismatch":func(x *RemoteLongTaskProgress){x.StepStatus="completed"},
+  "early completed aggregate":func(x *RemoteLongTaskProgress){
+   x.Status="completed";x.ExitCode=0},
+  "terminal with live child":func(x *RemoteLongTaskProgress){
+   x.Status="failed";x.ExitCode=1},
+ }{
+  t.Run(name,func(t *testing.T){
+   bad:=good;change(&bad)
+   if validLongTaskProgress(bad){
+    t.Fatalf("unsafe fork E2EE status accepted: %+v",bad)
+   }
+  })
+ }
+}

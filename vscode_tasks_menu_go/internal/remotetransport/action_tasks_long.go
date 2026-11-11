@@ -77,6 +77,33 @@ func validLongTaskStepDetails(p RemoteLongTaskProgress)bool{
  return true
 }
 
+
+// This deliberately recognizes ONLY the opted-in two-leaf fork portion of
+// a three-step workflow. Its root still follows the usual sequential
+// contract (CC- -> CCR -> CCC). No arbitrary DAG state or new job command
+// is accepted from a native client. Both leaves may be running at once.
+func validParallelForkProgress(p RemoteLongTaskProgress,expected rune)bool{
+ if p.StepTotal!=3||p.Step<1||p.Step>2||
+  p.Attempt!=1||p.AttemptTotal!=1||
+  len(p.StepHistory)!=3||p.StepHistory[2]!='-'||
+  p.StepStatus=="skipped"||p.Status=="completed"{
+  return false
+ }
+ for i:=0;i<2;i++{
+  switch p.StepHistory[i]{
+  case '-','R','C','F','X','T':
+  default:return false
+  }
+ }
+ if p.StepHistory[:2]=="--"||
+  rune(p.StepHistory[p.Step-1])!=expected{return false}
+ if (p.Status=="failed"||p.Status=="cancelled"||
+  p.Status=="timed_out")&&strings.Contains(p.StepHistory[:2],"R"){
+  return false
+ }
+ return true
+}
+
 func validLongTaskProgress(p RemoteLongTaskProgress)bool{
  if !validSelectedTaskID(p.TaskID)||p.ExitCode< -1||p.ExitCode>255||
   len(p.Output)>MaxRemoteLongTaskOutputBytes||!utf8.ValidString(p.Output) {
@@ -123,7 +150,9 @@ func validLongTaskProgress(p RemoteLongTaskProgress)bool{
   }
   if p.StepHistory!=""{
    if len(p.StepHistory)!=p.StepTotal{return false}
+   parallelFork:=validParallelForkProgress(p,expected)
    for i:=0;i<len(p.StepHistory);i++{
+    if parallelFork{continue}
     switch{
     case i<p.Step-1:
      if p.StepHistory[i]!='C'&&

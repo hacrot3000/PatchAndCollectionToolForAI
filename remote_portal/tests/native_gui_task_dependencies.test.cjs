@@ -96,7 +96,10 @@ const scope={document:{getElementById:get,createElement:x=>new Element(x)},
  navigator:{clipboard:{writeText(value){copied.push(value);return Promise.resolve()}}},
  fetch,Date,Number,String,Promise,setInterval(){},setTimeout(){}};
 vm.createContext(scope);
-new vm.Script(match[1],{filename:'native-task-dependencies.js'}).runInContext(scope);
+const withForkProbe=match[1].replace('  let inspectButtons=[];',
+ '  globalThis.__testParallelFork=validParallelForkProgress;\n'+
+ '  let inspectButtons=[];');
+new vm.Script(withForkProbe,{filename:'native-task-dependencies.js'}).runInContext(scope);
 const flush=async()=>{for(let i=0;i<70;i++)await Promise.resolve()};
 
 async function assertGraphValidation(graph,description,accepted=false,abandonSelection=false){
@@ -178,6 +181,23 @@ async function assertGraphValidation(graph,description,accepted=false,abandonSel
 }
 
 (async()=>{
+ assert.equal(scope.__testParallelFork(2,3,1,1,'running','RR-','running'),true,
+  'two independent running workflow children denied');
+ assert.equal(scope.__testParallelFork(1,3,1,1,'completed','CR-','running'),true,
+  'one completed child and its live sibling denied');
+ assert.equal(scope.__testParallelFork(2,3,1,1,'cancelled','FX-','failed'),true,
+  'failed join did not allow a cancelled sibling result');
+ for(const bad of [
+  [2,3,1,1,'running','RRR','running'],
+  [2,3,1,2,'running','RR-','running'],
+  [2,3,1,1,'running','R?-','running'],
+  [3,3,1,1,'running','RR-','running'],
+  [2,3,1,1,'running','RR-','completed'],
+  [2,3,1,1,'running','RR-','failed'],
+ ]){
+  assert.equal(scope.__testParallelFork(...bad),false,
+   'unsafe parallel E2EE step history admitted: '+bad.join('|'));
+ }
  await flush();
  assert.equal(get('task-deps-view').disabled,true,'unissued task ID could be inspected');
  get('features').click();await flush();
