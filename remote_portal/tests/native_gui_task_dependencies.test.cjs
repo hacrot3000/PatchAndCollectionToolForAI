@@ -31,6 +31,7 @@ const get=id=>{if(!nodes.has(id))nodes.set(id,new Element(id));return nodes.get(
 const token='0123456789abcdef'.repeat(4);
 const calls=[],copied=[];let remaining=16;let workflowPollCount=0;
 let available=true,confirmAccept=false,previewLabel='Build <b>safe</b>';
+const confirmationTexts=[];
 let delayDependencies=false,resolveDelayedDependencies=null;
 const fetch=async(path,opt)=>{
  calls.push({path,body:opt.body});
@@ -91,7 +92,9 @@ const fetch=async(path,opt)=>{
  throw Error('unexpected endpoint '+path);
 };
 const scope={document:{getElementById:get,createElement:x=>new Element(x)},
- window:{addEventListener(){},confirm(){return confirmAccept}},history:{replaceState(){}},
+ window:{addEventListener(){},confirm(value){
+  confirmationTexts.push(value);return confirmAccept;
+ }},history:{replaceState(){}},
  location:{hash:'#'+token,pathname:'/'},
  navigator:{clipboard:{writeText(value){copied.push(value);return Promise.resolve()}}},
  fetch,Date,Number,String,Promise,setInterval(){},setTimeout(){}};
@@ -257,6 +260,14 @@ async function assertGraphValidation(graph,description,accepted=false,abandonSel
  get('task-workflow-start').click();await flush();
  assert.equal(calls.filter(x=>x.path==='/api/tasks-workflow-start/55').length,0,
   'workflow launched without confirmation');
+ assert.match(confirmationTexts.at(-1),/2–3 task độc lập/,
+  'confirmation hides bounded host-authorized parallel execution');
+ assert.match(confirmationTexts.at(-1),/task tổng hợp chỉ chạy nếu mọi nhánh thành công/,
+  'confirmation omitted fork/join dependency guarantee');
+ assert.match(confirmationTexts.at(-1),/Không tự tiếp tục workflow sau gián đoạn/,
+  'confirmation did not warn against replaying side effects');
+ assert.match(confirmationTexts.at(-1),/không hỗ trợ retry, timeout hoặc condition/,
+  'confirmation could incorrectly apply sequential retry policy to a parallel fork');
  confirmAccept=true;
  get('task-workflow-start').click();await flush();
  assert.deepEqual(calls.filter(x=>x.path==='/api/tasks-workflow-start/55'),

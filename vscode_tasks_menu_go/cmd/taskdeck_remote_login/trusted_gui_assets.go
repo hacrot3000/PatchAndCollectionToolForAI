@@ -3515,7 +3515,12 @@ const trustedGUIJavaScript = `'use strict';
       longTaskID!==0||!Number.isInteger(id)||id<1||
       id!==taskWorkflowReadyID||!cachedTaskIDs.includes(id))return;
     if(!window.confirm('Chạy tối đa 4 bước process theo thứ tự phụ thuộc trên host? '+
-      'Các nhánh chỉ được chạy tuần tự khi host khai báo dependsOrder: sequence. '+
+      'Các bước dependsOrder: sequence được chạy tuần tự. '+
+      'Chỉ khi host bật quyền parallel riêng, 2–3 task độc lập mới có thể '+
+      'chạy đồng thời, và task tổng hợp chỉ chạy nếu mọi nhánh thành công. '+
+      'Workflow song song không hỗ trợ retry, timeout hoặc condition. '+
+      'Không tự tiếp tục workflow sau gián đoạn; hãy kiểm tra audit trước '+
+      'khi chủ động chạy lại để tránh lặp tác dụng phụ. '+
       'Một bước thất bại có thể được chạy lại đúng một lần khi task có retry: 1 '+
       'và host đã bật quyền retry riêng; việc chạy lại có thể lặp tác dụng phụ. '+
       'Host có thể giới hạn 1–30 giây/bước với timeoutSeconds khi bật riêng; '+
