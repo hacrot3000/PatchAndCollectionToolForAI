@@ -19,7 +19,7 @@ func TestRemoteGitCommitOnlyAlreadyStagedAndNoHooks(t *testing.T){
  requireGit(t)
  if runtime.GOOS=="windows"{t.Skip("Unix-only remote process groups")}
  t.Setenv("TASKDECK_REMOTE_GIT_COMMIT","1")
- s,session,_,_:=remoteDispatchFixture(t)
+ s,session,_,_:=remoteTerminalAdminFixture(t)
  gitInitRemoteTest(t,s.Workspace)
  run:=func(args ...string)string{
   t.Helper()
@@ -118,7 +118,7 @@ func TestRemoteGitCommitDefaultOffAndViewerDenied(t *testing.T){
 func TestRemoteGitCommitRejectsParentRepositoryWorkspace(t *testing.T){
  requireGit(t)
  t.Setenv("TASKDECK_REMOTE_GIT_COMMIT","1")
- s,session,_,_:=remoteDispatchFixture(t)
+ s,session,_,_:=remoteTerminalAdminFixture(t)
  gitInitRemoteTest(t,s.Workspace)
  nested:=filepath.Join(s.Workspace,"nested")
  if err:=os.Mkdir(nested,0700);err!=nil{t.Fatal(err)}
@@ -132,7 +132,7 @@ func TestRemoteGitCommitRejectsExecutableFiltersBeforeCommit(t *testing.T){
  requireGit(t)
  if runtime.GOOS=="windows"{t.Skip("Unix-only remote Git execution")}
  t.Setenv("TASKDECK_REMOTE_GIT_COMMIT","1")
- s,session,_,_:=remoteDispatchFixture(t)
+ s,session,_,_:=remoteTerminalAdminFixture(t)
  gitInitRemoteTest(t,s.Workspace)
  run:=func(args ...string)string{
   t.Helper()
@@ -175,7 +175,7 @@ func TestRemoteGitCommitRejectsNonBranchSymbolicHEAD(t *testing.T){
  requireGit(t)
  if runtime.GOOS=="windows"{t.Skip("Unix-only Git process-group execution")}
  t.Setenv("TASKDECK_REMOTE_GIT_COMMIT","1")
- s,session,_,_:=remoteDispatchFixture(t)
+ s,session,_,_:=remoteTerminalAdminFixture(t)
  gitInitRemoteTest(t,s.Workspace)
  run:=func(args ...string)string{
   t.Helper()
@@ -234,7 +234,7 @@ func TestRemoteGitCommitAuditRevocationCannotMutateHEAD(t *testing.T){
  requireGit(t)
  if runtime.GOOS=="windows"{t.Skip("Unix-only Git process cleanup")}
  t.Setenv("TASKDECK_REMOTE_GIT_COMMIT","1")
- s,session,_,_:=remoteDispatchFixture(t)
+ s,session,_,_:=remoteTerminalAdminFixture(t)
  gitInitRemoteTest(t,s.Workspace)
  run:=func(args ...string)string{
   t.Helper()
@@ -294,7 +294,7 @@ func TestRemoteGitCommitRejectsRoleRevokedDuringAttemptAudit(t *testing.T){
  requireGit(t)
  if runtime.GOOS=="windows"{t.Skip("Unix-only Git process cleanup")}
  t.Setenv("TASKDECK_REMOTE_GIT_COMMIT","1")
- s,session,_,_:=remoteDispatchFixture(t)
+ s,session,_,_:=remoteTerminalAdminFixture(t)
  gitInitRemoteTest(t,s.Workspace)
  run:=func(args ...string)string{
   t.Helper()

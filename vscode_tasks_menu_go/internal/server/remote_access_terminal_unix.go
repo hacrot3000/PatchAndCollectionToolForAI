@@ -20,6 +20,29 @@ import (
 
 const remoteTerminalMaxLifetime=90*time.Second
 
+// An already-open PTY is side-effecting even without another E2EE Write:
+// it can keep running a command after the owner's Terminal permission is
+// downgraded. This host-local check never relies on stale browser/Portal
+// role data; the independent session watcher still covers key/account loss.
+func(s *Server)remoteTerminalHostConsent(ctx context.Context,
+ session *remoteTaskDeckSession)bool{
+ if s==nil||ctx==nil||ctx.Err()!=nil||session==nil||
+  session.closed.Load()||session.channel==nil||
+  !session.channel.Established()||session.portalGrant==nil||
+  !session.portalGrant.ActiveForSession(session.channel)||
+  os.Getenv("TASKDECK_REMOTE_TERMINAL")!="1"{return false}
+ checkCtx,cancel:=context.WithTimeout(ctx,remoteLocalRevokeCheckDeadline)
+ defer cancel()
+ principal,err:=s.verifyRemoteSessionLocalPrincipal(checkCtx,session)
+ return err==nil&&checkCtx.Err()==nil&&
+  remotetransport.AuthorizeAction(true,session.role,&principal,
+   session.projectKey,identity.PermissionTerminalCreate)==nil&&
+  remotetransport.AuthorizeAction(true,session.role,&principal,
+   session.projectKey,identity.PermissionTerminalControlOwn)==nil&&
+  os.Getenv("TASKDECK_REMOTE_TERMINAL")=="1"&&
+  !session.closed.Load()
+}
+
 // A single short-lived Unix PTY is always started from the host's fixed
 // /bin/sh binary. E2EE inputs are ONLY keystrokes to this already-authorized
 // terminal, never an executable/path/shell selector or environment override.
@@ -60,6 +83,9 @@ func(s *Server) startRemoteTerminal(ctx context.Context,session *remoteTaskDeckS
  launched:=false
  defer func(){if !launched{releaseWorkspace()}}()
  if err:=s.auditRemoteTerminalAttempt(ctx,session,"open");err!=nil{return denied}
+ // Host can revoke TerminalCreate/ControlOwn while SQLite stores the
+ // attempted row. No PTY process may be launched on stale authorization.
+ if !s.remoteTerminalHostConsent(ctx,session){return denied}
  cmdCtx,cancelContext:=context.WithTimeout(context.Background(),remoteTerminalMaxLifetime)
  cmd:=exec.CommandContext(cmdCtx,"/bin/sh","-i")
  cmd.Dir=root
@@ -113,6 +139,24 @@ func(s *Server) startRemoteTerminal(ctx context.Context,session *remoteTaskDeckS
  }
  session.terminal=job
  launched=true
+ // Periodically re-evaluate host permission for an ALREADY running PTY.
+ // A role downgrade alone need not close a read-only E2EE session, but it
+ // must terminate an interactive shell and any surviving child processes.
+ go func(){
+  ticker:=time.NewTicker(remoteLocalRevokePoll)
+  defer ticker.Stop()
+  for{
+   select{
+   case <-job.done:return
+   case <-cmdCtx.Done():return
+   case <-ticker.C:
+    if !s.remoteTerminalHostConsent(cmdCtx,session){
+     job.cancel()
+     return
+    }
+   }
+  }
+ }()
  go func(){
   // io.Copy drains the PTY regardless of the native client polling speed.
   // Capture is limited to 16 KiB and never written to local audit or PHP.
@@ -191,6 +235,11 @@ func (s *Server) writeRemoteTerminal(ctx context.Context,
  if err:=s.auditRemoteTerminalAttempt(ctx,session,"write");err!=nil{
   return remotetransport.RemoteTerminalProgress{},denied
  }
+ // An audit-time role downgrade cannot leave the PTY accepting keystrokes.
+ if !s.remoteTerminalHostConsent(ctx,session){
+  if job.cancel!=nil{job.cancel()}
+  return remotetransport.RemoteTerminalProgress{},denied
+ }
  if ctx.Err()!=nil||session.closed.Load(){return remotetransport.RemoteTerminalProgress{},denied}
  n,err:=job.ptyFile.Write([]byte(input))
  if err!=nil||n!=len(input)||ctx.Err()!=nil||session.closed.Load(){
@@ -218,6 +267,10 @@ func (s *Server) resizeRemoteTerminal(ctx context.Context,
  job.mu.Unlock()
  if state!="running"{return remotetransport.RemoteTerminalProgress{},denied}
  if err:=s.auditRemoteTerminalAttempt(ctx,session,"resize");err!=nil{
+  return remotetransport.RemoteTerminalProgress{},denied
+ }
+ if !s.remoteTerminalHostConsent(ctx,session){
+  if job.cancel!=nil{job.cancel()}
   return remotetransport.RemoteTerminalProgress{},denied
  }
  if ctx.Err()!=nil||session.closed.Load()||

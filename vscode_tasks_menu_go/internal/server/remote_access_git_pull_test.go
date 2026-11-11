@@ -17,7 +17,7 @@ import (
 func TestRemoteGitPullRequiresHostOptInAndConfiguredUpstream(t *testing.T){
  requireGit(t)
  if runtime.GOOS=="windows"{t.Skip("Unix-only remote execution")}
- s,session,_,_:=remoteDispatchFixture(t)
+ s,session,_,_:=remoteTerminalAdminFixture(t)
  gitInitRemoteTest(t,s.Workspace)
  run:=func(args ...string){
   t.Helper()
@@ -87,7 +87,7 @@ func TestRemoteGitPullFastForwardFromSingleSSHUpstream(t *testing.T){
  requireGit(t)
  if runtime.GOOS=="windows"{t.Skip("Unix-only bounded Git pull")}
  t.Setenv("TASKDECK_REMOTE_GIT_PULL","1")
- s,session,_,_:=remoteDispatchFixture(t)
+ s,session,_,_:=remoteTerminalAdminFixture(t)
  gitInitRemoteTest(t,s.Workspace)
  gitPath,err:=exec.LookPath("git")
  if err!=nil{t.Fatal(err)}
@@ -166,7 +166,7 @@ func TestRemoteGitPullRefusesExecutableFiltersBeforeGitStatus(t *testing.T){
  requireGit(t)
  if runtime.GOOS=="windows"{t.Skip("Unix-only remote Git process-group")}
  t.Setenv("TASKDECK_REMOTE_GIT_PULL","1")
- s,session,_,_:=remoteDispatchFixture(t)
+ s,session,_,_:=remoteTerminalAdminFixture(t)
  gitInitRemoteTest(t,s.Workspace)
  run:=func(args ...string)string{
   t.Helper()

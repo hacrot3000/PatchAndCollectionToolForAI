@@ -20,7 +20,7 @@ func TestRemoteGitPullRejectsDirtyIgnoredSubmoduleBeforeSSH(t *testing.T){
  requireGit(t)
  if runtime.GOOS=="windows"{t.Skip("Unix-only Git process cleanup")}
  t.Setenv("TASKDECK_REMOTE_GIT_PULL","1")
- s,session,_,_:=remoteDispatchFixture(t)
+ s,session,_,_:=remoteTerminalAdminFixture(t)
  gitInitRemoteTest(t,s.Workspace)
  gitPath,err:=exec.LookPath("git")
  if err!=nil{t.Fatal(err)}

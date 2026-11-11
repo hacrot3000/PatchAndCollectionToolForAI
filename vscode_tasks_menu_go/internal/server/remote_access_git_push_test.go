@@ -47,7 +47,7 @@ func TestRemoteGitPushURLPolicy(t *testing.T){
 func TestRemoteGitPushHostOptInAndUnsafeRemoteDenied(t *testing.T){
  requireGit(t)
  if runtime.GOOS=="windows"{t.Skip("Unix-only Git process-group execution")}
- s,session,_,_:=remoteDispatchFixture(t)
+ s,session,_,_:=remoteTerminalAdminFixture(t)
  gitInitRemoteTest(t,s.Workspace)
  run:=func(args ...string)string{
   t.Helper()
@@ -130,7 +130,7 @@ func TestRemoteGitPushViewerDeniedInAuthenticatedDispatcher(t *testing.T){
 func TestRemoteGitPushRejectsParentRepository(t *testing.T){
  requireGit(t)
  t.Setenv("TASKDECK_REMOTE_GIT_PUSH","1")
- s,session,_,_:=remoteDispatchFixture(t)
+ s,session,_,_:=remoteTerminalAdminFixture(t)
  gitInitRemoteTest(t,s.Workspace)
  nested:=filepath.Join(s.Workspace,"nested")
  if err:=os.MkdirAll(nested,0700);err!=nil{t.Fatal(err)}
@@ -144,7 +144,7 @@ func TestRemoteGitPushFastForwardAndRejectRemoteDivergence(t *testing.T){
  requireGit(t)
  if runtime.GOOS=="windows"{t.Skip("Unix-only remote Git execution")}
  t.Setenv("TASKDECK_REMOTE_GIT_PUSH","1")
- s,session,_,_:=remoteDispatchFixture(t)
+ s,session,_,_:=remoteTerminalAdminFixture(t)
  gitInitRemoteTest(t,s.Workspace)
  gitPath,err:=exec.LookPath("git")
  if err!=nil{t.Fatal(err)}

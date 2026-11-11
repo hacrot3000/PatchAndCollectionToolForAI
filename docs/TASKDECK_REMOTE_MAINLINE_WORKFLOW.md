@@ -829,3 +829,23 @@ real-host testing are considered **code complete**.
 - Không đổi URL, argv, credential policy, force/rebase, PHP/Relay hay
   bất kỳ giao thức mới nào. Không thể hoàn tác thay đổi mà Git đã hoàn
   thành nếu quyền bị thu hồi *sau khi* side effect bắt đầu.
+
+
+## 2026-11-11 — Terminal PTY: chặn audit-time role drift và đang chạy
+
+- Terminal OPEN đã có per-action E2EE+RBAC, nhưng một thay đổi vai trò
+  `TerminalCreate`/`TerminalControlOwn` trong lúc lưu audit attempted có
+  thể lọt qua trước khi `pty.StartWithSize` được gọi. OPEN nay xác minh
+  lại quyền và host opt-in trên SQLite trước khi tạo bất cứ shell nào.
+- WRITE và RESIZE cũng xác minh lại sau audit. Nếu đã bị thu hồi quyền,
+  từ chối lệnh và gọi cancel PTY để ngăn process tiếp tục chạy.
+- Một watchdog giới hạn 500 ms đọc quyền host-local trong lúc PTY còn
+  sống, hủy toàn bộ phiên shell khi host tắt cờ Terminal hoặc vai trò
+  mất quyền. Tận dụng `job.cancel` sẵn có (kill group/session, cleanup
+  workspace); không làm chậm vòng Poll hay thêm E2EE request.
+- Test hồi quy: audit wrapper đổi vai trò ngay sau OPEN attempted không
+  được tạo PTY hay rò lease; PTY đang chạy `sleep` bị dừng khi tắt
+  cờ hoặc đổi role, không thực thi lệnh phía sau. Test chạy trong Go
+  preflight với race detector, không mở rộng windows/credential/PHP.
+- Mức độ bảo đảm: đây là giới hạn quyền và cleanup của PTY đã tạo;
+  không thể rollback lệnh đã thực thi trước thời điểm thu hồi quyền.

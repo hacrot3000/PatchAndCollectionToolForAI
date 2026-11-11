@@ -322,3 +322,98 @@ func TestRemoteTerminalCloseTimeoutRetainsJobForAuthenticatedRetry(t *testing.T)
  session.terminalMu.Unlock()
  if stillAttached{t.Fatal("successfully retried PTY Close leaked job handle")}
 }
+
+
+// Host-only audit fixture changes a real TaskDeck membership after the
+// attempted OPEN has been durably appended, not via browser or Relay data.
+type remoteTerminalOpenAuditDowngrade struct{
+ identity.Store
+ projectKey string
+ userID identity.ID
+}
+func(store remoteTerminalOpenAuditDowngrade)AppendAudit(ctx context.Context,
+ event identity.AuditEvent)error{
+ if err:=store.Store.AppendAudit(ctx,event);err!=nil{return err}
+ if event.Action!="remote.action.terminal_open"||event.Result!="attempted"{
+  return nil
+ }
+ project,err:=store.Store.ProjectByKey(ctx,store.projectKey)
+ if err!=nil{return err}
+ member,err:=store.Store.ProjectMember(ctx,project.ID,store.userID)
+ if err!=nil{return err}
+ member.RoleID=identity.RestrictedDeveloperRoleID
+ member.UpdatedAt=time.Now().UTC()
+ return store.Store.UpsertProjectMember(ctx,member)
+}
+
+func TestRemoteTerminalOpenRejectsHostRoleRevokedDuringAudit(t *testing.T){
+ if os.Geteuid()==0{t.Skip("PTY must not run as root")}
+ t.Setenv("TASKDECK_REMOTE_TERMINAL","1")
+ s,session,_,_:=remoteTerminalAdminFixture(t)
+ if !s.remoteTerminalHostConsent(context.Background(),session){
+  t.Fatal("valid TerminalCreate and TerminalControlOwn permission denied")
+ }
+ s.Identity=remoteTerminalOpenAuditDowngrade{
+  Store:s.Identity,projectKey:session.projectKey,userID:session.userID,
+ }
+ err:=s.startRemoteTerminal(context.Background(),session)
+ if !errors.Is(err,remotetransport.ErrRemoteActionDenied){
+  t.Fatalf("PTY opened after Terminal role downgrade during audit: %v",err)
+ }
+ session.terminalMu.Lock()
+ attached:=session.terminal!=nil
+ session.terminalMu.Unlock()
+ if attached{t.Fatal("audit-time role downgrade launched a host PTY")}
+ // Denied OPEN must release its workspace reservation.
+ release,err:=reserveRemoteWorkspaceExecution(context.Background(),s.Workspace)
+ if err!=nil{t.Fatalf("denied PTY leaked workspace lock: %v",err)}
+ release()
+ if s.remoteTerminalHostConsent(context.Background(),session){
+  t.Fatal("post-audit Terminal privilege unexpectedly remained")
+ }
+}
+
+func TestRemoteTerminalActivePTYStopsOnHostOptOutOrRoleDowngrade(t *testing.T){
+ if os.Geteuid()==0{t.Skip("PTY must not run as root")}
+ for _,mode:=range []string{"host flag","TaskDeck role"}{
+  t.Run(mode,func(t *testing.T){
+   t.Setenv("TASKDECK_REMOTE_TERMINAL","1")
+   s,session,_,_:=remoteTerminalAdminFixture(t)
+   if err:=s.startRemoteTerminal(context.Background(),session);err!=nil{
+    t.Fatalf("could not start approved PTY: %v",err)
+   }
+   job:=session.terminal
+   if _,err:=s.writeRemoteTerminal(context.Background(),session,
+    "touch started; sleep 5; touch escaped\n");err!=nil{
+    t.Fatalf("could not start test PTY process: %v",err)
+   }
+   if !remoteTestAwaitFile(filepath.Join(s.Workspace,"started"),2*time.Second){
+    t.Fatal("PTY did not execute first instruction before host opt-out")
+   }
+   if mode=="host flag"{
+    t.Setenv("TASKDECK_REMOTE_TERMINAL","0")
+   }else{
+    project,err:=s.Identity.ProjectByKey(context.Background(),session.projectKey)
+    if err!=nil{t.Fatal(err)}
+    member,err:=s.Identity.ProjectMember(context.Background(),project.ID,session.userID)
+    if err!=nil{t.Fatal(err)}
+    member.RoleID=identity.RestrictedDeveloperRoleID
+    member.UpdatedAt=time.Now().UTC()
+    if err:=s.Identity.UpsertProjectMember(context.Background(),member);err!=nil{
+     t.Fatal(err)
+    }
+   }
+   select{
+   case <-job.done:
+   case <-time.After(4*time.Second):t.Fatal("revoked host PTY kept running")
+   }
+   select{
+   case <-job.workspaceReleased:
+   case <-time.After(2*time.Second):t.Fatal("revoked PTY retained workspace lock")
+   }
+   if _,err:=os.Stat(filepath.Join(s.Workspace,"escaped"));!os.IsNotExist(err){
+    t.Fatalf("revoked PTY continued executing after forced shutdown: %v",err)
+   }
+  })
+ }
+}
