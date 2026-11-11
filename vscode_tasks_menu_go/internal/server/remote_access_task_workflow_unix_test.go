@@ -2194,3 +2194,66 @@ func TestRemoteSequentialPostAuditPrelaunchRejectsDrift(t *testing.T){
   })
  }
 }
+
+
+// Running sequential steps must observe host opt-out immediately, not
+// only when the next step/retry starts. This also tests timeout-specific
+// consent rather than only the global workflow flags.
+func TestRemoteSequentialHostRevocationCancelsActiveStep(t *testing.T){
+ const source=`{"tasks":[
+  {"label":"Slow","type":"process","command":"/bin/sleep","args":["4"],
+   "taskdeck":{"workflow":{"timeoutSeconds":10}}},
+  {"label":"Never","type":"process","command":"/bin/echo",
+   "args":["MUST-NOT-RUN"],"dependsOn":"Slow"}
+ ]}`
+ for _,flag:=range []string{
+  "TASKDECK_REMOTE_TASKS_RUN",
+  "TASKDECK_REMOTE_TASKS_WORKFLOW_RUN",
+  "TASKDECK_REMOTE_TASKS_WORKFLOW_TIMEOUT",
+ }{
+  t.Run(flag,func(t *testing.T){
+   remoteWorkflowHostFlags(t)
+   t.Setenv("TASKDECK_REMOTE_TASKS_WORKFLOW_TIMEOUT","1")
+   s,session,client,agent:=remoteTaskOperatorFixture(t)
+   root:=remoteWorkflowIssuedRoot(t,s,session,client,agent,source,"Never")
+   if err:=s.startRemoteLinearWorkflow(context.Background(),session,root);err!=nil{
+    t.Fatalf("timeout-governed workflow rejected before revocation: %v",err)
+   }
+   job:=session.longTask
+   started:=false
+   deadline:=time.Now().Add(2*time.Second)
+   for time.Now().Before(deadline){
+    job.mu.Lock()
+    history:=job.workflowStepHistory
+    job.mu.Unlock()
+    if history=="R-"{started=true;break}
+    time.Sleep(10*time.Millisecond)
+   }
+   if !started{t.Fatal("slow native process never entered running state")}
+   if err:=os.Setenv(flag,"0");err!=nil{t.Fatal(err)}
+   startedAt:=time.Now()
+   if got:=awaitRemoteWorkflow(t,session);got!="cancelled"{
+    t.Fatalf("host revocation of %s did not cancel active step: %s",flag,got)
+   }
+   if time.Since(startedAt)>2*time.Second{
+    t.Fatal("host revocation did not promptly terminate the native process")
+   }
+   job.mu.Lock()
+   history,exit:=job.workflowStepHistory,job.exitCode
+   job.mu.Unlock()
+   if history!="X-"||exit!= -1{
+    t.Fatalf("active step escaped revocation: history %q exit %d",history,exit)
+   }
+   job.capture.mu.Lock()
+   output:=string(append([]byte(nil),job.capture.data...))
+   job.capture.mu.Unlock()
+   if strings.Contains(output,"MUST-NOT-RUN")||
+    !strings.Contains(output,"Host permission revoked; active step stopped"){
+    t.Fatalf("revoked step continued or lost audit indication: %q",output)
+   }
+   if err:=session.clearRemoteLongTask(root);err!=nil{
+    t.Fatalf("revoked sequential job still occupies long-task slot: %v",err)
+   }
+  })
+ }
+}

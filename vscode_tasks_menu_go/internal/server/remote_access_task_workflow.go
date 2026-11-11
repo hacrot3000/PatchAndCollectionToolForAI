@@ -12,6 +12,7 @@ import(
  "path/filepath"
  "runtime"
  "strings"
+ "sync/atomic"
  "time"
 
  "bletonfc/vscode_tasks_menu/internal/identity"
@@ -565,10 +566,15 @@ Workflow:
    _,_=captureWorkflowText(job.capture,fmt.Sprintf(
     "[TaskDeck workflow] Step %d/%d: Task #%d (attempt %d/%d)\n",
     i+1,len(plan),step.taskID,attempt,step.retries+1))
-   runCtx:=ctx
-   cancelStep:=func(){}
+   // Every step needs a cancellable child context, even without a
+   // timeout: a host can revoke Run/Workflow/Retry/Timeout/Condition
+   // DURING a running process. A live native GUI Poll is not required.
+   var runCtx context.Context
+   var cancelStep context.CancelFunc
    if step.timeout>0{
     runCtx,cancelStep=context.WithTimeout(ctx,step.timeout)
+   }else{
+    runCtx,cancelStep=context.WithCancel(ctx)
    }
    cmd:=exec.CommandContext(runCtx,executable,spec.Args...)
    cmd.Dir=spec.Cwd
@@ -589,8 +595,37 @@ Workflow:
     job.updateWorkflowStep(i+1,len(plan),attempt,step.retries+1,"cancelled",-1,0)
     status="cancelled";exitCode=-1;break Workflow
    }
+   // The running process (including retry and conditional cleanup)
+   // must stop on a host policy revocation. A bounded watcher shares
+   // the process context and terminates with the worker; it does not
+   // poll the Portal or expose host flags to the remote client.
+   var revokedDuringStep atomic.Bool
+   watcherDone:=make(chan struct{})
+   stopWatch:=make(chan struct{})
+   go func(){
+    defer close(watcherDone)
+    ticker:=time.NewTicker(100*time.Millisecond)
+    defer ticker.Stop()
+    for{
+     select{
+     case <-stopWatch:return
+     case <-runCtx.Done():return
+     case <-ticker.C:
+      if !remoteWorkflowHostExecutionEnabled()||
+       (step.timeout>0&&os.Getenv("TASKDECK_REMOTE_TASKS_WORKFLOW_TIMEOUT")!="1")||
+       (attempt>1&&os.Getenv("TASKDECK_REMOTE_TASKS_WORKFLOW_RETRY")!="1")||
+       (step.condition!=""&&os.Getenv("TASKDECK_REMOTE_TASKS_WORKFLOW_CONDITION")!="1"){
+       revokedDuringStep.Store(true)
+       cancelStep()
+       return
+      }
+     }
+    }
+   }()
    stepStarted:=time.Now()
    err=cmd.Run()
+   close(stopWatch)
+   <-watcherDone
    elapsed:=time.Since(stepStarted)
    killGitJobProcess(cmd)
    timedOut:=errors.Is(runCtx.Err(),context.DeadlineExceeded)
@@ -604,7 +639,13 @@ Workflow:
    }
    stepStatus:="completed"
    if timedOut||errors.Is(ctx.Err(),context.DeadlineExceeded){stepStatus="timed_out"
-   }else if ctx.Err()!=nil||session.closed.Load(){stepStatus="cancelled"
+   }else if revokedDuringStep.Load()||ctx.Err()!=nil||session.closed.Load(){
+    stepStatus="cancelled"
+    if revokedDuringStep.Load(){
+     code= -1
+     _,_=captureWorkflowText(job.capture,
+      "[TaskDeck workflow] Host permission revoked; active step stopped\n")
+    }
    }else if err!=nil{stepStatus="failed"}
    // The result audit is a hard boundary between attempts, including
    // retries of the SAME step. A failed audit can never trigger a replay.
