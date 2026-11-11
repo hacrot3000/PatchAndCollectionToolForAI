@@ -7,6 +7,7 @@ import(
  "os"
  "os/exec"
  "path/filepath"
+ "sync/atomic"
  "time"
 
  "bletonfc/vscode_tasks_menu/internal/identity"
@@ -19,6 +20,15 @@ import(
 type remoteParallelPrepared struct{
  execution tasks.Execution
  executable string
+}
+
+// A host can revoke process permission while a fork is already running.
+// Unlike a one-shot preflight, this cheap host-owned check is safe to
+// repeat while the bounded native worker pool is active.
+func remoteParallelHostConsent(session *remoteTaskDeckSession)bool{
+ return session!=nil&&!session.closed.Load()&&
+  remoteWorkflowHostExecutionEnabled()&&
+  os.Getenv("TASKDECK_REMOTE_TASKS_WORKFLOW_PARALLEL")=="1"
 }
 
 // Prepare every sibling before ANY parallel child starts. If one task's
@@ -194,6 +204,32 @@ func(s *Server)runRemoteParallelJoinWorkflow(ctx context.Context,
  type outcome struct{status string;code int}
  siblingCtx,cancelSibling:=context.WithCancel(ctx)
  defer cancelSibling()
+ // The parent context already handles user cancellation, session expiry,
+ // and grant/channel teardown. This extra watcher handles host flag
+ // revocation AFTER processes have started. Cancel the entire process
+ // group via exec.Cmd.Cancel, then join every worker before releasing the
+ // existing workspace lease. Never start the root on a revoked grant.
+ var hostRevoked atomic.Bool
+ stopWatch:=make(chan struct{})
+ watchDone:=make(chan struct{})
+ go func(){
+  defer close(watchDone)
+  ticker:=time.NewTicker(100*time.Millisecond)
+  defer ticker.Stop()
+  for{
+   select{
+   case <-stopWatch:return
+   case <-siblingCtx.Done():return
+   case <-ticker.C:
+    if !remoteParallelHostConsent(session){
+     hostRevoked.Store(true)
+     cancelSibling()
+     return
+    }
+   }
+  }
+ }()
+ defer func(){close(stopWatch);<-watchDone}()
  outcomes:=make(chan outcome,leafCount)
  for i:=0;i<leafCount;i++{
   go func(index int){
@@ -212,6 +248,12 @@ func(s *Server)runRemoteParallelJoinWorkflow(ctx context.Context,
    // root decision and before releasing the exclusive workspace lease.
    cancelSibling()
   }
+ }
+ if hostRevoked.Load()||!remoteParallelHostConsent(session){
+  status="cancelled";exitCode=-1
+  _,_=captureWorkflowText(job.capture,
+   "[TaskDeck workflow] Parallel host consent revoked; workers stopped\n")
+  return
  }
  if status!="completed"||ctx.Err()!=nil{return}
  rootIndex:=len(plan)-1

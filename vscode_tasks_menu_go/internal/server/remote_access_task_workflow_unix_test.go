@@ -1738,3 +1738,69 @@ func TestRemoteWorkflowThreeParallelLeavesSingleJoin(t *testing.T){
   }
  })
 }
+
+ 
+// Turning off a host-owned opt-in AFTER all three processes started must
+// terminate their process groups, release the exclusive workspace lease,
+// and never launch the dependent root. Browser/relay callers cannot toggle
+// this flag: only the host administrator can revoke it.
+func TestRemoteParallelHostRevocationCancelsActiveWorkers(t *testing.T){
+ const source=`{"tasks":[
+  {"label":"Leaf A","type":"process","command":"/bin/sleep","args":["4"]},
+  {"label":"Leaf B","type":"process","command":"/bin/sleep","args":["4"]},
+  {"label":"Leaf C","type":"process","command":"/bin/sleep","args":["4"]},
+  {"label":"Join","type":"process","command":"/bin/echo","args":["ROOT-MUST-NOT-RUN"],
+   "dependsOn":["Leaf A","Leaf B","Leaf C"],"dependsOrder":"parallel"}
+ ]}`
+ for _,flag:=range []string{
+  "TASKDECK_REMOTE_TASKS_WORKFLOW_PARALLEL",
+  "TASKDECK_REMOTE_TASKS_RUN",
+  "TASKDECK_REMOTE_TASKS_WORKFLOW_RUN",
+ }{
+  t.Run(flag,func(t *testing.T){
+   remoteWorkflowHostFlags(t)
+   t.Setenv("TASKDECK_REMOTE_TASKS_WORKFLOW_PARALLEL","1")
+   s,session,client,agent:=remoteTaskOperatorFixture(t)
+   root:=remoteWorkflowIssuedRoot(t,s,session,client,agent,source,"Join")
+   if err:=s.startRemoteLinearWorkflow(context.Background(),session,root);err!=nil{
+    t.Fatalf("approved fork not admitted: %v",err)
+   }
+   job:=session.longTask
+   seenThree:=false
+   deadline:=time.Now().Add(2*time.Second)
+   for time.Now().Before(deadline){
+    job.mu.Lock()
+    state:=job.workflowStepHistory
+    job.mu.Unlock()
+    if state=="RRR-"{seenThree=true;break}
+    time.Sleep(10*time.Millisecond)
+   }
+   if !seenThree{t.Fatal("did not observe all three workers running")}
+   if err:=os.Setenv(flag,"0");err!=nil{t.Fatal(err)}
+   begin:=time.Now()
+   if got:=awaitRemoteWorkflow(t,session);got!="cancelled"{
+    t.Fatalf("host revocation was not sticky: status=%q",got)
+   }
+   if time.Since(begin)>2*time.Second{
+    t.Fatal("host revocation did not promptly terminate active workers")
+   }
+   job.mu.Lock()
+   history:=job.workflowStepHistory
+   job.mu.Unlock()
+   if strings.Contains(history,"R")||strings.HasSuffix(history,"C")||
+    len(history)!=4||history[3]!='-'{
+    t.Fatalf("revoked fork leaked an active worker or ran the root: %q",history)
+   }
+   job.capture.mu.Lock()
+   output:=string(append([]byte(nil),job.capture.data...))
+   job.capture.mu.Unlock()
+   if strings.Contains(output,"ROOT-MUST-NOT-RUN")||
+    !strings.Contains(output,"Parallel host consent revoked; workers stopped"){
+    t.Fatalf("revoked fork had unsafe output: %q",output)
+   }
+   if err:=session.clearRemoteLongTask(root);err!=nil{
+    t.Fatalf("cancelled workflow did not release long-task slot: %v",err)
+   }
+  })
+ }
+}
