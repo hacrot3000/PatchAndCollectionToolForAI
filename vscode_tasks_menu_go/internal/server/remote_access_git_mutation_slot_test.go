@@ -295,3 +295,107 @@ func TestRemoteGitPostAuditRejectsGitWriteRoleDowngrade(t *testing.T){
   }
  }
 }
+
+
+// The Git command itself may block in a remote HTTPS/SSH operation.
+// Revoking any of the three host opt-ins must cancel the child context
+// while the operation is running, not only deny the initial audit check.
+func TestRemoteGitMutationActiveCommandStopsAfterHostOptOut(t *testing.T){
+ for _,flag:=range []string{
+  "TASKDECK_REMOTE_GIT_PULL",
+  "TASKDECK_REMOTE_GIT_COMMIT",
+  "TASKDECK_REMOTE_GIT_PUSH",
+ }{
+  t.Run(flag,func(t *testing.T){
+   t.Setenv(flag,"1")
+   s,session,_,_:=remoteTerminalAdminFixture(t)
+   ctx,cancel:=context.WithTimeout(context.Background(),5*time.Second)
+   defer cancel()
+   entered:=make(chan struct{})
+   result:=make(chan error,1)
+   go func(){
+    result<-s.runRemoteGitMutationWithLiveRBAC(ctx,session,flag,
+     func(runCtx context.Context)error{
+      close(entered)
+      <-runCtx.Done() // Simulates an outstanding exec.CommandContext.
+      return runCtx.Err()
+     })
+   }()
+   select{
+   case <-entered:
+   case <-time.After(3*time.Second):t.Fatal("valid GitWrite did not start")
+   }
+   t.Setenv(flag,"0")
+   select{
+   case err:=<-result:
+    if !errors.Is(err,remotetransport.ErrRemoteActionDenied){
+     t.Fatalf("host opt-out did not cancel active Git: %v",err)
+    }
+    if ctx.Err()!=nil{t.Fatal("only caller timeout canceled Git")}
+   case <-time.After(3*time.Second):
+    t.Fatal("host opt-out failed to cancel an in-progress Git command")
+   }
+  })
+ }
+}
+
+// A Portal/E2EE channel can stay valid for read-only GitStatus while the
+// owner's LOCAL TaskDeck role changes. GitWrite must be re-evaluated during
+// the actual network/commit subprocess, not retained from preflight.
+func TestRemoteGitMutationActiveCommandStopsAfterRoleDowngrade(t *testing.T){
+ t.Setenv("TASKDECK_REMOTE_GIT_PUSH","1")
+ s,session,_,_:=remoteTerminalAdminFixture(t)
+ ctx,cancel:=context.WithTimeout(context.Background(),5*time.Second)
+ defer cancel()
+ entered:=make(chan struct{})
+ result:=make(chan error,1)
+ go func(){
+  result<-s.runRemoteGitMutationWithLiveRBAC(ctx,session,
+   "TASKDECK_REMOTE_GIT_PUSH",func(runCtx context.Context)error{
+    close(entered)
+    <-runCtx.Done()
+    return runCtx.Err()
+   })
+ }()
+ select{
+ case <-entered:
+ case <-time.After(3*time.Second):t.Fatal("original GitWrite not granted")
+ }
+ project,err:=s.Identity.ProjectByKey(ctx,session.projectKey)
+ if err!=nil{t.Fatal(err)}
+ member,err:=s.Identity.ProjectMember(ctx,project.ID,session.userID)
+ if err!=nil{t.Fatal(err)}
+ member.RoleID=identity.RestrictedDeveloperRoleID
+ member.UpdatedAt=time.Now().UTC()
+ if err:=s.Identity.UpsertProjectMember(ctx,member);err!=nil{t.Fatal(err)}
+ select{
+ case err:=<-result:
+  if !errors.Is(err,remotetransport.ErrRemoteActionDenied){
+   t.Fatalf("role revocation did not stop in-flight Git: %v",err)
+  }
+  if ctx.Err()!=nil{t.Fatal("Git stopped only at global timeout")}
+ case <-time.After(3*time.Second):
+  t.Fatal("role downgrade left network Git command executing")
+ }
+}
+
+func TestRemoteGitMutationLiveRBACFastCompletionAndFailClosed(t *testing.T){
+ t.Setenv("TASKDECK_REMOTE_GIT_COMMIT","1")
+ s,session,_,_:=remoteTerminalAdminFixture(t)
+ calls:=0
+ approved:=func(ctx context.Context)error{
+  calls++
+  if ctx.Err()!=nil{t.Fatal("valid Git command received canceled context")}
+  return nil
+ }
+ if err:=s.runRemoteGitMutationWithLiveRBAC(context.Background(),session,
+  "TASKDECK_REMOTE_GIT_COMMIT",approved);err!=nil||calls!=1{
+  t.Fatalf("valid short Git command denied: %v, calls=%d",err,calls)
+ }
+ t.Setenv("TASKDECK_REMOTE_GIT_COMMIT","0")
+ if err:=s.runRemoteGitMutationWithLiveRBAC(context.Background(),session,
+  "TASKDECK_REMOTE_GIT_COMMIT",approved);!errors.Is(err,remotetransport.ErrRemoteActionDenied)||
+  calls!=1{
+  t.Fatalf("host opt-out admitted new command: %v, calls=%d",err,calls)
+ }
+}

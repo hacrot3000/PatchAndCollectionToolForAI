@@ -110,9 +110,9 @@ jobs:
       - name: Preflight Git HTTPS TLS, redirect and credential hardening
         working-directory: vscode_tasks_menu_go
         run: go test -race ./internal/server -run 'TestRemoteGitNetworkMutations(NeverExecuteRepositoryCredentialHelpers|RejectHTTPSRedirects)' -count=1 -timeout=90s
-      - name: Preflight Git post-audit host opt-in and GitWrite RBAC
+      - name: Preflight Git post-audit and in-flight host GitWrite revocation
         working-directory: vscode_tasks_menu_go
-        run: go test -race ./internal/server -run 'TestRemoteGit(PostAudit|Commit(AuditRevocationCannotMutateHEAD|RejectsRoleRevokedDuringAttemptAudit))' -count=1 -timeout=90s
+        run: go test -race ./internal/server -run 'TestRemoteGit(PostAudit|MutationActiveCommand|MutationLiveRBAC|Commit(AuditRevocationCannotMutateHEAD|RejectsRoleRevokedDuringAttemptAudit))' -count=1 -timeout=90s
       - name: Preflight Unix PTY consent, rolling output and final drain
         working-directory: vscode_tasks_menu_go
         run: go test -race ./internal/server -run 'TestRemoteTerminal(OpenRejectsHostRoleRevokedDuringAudit|ActivePTYStopsOnHostOptOutOrRoleDowngrade|NaturalExitRetainsFinalPTYOutput|RollingCapture)' -count=1 -timeout=90s

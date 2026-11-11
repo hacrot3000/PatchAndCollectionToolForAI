@@ -164,7 +164,11 @@ func (s *Server) executeRemoteGitPull(
   // and auto-follow tags, mutating unrelated tracking refs/tags.
   "-C",root,"pull","--ff-only","--no-recurse-submodules","--no-edit",
   "--no-tags","--upload-pack=git-upload-pack",remote,branch)
- _,err=run(pullCtx,0,pullArgs...)
+ err=s.runRemoteGitMutationWithLiveRBAC(pullCtx,session,
+  "TASKDECK_REMOTE_GIT_PULL",func(runCtx context.Context)error{
+   _,runErr:=run(runCtx,0,pullArgs...)
+   return runErr
+  })
  if err!=nil||pullCtx.Err()!=nil||session.closed.Load(){return empty,denied}
  after,err:=read(ctx,"rev-parse","--verify","HEAD")
  if err!=nil||!remoteGitObjectID.MatchString(after){return empty,denied}

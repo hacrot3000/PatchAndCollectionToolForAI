@@ -211,7 +211,11 @@ func (s *Server) executeRemoteGitPush(ctx context.Context,
   "push","--no-verify","--no-tags","--no-signed",
   "--recurse-submodules=no","--receive-pack=git-receive-pack",
   remote,head+":"+localRef)
- _,err=run(pushCtx,args...)
+ err=s.runRemoteGitMutationWithLiveRBAC(pushCtx,session,
+  "TASKDECK_REMOTE_GIT_PUSH",func(runCtx context.Context)error{
+   _,runErr:=run(runCtx,args...)
+   return runErr
+  })
  if err!=nil||pushCtx.Err()!=nil||session.closed.Load(){return empty,denied}
  return remotetransport.RemoteGitPushResult{Head:head},nil
 }

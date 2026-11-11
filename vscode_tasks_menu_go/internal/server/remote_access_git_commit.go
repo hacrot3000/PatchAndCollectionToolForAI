@@ -124,7 +124,11 @@ func (s *Server) executeRemoteGitCommit(
  commitCtx,cancel:=context.WithTimeout(ctx,remoteGitCommitTimeout)
  defer cancel()
  if commitCtx.Err()!=nil||session.closed.Load(){return empty,denied}
- _,err=run(commitCtx,0,"commit","--no-verify","--no-gpg-sign","-m",message)
+ err=s.runRemoteGitMutationWithLiveRBAC(commitCtx,session,
+  "TASKDECK_REMOTE_GIT_COMMIT",func(runCtx context.Context)error{
+   _,runErr:=run(runCtx,0,"commit","--no-verify","--no-gpg-sign","-m",message)
+   return runErr
+  })
  if err!=nil||commitCtx.Err()!=nil||session.closed.Load(){return empty,denied}
  after,err:=run(ctx,256,"rev-parse","--verify","HEAD")
  if err!=nil||!remoteGitObjectID.MatchString(after)||after==before{

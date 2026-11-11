@@ -5,6 +5,8 @@ import (
  "os"
  "path/filepath"
  "sync"
+ "sync/atomic"
+ "time"
 
  "bletonfc/vscode_tasks_menu/internal/identity"
  "bletonfc/vscode_tasks_menu/internal/remotetransport"
@@ -99,6 +101,55 @@ func(s *Server)remoteGitMutationPostAuditAuthorized(ctx context.Context,
   remotetransport.AuthorizeAction(true,session.role,&principal,
    session.projectKey,identity.PermissionGitWrite)==nil&&
   remoteGitMutationPostAuditAllowed(ctx,session,flag)
+}
+
+// A still-running Git mutation may keep contacting a remote host or
+// updating the index after the owning TaskDeck account loses GitWrite.
+// Keep watching the live LOCAL principal and the host opt-in for the
+// entire bounded side-effecting command, not just its post-audit start.
+// The command must be launched with the child context (exec.CommandContext
+// plus its process-group Cancel). No external Git transaction is rollbackable.
+func(s *Server)runRemoteGitMutationWithLiveRBAC(
+ ctx context.Context,session *remoteTaskDeckSession,flag string,
+ execute func(context.Context)error,
+)error{
+ denied:=remotetransport.ErrRemoteActionDenied
+ if execute==nil||!s.remoteGitMutationPostAuditAuthorized(ctx,session,flag){
+  return denied
+ }
+ runCtx,cancel:=context.WithCancel(ctx)
+ defer cancel()
+ stopWatch:=make(chan struct{})
+ watchDone:=make(chan struct{})
+ var revoked atomic.Bool
+ go func(){
+  defer close(watchDone)
+  ticker:=time.NewTicker(remoteLocalRevokePoll)
+  defer ticker.Stop()
+  for{
+   select{
+   case <-stopWatch:return
+   case <-runCtx.Done():return
+   case <-ticker.C:
+    if !s.remoteGitMutationPostAuditAuthorized(runCtx,session,flag){
+     revoked.Store(true)
+     cancel() // Git command's process-group Cancel handles its children.
+     return
+    }
+   }
+  }
+ }()
+ err:=execute(runCtx)
+ // Join any in-progress host-local check before claiming success. Closing
+ // the watcher never calls cancel itself, so a successful fast Git command
+ // does not receive a spurious revocation during teardown.
+ close(stopWatch)
+ <-watchDone
+ if err!=nil||ctx.Err()!=nil||revoked.Load()||
+  !s.remoteGitMutationPostAuditAuthorized(ctx,session,flag){
+  return denied
+ }
+ return nil
 }
 
 // Remote Git, Task and PTY executions share this workspace guard across

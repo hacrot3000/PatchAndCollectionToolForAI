@@ -939,3 +939,28 @@ real-host testing are considered **code complete**.
   không tiêu lượt Close. Không thay đổi Wire codec, relay, agent hay
   giới hạn 16 lượt. Hành vi auto vẫn chỉ là best-effort trong quota,
   không phải streaming push liên tục.
+
+
+## 2026-11-11 — Git Pull / Commit / Push: revoke GitWrite during execution
+
+- Previously all three actions checked live TaskDeck GitWrite immediately
+  *after* their attempted audit, but a locally revoked role/host opt-in
+  while `git pull`, `git commit` or `git push` was ALREADY running
+  would not cancel the subprocess until caller cancellation/9-second timeout.
+- New host-owned `runRemoteGitMutationWithLiveRBAC` wraps ONLY the
+  irreversible typed Git command, retains the action context, and checks
+  the uncached local TaskDeck principal, Portal role ceiling, channel/grant
+  and exact per-command opt-in every `remoteLocalRevokePoll` interval.
+  Revocation immediately cancels the command context; existing
+  `exec.CommandContext` plus process-group Cancel kills subprocesses.
+  Watcher is joined before returning. Fast successful operations are
+  reauthorized after process completion; no credentials/argv/URL are
+  derived from browser data. No extra global lock or PHP round trip.
+- Test cases exercise opt-out during an outstanding command for each
+  of Pull, Commit and Push; a genuine SQLite role downgrade during
+  active Push; normal fast command completion; and fail-closed denial
+  before an unauthorised command starts. Added targeted `-race`
+  preflight CI to validate watcher lifecycle and cancellation.
+- Caveat: cancellation is best-effort; an operation already finalized
+  by the filesystem or remote server cannot be rolled back. E2EE,
+  host opt-ins and LIVE NO-GO remain unchanged. No Windows-specific code.
