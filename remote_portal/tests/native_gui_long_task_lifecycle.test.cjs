@@ -341,6 +341,71 @@ async function scenario(startStatus,pollStates,expectStartRejected=false){
   assert.equal(changed.get('long-task-output').textContent,'',
    'invalid workflow transition retained private output in GUI');
  }
+ // An authenticated current snapshot alone is insufficient to describe a
+ // process lifecycle. Once the GUI has observed a completed dependency,
+ // subsequent valid-shaped Polls cannot turn it back into running or
+ // silently edit its signed exit/duration outcome.
+ const initialFork={
+  status:'running',parallel:true,step:3,step_total:5,
+  attempt:1,attempt_total:1,step_status:'running',
+  step_history:'CCRR-',step_details:'0:10|0:20|-|-|-',
+ };
+ const regressedForks=[
+  {status:'running',parallel:true,step:1,step_total:5,
+   attempt:1,attempt_total:1,step_status:'running',
+   step_history:'RCRR-',step_details:'-|0:20|-|-|-'},
+  {status:'running',parallel:true,step:3,step_total:5,
+   attempt:1,attempt_total:1,step_status:'running',
+   step_history:'CCRR-',step_details:'0:11|0:20|-|-|-'},
+  {status:'running',parallel:true,step:3,step_total:5,
+   attempt:1,attempt_total:1,step_status:'running',
+   step_history:'CCRR-',step_details:'0:10|0:20|-|-|-',
+   output:'',more:false},
+ ];
+ for(let i=0;i<regressedForks.length;i++){
+  const altered={...regressedForks[i]};
+  // The third case explicitly strips previously observed signed history,
+  // while preserving all other workflow metadata.
+  if(i===2){delete altered.step_history;delete altered.step_details;}
+  const stale=await scenario('started',[initialFork,altered]);
+  stale.get('long-task-poll').click();await stale.flush();
+  assert.equal(stale.get('long-task-controls').hidden,false,
+   'first valid fork was denied before the consistency check');
+  stale.get('long-task-poll').click();await stale.flush();
+  assert.equal(stale.get('long-task-controls').hidden,true,
+   'a stale Poll rewound an already completed workflow dependency');
+  assert.equal(stale.get('long-task-output').textContent,'',
+   'a stale Poll retained sensitive output');
+ }
+ // Worker callbacks may arrive out of order, and a failed SEQUENTIAL
+ // attempt can legitimately be retried once. Do not reject either.
+ const progressivelyStarted=await scenario('started',[
+  {status:'running',parallel:true,step:3,step_total:5,
+   attempt:1,attempt_total:1,step_status:'running',
+   step_history:'RRR--',step_details:'-|-|-|-|-'},
+  {status:'running',parallel:true,step:4,step_total:5,
+   attempt:1,attempt_total:1,step_status:'running',
+   step_history:'RRRR-',step_details:'-|-|-|-|-'},
+ ]);
+ progressivelyStarted.get('long-task-poll').click();
+ await progressivelyStarted.flush();
+ progressivelyStarted.get('long-task-poll').click();
+ await progressivelyStarted.flush();
+ assert.equal(progressivelyStarted.get('long-task-controls').hidden,false,
+  'parallel leaf progression was mistaken for a rollback');
+ const retry=await scenario('started',[
+  {status:'running',parallel:false,step:1,step_total:2,
+   attempt:1,attempt_total:2,step_status:'failed',
+   step_history:'F-',step_details:'7:2|-'},
+  {status:'running',parallel:false,step:1,step_total:2,
+   attempt:2,attempt_total:2,step_status:'running',
+   step_history:'R-',step_details:'-|-'},
+ ]);
+ retry.get('long-task-poll').click();await retry.flush();
+ retry.get('long-task-poll').click();await retry.flush();
+ assert.equal(retry.get('long-task-controls').hidden,false,
+  'host-approved sequential retry was incorrectly denied');
+
  // Start/Cancel/Clear acknowledge only a state transition. The native
  // browser must also reject impossible nonempty output and truncation
  // on an ACK, even when a malicious localhost bridge returns HTTP 200.

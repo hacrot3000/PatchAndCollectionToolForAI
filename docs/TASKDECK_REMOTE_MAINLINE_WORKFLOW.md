@@ -1110,3 +1110,33 @@ real-host testing are considered **code complete**.
   parallel 5 -> mất metadata; và kiểm tra tất cả trường hợp sai
   đều xoá dữ liệu giao diện. Đưa Node test vào preflight CI sớm,
   không chỉ đợi nhóm GUI phía sau.
+
+
+## 2026-11-12 — Native Remote GUI: không cho signed Task progress quay ngược
+
+- Các trường `step_total` / `parallel` đã được cố định theo
+  từng active long job nhưng các lần `tasks.poll` vẫn có thể có
+  `step_history` hợp lệ riêng lẻ mà trái với lần Poll đã chấp nhận
+  trước đó: ví dụ `CCRR-` → `RCRR-` sẽ biến dependency hoàn tất
+  thành đang chạy. Không thể chỉ kiểm tra mã hóa AEAD từng frame;
+  UI phải kiểm tra tiến độ theo thời gian của cùng một job.
+- Native GUI tiếp tục đóng băng total/mode, và ghi nhớ `history`
+  cùng `step_details` đã xác thực của Poll gần nhất. Từ chối
+  việc bước đang chạy biến thành chưa bắt đầu, kết quả terminal
+  `C/S/X/T` bị đổi, `F` bị đổi trái với retry tuần tự, hoặc exit
+  code/thời gian của bước terminal đã xuất hiện bị sửa âm thầm.
+  Khi bị từ chối, giao diện xóa output riêng tư và kết thúc local
+  E2EE session như các lỗi trạng thái trước đó.
+- Ngoại lệ có chủ đích: workflow tuần tự có `retry:1` được phép
+  thay `F` thành `R/C` trong cùng bước. Với fork song song,
+  **không** yêu cầu số thứ tự callback tăng đơn điệu: bốn worker
+  có thể hoàn tất khác thứ tự, nhưng trạng thái terminal của mỗi
+  worker không được quay ngược. Không tự thay đổi CLI process,
+  quota E2EE, host authority, hay quy trình restart job.
+- Test native JS dùng hai Poll liên tiếp, gồm rewind
+  `CCRR-` → `RCRR-`, sửa duration đã chốt, bỏ metadata,
+  tiến độ fork hợp lệ `RRR--` → `RRRR-`, và retry
+  `F-` → `R-` của sequential Task. Preflight lifecycle
+  JS đã nằm đầu workflow CI.
+- Hạng mục kế tiếp: DAG nhiều tầng kết hợp parallel/sequential;
+  nhập secret an toàn; những lệnh Git và GUI remote khác.

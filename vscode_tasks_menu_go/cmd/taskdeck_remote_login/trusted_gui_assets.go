@@ -1360,8 +1360,10 @@ const trustedGUIJavaScript = `'use strict';
   let taskRunning=false; // Short tasks: stop revokes E2EE.
   let longTaskID=0,longTaskState='',longTaskText='',longTaskMore=false;
   let longTaskClipped=false,longTaskHostTruncated=false;
-  // Once a workflow reports its first signed step, its mode and total
-  // cannot change across authenticated Polls in this running job.
+  // Signed workflow metadata is pinned to this one host-owned long job.
+  // A late/stale Poll must not rewind a finished dependency or its
+  // authenticated exit/duration details. The step index itself may move
+  // backwards while parallel workers report out of order.
   let longTaskShape=null;
   // Cancel acknowledgement is distinct from process exit. Poll may still
   // report "running" while the host is terminating the process group.
@@ -2591,6 +2593,32 @@ const trustedGUIJavaScript = `'use strict';
               parallel!==longTaskShape.parallel)){
               throw new Error('Cấu trúc workflow thay đổi trong cùng một job E2EE');
             }
+            if(longTaskShape!==null){
+              if(stepHistory===''){
+                throw new Error('Kết quả từng bước workflow bị mất giữa hai Poll E2EE');
+              }
+              const previous=longTaskShape.history;
+              const lastDetails=longTaskShape.details;
+              for(let i=0;i<previous.length;i++){
+                const before=previous[i],after=stepHistory[i];
+                // Parallel workers can report in any order, but once a
+                // process has started it can never become unstarted.
+                // C/S/X/T are terminal outcomes. F may be retried ONLY
+                // by the separately opted-in sequential runner.
+                if((before!=='-'&&after==='-')||
+                  (['C','S','X','T'].includes(before)&&after!==before)||
+                  (before==='F'&&after!==before&&
+                    (parallel||!['R','C'].includes(after)))){
+                  throw new Error('Tiến độ workflow quay ngược giữa hai Poll E2EE');
+                }
+                if(lastDetails&&lastDetails.length===stepTotal&&
+                  details.length===stepTotal&&
+                  ['C','S','X','T'].includes(before)&&
+                  lastDetails[i]!==details[i]){
+                  throw new Error('Kết quả bước đã hoàn thành bị thay đổi');
+                }
+              }
+            }
           }
           if(launching){
             longTaskShape=null;
@@ -2605,8 +2633,11 @@ const trustedGUIJavaScript = `'use strict';
             longTaskHistorySerial=rememberTaskRun(
               id,'dài',data.status,data.exit_code,'',data.truncated);
           }
-          if(polling&&workflowProgress&&longTaskShape===null){
-            longTaskShape={total:stepTotal,parallel};
+          if(polling&&workflowProgress&&stepHistory!==''){
+            longTaskShape={
+              total:stepTotal,parallel,history:stepHistory,
+              details:details.slice()
+            };
           }
           if(data.output)appendLongTaskOutput(data.output);
           // Once the host reports capture loss, a later clean Poll
