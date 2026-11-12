@@ -1236,3 +1236,19 @@ real-host testing are considered **code complete**.
   privilege relaxation. The targeted Go runtime tests will execute on
   the next CI run; do not mark the prefix feature fully validated before
   those results arrive.
+
+
+### CI follow-up: TaskDeck default dependsOrder on one-parent leaves
+
+- The first Go `-race` preflight exposed a host graph-validation mismatch:
+  TaskDeck normalizes an omitted `dependsOrder` to `"parallel"`
+  even for a Task with exactly one `dependsOn`. The new prefix shape
+  mistakenly demanded `"sequence"` (by rejecting normalized
+  `"parallel"`), so a correct `Prepare → Worker` edge was denied.
+- Keep the strict requirement that each worker depends on **exactly**
+  the single prelude Task label, but allow either normalized ordering:
+  with one dependency there is no scheduling ambiguity. The join/root
+  still must explicitly use `dependsOrder: "parallel"` and depend on
+  all leaves. Extra dependencies, nested forks and implicit DAGs remain
+  denied. The existing preflight Go tests intentionally omit
+  `dependsOrder` from the workers to guard this compatibility.

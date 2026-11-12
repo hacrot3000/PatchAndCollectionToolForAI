@@ -275,9 +275,12 @@ func remoteWorkflowParallelPrefixLength(items []tasks.Task,
   if prefix==0{
    if len(node.DependsOn)!=0{return -1}
   }else{
+   // TaskDeck normalizes an omitted dependsOrder to "parallel".
+   // With exactly ONE prerequisite the order has no effect; deny
+   // multiple dependencies instead of requiring an artificial
+   // dependsOrder: "sequence" on every leaf.
    if len(node.DependsOn)!=1||
-    node.DependsOn[0]!=byID[order[0]].Label||
-    node.DependsOrder=="parallel"{return -1}
+    node.DependsOn[0]!=byID[order[0]].Label{return -1}
    expected[[2]int{order[0],id}]=true
   }
  }
