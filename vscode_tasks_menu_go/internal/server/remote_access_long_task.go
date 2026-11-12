@@ -425,10 +425,12 @@ func (session *remoteTaskDeckSession)pollRemoteLongTaskWithWait(
 
 // Both normal and deadline-returned Polls must use the SAME payload
 // limit. Five-step sequential workflows carry extra signed history and
-// detail fields; reduce only their output chunk to preserve the 512-byte
-// authenticated envelope. Parallel joins remain capped at four steps.
+// detail fields; reduce their output chunk to preserve the 512-byte
+// authenticated envelope. Five-step parallel joins include an extra
+// authenticated mode flag and therefore use an even smaller chunk.
 func remoteLongTaskWorkflowChunkLimit(step,total int,parallel bool)int{
  if step==0{return remoteLongTaskMaxChunkBytes}
+ if parallel&&total==5{return 16}
  if total==5{return 32}
  if parallel&&total==4{return 48}
  return 64

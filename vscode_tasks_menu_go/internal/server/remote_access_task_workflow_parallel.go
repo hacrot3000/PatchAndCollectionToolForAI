@@ -176,10 +176,10 @@ func(s *Server)runRemoteParallelJoinWorkflow(ctx context.Context,
   }
   prepared[i]=item
  }
- // Strict audit barrier: no sibling process starts until BOTH attempted
+ // Strict audit barrier: no sibling process starts until ALL attempted
  // rows have been durably written for this unique workflow run.
  // An attempted audit is NOT proof that a process started. If the
- // second audit or a host guard fails, close every already-attempted
+ // subsequent audit or a host guard fails, close every already-attempted
  // outcome and stop without launching either child.
  attempted:=0
  finishUnlaunched:=func(result string){
@@ -208,9 +208,9 @@ func(s *Server)runRemoteParallelJoinWorkflow(ctx context.Context,
   }
   attempted++
  }
- // Both attempted rows have been persisted. A local host may revoke
+ // All attempted rows have been persisted. A local host may revoke
  // permission, replace tasks.json, or change a cwd symlink during either
- // database write. Recheck BOTH siblings *after* the audit barrier and
+ // database write. Recheck ALL siblings *after* the audit barrier and
  // *before* starting ANY process, so one stale dependency cannot begin
  // while its peer fails final preflight.
  for i:=0;i<leafCount;i++{

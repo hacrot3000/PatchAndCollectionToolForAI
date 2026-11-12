@@ -72,6 +72,8 @@ func TestRemoteWorkflowChunkLimitSameAcrossPollPaths(t *testing.T){
   {4,4,true,48},
   {1,5,false,32},
   {5,5,false,32},
+  {4,5,true,16},
+  {5,5,true,16},
  }
  for _,tc:=range cases{
   if got:=remoteLongTaskWorkflowChunkLimit(

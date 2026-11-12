@@ -239,6 +239,39 @@ async function scenario(startStatus,pollStates,expectStartRejected=false){
    'forged parallel Poll accepted without authenticated mode/byte budget');
  }
 
+ // A four-leaf fork has a five-step signed root and an even tighter
+ // 16-byte output chunk. The native GUI must reject fake mode markers,
+ // an unapproved retry, or output using the sequential 32-byte cap.
+ const four=await scenario('started',[{
+  status:'running',parallel:true,step:4,step_total:5,
+  attempt:1,attempt_total:1,step_status:'running',
+  step_history:'RRRR-',step_details:'-|-|-|-|-',
+  output:'W'.repeat(16),more:true,
+ }]);
+ four.get('long-task-poll').click();await four.flush();
+ assert.equal(four.get('long-task-controls').hidden,false,
+  'authenticated four-leaf E2EE progress was denied');
+ assert.match(four.get('long-task-output').textContent,/4 nhánh song song/,
+  'native GUI did not identify the fourth simultaneous worker');
+ assert.match(four.get('long-task-output').textContent,/W{16}/,
+  'native GUI clipped allowed 16-byte fork output');
+ for(const invalidProgress of [
+  {status:'running',parallel:false,step:4,step_total:5,
+   attempt:1,attempt_total:1,step_status:'running',
+   step_history:'RRRR-',step_details:'-|-|-|-|-'},
+  {status:'running',parallel:true,step:4,step_total:5,
+   attempt:1,attempt_total:1,step_status:'running',
+   step_history:'RRRR-',step_details:'-|-|-|-|-',output:'Y'.repeat(17)},
+  {status:'running',parallel:true,step:4,step_total:5,
+   attempt:1,attempt_total:2,step_status:'running',
+   step_history:'RRRR-',step_details:'-|-|-|-|-'},
+ ]){
+  const malformed=await scenario('started',[invalidProgress]);
+  malformed.get('long-task-poll').click();await malformed.flush();
+  assert.equal(malformed.get('long-task-controls').hidden,true,
+   'native GUI accepted forged four-leaf E2EE progress');
+ }
+
  // Five-step sequential workflows remain opt-in and carry five signed
  // outcomes, but NEVER an unbounded output chunk or a five-worker fork.
  const five=await scenario('started',[{

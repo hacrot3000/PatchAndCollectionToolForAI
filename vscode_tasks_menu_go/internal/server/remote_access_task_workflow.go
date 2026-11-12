@@ -22,8 +22,8 @@ import(
 
 // Bounded workflow executor: two to five fixed, non-interactive process
 // tasks for explicit sequential dependencies (linear or multi-parent).
-// Parallel joins remain limited to two or three independent leaves plus
-// one root. Implicit parallel diamonds, shell scripts, secrets and
+// Parallel joins remain limited to two through four independent leaves
+// plus one root. Implicit parallel diamonds, shell scripts, secrets and
 // interpolated inputs remain denied. No browser-supplied graph or command.
 const remoteWorkflowMaxSteps=5
 
@@ -223,7 +223,7 @@ func remoteWorkflowSafeSequentialGraph(items []tasks.Task,
 }
 
 
-// Explicit opt-in for a bounded parallel fork/join: exactly two independent
+// Explicit opt-in for a bounded parallel fork/join: two to four independent
 // native process leaves and their final root. This deliberately excludes
 // nested branches, conditional recovery, retries and per-step timeouts.
 // The ordinary TaskDeck "dependsOrder":"parallel" is NOT enough to grant
@@ -232,7 +232,7 @@ func remoteWorkflowSafeParallelJoinGraph(items []tasks.Task,
  order []int,edges [][2]int)bool{
  n:=len(order)
  if os.Getenv("TASKDECK_REMOTE_TASKS_WORKFLOW_PARALLEL")!="1"||
-  n<3||n>4||len(edges)!=n-1{return false}
+  n<3||n>remoteWorkflowMaxSteps||len(edges)!=n-1{return false}
  byID:=make(map[int]tasks.Task,len(items))
  byLabel:=make(map[string]tasks.Task,len(items))
  for _,task:=range items{

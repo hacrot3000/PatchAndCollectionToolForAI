@@ -1053,3 +1053,33 @@ real-host testing are considered **code complete**.
   của tasks.json hoặc thay mục tiêu cwd symlink sau khi ghi attempted
   audit; xác minh Task chạy ngắn không được phép tạo file. Không
   thêm round E2EE, không cho client chọn command hoặc đường dẫn.
+
+
+## 2026-11-12 — Task Remote GUI: 4 nhánh song song + 1 bước tổng hợp
+
+- Mở rộng duy nhất **fork/join nông do host định nghĩa** từ tối đa ba
+  lên **bốn Task process độc lập chạy song song**, sau đó đúng một
+  Task process tổng hợp. Các leaf không được có phụ thuộc, retry,
+  timeout hoặc condition; các shape DAG nhiều tầng, shell/script,
+  secret và client-supplied graph vẫn bị từ chối.
+- Cùng Task.ID đã được host phát qua E2EE, không chuyển danh sách
+  subprocess, cwd, command, argv hay env qua PHP/Relay. Giữ nguyên
+  chính sách host opt-in `TASKDECK_REMOTE_TASKS_WORKFLOW_PARALLEL=1`,
+  kiểm tra quyền TasksRun, graph và snapshot ở host, durable audit
+  barrier cho **toàn bộ bốn worker**, xác minh lại trước khi exec,
+  watcher thu hồi quyền, hủy process group, fail-fast và workspace
+  execution lease; root chỉ chạy sau khi cả bốn leaf thành công.
+- Mở rộng validation trạng thái workflow song song 5 bước trong E2EE
+  codec và native GUI; tiến độ song song bốn leaf có thể ở trạng thái
+  `RRRR-`, root kết thúc `CCCCC`. Tất cả bước vẫn có signed outcome.
+  Để bảo toàn phong bì E2EE 512 byte, mỗi Poll năm bước song song
+  chỉ tối đa **16 byte UTF-8**; năm bước tuần tự giữ 32 byte, song
+  song bốn bước giữ 48 byte.
+- Native GUI xác thực số bước, mode, kết quả, byte cap và thông báo
+  đúng hỗ trợ 2–4 leaf. Không tự mở quyền `LIVE NO-GO`, không đổi
+  các giới hạn session hay bổ sung tự động nối lại.
+- Regression `-race`: ngăn start khi host chưa bật opt-in;
+  chạy thực tế bốn `/bin/sleep` đồng thời và kiểm tra root chỉ
+  chạy sau bốn leaf; E2EE kiểm tra output escaped tối đa 16 byte,
+  trạng thái đang chạy và giả mạo root/retry/mode; native GUI
+  từ chối output 17 byte và trạng thái giả mạo.

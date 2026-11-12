@@ -260,7 +260,7 @@ async function assertGraphValidation(graph,description,accepted=false,abandonSel
  get('task-workflow-start').click();await flush();
  assert.equal(calls.filter(x=>x.path==='/api/tasks-workflow-start/55').length,0,
   'workflow launched without confirmation');
- assert.match(confirmationTexts.at(-1),/2–3 task độc lập/,
+ assert.match(confirmationTexts.at(-1),/2–4 task độc lập/,
   'confirmation hides bounded host-authorized parallel execution');
  assert.match(confirmationTexts.at(-1),/task tổng hợp chỉ chạy nếu mọi nhánh thành công/,
   'confirmation omitted fork/join dependency guarantee');

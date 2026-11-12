@@ -561,3 +561,63 @@ func TestRemoteLongTaskFiveStepSequentialEscapedE2EEBounds(t *testing.T){
   }
  }
 }
+
+
+// Four independently executing leaves plus their final root are represented
+// by a strict five-slot E2EE status. The parallel mode consumes additional
+// authenticated record space, so its maximal escaped output is 16 bytes.
+func TestRemoteLongTaskFiveStepParallelEscapedE2EEBounds(t *testing.T){
+ for _,character:=range []string{"<",">","&","\\","\"","\n","\t"}{
+  client,agent,_:=participants(t)
+  report:=RemoteLongTaskProgress{
+   TaskID:2147483647,Status:"completed",ExitCode:0,
+   Output:strings.Repeat(character,16),Truncated:true,More:true,
+   Step:5,StepTotal:5,Attempt:1,AttemptTotal:1,
+   StepStatus:"completed",StepHistory:"CCCCC",
+   StepDetails:"0:90000|0:90000|0:90000|0:90000|0:90000",Parallel:true,
+  }
+  frame,err:=SealRemoteLongTaskProgress(agent,testActionID,report)
+  if err!=nil{t.Fatalf("16-byte parallel five-step E2EE envelope overflow %q: %v",character,err)}
+  got,err:=OpenRemoteLongTaskProgress(client,frame,testActionID,report.TaskID)
+  if err!=nil||!got.Parallel||got.StepHistory!="CCCCC"||
+   got.Output!=report.Output||got.StepDetails!=report.StepDetails{
+   t.Fatalf("five-step parallel progress corrupted: %+v %v",got,err)
+  }
+  invalid:=report
+  invalid.Output=strings.Repeat(character,17)
+  if validLongTaskProgress(invalid){
+   t.Fatal("parallel five-step output bypassed 16-byte cap")
+  }
+ }
+ active:=RemoteLongTaskProgress{
+  TaskID:44,Status:"running",ExitCode:-1,
+  Step:4,StepTotal:5,Attempt:1,AttemptTotal:1,
+  StepStatus:"running",StepHistory:"RRRR-",
+  StepDetails:"-|-|-|-|-",Parallel:true,
+ }
+ if !validLongTaskProgress(active){
+  t.Fatalf("four overlapping E2EE leaves were denied: %+v",active)
+ }
+ client,agent,_:=participants(t)
+ frame,err:=SealRemoteLongTaskProgress(agent,testActionID,active)
+ if err!=nil{t.Fatal(err)}
+ got,err:=OpenRemoteLongTaskProgress(client,frame,testActionID,44)
+ if err!=nil||got.StepHistory!="RRRR-"||!got.Parallel{
+  t.Fatalf("live four-leaf E2EE state lost: %+v %v",got,err)
+ }
+ for label,change:=range map[string]func(*RemoteLongTaskProgress){
+  "missing mode":func(v *RemoteLongTaskProgress){v.Parallel=false},
+  "unapproved retry":func(v *RemoteLongTaskProgress){v.AttemptTotal=2},
+  "root already started":func(v *RemoteLongTaskProgress){v.StepHistory="RRRRR"},
+  "wrong state":func(v *RemoteLongTaskProgress){v.StepStatus="completed"},
+  "early aggregate success":func(v *RemoteLongTaskProgress){v.Status="completed";v.ExitCode=0},
+ }{
+  t.Run(label,func(t *testing.T){
+   bad:=active
+   change(&bad)
+   if validLongTaskProgress(bad){
+    t.Fatalf("forged parallel five-step state accepted: %+v",bad)
+   }
+  })
+ }
+}

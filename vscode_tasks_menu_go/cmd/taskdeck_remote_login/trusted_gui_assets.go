@@ -415,7 +415,7 @@ const trustedGUIJavaScript = `'use strict';
   let workflowAuditRows=[],workflowAuditMore=false,workflowAuditText='';
   let taskDepsPendingID=0,taskWorkflowReadyID=0;
   // A verified host dependency snapshot supplies display labels only.
-  // Once a workflow starts, freeze the <=4 step-to-Task.ID mapping:
+  // Once a workflow starts, freeze the <=5 step-to-Task.ID mapping:
   // refreshing/reordering the task list must not rename a running step.
   let preparedWorkflowSteps=null,activeWorkflowSteps=null;
   let inspectedTasks=new Map();
@@ -545,7 +545,7 @@ const trustedGUIJavaScript = `'use strict';
   function validParallelForkProgress(step,total,attempt,attemptTotal,
     state,history,status,parallel){
     if(parallel!==true)return false;
-    if(![3,4].includes(total)||step<1||step>=total||
+    if(![3,4,5].includes(total)||step<1||step>=total||
       attempt!==1||attemptTotal!==1||history.length!==total||
       history[total-1]!=='-'||state==='skipped'||
       status==='completed'||!/^[-RCFXT]+-$/.test(history)||
@@ -2481,7 +2481,7 @@ const trustedGUIJavaScript = `'use strict';
             }
             const parallelFork=validParallelForkProgress(step,stepTotal,
               attempt,attemptTotal,stepStatus,stepHistory,data.status,parallel);
-            if(parallel&&(![3,4].includes(stepTotal)||stepHistory===''||
+            if(parallel&&(![3,4,5].includes(stepTotal)||stepHistory===''||
               attempt!==1||attemptTotal!==1||stepStatus==='skipped'||
               (step<stepTotal&&!parallelFork))){
               throw new Error('Báo cáo workflow song song E2EE không hợp lệ');
@@ -2505,7 +2505,7 @@ const trustedGUIJavaScript = `'use strict';
              !['running','completed','skipped','failed','cancelled','timed_out'].includes(stepStatus)||
              ['started','cleared','cancel_requested'].includes(data.status)||
              !validTerminalOutput(data.output,
-               stepTotal===5?32:(parallel&&stepTotal===4?48:64)))){
+               parallel&&stepTotal===5?16:(stepTotal===5?32:(parallel&&stepTotal===4?48:64))))){
             throw new Error('Tiến độ bước workflow E2EE không hợp lệ');
           }
           if(!workflowProgress&&present.length&&
@@ -3537,9 +3537,9 @@ const trustedGUIJavaScript = `'use strict';
       !available.task_run||!available.task_long||budget<=4||
       longTaskID!==0||!Number.isInteger(id)||id<1||
       id!==taskWorkflowReadyID||!cachedTaskIDs.includes(id))return;
-    if(!window.confirm('Chạy tối đa 4 bước process theo thứ tự phụ thuộc trên host? '+
+    if(!window.confirm('Chạy tối đa 5 bước process theo thứ tự phụ thuộc trên host? '+
       'Các bước dependsOrder: sequence được chạy tuần tự. '+
-      'Chỉ khi host bật quyền parallel riêng, 2–3 task độc lập mới có thể '+
+      'Chỉ khi host bật quyền parallel riêng, 2–4 task độc lập mới có thể '+
       'chạy đồng thời, và task tổng hợp chỉ chạy nếu mọi nhánh thành công. '+
       'Workflow song song không hỗ trợ retry, timeout hoặc condition. '+
       'Không tự tiếp tục workflow sau gián đoạn; hãy kiểm tra audit trước '+
