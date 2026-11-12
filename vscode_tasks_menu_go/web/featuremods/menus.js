@@ -16,8 +16,8 @@ html[data-taskmenu-layout="mobile"] .autocomplete-diagnostics-setting input{min-
 #terminal-cwd[hidden],#env-profile[hidden],#env-profile-manage[hidden],
 #running-indicator-settings[hidden],#auth-mode-settings[hidden],#remote-access-settings[hidden],
 #tasks-json-editor[hidden],#edit-title[hidden],#self-update-check[hidden]{display:none!important}
-.taskmenu-menu{position:relative;display:inline-flex;align-items:center}.taskmenu-menu-trigger{white-space:nowrap;padding:2px 4px;border:0!important;border-radius:4px;background:transparent!important;font-size:11px}.taskmenu-menu-trigger:hover,.taskmenu-menu.open>.taskmenu-menu-trigger{background:#242a34!important}.taskmenu-menu-popover{display:none;position:absolute;top:calc(100% + 4px);right:0;z-index:1200;min-width:220px;max-width:min(440px,90vw);padding:5px;border:1px solid #3b414d;border-radius:7px;background:#171a20;box-shadow:0 10px 28px rgba(0,0,0,.35);gap:2px}.taskmenu-menu.open>.taskmenu-menu-popover{display:flex;flex-direction:column}.taskmenu-menu-popover>button{width:100%;text-align:left;border:0;background:transparent;border-radius:4px;padding:5px 7px}.taskmenu-menu-popover>button:hover:not(:disabled){background:#2b3440}.taskmenu-menu-popover>select{width:100%;text-align:left;padding:5px 7px}.taskmenu-menu-popover>.copy-console{margin-left:0;max-width:100%}.taskmenu-menu-popover>.appearance-controls{display:grid;grid-template-columns:1fr 1fr auto auto auto;gap:5px;align-items:center}.taskmenu-menu-popover .appearance-controls select,.taskmenu-menu-popover .appearance-controls button{width:auto}.taskmenu-menu-label{font-size:9px;font-weight:700;letter-spacing:.06em;opacity:.5;padding:3px 4px 1px}.self-update-branch-settings{display:flex;flex-direction:column;gap:5px;padding:4px 5px;font-size:11px}.self-update-branch-settings>.self-update-validation-setting{display:flex;align-items:center;gap:6px;white-space:normal}.self-update-branch-settings>.self-update-validation-setting input{margin:0}.self-update-branch-details{margin:0}.self-update-branch-details>summary{cursor:pointer;user-select:none}.self-update-branch-editor{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:5px 8px;align-items:center;padding-top:5px}.self-update-branch-editor>select{min-width:145px}.self-update-branch-editor>button{grid-column:2;width:100%}.self-update-branch-editor>.self-update-branch-status{grid-column:1/3;white-space:normal}.patch-ui-mode-control{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:8px;font-size:11px}.patch-ui-mode-control select{min-width:145px}.header-action-menus{display:flex;align-items:center;gap:1px;white-space:nowrap;margin-left:auto}.header-left-git,.header-action-menus .git-status-pill{margin:0;border:0!important;background:transparent!important;border-radius:4px;padding:2px 4px;font-size:10px;flex:0 0 auto}.header-left-git:hover,.header-action-menus .git-status-pill:hover{background:#242a34!important}.header-left-git.dirty,.header-action-menus .git-status-pill.dirty{color:#f0c66b}.header-left-git.clean,.header-action-menus .git-status-pill.clean{color:#83d69a}.pane-action-menus{display:flex;align-items:center;gap:1px;white-space:nowrap;margin-left:auto}.pane-action-menus .taskmenu-menu-popover{top:calc(100% + 2px)}.pane-action-menus .taskmenu-menu-trigger{padding:1px 4px;font-size:10px}.pane-action-menus .taskmenu-menu-popover button{font-size:11px;padding:4px 7px;border:0;background:transparent}.pane-action-menus .taskmenu-menu-popover .stop{color:#ffb2b7}.pane-action-menus .taskmenu-menu-popover .copy-console{color:#b9dcff}.pane-action-menus .taskmenu-menu-popover .console-search-btn{color:#d9cbff}.pane-action-menus .taskmenu-menu-popover .console-save-btn{color:#bfead0}.pane-action-menus .taskmenu-menu-popover .session-clear-console{color:#ffb8bd}
-html[data-taskmenu-theme="light"] .taskmenu-menu-trigger:hover,html[data-taskmenu-theme="light"] .taskmenu-menu.open>.taskmenu-menu-trigger{background:#e8edf3!important}html[data-taskmenu-theme="light"] .taskmenu-menu-popover{background:#fff;border-color:#b9c0c8;box-shadow:0 10px 28px rgba(0,0,0,.15)}html[data-taskmenu-theme="light"] .taskmenu-menu-popover>button:hover:not(:disabled){background:#edf2f7}html[data-taskmenu-theme="light"] .pane-action-menus .taskmenu-menu-popover .copy-console{color:#194b78}html[data-taskmenu-theme="light"] .pane-action-menus .taskmenu-menu-popover .console-search-btn{color:#493b78}html[data-taskmenu-theme="light"] .pane-action-menus .taskmenu-menu-popover .console-save-btn{color:#23583b}html[data-taskmenu-theme="light"] .pane-action-menus .taskmenu-menu-popover .session-clear-console{color:#7b3037}
+.taskmenu-menu{position:relative;display:inline-flex;align-items:center}.taskmenu-menu-trigger{white-space:nowrap;padding:2px 4px;border:0!important;border-radius:4px;background:transparent!important;font-size:11px}.taskmenu-menu-trigger:hover,.taskmenu-menu.open>.taskmenu-menu-trigger{background:#242a34!important}.taskmenu-menu-popover{display:none;position:absolute;top:calc(100% + 4px);right:0;z-index:1200;min-width:220px;max-width:min(440px,90vw);padding:5px;border:1px solid #3b414d;border-radius:7px;background:#171a20;box-shadow:0 10px 28px rgba(0,0,0,.35);gap:2px}.taskmenu-menu.open>.taskmenu-menu-popover{display:flex;flex-direction:column}.taskmenu-menu-popover>button{width:100%;text-align:left;border:0;background:transparent;border-radius:4px;padding:5px 7px}.taskmenu-menu-popover>button:hover:not(:disabled){background:#2b3440}.taskmenu-menu-popover>select{width:100%;text-align:left;padding:5px 7px}.taskmenu-menu-popover>.copy-console{margin-left:0;max-width:100%}.taskmenu-menu-popover>.appearance-controls{display:grid;grid-template-columns:1fr 1fr auto auto auto;gap:5px;align-items:center}.taskmenu-menu-popover .appearance-controls select,.taskmenu-menu-popover .appearance-controls button{width:auto}.taskmenu-menu-label{font-size:9px;font-weight:700;letter-spacing:.06em;opacity:.5;padding:3px 4px 1px}.self-update-branch-settings{display:flex;flex-direction:column;gap:5px;padding:4px 5px;font-size:11px}.self-update-branch-settings>.self-update-validation-setting{display:flex;align-items:center;gap:6px;white-space:normal}.self-update-branch-settings>.self-update-validation-setting input{margin:0}.self-update-branch-details{margin:0}.self-update-branch-details>summary{cursor:pointer;user-select:none}.self-update-branch-editor{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:5px 8px;align-items:center;padding-top:5px}.self-update-branch-editor>select{min-width:145px}.self-update-branch-editor>button{grid-column:2;width:100%}.self-update-branch-editor>.self-update-branch-status{grid-column:1/3;white-space:normal}.patch-ui-mode-control{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:8px;font-size:11px}.patch-ui-mode-control select{min-width:145px}.header-action-menus{display:flex;align-items:center;gap:1px;white-space:nowrap;margin-left:auto}.header-left-git,.header-action-menus .git-status-pill{margin:0;border:0!important;background:transparent!important;border-radius:4px;padding:2px 4px;font-size:10px;flex:0 0 auto}.header-left-git:hover,.header-action-menus .git-status-pill:hover{background:#242a34!important}.header-left-git.dirty,.header-action-menus .git-status-pill.dirty{color:#f0c66b}.header-left-git.clean,.header-action-menus .git-status-pill.clean{color:#83d69a}.pane-action-menus{display:flex;align-items:center;gap:1px;white-space:nowrap;margin-left:auto}.pane-action-menus .taskmenu-menu-popover{top:calc(100% + 2px)}.pane-action-menus .taskmenu-menu-trigger{padding:1px 4px;font-size:10px}.pane-action-menus .taskmenu-menu-popover button{font-size:11px;padding:4px 7px;border:0;background:transparent}.pane-action-menus .taskmenu-menu-popover .stop{color:#ffb2b7}.pane-action-menus .taskmenu-menu-popover .copy-console,.pane-action-menus .taskmenu-menu-popover .broadcast-copy-console{color:#b9dcff}.pane-action-menus .taskmenu-menu-popover .console-search-btn{color:#d9cbff}.pane-action-menus .taskmenu-menu-popover .console-save-btn{color:#bfead0}.pane-action-menus .taskmenu-menu-popover .session-clear-console{color:#ffb8bd}
+html[data-taskmenu-theme="light"] .taskmenu-menu-trigger:hover,html[data-taskmenu-theme="light"] .taskmenu-menu.open>.taskmenu-menu-trigger{background:#e8edf3!important}html[data-taskmenu-theme="light"] .taskmenu-menu-popover{background:#fff;border-color:#b9c0c8;box-shadow:0 10px 28px rgba(0,0,0,.15)}html[data-taskmenu-theme="light"] .taskmenu-menu-popover>button:hover:not(:disabled){background:#edf2f7}html[data-taskmenu-theme="light"] .pane-action-menus .taskmenu-menu-popover .copy-console,html[data-taskmenu-theme="light"] .pane-action-menus .taskmenu-menu-popover .broadcast-copy-console{color:#194b78}html[data-taskmenu-theme="light"] .pane-action-menus .taskmenu-menu-popover .console-search-btn{color:#493b78}html[data-taskmenu-theme="light"] .pane-action-menus .taskmenu-menu-popover .console-save-btn{color:#23583b}html[data-taskmenu-theme="light"] .pane-action-menus .taskmenu-menu-popover .session-clear-console{color:#7b3037}
 `;
 document.head.append(style);
 
@@ -177,6 +177,84 @@ function installHeaderMenus(){
   return true;
 }
 
+const BROADCAST_COPY_LABEL='📋 Copy broadcast group console';
+
+function broadcastConsoleGroup(view){
+  if(app.sharedMode||!view||view.closed||!view.meta?.id)return null;
+  return globalThis.TaskMenuBroadcast?.groupForSession?.(view.meta.id)||null;
+}
+
+// Copy the same complete xterm scrollback as the single-terminal Copy console.
+// Group assignment, not the global broadcast input mode, controls membership.
+function broadcastGroupConsolePayload(view){
+  const group=broadcastConsoleGroup(view);
+  if(!group)return null;
+  const assignments=globalThis.TaskMenuBroadcast?.state?.assignments||{};
+  const members=[];
+  for(const candidate of app.views.values()){
+    if(!candidate||candidate.closed||!candidate.term||!candidate.meta?.id)continue;
+    if(assignments[candidate.meta.id]!==group.id)continue;
+    members.push(candidate);
+  }
+  if(!members.some(candidate=>candidate.meta.id===view.meta.id))return null;
+  let hasOutput=false;
+  const sections=members.map(candidate=>{
+    const content=String(app.consoleText(candidate)||'');
+    if(content)hasOutput=true;
+    const label=String(candidate.meta.label||'Terminal').replace(/[\r\n]+/g,' ').trim();
+    return '===== '+label+' ['+candidate.meta.id+'] =====\n'+content;
+  });
+  const name=String(group.name||group.id).replace(/[\r\n]+/g,' ').trim();
+  return {text:hasOutput?'Broadcast group: '+name+'\n\n'+sections.join('\n\n'):'',count:members.length};
+}
+
+function broadcastCopyFeedback(button,message){
+  clearTimeout(button.copyTimer);
+  button.textContent=message;
+  button.copyTimer=setTimeout(()=>{if(button.isConnected)button.textContent=BROADCAST_COPY_LABEL;},1500);
+}
+
+async function copyBroadcastGroupConsole(view,button){
+  const payload=broadcastGroupConsolePayload(view);
+  if(!payload){broadcastCopyFeedback(button,'No broadcast group');return;}
+  if(!payload.text){broadcastCopyFeedback(button,'Group consoles are empty');return;}
+  let copied=false;
+  if(navigator.clipboard&&window.isSecureContext){
+    try{await navigator.clipboard.writeText(payload.text);copied=true;}catch{}
+  }
+  if(!copied){
+    const area=document.createElement('textarea');
+    area.value=payload.text;area.setAttribute('readonly','');area.style.position='fixed';area.style.left='-9999px';area.style.top='0';
+    document.body.append(area);area.select();
+    try{copied=document.execCommand('copy');}finally{area.remove();}
+  }
+  if(!copied)throw new Error('Cannot copy broadcast group consoles to clipboard');
+  broadcastCopyFeedback(button,'✓ Copied '+payload.count+' consoles');
+}
+
+function updateBroadcastCopyButton(view){
+  const button=view?.pane?.querySelector('.broadcast-copy-console');
+  if(!button)return;
+  const group=broadcastConsoleGroup(view);
+  button.disabled=!group;
+  button.title=group?'Copy the console output of every terminal in broadcast group "'+group.name+'"':'Assign this terminal to a broadcast group first';
+}
+function ensureBroadcastCopyButton(view){
+  const copy=view?.pane?.querySelector('.copy-console');
+  if(!copy)return;
+  if(!view.pane.querySelector('.broadcast-copy-console')){
+    const button=document.createElement('button');
+    button.type='button';button.className='broadcast-copy-console';
+    button.textContent=BROADCAST_COPY_LABEL;
+    button.onclick=()=>copyBroadcastGroupConsole(view,button).catch(app.showError);
+    copy.after(button);
+  }
+  updateBroadcastCopyButton(view);
+}
+window.addEventListener('taskmenu:broadcast-state',()=>{
+  for(const view of app.views.values())updateBroadcastCopyButton(view);
+});
+
 function paneMenu(view,label,selectorPairs){
   const made=makeMenu(label,label+' actions');let count=0;
   for(const [section,selectors] of selectorPairs){const nodes=selectors.map(selector=>view.pane.querySelector(selector)).filter(Boolean);if(addSection(made.pop,section,nodes))count+=nodes.length;}
@@ -185,6 +263,7 @@ function paneMenu(view,label,selectorPairs){
 
 function decoratePane(view){
   const head=view?.pane?.querySelector('.pane-head');if(!head||head.querySelector('.pane-action-menus'))return;
+  ensureBroadcastCopyButton(view);
   const host=document.createElement('div');host.className='pane-action-menus';
   const session=paneMenu(view,'Session',[
     ['PROCESS',['.terminal-command-palette','.session-clone','.session-force-restart','.session-restart-here-clear','.session-restart-here-keep','.terminal-rename','.session-process-tree']],
@@ -192,7 +271,7 @@ function decoratePane(view){
     ['LIFECYCLE',['.stop','.session-terminate','.session-force-kill']]
   ]);
   const consoleMenu=paneMenu(view,'Console',[
-    ['CONSOLE',['.copy-console','.console-search-btn','.console-search-all-btn','.console-save-btn','.session-clear-console']]
+    ['CONSOLE',['.copy-console','.broadcast-copy-console','.console-search-btn','.console-search-all-btn','.console-save-btn','.session-clear-console']]
   ]);
   if(session)host.append(session);if(consoleMenu)host.append(consoleMenu);
   if(host.childElementCount)head.append(host);

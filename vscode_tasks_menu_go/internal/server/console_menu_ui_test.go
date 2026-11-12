@@ -19,8 +19,8 @@ func mustEmbeddedAsset(t *testing.T, path string) string {
 func TestConsoleMenuOrderIconsColorsAndClearConfirmation(t *testing.T) {
 	menus := mustEmbeddedAsset(t, "featuremods/menus.js")
 	for _, want := range []string{
-		"['CONSOLE',['.copy-console','.console-search-btn','.console-search-all-btn','.console-save-btn','.session-clear-console']]",
-		".pane-action-menus .taskmenu-menu-popover .copy-console{color:",
+		"['CONSOLE',['.copy-console','.broadcast-copy-console','.console-search-btn','.console-search-all-btn','.console-save-btn','.session-clear-console']]",
+		".pane-action-menus .taskmenu-menu-popover .copy-console,.pane-action-menus .taskmenu-menu-popover .broadcast-copy-console{color:",
 		".pane-action-menus .taskmenu-menu-popover .console-search-btn{color:",
 		".pane-action-menus .taskmenu-menu-popover .console-save-btn{color:",
 		".pane-action-menus .taskmenu-menu-popover .session-clear-console{color:",
@@ -52,6 +52,24 @@ func TestConsoleMenuOrderIconsColorsAndClearConfirmation(t *testing.T) {
 	}
 }
 
+
+
+func TestBroadcastConsoleCopyIsScopedToAssignedGroup(t *testing.T) {
+  menus := mustEmbeddedAsset(t, "featuremods/menus.js")
+  for _, want := range []string{
+    "📋 Copy broadcast group console",
+    "function broadcastGroupConsolePayload(view)",
+    "assignments[candidate.meta.id]!==group.id",
+    "app.consoleText(candidate)",
+    "navigator.clipboard.writeText(payload.text)",
+    "document.execCommand('copy')",
+    "taskmenu:broadcast-state",
+  } {
+    if !strings.Contains(menus, want) {
+      t.Fatalf("menus.js missing broadcast group copy behavior %q", want)
+    }
+  }
+}
 
 func TestConsoleFindShortcutDoesNotStealProjectSearchShortcut(t *testing.T) {
 	all := mustEmbeddedAsset(t, "featuremods/all.js")
