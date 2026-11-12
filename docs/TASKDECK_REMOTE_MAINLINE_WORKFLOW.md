@@ -1181,3 +1181,44 @@ real-host testing are considered **code complete**.
 - Chức năng Long Task vì thế hoàn tất về code trong trường hợp
   host thu hồi quyền giữa chừng. DAG nhiều tầng/song song kết hợp
   và secret input vẫn chưa hoàn tất, LIVE production vẫn NO-GO.
+
+
+## 2026-11-12 — Task Remote GUI: một bước tuần tự rồi fork/join (4–5 bước)
+
+- Mở rộng **một shape DAG được giới hạn chặt**: một Task process
+  chuẩn bị trước (`Prepare`), 2 hoặc 3 Task process con cùng phụ thuộc
+  `Prepare`, và đúng một Task process tổng hợp có
+  `dependsOrder: "parallel"` và phụ thuộc vào tất cả con.
+  Thứ tự được thực thi: chuẩn bị **hoàn tất thành công** → 2–3
+  con chạy đồng thời → toàn bộ con thành công → tổng hợp.
+  Không có DAG nhiều tầng khác, nested fanout, child có retry,
+  timeout, condition, secret hoặc shell interpreter.
+- Bổ sung host flag **`TASKDECK_REMOTE_TASKS_WORKFLOW_PREFIX=1`**
+  riêng biệt, mặc định tắt. Ngoài cờ này, host vẫn phải bật đầy đủ
+  opt-in của workflow và `TASKDECK_REMOTE_TASKS_WORKFLOW_PARALLEL=1`.
+  Các repo/host chỉ bật cờ song song cũ không tự nhận quyền chạy
+  thêm shape mới.
+- Xác minh đồ thị ở host bằng nhãn `dependsOn`, `dependsOrder`,
+  toàn bộ Task.ID và exact edges đã phát cho phiên E2EE. Client
+  tiếp tục chỉ gửi ID của root; không có command/argv/cwd/env/
+  graph do trình duyệt chọn. Giữ tổng số bước 4–5, tối đa 3 worker
+  đồng thời ở shape này, quota và 90-second job deadline.
+- Prelude được preflight trước khi bắt đầu, có durable attempted audit
+  và xác minh lại source/exec/env/cwd sau audit; watchdog giám sát
+  TasksRun và cả hai cờ host khi đang chạy, hủy process-group nếu
+  thu hồi quyền. Prelude failed/cancelled thì không ghi attempted
+  cho child/root và không chạy những task đó.
+- Các worker vẫn sử dụng audit barrier và prelaunch revalidation
+  nguyên gốc, cùng một watcher quyền và fail-fast; root chỉ chạy
+  sau khi tất cả child kết thúc thành công. Bản ghi E2EE tiến độ
+  giữ nguyên `parallel=true`, lịch sử `CRR-` hoặc `CRRR-`,
+  với 48-byte cap cho tổng 4 bước và 16-byte cap cho 5 bước.
+  Native GUI lấy đúng **số nhánh song song** từ indegree root
+  của graph đã được xác thực thay vì mặc định `stepTotal-1`.
+- Regression `-race`: cả hai shape 2/3 worker chạy thực tế,
+  E2EE final progress, thiếu opt-in prefix, bước chuẩn bị thất
+  bại, thu hồi opt-in trong lúc bước chuẩn bị chạy, đổi tasks.json
+  sau attempted audit; Node browser test graph 5-node 6-edge;
+  workflow/Go CI vẫn tiếp tục kiểm tra flat fork.
+- Chỉ tính là hoàn tất code sau khi CI pass. LIVE production vẫn
+  `remote_control_available=false`, không tự kích hoạt.

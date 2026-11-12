@@ -277,3 +277,32 @@ file lớn, Terminal/PTY, Patch/Collection hay trình duyệt Remote live**.
 `remote_control_available=false` và quyết định release **NO-GO**
 không thay đổi. Không bật các cờ thử nghiệm trên triển khai Internet thật
 chỉ vì kiểm thử unit/CI thành công.
+
+
+## Thử nghiệm workflow có bước chuẩn bị trước khi chạy song song (chỉ development)
+
+Trong Agent Go, một loại workflow Task mới có dạng **1 process chuẩn bị → 2–3 process chạy song song → 1 process tổng hợp**. Cấu hình host phải bật riêng:
+
+```sh
+TASKDECK_REMOTE_TASKS_WORKFLOW_PREFIX=1
+```
+
+Đây **không** phải cờ tự bật Remote Control. Nó chỉ có hiệu lực khi host đã cho phép Task preview, Task run, long Task, dependency workflow và parallel workflow thông qua các cờ `TASKDECK_REMOTE_TASKS_PREVIEW`, `TASKDECK_REMOTE_TASKS_RUN`, `TASKDECK_REMOTE_TASKS_LONG`, `TASKDECK_REMOTE_TASKS_DEPS`, `TASKDECK_REMOTE_TASKS_WORKFLOW_RUN` và `TASKDECK_REMOTE_TASKS_WORKFLOW_PARALLEL` (đều bằng `1`), cùng quyền `TasksRun` và phiên E2EE hợp lệ.
+
+Cấu trúc `.vscode/tasks.json` do **host quản trị**, ví dụ:
+
+```json
+{
+  "tasks": [
+    {"label":"Prepare","type":"process","command":"/bin/echo","args":["ready"]},
+    {"label":"Check A","type":"process","command":"/bin/echo","args":["A"],"dependsOn":"Prepare"},
+    {"label":"Check B","type":"process","command":"/bin/echo","args":["B"],"dependsOn":"Prepare"},
+    {"label":"Join","type":"process","command":"/bin/echo","args":["done"],
+     "dependsOn":["Check A","Check B"],"dependsOrder":"parallel"}
+  ]
+}
+```
+
+TaskDeck chỉ chạy các executable/native process được chính sách host chấp thuận; ví dụ phải được thẩm định lại theo chính sách executable của workspace trước khi chạy. Nếu tắt `TASKDECK_REMOTE_TASKS_WORKFLOW_PREFIX` trong khi `Prepare` còn chạy, Agent sẽ hủy process group và không chạy các bước phụ thuộc.
+
+**LIVE NO-GO** vẫn có hiệu lực: `remote_control_available=false`, không dùng những cờ này để phát hành điều khiển từ xa cho production.

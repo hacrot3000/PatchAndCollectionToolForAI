@@ -376,6 +376,11 @@ async function assertGraphValidation(graph,description,accepted=false,abandonSel
   edges:[[11,22],[22,33],[33,44],[44,55],[22,55]]
  },'host-approved five-step sequential DAG',true);
  await assertGraphValidation({
+  available:true,run_available:true,
+  order:[11,22,33,44,55],
+  edges:[[11,22],[11,33],[11,44],[22,55],[33,55],[44,55]]
+ },'host-approved serial prelude then three-way parallel join',true);
+ await assertGraphValidation({
   available:false,run_available:true,order:[],edges:[]
  },'false available with true run flag');
  await assertGraphValidation({

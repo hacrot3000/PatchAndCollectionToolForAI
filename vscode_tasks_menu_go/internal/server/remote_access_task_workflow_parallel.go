@@ -54,6 +54,72 @@ func remoteParallelHostConsent(session *remoteTaskDeckSession)bool{
   remoteWorkflowHostExecutionEnabled()&&
   os.Getenv("TASKDECK_REMOTE_TASKS_WORKFLOW_PARALLEL")=="1"
 }
+func remoteParallelWorkflowConsent(session *remoteTaskDeckSession,prefix int)bool{
+ return remoteParallelHostConsent(session)&&
+  (prefix==0||(prefix==1&&
+   os.Getenv("TASKDECK_REMOTE_TASKS_WORKFLOW_PREFIX")=="1"))
+}
+
+// A serial prerequisite uses the same per-process audit/revalidation and
+// process-group cleanup as a parallel worker, but must finish BEFORE any
+// sibling receives an attempted audit. No browser-provided task is accepted.
+func(s *Server)runRemoteParallelPrelude(ctx context.Context,
+ session *remoteTaskDeckSession,job *remoteLongTaskJob,
+ step remoteWorkflowStep,prepared remoteParallelPrepared,hash [32]byte,
+ total int)(string,int){
+ if ctx.Err()!=nil||!remoteParallelWorkflowConsent(session,1){
+  return "cancelled",-1
+ }
+ if err:=s.auditRemoteWorkflowStep(session,job.taskID,step.taskID,
+  1,total,1,job.workflowRunID,"attempted",-1);err!=nil{
+  return "failed",-1
+ }
+ verified,err:=s.prepareRemoteParallelStep(ctx,session,step,hash)
+ if err!=nil||!remoteParallelSameExecution(verified,prepared)||
+  !remoteParallelWorkflowConsent(session,1){
+  status:="failed"
+  if !remoteParallelWorkflowConsent(session,1){status="cancelled"}
+  if s.auditRemoteWorkflowStep(session,job.taskID,step.taskID,
+   1,total,1,job.workflowRunID,status,-1)!=nil{status="failed"}
+  job.updateWorkflowStep(1,total,1,1,status,-1,0)
+  return status,-1
+ }
+ childCtx,cancel:=context.WithCancel(ctx)
+ defer cancel()
+ var revoked atomic.Bool
+ stop:=make(chan struct{})
+ done:=make(chan struct{})
+ go func(){
+  defer close(done)
+  flagTicker:=time.NewTicker(100*time.Millisecond)
+  defer flagTicker.Stop()
+  permissionTicker:=time.NewTicker(500*time.Millisecond)
+  defer permissionTicker.Stop()
+  for{
+   select{
+   case <-stop:return
+   case <-childCtx.Done():return
+   case <-flagTicker.C:
+    if !remoteParallelWorkflowConsent(session,1){
+     revoked.Store(true);cancel();return
+    }
+   case <-permissionTicker.C:
+    checkCtx,finish:=context.WithTimeout(childCtx,2*time.Second)
+    allowed:=s.remoteWorkflowLocalRunAllowed(checkCtx,session)
+    finish()
+    if !allowed{revoked.Store(true);cancel();return}
+   }
+  }
+ }()
+ status,code:=s.executeRemoteParallelPrepared(
+  childCtx,session,job,step,verified,1,total,true)
+ close(stop);<-done
+ if revoked.Load()||!remoteParallelWorkflowConsent(session,1){
+  return "cancelled",-1
+ }
+ return status,code
+}
+
 
 // Prepare every sibling before ANY parallel child starts. If one task's
 // source, executable, role or host consent changed, fail the whole join.
@@ -90,11 +156,12 @@ func(s *Server)prepareRemoteParallelStep(ctx context.Context,
 func(s *Server)executeRemoteParallelPrepared(ctx context.Context,
  session *remoteTaskDeckSession,job *remoteLongTaskJob,
  step remoteWorkflowStep,prepared remoteParallelPrepared,
- index,total int)(string,int){
+ index,total int,prefixRequired bool)(string,int){
  result,exitCode:="failed",-1
  if ctx.Err()!=nil||session.closed.Load()||
-  !remoteWorkflowHostExecutionEnabled()||
-  os.Getenv("TASKDECK_REMOTE_TASKS_WORKFLOW_PARALLEL")!="1"{
+  !remoteParallelWorkflowConsent(session,func()int{
+   if prefixRequired{return 1};return 0
+  }()){
   result="cancelled"
   _=s.auditRemoteWorkflowStep(session,job.taskID,step.taskID,index,total,
    1,job.workflowRunID,result,-1)
@@ -127,7 +194,8 @@ func(s *Server)executeRemoteParallelPrepared(ctx context.Context,
  result="completed"
  if errors.Is(ctx.Err(),context.DeadlineExceeded){result="timed_out"
  }else if ctx.Err()!=nil||session.closed.Load(){result="cancelled"
- }else if !s.remoteWorkflowPostExitAuthorized(ctx,session,step,1,true){
+ }else if !s.remoteWorkflowPostExitAuthorized(ctx,session,step,1,true)||
+  (prefixRequired&&!remoteParallelWorkflowConsent(session,1)){
   // A sibling/root may have exited in the gap before the 500ms watcher.
   // Deny any subsequent root and never record a false completed result.
   result="cancelled";exitCode=-1
@@ -162,19 +230,32 @@ func(s *Server)runRemoteParallelJoinWorkflow(ctx context.Context,
   job.publishCompletion(status,exitCode)
   job.cancel()
  }()
- if len(plan)<3||len(plan)>remoteWorkflowMaxSteps||
-  !plan[len(plan)-1].parallelJoin||
-  os.Getenv("TASKDECK_REMOTE_TASKS_WORKFLOW_PARALLEL")!="1"{
+ if len(plan)<3||len(plan)>remoteWorkflowMaxSteps{
   status="failed";exitCode=-1;return
  }
- leafCount:=len(plan)-1
- prepared:=make([]remoteParallelPrepared,leafCount)
- for i:=0;i<leafCount;i++{
+ prefixCount:=plan[len(plan)-1].parallelPrefix
+ if !plan[len(plan)-1].parallelJoin||
+  (prefixCount!=0&&prefixCount!=1)||
+  len(plan)-1-prefixCount<2||
+  !remoteParallelWorkflowConsent(session,prefixCount){
+  status="failed";exitCode=-1;return
+ }
+ leafCount:=len(plan)-1-prefixCount
+ prepared:=make([]remoteParallelPrepared,len(plan)-1)
+ for i:=0;i<len(prepared);i++{
   item,err:=s.prepareRemoteParallelStep(ctx,session,plan[i],hash)
   if err!=nil{
    status="failed";exitCode=-1;return
   }
   prepared[i]=item
+ }
+ if prefixCount==1{
+  status,exitCode=s.runRemoteParallelPrelude(ctx,session,job,plan[0],
+   prepared[0],hash,len(plan))
+  if status!="completed"{return}
+  if !remoteParallelWorkflowConsent(session,prefixCount){
+   status="cancelled";exitCode=-1;return
+  }
  }
  // Strict audit barrier: no sibling process starts until ALL attempted
  // rows have been durably written for this unique workflow run.
@@ -185,17 +266,16 @@ func(s *Server)runRemoteParallelJoinWorkflow(ctx context.Context,
  finishUnlaunched:=func(result string){
   for i:=0;i<attempted;i++{
    // A failed final audit still fails closed: no process was launched.
-   if err:=s.auditRemoteWorkflowStep(session,job.taskID,plan[i].taskID,
-    i+1,len(plan),1,job.workflowRunID,result,-1);err!=nil{
+   index:=prefixCount+i
+   if err:=s.auditRemoteWorkflowStep(session,job.taskID,plan[index].taskID,
+    index+1,len(plan),1,job.workflowRunID,result,-1);err!=nil{
     status="failed"
    }
-   job.updateWorkflowStep(i+1,len(plan),1,1,result,-1,0)
+   job.updateWorkflowStep(index+1,len(plan),1,1,result,-1,0)
   }
  }
- for i:=0;i<leafCount;i++{
-  if ctx.Err()!=nil||session.closed.Load()||
-   !remoteWorkflowHostExecutionEnabled()||
-   os.Getenv("TASKDECK_REMOTE_TASKS_WORKFLOW_PARALLEL")!="1"{
+ for i:=prefixCount;i<prefixCount+leafCount;i++{
+  if ctx.Err()!=nil||!remoteParallelWorkflowConsent(session,prefixCount){
    status="cancelled";exitCode=-1
    finishUnlaunched(status)
    return
@@ -213,13 +293,12 @@ func(s *Server)runRemoteParallelJoinWorkflow(ctx context.Context,
  // database write. Recheck ALL siblings *after* the audit barrier and
  // *before* starting ANY process, so one stale dependency cannot begin
  // while its peer fails final preflight.
- for i:=0;i<leafCount;i++{
+ for i:=prefixCount;i<prefixCount+leafCount;i++{
   verified,err:=s.prepareRemoteParallelStep(ctx,session,plan[i],hash)
   if err!=nil||!remoteParallelSameExecution(verified,prepared[i]){
    status="failed";exitCode=-1
    if ctx.Err()!=nil||session.closed.Load()||
-    !remoteWorkflowHostExecutionEnabled()||
-    os.Getenv("TASKDECK_REMOTE_TASKS_WORKFLOW_PARALLEL")!="1"{
+    !remoteParallelWorkflowConsent(session,prefixCount){
     status="cancelled"
    }
    finishUnlaunched(status)
@@ -262,7 +341,7 @@ func(s *Server)runRemoteParallelJoinWorkflow(ctx context.Context,
      return
     }
    case <-ticker.C:
-    if !remoteParallelHostConsent(session){
+    if !remoteParallelWorkflowConsent(session,prefixCount){
      hostRevoked.Store(true)
      cancelSibling()
      return
@@ -272,10 +351,10 @@ func(s *Server)runRemoteParallelJoinWorkflow(ctx context.Context,
  }()
  defer func(){close(stopWatch);<-watchDone}()
  outcomes:=make(chan outcome,leafCount)
- for i:=0;i<leafCount;i++{
+ for i:=prefixCount;i<prefixCount+leafCount;i++{
   go func(index int){
    state,code:=s.executeRemoteParallelPrepared(siblingCtx,session,job,
-    plan[index],prepared[index],index+1,len(plan))
+    plan[index],prepared[index],index+1,len(plan),prefixCount==1)
    outcomes<-outcome{status:state,code:code}
   }(i)
  }
@@ -290,7 +369,7 @@ func(s *Server)runRemoteParallelJoinWorkflow(ctx context.Context,
    cancelSibling()
   }
  }
- if hostRevoked.Load()||!remoteParallelHostConsent(session){
+ if hostRevoked.Load()||!remoteParallelWorkflowConsent(session,prefixCount){
   status="cancelled";exitCode=-1
   _,_=captureWorkflowText(job.capture,
    "[TaskDeck workflow] Parallel host consent revoked; workers stopped\n")
@@ -311,7 +390,7 @@ func(s *Server)runRemoteParallelJoinWorkflow(ctx context.Context,
  verified,err:=s.prepareRemoteParallelStep(ctx,session,plan[rootIndex],hash)
  if err!=nil||!remoteParallelSameExecution(verified,root){
   status="failed";exitCode=-1
-  if ctx.Err()!=nil||!remoteParallelHostConsent(session){
+  if ctx.Err()!=nil||!remoteParallelWorkflowConsent(session,prefixCount){
    status="cancelled"
   }
   result:=status
@@ -331,8 +410,8 @@ func(s *Server)runRemoteParallelJoinWorkflow(ctx context.Context,
  // Cancelling only siblingCtx while the root uses ctx would allow an
  // already-running root to ignore host-side privilege revocation.
  status,exitCode=s.executeRemoteParallelPrepared(siblingCtx,session,job,
-  plan[rootIndex],verified,len(plan),len(plan))
- if hostRevoked.Load(){
+  plan[rootIndex],verified,len(plan),len(plan),prefixCount==1)
+ if hostRevoked.Load()||!remoteParallelWorkflowConsent(session,prefixCount){
   status="cancelled";exitCode=-1
   _,_=captureWorkflowText(job.capture,
    "[TaskDeck workflow] Parallel host consent revoked; root stopped\n")

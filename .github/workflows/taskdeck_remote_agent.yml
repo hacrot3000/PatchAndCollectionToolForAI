@@ -171,6 +171,9 @@ jobs:
       - name: Preflight five-step sequential and four-leaf parallel E2EE DAGs
         working-directory: vscode_tasks_menu_go
         run: go test -race ./internal/remotetransport ./internal/server -run 'TestRemote(LongTaskFiveStep(Sequential|Parallel)EscapedE2EEBounds|TaskDependenciesSequentialDAGCodecBounds|Workflow(FiveStepSequentialJoinE2EE|FourParallelLeavesSingleJoin|ChunkLimitSameAcrossPollPaths))' -count=1 -timeout=90s
+      - name: Preflight serial prelude and parallel join with independently revoked host opt-in
+        working-directory: vscode_tasks_menu_go
+        run: go test -race ./internal/server -run 'TestRemoteWorkflow(SerialPreludeThenParallelJoin|ParallelPrefix(RequiresExtraHostOptIn|FailureStopsAllBranches|LiveOptOutStopsPrerequisite|AuditDriftStopsBeforeExecution))' -count=1 -timeout=90s
       - name: Verify ID-only linear workflow execution, failure, cancellation and audit
         working-directory: vscode_tasks_menu_go
         run: go test -race ./internal/server -run 'TestRemoteWorkflow' -count=1 -timeout=150s

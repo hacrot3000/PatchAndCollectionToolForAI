@@ -418,6 +418,9 @@ const trustedGUIJavaScript = `'use strict';
   // Once a workflow starts, freeze the <=5 step-to-Task.ID mapping:
   // refreshing/reordering the task list must not rename a running step.
   let preparedWorkflowSteps=null,activeWorkflowSteps=null;
+  // Trusted graph metadata is DISPLAY ONLY: root indegree determines
+  // whether an opted-in serial prefix preceded the parallel leaves.
+  let activeWorkflowLeaves=0;
   let inspectedTasks=new Map();
   // Transient, local-only drafts survive pagination, sorting and job polls.
   // Never retain them across a new host snapshot, re-inspection or logout.
@@ -1474,6 +1477,7 @@ const trustedGUIJavaScript = `'use strict';
   function clearPrivateViews(){
     taskWorkflowReadyID=0;taskDepsPendingID=0;
     preparedWorkflowSteps=null;activeWorkflowSteps=null;
+    activeWorkflowLeaves=0;
     taskDepsSelect.replaceChildren();taskDepsSelect.value='';
     taskDepsOutput.textContent='';taskDepsOutput.hidden=true;
     tasksReportOutput.textContent='';tasksReportOutput.hidden=true;
@@ -2253,6 +2257,7 @@ const trustedGUIJavaScript = `'use strict';
           // browser-controlled task arguments in the E2EE start request.
           preparedWorkflowSteps=taskWorkflowReadyID?{
             root:id,
+            leaves:edges.filter(e=>e[1]===id).length,
             steps:order.map(stepID=>{
               const known=cachedTaskIDs.indexOf(stepID);
               return {id:stepID,
@@ -2622,6 +2627,9 @@ const trustedGUIJavaScript = `'use strict';
           }
           if(launching){
             longTaskShape=null;
+            activeWorkflowLeaves=prefix==='/api/tasks-workflow-start/'&&
+              preparedWorkflowSteps&&preparedWorkflowSteps.root===id?
+              preparedWorkflowSteps.leaves:0;
             activeWorkflowSteps=prefix==='/api/tasks-workflow-start/'&&
               preparedWorkflowSteps&&preparedWorkflowSteps.root===id?
               preparedWorkflowSteps.steps.map(node=>({id:node.id,label:node.label})):null;
@@ -2664,9 +2672,11 @@ const trustedGUIJavaScript = `'use strict';
             'Bước '+String(i+1)+' → Task #'+String(node.id)+
             (node.label?' · '+node.label:'')).join(' | '):'';
           const currentStepNode=verifiedStepMap?verifiedStepMap[step-1]:null;
+          const parallelDescription=parallel?
+            ' · '+String(activeWorkflowLeaves||stepTotal-1)+' nhánh song song':'';
           const workflowReport=stepHistory?
             'Workflow Task #'+String(id)+' · '+data.status+
-            (parallel?' · '+String(stepTotal-1)+' nhánh song song':'')+'\n'+
+            parallelDescription+'\n'+
             Array.from(stepHistory).map((code,i)=>{
               const node=verifiedStepMap?verifiedStepMap[i]:null;
               const result=details[i]&&details[i]!=='-'?
@@ -2686,7 +2696,7 @@ const trustedGUIJavaScript = `'use strict';
             longTaskHistorySerial=0;
             longTaskID=0;
             longTaskShape=null;
-            activeWorkflowSteps=null;
+            activeWorkflowSteps=null;activeWorkflowLeaves=0;
             longTaskText='';longTaskClipped=false;longTaskHostTruncated=false;
             longTaskMore=false;
             longTaskCancelPending=false;
@@ -2697,7 +2707,7 @@ const trustedGUIJavaScript = `'use strict';
           }
           renderLongTaskTranscript('Task '+String(id)+' · '+data.status+
             ' · exit='+String(data.exit_code)+
-            (parallel?' · '+String(stepTotal-1)+' nhánh song song':'')+
+            parallelDescription+
             (workflowProgress?' · Bước '+String(step)+'/'+String(stepTotal)+
               ' · Lần '+String(attempt)+'/'+String(attemptTotal)+
               ' · '+stepStatus:'')+
@@ -3586,8 +3596,9 @@ const trustedGUIJavaScript = `'use strict';
       id!==taskWorkflowReadyID||!cachedTaskIDs.includes(id))return;
     if(!window.confirm('Chạy tối đa 5 bước process theo thứ tự phụ thuộc trên host? '+
       'Các bước dependsOrder: sequence được chạy tuần tự. '+
-      'Chỉ khi host bật quyền parallel riêng, 2–4 task độc lập mới có thể '+
-      'chạy đồng thời, và task tổng hợp chỉ chạy nếu mọi nhánh thành công. '+
+      'Host phải bật quyền parallel riêng để chạy 2–4 nhánh, '+
+      'và bật thêm quyền prefix để chạy một bước chuẩn bị trước các nhánh. '+
+      'Task tổng hợp chỉ chạy nếu mọi nhánh thành công. '+
       'Workflow song song không hỗ trợ retry, timeout hoặc condition. '+
       'Không tự tiếp tục workflow sau gián đoạn; hãy kiểm tra audit trước '+
       'khi chủ động chạy lại để tránh lặp tác dụng phụ. '+
