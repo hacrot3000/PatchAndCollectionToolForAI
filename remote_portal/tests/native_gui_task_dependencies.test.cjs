@@ -264,6 +264,8 @@ async function assertGraphValidation(graph,description,accepted=false,abandonSel
   'confirmation hides bounded host-authorized parallel execution');
  assert.match(confirmationTexts.at(-1),/bật thêm quyền prefix/,
   'confirmation did not disclose the separately opted-in serial prefix');
+ assert.match(confirmationTexts.at(-1),/bật prefix2 riêng/,
+  'confirmation did not warn about the double-prelude host opt-in');
  assert.match(confirmationTexts.at(-1),/task tổng hợp chỉ chạy nếu mọi nhánh thành công/,
   'confirmation omitted fork/join dependency guarantee');
  assert.match(confirmationTexts.at(-1),/Không tự tiếp tục workflow sau gián đoạn/,

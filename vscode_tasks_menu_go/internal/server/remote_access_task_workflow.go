@@ -33,7 +33,7 @@ type remoteWorkflowStep struct{
  timeout time.Duration
  condition string // "" or "success" normally; "always" only at the final root.
  parallelJoin bool // Host-opted-in fork/join; never caller supplied.
- parallelPrefix int // One serial prerequisite before the parallel leaves.
+ parallelPrefix int // 0–2 serial prerequisites before the parallel leaves.
 }
 
 // Process workflows intentionally exclude executable scripts, including
@@ -224,11 +224,11 @@ func remoteWorkflowSafeSequentialGraph(items []tasks.Task,
 }
 
 
-// Validate only two host-authored parallel shapes: a flat fork of 2-4
-// independent leaves and one root, or one serial prelude followed by
-// 2-3 leaves depending only on the prelude and then a final join.
-// The second shape requires a separate host opt-in (default OFF).
-// Result: -1 denied; 0 flat fork; 1 serial prefix. No arbitrary DAG.
+// Validate three host-authored shapes, never an arbitrary DAG:
+// independent 2–4-leaf fork, 1 serial prelude + 2–3 leaves, or TWO
+// serial preludes + exactly two leaves, all ending in a single root.
+// The two-prelude shape requires two independent extra opt-ins.
+// Return -1 denied; 0/1/2 serial preludes before the fork.
 func remoteWorkflowParallelPrefixLength(items []tasks.Task,
  order []int,edges [][2]int)int{
  n:=len(order)
@@ -261,14 +261,28 @@ func remoteWorkflowParallelPrefixLength(items []tasks.Task,
    return -1
   }
   prefix=1
+ case n-3:
+  // Five total steps: Prepare A -> Prepare B -> two leaves -> root.
+  // A second prelude must not be implicitly enabled by PREFIX alone.
+  if n!=5||os.Getenv("TASKDECK_REMOTE_TASKS_WORKFLOW_PREFIX")!="1"||
+   os.Getenv("TASKDECK_REMOTE_TASKS_WORKFLOW_PREFIX2")!="1"{
+   return -1
+  }
+  prefix=2
  default:return -1
  }
  leaves:=order[prefix:n-1]
  if len(leaves)<2||len(leaves)>4{return -1}
- expected:=make(map[[2]int]bool,2*len(leaves))
- if prefix==1{
+ expected:=make(map[[2]int]bool,2*len(leaves)+prefix)
+ if prefix>=1{
   first:=tasks.WorkflowNodeForTask(byID[order[0]])
   if len(first.DependsOn)!=0{return -1}
+ }
+ if prefix==2{
+  second:=tasks.WorkflowNodeForTask(byID[order[1]])
+  if len(second.DependsOn)!=1||
+   second.DependsOn[0]!=byID[order[0]].Label{return -1}
+  expected[[2]int{order[0],order[1]}]=true
  }
  for _,id:=range leaves{
   node:=tasks.WorkflowNodeForTask(byID[id])
@@ -280,14 +294,15 @@ func remoteWorkflowParallelPrefixLength(items []tasks.Task,
    // multiple dependencies instead of requiring an artificial
    // dependsOrder: "sequence" on every leaf.
    if len(node.DependsOn)!=1||
-    node.DependsOn[0]!=byID[order[0]].Label{return -1}
-   expected[[2]int{order[0],id}]=true
+    node.DependsOn[0]!=byID[order[prefix-1]].Label{return -1}
+   expected[[2]int{order[prefix-1],id}]=true
   }
  }
  for _,label:=range join.DependsOn{
   leaf,ok:=byLabel[label]
   if !ok||!seen[leaf.ID]||leaf.ID==order[n-1]||
-   (prefix==1&&leaf.ID==order[0]){return -1}
+   (prefix>0&&
+    (leaf.ID==order[0]||(prefix==2&&leaf.ID==order[1]))){return -1}
   expected[[2]int{leaf.ID,order[n-1]}]=true
  }
  if len(expected)!=len(edges){return -1}

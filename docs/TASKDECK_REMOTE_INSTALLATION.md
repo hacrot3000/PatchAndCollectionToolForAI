@@ -306,3 +306,34 @@ Cấu trúc `.vscode/tasks.json` do **host quản trị**, ví dụ:
 TaskDeck chỉ chạy các executable/native process được chính sách host chấp thuận; ví dụ phải được thẩm định lại theo chính sách executable của workspace trước khi chạy. Nếu tắt `TASKDECK_REMOTE_TASKS_WORKFLOW_PREFIX` trong khi `Prepare` còn chạy, Agent sẽ hủy process group và không chạy các bước phụ thuộc.
 
 **LIVE NO-GO** vẫn có hiệu lực: `remote_control_available=false`, không dùng những cờ này để phát hành điều khiển từ xa cho production.
+
+
+## Thử nghiệm thêm hai bước chuẩn bị tuần tự trước khi chạy song song
+
+Để thử workflow **2 Task chuẩn bị tuần tự → 2 Task song song → 1 Task tổng hợp**,
+host cần bật thêm opt-in `TASKDECK_REMOTE_TASKS_WORKFLOW_PREFIX2=1` bên cạnh
+`TASKDECK_REMOTE_TASKS_WORKFLOW_PREFIX=1` và toàn bộ điều kiện E2EE/RBAC/opt-in
+nêu ở phần trên. Mặc định cờ thứ hai là **OFF**; không bật nó ở production.
+
+```json
+{
+  "tasks": [
+    {"label":"Prepare 1","type":"process","command":"/bin/echo","args":["one"]},
+    {"label":"Prepare 2","type":"process","command":"/bin/echo",
+     "args":["two"],"dependsOn":"Prepare 1"},
+    {"label":"Check A","type":"process","command":"/bin/echo",
+     "args":["A"],"dependsOn":"Prepare 2"},
+    {"label":"Check B","type":"process","command":"/bin/echo",
+     "args":["B"],"dependsOn":"Prepare 2"},
+    {"label":"Join","type":"process","command":"/bin/echo",
+     "args":["done"],"dependsOn":["Check A","Check B"],
+     "dependsOrder":"parallel"}
+  ]
+}
+```
+
+Agent phải ghi audit và kiểm tra quyền lại giữa từng bước. Nếu một bước
+chuẩn bị thất bại, hết quyền hoặc mất opt-in, không có worker hay root nào
+được chạy. Client vẫn chỉ gửi root Task ID từ E2EE; không tự gửi graph.
+
+**Trạng thái LIVE NO-GO không thay đổi.**

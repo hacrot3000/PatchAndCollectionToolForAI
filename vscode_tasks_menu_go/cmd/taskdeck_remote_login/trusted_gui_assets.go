@@ -3597,8 +3597,9 @@ const trustedGUIJavaScript = `'use strict';
     if(!window.confirm('Chạy tối đa 5 bước process theo thứ tự phụ thuộc trên host? '+
       'Các bước dependsOrder: sequence được chạy tuần tự. '+
       'Chỉ khi host bật quyền parallel riêng, 2–4 task độc lập mới có thể '+
-      'chạy đồng thời; host phải bật thêm quyền prefix để chạy một bước chuẩn bị trước các nhánh. '+
-      'và task tổng hợp chỉ chạy nếu mọi nhánh thành công. '+
+      'chạy đồng thời; host phải bật thêm quyền prefix để chạy một bước chuẩn bị, '+
+      'và bật prefix2 riêng nếu cần hai bước chuẩn bị tuần tự trước các nhánh; '+
+      'task tổng hợp chỉ chạy nếu mọi nhánh thành công. '+
       'Workflow song song không hỗ trợ retry, timeout hoặc condition. '+
       'Không tự tiếp tục workflow sau gián đoạn; hãy kiểm tra audit trước '+
       'khi chủ động chạy lại để tránh lặp tác dụng phụ. '+

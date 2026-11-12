@@ -55,9 +55,14 @@ func remoteParallelHostConsent(session *remoteTaskDeckSession)bool{
   os.Getenv("TASKDECK_REMOTE_TASKS_WORKFLOW_PARALLEL")=="1"
 }
 func remoteParallelWorkflowConsent(session *remoteTaskDeckSession,prefix int)bool{
- return remoteParallelHostConsent(session)&&
-  (prefix==0||(prefix==1&&
-   os.Getenv("TASKDECK_REMOTE_TASKS_WORKFLOW_PREFIX")=="1"))
+ if !remoteParallelHostConsent(session){return false}
+ switch prefix{
+ case 0:return true
+ case 1:return os.Getenv("TASKDECK_REMOTE_TASKS_WORKFLOW_PREFIX")=="1"
+ case 2:return os.Getenv("TASKDECK_REMOTE_TASKS_WORKFLOW_PREFIX")=="1"&&
+  os.Getenv("TASKDECK_REMOTE_TASKS_WORKFLOW_PREFIX2")=="1"
+ }
+ return false
 }
 
 // A serial prerequisite uses the same per-process audit/revalidation and
@@ -66,22 +71,22 @@ func remoteParallelWorkflowConsent(session *remoteTaskDeckSession,prefix int)boo
 func(s *Server)runRemoteParallelPrelude(ctx context.Context,
  session *remoteTaskDeckSession,job *remoteLongTaskJob,
  step remoteWorkflowStep,prepared remoteParallelPrepared,hash [32]byte,
- total int)(string,int){
- if ctx.Err()!=nil||!remoteParallelWorkflowConsent(session,1){
+ index,total,prefixCount int)(string,int){
+ if ctx.Err()!=nil||!remoteParallelWorkflowConsent(session,prefixCount){
   return "cancelled",-1
  }
  if err:=s.auditRemoteWorkflowStep(session,job.taskID,step.taskID,
-  1,total,1,job.workflowRunID,"attempted",-1);err!=nil{
+  index,total,1,job.workflowRunID,"attempted",-1);err!=nil{
   return "failed",-1
  }
  verified,err:=s.prepareRemoteParallelStep(ctx,session,step,hash)
  if err!=nil||!remoteParallelSameExecution(verified,prepared)||
-  !remoteParallelWorkflowConsent(session,1){
+  !remoteParallelWorkflowConsent(session,prefixCount){
   status:="failed"
-  if !remoteParallelWorkflowConsent(session,1){status="cancelled"}
+  if !remoteParallelWorkflowConsent(session,prefixCount){status="cancelled"}
   if s.auditRemoteWorkflowStep(session,job.taskID,step.taskID,
-   1,total,1,job.workflowRunID,status,-1)!=nil{status="failed"}
-  job.updateWorkflowStep(1,total,1,1,status,-1,0)
+   index,total,1,job.workflowRunID,status,-1)!=nil{status="failed"}
+  job.updateWorkflowStep(index,total,1,1,status,-1,0)
   return status,-1
  }
  childCtx,cancel:=context.WithCancel(ctx)
@@ -100,7 +105,7 @@ func(s *Server)runRemoteParallelPrelude(ctx context.Context,
    case <-stop:return
    case <-childCtx.Done():return
    case <-flagTicker.C:
-    if !remoteParallelWorkflowConsent(session,1){
+    if !remoteParallelWorkflowConsent(session,prefixCount){
      revoked.Store(true);cancel();return
     }
    case <-permissionTicker.C:
@@ -112,9 +117,9 @@ func(s *Server)runRemoteParallelPrelude(ctx context.Context,
   }
  }()
  status,code:=s.executeRemoteParallelPrepared(
-  childCtx,session,job,step,verified,1,total,true)
+  childCtx,session,job,step,verified,index,total,prefixCount)
  close(stop);<-done
- if revoked.Load()||!remoteParallelWorkflowConsent(session,1){
+ if revoked.Load()||!remoteParallelWorkflowConsent(session,prefixCount){
   return "cancelled",-1
  }
  return status,code
@@ -156,12 +161,10 @@ func(s *Server)prepareRemoteParallelStep(ctx context.Context,
 func(s *Server)executeRemoteParallelPrepared(ctx context.Context,
  session *remoteTaskDeckSession,job *remoteLongTaskJob,
  step remoteWorkflowStep,prepared remoteParallelPrepared,
- index,total int,prefixRequired bool)(string,int){
+ index,total,prefixCount int)(string,int){
  result,exitCode:="failed",-1
  if ctx.Err()!=nil||session.closed.Load()||
-  !remoteParallelWorkflowConsent(session,func()int{
-   if prefixRequired{return 1};return 0
-  }()){
+  !remoteParallelWorkflowConsent(session,prefixCount){
   result="cancelled"
   _=s.auditRemoteWorkflowStep(session,job.taskID,step.taskID,index,total,
    1,job.workflowRunID,result,-1)
@@ -195,7 +198,7 @@ func(s *Server)executeRemoteParallelPrepared(ctx context.Context,
  if errors.Is(ctx.Err(),context.DeadlineExceeded){result="timed_out"
  }else if ctx.Err()!=nil||session.closed.Load(){result="cancelled"
  }else if !s.remoteWorkflowPostExitAuthorized(ctx,session,step,1,true)||
-  (prefixRequired&&!remoteParallelWorkflowConsent(session,1)){
+  !remoteParallelWorkflowConsent(session,prefixCount){
   // A sibling/root may have exited in the gap before the 500ms watcher.
   // Deny any subsequent root and never record a false completed result.
   result="cancelled";exitCode=-1
@@ -235,7 +238,7 @@ func(s *Server)runRemoteParallelJoinWorkflow(ctx context.Context,
  }
  prefixCount:=plan[len(plan)-1].parallelPrefix
  if !plan[len(plan)-1].parallelJoin||
-  (prefixCount!=0&&prefixCount!=1)||
+  (prefixCount<0||prefixCount>2)||
   len(plan)-1-prefixCount<2||
   !remoteParallelWorkflowConsent(session,prefixCount){
   status="failed";exitCode=-1;return
@@ -249,9 +252,12 @@ func(s *Server)runRemoteParallelJoinWorkflow(ctx context.Context,
   }
   prepared[i]=item
  }
- if prefixCount==1{
-  status,exitCode=s.runRemoteParallelPrelude(ctx,session,job,plan[0],
-   prepared[0],hash,len(plan))
+ // Every prerequisite has its own durable audit, fresh command preflight,
+ // live RBAC watchdog and completed outcome before the next prerequisite
+ // (and before any parallel worker) may start.
+ for i:=0;i<prefixCount;i++{
+  status,exitCode=s.runRemoteParallelPrelude(ctx,session,job,plan[i],
+   prepared[i],hash,i+1,len(plan),prefixCount)
   if status!="completed"{return}
   if !remoteParallelWorkflowConsent(session,prefixCount){
    status="cancelled";exitCode=-1;return
@@ -354,7 +360,7 @@ func(s *Server)runRemoteParallelJoinWorkflow(ctx context.Context,
  for i:=prefixCount;i<prefixCount+leafCount;i++{
   go func(index int){
    state,code:=s.executeRemoteParallelPrepared(siblingCtx,session,job,
-    plan[index],prepared[index],index+1,len(plan),prefixCount==1)
+    plan[index],prepared[index],index+1,len(plan),prefixCount)
    outcomes<-outcome{status:state,code:code}
   }(i)
  }
@@ -410,7 +416,7 @@ func(s *Server)runRemoteParallelJoinWorkflow(ctx context.Context,
  // Cancelling only siblingCtx while the root uses ctx would allow an
  // already-running root to ignore host-side privilege revocation.
  status,exitCode=s.executeRemoteParallelPrepared(siblingCtx,session,job,
-  plan[rootIndex],verified,len(plan),len(plan),prefixCount==1)
+  plan[rootIndex],verified,len(plan),len(plan),prefixCount)
  if hostRevoked.Load()||!remoteParallelWorkflowConsent(session,prefixCount){
   status="cancelled";exitCode=-1
   _,_=captureWorkflowText(job.capture,

@@ -1252,3 +1252,41 @@ real-host testing are considered **code complete**.
   all leaves. Extra dependencies, nested forks and implicit DAGs remain
   denied. The existing preflight Go tests intentionally omit
   `dependsOrder` from the workers to guard this compatibility.
+
+
+## 2026-11-12 — Task Remote GUI: hai bước chuẩn bị tuần tự trước fork/join
+
+- Giữ giới hạn tổng cộng **5 Task** nhưng bổ sung thêm đúng một
+  shape DAG do **host định nghĩa**: `Prepare One → Prepare Two →
+  (Leaf A || Leaf B) → Join`. Không hỗ trợ nested fork, ba bước
+  chuẩn bị, retry/condition/timeout trên leaf hoặc do browser
+  cấp command, argv, env, cwd hay graph.
+- Yêu cầu tất cả opt-in hiện có, và **cả hai**
+  `TASKDECK_REMOTE_TASKS_WORKFLOW_PREFIX=1` và
+  `TASKDECK_REMOTE_TASKS_WORKFLOW_PREFIX2=1`. Cờ thứ hai
+  mặc định không bật, không nâng quyền cho host chỉ chấp thuận
+  một bước chuẩn bị.
+- Xác minh host DAG: nút đầu không có dependency; nút thứ hai
+  chỉ phụ thuộc nút đầu; hai leaf chỉ phụ thuộc nút thứ hai;
+  root phụ thuộc đúng cả hai leaf và có `dependsOrder: parallel`.
+  Graph bao gồm chính xác **5 nút, 5 cạnh**; mọi cạnh bất thường
+  hoặc tên trùng không được phép.
+- Thực thi hai bước chuẩn bị theo thứ tự: từng step có preflight,
+  `attempted` audit bền vững, kiểm tra source/executable/cwd/env
+  lại sau audit; watcher host kiểm tra cả hai cờ opt-in,
+  `TasksRun`, Portal grant và session. Mất quyền hoặc failed
+  ở bất kỳ bước nào dừng trước các leaf/root, hủy process group.
+- Giữ nguyên barrier audit cho hai leaf, re-preflight trước khi
+  khởi động song song, watcher, join và post-exit authorization
+  trước khi chạy root. Kết quả tiến độ E2EE năm bước giữ
+  `parallel=true` và giới hạn **16 bytes** output mỗi Poll,
+  như dạng fork/join 5 bước trước đây; native GUI tiếp tục
+  lấy số nhánh song song từ indegree của root được xác thực.
+- Regression Go `-race`: thực thi đủ năm bước và kiểm tra
+  `CCRR-` khi hai leaf đang hoạt động, `CCCCC` khi xong,
+  transcript và E2EE final status, từ chối nếu không bật
+  `PREFIX2`, ngăn chạy con/root khi bước thứ hai thất bại,
+  hủy giữa chừng khi host tắt `PREFIX2`. Native GUI xác nhận
+  hiển thị điều kiện opt-in thứ hai và giữ shape chỉ đọc.
+- Chỉ tính hoàn tất sau CI; không bật Remote Control ngoài
+  deployment được phê duyệt, production vẫn `LIVE NO-GO`.
