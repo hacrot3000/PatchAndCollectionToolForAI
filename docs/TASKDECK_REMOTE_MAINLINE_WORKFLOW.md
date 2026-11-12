@@ -1222,3 +1222,17 @@ real-host testing are considered **code complete**.
   workflow/Go CI vẫn tiếp tục kiểm tra flat fork.
 - Chỉ tính là hoàn tất code sau khi CI pass. LIVE production vẫn
   `remote_control_available=false`, không tự kích hoạt.
+
+
+### CI follow-up (2026-11-12)
+
+- First CI Go run for the prefix commit stopped at the existing native GUI
+  dependency confirmation assertion: the newly reworded consent prompt no
+  longer contained the exact earlier bounded-parallel explanation, although
+  the host and E2EE checks preceding that step succeeded. Restore the
+  2–4 independent Task wording, preserve the final join success guarantee,
+  and add an explicit positive assertion for the new prefix opt-in.
+- This is a GUI confirmation/test compatibility correction, not a
+  privilege relaxation. The targeted Go runtime tests will execute on
+  the next CI run; do not mark the prefix feature fully validated before
+  those results arrive.
