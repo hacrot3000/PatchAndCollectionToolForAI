@@ -5,7 +5,6 @@ package server
 import (
  "context"
  "fmt"
- "os"
  "strings"
  "testing"
  "time"

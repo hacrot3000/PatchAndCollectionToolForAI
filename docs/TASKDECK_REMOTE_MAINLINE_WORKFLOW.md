@@ -1290,3 +1290,14 @@ real-host testing are considered **code complete**.
   hiển thị điều kiện opt-in thứ hai và giữ shape chỉ đọc.
 - Chỉ tính hoàn tất sau CI; không bật Remote Control ngoài
   deployment được phê duyệt, production vẫn `LIVE NO-GO`.
+
+
+### CI follow-up: Go test import cleanup
+
+- CI của commit `cde94fb0` đã dừng ngay ở bước biên dịch
+  `internal/server` vì file regression mới còn import `os`
+  nhưng không sử dụng. Loại bỏ import thừa; test workflow thực
+  thi thực tế **chưa chạy trong lần CI lỗi này**. Không coi đây
+  là một lỗi runtime đã được chứng minh hoặc tính năng đã pass.
+- Kiểm tra tiếp bằng CI mới gồm preflight `-race` cho
+  `TestRemoteWorkflowDoublePrefix*`, full workflow và native GUI.
