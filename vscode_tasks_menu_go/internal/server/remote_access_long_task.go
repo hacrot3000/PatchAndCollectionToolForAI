@@ -10,6 +10,7 @@ import (
  "strconv"
  "strings"
  "sync"
+ "sync/atomic"
  "time"
  "unicode"
  "unicode/utf8"
@@ -212,6 +213,17 @@ type remoteLongTaskSnapshot struct {
  Parallel bool
 }
 
+// The short and long Task runners share the uncached local TasksRun,
+// approved key, grant and host opt-in check. A persisted audit does not
+// extend authorization after the user, host or Portal revokes it.
+func(s *Server)remoteLongTaskHostConsent(ctx context.Context,
+ session *remoteTaskDeckSession)bool{
+ if ctx==nil||ctx.Err()!=nil||
+  os.Getenv("TASKDECK_REMOTE_TASKS_LONG")!="1"{return false}
+ return s.remoteShortTaskHostConsent(ctx,session)&&
+  os.Getenv("TASKDECK_REMOTE_TASKS_LONG")=="1"
+}
+
 // Must be entered only from TaskDeck's verified tasks.run role, live
 // uncached Portal authorization, approved native key and E2EE dispatcher.
 // It is not a generic HTTP command runner. Even then, the host re-verifies
@@ -258,6 +270,26 @@ func (s *Server) startRemoteLongTask(
  if ctx.Err()!=nil||session.closed.Load(){return denied}
  // The irreversible attempted audit is always BEFORE cmd.Start.
  if err:=s.auditRemoteTaskRunAttempt(ctx,session,taskID);err!=nil{return denied}
+ // Audit writes can race a new task source, cwd symlink, host opt-out
+ // or RBAC downgrade. Rebuild the entire host-side command specification
+ // using this E2EE session's original source hash before starting.
+ fresh,_,checkErr:=prepareRemoteTaskExecutionInput(
+  ctx,s.Workspace,session.taskPageHash,taskID,choice,false,textInput)
+ freshRoot,rootErr:=filepath.EvalSymlinks(s.Workspace)
+ freshCwd,cwdErr:=filepath.EvalSymlinks(fresh.Cwd)
+ if rootErr==nil{freshRoot,rootErr=filepath.Abs(freshRoot)}
+ if checkErr!=nil||rootErr!=nil||cwdErr!=nil||
+  !remoteParallelSameExecution(
+   remoteParallelPrepared{execution:spec,executable:spec.Command},
+   remoteParallelPrepared{execution:fresh,executable:fresh.Command})||
+  freshRoot!=root||freshCwd!=cwd{
+  s.auditRemoteTaskRunFinish(session,taskID,"failed",-1,0)
+  return denied
+ }
+ if !s.remoteLongTaskHostConsent(ctx,session){
+  s.auditRemoteTaskRunFinish(session,taskID,"cancelled",-1,0)
+  return denied
+ }
  jobCtx,cancel:=context.WithTimeout(context.Background(),remoteLongTaskMaxDuration)
  capture:=newRemoteLongTaskCapture()
  command:=exec.CommandContext(jobCtx,spec.Command,spec.Args...)
@@ -268,9 +300,10 @@ func (s *Server) startRemoteLongTask(
  prepareGitJobProcess(command)
  command.Cancel=func()error{killGitJobProcess(command);return nil}
  command.WaitDelay=time.Second
- if ctx.Err()!=nil||session.closed.Load()||session.portalGrant==nil||
-  !session.portalGrant.ActiveForSession(session.channel){
-  cancel();return denied
+ if ctx.Err()!=nil||!s.remoteLongTaskHostConsent(ctx,session){
+  cancel()
+  s.auditRemoteTaskRunFinish(session,taskID,"cancelled",-1,0)
+  return denied
  }
  if err:=command.Start();err!=nil{
   cancel()
@@ -284,20 +317,41 @@ func (s *Server) startRemoteLongTask(
  }
  session.longTask=job
  launched=true
+ // Monitor live TasksRun while the task is active. This host-side
+ // watcher does not need UI Polls and never contacts the PHP relay.
+ // CommandContext.Cancel already terminates the process group.
+ var revokedDuringRun atomic.Bool
+ stopWatch:=make(chan struct{})
+ watchDone:=make(chan struct{})
  go func(){
-  select{
-  case <-session.lifetimeDone:cancel()
-  case <-session.portalGrant.Done():cancel()
-  case <-session.channel.Done():cancel()
-  case <-job.done:
+  defer close(watchDone)
+  ticker:=time.NewTicker(remoteLocalRevokePoll)
+  defer ticker.Stop()
+  for{
+   select{
+   case <-session.lifetimeDone:cancel();return
+   case <-session.portalGrant.Done():cancel();return
+   case <-session.channel.Done():cancel();return
+   case <-job.done:return
+   case <-stopWatch:return
+   case <-jobCtx.Done():return
+   case <-ticker.C:
+    if !s.remoteLongTaskHostConsent(jobCtx,session){
+     revokedDuringRun.Store(true)
+     cancel()
+     return
+    }
+   }
   }
  }()
  go func(){
   processErr:=command.Wait()
   killGitJobProcess(command)
-  // The subprocess is already reaped; deny any further Cancel even while
-  // result classification and the mandatory finish audit are pending.
+  // A reaped process cannot accept another Cancel. Join any in-flight
+  // host role check before publishing a terminal result to E2EE Poll.
   acceptedCancel:=job.beginFinalizing()
+  close(stopWatch)
+  <-watchDone
   exitCode:=0
   if processErr!=nil {
    var exit *exec.ExitError
@@ -308,7 +362,14 @@ func (s *Server) startRemoteLongTask(
   status:="completed"
   if errors.Is(jobCtx.Err(),context.DeadlineExceeded){
    status="timed_out"
-  }else if acceptedCancel||jobCtx.Err()!=nil||session.closed.Load(){status="cancelled"
+  }else if revokedDuringRun.Load()||acceptedCancel||
+   jobCtx.Err()!=nil||session.closed.Load(){
+   status="cancelled"
+   if revokedDuringRun.Load(){exitCode= -1}
+  }else if !s.remoteLongTaskHostConsent(jobCtx,session){
+   // Permission may change after the last watcher tick but before Wait.
+   // The process cannot be rolled back, so deny any false success.
+   status="cancelled";exitCode= -1
   }else if processErr!=nil{status="failed"}
   // A revocation cannot prevent a host-local final audit attempt.
   s.auditRemoteTaskRunFinish(session,taskID,status,exitCode,time.Since(job.started))

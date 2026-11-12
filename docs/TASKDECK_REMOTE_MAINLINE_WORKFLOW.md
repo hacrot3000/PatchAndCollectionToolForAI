@@ -1140,3 +1140,44 @@ real-host testing are considered **code complete**.
   JS đã nằm đầu workflow CI.
 - Hạng mục kế tiếp: DAG nhiều tầng kết hợp parallel/sequential;
   nhập secret an toàn; những lệnh Git và GUI remote khác.
+
+
+## 2026-11-12 — Long Task: post-audit snapshot, live TasksRun & host opt-out
+
+- Tương tự Task chạy ngắn, quá trình `tasks.start` (long Task)
+  trước đây chỉ kiểm tra thông số và RBAC trước khi ghi
+  `remote.action.tasks_run:attempted`. Trong thời gian audit I/O
+  diễn ra, TaskDeck local role, host opt-in, task source hoặc cwd
+  symlink có thể bị thay đổi, và `cmd.Start` vẫn sử dụng thông số
+  đã cache. Ngoài ra một long Task đang chạy vẫn tiếp tục nếu chỉ
+  bị hạ quyền `TasksRun` (không logout hay tắt Portal grant).
+- `remoteLongTaskHostConsent`: cùng kiểm tra role/key/grant
+  uncached với Task ngắn, yêu cầu thêm host flag
+  `TASKDECK_REMOTE_TASKS_LONG=1`. Sau durable attempted audit,
+  host reload exact source hash/ID, command/args/env/cwd và
+  resolve lại workspace/cwd symlink; nếu cấu hình thay đổi thì
+  từ chối **trước** khi gọi `command.Start`. Quyền được kiểm
+  tra trước và ngay tại điểm start; audit terminal `cancelled`
+  hoặc `failed` được ghi khi attempted đã thành công nhưng
+  không start được.
+- Watchdog của long Task (không phụ thuộc vào việc client Poll)
+  theo dõi host opt-in, live local RBAC, session software key,
+  E2EE channel và Portal grant bằng
+  `remoteLocalRevokePoll`. Khi không còn quyền, hủy context
+  để `CommandContext.Cancel` diệt process group; watcher
+  được join sau `Wait`, trước khi công bố kết quả.
+  Khi nhận kết quả, host reauthorize lần cuối để không xác
+  nhận thành công khi mất quyền ngay sau tick cuối.
+- Ranh giới: không thể rollback tác dụng phụ đã hoàn tất trước
+  khi hủy. Giữ nguyên quota 16 hành động E2EE, capture 16 KiB,
+  timeout Task tối đa 90 giây, dọn workspace lease sau reaping,
+  audit không ghi password, stdout, command hoặc arguments.
+- Regression Go `-race`: thu hồi từng host opt-in và hạ role
+  sau attempted audit; sửa byte của tasks.json và đổi cwd symlink
+  trong lúc audit; thực thi shell thật, rồi hủy giữa chừng bằng
+  opt-out hoặc role downgrade và xác nhận không tạo side effect
+  cuối; phân biệt lỗi thực thi exit 7 với lỗi mất quyền.
+  Test được đưa lên preflight Agent CI.
+- Chức năng Long Task vì thế hoàn tất về code trong trường hợp
+  host thu hồi quyền giữa chừng. DAG nhiều tầng/song song kết hợp
+  và secret input vẫn chưa hoàn tất, LIVE production vẫn NO-GO.

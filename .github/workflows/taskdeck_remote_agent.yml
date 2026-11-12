@@ -163,6 +163,9 @@ jobs:
       - name: Preflight short Task host opt-in, post-audit and active TasksRun revocation
         working-directory: vscode_tasks_menu_go
         run: go test -race ./internal/server -run 'TestRemoteShortTask(PostAudit(RevocationPreventsExecution|SnapshotDriftRejectsExecution)|LiveGuardStopsActiveProcessAfterHostOptOut|LiveGuardStopsActiveProcessAfterRoleDowngrade|GuardPreservesNormalNonzeroExit)' -count=1 -timeout=90s
+      - name: Preflight long Task post-audit source and active host TasksRun revocation
+        working-directory: vscode_tasks_menu_go
+        run: go test -race ./internal/server -run 'TestRemoteLongTask(PostAuditOptOutAndRoleDowngradeNeverLaunch|PostAuditSourceAndCwdDriftNeverLaunch|ActiveProcessStopsAfterHostOptOut|ActiveProcessStopsAfterRoleDowngrade|LiveGuardPreservesOrdinaryNonzeroExit)' -count=1 -timeout=90s
       - name: Preflight native GUI workflow progress shape and lifecycle continuity
         run: node remote_portal/tests/native_gui_long_task_lifecycle.test.cjs
       - name: Preflight five-step sequential and four-leaf parallel E2EE DAGs
