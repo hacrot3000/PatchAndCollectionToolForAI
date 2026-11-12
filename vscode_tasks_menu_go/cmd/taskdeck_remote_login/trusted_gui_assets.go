@@ -1360,6 +1360,9 @@ const trustedGUIJavaScript = `'use strict';
   let taskRunning=false; // Short tasks: stop revokes E2EE.
   let longTaskID=0,longTaskState='',longTaskText='',longTaskMore=false;
   let longTaskClipped=false,longTaskHostTruncated=false;
+  // Once a workflow reports its first signed step, its mode and total
+  // cannot change across authenticated Polls in this running job.
+  let longTaskShape=null;
   // Cancel acknowledgement is distinct from process exit. Poll may still
   // report "running" while the host is terminating the process group.
   let longTaskCancelPending=false;
@@ -1478,6 +1481,7 @@ const trustedGUIJavaScript = `'use strict';
     gitSwitchPreview=null;gitSwitchPending=null;
     gitDeletePreview=null;gitDeletePending=null;
     longTaskID=0;longTaskState='';longTaskText='';longTaskClipped=false;longTaskHostTruncated=false;
+    longTaskShape=null;
     longTaskCancelPending=false;
     longTaskHistorySerial=0;
     taskRunHistory=[];taskRunHistoryList.replaceChildren();
@@ -2581,7 +2585,15 @@ const trustedGUIJavaScript = `'use strict';
               throw new Error('Phản hồi job không khớp vòng đời đã xác minh');
             }
           }
+          if(polling){
+            if(longTaskShape!==null&&(!workflowProgress||
+              stepTotal!==longTaskShape.total||
+              parallel!==longTaskShape.parallel)){
+              throw new Error('Cấu trúc workflow thay đổi trong cùng một job E2EE');
+            }
+          }
           if(launching){
+            longTaskShape=null;
             activeWorkflowSteps=prefix==='/api/tasks-workflow-start/'&&
               preparedWorkflowSteps&&preparedWorkflowSteps.root===id?
               preparedWorkflowSteps.steps.map(node=>({id:node.id,label:node.label})):null;
@@ -2592,6 +2604,9 @@ const trustedGUIJavaScript = `'use strict';
             longTaskAuto=!finalStates.includes(data.status);
             longTaskHistorySerial=rememberTaskRun(
               id,'dài',data.status,data.exit_code,'',data.truncated);
+          }
+          if(polling&&workflowProgress&&longTaskShape===null){
+            longTaskShape={total:stepTotal,parallel};
           }
           if(data.output)appendLongTaskOutput(data.output);
           // Once the host reports capture loss, a later clean Poll
@@ -2639,6 +2654,7 @@ const trustedGUIJavaScript = `'use strict';
             longTaskPollEpoch++;longTaskPollScheduled=false;
             longTaskHistorySerial=0;
             longTaskID=0;
+            longTaskShape=null;
             activeWorkflowSteps=null;
             longTaskText='';longTaskClipped=false;longTaskHostTruncated=false;
             longTaskMore=false;

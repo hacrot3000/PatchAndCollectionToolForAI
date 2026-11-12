@@ -1083,3 +1083,30 @@ real-host testing are considered **code complete**.
   chạy sau bốn leaf; E2EE kiểm tra output escaped tối đa 16 byte,
   trạng thái đang chạy và giả mạo root/retry/mode; native GUI
   từ chối output 17 byte và trạng thái giả mạo.
+
+
+## 2026-11-12 — Native GUI: khoá mode/tổng bước của workflow giữa các Poll
+
+- CI Go cho commit `01eb11e8` đã PASS ở các test thực thi 4 worker
+  và E2EE nhưng FAIL tại `native_gui_long_task_lifecycle.test.cjs`:
+  test cũ vẫn coi trạng thái `RRR--` của 5 bước `parallel=true`
+  là giả mạo. Sau mở rộng 4 leaf, đây là một trạng thái trung gian
+  hợp lệ (ba worker hoạt động trước worker thứ tư). Sửa test để
+  chấp nhận trạng thái này và dùng `RRRRR` (root chạy khi worker
+  chưa xong) làm phản hồi sai.
+- Gia cố **native GUI**: sau Poll đầu tiên có metadata workflow đã
+  xác thực, ghi nhận cố định `step_total` và `parallel` theo
+  từng active long job. Poll sau dù riêng lẻ trông hợp lệ vẫn phải
+  khớp hai trường đó và vẫn chứa workflow metadata. Trạng thái
+  bị đổi mode, đổi tổng bước hoặc mất metadata phải fail-closed
+  và xoá transcript nhạy cảm khỏi giao diện.
+- Không chặn ACK `tasks.cancel` / `tasks.clear` vì các ACK đó
+  không mang tiến độ từng bước; trạng thái được xóa khi clear,
+  logout hoặc bắt đầu long job mới. Không buộc workflow step index
+  tăng đơn điệu: trong fork, tiến độ callback của worker có thể
+  đến khác thứ tự. Không thay đổi Go E2EE codec hoặc quyền host.
+- Bổ sung regression liên tiếp 2 Poll: parallel 5 bước ->
+  sequential 5 bước hợp lệ riêng lẻ; parallel 5 -> parallel 4;
+  parallel 5 -> mất metadata; và kiểm tra tất cả trường hợp sai
+  đều xoá dữ liệu giao diện. Đưa Node test vào preflight CI sớm,
+  không chỉ đợi nhóm GUI phía sau.

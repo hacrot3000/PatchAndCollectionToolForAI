@@ -272,8 +272,20 @@ async function scenario(startStatus,pollStates,expectStartRejected=false){
    'native GUI accepted forged four-leaf E2EE progress');
  }
 
- // Five-step sequential workflows remain opt-in and carry five signed
- // outcomes, but NEVER an unbounded output chunk or a five-worker fork.
+ // Before the fourth child starts, the host can sign a partially
+ // running four-leaf fork (RRR--). This became a valid intermediate
+ // state after the parallel expansion.
+ const partial=await scenario('started',[{
+  status:'running',step:3,step_total:5,parallel:true,
+  attempt:1,attempt_total:1,step_status:'running',
+  step_history:'RRR--',step_details:'-|-|-|-|-',
+ }]);
+ partial.get('long-task-poll').click();await partial.flush();
+ assert.equal(partial.get('long-task-controls').hidden,false,
+  'native GUI rejected a valid partial four-leaf progress state');
+
+ // Five-step sequential workflows carry five signed outcomes, but
+ // cannot exceed their E2EE byte budget.
  const five=await scenario('started',[{
   status:'completed',step:5,step_total:5,
   attempt:2,attempt_total:2,step_status:'completed',
@@ -294,7 +306,7 @@ async function scenario(startStatus,pollStates,expectStartRejected=false){
    output:'X'.repeat(33)},
   {status:'running',step:3,step_total:5,parallel:true,
    attempt:1,attempt_total:1,step_status:'running',
-   step_history:'RRR--',step_details:'-|-|-|-|-'},
+   step_history:'RRRRR',step_details:'-|-|-|-|-'},
  ]) {
   const malformed=await scenario('started',[bad]);
   malformed.get('long-task-poll').click();await malformed.flush();
@@ -302,6 +314,33 @@ async function scenario(startStatus,pollStates,expectStartRejected=false){
    'native GUI accepted forged fifth-step output/fork');
  }
 
+ // Each response might be valid in isolation, but no active workflow
+ // can change between parallel/sequential or alter step total after its
+ // first authenticated progress Poll.
+ const valid5={
+  status:'running',parallel:true,step:4,step_total:5,
+  attempt:1,attempt_total:1,step_status:'running',
+  step_history:'RRRR-',step_details:'-|-|-|-|-',
+ };
+ for(const inconsistent of [
+  {status:'running',parallel:false,step:4,step_total:5,
+   attempt:1,attempt_total:1,step_status:'running',
+   step_history:'CCCR-',step_details:'0:1|0:2|0:3|-|-'},
+  {status:'running',parallel:true,step:3,step_total:4,
+   attempt:1,attempt_total:1,step_status:'running',
+   step_history:'RRR-',step_details:'-|-|-|-'},
+  {status:'running',more:false,output:''},
+ ]){
+  const changed=await scenario('started',[valid5,inconsistent]);
+  changed.get('long-task-poll').click();await changed.flush();
+  assert.equal(changed.get('long-task-controls').hidden,false,
+   'first authenticated workflow progress was rejected');
+  changed.get('long-task-poll').click();await changed.flush();
+  assert.equal(changed.get('long-task-controls').hidden,true,
+   'a stale or forged Poll changed the same job workflow structure');
+  assert.equal(changed.get('long-task-output').textContent,'',
+   'invalid workflow transition retained private output in GUI');
+ }
  // Start/Cancel/Clear acknowledge only a state transition. The native
  // browser must also reject impossible nonempty output and truncation
  // on an ACK, even when a malicious localhost bridge returns HTTP 200.
