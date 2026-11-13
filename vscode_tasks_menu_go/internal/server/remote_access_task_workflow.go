@@ -501,6 +501,22 @@ func(s *Server)startRemoteLinearWorkflow(ctx context.Context,
  runID:=hex.EncodeToString(nonce[:])
  // Durable aggregate attempted audit is BEFORE any irreversible start.
  if err:=s.auditRemoteTaskRunAttempt(ctx,session,taskID);err!=nil{return denied}
+ // Unlike a child process, the long job context intentionally outlives
+ // the native GUI's short Start HTTP request. If host opt-in, RBAC or the
+ // request are revoked during the aggregate audit, do not create a
+ // background job slot that will never execute an authorized step.
+ // A denied attempted audit still receives its terminal audit outcome.
+ last:=plan[len(plan)-1]
+ parallel:=len(plan)>=3&&last.parallelJoin
+ if ctx.Err()!=nil||session.closed.Load()||
+  !remoteWorkflowHostExecutionEnabled()||
+  !s.remoteShortTaskHostConsent(ctx,session)||
+  (parallel&&!remoteParallelWorkflowConsent(session,last.parallelPrefix)){
+  state:="cancelled"
+  if errors.Is(ctx.Err(),context.DeadlineExceeded){state="timed_out"}
+  s.auditRemoteTaskRunFinish(session,taskID,state,-1,0)
+  return denied
+ }
  jobCtx,cancel:=context.WithTimeout(context.Background(),remoteLongTaskMaxDuration)
  capture:=newRemoteLongTaskCapture()
  job:=&remoteLongTaskJob{
@@ -515,6 +531,19 @@ func(s *Server)startRemoteLinearWorkflow(ctx context.Context,
    for i:=range parts{parts[i]="-"}
    return parts
   }(),
+ }
+ // Guard once more after creating the in-memory descriptor but before
+ // assigning the session slot. No child goroutine has been started yet.
+ // The outer defer still owns the workspace lease on this denial.
+ if ctx.Err()!=nil||session.closed.Load()||
+  !remoteWorkflowHostExecutionEnabled()||
+  !s.remoteShortTaskHostConsent(ctx,session)||
+  (parallel&&!remoteParallelWorkflowConsent(session,last.parallelPrefix)){
+  cancel()
+  state:="cancelled"
+  if errors.Is(ctx.Err(),context.DeadlineExceeded){state="timed_out"}
+  s.auditRemoteTaskRunFinish(session,taskID,state,-1,0)
+  return denied
  }
  session.longTask=job
  launched=true

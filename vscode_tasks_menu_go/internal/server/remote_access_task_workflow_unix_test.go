@@ -2382,3 +2382,43 @@ func TestRemoteWorkflowPostExitRechecksHostRBACAndOptIns(t *testing.T){
   }
  })
 }
+
+ 
+// A successful aggregate attempted audit is NOT permission to allocate a
+// background job. In particular the requester may lose TasksRun while
+// SQLite writes the audit row; the native GUI should receive a denial
+// instead of a misleading started ACK and a short-lived cancelled slot.
+func TestRemoteWorkflowAggregateAuditRevokeDoesNotCreateJob(t *testing.T){
+ for _,tc:=range []struct{name,flag string;role bool}{
+  {"workflow_opt_out","TASKDECK_REMOTE_TASKS_WORKFLOW_RUN",false},
+  {"task_run_opt_out","TASKDECK_REMOTE_TASKS_RUN",false},
+  {"role_downgrade","",true},
+ }{
+  t.Run(tc.name,func(t *testing.T){
+   remoteWorkflowHostFlags(t)
+   s,session,client,agent:=remoteTaskOperatorFixture(t)
+   root:=remoteWorkflowIssuedRoot(t,s,session,client,agent,
+    remoteWorkflowLinearSource,"Step C")
+   s.Identity=remoteShortTaskAuditRevoke{
+    Store:s.Identity,flag:tc.flag,role:tc.role,session:session,
+   }
+   err:=s.startRemoteLinearWorkflow(context.Background(),session,root)
+   if !errors.Is(err,remotetransport.ErrRemoteActionDenied){
+    t.Fatalf("revoked workflow started a job: %v",err)
+   }
+   session.longTaskMu.Lock()
+   job:=session.longTask
+   session.longTaskMu.Unlock()
+   if job!=nil{t.Fatal("revoked workflow occupied a background job slot")}
+   project,err:=s.Identity.ProjectByKey(context.Background(),session.projectKey)
+   if err!=nil{t.Fatal(err)}
+   finish,err:=s.Identity.ListAudit(context.Background(),identity.AuditQuery{
+    ProjectID:project.ID,UserID:session.userID,
+    Action:"remote.action.tasks_run_finished",Limit:4,
+   })
+   if err!=nil||len(finish)!=1||finish[0].Result!="cancelled"{
+    t.Fatalf("revoked workflow has no terminal outcome: %+v %v",finish,err)
+   }
+  })
+ }
+}

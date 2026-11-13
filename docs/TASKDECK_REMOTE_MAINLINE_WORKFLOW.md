@@ -1574,3 +1574,19 @@ real-host testing are considered **code complete**.
   audit after source drift, and a cancelled terminal audit after host
   opt-out during the attempted write. Existing successful/nonzero-exit
   audit lifecycle is unchanged.
+
+## 2026-11-13 — Workflow start: reject aggregate-audit revocation before job allocation
+
+- The native GUI's workflow Start produces an Agent-owned long job,
+  deliberately detached from the short HTTP request context. A host
+  TasksRun downgrade or workflow/run opt-out DURING aggregate attempted
+  audit previously admitted an in-memory `running` job/Start ACK; a
+  background worker would later notice the revocation and cancel.
+- Recheck live local TasksRun RBAC, request cancellation, all required
+  host workflow flags and parallel-prefix consent after the aggregate
+  audit and immediately before publishing the session's long job.
+  On denial: no job, no workflow subprocess, workspace lease returned,
+  and a content-free terminal `cancelled`/`timed_out` audit is attempted.
+- Added Unix regressions for workflow opt-out, Task Run opt-out, and
+  TasksRun role downgrade injected while the attempted audit is written.
+  Protocol, E2EE envelope and all process command policies are unchanged.
