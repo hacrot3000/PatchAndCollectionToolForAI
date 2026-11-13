@@ -79,3 +79,46 @@ func TestRemoteShortLaunchRejectsEnvironmentAndOptOut(t *testing.T){
   t.Fatal("host opt-out accepted at process launch")
  }
 }
+
+
+func TestRemoteShortLaunchRejectsCwdSymlinkRetarget(t *testing.T){
+ t.Setenv("TASKDECK_REMOTE_TASKS_PREVIEW","1")
+ t.Setenv("TASKDECK_REMOTE_TASKS_RUN","1")
+ s,session,client,agent:=remoteTaskOperatorFixture(t)
+ for _,dir:=range []string{"original","different"}{
+  if err:=os.Mkdir(filepath.Join(s.Workspace,dir),0700);err!=nil{
+   t.Fatal(err)
+  }
+ }
+ link:=filepath.Join(s.Workspace,"working")
+ if err:=os.Symlink("original",link);err!=nil{t.Fatal(err)}
+ id:=previewOneRemoteRunTask(t,s,session,client,agent,
+  `{"tasks":[{"label":"Safe","type":"process","command":"/bin/echo",
+  "args":["safe"],"options":{"cwd":"working"}}]}`)
+ spec,_,err:=prepareRemoteTaskExecutionInput(
+  context.Background(),s.Workspace,session.taskPageHash,id,0,false,"")
+ if err!=nil{t.Fatal(err)}
+ root,err:=filepath.EvalSymlinks(s.Workspace)
+ if err!=nil{t.Fatal(err)}
+ root,err=filepath.Abs(root)
+ if err!=nil{t.Fatal(err)}
+ cwd,err:=filepath.EvalSymlinks(spec.Cwd)
+ if err!=nil{t.Fatal(err)}
+ cwd,err=filepath.Abs(cwd)
+ if err!=nil{t.Fatal(err)}
+ exe,err:=remoteShortResolvedExecutable(spec.Command)
+ if err!=nil{t.Fatal(err)}
+ approved:=remoteParallelPrepared{
+  execution:spec,executable:exe,resolvedCwd:cwd,
+ }
+ if _,err:=s.revalidateRemoteShortTaskAtLaunch(
+  context.Background(),session,id,0,"",approved,root);err!=nil{
+  t.Fatalf("unchanged cwd preflight denied: %v",err)
+ }
+ if err:=os.Remove(link);err!=nil{t.Fatal(err)}
+ if err:=os.Symlink("different",link);err!=nil{t.Fatal(err)}
+ if _,err:=s.revalidateRemoteShortTaskAtLaunch(
+  context.Background(),session,id,0,"",approved,root);err==nil{
+  t.Fatal("late cwd symlink retarget reused audited directory")
+ }
+}
