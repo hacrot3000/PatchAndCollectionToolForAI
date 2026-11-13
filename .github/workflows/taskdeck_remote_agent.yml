@@ -110,6 +110,9 @@ jobs:
       - name: Preflight Git HTTPS TLS, redirect and credential hardening
         working-directory: vscode_tasks_menu_go
         run: go test -race ./internal/server -run 'TestRemoteGitNetworkMutations(NeverExecuteRepositoryCredentialHelpers|RejectHTTPSRedirects)' -count=1 -timeout=90s
+      - name: Preflight Git Push post-audit URL, ref and tracking mutation denial
+        working-directory: vscode_tasks_menu_go
+        run: go test -race ./internal/server -run 'TestRemoteGitPushPostAuditRejectsChangedURLBranchHeadTrackingAndHTTP' -count=1 -timeout=90s
       - name: Preflight Git Pull post-audit repository, upstream and worktree drift
         working-directory: vscode_tasks_menu_go
         run: go test -race ./internal/server -run 'TestRemoteGitPullPostAuditRejectsRepositoryRefConfigAndWorktreeDrift' -count=1 -timeout=90s

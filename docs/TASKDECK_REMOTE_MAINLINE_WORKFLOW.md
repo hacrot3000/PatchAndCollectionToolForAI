@@ -1433,3 +1433,38 @@ real-host testing are considered **code complete**.
   assert that Git Pull is denied with no additional HEAD movement.
   Keep the hard security preflight intact; do NOT weaken the rule
   denying untracked files in production.
+
+
+## 2026-11-13 — Git Push: revalidate exact host-owned destination and refs
+
+- The original E2EE Git Push already pinned a fixed, non-force
+  `HEAD-SHA:refs/heads/current` refspec and required an approved
+  single SSH/HTTPS upstream before durable
+  `remote.action.git_push:attempted` audit. It did **not** revalidate
+  the effective push URL, local branch or tracking configuration if a
+  separate local Git writer changed them **during** the audit.
+  In particular, pinning the commit SHA does not pin its destination.
+- Before audit, capture canonical Git directory path and its directory
+  inode as well as the already checked canonical workspace, current
+  symbolic branch, branch remote/merge, symbolic upstream, exact HEAD
+  commit, upstream object ID and effective `remote get-url --push --all`
+  result. Continue rejecting multiple URLs, unsupported protocols,
+  URL credentials, HTTP config overrides and non-FF local history.
+- After the audit **and again within the live GitWrite-guarded
+  execution callback immediately before launching the subprocess**,
+  verify repository top-level and Git directory identity, symbolic
+  branch, HEAD SHA, branch remote/merge, upstream mapping + object ID,
+  effective push URL and safe HTTP configuration. Deny any drift
+  without opening an SSH connection. Remote refspec stays fixed and
+  explicitly non-force; there are no browser-provided Git args.
+- Unix Go `-race` regression tests inject host-local changes after
+  the attempted audit: push URL retarget, symbolic branch switch,
+  HEAD reset, branch merge or remote reconfiguration, tracking-ref
+  movement, and unsafe `http.sslVerify` change. A fake local
+  `ssh` executable leaves a marker if any prohibited push is
+  attempted; assert marker absent, HEAD unchanged after the
+  intentional mutation, and content-free audit record.
+- These repeated host-side checks reduce the identifiable audit
+  time-of-check/time-of-use gap. A Git command is not a kernel-atomic
+  transaction with unrelated local writers or a remote server.
+  Keep production Remote Control LIVE NO-GO.

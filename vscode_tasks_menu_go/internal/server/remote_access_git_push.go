@@ -152,6 +152,14 @@ func (s *Server) executeRemoteGitPush(ctx context.Context,
  if err!=nil{return empty,denied}
  canonicalTop,err=filepath.Abs(canonicalTop)
  if err!=nil||filepath.Clean(canonicalTop)!=filepath.Clean(root){return empty,denied}
+ gitDir,err:=run(ctx,"rev-parse","--absolute-git-dir")
+ if err!=nil{return empty,denied}
+ resolvedGitDir,err:=filepath.EvalSymlinks(gitDir)
+ if err!=nil{return empty,denied}
+ resolvedGitDir,err=filepath.Abs(resolvedGitDir)
+ if err!=nil{return empty,denied}
+ gitDirInfo,err:=os.Stat(resolvedGitDir)
+ if err!=nil||!gitDirInfo.IsDir(){return empty,denied}
  localRef,err:=run(ctx,"symbolic-ref","-q","HEAD")
  if err!=nil||!strings.HasPrefix(localRef,"refs/heads/"){return empty,denied}
  branch:=strings.TrimPrefix(localRef,"refs/heads/")
@@ -195,6 +203,47 @@ func (s *Server) executeRemoteGitPush(ctx context.Context,
  if !s.remoteGitMutationPostAuditAuthorized(ctx,session,"TASKDECK_REMOTE_GIT_PUSH"){
   return empty,denied
  }
+ // The host's own Git configuration can change during durable attempted
+ // audit. A fixed SHA refspec prevents a different object being pushed,
+ // but it does NOT pin the destination repository or target branch.
+ // Verify the exact approved repository, local ref, remote push URL,
+ // tracking commit and ancestry before and immediately at process launch.
+ revalidate:=func(checkCtx context.Context)bool{
+  if checkCtx==nil||checkCtx.Err()!=nil||session.closed.Load()||
+   !remoteGitNoRepositoryHTTPOverride(checkCtx,root,env){return false}
+  currentTop,err:=run(checkCtx,"rev-parse","--show-toplevel")
+  if err!=nil{return false}
+  canonical,err:=filepath.EvalSymlinks(currentTop)
+  if err!=nil{return false}
+  canonical,err=filepath.Abs(canonical)
+  if err!=nil||canonical!=root{return false}
+  currentGitDir,err:=run(checkCtx,"rev-parse","--absolute-git-dir")
+  if err!=nil{return false}
+  currentGitDir,err=filepath.EvalSymlinks(currentGitDir)
+  if err!=nil{return false}
+  currentGitDir,err=filepath.Abs(currentGitDir)
+  if err!=nil||currentGitDir!=resolvedGitDir{return false}
+  info,err:=os.Stat(currentGitDir)
+  if err!=nil||!os.SameFile(gitDirInfo,info){return false}
+  ref,err:=run(checkCtx,"symbolic-ref","-q","HEAD")
+  if err!=nil||ref!=localRef{return false}
+  currentHead,err:=run(checkCtx,"rev-parse","--verify","HEAD^{commit}")
+  if err!=nil||currentHead!=head{return false}
+  remoteName,err:=run(checkCtx,"config","--get","branch."+branch+".remote")
+  if err!=nil||remoteName!=remote{return false}
+  mergeRef,err:=run(checkCtx,"config","--get","branch."+branch+".merge")
+  if err!=nil||mergeRef!=merge{return false}
+  mapped,err:=run(checkCtx,"rev-parse","--symbolic-full-name","@{upstream}")
+  if err!=nil||mapped!=tracking{return false}
+  destination,err:=run(checkCtx,"remote","get-url","--push","--all",remote)
+  if err!=nil||destination!=pushURL||!validRemoteGitPushURL(destination){return false}
+  currentUpstream,err:=run(checkCtx,"rev-parse","--verify","@{upstream}^{commit}")
+  if err!=nil||currentUpstream!=upstream{return false}
+  // Recheck ancestry if the tracking ref changed under a local writer,
+  // without ever relaxing server-side non-fast-forward enforcement.
+  return true
+ }
+ if !revalidate(ctx){return empty,denied}
  pushCtx,cancel:=context.WithTimeout(ctx,remoteGitPushTimeout)
  defer cancel()
  if pushCtx.Err()!=nil||session.closed.Load(){return empty,denied}
@@ -213,6 +262,7 @@ func (s *Server) executeRemoteGitPush(ctx context.Context,
   remote,head+":"+localRef)
  err=s.runRemoteGitMutationWithLiveRBAC(pushCtx,session,
   "TASKDECK_REMOTE_GIT_PUSH",func(runCtx context.Context)error{
+   if !revalidate(runCtx){return denied}
    _,runErr:=run(runCtx,args...)
    return runErr
   })
