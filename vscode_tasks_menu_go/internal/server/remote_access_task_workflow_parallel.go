@@ -219,7 +219,10 @@ func(s *Server)executeRemoteParallelPrepared(ctx context.Context,
   "[TaskDeck workflow] Step %d/%d: Task #%d (parallel attempt 1/1)\n",
   index,total,step.taskID))
  cmd:=exec.CommandContext(ctx,prepared.executable,prepared.execution.Args...)
- cmd.Dir=prepared.execution.Cwd
+ // Use the canonical path bound by the per-process approval. Executing
+ // from the lexical cwd could follow a retargeted symlink after the last
+ // preflight and enter another workspace directory without detection.
+ cmd.Dir=prepared.resolvedCwd
  cmd.Env=prepared.execution.Env
  cmd.Stdout=job.capture
  cmd.Stderr=job.capture

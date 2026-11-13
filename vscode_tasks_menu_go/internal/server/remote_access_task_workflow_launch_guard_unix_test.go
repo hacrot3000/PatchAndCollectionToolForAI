@@ -38,6 +38,9 @@ func remoteLaunchPreflightFixture(t *testing.T,leafCommand string,
  }
  approved,err:=s.prepareRemoteParallelStep(context.Background(),session,plan[0],hash)
  if err!=nil{t.Fatalf("initial preflight denied: %v",err)}
+ if approved.resolvedCwd==""||!filepath.IsAbs(approved.resolvedCwd){
+  t.Fatalf("worker cwd must have a canonical absolute target before exec")
+ }
  verified,err:=s.revalidateRemoteParallelAtLaunch(context.Background(),
   session,plan[0],approved,hash,0)
  if err!=nil||!remoteParallelSameExecution(approved,verified){

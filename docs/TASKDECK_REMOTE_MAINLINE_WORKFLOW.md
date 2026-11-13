@@ -1334,3 +1334,19 @@ real-host testing are considered **code complete**.
   This closes the *identified post-audit/pre-launch observation gap*;
   it is not equivalent to a kernel-atomic pinned-file descriptor exec,
   and must not be represented as such. Production remains LIVE NO-GO.
+
+
+### Follow-up: execute from the canonical approved cwd
+
+- The prelaunch guard already pins `resolvedCwd`. The process must
+  actually use that approved **canonical** directory; passing the old
+  lexical `execution.Cwd` to `exec.Cmd.Dir` leaves a final symlink
+  retarget gap between validation and the kernel's chdir.
+- Parallel prelude, workers and root now set `cmd.Dir` to the
+  revalidated `prepared.resolvedCwd`. The path is guaranteed absolute,
+  inside the approved workspace, and matched with the pre-audit
+  resolved path. Tests assert the canonical directory is populated.
+- This blocks re-following the original cwd symlink during launch;
+  it does not pin filesystem directory inodes against arbitrary
+  concurrent rename/replacement. A kernel-level dirfd/chdir design
+  is out of scope. Production LIVE NO-GO remains unchanged.
