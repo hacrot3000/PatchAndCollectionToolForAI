@@ -264,25 +264,26 @@ func (s *Server) startRemoteLongTask(
  if err!=nil{return denied}
  cwd,err:=filepath.EvalSymlinks(spec.Cwd)
  if err!=nil{return denied}
+ cwd,err=filepath.Abs(cwd)
+ if err!=nil{return denied}
  rel,err:=filepath.Rel(root,cwd)
  if err!=nil||filepath.IsAbs(rel)||rel==".."||
   strings.HasPrefix(rel,".."+string(filepath.Separator)){return denied}
+ // Pin the original host-owned executable and resolved directory before
+ // audit: a symlink target may change while the audit or RBAC check runs.
+ executable,err:=remoteShortResolvedExecutable(spec.Command)
+ if err!=nil{return denied}
+ approved:=remoteParallelPrepared{
+  execution:spec,executable:executable,resolvedCwd:cwd,
+ }
  if ctx.Err()!=nil||session.closed.Load(){return denied}
  // The irreversible attempted audit is always BEFORE cmd.Start.
  if err:=s.auditRemoteTaskRunAttempt(ctx,session,taskID);err!=nil{return denied}
- // Audit writes can race a new task source, cwd symlink, host opt-out
- // or RBAC downgrade. Rebuild the entire host-side command specification
- // using this E2EE session's original source hash before starting.
- fresh,_,checkErr:=prepareRemoteTaskExecutionInput(
-  ctx,s.Workspace,session.taskPageHash,taskID,choice,false,textInput)
- freshRoot,rootErr:=filepath.EvalSymlinks(s.Workspace)
- freshCwd,cwdErr:=filepath.EvalSymlinks(fresh.Cwd)
- if rootErr==nil{freshRoot,rootErr=filepath.Abs(freshRoot)}
- if checkErr!=nil||rootErr!=nil||cwdErr!=nil||
-  !remoteParallelSameExecution(
-   remoteParallelPrepared{execution:spec,executable:spec.Command},
-   remoteParallelPrepared{execution:fresh,executable:fresh.Command})||
-  freshRoot!=root||freshCwd!=cwd{
+ // Recheck the exact approved process, executable symlink target,
+ // inherited environment and canonical working directory after audit.
+ // The later live-RBAC check can also block, so a second recheck follows.
+ if _,err:=s.revalidateRemoteShortTaskAtLaunch(
+  ctx,session,taskID,choice,textInput,approved,root);err!=nil{
   s.auditRemoteTaskRunFinish(session,taskID,"failed",-1,0)
   return denied
  }
@@ -292,9 +293,12 @@ func (s *Server) startRemoteLongTask(
  }
  jobCtx,cancel:=context.WithTimeout(context.Background(),remoteLongTaskMaxDuration)
  capture:=newRemoteLongTaskCapture()
- command:=exec.CommandContext(jobCtx,spec.Command,spec.Args...)
- command.Dir=cwd
- command.Env=spec.Env
+ command:=exec.CommandContext(jobCtx,approved.executable,approved.execution.Args...)
+ // Resolve the target before the audit, but preserve host-authored argv[0]
+ // so a native task retains its original shell invocation semantics.
+ command.Args[0]=approved.execution.Command
+ command.Dir=approved.resolvedCwd
+ command.Env=approved.execution.Env
  command.Stdout=capture
  command.Stderr=capture
  prepareGitJobProcess(command)
@@ -303,6 +307,16 @@ func (s *Server) startRemoteLongTask(
  if ctx.Err()!=nil||!s.remoteLongTaskHostConsent(ctx,session){
   cancel()
   s.auditRemoteTaskRunFinish(session,taskID,"cancelled",-1,0)
+  return denied
+ }
+ // Revalidating only after audit is insufficient: the local RBAC query
+ // above can yield to another host writer. Do not start the prepared
+ // process unless its exact executable, cwd, argv, env and source are
+ // still the same at the final process-launch boundary.
+ if _,err:=s.revalidateRemoteShortTaskAtLaunch(
+  ctx,session,taskID,choice,textInput,approved,root);err!=nil{
+  cancel()
+  s.auditRemoteTaskRunFinish(session,taskID,"failed",-1,0)
   return denied
  }
  if err:=command.Start();err!=nil{

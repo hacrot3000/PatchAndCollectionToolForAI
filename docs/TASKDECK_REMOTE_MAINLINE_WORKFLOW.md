@@ -1482,3 +1482,23 @@ real-host testing are considered **code complete**.
   process-group cancellation still apply.
 - **Code completed; physical LIVE verification is separate.** Remote
   production go-live remains NO-GO.
+
+## 2026-11-13 — Remote GUI long task: pin executable and final launch validation
+
+- The 90-second host-managed long task checked unchanged task source,
+  inherited env and canonical cwd after the durable attempted audit,
+  but it had not pinned the resolved executable symlink target. An
+  executable retarget after audit could therefore launch a different
+  host-local program even though the stable Task.ID did not change.
+- Capture canonical executable, workspace and cwd BEFORE attempted audit;
+  revalidate task source, argv, environment and paths AFTER audit and
+  once more immediately before native `cmd.Start()`, after the
+  potentially blocking local RBAC and host opt-in checks. Spawn only
+  the pinned resolved executable while retaining the host-authored
+  `argv[0]`. A failed check denies the launch without occupying the
+  long-job slot or leaking the workspace lease.
+- Added Unix regression with an audit-time executable symlink retarget
+  to a marker-writing program; asserting no job/marker is created.
+  The 90-second bound, process group cancellation, host-side audit,
+  E2EE quota and session-owned status lifecycle are unchanged.
+- Code is implemented on `main`; live production remains NO-GO.

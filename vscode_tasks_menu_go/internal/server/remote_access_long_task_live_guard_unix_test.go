@@ -7,6 +7,7 @@ import(
  "errors"
  "os"
  "path/filepath"
+ "strconv"
  "testing"
  "time"
 
@@ -193,5 +194,36 @@ func TestRemoteLongTaskLiveGuardPreservesOrdinaryNonzeroExit(t *testing.T){
  job.mu.Unlock()
  if status!="failed"||code!=7{
   t.Fatalf("normal process failure became revoked: %q/%d",status,code)
+ }
+}
+
+ 
+// Retargeting the executable after the attempted audit is not covered by
+// checking tasks.json, cwd and inherited env alone: Task.ID stays the same.
+// No host process, long-task slot or side effect may be admitted.
+func TestRemoteLongTaskPostAuditExecutableRetargetNeverLaunch(t *testing.T){
+ s,session,client,agent:=remoteTaskOperatorFixture(t)
+ t.Setenv("TASKDECK_REMOTE_TASKS_PREVIEW","1")
+ t.Setenv("TASKDECK_REMOTE_TASKS_RUN","1")
+ t.Setenv("TASKDECK_REMOTE_TASKS_LONG","1")
+ link:=filepath.Join(t.TempDir(),"host-approved-exe")
+ if err:=os.Symlink("/bin/echo",link);err!=nil{t.Fatal(err)}
+ marker:=filepath.Join(s.Workspace,"FORBIDDEN-RETARGET")
+ attacker:=filepath.Join(t.TempDir(),"replacement-exe")
+ payload:="#!/bin/sh\n: > \""+marker+"\"\n"
+ if err:=os.WriteFile(attacker,[]byte(payload),0700);err!=nil{t.Fatal(err)}
+ source:=`{"tasks":[{"label":"Executable bound","type":"process","command":`+
+  strconv.Quote(link)+`,"args":["safe"]}]}`
+ id:=previewOneRemoteRunTask(t,s,session,client,agent,source)
+ s.Identity=remoteShortTaskAuditDrift{
+  Store:s.Identity,symlink:link,target:attacker,
+ }
+ err:=s.startRemoteLongTask(context.Background(),session,id,0,"")
+ if !errors.Is(err,remotetransport.ErrRemoteActionDenied){
+  t.Fatalf("retargeted executable started after audit: %v",err)
+ }
+ if session.longTask!=nil{t.Fatal("rejected long task occupied a job slot")}
+ if _,err:=os.Stat(marker);!os.IsNotExist(err){
+  t.Fatalf("retargeted executable wrote to workspace: %v",err)
  }
 }
