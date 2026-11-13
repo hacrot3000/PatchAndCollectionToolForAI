@@ -1502,3 +1502,25 @@ real-host testing are considered **code complete**.
   The 90-second bound, process group cancellation, host-side audit,
   E2EE quota and session-owned status lifecycle are unchanged.
 - Code is implemented on `main`; live production remains NO-GO.
+
+## 2026-11-13 — Sequential Remote Task workflow: pin process before step audit
+
+- Fixed a sequential workflow admission gap: the resolved executable
+  target was first recorded **after** the mandatory per-step attempted
+  audit. An unrelated local writer could retarget the host-authored
+  executable symlink during audit; both later checks would see the new
+  native binary and consider the changed program approved.
+- Resolve and pin the allowed native executable and canonical cwd
+  **before** recording the step attempt. After audit, independently
+  re-read the immutable E2EE task source, process argv, inherited env,
+  executable target, canonical cwd and live TaskDeck authorization.
+  Revalidate the same approval once more under the child cancellation
+  context immediately before `cmd.Run()`, including retries and
+  final cleanup tasks. Only the pinned executable/cwd are passed to Go.
+- A denied launch logs a content-free terminal step outcome, does not
+  retry it, and does not start later workflow steps. Unix regression
+  retargets an executable from echo to touch during attempted audit
+  and verifies no marker file or root process. Additional tests cover
+  canonical cwd and inherited environment drift.
+- No new remote command or E2EE parameter, no permission relaxation.
+  Production LIVE remains NO-GO separately from code completion.

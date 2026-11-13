@@ -534,6 +534,54 @@ func(s *Server)startRemoteLinearWorkflow(ctx context.Context,
  return nil
 }
 
+
+// A sequential workflow is an independently audited chain of executable
+// processes. A host-local writer may change tasks.json, executable symlinks,
+// inherited environment or cwd while a step audit/RBAC check runs.
+// Compare the exact pre-audit approval again at the final launch boundary.
+// Unlike a generic task-runner, the E2EE client supplies no command/argv.
+func(s *Server)revalidateRemoteLinearStepAtLaunch(
+ ctx context.Context,session *remoteTaskDeckSession,step remoteWorkflowStep,
+ hash [32]byte,attempt int,approved remoteParallelPrepared,approvedRoot string,
+)(remoteParallelPrepared,error){
+ denied:=remotetransport.ErrRemoteActionDenied
+ var empty remoteParallelPrepared
+ if s==nil||ctx==nil||ctx.Err()!=nil||session==nil||
+  session.closed.Load()||!remoteWorkflowHostExecutionEnabled()||
+  (attempt>1&&os.Getenv("TASKDECK_REMOTE_TASKS_WORKFLOW_RETRY")!="1")||
+  (step.timeout>0&&os.Getenv("TASKDECK_REMOTE_TASKS_WORKFLOW_TIMEOUT")!="1")||
+  (step.condition!=""&&os.Getenv("TASKDECK_REMOTE_TASKS_WORKFLOW_CONDITION")!="1"){
+  return empty,denied
+ }
+ if err:=s.authorizeRemoteAuthenticatedSession(ctx,session,
+  session.channel,identity.PermissionTasksRun);err!=nil{return empty,denied}
+ execution,_,err:=prepareRemoteTaskExecutionInputMode(
+  ctx,s.Workspace,hash,step.taskID,0,false,"",true)
+ if err!=nil||execution.TaskID!=step.taskID{return empty,denied}
+ root,err:=filepath.EvalSymlinks(s.Workspace)
+ if err!=nil{return empty,denied}
+ root,err=filepath.Abs(root)
+ if err!=nil||root!=approvedRoot||
+  validateRemoteWorkflowStepCwd(root,execution.Cwd)!=nil||
+  !tasks.RemoteExecutableAllowed(root,execution.Command){
+  return empty,denied
+ }
+ cwd,err:=filepath.EvalSymlinks(execution.Cwd)
+ if err!=nil{return empty,denied}
+ cwd,err=filepath.Abs(cwd)
+ if err!=nil||validateRemoteWorkflowStepCwd(root,cwd)!=nil{
+  return empty,denied
+ }
+ executable,ok:=remoteWorkflowResolvedExecutable(execution.Command)
+ if !ok||!tasks.RemoteExecutableAllowed(root,executable){return empty,denied}
+ current:=remoteParallelPrepared{
+  execution:execution,executable:executable,resolvedCwd:cwd,
+ }
+ if !remoteParallelSameExecution(current,approved)||ctx.Err()!=nil||
+  session.closed.Load(){return empty,denied}
+ return current,nil
+}
+
 func(s *Server)runRemoteLinearWorkflow(ctx context.Context,
  session *remoteTaskDeckSession,job *remoteLongTaskJob,
  plan []remoteWorkflowStep,hash [32]byte){
@@ -596,18 +644,25 @@ Workflow:
     !tasks.RemoteExecutableAllowed(root,spec.Command){
     status="failed";exitCode=-1;break Workflow
    }
+   // The executable MUST be resolved BEFORE the attempted audit. In the
+   // old sequence a host writer could retarget a symlink during that
+   // audit, and both later checks would approve the substituted binary.
+   executable,ok:=remoteWorkflowResolvedExecutable(spec.Command)
+   if !ok||!tasks.RemoteExecutableAllowed(root,executable){
+    status="failed";exitCode=-1;break Workflow
+   }
+   resolvedCwd,err:=filepath.EvalSymlinks(spec.Cwd)
+   if err!=nil{status="failed";exitCode=-1;break Workflow}
+   resolvedCwd,err=filepath.Abs(resolvedCwd)
+   if err!=nil||validateRemoteWorkflowStepCwd(root,resolvedCwd)!=nil{
+    status="failed";exitCode=-1;break Workflow
+   }
+   approved:=remoteParallelPrepared{
+    execution:spec,executable:executable,resolvedCwd:resolvedCwd,
+   }
    // An unavailable audit denies this attempt BEFORE any process starts.
    if err:=s.auditRemoteWorkflowStep(session,job.taskID,
     step.taskID,i+1,len(plan),attempt,job.workflowRunID,"attempted",-1);err!=nil{
-    status="failed";exitCode=-1;break Workflow
-   }
-   executable,ok:=remoteWorkflowResolvedExecutable(spec.Command)
-   if !ok||!tasks.RemoteExecutableAllowed(root,executable){
-    // Even an executable failure after the durable attempted audit must
-    // produce a final, content-free step outcome whenever storage works.
-    _=s.auditRemoteWorkflowStep(session,job.taskID,
-     step.taskID,i+1,len(plan),attempt,job.workflowRunID,"failed",-1)
-    job.updateWorkflowStep(i+1,len(plan),attempt,step.retries+1,"failed",-1,0)
     status="failed";exitCode=-1;break Workflow
    }
    // A durable "attempted" record does NOT authorize executing a
@@ -626,20 +681,9 @@ Workflow:
    }else if err:=s.authorizeRemoteAuthenticatedSession(ctx,session,
     session.channel,identity.PermissionTasksRun);err!=nil{
     deniedState="cancelled"
-   }else{
-    verified,_,checkErr:=prepareRemoteTaskExecutionInputMode(
-     ctx,s.Workspace,hash,step.taskID,0,false,"",true)
-    freshRoot,rootErr:=filepath.EvalSymlinks(s.Workspace)
-    if rootErr==nil{freshRoot,rootErr=filepath.Abs(freshRoot)}
-    freshExecutable,exeOK:=remoteWorkflowResolvedExecutable(verified.Command)
-    if checkErr!=nil||rootErr!=nil||freshRoot!=root||
-     validateRemoteWorkflowStepCwd(root,verified.Cwd)!=nil||
-     !exeOK||!tasks.RemoteExecutableAllowed(root,freshExecutable)||
-     !remoteParallelSameExecution(
-      remoteParallelPrepared{execution:spec,executable:executable},
-      remoteParallelPrepared{execution:verified,executable:freshExecutable}){
-     deniedState="failed"
-    }
+   }else if _,err:=s.revalidateRemoteLinearStepAtLaunch(
+    ctx,session,step,hash,attempt,approved,root);err!=nil{
+    deniedState="failed"
    }
    if deniedState!=""{
     if err:=s.auditRemoteWorkflowStep(session,job.taskID,
@@ -668,9 +712,12 @@ Workflow:
    }else{
     runCtx,cancelStep=context.WithCancel(ctx)
    }
-   cmd:=exec.CommandContext(runCtx,executable,spec.Args...)
-   cmd.Dir=spec.Cwd
-   cmd.Env=spec.Env
+   cmd:=exec.CommandContext(runCtx,approved.executable,approved.execution.Args...)
+   // Keep host-authored argv[0], but never follow its lexical executable
+   // symlink again after the pre-audit identity was pinned.
+   cmd.Args[0]=approved.execution.Command
+   cmd.Dir=approved.resolvedCwd
+   cmd.Env=approved.execution.Env
    cmd.Stdout=job.capture
    cmd.Stderr=job.capture
    prepareGitJobProcess(cmd)
@@ -728,6 +775,27 @@ Workflow:
      }
     }
    }()
+   // The local RBAC query and watchdog startup also yield to host writers.
+   // Re-check the EXACT process a final time, inside the cancellable
+   // launch context, before creating any external side effects.
+   if _,checkErr:=s.revalidateRemoteLinearStepAtLaunch(
+    runCtx,session,step,hash,attempt,approved,root);checkErr!=nil{
+    close(stopWatch)
+    <-watcherDone
+    cancelStep()
+    deniedState:="failed"
+    if runCtx.Err()!=nil||session.closed.Load()||
+     !remoteWorkflowHostExecutionEnabled(){deniedState="cancelled"}
+    if auditErr:=s.auditRemoteWorkflowStep(session,job.taskID,
+     step.taskID,i+1,len(plan),attempt,job.workflowRunID,
+     deniedState,-1);auditErr!=nil{deniedState="failed"}
+    job.updateWorkflowStep(i+1,len(plan),attempt,step.retries+1,
+     deniedState,-1,0)
+    _,_=captureWorkflowText(job.capture,fmt.Sprintf(
+     "[TaskDeck workflow] Step %d/%d: final launch preflight denied; not started\n",
+     i+1,len(plan)))
+    status=deniedState;exitCode=-1;break Workflow
+   }
    stepStarted:=time.Now()
    err=cmd.Run()
    close(stopWatch)
