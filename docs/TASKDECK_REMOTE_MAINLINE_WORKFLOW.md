@@ -1468,3 +1468,17 @@ real-host testing are considered **code complete**.
   time-of-check/time-of-use gap. A Git command is not a kernel-atomic
   transaction with unrelated local writers or a remote server.
   Keep production Remote Control LIVE NO-GO.
+
+## 2026-11-13 — Remote GUI short task: last-moment process launch guard
+
+- Added a final source, executable symlink, canonical workspace/cwd and
+  inherited environment comparison inside the live-RBAC callback, not only
+  following the mandatory attempted audit. A late host-side mutation now
+  denies process spawn, without changing any E2EE wire operation.
+- Execution uses the pinned canonical executable with the originally
+  approved argv[0] to preserve native shell behavior. Includes Unix
+  regression checks for changed task source, executable symlink, inherited
+  environment and host opt-out. The same short-task limits and
+  process-group cancellation still apply.
+- **Code completed; physical LIVE verification is separate.** Remote
+  production go-live remains NO-GO.

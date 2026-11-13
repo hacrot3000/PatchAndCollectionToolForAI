@@ -23,6 +23,66 @@ import (
 const remoteTaskRunTimeout = 6 * time.Second
 const remoteTaskCaptureBytes = 2048
 
+
+ // A host-local writer can change a symlink or inherited PATH while
+ // durable audit and RBAC checks run. Resolve and pin the executable
+ // separately from the host-authored argv[0].
+func remoteShortResolvedExecutable(command string)(string,error){
+ denied:=remotetransport.ErrRemoteActionDenied
+ path,err:=exec.LookPath(command)
+ if err!=nil{return "",denied}
+ path,err=filepath.EvalSymlinks(path)
+ if err!=nil{return "",denied}
+ path,err=filepath.Abs(path)
+ if err!=nil{return "",denied}
+ info,err:=os.Stat(path)
+ if err!=nil||!info.Mode().IsRegular()||info.Mode().Perm()&0111==0{
+  return "",denied
+ }
+ return path,nil
+}
+
+// Only the live authorized task callback may use this pre-exec recheck;
+// it does not grant permission. Re-read the issued task and exact inherited
+// environment, canonical workspace, cwd and executable at launch time.
+func(s *Server)revalidateRemoteShortTaskAtLaunch(ctx context.Context,
+ session *remoteTaskDeckSession,taskID,choice int,textInput string,
+ approved remoteParallelPrepared,approvedRoot string)(remoteParallelPrepared,error){
+ denied:=remotetransport.ErrRemoteActionDenied
+ var empty remoteParallelPrepared
+ if s==nil||ctx==nil||ctx.Err()!=nil||session==nil||
+  session.closed.Load()||
+  os.Getenv("TASKDECK_REMOTE_TASKS_PREVIEW")!="1"||
+  os.Getenv("TASKDECK_REMOTE_TASKS_RUN")!="1"{
+  return empty,denied
+ }
+ fresh,_,err:=prepareRemoteTaskExecutionInput(ctx,s.Workspace,
+  session.taskPageHash,taskID,choice,false,textInput)
+ if err!=nil||fresh.TaskID!=taskID{return empty,denied}
+ root,err:=filepath.EvalSymlinks(s.Workspace)
+ if err!=nil{return empty,denied}
+ root,err=filepath.Abs(root)
+ if err!=nil||root!=approvedRoot{return empty,denied}
+ cwd,err:=filepath.EvalSymlinks(fresh.Cwd)
+ if err!=nil{return empty,denied}
+ cwd,err=filepath.Abs(cwd)
+ if err!=nil{return empty,denied}
+ rel,err:=filepath.Rel(root,cwd)
+ if err!=nil||filepath.IsAbs(rel)||rel==".."||
+  strings.HasPrefix(rel,".."+string(filepath.Separator)){
+  return empty,denied
+ }
+ executable,err:=remoteShortResolvedExecutable(fresh.Command)
+ if err!=nil{return empty,denied}
+ current:=remoteParallelPrepared{
+  execution:fresh,executable:executable,resolvedCwd:cwd,
+ }
+ if !remoteParallelSameExecution(approved,current){
+  return empty,denied
+ }
+ return current,nil
+}
+
 type remoteTaskCapture struct{
  mu sync.Mutex
  data []byte
@@ -170,24 +230,22 @@ func (s *Server)runRemoteTaskBoundedWithInput(ctx context.Context,session *remot
   strings.HasPrefix(rel,".."+string(filepath.Separator)){
   return denied,remotetransport.ErrRemoteActionDenied
  }
+ cwd,err=filepath.Abs(cwd)
+ if err!=nil{return denied,remotetransport.ErrRemoteActionDenied}
+ executable,err:=remoteShortResolvedExecutable(spec.Command)
+ if err!=nil{return denied,remotetransport.ErrRemoteActionDenied}
+ approved:=remoteParallelPrepared{
+  execution:spec,executable:executable,resolvedCwd:cwd,
+ }
  // Persistent audit BEFORE the first externally observable side effect.
  if err:=s.auditRemoteTaskRunAttempt(ctx,session,taskID);err!=nil{
   return denied,remotetransport.ErrRemoteActionDenied
  }
- // SQLite audit storage is an asynchronous boundary. The workspace owner
- // might change tasks.json, a cwd symlink, or an inherited host environment
- // value during that write. Never execute a specification from BEFORE
- // the audit if the same host preflight now resolves differently.
- fresh,_,freshErr:=prepareRemoteTaskExecutionInput(
-  ctx,s.Workspace,session.taskPageHash,taskID,choice,false,textInput)
- freshRoot,rootErr:=filepath.EvalSymlinks(s.Workspace)
- freshCwd,cwdErr:=filepath.EvalSymlinks(fresh.Cwd)
- if freshErr!=nil||rootErr!=nil||cwdErr!=nil||
-  !remoteParallelSameExecution(
-   remoteParallelPrepared{execution:spec,executable:spec.Command},
-   remoteParallelPrepared{execution:fresh,executable:fresh.Command})||
-  filepath.Clean(freshRoot)!=filepath.Clean(root)||
-  filepath.Clean(freshCwd)!=filepath.Clean(cwd){
+ // A persisted attempted audit is not a launch grant: check source,
+ // canonical paths, env and resolved executable after audit and again
+ // inside the live-authorized execution callback just before spawn.
+ if _,err:=s.revalidateRemoteShortTaskAtLaunch(
+  ctx,session,taskID,choice,textInput,approved,root);err!=nil{
   return denied,remotetransport.ErrRemoteActionDenied
  }
  taskCtx,cancel:=context.WithTimeout(ctx,remoteTaskRunTimeout)
@@ -206,9 +264,15 @@ func (s *Server)runRemoteTaskBoundedWithInput(ctx context.Context,session *remot
    if runCtx.Err()!=nil||session.closed.Load(){
     return remotetransport.ErrRemoteActionDenied
    }
-   cmd:=exec.CommandContext(runCtx,spec.Command,spec.Args...)
-   cmd.Dir=cwd
-   cmd.Env=spec.Env
+   verified,verifyErr:=s.revalidateRemoteShortTaskAtLaunch(
+    runCtx,session,taskID,choice,textInput,approved,root)
+   if verifyErr!=nil{return remotetransport.ErrRemoteActionDenied}
+   cmd:=exec.CommandContext(runCtx,verified.executable,verified.execution.Args...)
+   // Retain original argv[0] (notably /bin/sh) while pinning the
+   // symlink-resolved executable selected by the audited preflight.
+   cmd.Args[0]=verified.execution.Command
+   cmd.Dir=verified.resolvedCwd
+   cmd.Env=verified.execution.Env
    cmd.Stdout=capture
    cmd.Stderr=capture
    // Do not kill only /bin/sh: retire its entire process group.
