@@ -112,7 +112,8 @@ jobs:
         run: go test -race ./internal/server -run 'TestRemoteGitNetworkMutations(NeverExecuteRepositoryCredentialHelpers|RejectHTTPSRedirects)' -count=1 -timeout=90s
       - name: Preflight Git Commit post-audit HEAD, branch, index and filter drift
         working-directory: vscode_tasks_menu_go
-        run: go test -race ./internal/server -run '^TestRemoteGitCommitPostAuditRejectsIndexBranchHEADAndFilterDrift
+        run: go test -race ./internal/server -run 'TestRemoteGitCommitPostAuditRejectsIndexBranchHEADAndFilterDrift' -count=1 -timeout=90s
+      - name: Preflight Git post-audit and in-flight host GitWrite revocation
         working-directory: vscode_tasks_menu_go
         run: go test -race ./internal/server -run 'TestRemoteGit(PostAudit|MutationActiveCommand|MutationLiveRBAC|Commit(AuditRevocationCannotMutateHEAD|RejectsRoleRevokedDuringAttemptAudit))' -count=1 -timeout=90s
       - name: Preflight Unix PTY consent, rolling output and final drain
