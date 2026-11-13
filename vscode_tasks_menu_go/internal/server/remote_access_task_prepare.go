@@ -90,6 +90,22 @@ func prepareRemoteTaskExecutionInput(
         choice,inspectOnly,textInput,false)
 }
 
+// A successful tasks.json byte/inode check is insufficient if an unrelated
+// host writer replaced its parent directories while ResolveExecution ran.
+// A hard link may retain the same tasks.json inode in a different .vscode
+// directory. Reject such namespace changes before returning a runnable spec.
+func remoteTaskParentsStable(root,vscodeDir string,
+ initialRoot,initialVSCode os.FileInfo)bool{
+ if initialRoot==nil||initialVSCode==nil{return false}
+ currentRoot,err:=os.Stat(root)
+ if err!=nil||!currentRoot.IsDir()||
+  !os.SameFile(initialRoot,currentRoot){return false}
+ currentVSCode,err:=os.Lstat(vscodeDir)
+ return err==nil&&currentVSCode.IsDir()&&
+  currentVSCode.Mode()&os.ModeSymlink==0&&
+  os.SameFile(initialVSCode,currentVSCode)
+}
+
 // A workflow dependency may only bypass the single-task dependsOn denial
 // through the separately validated, host-opted-in DAG step runner.
 // This internal helper alone grants no execution authority.
@@ -244,6 +260,7 @@ func prepareRemoteTaskExecutionInputMode(
     afterInfo, err := os.Lstat(filename)
     if err != nil || !afterInfo.Mode().IsRegular() ||
         !os.SameFile(beforeInfo, afterInfo) ||
+        !remoteTaskParentsStable(root,vscodeDir,dirInfo,vscodeInfo) ||
         ctx.Err() != nil {
         return tasks.Execution{},remoteTaskInputSelection{},denied
     }

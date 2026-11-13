@@ -129,3 +129,46 @@ func TestPrepareRemoteTaskPickChoiceFromHostSnapshot(t *testing.T){
   t.Fatal("out-of-range choice became an arbitrary argument")
  }
 }
+
+func TestRemoteTaskPreparationRejectsReplacedVSCodeDirectoryEvenWithSameFileInode(t *testing.T){
+ workspace,source,_,_:=remoteTaskSnapshotFixture(t,
+  `{"tasks":[{"label":"One","type":"process","command":"/bin/echo","args":["OK"]}]}`)
+ vscodeDir:=filepath.Join(workspace,".vscode")
+ rootBefore,err:=os.Stat(workspace)
+ if err!=nil{t.Fatal(err)}
+ vscodeBefore,err:=os.Lstat(vscodeDir)
+ if err!=nil{t.Fatal(err)}
+ if !remoteTaskParentsStable(workspace,vscodeDir,rootBefore,vscodeBefore){
+  t.Fatal("unchanged task parent directories rejected")
+ }
+ oldDir:=filepath.Join(workspace,".vscode-original")
+ if err:=os.Rename(vscodeDir,oldDir);err!=nil{t.Fatal(err)}
+ if err:=os.Mkdir(vscodeDir,0700);err!=nil{t.Fatal(err)}
+ // Hard link the original task source into the replacement .vscode so
+ // a naive os.SameFile(tasks.json) check still returns true.
+ if err:=os.Link(filepath.Join(oldDir,"tasks.json"),source);err!=nil{t.Fatal(err)}
+ before,err:=os.Stat(filepath.Join(oldDir,"tasks.json"))
+ if err!=nil{t.Fatal(err)}
+ after,err:=os.Stat(source)
+ if err!=nil{t.Fatal(err)}
+ if !os.SameFile(before,after){t.Fatal("hard link fixture lost file inode")}
+ if remoteTaskParentsStable(workspace,vscodeDir,rootBefore,vscodeBefore){
+  t.Fatal("replaced .vscode accepted despite matching task file inode")
+ }
+}
+func TestRemoteTaskPreparationRejectsReplacedWorkspaceRoot(t *testing.T){
+ workspace,_,_,_:=remoteTaskSnapshotFixture(t,
+  `{"tasks":[{"label":"One","type":"process","command":"/bin/echo"}]}`)
+ vscodeDir:=filepath.Join(workspace,".vscode")
+ rootBefore,err:=os.Stat(workspace)
+ if err!=nil{t.Fatal(err)}
+ vscodeBefore,err:=os.Lstat(vscodeDir)
+ if err!=nil{t.Fatal(err)}
+ original:=workspace+"-original"
+ if err:=os.Rename(workspace,original);err!=nil{t.Fatal(err)}
+ if err:=os.Mkdir(workspace,0700);err!=nil{t.Fatal(err)}
+ if err:=os.Symlink(filepath.Join(original,".vscode"),vscodeDir);err!=nil{t.Fatal(err)}
+ if remoteTaskParentsStable(workspace,vscodeDir,rootBefore,vscodeBefore){
+  t.Fatal("replaced workspace root/symlink parent accepted")
+ }
+}

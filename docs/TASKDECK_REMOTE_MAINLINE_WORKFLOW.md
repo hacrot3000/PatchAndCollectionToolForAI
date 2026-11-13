@@ -1545,3 +1545,16 @@ real-host testing are considered **code complete**.
 - No change to staged-only, disable-hooks, HEAD/index pinning, workspace
   exclusion, TLS/SSH network controls or E2EE roles. Production LIVE is
   still gated independently of code completion.
+
+## 2026-11-13 — Host task preparation: pin parent directory inodes
+
+- `prepareRemoteTaskExecutionInputMode` now checks that the canonical
+  workspace directory and its non-symlink `.vscode` directory are still
+  the **same OS directory objects** at the end of task resolution.
+- This closes a same-path namespace swap during resolution: a writer can
+  rename the directory and hard-link the unchanged `tasks.json` inode
+  into a replacement `.vscode`, bypassing an unchanged-file-only test.
+- Regression tests cover a replacement `.vscode` with an identical
+  linked source file and a replacement workspace root. No remotely
+  supplied commands or credentials are added; all task entry points
+  reuse the same host-only preparation guard.
