@@ -1558,3 +1558,19 @@ real-host testing are considered **code complete**.
   linked source file and a replacement workspace root. No remotely
   supplied commands or credentials are added; all task entry points
   reuse the same host-only preparation guard.
+
+## 2026-11-13 — Short Remote Task: terminal audit for pre-exec denial
+
+- A short task's mandatory `remote.action.tasks_run` attempted audit
+  could succeed, followed by a denied post-audit source/permission check
+  or a cancelled context BEFORE any command started. Those early returns
+  did not emit `remote.action.tasks_run_finished`, leaving an orphan
+  attempted entry for a task that never launched.
+- Close these prelaunch outcomes with a content-free, best-effort local
+  terminal audit (`failed`, `cancelled`, or `timed_out`; exit code -1).
+  Keep the client response denied, retain live host RBAC and E2EE
+  restrictions, and never include the command/output/arguments in audit.
+- Added Unix regression verifying exactly one attempted and one failed
+  audit after source drift, and a cancelled terminal audit after host
+  opt-out during the attempted write. Existing successful/nonzero-exit
+  audit lifecycle is unchanged.

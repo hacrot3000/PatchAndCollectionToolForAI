@@ -7,6 +7,7 @@ import (
  "errors"
  "os"
  "path/filepath"
+ "strings"
  "testing"
  "time"
 
@@ -232,5 +233,69 @@ func TestRemoteShortTaskPostAuditSnapshotDriftRejectsExecution(t *testing.T){
     }
    }
   })
+ }
+}
+
+// Post-audit source rejection is a valid host-side terminal outcome,
+// even though the process never started. The E2EE caller still receives
+// a denial and neither commands nor task output are persisted.
+func TestRemoteShortTaskPostAuditFailureHasTerminalAudit(t *testing.T){
+ t.Setenv("TASKDECK_REMOTE_TASKS_PREVIEW","1")
+ t.Setenv("TASKDECK_REMOTE_TASKS_RUN","1")
+ s,session,client,agent:=remoteTaskOperatorFixture(t)
+ taskID:=previewOneRemoteRunTask(t,s,session,client,agent,
+  `{"tasks":[{"label":"Must never start","type":"process",
+   "command":"/bin/sh","args":["-c","touch ABORTED-SHORT-TASK"]}]}`)
+ s.Identity=remoteShortTaskAuditDrift{
+  Store:s.Identity,
+  filename:filepath.Join(s.Workspace,".vscode","tasks.json"),
+ }
+ if _,err:=s.runRemoteTaskBounded(context.Background(),session,taskID,0);
+  !errors.Is(err,remotetransport.ErrRemoteActionDenied){
+  t.Fatalf("changed task source must reject execution: %v",err)
+ }
+ if _,err:=os.Stat(filepath.Join(s.Workspace,"ABORTED-SHORT-TASK"));
+  !os.IsNotExist(err){t.Fatalf("denied process was started: %v",err)}
+ project,err:=s.Identity.ProjectByKey(context.Background(),session.projectKey)
+ if err!=nil{t.Fatal(err)}
+ attempt,err:=s.Identity.ListAudit(context.Background(),identity.AuditQuery{
+  ProjectID:project.ID,UserID:session.userID,
+  Action:"remote.action.tasks_run",Limit:10,
+ })
+ if err!=nil||len(attempt)!=1||attempt[0].Result!="attempted"{
+  t.Fatalf("attempted row was lost or duplicated: %+v %v",attempt,err)
+ }
+ terminal,err:=s.Identity.ListAudit(context.Background(),identity.AuditQuery{
+  ProjectID:project.ID,UserID:session.userID,
+  Action:"remote.action.tasks_run_finished",Limit:10,
+ })
+ if err!=nil||len(terminal)!=1||terminal[0].Result!="failed"||
+  !strings.Contains(terminal[0].Details,"\"exit_code\":-1"){
+  t.Fatalf("denied launch left an incomplete audit trail: %+v %v",terminal,err)
+ }
+}
+
+func TestRemoteShortTaskPostAuditHostOptOutHasCancelledAudit(t *testing.T){
+ t.Setenv("TASKDECK_REMOTE_TASKS_PREVIEW","1")
+ t.Setenv("TASKDECK_REMOTE_TASKS_RUN","1")
+ s,session,client,agent:=remoteTaskOperatorFixture(t)
+ taskID:=previewOneRemoteRunTask(t,s,session,client,agent,
+  `{"tasks":[{"label":"Revoked task","type":"process",
+   "command":"/bin/echo","args":["safe"]}]}`)
+ s.Identity=remoteShortTaskAuditRevoke{
+  Store:s.Identity,flag:"TASKDECK_REMOTE_TASKS_RUN",session:session,
+ }
+ if _,err:=s.runRemoteTaskBounded(context.Background(),session,taskID,0);
+  !errors.Is(err,remotetransport.ErrRemoteActionDenied){
+  t.Fatalf("opted-out task must never launch: %v",err)
+ }
+ project,err:=s.Identity.ProjectByKey(context.Background(),session.projectKey)
+ if err!=nil{t.Fatal(err)}
+ terminal,err:=s.Identity.ListAudit(context.Background(),identity.AuditQuery{
+  ProjectID:project.ID,UserID:session.userID,
+  Action:"remote.action.tasks_run_finished",Limit:5,
+ })
+ if err!=nil||len(terminal)!=1||terminal[0].Result!="cancelled"{
+  t.Fatalf("opted-out task did not close attempted audit: %+v %v",terminal,err)
  }
 }

@@ -246,11 +246,24 @@ func (s *Server)runRemoteTaskBoundedWithInput(ctx context.Context,session *remot
  // inside the live-authorized execution callback just before spawn.
  if _,err:=s.revalidateRemoteShortTaskAtLaunch(
   ctx,session,taskID,choice,textInput,approved,root);err!=nil{
+  // The attempted row is already durable. A denied launch also needs a
+  // terminal outcome so native GUI history/audit cannot leave a phantom
+  // task awaiting completion when NO process was ever started.
+  result:="failed"
+  if ctx.Err()!=nil||session.closed.Load()||
+   os.Getenv("TASKDECK_REMOTE_TASKS_PREVIEW")!="1"||
+   os.Getenv("TASKDECK_REMOTE_TASKS_RUN")!="1"{
+   result="cancelled"
+  }
+  s.auditRemoteTaskRunFinish(session,taskID,result,-1,0)
   return denied,remotetransport.ErrRemoteActionDenied
  }
  taskCtx,cancel:=context.WithTimeout(ctx,remoteTaskRunTimeout)
  defer cancel()
  if taskCtx.Err()!=nil||session.closed.Load(){
+  result:="cancelled"
+  if errors.Is(taskCtx.Err(),context.DeadlineExceeded){result="timed_out"}
+  s.auditRemoteTaskRunFinish(session,taskID,result,-1,0)
   return denied,remotetransport.ErrRemoteActionDenied
  }
  capture:=&remoteTaskCapture{}
