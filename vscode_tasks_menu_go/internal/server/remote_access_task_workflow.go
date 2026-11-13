@@ -780,12 +780,15 @@ Workflow:
    // launch context, before creating any external side effects.
    if _,checkErr:=s.revalidateRemoteLinearStepAtLaunch(
     runCtx,session,step,hash,attempt,approved,root);checkErr!=nil{
-    close(stopWatch)
-    <-watcherDone
-    cancelStep()
+    // Snapshot the original denial reason BEFORE cancelling our own
+    // child context. Otherwise cancelStep makes every stale-source or
+    // changed-executable failure look like an operator cancellation.
     deniedState:="failed"
     if runCtx.Err()!=nil||session.closed.Load()||
      !remoteWorkflowHostExecutionEnabled(){deniedState="cancelled"}
+    close(stopWatch)
+    <-watcherDone
+    cancelStep()
     if auditErr:=s.auditRemoteWorkflowStep(session,job.taskID,
      step.taskID,i+1,len(plan),attempt,job.workflowRunID,
      deniedState,-1);auditErr!=nil{deniedState="failed"}
