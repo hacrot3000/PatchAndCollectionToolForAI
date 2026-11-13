@@ -1416,3 +1416,20 @@ real-host testing are considered **code complete**.
 - This recheck guards the identifiable audit gap, not out-of-process
   mutation in the last microseconds before a kernel/Git ref update.
   Production Remote Control remains LIVE NO-GO.
+
+
+### Pull post-audit regression fixture correction
+
+- The first `-race` run rejected each synthetic scenario **before the
+  attempted audit** because the test only staged `tracked.txt` in its
+  baseline while the admin workspace may also contain host-owned
+  untracked files. Pull correctly requires a fully clean worktree.
+  This did not exercise the new post-audit checks (no audit record
+  and no intended hook mutation), so it was an invalid regression
+  fixture rather than a demonstrated Pull security failure.
+- Stage the complete original fixture with `git add -A` for its first
+  baseline commit, matching the existing working Pull test. Then
+  inject one mutation only **after** a durable attempted audit and
+  assert that Git Pull is denied with no additional HEAD movement.
+  Keep the hard security preflight intact; do NOT weaken the rule
+  denying untracked files in production.

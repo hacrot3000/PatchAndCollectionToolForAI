@@ -69,7 +69,10 @@ func TestRemoteGitPullPostAuditRejectsRepositoryRefConfigAndWorktreeDrift(t *tes
    run("config","user.email","test@example.invalid")
    tracked:=filepath.Join(s.Workspace,"tracked.txt")
    if err:=os.WriteFile(tracked,[]byte("baseline\n"),0600);err!=nil{t.Fatal(err)}
-   run("add","tracked.txt")
+   // Pull requires the ENTIRE worktree clean. The admin fixture may
+   // create host-owned workspace metadata before git init; stage it in
+   // the baseline just like the existing successful Pull test.
+   run("add","-A")
    run("commit","-qm","First")
    if err:=os.WriteFile(tracked,[]byte("second commit\n"),0600);err!=nil{t.Fatal(err)}
    run("add","tracked.txt")
