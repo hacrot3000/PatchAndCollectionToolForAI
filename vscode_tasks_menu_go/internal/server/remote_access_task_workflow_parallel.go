@@ -20,6 +20,9 @@ import(
 type remoteParallelPrepared struct{
  execution tasks.Execution
  executable string
+ // A stable lexical cwd can still point to a different permitted
+ // folder after a symlink retargets between attempted audit and launch.
+ resolvedCwd string
 }
 
 // A re-prepared task must be EXACTLY the same process. Merely comparing
@@ -29,7 +32,7 @@ type remoteParallelPrepared struct{
 // Native workflows accept neither browser-selected env nor argument
 // overrides. A mismatch denies the ENTIRE fork before any worker runs.
 func remoteParallelSameExecution(a,b remoteParallelPrepared)bool{
- if a.executable!=b.executable||
+ if a.executable!=b.executable||a.resolvedCwd!=b.resolvedCwd||
   a.execution.TaskID!=b.execution.TaskID||
   a.execution.Command!=b.execution.Command||
   a.execution.Cwd!=b.execution.Cwd||
@@ -117,7 +120,7 @@ func(s *Server)runRemoteParallelPrelude(ctx context.Context,
   }
  }()
  status,code:=s.executeRemoteParallelPrepared(
-  childCtx,session,job,step,verified,index,total,prefixCount)
+  childCtx,session,job,step,verified,hash,index,total,prefixCount)
  close(stop);<-done
  if revoked.Load()||!remoteParallelWorkflowConsent(session,prefixCount){
   return "cancelled",-1
@@ -152,7 +155,32 @@ func(s *Server)prepareRemoteParallelStep(ctx context.Context,
   !tasks.RemoteExecutableAllowed(root,execution.Command){return empty,denied}
  executable,ok:=remoteWorkflowResolvedExecutable(execution.Command)
  if !ok||!tasks.RemoteExecutableAllowed(root,executable){return empty,denied}
- return remoteParallelPrepared{execution:execution,executable:executable},nil
+ resolvedCwd,err:=filepath.EvalSymlinks(execution.Cwd)
+ if err!=nil{return empty,denied}
+ resolvedCwd,err=filepath.Abs(resolvedCwd)
+ if err!=nil||validateRemoteWorkflowStepCwd(root,resolvedCwd)!=nil{
+  return empty,denied
+ }
+ return remoteParallelPrepared{
+  execution:execution,executable:executable,resolvedCwd:resolvedCwd,
+ },nil
+}
+
+// A fork's attempted-audit barrier is not a filesystem transaction.
+// Recheck the exact process, inherited env and resolved cwd at each
+// worker/prelude/root's own launch boundary, without relying on a Poll.
+func(s *Server)revalidateRemoteParallelAtLaunch(ctx context.Context,
+ session *remoteTaskDeckSession,step remoteWorkflowStep,
+ prepared remoteParallelPrepared,hash [32]byte,
+ prefixCount int)(remoteParallelPrepared,error){
+ denied:=errors.New("remote workflow launch preflight denied")
+ var empty remoteParallelPrepared
+ if ctx==nil||ctx.Err()!=nil||
+  !remoteParallelWorkflowConsent(session,prefixCount){return empty,denied}
+ current,err:=s.prepareRemoteParallelStep(ctx,session,step,hash)
+ if err!=nil||!remoteParallelSameExecution(current,prepared)||
+  !remoteParallelWorkflowConsent(session,prefixCount){return empty,denied}
+ return current,nil
 }
 
 // Only called after the attempted audit was persisted. Step history and
@@ -161,7 +189,7 @@ func(s *Server)prepareRemoteParallelStep(ctx context.Context,
 func(s *Server)executeRemoteParallelPrepared(ctx context.Context,
  session *remoteTaskDeckSession,job *remoteLongTaskJob,
  step remoteWorkflowStep,prepared remoteParallelPrepared,
- index,total,prefixCount int)(string,int){
+ hash [32]byte,index,total,prefixCount int)(string,int){
  result,exitCode:="failed",-1
  if ctx.Err()!=nil||session.closed.Load()||
   !remoteParallelWorkflowConsent(session,prefixCount){
@@ -171,6 +199,21 @@ func(s *Server)executeRemoteParallelPrepared(ctx context.Context,
   job.updateWorkflowStep(index,total,1,1,result,-1,0)
   return result,-1
  }
+ verified,verifyErr:=s.revalidateRemoteParallelAtLaunch(
+  ctx,session,step,prepared,hash,prefixCount)
+ if verifyErr!=nil{
+  result="failed"
+  if ctx.Err()!=nil||!remoteParallelWorkflowConsent(session,prefixCount){
+   result="cancelled"
+  }
+  if err:=s.auditRemoteWorkflowStep(session,job.taskID,step.taskID,
+   index,total,1,job.workflowRunID,result,-1);err!=nil{result="failed"}
+  job.updateWorkflowStep(index,total,1,1,result,-1,0)
+  _,_=captureWorkflowText(job.capture,
+   "[TaskDeck workflow] Last-moment worker preflight denied; process not started\n")
+  return result,-1
+ }
+ prepared=verified
  job.updateWorkflowStep(index,total,1,1,"running",-1,0)
  _,_=captureWorkflowText(job.capture,fmt.Sprintf(
   "[TaskDeck workflow] Step %d/%d: Task #%d (parallel attempt 1/1)\n",
@@ -360,7 +403,7 @@ func(s *Server)runRemoteParallelJoinWorkflow(ctx context.Context,
  for i:=prefixCount;i<prefixCount+leafCount;i++{
   go func(index int){
    state,code:=s.executeRemoteParallelPrepared(siblingCtx,session,job,
-    plan[index],prepared[index],index+1,len(plan),prefixCount)
+    plan[index],prepared[index],hash,index+1,len(plan),prefixCount)
    outcomes<-outcome{status:state,code:code}
   }(i)
  }
@@ -416,7 +459,7 @@ func(s *Server)runRemoteParallelJoinWorkflow(ctx context.Context,
  // Cancelling only siblingCtx while the root uses ctx would allow an
  // already-running root to ignore host-side privilege revocation.
  status,exitCode=s.executeRemoteParallelPrepared(siblingCtx,session,job,
-  plan[rootIndex],verified,len(plan),len(plan),prefixCount)
+  plan[rootIndex],verified,hash,len(plan),len(plan),prefixCount)
  if hostRevoked.Load()||!remoteParallelWorkflowConsent(session,prefixCount){
   status="cancelled";exitCode=-1
   _,_=captureWorkflowText(job.capture,

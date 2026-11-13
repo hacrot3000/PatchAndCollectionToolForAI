@@ -174,6 +174,9 @@ jobs:
       - name: Preflight serial prelude and parallel join with independently revoked host opt-in
         working-directory: vscode_tasks_menu_go
         run: go test -race ./internal/server -run 'TestRemoteWorkflow(SerialPreludeThenParallelJoin|ParallelPrefix(RequiresExtraHostOptIn|FailureStopsAllBranches|LiveOptOutStopsPrerequisite|AuditDriftStopsBeforeExecution))' -count=1 -timeout=90s
+      - name: Preflight parallel worker per-launch source, env, executable and cwd guard
+        working-directory: vscode_tasks_menu_go
+        run: go test -race ./internal/server -run 'TestRemoteParallelLaunch' -count=1 -timeout=90s
       - name: Preflight bounded two-prelude fork join and independent host revocation
         working-directory: vscode_tasks_menu_go
         run: go test -race ./internal/server -run 'TestRemoteWorkflowDoublePrefix' -count=1 -timeout=90s

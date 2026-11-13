@@ -1301,3 +1301,36 @@ real-host testing are considered **code complete**.
   là một lỗi runtime đã được chứng minh hoặc tính năng đã pass.
 - Kiểm tra tiếp bằng CI mới gồm preflight `-race` cho
   `TestRemoteWorkflowDoublePrefix*`, full workflow và native GUI.
+
+
+## 2026-11-13 — Remote Task GUI: final per-process launch guard for fork/prefix/root
+
+- The attempted-audit barrier and shared sibling preflight previously ran
+  before launching goroutines. In the intervening window a host could
+  change tasks.json, inherited environment or an approved executable
+  symlink, despite the earlier audit row remaining valid. Strengthen
+  `executeRemoteParallelPrepared` with a **per-process** re-preflight
+  immediately before publishing `running` and calling `exec.Cmd.Run`.
+  All three contexts use this check: serial prelude(s), parallel leaves
+  and final root. It verifies host consent/RBAC, snapshot digest,
+  executable resolution, command, argv, env and cwd.
+- Record a canonical `resolvedCwd` in each host-owned prepared process
+  and include it in `remoteParallelSameExecution` comparisons. Comparing
+  only the lexical cwd would not detect a symlink whose target changed
+  between two valid directories under the same workspace. The short
+  Task caller's separate post-audit cwd check remains unchanged.
+- If the last-moment re-preflight fails, do not run the process; persist
+  a terminal `failed` or `cancelled` step outcome, update the signed
+  workflow history, and stop the DAG before starting a dependent root.
+  The browser still provides only an E2EE-issued root Task ID, never a
+  process spec. The limits (5 total steps, concurrency, 90s lease,
+  16-byte output cap for parallel five-step Polls) stay unchanged.
+- Regression Go `-race`: stable setup permits launch; a forged stale
+  canonical cwd, retargeted native executable symlink outside workspace,
+  changed inherited environment, changed tasks.json bytes, and revoked
+  parallel host opt-in must all deny at the final launch boundary.
+  CI runs these in an early preflight step.
+- Filesystem mutations remain possible after any path-based check.
+  This closes the *identified post-audit/pre-launch observation gap*;
+  it is not equivalent to a kernel-atomic pinned-file descriptor exec,
+  and must not be represented as such. Production remains LIVE NO-GO.
