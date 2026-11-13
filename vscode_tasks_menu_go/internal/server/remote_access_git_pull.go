@@ -94,6 +94,14 @@ func (s *Server) executeRemoteGitPull(
  if err!=nil{return empty,denied}
  canonicalTop,err=filepath.Abs(canonicalTop)
  if err!=nil||filepath.Clean(canonicalTop)!=filepath.Clean(root){return empty,denied}
+ gitDir,err:=read(ctx,"rev-parse","--absolute-git-dir")
+ if err!=nil{return empty,denied}
+ resolvedGitDir,err:=filepath.EvalSymlinks(gitDir)
+ if err!=nil{return empty,denied}
+ resolvedGitDir,err=filepath.Abs(resolvedGitDir)
+ if err!=nil{return empty,denied}
+ gitDirInfo,err:=os.Stat(resolvedGitDir)
+ if err!=nil||!gitDirInfo.IsDir(){return empty,denied}
  // Enforce the same single, host-configured SSH/HTTPS upstream as the
  // existing Git fetch/push controls. An arbitrary local/file/ext remote,
  // multi-URL config or differently named tracking branch is not pullable.
@@ -134,6 +142,47 @@ func (s *Server) executeRemoteGitPull(
  if !s.remoteGitMutationPostAuditAuthorized(ctx,session,"TASKDECK_REMOTE_GIT_PULL"){
   return empty,denied
  }
+ // Local writers outside TaskDeck's cross-session lease can still change
+ // HEAD, branch config, upstream URL, filters or the worktree during the
+ // attempted-audit write. Recheck all relevant host-sourced parameters
+ // twice: after the audit AND at the fetch/merge process boundary.
+ revalidate:=func(checkCtx context.Context)bool{
+  if checkCtx==nil||checkCtx.Err()!=nil||session.closed.Load()||
+   !remoteGitNoRepositoryHTTPOverride(checkCtx,root,gitEnv)||
+   !remoteGitNoExecutableFilters(checkCtx,root,gitEnv){return false}
+  currentTop,err:=read(checkCtx,"rev-parse","--show-toplevel")
+  if err!=nil{return false}
+  canonical,err:=filepath.EvalSymlinks(currentTop)
+  if err!=nil{return false}
+  canonical,err=filepath.Abs(canonical)
+  if err!=nil||canonical!=root{return false}
+  currentGitDir,err:=read(checkCtx,"rev-parse","--absolute-git-dir")
+  if err!=nil{return false}
+  currentGitDir,err=filepath.EvalSymlinks(currentGitDir)
+  if err!=nil{return false}
+  currentGitDir,err=filepath.Abs(currentGitDir)
+  if err!=nil||currentGitDir!=resolvedGitDir{return false}
+  info,err:=os.Stat(currentGitDir)
+  if err!=nil||!os.SameFile(gitDirInfo,info){return false}
+  ref,err:=read(checkCtx,"symbolic-ref","-q","HEAD")
+  if err!=nil||ref!=localRef{return false}
+  head,err:=read(checkCtx,"rev-parse","--verify","HEAD")
+  if err!=nil||head!=before{return false}
+  configuredRemote,err:=read(checkCtx,"config","--get","branch."+branch+".remote")
+  if err!=nil||configuredRemote!=remote{return false}
+  configuredMerge,err:=read(checkCtx,"config","--get","branch."+branch+".merge")
+  if err!=nil||configuredMerge!=merge{return false}
+  tracking,err:=read(checkCtx,"rev-parse","--symbolic-full-name","@{upstream}")
+  if err!=nil||tracking!=upstream{return false}
+  url,err:=run(checkCtx,1024,
+   "-c","core.fsmonitor=false","-C",root,
+   "remote","get-url","--all",remote)
+  if err!=nil||url!=fetchURL||!validRemoteGitPushURL(url){return false}
+  state,err:=read(checkCtx,"--no-optional-locks","status","--porcelain=v1",
+   "--untracked-files=all","--ignore-submodules=none")
+  return err==nil&&state==""
+ }
+ if !revalidate(ctx){return empty,denied}
  pullCtx,cancel:=context.WithTimeout(ctx,remoteGitPullTimeout)
  defer cancel()
  if pullCtx.Err()!=nil||session.closed.Load(){return empty,denied}
@@ -166,6 +215,7 @@ func (s *Server) executeRemoteGitPull(
   "--no-tags","--upload-pack=git-upload-pack",remote,branch)
  err=s.runRemoteGitMutationWithLiveRBAC(pullCtx,session,
   "TASKDECK_REMOTE_GIT_PULL",func(runCtx context.Context)error{
+   if !revalidate(runCtx){return denied}
    _,runErr:=run(runCtx,0,pullArgs...)
    return runErr
   })

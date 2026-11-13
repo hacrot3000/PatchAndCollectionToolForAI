@@ -1384,3 +1384,35 @@ real-host testing are considered **code complete**.
   addresses identified pre/post-audit races without claiming to
   eliminate every external filesystem race. Do not change
   `remote_control_available=false` (LIVE NO-GO).
+
+
+## 2026-11-13 — Git Pull: snapshot HEAD/upstream/URL/worktree after attempted audit
+
+- Pull previously selected a clean, single Git repository/upstream and
+  SSH/HTTPS URL before its mandatory `remote.action.git_pull:attempted`
+  audit. A local writer could modify HEAD, branch tracking config,
+  effective remote URL, Git filters or untracked files during that audit,
+  then cause the fixed `pull --ff-only` to act on a **different**
+  upstream or dirty worktree despite retaining a valid GitWrite grant.
+- Before audit, bind the canonical Git directory path and directory
+  inode in addition to the existing canonical workspace, current branch,
+  HEAD commit, branch remote + merge ref, symbolic upstream and unique
+  effective fetch URL. Continue rejecting dirty/untracked files,
+  modified submodules, executable filters and repository HTTP overrides.
+- **After audit and again immediately before the network subprocess**,
+  verify the identical repository top-level/Git directory identity,
+  branch, HEAD, remote/merge/upstream config, URL and clean worktree.
+  Re-scan dangerous filter and HTTP overrides so a config mutation
+  during the audit cannot trigger a credential helper, insecure TLS or
+  filter process. Do not accept alternate remote/refspec arguments
+  from the E2EE client; keep only the already-fixed fast-forward pull
+  with no tags, local/file/ext protocols, submodules or redirects.
+- Regression `-race` mutates each element via a **host-local**
+  attempted-audit hook: URL, tracking merge ref, HEAD, untracked
+  worktree contents, executable filter and TLS override. Require the
+  Git operation to be denied with no additional HEAD movement and
+  with a content-free mandatory audit row. No real network server is
+  contacted during the denial tests.
+- This recheck guards the identifiable audit gap, not out-of-process
+  mutation in the last microseconds before a kernel/Git ref update.
+  Production Remote Control remains LIVE NO-GO.
