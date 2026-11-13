@@ -65,14 +65,12 @@ func TestRemoteLinearWorkflowAuditCannotRetargetExecutable(t *testing.T){
 func TestRemoteLinearWorkflowFinalGuardRejectsEnvironmentAndCwdDrift(t *testing.T){
  remoteWorkflowHostFlags(t)
  s,session,client,agent:=remoteTaskOperatorFixture(t)
- for _,dir:=range []string{"original","changed"}{
-  if err:=os.Mkdir(filepath.Join(s.Workspace,dir),0700);err!=nil{t.Fatal(err)}
- }
- link:=filepath.Join(s.Workspace,"working")
- if err:=os.Symlink("original",link);err!=nil{t.Fatal(err)}
+ // Workflow policy intentionally rejects task options, including cwd.
+ // Exercise the canonical-cwd guard against a forged/stale approval
+ // without weakening the host's permitted task definition.
  source:=`{"tasks":[
   {"label":"A","type":"process","command":"/bin/echo",
-   "args":["SAFE"],"options":{"cwd":"working"}},
+   "args":["SAFE"]},
   {"label":"B","type":"process","command":"/bin/echo",
    "args":["SAFE"],"dependsOn":"A"}]}`
  id:=remoteWorkflowIssuedRoot(t,s,session,client,agent,source,"B")
@@ -99,14 +97,12 @@ func TestRemoteLinearWorkflowFinalGuardRejectsEnvironmentAndCwdDrift(t *testing.
   context.Background(),session,step,hash,1,approved,root);err!=nil{
   t.Fatalf("unchanged step was denied: %v",err)
  }
- if err:=os.Remove(link);err!=nil{t.Fatal(err)}
- if err:=os.Symlink("changed",link);err!=nil{t.Fatal(err)}
+ poisoned:=approved
+ poisoned.resolvedCwd=filepath.Join(s.Workspace,"different")
  if _,err:=s.revalidateRemoteLinearStepAtLaunch(
-  context.Background(),session,step,hash,1,approved,root);err==nil{
-  t.Fatal("post-audit cwd alias changed without denial")
+  context.Background(),session,step,hash,1,poisoned,root);err==nil{
+  t.Fatal("stale canonical cwd approval accepted")
  }
- if err:=os.Remove(link);err!=nil{t.Fatal(err)}
- if err:=os.Symlink("original",link);err!=nil{t.Fatal(err)}
  t.Setenv("TASKDECK_LINEAR_GUARD_ENV","changed")
  if _,err:=s.revalidateRemoteLinearStepAtLaunch(
   context.Background(),session,step,hash,1,approved,root);err==nil{
