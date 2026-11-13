@@ -784,7 +784,9 @@ Workflow:
     // child context. Otherwise cancelStep makes every stale-source or
     // changed-executable failure look like an operator cancellation.
     deniedState:="failed"
-    if runCtx.Err()!=nil||session.closed.Load()||
+    if errors.Is(runCtx.Err(),context.DeadlineExceeded){
+     deniedState="timed_out"
+    }else if runCtx.Err()!=nil||session.closed.Load()||
      !remoteWorkflowHostExecutionEnabled(){deniedState="cancelled"}
     close(stopWatch)
     <-watcherDone
