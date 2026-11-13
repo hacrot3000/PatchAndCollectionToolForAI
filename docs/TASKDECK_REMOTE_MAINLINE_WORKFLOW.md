@@ -1524,3 +1524,24 @@ real-host testing are considered **code complete**.
   canonical cwd and inherited environment drift.
 - No new remote command or E2EE parameter, no permission relaxation.
   Production LIVE remains NO-GO separately from code completion.
+
+## 2026-11-13 — Git Commit host-owned author identity
+
+- Remote Git Commit intentionally runs with global Git config disabled and
+  with a minimal environment. On machines where the author's `user.name`
+  and `user.email` exist only in `~/.gitconfig`, a staged commit was not
+  executable through Remote GUI even though local Git worked.
+- Option A (existing): set `user.name` and `user.email` inside the
+  individual repository. Option B (new): configure BOTH host-side Agent
+  environment variables `TASKDECK_REMOTE_GIT_AUTHOR_NAME` and
+  `TASKDECK_REMOTE_GIT_AUTHOR_EMAIL`. The host validates their bounded
+  syntax and applies them as fixed Git `-c user.name/user.email` options.
+  The remote client cannot send these values, and they are never stored
+  in the content-free E2EE audit. Partial or malformed overrides deny.
+- Read the effective Git author and email before attempted audit; after
+  durable audit and again at the native commit launch callback, compare
+  both the host override and effective Git configuration. A late change
+  refuses the commit instead of silently authoring it as someone else.
+- No change to staged-only, disable-hooks, HEAD/index pinning, workspace
+  exclusion, TLS/SSH network controls or E2EE roles. Production LIVE is
+  still gated independently of code completion.

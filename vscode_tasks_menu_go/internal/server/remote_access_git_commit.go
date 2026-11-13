@@ -55,6 +55,13 @@ func (s *Server) executeRemoteGitCommit(
  // clean/process/smudge filters even with hooks disabled. Deny all
  // executable filter drivers before any status-like Git call.
  if !remoteGitNoExecutableFilters(ctx,root,env){return empty,denied}
+ // The commit author can be configured only by the local host, never
+ // from the E2EE request. Global Git config remains disabled: on hosts
+ // that keep their identity only in ~/.gitconfig, require an explicit,
+ // bounded TASKDECK_REMOTE_GIT_AUTHOR_NAME/EMAIL pair instead.
+ authorName,authorEmail,authorExplicit,identityValid:=
+  remoteGitCommitHostIdentity()
+ if !identityValid{return empty,denied}
  // Every Git invocation uses a fixed argv, no shell and no caller-supplied
  // path or environment. Disable local fsmonitor commands and Git hooks.
  base:=[]string{
@@ -62,8 +69,12 @@ func (s *Server) executeRemoteGitCommit(
   "-c","core.hooksPath="+os.DevNull,
   "-c","commit.gpgsign=false",
   "-c","protocol.ext.allow=never",
-  "-C",root,
  }
+ if authorExplicit{
+  base=append(base,
+   "-c","user.name="+authorName,"-c","user.email="+authorEmail)
+ }
+ base=append(base,"-C",root)
  run:=func(runCtx context.Context,limit int,args ...string)(string,error){
   if runCtx.Err()!=nil||session.closed.Load(){return "",denied}
   command:=exec.CommandContext(runCtx,"git",append(append([]string(nil),base...),args...)...)
@@ -85,6 +96,13 @@ func (s *Server) executeRemoteGitCommit(
   if output.truncated{return "",denied}
   return strings.TrimSpace(output.String()),nil
  }
+ // Read the effective host-owned identity through the same isolated Git
+ // configuration that will actually be used for commit. Do not fall back
+ // to machine defaults or global helper config after a denied preflight.
+ effectiveName,err:=run(ctx,256,"config","--get","user.name")
+ if err!=nil||effectiveName==""{return empty,denied}
+ effectiveEmail,err:=run(ctx,256,"config","--get","user.email")
+ if err!=nil||effectiveEmail==""{return empty,denied}
  // Hash index entries incrementally, never retaining staged paths or
  // contents in audit, UI output or an unbounded in-memory buffer. The
  // executable/hooks configuration remains explicitly host-owned.
@@ -166,6 +184,16 @@ func (s *Server) executeRemoteGitCommit(
  revalidate:=func(checkCtx context.Context)bool{
   if checkCtx==nil||checkCtx.Err()!=nil||session.closed.Load()||
    !remoteGitNoExecutableFilters(checkCtx,root,env){return false}
+  // Auditing can yield to a local writer changing the Git identity;
+  // reject that drift before Git creates a permanent commit object.
+  currentName,currentEmail,currentExplicit,currentValid:=
+   remoteGitCommitHostIdentity()
+  if !currentValid||currentExplicit!=authorExplicit||
+   currentName!=authorName||currentEmail!=authorEmail{return false}
+  verifiedName,err:=run(checkCtx,256,"config","--get","user.name")
+  if err!=nil||verifiedName!=effectiveName{return false}
+  verifiedEmail,err:=run(checkCtx,256,"config","--get","user.email")
+  if err!=nil||verifiedEmail!=effectiveEmail{return false}
   freshTop,err:=run(checkCtx,256,"rev-parse","--show-toplevel")
   if err!=nil{return false}
   resolvedTop,err:=filepath.EvalSymlinks(freshTop)
