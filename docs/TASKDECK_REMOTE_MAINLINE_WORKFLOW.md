@@ -1350,3 +1350,37 @@ real-host testing are considered **code complete**.
   it does not pin filesystem directory inodes against arbitrary
   concurrent rename/replacement. A kernel-level dirfd/chdir design
   is out of scope. Production LIVE NO-GO remains unchanged.
+
+
+## 2026-11-13 — Git Commit: pin repository, branch, HEAD and staged index after audit
+
+- Git Commit previously checked branch, HEAD and whether the index
+  contained staged differences before writing the durable
+  `remote.action.git_commit:attempted` audit. An unrelated host
+  process could change any of those values while the audit row was
+  being persisted. The GitWrite grant alone cannot authorize
+  committing a **different** branch, HEAD or staged snapshot.
+- Before the audit, record the exact branch ref, HEAD object ID and
+  inode of the canonical repository Git directory; hash the
+  `git ls-files --stage -z` stream incrementally with SHA-256, never
+  retaining staged file paths/content in memory, E2EE, PHP or audit.
+  A 3-second child context caps the index-fingerprint command.
+- **After the audit and again at the actual commit launch**, re-check
+  exact top-level workspace, resolved Git directory identity, branch
+  ref, HEAD and staged-index fingerprint. Also re-scan executable
+  filter drivers after audit so hostile local config cannot introduce
+  a command-bearing clean/smudge/process filter between initial
+  authorization and `git commit`. Deny any mismatch; no Commit
+  subprocess starts and GitWrite/host opt-in guards still apply.
+- Tests use a host-local audit-store hook, not browser arguments,
+  to mutate the index, switch HEAD to another local branch, move
+  HEAD to its parent or add an executable Git filter after the
+  mandatory attempted audit. Require a denied result, unchanged
+  post-mutation HEAD, no unauthorized commit, and an audit row
+  without commit text or filenames. Add the targeted suite to the
+  early Go `-race` CI preflight.
+- Git storage is not a kernel-atomic transaction against arbitrary
+  unrelated local writers after the final check; this hardening
+  addresses identified pre/post-audit races without claiming to
+  eliminate every external filesystem race. Do not change
+  `remote_control_available=false` (LIVE NO-GO).
