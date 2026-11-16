@@ -76,7 +76,7 @@ func remoteGitMutationPostAuditAllowed(ctx context.Context,
  session *remoteTaskDeckSession,flag string)bool{
  switch flag{
  case "TASKDECK_REMOTE_GIT_PULL","TASKDECK_REMOTE_GIT_COMMIT",
-  "TASKDECK_REMOTE_GIT_PUSH":
+  "TASKDECK_REMOTE_GIT_PUSH","TASKDECK_REMOTE_GIT_FETCH":
  default:return false
  }
  return ctx!=nil&&ctx.Err()==nil&&session!=nil&&!session.closed.Load()&&

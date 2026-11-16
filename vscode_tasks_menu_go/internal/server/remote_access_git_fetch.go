@@ -39,8 +39,8 @@ func(s *Server)executeRemoteGitFetch(
  if err!=nil{return empty,denied}
  root,err=filepath.Abs(root)
  if err!=nil{return empty,denied}
- info,err:=os.Stat(root)
- if err!=nil||!info.IsDir(){return empty,denied}
+ rootInfo,err:=os.Stat(root)
+ if err!=nil||!rootInfo.IsDir(){return empty,denied}
  env:=[]string{
   "PATH="+os.Getenv("PATH"),"HOME="+os.Getenv("HOME"),
   "SSH_AUTH_SOCK="+os.Getenv("SSH_AUTH_SOCK"),
@@ -92,6 +92,16 @@ func(s *Server)executeRemoteGitFetch(
  if err!=nil{return empty,denied}
  canonical,err=filepath.Abs(canonical)
  if err!=nil||filepath.Clean(canonical)!=filepath.Clean(root){return empty,denied}
+ // Pin the repository object itself, not just its path: another host
+ // process can swap the .git directory while a durable audit is written.
+ gitDir,err:=run(ctx,1024,"rev-parse","--absolute-git-dir")
+ if err!=nil{return empty,denied}
+ resolvedGitDir,err:=filepath.EvalSymlinks(gitDir)
+ if err!=nil{return empty,denied}
+ resolvedGitDir,err=filepath.Abs(resolvedGitDir)
+ if err!=nil{return empty,denied}
+ gitDirInfo,err:=os.Stat(resolvedGitDir)
+ if err!=nil||!gitDirInfo.IsDir(){return empty,denied}
  localRef,err:=run(ctx,256,"symbolic-ref","-q","HEAD")
  if err!=nil||!strings.HasPrefix(localRef,"refs/heads/"){return empty,denied}
  branch:=strings.TrimPrefix(localRef,"refs/heads/")
@@ -114,10 +124,54 @@ func(s *Server)executeRemoteGitFetch(
  before,err:=run(ctx,256,"rev-parse","--verify",tracking+"^{commit}")
  if err!=nil||!remoteGitObjectID.MatchString(before){return empty,denied}
  if err:=s.auditRemoteGitFetchAttempt(ctx,session);err!=nil{return empty,denied}
+ // A persisted attempted row does not pin either the selected upstream,
+ // the destination URL or the caller's GitWrite permission. A local host
+ // writer can change all three during the audit; re-read the same exact
+ // repository/ref configuration before starting any network operation.
+ revalidate:=func(checkCtx context.Context)bool{
+  if checkCtx==nil||checkCtx.Err()!=nil||session.closed.Load()||
+   os.Getenv("TASKDECK_REMOTE_GIT_FETCH")!="1"||
+   !remoteGitNoRepositoryHTTPOverride(checkCtx,root,env){return false}
+  currentRoot,err:=os.Stat(root)
+  if err!=nil||!os.SameFile(rootInfo,currentRoot){return false}
+  topNow,err:=run(checkCtx,4096,"rev-parse","--show-toplevel")
+  if err!=nil{return false}
+  resolvedTop,err:=filepath.EvalSymlinks(topNow)
+  if err!=nil{return false}
+  resolvedTop,err=filepath.Abs(resolvedTop)
+  if err!=nil||resolvedTop!=root{return false}
+  dirNow,err:=run(checkCtx,1024,"rev-parse","--absolute-git-dir")
+  if err!=nil{return false}
+  dirNow,err=filepath.EvalSymlinks(dirNow)
+  if err!=nil{return false}
+  dirNow,err=filepath.Abs(dirNow)
+  if err!=nil||dirNow!=resolvedGitDir{return false}
+  dirInfo,err:=os.Stat(dirNow)
+  if err!=nil||!os.SameFile(gitDirInfo,dirInfo){return false}
+  currentRef,err:=run(checkCtx,256,"symbolic-ref","-q","HEAD")
+  if err!=nil||currentRef!=localRef{return false}
+  remoteNow,err:=run(checkCtx,256,"config","--get","branch."+branch+".remote")
+  if err!=nil||remoteNow!=remote{return false}
+  mergeNow,err:=run(checkCtx,256,"config","--get","branch."+branch+".merge")
+  if err!=nil||mergeNow!=merge{return false}
+  upstreamNow,err:=run(checkCtx,256,
+   "rev-parse","--symbolic-full-name","@{upstream}")
+  if err!=nil||upstreamNow!=tracking{return false}
+  urlNow,err:=run(checkCtx,1024,"remote","get-url","--all",remote)
+  if err!=nil||urlNow!=fetchURL||!validRemoteGitPushURL(urlNow){return false}
+  headNow,err:=run(checkCtx,256,"rev-parse","--verify","HEAD^{commit}")
+  if err!=nil||headNow!=head{return false}
+  trackingNow,err:=run(checkCtx,256,
+   "rev-parse","--verify",tracking+"^{commit}")
+  return err==nil&&trackingNow==before
+ }
+ if !s.remoteGitMutationPostAuditAuthorized(
+  ctx,session,"TASKDECK_REMOTE_GIT_FETCH")||!revalidate(ctx){
+  return empty,denied
+ }
  fetchCtx,cancel:=context.WithTimeout(ctx,remoteGitFetchTimeout)
  defer cancel()
- if fetchCtx.Err()!=nil||session.closed.Load()||
-  !session.portalGrant.ActiveForSession(session.channel){return empty,denied}
+ if fetchCtx.Err()!=nil||session.closed.Load(){return empty,denied}
  // No "+" refspec: rewritten/non-fast-forward remote branches fail closed.
  // The host's worktree, index, local HEAD, tags and other refs are not
  // selected for updates.
@@ -130,7 +184,14 @@ func(s *Server)executeRemoteGitFetch(
  args:=append(tlsFlags,"fetch","--no-tags","--no-recurse-submodules",
   "--no-write-fetch-head","--upload-pack=git-upload-pack",remote,
   "refs/heads/"+branch+":"+tracking)
- _,err=run(fetchCtx,0,args...)
+ err=s.runRemoteGitMutationWithLiveRBAC(fetchCtx,session,
+  "TASKDECK_REMOTE_GIT_FETCH",func(runCtx context.Context)error{
+   // Recheck again under the live-revocation child context directly
+   // before Git creates or advances the tracking ref.
+   if !revalidate(runCtx){return denied}
+   _,runErr:=run(runCtx,0,args...)
+   return runErr
+  })
  if err!=nil||fetchCtx.Err()!=nil||session.closed.Load(){return empty,denied}
  after,err:=run(ctx,256,"rev-parse","--verify",tracking+"^{commit}")
  if err!=nil||!remoteGitObjectID.MatchString(after){return empty,denied}

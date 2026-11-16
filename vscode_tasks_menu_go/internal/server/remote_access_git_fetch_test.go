@@ -78,7 +78,9 @@ func TestRemoteGitFetchUpstreamAdvancementWithoutChangingHEAD(t *testing.T){
  requireGit(t)
  if runtime.GOOS=="windows"{t.Skip("Unix-only remote Git process groups")}
  t.Setenv("TASKDECK_REMOTE_GIT_FETCH","1")
- s,session,_,_:=remoteDispatchFixture(t)
+ // A successful Git write must be exercised as an actual host-authorized
+ // operator; the transport viewer fixture is only valid for denial tests.
+ s,session,_,_:=remoteTerminalAdminFixture(t)
  gitInitRemoteTest(t,s.Workspace)
  gitPath,err:=exec.LookPath("git")
  if err!=nil{t.Fatal(err)}

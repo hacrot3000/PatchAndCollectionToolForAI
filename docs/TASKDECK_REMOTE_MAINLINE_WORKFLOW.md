@@ -1618,3 +1618,21 @@ real-host testing are considered **code complete**.
   per-worker durable audits, cancellation, parallel join barrier and
   `cmd.Wait()`/process-group reap. Preserve the host-owned original
   `argv[0]` for parity with the sequential workflow path.
+
+## 2026-11-16 — Git Fetch: bind upstream and host GitWrite through final launch
+
+- Git Fetch previously pinned the branch/upstream only *before* the
+  mandatory attempted audit. A host-local change to URL, tracking ref,
+  branch configuration, HEAD or HTTP policy during that SQLite write
+  could direct the subsequent fixed fetch at a different repository.
+- Revalidate the canonical workspace and exact `.git` directory inode,
+  current branch, tracking ref/commit, host-selected URL, local HEAD and
+  repository HTTP overrides after audit **and immediately at network
+  launch**. Use the existing live GitWrite RBAC/host opt-in watcher for
+  the entire bounded fetch. No caller-chosen Git arguments are accepted.
+- Unix tests inject URL/upstream/HEAD/tracking/HTTP opt-out and role
+  changes during audit and ensure no SSH process is invoked; the
+  successful upstream-advancement fixture now uses a genuine authorized
+  TaskDeck operator rather than a viewer direct-call shortcut.
+- This hardens the Fetch → Pull sequence without altering wire formats,
+  enabling force, tags or autonomous credentials.
