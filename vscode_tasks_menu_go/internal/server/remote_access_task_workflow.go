@@ -556,7 +556,7 @@ func(s *Server)startRemoteLinearWorkflow(ctx context.Context,
   return denied
  }
  jobCtx,cancel:=context.WithTimeout(context.Background(),remoteLongTaskMaxDuration)
- capture:=newRemoteTaskOutputCapture()
+ capture:=newRemoteWorkflowOutputCapture()
  job:=&remoteLongTaskJob{
   taskID:taskID,started:time.Now(),cancel:cancel,
   done:make(chan struct{}),capture:capture,status:"running",exitCode:-1,

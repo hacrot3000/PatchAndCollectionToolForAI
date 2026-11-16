@@ -35,13 +35,25 @@ func TestRemoteTaskRollingOutputHostOptInAndBackwardCompatibility(t *testing.T){
  base:=rolling.rollingBase
  rolling.mu.Unlock()
  if len(kept)>remoteLongTaskMaxCaptureBytes||base==0||
-  !strings.HasSuffix(kept,"LATE-ERROR")||
-  strings.HasPrefix(kept,strings.Repeat("A",128)){
+  !strings.HasSuffix(kept,"LATE-ERROR"){
   t.Fatalf("rolling task did not retain the bounded late output: base=%d size=%d",base,len(kept))
  }
  page,cursor,lost,more:=rolling.next(0)
- if !lost||len(page)==0||cursor<=0||!more{
-  t.Fatalf("rolling Poll did not acknowledge dropped pre-tail bytes: cursor=%d lost=%t more=%t",cursor,lost,more)
+ if !lost||len(page)==0||cursor<=base||!more||
+  strings.Contains(page,"A"){
+  t.Fatalf("rolling Poll did not skip dropped pre-tail bytes: cursor=%d lost=%t more=%t",cursor,lost,more)
+ }
+ // The bounded 512-byte late excerpt must include the final marker
+ // within at most four signed 128-byte Polls after a long idle gap.
+ text:=page
+ for i:=0;i<5&&more;i++{
+  chunk,next,_,nextMore:=rolling.next(cursor)
+  if next<=cursor{t.Fatal("rolling task tail cursor stalled")}
+  text+=chunk
+  cursor,more=next,nextMore
+ }
+ if !strings.Contains(text,"LATE-ERROR"){
+  t.Fatal("late task error could not be retrieved within GUI Poll quota")
  }
  if _,err:=rolling.Write([]byte("SHOULD-NOT-APPEND"));err!=nil{t.Fatal(err)}
  rolling.mu.Lock()
@@ -111,6 +123,17 @@ func TestRemoteLongTaskRollingOutputDeliversFinalBuildError(t *testing.T){
  if !bounded||!strings.HasSuffix(got,"LATE-BUILD-ERROR"){
   t.Fatalf("final build diagnostics not retained at end of bounded job: %d bytes",len(got))
  }
+ var polled strings.Builder
+ for i:=0;i<5;i++{
+  snapshot,err:=session.pollRemoteLongTask(context.Background(),id)
+  if err!=nil{t.Fatalf("long task Poll failed: %v",err)}
+  if i==0&&!snapshot.Truncated{t.Fatal("overflow was not reported")}
+  polled.WriteString(snapshot.Output)
+  if !snapshot.More{break}
+ }
+ if !strings.Contains(polled.String(),"LATE-BUILD-ERROR"){
+  t.Fatal("signed-poll-sized late build error remained unreachable")
+ }
  if capture.rollingBase==0{t.Fatal("build log never exercised rolling overflow")}
  if err:=session.clearRemoteLongTask(id);err!=nil{t.Fatal(err)}
 }
@@ -145,6 +168,17 @@ func TestRemoteWorkflowRollingOutputKeepsFinalStep(t *testing.T){
  if !capture.rolling||base==0||len(output)>remoteLongTaskMaxCaptureBytes||
   !strings.Contains(output,"LATE-WORKFLOW-SUCCESS"){
   t.Fatalf("final workflow result lost after large prior step: base=%d size=%d",base,len(output))
+ }
+ var received strings.Builder
+ for i:=0;i<9;i++{
+  snapshot,err:=session.pollRemoteLongTask(context.Background(),id)
+  if err!=nil{t.Fatalf("workflow Poll failed: %v",err)}
+  if i==0&&!snapshot.Truncated{t.Fatal("evicted workflow prefix was not reported")}
+  received.WriteString(snapshot.Output)
+  if !snapshot.More{break}
+ }
+ if !strings.Contains(received.String(),"LATE-WORKFLOW-SUCCESS"){
+  t.Fatal("workflow final output remained behind the 16-action Poll quota")
  }
  if err:=session.clearRemoteLongTask(id);err!=nil{t.Fatal(err)}
 }

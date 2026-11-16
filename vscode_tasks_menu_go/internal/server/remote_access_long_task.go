@@ -68,6 +68,11 @@ type remoteLongTaskCapture struct {
  // UTF-8 rolling buffer. Ordinary Task capture keeps first-16KiB
  // semantics for backwards compatibility unless separately enabled.
  rolling bool
+ // The native Task GUI has a strict 16-action quota. Once an idle task
+ // overflows the rolling window, expose the latest bounded excerpt
+ // rather than spending all remaining Polls on the oldest retained log.
+ // Zero keeps the original Terminal rolling cursor semantics.
+ taskTailBytes int
  rollingBase int // Absolute UTF-8 byte offset of data[0].
  rollingPending []byte // Incomplete UTF-8 sequence across PTY reads.
  finalized bool // Prevent a tardy PTY reader from mutating a final Poll.
@@ -90,7 +95,9 @@ func newRemoteTerminalCapture()*remoteLongTaskCapture{
 // Existing signed cursor/backpressure semantics and memory bound apply.
 func newRemoteTaskOutputCapture()*remoteLongTaskCapture{
  if os.Getenv("TASKDECK_REMOTE_TASKS_ROLLING_OUTPUT")=="1"{
-  return newRemoteTerminalCapture()
+  capture:=newRemoteTerminalCapture()
+  capture.taskTailBytes=512
+  return capture
  }
  return newRemoteLongTaskCapture()
 }
@@ -98,6 +105,15 @@ func newRemoteTaskOutputCapture()*remoteLongTaskCapture{
 // The rolling worker's stdout/stderr writers are drained before the final
 // state is exposed. Freeze its capture, so no incomplete UTF-8 sequence or
 // tardy writer can modify already finalized authenticated Poll output.
+// Workflow progress metadata reduces the max output per signed Poll.
+// Once old output has been evicted, eight 16-byte Polls can still
+// retrieve the final 128 bytes without exhausting a 16-round session.
+func newRemoteWorkflowOutputCapture()*remoteLongTaskCapture{
+ capture:=newRemoteTaskOutputCapture()
+ if capture.rolling{capture.taskTailBytes=128}
+ return capture
+}
+
 func(c *remoteLongTaskCapture)finishTaskRollingOutput(){
  if c!=nil&&c.rolling{c.finishRemoteTerminal(false)}
 }
@@ -194,6 +210,17 @@ func (c *remoteLongTaskCapture)nextBounded(cursor,limit int)(string,int,bool,boo
   lost:=cursor<c.rollingBase
   if lost{cursor=c.rollingBase}
   last:=c.rollingBase+len(c.data)
+  if lost&&c.taskTailBytes>0&&len(c.data)>c.taskTailBytes{
+   // This is ONLY applied after the reader has already lost unread
+   // data. Never discard a successfully consumed/active cursor merely
+   // to focus the tail. Keep UTF-8 rune boundaries and a monotonic
+   // absolute byte cursor, including for deferred E2EE Seal commits.
+   target:=last-c.taskTailBytes
+   if target>cursor{cursor=target}
+   for cursor<last&&!utf8.RuneStart(c.data[cursor-c.rollingBase]){
+    cursor++
+   }
+  }
   if cursor>last{cursor=last}
   text:=string(c.data[cursor-c.rollingBase:])
   end:=cursor

@@ -1670,3 +1670,17 @@ real-host testing are considered **code complete**.
   terminal status is published, and preserve all existing process group,
   per-step audit, cancellation and workspace lease semantics. The
   Portal/Relay never receives a host-selected path or decrypted output.
+
+### Rolling Task output: late-error excerpt under fixed GUI quota
+
+- When a rolling Task/Workflow reader falls behind the 16 KiB ring
+  and its old cursor has been evicted, the first remaining Poll jumps
+  to the **latest 512 bytes for Tasks**, or the **latest 128 bytes for
+  workflows** (where signed progress metadata reduces chunk size).
+  `Truncated` remains true, so no unread data is silently lost.
+- Readers that poll continuously are never fast-forwarded; only a
+  confirmed overflow triggers tail focus. Terminal rolling capture is
+  unchanged, and all cursors remain monotonic with UTF-8 boundaries.
+- This makes final compiler diagnostics reachable within the
+  strict 16-E2EE-round native GUI budget rather than retaining late
+  output the client cannot reasonably retrieve.
