@@ -161,3 +161,51 @@ func TestRemoteParallelWorkflowWorkspaceRelativeCwdExecutes(t *testing.T){
  }
  if err:=session.clearRemoteLongTask(root);err!=nil{t.Fatal(err)}
 }
+
+ 
+// In a parallel join both attempted rows must be durable before ANY
+// sibling launches. A host-local cwd symlink change during the first row
+// must abort the entire fork, not just the affected leaf.
+func TestRemoteParallelWorkflowCwdSymlinkAuditDriftStopsBothWorkers(t *testing.T){
+ remoteWorkflowHostFlags(t)
+ t.Setenv("TASKDECK_REMOTE_TASKS_WORKFLOW_PARALLEL","1")
+ s,session,client,agent:=remoteTaskOperatorFixture(t)
+ for _,dir:=range []string{"original","retargeted"}{
+  if err:=os.Mkdir(filepath.Join(s.Workspace,dir),0700);err!=nil{t.Fatal(err)}
+ }
+ link:=filepath.Join(s.Workspace,"working")
+ if err:=os.Symlink("original",link);err!=nil{t.Fatal(err)}
+ source:=`{"tasks":[
+  {"label":"Leaf A","type":"process","command":"/bin/touch",
+   "args":["UNSAFE-A"],"options":{"cwd":"working"}},
+  {"label":"Leaf B","type":"process","command":"/bin/touch",
+   "args":["UNSAFE-B"],"options":{"cwd":"original"}},
+  {"label":"Join","type":"process","command":"/bin/echo",
+   "args":["UNSAFE-ROOT"],"dependsOn":["Leaf A","Leaf B"],
+   "dependsOrder":"parallel"}]}`
+ root:=remoteWorkflowIssuedRoot(t,s,session,client,agent,source,"Join")
+ hook:=&remoteLinearAuditRetarget{
+  Store:s.Identity,link:link,target:"retargeted",
+ }
+ s.Identity=hook
+ if err:=s.startRemoteLinearWorkflow(context.Background(),session,root);err!=nil{
+  t.Fatal(err)
+ }
+ if got:=awaitRemoteWorkflow(t,session);got!="failed"{
+  t.Fatalf("parallel fork accepted audit-time cwd retarget: %q",got)
+ }
+ if !hook.mutated{t.Fatal("audit hook did not change the cwd symlink")}
+ for _,dir:=range []string{"original","retargeted"}{
+  for _,name:=range []string{"UNSAFE-A","UNSAFE-B"}{
+   if _,err:=os.Stat(filepath.Join(s.Workspace,dir,name));!os.IsNotExist(err){
+    t.Fatalf("stale fork started an unapproved process: %s/%s %v",dir,name,err)
+   }
+  }
+ }
+ output:=remoteWorkflowCwdFullCapture(session.longTask)
+ if strings.Contains(output,"UNSAFE-ROOT")||
+  !strings.Contains(output,"Parallel prelaunch revalidation denied"){
+  t.Fatalf("fork did not fail before worker launch: %q",output)
+ }
+ if err:=session.clearRemoteLongTask(root);err!=nil{t.Fatal(err)}
+}
