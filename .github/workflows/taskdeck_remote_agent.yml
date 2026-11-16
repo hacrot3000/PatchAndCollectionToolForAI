@@ -172,6 +172,9 @@ jobs:
       - name: Verify strict dependency graph codec, host snapshot and workflow safety
         working-directory: vscode_tasks_menu_go
         run: go test -race ./internal/remotetransport ./internal/server -run 'TestRemoteTaskDependencies' -count=1 -timeout=120s
+      - name: Preflight host-authored workspace cwd in linear and parallel workflow
+        working-directory: vscode_tasks_menu_go
+        run: go test -race ./internal/server -run 'TestRemoteWorkflow(WorkspaceRelativeCwdExecutes|CwdPolicyRejectsEscapesAndNonCwdOptions|CwdSymlinkRetargetDuringStepAuditDoesNotExecute)|TestRemoteParallelWorkflowWorkspaceRelativeCwdExecutes' -count=1 -timeout=90s
       - name: Preflight short Task host opt-in, post-audit and active TasksRun revocation
         working-directory: vscode_tasks_menu_go
         run: go test -race ./internal/server -run 'TestRemoteShortTask(PostAudit(RevocationPreventsExecution|SnapshotDriftRejectsExecution)|LiveGuardStopsActiveProcessAfterHostOptOut|LiveGuardStopsActiveProcessAfterRoleDowngrade|GuardPreservesNormalNonzeroExit)' -count=1 -timeout=90s
