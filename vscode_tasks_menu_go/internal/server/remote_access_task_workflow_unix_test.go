@@ -2156,6 +2156,13 @@ func TestRemoteSequentialPostAuditPrelaunchRejectsDrift(t *testing.T){
    if !strings.Contains(output,"post-audit prelaunch denied; not started"){
     t.Fatalf("missing fail-closed transcript: %q",output)
    }
+   // A prelaunch failure never owns a native child. The GUI transcript
+   // must not say this denied step was started, while already-finished
+   // dependencies retain their legitimate messages.
+   if strings.Contains(output,fmt.Sprintf(
+    "[TaskDeck workflow] Step %d/3: Task #",tc.step)){
+    t.Fatalf("denied workflow step advertised as a running process: %q",output)
+   }
    if tc.wantLeafOutput{
     if !strings.Contains(output,"\nONE\n")||
      !strings.Contains(output,"\nTWO\n")||
