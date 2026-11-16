@@ -556,7 +556,7 @@ func(s *Server)startRemoteLinearWorkflow(ctx context.Context,
   return denied
  }
  jobCtx,cancel:=context.WithTimeout(context.Background(),remoteLongTaskMaxDuration)
- capture:=newRemoteLongTaskCapture()
+ capture:=newRemoteTaskOutputCapture()
  job:=&remoteLongTaskJob{
   taskID:taskID,started:time.Now(),cancel:cancel,
   done:make(chan struct{}),capture:capture,status:"running",exitCode:-1,
@@ -953,6 +953,7 @@ Workflow:
  }
  // No workflow subprocess is still running after this loop. Close Cancel
  // admission BEFORE the final aggregate status read and host-local audit.
+ job.capture.finishTaskRollingOutput()
  acceptedCancel:=job.beginFinalizing()
  if errors.Is(ctx.Err(),context.DeadlineExceeded){status="timed_out"
  }else if acceptedCancel||ctx.Err()!=nil||session.closed.Load(){status="cancelled"}

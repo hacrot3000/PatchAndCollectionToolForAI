@@ -64,8 +64,9 @@ type remoteLongTaskCapture struct {
  data []byte
  truncated bool
  notify chan struct{}
- // Terminal-only rolling output. Long-running Tasks retain their
- // original first-16KiB capture semantics and cursor behavior.
+ // Terminal and explicitly host-opted-in Task output can use a bounded
+ // UTF-8 rolling buffer. Ordinary Task capture keeps first-16KiB
+ // semantics for backwards compatibility unless separately enabled.
  rolling bool
  rollingBase int // Absolute UTF-8 byte offset of data[0].
  rollingPending []byte // Incomplete UTF-8 sequence across PTY reads.
@@ -81,6 +82,24 @@ func newRemoteTerminalCapture()*remoteLongTaskCapture{
  c:=newRemoteLongTaskCapture()
  c.rolling=true
  return c
+}
+
+// Opt-in per JOB, set only on the Agent host, never by the E2EE client.
+// A first-window capture can hide late compiler errors after filling;
+// the rolling mode instead preserves the newest sanitized UTF-8 16KiB.
+// Existing signed cursor/backpressure semantics and memory bound apply.
+func newRemoteTaskOutputCapture()*remoteLongTaskCapture{
+ if os.Getenv("TASKDECK_REMOTE_TASKS_ROLLING_OUTPUT")=="1"{
+  return newRemoteTerminalCapture()
+ }
+ return newRemoteLongTaskCapture()
+}
+
+// The rolling worker's stdout/stderr writers are drained before the final
+// state is exposed. Freeze its capture, so no incomplete UTF-8 sequence or
+// tardy writer can modify already finalized authenticated Poll output.
+func(c *remoteLongTaskCapture)finishTaskRollingOutput(){
+ if c!=nil&&c.rolling{c.finishRemoteTerminal(false)}
 }
 func (c *remoteLongTaskCapture)Write(p []byte)(int,error){
  n:=len(p)
@@ -292,7 +311,7 @@ func (s *Server) startRemoteLongTask(
   return denied
  }
  jobCtx,cancel:=context.WithTimeout(context.Background(),remoteLongTaskMaxDuration)
- capture:=newRemoteLongTaskCapture()
+ capture:=newRemoteTaskOutputCapture()
  command:=exec.CommandContext(jobCtx,approved.executable,approved.execution.Args...)
  // Resolve the target before the audit, but preserve host-authored argv[0]
  // so a native task retains its original shell invocation semantics.
@@ -385,6 +404,9 @@ func (s *Server) startRemoteLongTask(
    // The process cannot be rolled back, so deny any false success.
    status="cancelled";exitCode= -1
   }else if processErr!=nil{status="failed"}
+  // The process has exited; freeze the optional rolling output before
+  // publishing terminal status or accepting a final E2EE Poll.
+  job.capture.finishTaskRollingOutput()
   // A revocation cannot prevent a host-local final audit attempt.
   s.auditRemoteTaskRunFinish(session,taskID,status,exitCode,time.Since(job.started))
   job.publishCompletion(status,exitCode)

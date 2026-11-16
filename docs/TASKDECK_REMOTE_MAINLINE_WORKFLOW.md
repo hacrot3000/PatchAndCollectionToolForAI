@@ -1652,3 +1652,21 @@ real-host testing are considered **code complete**.
 - Added Unix E2EE workflow tests for sequential relative/variable cwd,
   two parallel leaves in distinct workspace folders, unsafe option denial
   and audit-time cwd symlink retarget without task execution.
+
+## 2026-11-16 — Host-opted-in rolling output for Remote GUI Tasks
+
+- Set `TASKDECK_REMOTE_TASKS_ROLLING_OUTPUT=1` **on the Agent host**
+  to retain the **latest** sanitized UTF-8 16 KiB from long-running
+  Tasks and bounded workflow steps instead of the original first 16 KiB.
+  The existing mode remains default when the flag is OFF; short Tasks
+  and the E2EE action protocol are unchanged.
+- This uses the same bounded rolling UTF-8/cursor implementation already
+  proven for Remote Terminal: continuous authenticated Polls may receive
+  more than the memory cap cumulatively, but an idle Poll after overflow
+  receives an explicit truncated/lost indication and the newest window.
+  The browser's own 16-action session quota still limits how much
+  transcript can be retrieved, so this is NOT unlimited log download.
+- Snapshot the flag once per new job, freeze the rolling capture before
+  terminal status is published, and preserve all existing process group,
+  per-step audit, cancellation and workspace lease semantics. The
+  Portal/Relay never receives a host-selected path or decrypted output.

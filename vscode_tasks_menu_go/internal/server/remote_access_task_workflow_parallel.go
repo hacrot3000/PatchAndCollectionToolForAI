@@ -278,6 +278,7 @@ func(s *Server)runRemoteParallelJoinWorkflow(ctx context.Context,
  plan []remoteWorkflowStep,hash [32]byte){
  status,exitCode:="completed",0
  defer func(){
+  job.capture.finishTaskRollingOutput()
   acceptedCancel:=job.beginFinalizing()
   if errors.Is(ctx.Err(),context.DeadlineExceeded){status="timed_out"
   }else if acceptedCancel||ctx.Err()!=nil||session.closed.Load(){
