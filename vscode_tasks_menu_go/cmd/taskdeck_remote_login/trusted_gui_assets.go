@@ -3600,7 +3600,10 @@ const trustedGUIJavaScript = `'use strict';
       'chạy đồng thời; host phải bật thêm quyền prefix để chạy một bước chuẩn bị, '+
       'và bật prefix2 riêng nếu cần hai bước chuẩn bị tuần tự trước các nhánh; '+
       'task tổng hợp chỉ chạy nếu mọi nhánh thành công. '+
-      'Workflow song song không hỗ trợ retry, timeout hoặc condition. '+
+      'Workflow song song không hỗ trợ retry hoặc condition. '+
+      'Host có thể bật riêng timeout cho từng worker và bước tổng hợp '+
+      '(1–30 giây/bước); khi một nhánh hết giờ, hủy nhánh còn lại '+
+      'và không chạy bước tổng hợp. '+
       'Không tự tiếp tục workflow sau gián đoạn; hãy kiểm tra audit trước '+
       'khi chủ động chạy lại để tránh lặp tác dụng phụ. '+
       'Một bước thất bại có thể được chạy lại đúng một lần khi task có retry: 1 '+

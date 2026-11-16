@@ -281,7 +281,12 @@ func remoteWorkflowParallelPrefixLength(items []tasks.Task,
   if !ok||seen[id]||!remoteWorkflowSafeProcess(task){return -1}
   seen[id]=true
   retry,timeout,condition,ok:=remoteWorkflowPolicyForTask(task)
-  if !ok||retry!=0||timeout!=0||condition!=""{return -1}
+  // Parallel step deadlines require an independent host opt-in. Retries
+  // and conditions remain serial-only, to avoid replaying side effects.
+  if !ok||retry!=0||condition!=""||
+   (timeout>0&&os.Getenv("TASKDECK_REMOTE_TASKS_WORKFLOW_PARALLEL_TIMEOUT")!="1"){
+   return -1
+  }
  }
  root:=byID[order[n-1]]
  join:=tasks.WorkflowNodeForTask(root)

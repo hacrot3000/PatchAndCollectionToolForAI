@@ -1684,3 +1684,20 @@ real-host testing are considered **code complete**.
 - This makes final compiler diagnostics reachable within the
   strict 16-E2EE-round native GUI budget rather than retaining late
   output the client cannot reasonably retrieve.
+
+## 2026-11-16 — Parallel workflow per-step deadlines (host opt-in)
+
+- A TaskDeck Agent can enable host-authored `taskdeck.workflow.timeoutSeconds`
+  (1–30 seconds) on any parallel worker, serial prelude or final join.
+  Requires BOTH `TASKDECK_REMOTE_TASKS_WORKFLOW_TIMEOUT=1` and the
+  additional `TASKDECK_REMOTE_TASKS_WORKFLOW_PARALLEL_TIMEOUT=1`,
+  alongside normal workflow/parallel/prefix host flags.
+- Each parallel step now uses a separate cancellable process context.
+  The first worker timeout marks it `timed_out`, cancels sibling workers,
+  and prevents the final root from launching. Host opt-out mid-run is
+  observed by the already-existing watcher and cancels the affected
+  process group; no retry or condition is silently enabled.
+- Only the host-selected tasks.json policy is executed. The E2EE client
+  still sends only a previously approved root Task.ID, with no new wire
+  protocol fields. Existing parallel workflows without the extra flag
+  remain unchanged.
