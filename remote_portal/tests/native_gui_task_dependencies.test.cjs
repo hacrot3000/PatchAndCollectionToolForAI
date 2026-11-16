@@ -270,8 +270,12 @@ async function assertGraphValidation(graph,description,accepted=false,abandonSel
   'confirmation omitted fork/join dependency guarantee');
  assert.match(confirmationTexts.at(-1),/Không tự tiếp tục workflow sau gián đoạn/,
   'confirmation did not warn against replaying side effects');
- assert.match(confirmationTexts.at(-1),/không hỗ trợ retry, timeout hoặc condition/,
-  'confirmation could incorrectly apply sequential retry policy to a parallel fork');
+ assert.match(confirmationTexts.at(-1),/không hỗ trợ retry hoặc condition/,
+  'confirmation could incorrectly apply sequential retry or conditional policy to a parallel fork');
+ assert.match(confirmationTexts.at(-1),/Host có thể bật riêng timeout cho từng worker và bước tổng hợp/,
+  'confirmation did not disclose independently opted-in parallel timeouts');
+ assert.match(confirmationTexts.at(-1),/hủy nhánh còn lại/,
+  'confirmation did not warn that a worker timeout terminates its siblings');
  confirmAccept=true;
  get('task-workflow-start').click();await flush();
  assert.deepEqual(calls.filter(x=>x.path==='/api/tasks-workflow-start/55'),
