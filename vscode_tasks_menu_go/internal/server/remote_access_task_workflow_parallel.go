@@ -462,7 +462,12 @@ func(s *Server)runRemoteParallelJoinWorkflow(ctx context.Context,
  for i:=0;i<leafCount;i++{
   result:=<-outcomes
   if result.status!="completed"{
-   if status=="completed"||result.status=="failed"{
+   // Siblings finish in a nondeterministic order. A worker timeout
+   // often cancels its peer, whose "cancelled" result can arrive first.
+   // Preserve the originating timeout rather than reporting an
+   // unrelated operator cancellation for the entire fork.
+   if status=="completed"||result.status=="failed"||
+    (result.status=="timed_out"&&status!="failed"){
     status=result.status;exitCode=result.code
    }
    // Cancel the other worker's process group, then JOIN it before the
