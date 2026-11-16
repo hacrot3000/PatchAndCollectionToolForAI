@@ -1606,3 +1606,15 @@ real-host testing are considered **code complete**.
   after Start terminates its actual process group.
 - This fixes the misleading workflow UI state and the CI race instead
   of weakening the existing revocation test.
+
+## 2026-11-16 — Parallel workflow run state follows successful process Start
+
+- Align parallel worker/prelude/join-root execution with the sequential
+  workflow fix: `workflowStepHistory=R` and the 'Task #... parallel
+  attempt' transcript entry are emitted only after the OS succeeds at
+  `cmd.Start()`, not before. A denied/cancelled/failing Start leaves
+  no misleading active-process report in the authenticated native GUI.
+- Keep the same verified executable, canonical cwd, environment,
+  per-worker durable audits, cancellation, parallel join barrier and
+  `cmd.Wait()`/process-group reap. Preserve the host-owned original
+  `argv[0]` for parity with the sequential workflow path.

@@ -214,11 +214,10 @@ func(s *Server)executeRemoteParallelPrepared(ctx context.Context,
   return result,-1
  }
  prepared=verified
- job.updateWorkflowStep(index,total,1,1,"running",-1,0)
- _,_=captureWorkflowText(job.capture,fmt.Sprintf(
-  "[TaskDeck workflow] Step %d/%d: Task #%d (parallel attempt 1/1)\n",
-  index,total,step.taskID))
  cmd:=exec.CommandContext(ctx,prepared.executable,prepared.execution.Args...)
+ // Retain the host-defined argv[0] while pinning the executable chosen
+ // by its authenticated, post-audit preparation.
+ cmd.Args[0]=prepared.execution.Command
  // Use the canonical path bound by the per-process approval. Executing
  // from the lexical cwd could follow a retargeted symlink after the last
  // preflight and enter another workspace directory without detection.
@@ -230,7 +229,17 @@ func(s *Server)executeRemoteParallelPrepared(ctx context.Context,
  cmd.Cancel=func()error{killGitJobProcess(cmd);return nil}
  cmd.WaitDelay=time.Second
  started:=time.Now()
- err:=cmd.Run()
+ err:=cmd.Start()
+ if err==nil{
+  // Neither a forked leaf nor a join root is running until the OS
+  // accepted its Start. Failed or cancelled prelaunch attempts must not
+  // appear as transient R states in signed workflow GUI history.
+  job.updateWorkflowStep(index,total,1,1,"running",-1,0)
+  _,_=captureWorkflowText(job.capture,fmt.Sprintf(
+   "[TaskDeck workflow] Step %d/%d: Task #%d (parallel attempt 1/1)\n",
+   index,total,step.taskID))
+  err=cmd.Wait()
+ }
  elapsed:=time.Since(started)
  killGitJobProcess(cmd)
  exitCode=0
