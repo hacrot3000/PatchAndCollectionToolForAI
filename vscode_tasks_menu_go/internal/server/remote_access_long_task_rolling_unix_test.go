@@ -9,7 +9,6 @@ import (
  "testing"
  "time"
 
- "bletonfc/vscode_tasks_menu/internal/remotetransport"
 )
 
 func TestRemoteTaskRollingOutputHostOptInAndBackwardCompatibility(t *testing.T){
@@ -96,7 +95,7 @@ func TestRemoteLongTaskRollingOutputDeliversFinalBuildError(t *testing.T){
  id:=previewOneRemoteRunTask(t,s,session,client,agent,
   `{"tasks":[{"label":"Build with late error","type":"process",
    "command":"/bin/sh","args":["-c",
-   "head -c 35000 /dev/zero | tr '\\\\0' X; printf 'LATE-BUILD-ERROR'"]}]}`)
+   "yes X | head -c 35000; printf 'LATE-BUILD-ERROR'"]}]}`)
  if err:=s.startRemoteLongTask(context.Background(),session,id,0,"");err!=nil{
   t.Fatalf("approved long task did not start: %v",err)
  }
@@ -112,6 +111,40 @@ func TestRemoteLongTaskRollingOutputDeliversFinalBuildError(t *testing.T){
  if !bounded||!strings.HasSuffix(got,"LATE-BUILD-ERROR"){
   t.Fatalf("final build diagnostics not retained at end of bounded job: %d bytes",len(got))
  }
+ if capture.rollingBase==0{t.Fatal("build log never exercised rolling overflow")}
  if err:=session.clearRemoteLongTask(id);err!=nil{t.Fatal(err)}
- _=remotetransport.ErrRemoteActionDenied
+}
+
+ 
+// The workflow captures stdout from multiple independently audited native
+// steps. The final step's result must survive a verbose earlier step when
+// the Agent host explicitly chooses rolling output.
+func TestRemoteWorkflowRollingOutputKeepsFinalStep(t *testing.T){
+ remoteWorkflowHostFlags(t)
+ t.Setenv("TASKDECK_REMOTE_TASKS_ROLLING_OUTPUT","1")
+ s,session,client,agent:=remoteTaskOperatorFixture(t)
+ if err:=os.WriteFile(s.Workspace+"/large-task-output.txt",
+  []byte(strings.Repeat("B",35000)),0600);err!=nil{t.Fatal(err)}
+ source:=`{"tasks":[
+  {"label":"Long log","type":"process","command":"/bin/cat",
+   "args":["large-task-output.txt"]},
+  {"label":"Final result","type":"process","command":"/bin/echo",
+   "args":["LATE-WORKFLOW-SUCCESS"],"dependsOn":"Long log"}]}`
+ id:=remoteWorkflowIssuedRoot(t,s,session,client,agent,source,"Final result")
+ if err:=s.startRemoteLinearWorkflow(context.Background(),session,id);err!=nil{
+  t.Fatalf("authorized workflow rejected: %v",err)
+ }
+ if result:=awaitRemoteWorkflow(t,session);result!="completed"{
+  t.Fatalf("rolling workflow did not finish: %s",result)
+ }
+ capture:=session.longTask.capture
+ capture.mu.Lock()
+ output:=string(append([]byte(nil),capture.data...))
+ base:=capture.rollingBase
+ capture.mu.Unlock()
+ if !capture.rolling||base==0||len(output)>remoteLongTaskMaxCaptureBytes||
+  !strings.Contains(output,"LATE-WORKFLOW-SUCCESS"){
+  t.Fatalf("final workflow result lost after large prior step: base=%d size=%d",base,len(output))
+ }
+ if err:=session.clearRemoteLongTask(id);err!=nil{t.Fatal(err)}
 }

@@ -134,6 +134,9 @@ jobs:
       - name: Preflight long task finalizing, workspace release and Poll cursor safety
         working-directory: vscode_tasks_menu_go
         run: go test -race ./internal/server -run 'TestRemoteLongTask(FinalStateWaitsForWorkspaceRelease|PollTimeoutRechecksCaptureAndAdvancesCursor|DeferredPollOnlyConsumesAfterAuthenticatedSeal|DeferredPollTimeoutPreservesOutput|E2EEFailedSealPreservesOutputCursor)' -count=1 -timeout=90s
+      - name: Preflight opt-in rolling output for Remote GUI long tasks and workflows
+        working-directory: vscode_tasks_menu_go
+        run: go test -race ./internal/server -run 'TestRemote(TaskRollingOutput(HostOptInAndBackwardCompatibility|MaintainsMonotonicPollCursor)|LongTaskRollingOutputDeliversFinalBuildError|WorkflowRollingOutputKeepsFinalStep)' -count=1 -timeout=90s
       - name: Preflight Git mutation only after completed task releases workspace
         working-directory: vscode_tasks_menu_go
         run: go test -race ./internal/server -run 'TestRemoteGit(AllowsCompletedRetainedTaskOnlyAfterWorkspaceRelease|RetainedJobWithInvalidDoneOrStatusDenied)' -count=1 -timeout=90s
