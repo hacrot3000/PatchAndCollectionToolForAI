@@ -727,10 +727,10 @@ Workflow:
      i+1,len(plan)))
     status=deniedState;exitCode=-1;break Workflow
    }
-   job.updateWorkflowStep(i+1,len(plan),attempt,step.retries+1,"running",-1,0)
-   _,_=captureWorkflowText(job.capture,fmt.Sprintf(
-    "[TaskDeck workflow] Step %d/%d: Task #%d (attempt %d/%d)\n",
-    i+1,len(plan),step.taskID,attempt,step.retries+1))
+   // Do not advertise an active native process yet. Final RBAC,
+   // executable and source checks below may still reject the launch;
+   // publishing "R" here would let GUI/tests mistake an unstarted
+   // command for a process that can be cancelled/revoked.
    // Every step needs a cancellable child context, even without a
    // timeout: a host can revoke Run/Workflow/Retry/Timeout/Condition
    // DURING a running process. A live native GUI Poll is not required.
@@ -831,7 +831,17 @@ Workflow:
     status=deniedState;exitCode=-1;break Workflow
    }
    stepStarted:=time.Now()
-   err=cmd.Run()
+   err=cmd.Start()
+   if err==nil{
+    // A workflow step becomes "running" only after the OS actually
+    // accepted cmd.Start. This closes the UI/host race in which a
+    // revocation before Start was mislabeled as an active process.
+    job.updateWorkflowStep(i+1,len(plan),attempt,step.retries+1,"running",-1,0)
+    _,_=captureWorkflowText(job.capture,fmt.Sprintf(
+     "[TaskDeck workflow] Step %d/%d: Task #%d (attempt %d/%d)\n",
+     i+1,len(plan),step.taskID,attempt,step.retries+1))
+    err=cmd.Wait()
+   }
    close(stopWatch)
    <-watcherDone
    elapsed:=time.Since(stepStarted)

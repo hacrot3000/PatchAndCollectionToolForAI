@@ -1590,3 +1590,19 @@ real-host testing are considered **code complete**.
 - Added Unix regressions for workflow opt-out, Task Run opt-out, and
   TasksRun role downgrade injected while the attempted audit is written.
   Protocol, E2EE envelope and all process command policies are unchanged.
+
+## 2026-11-16 — Sequential workflow active-state publication after OS spawn
+
+- Go Agent CI for `540c723a` exposed an intermittent
+  `TestRemoteSequentialHostRevocationCancelsActiveStep` failure. The
+  sequential runner marked a step `running` BEFORE its final RBAC/
+  source check and `cmd.Run()`. A GUI/test could observe `R` even
+  when the host rejected the launch without starting a process.
+- Switch to explicit `cmd.Start()` + `cmd.Wait()` and publish
+  the signed workflow `running` state and Task start transcript
+  **only after Start succeeds**. Keep final audit, process-group cleanup,
+  live opt-out watchdog, cancellation and fixed native executable unchanged.
+  Revocation before Start remains a denied, non-executed step; revocation
+  after Start terminates its actual process group.
+- This fixes the misleading workflow UI state and the CI race instead
+  of weakening the existing revocation test.
