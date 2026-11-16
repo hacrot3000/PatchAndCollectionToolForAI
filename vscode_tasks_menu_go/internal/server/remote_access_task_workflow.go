@@ -458,6 +458,11 @@ func validateRemoteWorkflowStepCwd(root,cwd string)error{
  denied:=remotetransport.ErrRemoteActionDenied
  resolved,err:=filepath.EvalSymlinks(cwd)
  if err!=nil{return denied}
+ // A path inside the workspace is not necessarily a directory. Reject
+ // host-authored cwd pointing at a regular file before attempted audit
+ // or job allocation, rather than reporting a misleading process failure.
+ info,err:=os.Stat(resolved)
+ if err!=nil||!info.IsDir(){return denied}
  rel,err:=filepath.Rel(root,resolved)
  if err!=nil||filepath.IsAbs(rel)||rel==".."||
   strings.HasPrefix(rel,".."+string(filepath.Separator)){return denied}

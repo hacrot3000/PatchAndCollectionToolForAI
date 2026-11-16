@@ -66,10 +66,13 @@ func TestRemoteWorkflowCwdPolicyRejectsEscapesAndNonCwdOptions(t *testing.T){
   {"environment_option",`{"env":{"KEY":"value"}}`},
   {"mixed_options",`{"cwd":"build","env":{"KEY":"value"}}`},
   {"wrong_cwd_type",`{"cwd":42}`},
+  {"regular_file_cwd",`{"cwd":"not-a-directory"}`},
  }{
   t.Run(tc.name,func(t *testing.T){
    remoteWorkflowHostFlags(t)
    s,session,client,agent:=remoteTaskOperatorFixture(t)
+   if err:=os.WriteFile(filepath.Join(s.Workspace,"not-a-directory"),
+    []byte("regular file"),0600);err!=nil{t.Fatal(err)}
    source:=`{"tasks":[
     {"label":"First","type":"process","command":"/bin/echo",
      "args":["SHOULD-NOT-EXECUTE"],"options":`+tc.options+`},
