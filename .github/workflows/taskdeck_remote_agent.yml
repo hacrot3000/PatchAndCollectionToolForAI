@@ -113,6 +113,9 @@ jobs:
       - name: Preflight Git Push post-audit URL, ref and tracking mutation denial
         working-directory: vscode_tasks_menu_go
         run: go test -race ./internal/server -run 'TestRemoteGitPushPostAuditRejectsChangedURLBranchHeadTrackingAndHTTP' -count=1 -timeout=90s
+      - name: Preflight Git Fetch post-audit upstream and active GitWrite revocation
+        working-directory: vscode_tasks_menu_go
+        run: go test -race ./internal/server -run 'TestRemoteGitFetch(PostAuditRejectsDriftAndRevocation|ActiveNetworkTerminatesOnRevocation|UpstreamAdvancementWithoutChangingHEAD)' -count=1 -timeout=120s
       - name: Preflight Git Pull post-audit repository, upstream and worktree drift
         working-directory: vscode_tasks_menu_go
         run: go test -race ./internal/server -run 'TestRemoteGitPullPostAuditRejectsRepositoryRefConfigAndWorktreeDrift' -count=1 -timeout=90s
