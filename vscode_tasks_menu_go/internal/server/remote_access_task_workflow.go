@@ -141,9 +141,42 @@ func remoteWorkflowPolicyForTask(task tasks.Task)(int,time.Duration,string,bool)
  return retries,timeout,condition,true
 }
 
+// Permit the common host-authored VS Code options.cwd form in bounded
+// Remote GUI workflows. The ONLY supported option is an existing folder
+// relative to the canonical workspace (or ${workspaceFolder}/relative).
+// Absolute paths, parent traversal, arbitrary variable substitutions,
+// shell and env options remain denied. All actual execution paths still
+// undergo pre-audit AND last-moment canonical symlink checks.
+func remoteWorkflowSafeCwdOption(options map[string]any)bool{
+ if len(options)==0{return true}
+ if len(options)!=1{return false}
+ raw,ok:=options["cwd"].(string)
+ if !ok||raw==""||len(raw)>512||
+  strings.ContainsAny(raw,"\x00\r\n"){return false}
+ path:=raw
+ if strings.HasPrefix(raw,"${workspaceFolder}"){
+  path=strings.TrimPrefix(raw,"${workspaceFolder}")
+  if path==""{return true}
+  if !strings.HasPrefix(path,string(filepath.Separator)){return false}
+  path=strings.TrimPrefix(path,string(filepath.Separator))
+ }else if filepath.IsAbs(raw){
+  return false
+ }
+ if path==""||filepath.IsAbs(path)||strings.Contains(path,"${"){
+  return false
+ }
+ // Explicitly reject any traversal (even if it would later clean
+ // back into the project) rather than leaving namespace ambiguity.
+ for _,segment:=range strings.Split(path,string(filepath.Separator)){
+  if segment==".."{return false}
+ }
+ return true
+}
+
 func remoteWorkflowSafeProcess(task tasks.Task)bool{
  if task.Type!="process"||len(task.Inputs)!=0||
-  len(task.SecretEnv)!=0||len(task.Options)!=0{return false}
+  len(task.SecretEnv)!=0||
+  !remoteWorkflowSafeCwdOption(task.Options){return false}
  if _,_,_,ok:=remoteWorkflowPolicyForTask(task);!ok{return false}
  command,ok:=task.Command.(string)
  if !ok||strings.Contains(command,"${"){return false}

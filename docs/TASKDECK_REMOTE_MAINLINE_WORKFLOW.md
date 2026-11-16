@@ -1636,3 +1636,19 @@ real-host testing are considered **code complete**.
   TaskDeck operator rather than a viewer direct-call shortcut.
 - This hardens the Fetch → Pull sequence without altering wire formats,
   enabling force, tags or autonomous credentials.
+
+## 2026-11-16 — Remote GUI workflow: workspace-scoped VS Code `options.cwd`
+
+- Bounded host-authored `process` workflow tasks now accept the common
+  `"options":{"cwd":"relative/subdir"}` and
+  `"options":{"cwd":"${workspaceFolder}/relative/subdir"}` forms.
+  Cwd remains host-authored, must resolve to an existing directory inside
+  the canonical workspace, and is rechecked after attempted audit and
+  again at process launch (including Unix symlink retarget defense).
+- All other task options (including `env`, `shell`, arbitrary variable
+  interpolation, absolute paths and any `..` parent segment) stay
+  disallowed in workflow mode; this change does not grant remote control
+  of process path, argv, E2EE source or process policy.
+- Added Unix E2EE workflow tests for sequential relative/variable cwd,
+  two parallel leaves in distinct workspace folders, unsafe option denial
+  and audit-time cwd symlink retarget without task execution.

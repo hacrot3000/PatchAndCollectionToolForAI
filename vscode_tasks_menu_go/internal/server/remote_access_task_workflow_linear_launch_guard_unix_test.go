@@ -65,9 +65,9 @@ func TestRemoteLinearWorkflowAuditCannotRetargetExecutable(t *testing.T){
 func TestRemoteLinearWorkflowFinalGuardRejectsEnvironmentAndCwdDrift(t *testing.T){
  remoteWorkflowHostFlags(t)
  s,session,client,agent:=remoteTaskOperatorFixture(t)
- // Workflow policy intentionally rejects task options, including cwd.
- // Exercise the canonical-cwd guard against a forged/stale approval
- // without weakening the host's permitted task definition.
+ // TaskDeck allows a host-authored workspace-relative cwd option.
+ // The canonical-cwd guard also rejects stale approvals independent
+ // of the task's original working-directory choice.
  source:=`{"tasks":[
   {"label":"A","type":"process","command":"/bin/echo",
    "args":["SAFE"]},
