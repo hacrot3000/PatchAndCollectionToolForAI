@@ -13,6 +13,15 @@ import (
 
 // Support host-authored options.cwd without opening arbitrary commands,
 // env overrides or user-selected directories over the E2EE transport.
+
+// Read the full authenticated host capture rather than just the first
+// 128-byte E2EE Poll page; workspace temp paths may be longer than that.
+func remoteWorkflowCwdFullCapture(job *remoteLongTaskJob)string{
+ job.capture.mu.Lock()
+ defer job.capture.mu.Unlock()
+ return string(append([]byte(nil),job.capture.data...))
+}
+
 func TestRemoteWorkflowWorkspaceRelativeCwdExecutes(t *testing.T){
  for _,mode:=range []string{"relative","workspace_variable"}{
   t.Run(mode,func(t *testing.T){
@@ -36,7 +45,7 @@ func TestRemoteWorkflowWorkspaceRelativeCwdExecutes(t *testing.T){
    if got:=awaitRemoteWorkflow(t,session);got!="completed"{
     t.Fatalf("bounded cwd workflow failed: %s",got)
    }
-   capture,_,_,_:=session.longTask.capture.next(0)
+   capture:=remoteWorkflowCwdFullCapture(session.longTask)
    if !strings.Contains(capture,filepath.Join(s.Workspace,folder))||
     !strings.Contains(capture,"WORKFLOW-CWD-OK"){
     t.Fatalf("task did not execute inside the selected workspace folder: %q",capture)
@@ -110,7 +119,7 @@ func TestRemoteWorkflowCwdSymlinkRetargetDuringStepAuditDoesNotExecute(t *testin
   if _,err:=os.Stat(filepath.Join(s.Workspace,dir,"DO-NOT-CREATE"));
    !os.IsNotExist(err){t.Fatalf("stale cwd task had side effect: %v",err)}
  }
- capture,_,_,_:=session.longTask.capture.next(0)
+ capture:=remoteWorkflowCwdFullCapture(session.longTask)
  if strings.Contains(capture,"DO-NOT-START-ROOT"){
   t.Fatal("workflow root started after cwd mutation")
  }
@@ -141,7 +150,7 @@ func TestRemoteParallelWorkflowWorkspaceRelativeCwdExecutes(t *testing.T){
  if got:=awaitRemoteWorkflow(t,session);got!="completed"{
   t.Fatalf("parallel cwd failed: %s",got)
  }
- output,_,_,_:=session.longTask.capture.next(0)
+ output:=remoteWorkflowCwdFullCapture(session.longTask)
  for _,dir:=range []string{"leaf-left","leaf-right"}{
   if !strings.Contains(output,filepath.Join(s.Workspace,dir)){
    t.Fatalf("parallel worker cwd %s was lost: %q",dir,output)
