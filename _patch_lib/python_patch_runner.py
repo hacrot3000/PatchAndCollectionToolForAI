@@ -700,15 +700,23 @@ def _run_command_sequence(root: Path, commands: object, *, label: str) -> dict[s
             print(f"ERROR: invalid {label.lower()} command object", file=sys.stderr)
             break
         name = str(cmd.get("name") or " ".join(cmd.get("argv") or []) or "<unnamed>")
+        argv_evidence = list(cmd.get("argv") or [])
+        cwd_evidence = str(cmd.get("cwd") or ".")
+        log_file, log_rel = _command_log_path(root, label)
         try:
-            outcome = _run_argv(root, cmd, label=label)
+            outcome = _run_argv(root, cmd, label=label, log_path=log_file)
             rc = outcome.effective_rc
             if outcome.lingering_descendants:
                 print(f"ERROR: {label.lower()} command left descendant processes after its leader exited; descendants were terminated", file=sys.stderr)
-            rows.append({"name": name, "status": "PASS" if rc == 0 else "FAIL", "rc": rc, "timed_out": bool(outcome.timed_out), "lingering_descendants": bool(outcome.lingering_descendants)})
+            rows.append({"name": name, "status": "PASS" if rc == 0 else "FAIL", "rc": rc, "timed_out": bool(outcome.timed_out), "lingering_descendants": bool(outcome.lingering_descendants), "log_path": log_rel})
+            _append_command_evidence(stage=label, name=name, argv=argv_evidence, cwd=cwd_evidence,
+                                     status="PASS" if rc == 0 else "FAIL", rc=rc,
+                                     log_path=log_rel, timed_out=bool(outcome.timed_out))
         except KeyboardInterrupt:
             rc = 143 if _ACTIVE_TERMINATION_SIGNAL == getattr(signal, "SIGTERM", None) else 130
-            rows.append({"name": name, "status": "INTERRUPTED", "rc": rc, "timed_out": False})
+            rows.append({"name": name, "status": "INTERRUPTED", "rc": rc, "timed_out": False, "log_path": log_rel})
+            _append_command_evidence(stage=label, name=name, argv=argv_evidence, cwd=cwd_evidence,
+                                     status="INTERRUPTED", rc=rc, log_path=log_rel)
             result.update({"status": "INTERRUPTED", "rc": rc})
             print(f"{label}: interrupted by user/termination signal", file=sys.stderr, flush=True)
             # User termination is a control-flow event, not an ordinary command
@@ -717,7 +725,12 @@ def _run_command_sequence(root: Path, commands: object, *, label: str) -> dict[s
             raise
         except Exception as exc:
             print(f"ERROR: {label.lower()} command invalid: {exc}", file=sys.stderr)
-            rows.append({"name": name, "status": "FAIL", "rc": 2, "timed_out": False, "error": f"{type(exc).__name__}: {exc}", "error_kind": getattr(exc, "kind", None)})
+            rows.append({"name": name, "status": "FAIL", "rc": 2, "timed_out": False, "error": f"{type(exc).__name__}: {exc}", "error_kind": getattr(exc, "kind", None), "log_path": log_rel})
+            if log_file is not None and not log_file.exists():
+                log_file.write_text(f"{type(exc).__name__}: {exc}\n", encoding="utf-8")
+            _append_command_evidence(stage=label, name=name, argv=argv_evidence, cwd=cwd_evidence,
+                                     status="FAIL", rc=2, log_path=log_rel,
+                                     error=f"{type(exc).__name__}: {exc}")
             result.update({"status": "FAIL", "rc": 2})
             break
         if rc:
@@ -2034,9 +2047,12 @@ def _execute_patch(root: Path, source: Path, *, no_validation: bool = False) -> 
         print(f"ERROR: PATCH input is not a regular non-symlink file: {source}", file=sys.stderr)
         return _finish_result(result, status="FAIL", rc=2, stage="input", diagnosis={"kind": "package_invalid", "message": "input is not a regular non-symlink file", "affected_paths": []})
 
-    global _ACTIVE_TERMINATION_SIGNAL, _ACTIVE_SCRIPT_ORIGIN_GUARD
+    global _ACTIVE_TERMINATION_SIGNAL, _ACTIVE_SCRIPT_ORIGIN_GUARD, _ACTIVE_COMMAND_EVIDENCE, _ACTIVE_COMMAND_LOG_DIR
     _ACTIVE_TERMINATION_SIGNAL = None
     _ACTIVE_SCRIPT_ORIGIN_GUARD = None
+    _ACTIVE_COMMAND_EVIDENCE = []
+    result["commands"] = _ACTIVE_COMMAND_EVIDENCE
+    _ACTIVE_COMMAND_LOG_DIR = _command_log_directory(root)
     input_temp: tempfile.TemporaryDirectory[str] | None = None
     execution_source: Path | None = None
     input_sha: str | None = None
@@ -2505,6 +2521,7 @@ def _execute_patch(root: Path, source: Path, *, no_validation: bool = False) -> 
         return _finish_result(result, status="FAIL", rc=2, stage=stage, diagnosis=diagnosis, partial=partial)
     finally:
         _ACTIVE_SCRIPT_ORIGIN_GUARD = None
+        _ACTIVE_COMMAND_LOG_DIR = None
         _release_project_mutation_lock(mutation_lock)
         if rollback_temp is not None:
             rollback_temp.cleanup()
