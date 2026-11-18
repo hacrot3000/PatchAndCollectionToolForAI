@@ -9,7 +9,7 @@ import tempfile
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 from python_patch_package_schema import (
-    PatchSchemaError, _check_legacy_strict_command,
+    PatchSchemaError, _check_legacy_strict_command, _check_command,
 )
 
 
@@ -70,6 +70,22 @@ with tempfile.TemporaryDirectory(prefix="ptv_local_readonly_whitelist_") as td:
         ["sed", "-n", "1;d", "src/main.go"],
         ["sed", "-n", "20,10p", "src/main.go"],
     ]
+    # The default source-changing PATCH profile is broader than the strict
+    # command-only lane, but it must never allow direct mutating find actions.
+    for argv in (
+        ["find", ".", "-exec", "echo", "oops", ";"],
+        ["find", ".", "-delete"],
+        ["find", ".", "-execdir", "sh", "-c", "true", ";"],
+        ["/usr/bin/find", ".", "-fprint", "bad-result.txt"],
+    ):
+        for field in ("post_patch.commands", "on_failure.commands"):
+            try:
+                _check_command(root, {"argv": argv, "cwd": "."}, 0, field=field)
+            except PatchSchemaError as exc:
+                assert exc.kind == "command_not_allowed", (argv, field, exc.kind)
+            else:
+                raise AssertionError(f"current PATCH profile accepted mutating find: {field} {argv}")
+
     for argv in forbidden:
         try:
             check(root, argv)
