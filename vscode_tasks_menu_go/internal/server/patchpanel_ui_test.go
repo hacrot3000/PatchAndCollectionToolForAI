@@ -2108,3 +2108,25 @@ func TestPatchQueueRefreshReconcilesStableNodesAndPreservesSelection(t *testing.
         t.Fatal("queue list refresh must not destroy unchanged item DOM nodes")
     }
 }
+
+
+func TestPatchPanelExposesPerCommandConsoleInCurrentAndHistory(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"function appendCommandEvidence(host,commands)",
+		"appendCommandEvidence(row,item?.commands)",
+		"View console",
+		"Copy console",
+		"function readCommandConsole(path)",
+		"artifacts/patch_tool/runs/",
+		"/api/files/download?path=",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("missing PATCH command console UI feature: %q", want)
+		}
+	}
+}
