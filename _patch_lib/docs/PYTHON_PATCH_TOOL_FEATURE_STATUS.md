@@ -1,9 +1,9 @@
 # Python Patch Tool v6.20.2 feature status
 ## Read-only remote SSH PATCH through TaskDeck saved profiles (2026-11-18)
 
-- **IMPLEMENTED IN SOURCE:** Remote-only PATCH manifest field \`remote_ssh\` with an exact unique saved \`profile_name\`, one whitelisted \`argv\`, and bounded \`timeout_seconds\`. The SSH runtime invokes TaskDeck's saved profile, OpenSSH/secret store and enforces a second Go whitelist at execution.
-- **WHITELIST:** only \`pwd\`, safe relative-path \`ls\`, bounded \`tree\`, bounded \`find\`. Scripts, Python, shell interpreters, shell syntax and source-changing mixed packages are rejected. No portable standalone or shared multi-user CLI support.
-- **TESTS:** \`self_test_remote_ssh_v6_20_0.py\`; Go \`patchsshpolicy\` and CLI parser/profile resolution tests. Host-to-host SSH live smoke requires an actual saved profile and reachable SSH server.
+- **IMPLEMENTED IN SOURCE:** Remote-only PATCH manifest field `remote_ssh` with an exact unique saved `profile_name`, one whitelisted `argv`, and bounded `timeout_seconds`. The SSH runtime invokes TaskDeck's saved profile, OpenSSH/secret store and enforces a second Go whitelist at execution.
+- **WHITELIST:** only `pwd`, safe relative-path `ls`, bounded `tree`, bounded `find`. Scripts, Python, shell interpreters, shell syntax and source-changing mixed packages are rejected. No portable standalone or shared multi-user CLI support.
+- **TESTS:** `self_test_remote_ssh_v6_20_0.py`; Go `patchsshpolicy` and CLI parser/profile resolution tests. Host-to-host SSH live smoke requires an actual saved profile and reachable SSH server.
 
 
 ## Script-origin guard (2026-11-18)
