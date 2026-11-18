@@ -1190,6 +1190,11 @@ def _run_patch_child(
     result_path = runtime / f"{token}.json"
     env = dict(os.environ)
     env["PTV_PATCH_RESULT_FILE"] = str(result_path)
+    if full_log_path is not None:
+        # Scoped to this one item and run. History cleanup owns the same run
+        # directory; per-command evidence survives later sessions until then.
+        command_dir = full_log_path.parent.parent / "command_items" / full_log_path.stem / "command_logs"
+        env["PTV_PATCH_COMMAND_LOG_DIR"] = str(command_dir)
     env["PYTHONUNBUFFERED"] = "1"
     spawn_patch_sha: str | None = None
     spawn_patch_path = root / "patchs" / item.name
@@ -4631,6 +4636,37 @@ def _protocol_history_item_artifacts(root: Path, row: dict[str, object]) -> list
     return out
 
 
+
+def _protocol_command_evidence(root: Path, patch_result: dict[str, object] | None) -> list[dict[str, object]]:
+    """Expose only bounded, existing run-owned console logs for History."""
+    entries = patch_result.get("commands") if isinstance(patch_result, dict) else None
+    if not isinstance(entries, list):
+        return []
+    out: list[dict[str, object]] = []
+    for item in entries[:64]:
+        if not isinstance(item, dict):
+            continue
+        raw = item.get("log_path")
+        rel = _protocol_project_file_rel(root, raw)
+        if not rel or not rel.startswith("artifacts/patch_tool/runs/"):
+            continue
+        if "/command_items/" not in rel or "/command_logs/" not in rel:
+            continue
+        status = str(item.get("status") or "")
+        rc = item.get("rc")
+        argv = item.get("argv") if isinstance(item.get("argv"), list) else []
+        out.append({
+            "index": len(out) + 1,
+            "name": _protocol_history_text(item.get("name") or "Command", 256),
+            "stage": _protocol_history_text(item.get("stage") or "", 64),
+            "argv": [_protocol_history_text(x, 512) for x in argv[:24] if isinstance(x, str)],
+            "status": _protocol_history_text(status, 64),
+            "rc": rc if isinstance(rc, int) and not isinstance(rc, bool) else None,
+            "log_path": rel,
+            "timed_out": item.get("timed_out") is True,
+        })
+    return out
+
 def _protocol_history_item(root: Path, row: dict[str, object], index: int) -> dict[str, object]:
     raw_rc = row.get("rc")
     rc = raw_rc if isinstance(raw_rc, int) and not isinstance(raw_rc, bool) else None
@@ -4656,6 +4692,9 @@ def _protocol_history_item(root: Path, row: dict[str, object], index: int) -> di
         "blocked_by": [_protocol_history_text(value, 256) for value in blocked[:64]],
         "depends_on": [_protocol_history_text(value, 256) for value in depends[:64]],
         "artifacts": _protocol_history_item_artifacts(root, row),
+        "commands": _protocol_command_evidence(
+            root, row.get("patch_result") if isinstance(row.get("patch_result"), dict) else None
+        ),
         **({"rc": rc} if rc is not None else {}),
         **({"elapsed_seconds": round(safe_elapsed, 3)} if safe_elapsed is not None else {}),
         **({"changed_count": changed} if isinstance(changed, int) and changed >= 0 else {}),
@@ -7735,6 +7774,10 @@ def execute_items(
                 finished_payload["diagnosis_kind"] = diagnosis_kind
             if output_tail:
                 finished_payload["output_tail"] = output_tail
+        if isinstance(patch_result, dict):
+            command_list = _protocol_command_evidence(root, patch_result)
+            if command_list:
+                finished_payload["commands"] = command_list
         _emit_protocol_event("item_finished", **finished_payload)
         if meta is not None:
             patch_status_by_id[meta.patch_id] = str(detail["status"])
