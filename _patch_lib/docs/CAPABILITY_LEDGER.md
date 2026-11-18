@@ -2,10 +2,10 @@
 
 ## TaskDeck saved-profile read-only remote SSH lane (2026-11-18)
 
-- **NEW, BOUNDED:** A dedicated manifest-only PATCH with \`remote_ssh.profile_name\`, structured \`argv\` and optional timeout runs one whitelisted command through an existing saved TaskDeck SSH profile. The AI must request the exact unique profile name when unknown.
-- **STRICT WHITELIST:** Go policy \`internal/patchsshpolicy\` admits only \`pwd\`, restricted \`ls\`, \`tree\` and bounded \`find\`; no Python, interpreters, scripts, arbitrary shell, pipelines, redirection or dangerous flags. Both the Python preflight and Go execution bridge fail closed. The remote lane cannot be combined with source mutations.
+- **NEW, BOUNDED:** A dedicated manifest-only PATCH with `remote_ssh.profile_name`, structured `argv` and optional timeout runs one whitelisted command through an existing saved TaskDeck SSH profile. The AI must request the exact unique profile name when unknown.
+- **STRICT WHITELIST:** Go policy `internal/patchsshpolicy` admits only `pwd`, restricted `ls`, `tree` and bounded `find`; no Python, interpreters, scripts, arbitrary shell, pipelines, redirection or dangerous flags. Both the Python preflight and Go execution bridge fail closed. The remote lane cannot be combined with source mutations.
 - **EXISTING AUTH:** TaskDeck saved profile, OpenSSH, existing secret store/askpass, SSH host-key validation. No SSH credentials in patch packages; unique exact saved profile name required. Shared multi-user mode and portable Python-only installs are not supported for this CLI lane.
-- **BEHAVIORAL GATES:** Go tests in \`internal/patchsshpolicy/policy_test.go\`, \`cmd/vscode_tasks_menu/patch_ssh_cli_test.go\`; Python \`self_test_remote_ssh_v6_20_0.py\` covers manifest-only routing and rejection. Preserve this explicit boundary in future migrations.
+- **BEHAVIORAL GATES:** Go tests in `internal/patchsshpolicy/policy_test.go`, `cmd/vscode_tasks_menu/patch_ssh_cli_test.go`; Python `self_test_remote_ssh_v6_20_0.py` covers manifest-only routing and rejection. Preserve this explicit boundary in future migrations.
 
 ## Explicit user-required script origin protection (2026-11-18)
 
