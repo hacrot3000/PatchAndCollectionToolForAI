@@ -22,7 +22,13 @@ tools/_patch_lib/docs/PATCH_PACKAGE_SCHEMA.json
 
 AI must read that schema before generating a PATCH package. Do not invent manifest fields.
 
-## Running an existing project script automatically\n\nPATCH packages can run commands automatically: a manifest-only command-only ZIP runs one `legacy_strict`-allowlisted command when `run_when_no_changes=true` and a 20–500 character `no_change_reason` are supplied. Source-changing PATCHes may run multiple `post_patch.commands` with the default broader `current` profile, or opt into `safety_profile=legacy_strict`. Script paths must remain project-local under the strict profile. Automatic commands are **not** the same as human-only `manual_execution`. For the complete allowed interpreter/extension matrix, forbidden commands, timeout, argv/cwd rules and executable examples, read **AI_USAGE_CONTRACT.md → Automatic PATCH command and project-local script execution**.\n\n## Runtime boundary: PATCH package vs Patch Tool internals
+## Running an existing project script automatically
+
+PATCH packages can run commands automatically: a manifest-only command-only ZIP runs one `legacy_strict`-allowlisted command when `run_when_no_changes=true` and a 20–500 character `no_change_reason` are supplied. Source-changing PATCHes may run multiple `post_patch.commands` with the default broader `current` profile, or opt into `safety_profile=legacy_strict`. Script paths must remain project-local under the strict profile. Automatic commands are **not** the same as human-only `manual_execution`. For the complete allowed interpreter/extension matrix, forbidden commands, timeout, argv/cwd rules and executable examples, read **AI_USAGE_CONTRACT.md → Automatic PATCH command and project-local script execution**.
+
+**PROHIBITED:** A PATCH may not create a script file and execute that same script in the same run, including through post/on-failure commands or validation. Direct script references absent before the PATCH starts are rejected by preflight with `new_script_execution_forbidden`, and runtime rechecks before automatic commands. Use two separately completed PATCHes: A creates the script, then B runs it. Do not evade this rule with inline shell, Python payloads or opaque wrappers; this direct-path check is not an OS sandbox for arbitrary Python execution.
+
+## Runtime boundary: PATCH package vs Patch Tool internals
 
 A PATCH package describes project mutations and may contain its own payload/OPS files, but it must not depend on Patch Tool's private implementation layout.
 
