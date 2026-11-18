@@ -640,7 +640,7 @@ func protocolItemEvent(data []byte) (ProtocolItemState, string, error) {
             !strings.Contains(command.LogPath, "/command_items/") ||
             !strings.Contains(command.LogPath, "/command_logs/") ||
             strings.Contains(command.LogPath, "..") ||
-            strings.ContainsAny(command.LogPath, "\\ ") {
+            (strings.ContainsRune(command.LogPath, '\\') || strings.ContainsRune(command.LogPath, '\x00')) {
             return ProtocolItemState{}, "", fmt.Errorf("invalid PATCH command evidence path")
         }
         for _, arg := range command.Argv {
