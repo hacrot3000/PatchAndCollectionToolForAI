@@ -1,6 +1,7 @@
 package session
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 )
@@ -74,4 +75,43 @@ func TestProtocolItemStartedDoesNotInheritFailureAdvice(t *testing.T) {
     if item.RepairHint != "" || item.DiscoveryDetail != "" {
         t.Fatalf("started item leaked old failure evidence: %+v", item)
     }
+}
+
+
+func TestProtocolItemPreservesCommandConsoleEvidence(t *testing.T) {
+	payload := []byte(`{"type":"item_finished","index":1,"total":1,"name":"commands.zip","kind":"PATCH","status":"PASS","rc":0,"commands":[{"index":1,"name":"Compile project","stage":"POST PATCH","argv":["bash","scripts/build.sh"],"status":"PASS","rc":0,"log_path":"artifacts/patch_tool/runs/20261118a/command_items/001_commands_zip/command_logs/001_post_patch.log"}]}`)
+	item, event, err := protocolItemEvent(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if event != "item_finished" || len(item.Commands) != 1 ||
+		item.Commands[0].Name != "Compile project" || item.Commands[0].RC == nil ||
+		*item.Commands[0].RC != 0 {
+		t.Fatalf("command evidence lost: %#v", item)
+	}
+}
+
+func TestProtocolItemRejectsUnsafeCommandConsolePaths(t *testing.T) {
+	for _, path := range []string{
+		"../secrets.log",
+		"/etc/passwd",
+		"artifacts/patch_tool/runs/run/command_items/../secrets.log",
+		"artifacts/patch_tool/runs/run/items/output.log",
+	} {
+		payload := map[string]interface{}{
+			"type":"item_finished", "index":1, "total":1,
+			"name":"bad.zip", "kind":"PATCH", "status":"PASS",
+			"commands":[]map[string]interface{}{{
+				"index":1, "name":"command", "stage":"POST PATCH",
+				"status":"PASS", "log_path":path,
+			}},
+		}
+		data, err := json.Marshal(payload)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, _, err := protocolItemEvent(data); err == nil {
+			t.Fatalf("unsafe command console log path accepted: %q", path)
+		}
+	}
 }
