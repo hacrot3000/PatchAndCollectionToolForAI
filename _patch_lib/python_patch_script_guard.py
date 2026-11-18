@@ -16,8 +16,8 @@ _SCRIPT_INTERPRETERS = {
     "bash", "sh", "python", "python3", "node", "pwsh", "powershell",
     "powershell.exe",
 }
-_PYTHON_VERSIONED = re.compile(r"^python3\\.\\d+(?:\\.exe)?$", re.IGNORECASE)
-_NODE_VERSIONED = re.compile(r"^node(?:\\.exe)?$", re.IGNORECASE)
+_PYTHON_VERSIONED = re.compile(r"^python3\.\d+(?:\.exe)?$", re.IGNORECASE)
+_NODE_VERSIONED = re.compile(r"^node(?:\.exe)?$", re.IGNORECASE)
 _INLINE_FLAGS = {"-c", "-m", "-e", "--eval", "--evaluate", "-command",
                  "-encodedcommand", "-enc"}
 _TAKES_VALUE = {"-o", "-W", "-X", "--require", "--loader", "--import",
