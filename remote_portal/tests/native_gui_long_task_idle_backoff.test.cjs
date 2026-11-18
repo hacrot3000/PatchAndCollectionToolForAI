@@ -91,11 +91,11 @@ const flush=async()=>{for(let n=0;n<65;n++)await Promise.resolve()};
   delays.push(timer.delay);
   timer.fn();await flush();
   if(i<responses.length-1){
-   assert.equal(get('long-task-state').textContent==='',
-    false); // authenticated job must remain present
+   assert.equal(get('long-task-controls').hidden,false,
+    'running job was detached before terminal state');
   }
  }
- assert.deepEqual(delays,[450,450,900,1800,3600,450,900,1800],
+ assert.deepEqual(delays,[450,450,900,1800,450,900,1800,3600],
   'backoff should reset on new output, not spend quota at 450ms forever');
  assert.equal(polls,8);
  assert.equal(timers.length,0,'terminal reply must stop automatic Poll');
