@@ -245,6 +245,8 @@ jobs:
         run: node remote_portal/tests/native_gui_long_task_cancel_pending.test.cjs
       - name: Verify bounded automatic long-task polling and reserved cancellation quota
         run: node remote_portal/tests/native_gui_long_task_autopoll.test.cjs
+      - name: Verify adaptive idle Task GUI Poll conserves E2EE quota
+        run: node remote_portal/tests/native_gui_long_task_idle_backoff.test.cjs
       - name: Verify opt-in Terminal automatic E2EE output draining and Close quota
         run: node remote_portal/tests/native_gui_terminal_auto_read.test.cjs
       - name: Git pull invalidates old authenticated task selection while retaining output

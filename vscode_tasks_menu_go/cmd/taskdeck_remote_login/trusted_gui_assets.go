@@ -1463,6 +1463,10 @@ const trustedGUIJavaScript = `'use strict';
   // report "running" while the host is terminating the process group.
   let longTaskCancelPending=false;
   let longTaskAuto=false,longTaskPollScheduled=false,longTaskPollEpoch=0;
+  // Running native jobs can be quiet for seconds (compile/link/sleep).
+  // Keep the E2EE quota for cancellation/cleanup instead of polling
+  // every 450 ms without new output or step progress.
+  let longTaskIdlePolls=0;
   // A task ID identifies a configured task, NOT one process execution.
   // Timers belonging to a cleared execution may never poll its successor
   // when the operator restarts that same task ID in this native session.
@@ -1587,7 +1591,7 @@ const trustedGUIJavaScript = `'use strict';
     taskRunHistoryCopy.textContent='Sao chép toàn bộ kết quả task';
     taskRunHistoryCopy.disabled=true;
     taskRunHistoryView.hidden=true;taskRunHistoryClear.disabled=true;
-    longTaskMore=false;longTaskAuto=false;
+    longTaskMore=false;longTaskAuto=false;longTaskIdlePolls=0;
     longTaskPollEpoch++;longTaskPollScheduled=false;
     terminalState='closed';terminalTranscript='';terminalLocalClipped=false;
     terminalAutoEnabled=false;terminalAutoPending=false;
@@ -1917,6 +1921,12 @@ const trustedGUIJavaScript = `'use strict';
       !verified||busy||closed||closing||terminated||bulkLoading||
       !mayAutoPollLongTask())return;
     const selectedID=longTaskID,selectedEpoch=longTaskPollEpoch;
+    // Never slow down a pending cancellation or unread output. Back off
+    // only after successive authenticated, unchanged, empty RUNNING
+    // replies, capped at 10 seconds. All guard/quota checks run again
+    // when the delayed callback actually fires.
+    const delay=longTaskCancelPending||longTaskMore?450:
+      Math.min(10000,450*Math.pow(2,longTaskIdlePolls));
     longTaskPollScheduled=true;
     setTimeout(()=>{
       // Do not disturb a newer execution's scheduled timer if this
@@ -1927,7 +1937,7 @@ const trustedGUIJavaScript = `'use strict';
         !closing&&!terminated&&!bulkLoading&&mayAutoPollLongTask()){
         invoke('/api/tasks-poll/'+String(selectedID));
       }
-    },450);
+    },delay);
   }
   function validCommitSubject(message){
     if(typeof message!=='string'||message.length<1||message!==message.trim()||
@@ -2729,11 +2739,28 @@ const trustedGUIJavaScript = `'use strict';
               preparedWorkflowSteps.steps.map(node=>({id:node.id,label:node.label})):null;
             preparedWorkflowSteps=null;
             longTaskPollEpoch++;longTaskPollScheduled=false;
+            longTaskIdlePolls=0;
             longTaskID=id;longTaskText='';longTaskClipped=false;longTaskHostTruncated=false;
             longTaskCancelPending=false;
             longTaskAuto=!finalStates.includes(data.status);
             longTaskHistorySerial=rememberTaskRun(
               id,'dài',data.status,data.exit_code,'',data.truncated);
+          }
+          if(polling){
+            // Audit-verified state/step changes or actual output reset
+            // the polling interval. Repeated silent RUNNING responses
+            // progressively slow the NEXT automatic Poll to conserve
+            // the strictly bounded E2EE action budget.
+            const changed=longTaskState!==data.status||
+              !!data.output||data.more||
+              (workflowProgress&&stepHistory!==''&&
+                (!longTaskShape||stepHistory!==longTaskShape.history||
+                 details.join('|')!==longTaskShape.details.join('|')));
+            if(data.status!=='running'||longTaskCancelPending||changed){
+              longTaskIdlePolls=0;
+            }else{
+              longTaskIdlePolls=Math.min(longTaskIdlePolls+1,5);
+            }
           }
           if(polling&&workflowProgress&&stepHistory!==''){
             longTaskShape={
@@ -2747,6 +2774,7 @@ const trustedGUIJavaScript = `'use strict';
           longTaskHostTruncated=longTaskHostTruncated||data.truncated;
           if(prefix==='/api/tasks-cancel/'&&data.status==='cancel_requested'){
             longTaskCancelPending=true;
+            longTaskIdlePolls=0;
           }
           longTaskState=data.status;
           longTaskMore=data.more;
@@ -2794,7 +2822,7 @@ const trustedGUIJavaScript = `'use strict';
             longTaskText='';longTaskClipped=false;longTaskHostTruncated=false;
             longTaskMore=false;
             longTaskCancelPending=false;
-            longTaskAuto=false;
+            longTaskAuto=false;longTaskIdlePolls=0;
             // A successful host Clear frees its slot, not the authenticated
             // workflow report already retained in this browser session.
             renderTaskRunHistory();
@@ -3786,11 +3814,18 @@ const trustedGUIJavaScript = `'use strict';
     if(longTaskID===0||closed)return;
     longTaskPollEpoch++;longTaskPollScheduled=false;
     longTaskAuto=!longTaskAuto;
+    if(longTaskAuto)longTaskIdlePolls=0;
     render();
     if(longTaskAuto)scheduleLongTaskPoll();
   });
   longTaskPoll.addEventListener('click',()=>{
-    if(longTaskID>0&&budget>0&&!busy)invoke('/api/tasks-poll/'+String(longTaskID));
+    if(longTaskID>0&&budget>0&&!busy){
+      // A manual status check invalidates an older delayed automatic
+      // timer; the newly verified reply will schedule the next Poll.
+      longTaskPollEpoch++;longTaskPollScheduled=false;
+      longTaskIdlePolls=0;
+      invoke('/api/tasks-poll/'+String(longTaskID));
+    }
   });
   longTaskCopy.addEventListener('click',()=>{
     if(longTaskID===0||closed||terminated||!verified||!longTaskText)return;

@@ -1791,3 +1791,18 @@ real-host testing are considered **code complete**.
   revoke stale copy UI/state and never detach the active live job.
 - Added a native GUI test for Unicode, HTML-safe literal output,
   ordering, the six-record bound, Clear, logout and zero network calls.
+
+## 2026-11-18 — Adaptive E2EE Task polling for quiet long jobs
+
+- Automatic native GUI Poll now backs off from 450 ms to at most
+  10 seconds after repeated authenticated, unchanged, empty RUNNING
+  replies, preserving the 16-round budget for Cancel/Poll/Clear during
+  long quiet compiles. Any new output, workflow step/exit detail change,
+  terminal state, cancel request, manual Poll or explicit auto resume
+  returns to the 450 ms cadence.
+- Quota checks and ownership/epoch checks remain at callback time;
+  no extra action, client-provided command, background native task
+  authority or E2EE protocol change. All existing jobs with unread
+  output or pending cancellation keep the fast path.
+- Added in-browser native regression for delayed quiet polls, reset
+  upon output, final diagnostics, bounded automatic polling and Clear.
