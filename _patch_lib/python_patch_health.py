@@ -25,6 +25,7 @@ REQUIRED_RUNTIME = [
     "tools/_patch_lib/python_patch_batch.py",
     "tools/_patch_lib/python_patch_runner.py",
     "tools/_patch_lib/python_patch_remote_ssh.py",
+    "tools/_patch_lib/python_patch_collect_commands.py",
     "tools/_patch_lib/python_patch_script_guard.py",
     "tools/_patch_lib/python_patch_ops_worker.py",
     "tools/_patch_lib/python_patch_utils.py",
