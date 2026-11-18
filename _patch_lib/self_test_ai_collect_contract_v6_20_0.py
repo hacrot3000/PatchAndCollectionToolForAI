@@ -16,7 +16,7 @@ assert 'never mix collect and patch' in ai.lower()
 assert 'no global queue/selector lock' in ai.lower()
 assert 'serializes only the patch source-mutation lane per project' in ai.lower()
 assert 'COLLECT_ACTION_SCHEMA.json' in ai and 'COLLECT_ACTION_SCHEMA.json' in guide
-expected={'pack','zip','overview','ls','tree','find','search','search_files','content','research','file','range','head','tail','symbol','references','callgraph','dependencies','directory','symbol_graph','decompile','ida','ghidra','database_select','git'}
+expected={'pack','zip','overview','ls','tree','find','search','search_files','content','research','file','range','head','tail','symbol','references','callgraph','dependencies','directory','symbol_graph','decompile','ida','ghidra','database_select','git','command'}
 assert set(schema['actions'])==expected,schema['actions']
 assert 'historical direct `collect <command>` cli is superseded' in ai.lower()
 for alias in ['search_files','content','symbol_graph','decompile']:
