@@ -32,6 +32,10 @@ class Element{
 }
 const nodes=new Map();
 const get=id=>{if(!nodes.has(id))nodes.set(id,new Element(id));return nodes.get(id)};
+// Minimal test DOM must honor the static disabled attribute. The real
+// browser parses this from the trusted HTML before the script starts.
+assert.match(raw,/id="task-run-history-copy" disabled/);
+get('task-run-history-copy').disabled=true;
 const capability='0123456789abcdef'.repeat(4),copied=[],network=[];
 const context={
  document:{getElementById:get,createElement:name=>new Element(name)},
