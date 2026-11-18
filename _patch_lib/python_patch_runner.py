@@ -252,6 +252,15 @@ def _find_payload(extracted: Path, *, archive_name: str = "") -> tuple[dict, str
     manifest = _read_json(manifest_path, "PATCH_TOOL_MANIFEST.json") if manifest_path.is_file() else {}
     ops = extracted / "PATCH_TOOL_OPS.json"
     py_files = _python_payload_files(extracted)
+    if manifest.get("remote_ssh") is not None:
+        # Remote SSH is a manifest-only package: no Python/OPS/scripts or
+        # resources may accompany a remote command.
+        extra_files = [p.relative_to(extracted).as_posix() for p in extracted.rglob("*")
+                       if p.is_file() and p != manifest_path]
+        if extra_files:
+            raise ValueError("remote SSH package must contain only PATCH_TOOL_MANIFEST.json; forbidden: "
+                             + ", ".join(sorted(extra_files)[:5]))
+        return manifest, "remote_ssh_only", manifest_path, []
     if ops.is_file() and py_files:
         raise ValueError("package contains both PATCH_TOOL_OPS.json and Python patch entrypoint")
     if ops.is_file():
@@ -2014,6 +2023,25 @@ def _execute_patch(root: Path, source: Path, *, no_validation: bool = False) -> 
             print("PATCH PAYLOAD: COMMAND_ONLY_PACKAGE (no source payload)")
             rc = 0
             payload_diag = None
+        elif kind == "remote_ssh_only":
+            from python_patch_remote_ssh import run_remote_ssh, RemoteSSHError
+            print("PATCH PAYLOAD: REMOTE_SSH_ONLY (one read-only whitelisted SSH command)")
+            try:
+                ssh_result = run_remote_ssh(root, manifest["remote_ssh"], dry_run=False)
+                result["remote_ssh"] = ssh_result
+                for output_line in (ssh_result.get("stdout"), ssh_result.get("stderr")):
+                    if output_line:
+                        print(str(output_line), end="" if str(output_line).endswith("\n") else "\n")
+                rc = int(ssh_result.get("rc") or 0)
+                payload_diag = None if rc == 0 else {
+                    "kind": "remote_ssh_execution_failed",
+                    "message": "Saved-profile SSH command failed; see remote_ssh output",
+                    "affected_paths": [],
+                }
+            except RemoteSSHError as exc:
+                rc = 2
+                payload_diag = {"kind": exc.kind, "message": str(exc), "affected_paths": []}
+                print(f"ERROR: {exc}", file=sys.stderr)
         elif kind == "python":
             outcome = _execute_python(payload, root, timeout)
             rc = outcome.effective_rc
@@ -2094,7 +2122,7 @@ def _execute_patch(root: Path, source: Path, *, no_validation: bool = False) -> 
             before_targets=before_targets, target_paths=target_paths,
         )
         record_timing("git_and_target_delta")
-        changed = False if kind in {"command_only", "manual_only"} else payload_delta.get("detected") is not False
+        changed = False if kind in {"command_only", "manual_only", "remote_ssh_only"} else payload_delta.get("detected") is not False
         result["stage"] = "post_patch"
         post_report = _run_post_patch(root, manifest, changed=changed)
         if post_report is not None:
