@@ -26,6 +26,7 @@ on:
       - 'remote_portal/tests/native_gui_git_fetch.test.cjs'
       - 'remote_portal/tests/native_gui_git_index.test.cjs'
       - 'remote_portal/tests/native_gui_git_file.test.cjs'
+      - 'remote_portal/tests/native_gui_git_file_quoted.test.cjs'
       - 'remote_portal/tests/native_gui_git_branches.test.cjs'
       - 'remote_portal/tests/native_gui_git_remotes.test.cjs'
       - 'remote_portal/tests/native_gui_git_tracking.test.cjs'
@@ -67,6 +68,7 @@ on:
       - 'remote_portal/tests/native_gui_git_fetch.test.cjs'
       - 'remote_portal/tests/native_gui_git_index.test.cjs'
       - 'remote_portal/tests/native_gui_git_file.test.cjs'
+      - 'remote_portal/tests/native_gui_git_file_quoted.test.cjs'
       - 'remote_portal/tests/native_gui_git_branches.test.cjs'
       - 'remote_portal/tests/native_gui_git_remotes.test.cjs'
       - 'remote_portal/tests/native_gui_git_tracking.test.cjs'
@@ -254,6 +256,8 @@ jobs:
         run: node remote_portal/tests/native_gui_git_index.test.cjs
       - name: Verify Git status snapshot selection for one tracked file
         run: node remote_portal/tests/native_gui_git_file.test.cjs
+      - name: Verify native Git quoted filenames display and snapshot-bound Stage
+        run: node remote_portal/tests/native_gui_git_file_quoted.test.cjs
       - name: Verify fixed read-only native Git branches
         run: node remote_portal/tests/native_gui_git_branches.test.cjs
       - name: Verify bounded names-only native Git remote metadata

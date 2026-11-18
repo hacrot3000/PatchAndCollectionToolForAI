@@ -1235,6 +1235,65 @@ const trustedGUIJavaScript = `'use strict';
   }
   // Snapshot-only local inspector. Search and classification never use E2EE
   // budget, connect to PHP, or grant new host/Git privileges.
+  // Git Status uses core.quotePath=true, so non-ASCII paths appear as
+  // quoted C-style UTF-8 octal bytes (e.g. "\303\241o.txt"). Decode
+  // ONLY for display/filtering. Keep the exact E2EE status bytes and
+  // one-based index unchanged for privileged Stage/Unstage requests.
+  function decodeGitStatusPath(encoded){
+    if(typeof encoded!=='string'||!encoded)return null;
+    const bytes=[];
+    if(encoded[0]==='"'){
+      if(encoded.length<2||encoded[encoded.length-1]!=='"')return null;
+      for(let i=1;i<encoded.length-1;i++){
+        const c=encoded[i];
+        if(c==='\\'){
+          i++;
+          if(i>=encoded.length-1)return null;
+          const next=encoded[i];
+          if(next==='\\'||next==='"'){
+            bytes.push(next.charCodeAt(0));
+          }else if(/[0-7]/.test(next)){
+            if(i+2>=encoded.length-1)return null;
+            const digits=encoded.slice(i,i+3);
+            if(!/^[0-7]{3}$/.test(digits))return null;
+            const value=parseInt(digits,8);
+            if(value>255)return null;
+            bytes.push(value);
+            i+=2;
+          }else{return null}
+        }else{
+          const code=encoded.charCodeAt(i);
+          if(code<32||code>126||c==='"')return null;
+          bytes.push(code);
+        }
+      }
+    }else{
+      for(const c of encoded){
+        const code=c.charCodeAt(0);
+        if(code<33||code>126||c==='"'||c==='\\')return null;
+        bytes.push(code);
+      }
+    }
+    try{
+      // Decode actual UTF-8, not byte-by-byte Latin-1. This also
+      // rejects malformed sequences without relying on TextDecoder
+      // being available in minimal trusted-GUI test environments.
+      const escaped=bytes.map(value=>'%'+value.toString(16).padStart(2,'0')).join('');
+      const result=decodeURIComponent(escaped);
+      if(!result||/[\x00-\x1f\x7f-\x9f\u2028\u2029]/.test(result))return null;
+      return result;
+    }catch{return null}
+  }
+  function selectableGitStatusPath(item){
+    if(!item||item.decodedPath===null)return false;
+    const path=item.decodedPath;
+    if(path.startsWith('/')||path.split('/').some(part=>
+      part===''||part==='.'||part==='..'||part==='.git'))return false;
+    // Match the Agent's 120-byte decoded-path limit, not JavaScript
+    // UTF-16 string length. Stage never sends this path to the Agent.
+    const bytes=encodeURIComponent(path).match(/%[0-9A-F]{2}|./g)||[];
+    return bytes.length<=120;
+  }
   let gitRows=[];
   let gitRawSnapshot='';
   let gitSnapshotCount=0,gitSnapshotBranch='';
@@ -1242,7 +1301,7 @@ const trustedGUIJavaScript = `'use strict';
     const needle=String(gitFilter.value||'').trim().toLocaleLowerCase();
     const selected=gitKind.value;
     const visible=gitRows.filter(item=>{
-      if(needle&&!item.path.toLocaleLowerCase().includes(needle))return false;
+      if(needle&&!item.displayPath.toLocaleLowerCase().includes(needle))return false;
       if(selected==='all')return true;
       if(item.conflict)return selected==='conflict';
       if(selected==='untracked')return item.code==='??';
@@ -1256,7 +1315,7 @@ const trustedGUIJavaScript = `'use strict';
       const kind=document.createElement('td');
       const file=document.createElement('td');
       kind.textContent=item.code;
-      file.textContent=item.path;
+      file.textContent=item.displayPath;
       row.append(kind,file);
       gitFiles.append(row);
     }
@@ -1288,7 +1347,9 @@ const trustedGUIJavaScript = `'use strict';
           !/^[ MARCTUD?!]{2}$/.test(code)||code==='  '||
           !path.trim()||seen.has(path))throw new Error('Dòng Git Status E2EE không hợp lệ');
         seen.add(path);
-        rows.push({code,path,
+        const decodedPath=decodeGitStatusPath(path);
+        rows.push({code,path,decodedPath,
+          displayPath:decodedPath===null?path:decodedPath,
           conflict:['DD','AU','UD','UA','DU','AA','UU'].includes(code)});
       }
     }
@@ -1310,16 +1371,16 @@ const trustedGUIJavaScript = `'use strict';
       for(const item of rows){
         if(!old.has(item.path)){
           added++;
-          record('Mới xuất hiện: '+item.path+' ['+item.code+']');
+          record('Mới xuất hiện: '+item.displayPath+' ['+item.code+']');
         }else if(old.get(item.path)!==item.code){
           changed++;
-          record('Đổi trạng thái: '+item.path+' ['+old.get(item.path)+' → '+item.code+']');
+          record('Đổi trạng thái: '+item.displayPath+' ['+old.get(item.path)+' → '+item.code+']');
         }
       }
       for(const item of oldRows){
         if(!current.has(item.path)){
           missing++;
-          record('Không còn trong ảnh chụp: '+item.path);
+          record('Không còn trong ảnh chụp: '+item.displayPath);
         }
       }
       gitDeltaSummary.textContent='So với lần đọc trước: '+
@@ -1337,9 +1398,8 @@ const trustedGUIJavaScript = `'use strict';
     gitFileSelect.append(placeholder);
     for(const [i,item] of rows.entries()){
       if(i>=12)break;
-      const path=item.path;
-      if(!/^[A-Za-z0-9_.-]+(\/[A-Za-z0-9_.-]+)*$/.test(path)||
-        path.split('/').some(p=>p==='.'||p==='..')||path.startsWith('.git/'))continue;
+      if(!selectableGitStatusPath(item))continue;
+      const path=item.displayPath;
       if(!['M','D'].includes(item.code[1])&&
         !['M','A','D'].includes(item.code[0]))continue;
       const option=document.createElement('option');

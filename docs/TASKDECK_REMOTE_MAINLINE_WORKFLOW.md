@@ -1748,3 +1748,18 @@ real-host testing are considered **code complete**.
   continues to be pinned through post-audit and final launch checks.
 - Added native serial/parallel workflow execution, policy and before-job
   denial regression tests, plus dedicated Go race CI preflight.
+
+## 2026-11-18 — Native Git Status readable quoted filenames
+
+- The native Remote GUI now decodes Git's authenticated
+  `core.quotePath=true` C-style UTF-8 octal filenames for visible
+  table rows, search, stage/unstage selection and change summaries:
+  spaces, Vietnamese names and literal bracket pathspecs display
+  readably rather than as `\\303\\241`.
+- Decoder is **presentation-only**. The original E2EE Git Status
+  snapshot and the one-based row index are preserved byte-for-byte
+  in privileged Stage/Unstage requests. Invalid/unsafe encodings can
+  still appear as raw status for diagnosis but never as selectable
+  paths. The backend independently validates exact tracked paths.
+- Added a native GUI mock test for Unicode display/search and
+  exact snapshot-bound Stage, plus a Go Agent CI gate.
