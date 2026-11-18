@@ -660,6 +660,29 @@ def _run_managed_command_logged(argv: list[str], *, cwd: Path, timeout: int,
                 proc.stdout.close()
 
 
+
+def _write_command_failure_console(path: Path | None, message: str) -> None:
+    """Keep a failed-to-start command visible in PATCH History.
+
+    If a subprocess already emitted output, preserve it and append the error.
+    Do not create new paths outside the validated run-owned command directory.
+    """
+    if path is None:
+        return
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("ab") as stream:
+            try:
+                os.chmod(path, 0o600)
+            except OSError:
+                pass
+            stream.write(("\n[Command failed to start]\n" + message[:2048] + "\n").encode(
+                "utf-8", errors="replace"
+            ))
+    except OSError as exc:
+        print(f"[PTV WARNING] could not persist failed command log: {type(exc).__name__}",
+              file=sys.stderr)
+
 def _append_command_evidence(*, stage: str, name: str, argv: list[str],
                              cwd: str, status: str, rc: int, log_path: str,
                              timed_out: bool = False, error: str = "") -> None:
@@ -739,8 +762,7 @@ def _run_command_sequence(root: Path, commands: object, *, label: str) -> dict[s
         except Exception as exc:
             print(f"ERROR: {label.lower()} command invalid: {exc}", file=sys.stderr)
             rows.append({"name": name, "status": "FAIL", "rc": 2, "timed_out": False, "error": f"{type(exc).__name__}: {exc}", "error_kind": getattr(exc, "kind", None), "log_path": log_rel})
-            if log_file is not None and not log_file.exists():
-                log_file.write_text(f"{type(exc).__name__}: {exc}\n", encoding="utf-8")
+            _write_command_failure_console(log_file, f"{type(exc).__name__}: {exc}")
             _append_command_evidence(stage=label, name=name, argv=argv_evidence, cwd=cwd_evidence,
                                      status="FAIL", rc=2, log_path=log_rel,
                                      error=f"{type(exc).__name__}: {exc}")
@@ -856,6 +878,7 @@ def _run_validation_profiles(root: Path, preflight: dict[str, object]) -> dict[s
             raise
         except Exception as exc:
             print(f"ERROR: validation profile {name} could not start: {type(exc).__name__}: {exc}", file=sys.stderr)
+            _write_command_failure_console(profile_log, f"{type(exc).__name__}: {exc}")
             rows.append({"name": name, "status": "FAIL", "rc": 2, "timed_out": False, "error": f"{type(exc).__name__}: {exc}", "error_kind": getattr(exc, "kind", None), "log_path": profile_log_rel})
             _append_command_evidence(stage="VALIDATION", name=name, argv=list(argv), cwd=cwd_raw,
                                      status="FAIL", rc=2, log_path=profile_log_rel, error=str(exc))
@@ -899,10 +922,10 @@ def _run_validation_profiles(root: Path, preflight: dict[str, object]) -> dict[s
                         rerun_name = str(rerun_cfg.get("name") or f"{name} diagnostic rerun")
                         rerun_timeout = int(rerun_cfg.get("timeout_seconds") or min(timeout, 600))
                         print(f"DIAGNOSTIC RERUN: {rerun_name}", flush=True)
+                        rerun_log, rerun_log_rel = _command_log_path(root, "diagnostic_rerun")
                         try:
                             if _ACTIVE_SCRIPT_ORIGIN_GUARD is not None:
                                 _ACTIVE_SCRIPT_ORIGIN_GUARD.check(rerun_argv, cwd)
-                            rerun_log, rerun_log_rel = _command_log_path(root, "diagnostic_rerun")
                             rerun_outcome = _run_managed_command_logged(rerun_argv, cwd=cwd,
                                                                        timeout=max(1, rerun_timeout), log_path=rerun_log)
                             _append_command_evidence(stage="DIAGNOSTIC RERUN", name=rerun_name,
@@ -919,7 +942,12 @@ def _run_validation_profiles(root: Path, preflight: dict[str, object]) -> dict[s
                                 "name": rerun_name,
                             })
                         except Exception as exc:
-                            rerun_row.update({"status": "FAIL", "rc": 2, "error": type(exc).__name__, "name": rerun_name})
+                            _write_command_failure_console(rerun_log, f"{type(exc).__name__}: {exc}")
+                            _append_command_evidence(stage="DIAGNOSTIC RERUN", name=rerun_name,
+                                                     argv=rerun_argv, cwd=cwd_raw, status="FAIL",
+                                                     rc=2, log_path=rerun_log_rel, error=str(exc))
+                            rerun_row.update({"status": "FAIL", "rc": 2, "error": type(exc).__name__,
+                                              "name": rerun_name, "log_path": rerun_log_rel})
                         # Historical contract: diagnostic rerun is evidence only.
                         # It never changes the primary validation failure result.
                         print(f"DIAGNOSTIC RERUN COMPLETE: {rerun_name} | primary validation remains FAIL", flush=True)
