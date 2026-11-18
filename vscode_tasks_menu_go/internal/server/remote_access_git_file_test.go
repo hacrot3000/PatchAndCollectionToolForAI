@@ -195,7 +195,7 @@ func TestRemoteGitFileQuotedPathDecode(t *testing.T){
   {`"a file.txt"`,"a file.txt"},
   {`"\303\241o.txt"`,"áo.txt"},
   {"special[1].txt","special[1].txt"},
-  {`"trailing\\040"`,"trailing "},
+  {`"trailing\040"`,"trailing "},
   {`"hello\\world.txt"`,"hello\\world.txt"},
   {"plain.txt","plain.txt"},
   {"a+b(#1).txt","a+b(#1).txt"},
@@ -212,11 +212,9 @@ func TestRemoteGitFileQuotedPathDecode(t *testing.T){
   `"quoted.txt"`,`"../outside.txt"`,`"dir/../outside.txt"`,
   `".git/config"`,`"dir/.git/config"`,
   `"bad\012newline.txt"`,`"bad\033escape.txt"`,
-  `"trailing\040"`, // C-style escaped trailing space is actually allowed,
   `"unterminated`,`dir/file with space.txt`,
   "/absolute.txt","..","dir/../file",
  }{
-  if name==`"trailing\040"`{continue}
   if _,ok:=remoteGitSelectedTrackedFile("## main\n M "+name+"\n",1,
    remotetransport.RemoteActionGitStageFile);ok{
    t.Fatalf("malformed or escaping tracked file was admitted: %q",name)
