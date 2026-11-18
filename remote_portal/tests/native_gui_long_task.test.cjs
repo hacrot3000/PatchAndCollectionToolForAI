@@ -197,16 +197,22 @@ const flush=async()=>{for(let i=0;i<45;i++)await Promise.resolve()};
   'clearing prior execution removed the new in-progress execution');
  assert.match(get('task-run-history-list').children[0].children[0].children[0].textContent,
   /Task 123 .* dài .* started/);
- assert.equal(timers.length,2,
-  'a stale timer incorrectly prevented scheduling the new execution');
- const oldTimer=timers.shift(),currentTimer=timers.shift();
+ // Manual Poll now invalidates its delayed auto callback. Multiple
+ // callbacks from the prior execution may remain queued in the mock
+ // timer heap; ALL must be inert, even when a new run reuses Task #123.
+ assert.ok(timers.length>=2,
+  'the new execution did not schedule a fresh auto Poll');
+ const pending=timers.splice(0);
+ const currentTimer=pending.pop();
  const pollsBefore=sent.filter(x=>x==='/api/tasks-poll/123').length;
- oldTimer();await flush();
- assert.equal(sent.filter(x=>x==='/api/tasks-poll/123').length,pollsBefore,
-  'stale timer polled a new execution sharing the previous task ID');
+ for(const staleTimer of pending){
+  staleTimer();await flush();
+  assert.equal(sent.filter(x=>x==='/api/tasks-poll/123').length,pollsBefore,
+   'stale timer polled a newer execution sharing the same Task ID');
+ }
  currentTimer();await flush();
  assert.equal(sent.filter(x=>x==='/api/tasks-poll/123').length,pollsBefore+1,
-  'new execution timer was cleared by the previous execution');
+  'new execution timer was invalidated by an older callback');
  get('disconnect').click();await flush();
  const beforeStaleCopy=copied.length;
  historyCopy.click();await flush();
