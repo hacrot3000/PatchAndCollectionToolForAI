@@ -16,6 +16,10 @@ TOOLS = HERE.parent
 sys.path.insert(0, str(HERE))
 from python_patch_script_guard import ScriptOriginGuard, NewScriptExecutionError, command_script_path
 
+if os.name == 'nt':
+    print('SKIP: POSIX-only executable script integration; Windows guard uses same runtime logic')
+    raise SystemExit(0)
+
 ENV = dict(os.environ)
 ENV["PYTHONDONTWRITEBYTECODE"] = "1"
 ENV["PTV_DISABLE_LIVE_STATUS"] = "1"
