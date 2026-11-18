@@ -291,6 +291,8 @@ def transaction_compatibility(metas: list[PatchMeta], policy: str) -> list[str]:
         return []
     issues: list[str] = []
     for meta in metas:
+        if meta.manifest.get("remote_ssh") is not None:
+            issues.append(f"{meta.name}: batch transaction rejects remote_ssh because SSH network operations cannot be rolled back")
         if not meta.targets:
             issues.append(f"{meta.name}: batch transaction requires manifest.targets")
         validation = meta.manifest.get("validation") if isinstance(meta.manifest.get("validation"), dict) else {}
