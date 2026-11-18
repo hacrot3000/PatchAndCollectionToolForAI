@@ -15,6 +15,7 @@ Optional maintenance entry point:
 Core private runtime:
   tools/_patch_lib/python_patch_queue_dispatcher.py
   tools/_patch_lib/python_patch_runner.py
+  tools/_patch_lib/python_patch_remote_ssh.py
   tools/_patch_lib/python_patch_script_guard.py
   tools/_patch_lib/python_patch_batch.py
   tools/_patch_lib/python_patch_utils.py
@@ -76,6 +77,7 @@ Preservation/release gates include:
   tools/_patch_lib/self_test_git_safe_v6_20_0.py
   tools/_patch_lib/self_test_manual_execution_v6_20_0.py
   tools/_patch_lib/self_test_script_origin_guard_v6_20_0.py
+  tools/_patch_lib/self_test_remote_ssh_v6_20_0.py
   tools/_patch_lib/self_test_public_entry_v6_20_0.py
   tools/_patch_lib/self_test_search_discovery_v6_20_0.py
   tools/_patch_lib/self_test_search_partial_timeout_v6_20_0.py
@@ -153,6 +155,7 @@ tools/_patch_lib/python_patch_provenance.py
 tools/_patch_lib/python_patch_queue_dispatcher.py
 tools/_patch_lib/python_patch_readonly_collector.py
 tools/_patch_lib/python_patch_release_metadata.py
+tools/_patch_lib/python_patch_remote_ssh.py
 tools/_patch_lib/python_patch_runner.py
 tools/_patch_lib/python_patch_script_guard.py
 tools/_patch_lib/python_patch_upload_alias.py
@@ -208,6 +211,7 @@ tools/_patch_lib/self_test_regex_worker_safety_cap_v6_20_2.py
 tools/_patch_lib/self_test_result_clarity_v6_20_0.py
 tools/_patch_lib/self_test_robustness_v6_20_0.py
 tools/_patch_lib/self_test_safe_rollback_v6_20_0.py
+tools/_patch_lib/self_test_remote_ssh_v6_20_0.py
 tools/_patch_lib/self_test_script_origin_guard_v6_20_0.py
 tools/_patch_lib/self_test_search_discovery_v6_20_0.py
 tools/_patch_lib/self_test_search_partial_timeout_v6_20_0.py
