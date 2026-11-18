@@ -19,6 +19,7 @@ import time
 import zipfile
 
 from python_patch_collect_schema import CollectSchemaError, validate_request_data
+from python_patch_collect_commands import CollectCommandError, execute_collect_command, command_report
 from python_patch_database_select import DatabaseSelectError, execute_database_select
 from python_patch_project_state import ensure_project_identity, identity_ai_instructions
 
@@ -2395,6 +2396,16 @@ def _run_request(root: Path, request_zip: Path) -> tuple[Path, Path, int, str]:
                             builder.mark_incomplete(action=index, kind=kind, reasons=list(db_result.get("reasons") or ["database_select returned bounded partial evidence"]))
                         if quota_reasons:
                             builder.mark_incomplete(action=index, kind=kind, reasons=quota_reasons)
+                elif kind == "command":
+                    try:
+                        command_result = execute_collect_command(root, action)
+                    except CollectCommandError as exc:
+                        raise ValueError(f"COLLECT read-only command rejected: {exc}") from exc
+                    builder.add_report(index, kind, title, command_report(action, command_result))
+                    if command_result.get("truncated") or command_result.get("timed_out") or int(command_result.get("rc") or 0) not in (0, 1):
+                        builder.mark_incomplete(action=index, kind=kind, reasons=[
+                            f"command returned rc={command_result.get('rc')}, truncated={command_result.get('truncated')}, timeout={command_result.get('timed_out')}"
+                        ])
                 elif kind == "git":
                     git_result = _git_action(root, action)
                     builder.add_report(index, kind, title, str(git_result.get("report") or ""))
