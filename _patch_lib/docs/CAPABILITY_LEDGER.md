@@ -1,5 +1,12 @@
 # Python Patch Tool — cumulative capability ledger
 
+## Explicit user-required script origin protection (2026-11-18)
+
+- **PRESERVED with user-requested restriction:** Historical declarative post-patch commands (#67), command-only (#69), strict allowlist/project-local script boundary (#71–73), and managed execution (#74) remain available for scripts that existed before this PATCH started. A single PATCH must not create a script and execute that same new file.
+- **NEW fail-closed gate:** `python_patch_script_guard.py` snapshots direct script origins before payload mutation. Package preflight rejects absent directly invoked script paths as `new_script_execution_forbidden`; the runner rechecks post/on-failure/validation commands immediately before starting each process. Missing direct executables also retain the historical `command_missing` preflight.
+- **PRESERVED workflow:** PATCH A creates the script; after completing successfully, separately executed PATCH B can invoke it. Scripts already present remain callable. No claim is made that direct-path checks sandbox arbitrary Python payloads, evaluator snippets, or opaque build wrappers; AI instructions prohibit bypassing via these paths.
+- **Behavioral regression:** `self_test_script_origin_guard_v6_20_0.py`. Keep this rule and regression test in future releases.
+
 ## Current additive capability — cryptographic provenance / signature trust
 
 - **COMPLETE (current capability; historical #65 was NOT STARTED):** PATCH manifests may carry a strict Ed25519 provenance signature (`ptv-patch-signature-v1`).
