@@ -49,7 +49,7 @@ if os.name != "nt":
         env["PTV_DISABLE_LIVE_STATUS"] = "1"
         run = subprocess.run(
             [str(root / "tools" / "run_python_patches.sh"),
-             "--patch", "patchs/commands.zip"],
+             "run", "--patch", "patchs/commands.zip", "-y"],
             cwd=root, env=env, capture_output=True, text=True, timeout=90,
         )
         assert run.returncode == 0, (run.stdout, run.stderr)
