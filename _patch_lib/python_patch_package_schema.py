@@ -423,6 +423,7 @@ def _check_legacy_strict_content_command(root: Path, argv: list[str], label: str
                 break
             if name == "rg" and token == "-g":
                 if (index + 1 >= len(args) or ".." in args[index+1] or
+                        args[index+1].startswith("-") or args[index+1].strip() != args[index+1] or
                         not re.fullmatch(r"[A-Za-z0-9_./*? -]{1,128}", args[index+1])):
                     reject("rg -g requires a safe file glob")
                 index += 2
