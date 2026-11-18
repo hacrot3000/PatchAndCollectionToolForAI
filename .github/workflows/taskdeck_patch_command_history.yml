@@ -84,7 +84,7 @@ jobs:
               "tools/_patch_lib/python_patch_queue_dispatcher.py",
           }
           assert mandatory <= seen, sorted(mandatory - seen)
-          assert not mismatches, f"Stale source checksums: {len(mismatches)}"; see CHECKSUM_REPAIR lines
+          assert not mismatches, f"Stale source checksums: {len(mismatches)} (see CHECKSUM_REPAIR lines above)"
           print(f"PASS: {present} repo-present source hashes; optional installer-generated files not checked: {len(missing_release_only)}")
           if missing_release_only:
               print("Installer-generated members absent from GitHub source tree:", *missing_release_only[:12], sep="\n - ")
