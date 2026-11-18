@@ -359,9 +359,131 @@ def _check_command(root: Path, command: dict[str, Any], index: int, *, field: st
 
 
 _STRICT_BASIC_COMMANDS = {"ls", "tree", "pwd", "find"}
+_STRICT_CONTENT_COMMANDS = {"grep", "rg", "cat", "head", "tail", "wc", "sed", "nl"}
+_STRICT_FIND_FORBIDDEN = {
+    "-exec", "-execdir", "-ok", "-okdir", "-delete",
+    "-fls", "-fprint", "-fprint0", "-fprintf",
+}
+_STRICT_SEARCH_FLAGS = {
+    "grep": set("niFEwlcrqov"),
+    "rg": set("niFwlcv"),
+}
+
 _STRICT_INTERPRETERS = {"python", "python3", "bash", "sh", "node", "pwsh", "powershell", "powershell.exe"}
 _SECRET_ARG_RE = re.compile(r"(?i)(?:password|passwd|token|secret|api[_-]?key|authorization|bearer|cookie|credential)\\s*[:=]")
 
+
+
+def _strict_relative_file_arg(root: Path, value: str, *, label: str) -> None:
+    """Accept project-relative file operands, never options or parent traversal."""
+    normalized = value.replace("\\", "/")
+    if (not normalized or normalized.startswith(("/", "-", "~")) or
+            re.match(r"^[A-Za-z]:", normalized) or
+            ".." in PurePosixPath(normalized).parts):
+        raise PatchSchemaError(f"{label} must use project-relative file paths: {value}",
+                               kind="command_not_allowed")
+    # If the file exists, prohibit symlink/reparse traversal beyond project root.
+    try:
+        resolve_project_path(root, normalized)
+    except PatchSchemaError as exc:
+        if "does not exist" not in str(exc):
+            raise PatchSchemaError(f"{label} unsafe file operand: {value}",
+                                   kind="command_not_allowed") from exc
+
+
+def _check_legacy_strict_content_command(root: Path, argv: list[str], label: str) -> None:
+    """Read-only content commands; reject hidden executors and write flags."""
+    name = Path(argv[0]).name.lower()
+    args = argv[1:]
+    if len(args) > 24 or sum(len(x) for x in args) > 4096:
+        raise PatchSchemaError(f"{label} content query too large", kind="command_not_allowed")
+
+    def reject(reason: str) -> None:
+        raise PatchSchemaError(f"{label} {reason}", kind="command_not_allowed")
+
+    if name in {"grep", "rg"}:
+        index = 0
+        literal_mode = False
+        flags = _STRICT_SEARCH_FLAGS[name]
+        while index < len(args):
+            token = args[index]
+            if token == "--":
+                literal_mode = True
+                index += 1
+                break
+            if token.startswith("-"):
+                if token.startswith("--"):
+                    if token not in ({"--color=never", "--line-number", "--ignore-case",
+                                      "--fixed-strings", "--word-regexp", "--count",
+                                      "--files-with-matches", "--no-messages"}
+                                     | ({"--hidden"} if name == "rg" else set())):
+                        reject("search option outside read-only allowlist")
+                elif not token[1:] or not set(token[1:]) <= flags:
+                    reject("search option outside read-only allowlist")
+                index += 1
+                continue
+            break
+        if index >= len(args):
+            reject("search pattern is required")
+        pattern = args[index]
+        if pattern.startswith("-") and not literal_mode:
+            reject("patterns beginning with - require the -- separator")
+        if not pattern or len(pattern) > 512 or any(ord(ch) < 32 or ord(ch) == 127 for ch in pattern):
+            reject("search pattern contains controls or is too long")
+        for operand in args[index+1:]:
+            _strict_relative_file_arg(root, operand, label=label)
+        if name == "grep" and index+1 == len(args):
+            reject("grep requires a project file or directory operand (no stdin)")
+        return
+
+    if name == "cat":
+        if not 1 <= len(args) <= 8:
+            reject("cat requires 1-8 files")
+        for operand in args:
+            _strict_relative_file_arg(root, operand, label=label)
+        return
+
+    if name in {"head", "tail"}:
+        if len(args) == 1:
+            files = args
+        elif len(args) == 3 and args[0] == "-n" and args[1].isdigit() and 1 <= int(args[1]) <= 5000:
+            files = args[2:]
+        else:
+            reject(f"{name} supports only -n 1..5000 and one file (no streaming)")
+        _strict_relative_file_arg(root, files[0], label=label)
+        return
+
+    if name == "wc":
+        flags = {"-l", "-w", "-c", "-m"}
+        index = 0
+        while index < len(args) and args[index] in flags:
+            index += 1
+        if not 1 <= len(args[index:]) <= 8:
+            reject("wc requires 1-8 file operands")
+        for operand in args[index:]:
+            _strict_relative_file_arg(root, operand, label=label)
+        return
+
+    if name == "nl":
+        if len(args) == 1:
+            operand = args[0]
+        elif len(args) == 2 and args[0] == "-ba":
+            operand = args[1]
+        else:
+            reject("nl supports at most -ba and one file")
+        _strict_relative_file_arg(root, operand, label=label)
+        return
+
+    if name == "sed":
+        if len(args) != 3 or args[0] != "-n":
+            reject("sed requires -n, a numeric line range, and one file")
+        match = re.fullmatch(r"([1-9]\d{0,5})(?:,([1-9]\d{0,5}))?p", args[1])
+        if not match or (match.group(2) and int(match.group(2)) < int(match.group(1))):
+            reject("sed accepts only read-only numeric line selection, e.g. 10,25p")
+        _strict_relative_file_arg(root, args[2], label=label)
+        return
+
+    reject("unsupported content command")
 
 def _check_legacy_strict_command(root: Path, command: dict[str, Any], index: int) -> None:
     """v5.10-v5.15 compatibility safety lane for command-only/no-change work.
@@ -384,8 +506,12 @@ def _check_legacy_strict_command(root: Path, command: dict[str, Any], index: int
 
     exe = argv[0]
     exe_name = Path(exe).name.lower()
+    if exe_name in _STRICT_CONTENT_COMMANDS:
+        _check_legacy_strict_content_command(root, argv, label)
+        return
+
     if exe_name in _STRICT_BASIC_COMMANDS:
-        if exe_name == "find" and any(x in {"-exec", "-execdir", "-ok", "-delete", "-fls", "-fprint", "-fprintf"} for x in argv[1:]):
+        if exe_name == "find" and any(x in _STRICT_FIND_FORBIDDEN for x in argv[1:]):
             raise PatchSchemaError(f"{label} uses a mutating/executing find action", kind="command_not_allowed")
         if exe_name == "tree" and "-o" in argv[1:]:
             raise PatchSchemaError(f"{label} uses tree -o output side effect", kind="command_not_allowed")
