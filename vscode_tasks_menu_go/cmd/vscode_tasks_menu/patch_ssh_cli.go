@@ -33,7 +33,7 @@ type patchSSHCommandRequest struct {
 
 func parsePatchSSHRequest(in io.Reader) (patchSSHCommandRequest, string, error) {
 	var request patchSSHCommandRequest
-	decoder := json.NewDecoder(io.LimitReader(in, 4097))
+	decoder := json.NewDecoder(io.LimitReader(in, 16<<10))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&request); err != nil {
 		return request, "", fmt.Errorf("invalid PATCH SSH request: %w", err)
