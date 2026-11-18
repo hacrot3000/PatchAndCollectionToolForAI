@@ -185,3 +185,104 @@ func TestRemoteGitFileViewerCannotMutateIndex(t *testing.T){
   }
  }
 }
+
+ 
+// A Git Status snapshot deliberately quotes whitespace and non-ASCII
+// filenames. The browser sends only the one-based row number; Agent
+// derives a single exact literal path and never interprets glob tokens.
+func TestRemoteGitFileQuotedPathDecode(t *testing.T){
+ for _,tc:=range []struct{row,want string}{
+  {`"a file.txt"`,"a file.txt"},
+  {`"\303\241o.txt"`,"áo.txt"},
+  {`"special[1].txt"`,"special[1].txt"},
+  {`"hello\\world.txt"`,"hello\\world.txt"},
+  {"plain.txt","plain.txt"},
+  {"a+b(#1).txt","a+b(#1).txt"},
+ }{
+  status:="## main\n M "+tc.row+"\n"
+  got,ok:=remoteGitSelectedTrackedFile(status,1,
+   remotetransport.RemoteActionGitStageFile)
+  if !ok||got!=tc.want{
+   t.Fatalf("quoted tracked Git name %q -> %q, expected %q (ok=%t)",
+    tc.row,got,tc.want,ok)
+  }
+ }
+ for _,name:=range []string{
+  `"quoted.txt"`,`"../outside.txt"`,`"dir/../outside.txt"`,
+  `".git/config"`,`"dir/.git/config"`,
+  `"bad\012newline.txt"`,`"bad\033escape.txt"`,
+  `"trailing\040"`, // C-style escaped trailing space is actually allowed,
+  `"unterminated`,`dir/file with space.txt`,
+  "/absolute.txt","..","dir/../file",
+ }{
+  if name==`"trailing\040"`{continue}
+  if _,ok:=remoteGitSelectedTrackedFile("## main\n M "+name+"\n",1,
+   remotetransport.RemoteActionGitStageFile);ok{
+   t.Fatalf("malformed or escaping tracked file was admitted: %q",name)
+  }
+ }
+}
+
+func TestRemoteGitFileStageAndUnstageQuotedPaths(t *testing.T){
+ requireGit(t)
+ if runtime.GOOS=="windows"{t.Skip("Unix literal path semantics")}
+ t.Setenv("TASKDECK_REMOTE_GIT_STATUS","1")
+ t.Setenv("TASKDECK_REMOTE_GIT_STAGE_FILE","1")
+ t.Setenv("TASKDECK_REMOTE_GIT_UNSTAGE_FILE","1")
+ s,session,_,_:=remoteDispatchFixture(t)
+ gitInitRemoteTest(t,s.Workspace)
+ run:=func(args ...string)string{
+  t.Helper()
+  cmd:=exec.Command("git",append([]string{"-C",s.Workspace},args...)...)
+  out,err:=cmd.CombinedOutput()
+  if err!=nil{t.Fatalf("git %v: %v %s",args,err,out)}
+  return strings.TrimSpace(string(out))
+ }
+ run("config","user.name","TaskDeck Test")
+ run("config","user.email","stage@example.invalid")
+ names:=[]string{"hello world.txt","áo thử.txt","variant[1].txt"}
+ for _,name:=range names{
+  if err:=os.WriteFile(filepath.Join(s.Workspace,name),
+   []byte("baseline\n"),0600);err!=nil{t.Fatal(err)}
+ }
+ run("add","-A")
+ run("commit","-qm","baseline")
+ oldHead:=run("rev-parse","HEAD")
+ for _,name:=range names{
+  if err:=os.WriteFile(filepath.Join(s.Workspace,name),
+   []byte("modified\n"),0600);err!=nil{t.Fatal(err)}
+ }
+ findIndex:=func(snapshot,name,operation string)int{
+  t.Helper()
+  for idx:=1;idx<=remotetransport.MaxRemoteGitFileRows;idx++{
+   got,ok:=remoteGitSelectedTrackedFile(snapshot,idx,operation)
+   if ok&&got==name{return idx}
+  }
+  t.Fatalf("tracked path %q unavailable in Git Status %q",name,snapshot)
+  return 0
+ }
+ for _,name:=range names{
+  fresh,err:=s.readRemoteGitStatus(context.Background())
+  if err!=nil{t.Fatal(err)}
+  index:=findIndex(fresh,name,remotetransport.RemoteActionGitStageFile)
+  if _,err:=s.executeRemoteGitFileIndex(context.Background(),session,
+   remotetransport.RemoteActionGitStageFile,index,fresh);err!=nil{
+   t.Fatalf("Stage %q failed: %v",name,err)
+  }
+  diff:=run("diff","--cached","--name-only","-z")
+  if !strings.Contains(diff,name){t.Fatalf("not staged: %q in %q",name,diff)}
+  fresh,err=s.readRemoteGitStatus(context.Background())
+  if err!=nil{t.Fatal(err)}
+  index=findIndex(fresh,name,remotetransport.RemoteActionGitUnstageFile)
+  if _,err:=s.executeRemoteGitFileIndex(context.Background(),session,
+   remotetransport.RemoteActionGitUnstageFile,index,fresh);err!=nil{
+   t.Fatalf("Unstage %q failed: %v",name,err)
+  }
+  if got:=run("diff","--cached","--name-only");got!=""{
+   t.Fatalf("Unstage %q left staged paths: %q",name,got)
+  }
+ }
+ if got:=run("rev-parse","HEAD");got!=oldHead{
+  t.Fatal("individual stage/unstate mutated commit HEAD")
+ }
+}

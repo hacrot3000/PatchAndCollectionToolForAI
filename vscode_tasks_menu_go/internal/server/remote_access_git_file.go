@@ -7,18 +7,65 @@ import (
  "os"
  "os/exec"
  "path/filepath"
- "regexp"
  "runtime"
+ "strconv"
  "strings"
  "time"
+ "unicode"
+ "unicode/utf8"
 
  "bletonfc/vscode_tasks_menu/internal/identity"
  "bletonfc/vscode_tasks_menu/internal/remotetransport"
 )
 
-var remoteSafeTrackedFilename=regexp.MustCompile("^[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)*$")
+// The authenticated Git Status uses Git's C-style quoted paths
+// (core.quotePath=true). Quoted filenames with spaces, accented UTF-8,
+// apostrophes or pathspec characters must be decoded ONLY on the host;
+// the E2EE caller still supplies a bounded index and the exact snapshot.
+//
+// Never pass an untrusted display string as a Git pathspec. Commands below
+// set GIT_LITERAL_PATHSPECS=1 and verify exact tracked membership via -z.
+func remoteGitDecodedTrackedPath(encoded string)(string,bool){
+ if encoded==""{return "",false}
+ path:=encoded
+ if strings.HasPrefix(encoded,"\""){
+  decoded,err:=strconv.Unquote(encoded)
+  if err!=nil{return "",false}
+  path=decoded
+  // Git does not gratuitously quote simple ASCII names. Keep synthetic
+  // quoted paths out of an authenticated status selection.
+  needed:=false
+  for _,r:=range decoded{
+   if r>127||unicode.IsSpace(r)||r=='\\'||r=='"'||unicode.IsControl(r){
+    needed=true
+    break
+   }
+  }
+  if !needed{return "",false}
+ }else{
+  // With core.quotePath=true, Git always quotes these characters.
+  for _,r:=range encoded{
+   if r>127||unicode.IsSpace(r)||r=='\\'||r=='"'{
+    return "",false
+   }
+  }
+ }
+ if len(path)>120||!utf8.ValidString(path)||
+  strings.HasPrefix(path,"/"){return "",false}
+ for _,r:=range path{
+  if unicode.IsControl(r)||unicode.In(r,unicode.Cf,unicode.Zl,unicode.Zp){
+   return "",false
+  }
+ }
+ for _,part:=range strings.Split(path,"/"){
+  if part==""||part=="."||part==".."||part==".git"{
+   return "",false
+  }
+ }
+ return path,true
+}
 
-// Reject unsafe names, renames and conflicts; status rows are host-issued,
+// Reject unsafe paths, renames and conflicts; status rows are host-issued,
 // never free-form path strings from untrusted PHP or a browser.
 func remoteGitSelectedTrackedFile(status string,index int,operation string)(string,bool){
  if !remotetransport.ValidRemoteGitFileSelection(index,status){return "",false}
@@ -26,12 +73,9 @@ func remoteGitSelectedTrackedFile(status string,index int,operation string)(stri
  if index>=len(lines){return "",false}
  row:=lines[index]
  if len(row)<4||row[2]!=' '{return "",false}
- code,path:=row[:2],row[3:]
- if len(path)>120||!remoteSafeTrackedFilename.MatchString(path)||
-  strings.HasPrefix(path,".git/"){return "",false}
- for _,part:=range strings.Split(path,"/"){
-  if part=="."||part==".."||part==""{return "",false}
- }
+ code:=row[:2]
+ path,ok:=remoteGitDecodedTrackedPath(row[3:])
+ if !ok{return "",false}
  switch operation{
  case remotetransport.RemoteActionGitStageFile:
   if code[1]!='M'&&code[1]!='D'{return "",false}
@@ -84,7 +128,7 @@ func (s *Server) executeRemoteGitFileIndex(ctx context.Context,
   "PATH="+os.Getenv("PATH"),"HOME="+os.Getenv("HOME"),
   "LC_ALL=C","GIT_OPTIONAL_LOCKS=0","GIT_CONFIG_NOSYSTEM=1",
   "GIT_CONFIG_GLOBAL="+os.DevNull,"GIT_CONFIG_SYSTEM="+os.DevNull,
-  "GIT_PROTOCOL_FROM_USER=0",
+  "GIT_PROTOCOL_FROM_USER=0","GIT_LITERAL_PATHSPECS=1",
  }
  base:=[]string{"-c","core.fsmonitor=false","-c","core.hooksPath="+os.DevNull,
   "-c","protocol.ext.allow=never","-C",root}
@@ -106,8 +150,8 @@ func (s *Server) executeRemoteGitFileIndex(ctx context.Context,
   return strings.TrimSpace(output.String()),nil
  }
  // Exact equality rejects Git pathspecs that match whole directories.
- tracked,err:=run(ctx,256,"ls-files","--cached","--full-name","--",path)
- if err!=nil||tracked!=path{return empty,denied}
+ tracked,err:=run(ctx,256,"ls-files","--cached","--full-name","-z","--",path)
+ if err!=nil||tracked!=path+"\x00"{return empty,denied}
  head,err:=run(ctx,256,"rev-parse","--verify","HEAD^{commit}")
  if err!=nil||!remoteGitObjectID.MatchString(head){return empty,denied}
  diff:=[]string{"diff","--quiet","--no-ext-diff","--no-textconv","--",path}

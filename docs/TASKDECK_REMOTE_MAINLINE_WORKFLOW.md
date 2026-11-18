@@ -1718,3 +1718,18 @@ real-host testing are considered **code complete**.
 - Added tests for real sequential and parallel native processes,
   interpolations in fixed and embedded argv, policy rejection before
   host job creation, and a focused Go race CI preflight.
+
+## 2026-11-18 — Git Stage/Unstage: safe quoted paths from authenticated Status
+
+- Host Git Status uses C-style quotePath encoding. Remote GUI single-file
+  Stage/Unstage now decodes host-issued quoted paths for filenames containing
+  whitespace, Vietnamese UTF-8 and literal pathspec punctuation (including
+  brackets). Browser still sends only a **one-based row index** and the
+  exact authenticated <=256-byte status snapshot; no raw client file path.
+- The Agent enforces `GIT_LITERAL_PATHSPECS=1` for all follow-up commands,
+  checks exact index membership with `git ls-files -z`, and continues to
+  reject traversal, .git internals, untracked paths, renames, conflicts,
+  control characters, stale status, configured executable filters and
+  repository drift. ASCII filenames without quoting behave as before.
+- Added actual Git repository Stage/Unstage tests for paths with spaces,
+  Vietnamese and Git wildcard-like brackets; focused Go race CI preflight.
