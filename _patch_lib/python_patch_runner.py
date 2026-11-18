@@ -613,7 +613,7 @@ def _run_managed_command_logged(argv: list[str], *, cwd: Path, timeout: int,
             written = 0
             truncated = False
             while True:
-                chunk = proc.stdout.read(4096)
+                chunk = os.read(proc.stdout.fileno(), 4096)  # read immediately; short commands remain live
                 if not chunk:
                     break
                 try:
