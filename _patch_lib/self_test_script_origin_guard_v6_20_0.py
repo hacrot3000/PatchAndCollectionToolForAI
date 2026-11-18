@@ -92,7 +92,11 @@ for argv in (
              commands=[argv], targets=["scripts/new" + script_ext])
         cp = run(root, "reject")
         assert cp.returncode != 0, (argv, cp.stdout, cp.stderr)
-        assert "new_script_execution_forbidden" in cp.stdout + cp.stderr, (
+        # Direct file execution is already blocked by the existing executable
+        # availability preflight before the new origin guard is reached.
+        expected = ("command_missing" if argv[0].startswith("./")
+                    else "new_script_execution_forbidden")
+        assert expected in cp.stdout + cp.stderr, (
             argv, cp.stdout, cp.stderr
         )
         assert not (root / "scripts" / ("new" + script_ext)).exists(), argv
