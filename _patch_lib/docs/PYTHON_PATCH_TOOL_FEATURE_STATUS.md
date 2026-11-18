@@ -1,5 +1,11 @@
 # Python Patch Tool v6.20.2 feature status
 
+## Script-origin guard (2026-11-18)
+
+- **IMPLEMENTED:** Automatic command scripts must exist before the PATCH begins. A PATCH creating a script cannot execute that same script through direct post/on-failure/validation command paths. Preflight rejects a new script path (`new_script_execution_forbidden`) before payload; runtime rechecks before each launch.
+- **PRESERVED:** Existing scripts can be run automatically. Create a script in PATCH A, then run it in a separately completed PATCH B.
+- **REGRESSION:** `self_test_script_origin_guard_v6_20_0.py`. **BOUNDARY:** not a complete sandbox against arbitrary Python payload or opaque nested executables.
+
 ## COMPLETE — local Ed25519 PATCH provenance/signature trust
 
 - Optional `manifest.provenance` contract: `ptv-patch-signature-v1`, `ed25519`, `key_id`, `signature`.
