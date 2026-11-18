@@ -15,7 +15,7 @@ for line in MANIFEST.read_text(encoding='utf-8').splitlines():
 required={
  'tools/run_python_patches.sh','tools/run_python_patches.ps1','tools/run_python_patches.bat','tools/run_windows_native_tests.ps1','tools/implementing.md','tools/PYTHON_PATCH_TOOL_FEATURES_VI.md','tools/HUONG_DAN_PYTHON_PATCH_TOOL.html','tools/db_profiles.example.json',
  'tools/_patch_lib/VERSION','tools/_patch_lib/PACKAGE_CONTENTS.txt','tools/_patch_lib/python_patch_queue_dispatcher.py','tools/_patch_lib/python_patch_batch.py',
- 'tools/_patch_lib/python_patch_runner.py','tools/_patch_lib/python_patch_ops_worker.py','tools/_patch_lib/python_patch_utils.py','tools/_patch_lib/python_patch_readonly_collector.py','tools/_patch_lib/python_patch_database_select.py',
+ 'tools/_patch_lib/python_patch_runner.py','tools/_patch_lib/python_patch_script_guard.py','tools/_patch_lib/python_patch_ops_worker.py','tools/_patch_lib/python_patch_utils.py','tools/_patch_lib/python_patch_readonly_collector.py','tools/_patch_lib/python_patch_database_select.py',
  'tools/_patch_lib/python_patch_collect_progress_v6_7.py','tools/_patch_lib/python_patch_collect_compat.py','tools/_patch_lib/python_patch_collect_regex_worker.py','tools/_patch_lib/python_patch_collect_schema.py','tools/_patch_lib/python_patch_git_safe.py','tools/_patch_lib/python_patch_manual_workflow.py',
  'tools/_patch_lib/python_patch_cleartext_companion.py','tools/_patch_lib/python_patch_ai_sync.py','tools/_patch_lib/python_patch_upload_alias.py',
  'tools/_patch_lib/python_patch_package_schema.py','tools/_patch_lib/python_patch_project_state.py','tools/_patch_lib/python_patch_diagnostics_compat.py','tools/_patch_lib/python_patch_health.py',
