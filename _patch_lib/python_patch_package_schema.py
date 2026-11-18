@@ -366,7 +366,7 @@ _STRICT_FIND_FORBIDDEN = {
 }
 _STRICT_SEARCH_FLAGS = {
     "grep": set("niFEwlcrqov"),
-    "rg": set("niFwlcv"),
+    "rg": set("niFwlcvq"),
 }
 
 _STRICT_INTERPRETERS = {"python", "python3", "bash", "sh", "node", "pwsh", "powershell", "powershell.exe"}
