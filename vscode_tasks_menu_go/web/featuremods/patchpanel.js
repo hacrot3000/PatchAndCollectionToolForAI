@@ -174,6 +174,15 @@ function installPatchPanel(){
   .task-patch-history-item-detail{margin-top:2px;opacity:.7;overflow-wrap:anywhere}
   .task-patch-history-item-actions{display:flex;gap:5px;margin-top:5px}
   .task-patch-history-item-actions button{font-size:10px;padding:3px 6px}
+  .task-patch-command-list{display:grid;gap:5px;margin:8px 0 6px;min-width:0}
+  .task-patch-command-heading{font-size:11px;font-weight:700;opacity:.9}
+  .task-patch-command-row{padding:6px;border:1px solid #394557;border-radius:5px;background:#111820;min-width:0}
+  .task-patch-command-meta{overflow-wrap:anywhere;font-size:11px;font-weight:600}
+  .task-patch-command-argv{font:10px/1.4 monospace;opacity:.75;white-space:pre-wrap;overflow-wrap:anywhere}
+  .task-patch-command-actions{display:flex;gap:5px;flex-wrap:wrap;margin-top:5px}
+  .task-patch-command-actions button{font-size:10px;padding:3px 6px}
+  .task-patch-command-output{max-height:260px;overflow:auto;white-space:pre-wrap;word-break:break-word;margin:6px 0 0;padding:7px;border:1px solid #3b4552;background:#080d14;font:11px/1.5 monospace}
+  .task-patch-command-output[hidden]{display:none}
   .task-patch-history-support{border-color:#4d6785}
   .task-patch-history-warning{margin-top:6px;opacity:.72;overflow-wrap:anywhere}
   .task-patch-plan{margin:0 0 10px;padding:8px;border:1px solid #4b596d;border-radius:6px;background:#121923;font-size:11px}
@@ -1867,6 +1876,75 @@ function installPatchPanel(){
     renderHistoryRuns();
   }
 
+
+  function commandEvidencePath(value){
+    const raw=historySafeProjectPath(value);
+    return raw&&raw.startsWith('artifacts/patch_tool/runs/')&&
+      raw.includes('/command_items/')&&raw.includes('/command_logs/')&&raw.endsWith('.log')?raw:'';
+  }
+  async function readCommandConsole(path){
+    const safe=commandEvidencePath(path);
+    if(!safe)throw new Error('Invalid command console evidence path');
+    const response=await fetch('/api/files/download?path='+encodeURIComponent(safe),{
+      credentials:'same-origin',cache:'no-store'
+    });
+    if(!response.ok)throw new Error('Command console unavailable (HTTP '+response.status+')');
+    const blob=await response.blob();
+    if(blob.size>1048576)throw new Error('Command console exceeds the 1 MiB UI reading limit');
+    return blob.text();
+  }
+  async function copyCommandText(value,button){
+    let copied=false;
+    if(navigator.clipboard&&window.isSecureContext){
+      try{await navigator.clipboard.writeText(value);copied=true;}catch{}
+    }
+    if(!copied){
+      const area=document.createElement('textarea');area.value=value;area.setAttribute('readonly','');
+      area.style.position='fixed';area.style.left='-9999px';document.body.append(area);area.select();
+      try{copied=document.execCommand('copy');}finally{area.remove();}
+    }
+    if(!copied)throw new Error('Could not copy command console');
+    const previous=button.textContent;button.textContent='Copied ✓';
+    setTimeout(()=>{if(button.isConnected)button.textContent=previous;},1200);
+  }
+  function appendCommandEvidence(host,commands){
+    const list=Array.isArray(commands)?commands.slice(0,64):[];
+    if(!list.length)return 0;
+    const outer=document.createElement('div');outer.className='task-patch-command-list';
+    const heading=document.createElement('div');heading.className='task-patch-command-heading';
+    heading.textContent='Executed commands · '+list.length;
+    outer.append(heading);
+    for(const item of list){
+      const row=document.createElement('div');row.className='task-patch-command-row';
+      const meta=document.createElement('div');meta.className='task-patch-command-meta';
+      meta.textContent=[String(item?.index||''),String(item?.stage||''),String(item?.name||''),String(item?.status||''),
+        item?.rc===undefined||item?.rc===null?'':'rc='+item.rc].filter(Boolean).join(' · ');
+      const argv=document.createElement('div');argv.className='task-patch-command-argv';
+      argv.textContent=Array.isArray(item?.argv)?item.argv.map(x=>JSON.stringify(x)).join(' '):'';
+      row.append(meta,argv);
+      const path=commandEvidencePath(item?.log_path);
+      if(path){
+        const actions=document.createElement('div');actions.className='task-patch-command-actions';
+        const view=document.createElement('button');view.type='button';view.textContent='View console';
+        const copy=document.createElement('button');copy.type='button';copy.textContent='Copy console';
+        const pre=document.createElement('pre');pre.className='task-patch-command-output';pre.hidden=true;
+        let cached=null;
+        const load=async()=>cached===null?(cached=await readCommandConsole(path)):cached;
+        view.onclick=()=>{void(async()=>{
+          if(!pre.hidden){pre.hidden=true;view.textContent='View console';return;}
+          view.disabled=true;
+          try{pre.textContent=await load();pre.hidden=false;view.textContent='Hide console';}
+          finally{view.disabled=false;}
+        })().catch(app.showError);};
+        copy.onclick=()=>{void(async()=>copyCommandText(await load(),copy))().catch(app.showError);};
+        actions.append(view,copy);row.append(actions,pre);
+      }
+      outer.append(row);
+    }
+    host.append(outer);
+    return list.length;
+  }
+
   function renderHistoryReport(report){
     if(!report||typeof report!=='object')return false;
     latestHistoryReport=report;
@@ -1895,6 +1973,7 @@ function installPatchPanel(){
       const elapsedItem=Number(item?.elapsed_seconds);
       detail.textContent=[item?.kind,item?.diagnosis,item?.summary,item?.batch_rolled_back?'rolled back':'',Number.isFinite(elapsedItem)?elapsedItem.toFixed(2)+'s':'',item?.changed_count===undefined?'':('changed='+item.changed_count)].filter(Boolean).join(' · ');
       row.append(head,detail);
+      appendCommandEvidence(row,item?.commands);
       const artifacts=Array.isArray(item?.artifacts)?item.artifacts:[];
       if(artifacts.length){
         const files=document.createElement('div');files.className='task-patch-history-files';
@@ -3136,6 +3215,7 @@ function installPatchPanel(){
       const rc=item?.rc;
       status.textContent=rc===undefined||rc===null?itemStatus: `${itemStatus} (rc=${rc})`;
       row.append(name,status);
+      appendCommandEvidence(row,item?.commands);
       if(failed){
         const failure=document.createElement('div');failure.className='task-patch-run-failure';
         const reason=document.createElement('div');reason.className='task-patch-run-failure-reason';
