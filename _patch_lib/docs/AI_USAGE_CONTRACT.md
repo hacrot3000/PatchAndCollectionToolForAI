@@ -1,5 +1,11 @@
 # AI / ChatGPT usage contract — Python Patch Tool v6.20.2
 
+## COLLECT command evidence and PATCH per-command console History
+
+**COLLECT COMMAND:** It is now permitted to request read-only host diagnostics through a COLLECT action `{"type":"command","transport":"local","argv":["rg","-n","--","error","src"]}`. For SSH, ask for the exact unique saved TaskDeck SSH profile name before authoring `{"type":"command","transport":"ssh","profile_name":"EXACT PROFILE","argv":["pwd"]}`. COLLECT uses only `pwd/ls/tree/find/grep/rg/cat/head/tail/wc/nl/sed -n` with safe read-only options, no scripts, Python, shell, raw command string, `find -exec/-delete`, pipelines or redirection. The action output becomes a bounded report in COLLECT ZIP/TXT (1..64 KiB, default 64 KiB), with exit code and truncation/timeout indicators. Do not misinterpret this as arbitrary COLLECT shell access. Review **CODE_COLLECTION_GUIDE.md → COLLECT read-only command action** and **COLLECT_ACTION_SCHEMA.json** for the exact syntax.
+
+**PATCH COMMAND EVIDENCE:** PATCH execution through TaskDeck stores **one console log per executed command**, including local `post_patch.commands`, failure-only commands, trusted validation profiles/diagnostic reruns and remote SSH command-only patches. Each command records stage/name/argv/cwd/status/exit code plus a bounded log in `artifacts/patch_tool/runs/<run>/command_items/<item>/command_logs/`. The native GUI shows **Executed commands** with **View console** / **Copy console** for each command in **Current run** and **History**. Logs remain linked to their run and follow History retention/cleanup; do not claim past runs have a command log retroactively. The aggregate foreground terminal log is still available. Do not put passwords, bearer tokens or secrets into command arguments or print them in diagnostics.
+
 ## Remote SSH read-only command PATCH (TaskDeck saved SSH profile)
 
 **AI MUST ask for the exact saved TaskDeck SSH profile NAME before producing a remote command PATCH if the user has not supplied it.** Do not guess a hostname, SSH alias, profile name/ID, username, key path or password from project evidence. Ask the user to choose or provide the **exact unique name** from TaskDeck → Connections → SSH. Never copy credentials into a PATCH, COLLECT or AI Pack.
