@@ -572,7 +572,11 @@ def _command_log_directory(root: Path) -> Path | None:
     parts = relative.parts
     if len(parts) < 5 or parts[:3] != ("artifacts", "patch_tool", "runs") or parts[-1] != "command_logs":
         return None
-    candidate.mkdir(parents=True, exist_ok=True)
+    try:
+        candidate.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        print(f"[PTV WARNING] per-command log directory unavailable: {type(exc).__name__}", file=sys.stderr)
+        return None
     return candidate
 
 
@@ -661,7 +665,15 @@ def _append_command_evidence(*, stage: str, name: str, argv: list[str],
                              timed_out: bool = False, error: str = "") -> None:
     row: dict[str, object] = {
         "index": len(_ACTIVE_COMMAND_EVIDENCE) + 1,
-        "stage": stage, "name": name[:256], "argv": argv[:24], "cwd": cwd[:256],
+        "stage": stage, "name": name[:256],
+        "argv": [
+            ("[REDACTED]" if re.search(
+                r"(?i)(password|passwd|token|secret|api[_-]?key|authorization|bearer|cookie|credential)\\s*[:=]",
+                arg,
+            ) else arg[:512])
+            for arg in argv[:24]
+        ],
+        "cwd": cwd[:256],
         "status": status, "rc": rc, "log_path": log_path,
         "timed_out": timed_out,
     }
