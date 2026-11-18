@@ -16,6 +16,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import threading
 import zipfile
 import time
 import unicodedata
@@ -38,6 +39,8 @@ except ImportError:
         VERSION = "unknown"
 _ACTIVE_TERMINATION_SIGNAL: int | None = None
 _ACTIVE_SCRIPT_ORIGIN_GUARD: ScriptOriginGuard | None = None
+_ACTIVE_COMMAND_EVIDENCE: list[dict[str, object]] = []
+_ACTIVE_COMMAND_LOG_DIR: Path | None = None
 MAX_ARCHIVE_ENTRIES = 10000
 MAX_ARCHIVE_MEMBER_BYTES = 64 * 1024 * 1024
 MAX_ARCHIVE_TOTAL_BYTES = 256 * 1024 * 1024
@@ -483,6 +486,7 @@ def _quiesce_managed_group(proc: subprocess.Popen, initial_signal: int, *, grace
 _INTERNAL_CONTROL_ENV_VARS = frozenset({
     "PTV_PATCH_RESULT_FILE",
     "PTV_COLLECT_RESULT_FILE",
+    "PTV_PATCH_COMMAND_LOG_DIR",
     "PTV_PARENT_MUTATION_LOCK_KEY",
     "PTV_PARENT_MUTATION_LOCK_TOKEN",
 })
@@ -551,7 +555,121 @@ def _resolve_command_cwd(root: Path, cwd_raw: str, *, label: str) -> Path:
     return cwd
 
 
-def _run_argv(root: Path, cmd: dict, *, label: str = "POST PATCH") -> ManagedProcessResult:
+
+MAX_COMMAND_LOG_BYTES = 512 * 1024
+
+
+def _command_log_directory(root: Path) -> Path | None:
+    """Only dispatcher-owned directories inside artifacts/patch_tool/runs/."""
+    raw = os.environ.get("PTV_PATCH_COMMAND_LOG_DIR", "").strip()
+    if not raw:
+        return None
+    candidate = Path(raw)
+    try:
+        relative = candidate.resolve().relative_to(root.resolve())
+    except (OSError, ValueError):
+        return None
+    parts = relative.parts
+    if len(parts) < 5 or parts[:3] != ("artifacts", "patch_tool", "runs") or parts[-1] != "command_logs":
+        return None
+    candidate.mkdir(parents=True, exist_ok=True)
+    return candidate
+
+
+def _command_log_path(root: Path, stage: str) -> tuple[Path | None, str]:
+    if _ACTIVE_COMMAND_LOG_DIR is None:
+        return None, ""
+    index = len(_ACTIVE_COMMAND_EVIDENCE) + 1
+    slug = re.sub(r"[^a-z0-9_-]+", "_", stage.lower())[:32]
+    target = _ACTIVE_COMMAND_LOG_DIR / f"{index:03d}_{slug}.log"
+    return target, target.relative_to(root).as_posix()
+
+
+def _run_managed_command_logged(argv: list[str], *, cwd: Path, timeout: int,
+                                 log_path: Path | None) -> ManagedProcessResult:
+    if log_path is None:
+        return _run_managed_process(argv, cwd=cwd, env=_external_command_env(), timeout=timeout)
+    kwargs: dict[str, object] = {
+        "cwd": cwd, "env": _external_command_env(), "stdin": subprocess.DEVNULL,
+        "stdout": subprocess.PIPE, "stderr": subprocess.STDOUT,
+    }
+    if os.name != "nt":
+        kwargs["start_new_session"] = True
+    elif hasattr(subprocess, "CREATE_NEW_PROCESS_GROUP"):
+        kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    with log_path.open("wb") as output:
+        try:
+            os.chmod(log_path, 0o600)
+        except OSError:
+            pass
+        proc = subprocess.Popen(argv, **kwargs)
+        def consume() -> None:
+            assert proc.stdout is not None
+            written = 0
+            truncated = False
+            while True:
+                chunk = proc.stdout.read(4096)
+                if not chunk:
+                    break
+                try:
+                    if hasattr(sys.stdout, "buffer"):
+                        sys.stdout.buffer.write(chunk)
+                        sys.stdout.buffer.flush()
+                    else:
+                        sys.stdout.write(chunk.decode("utf-8", errors="replace"))
+                        sys.stdout.flush()
+                except (BrokenPipeError, OSError):
+                    pass
+                if written < MAX_COMMAND_LOG_BYTES:
+                    part = chunk[:MAX_COMMAND_LOG_BYTES-written]
+                    output.write(part)
+                    written += len(part)
+                if len(chunk) > len(part) if written <= MAX_COMMAND_LOG_BYTES else True:
+                    truncated = True
+            if truncated:
+                output.write(b"\n[Command log truncated at 512 KiB]\n")
+            output.flush()
+        worker = threading.Thread(target=consume, daemon=True)
+        worker.start()
+        try:
+            rc = proc.wait(timeout=max(1, timeout))
+            lingering = False
+            if os.name != "nt" and _managed_group_alive(proc):
+                deadline = time.monotonic() + 0.25
+                while time.monotonic() < deadline and _managed_group_alive(proc):
+                    time.sleep(0.02)
+                if _managed_group_alive(proc):
+                    lingering = True
+                    _quiesce_managed_group(proc, signal.SIGTERM, grace_seconds=0.75)
+            return ManagedProcessResult(rc, False, lingering)
+        except subprocess.TimeoutExpired:
+            _quiesce_managed_group(proc, signal.SIGTERM, grace_seconds=1.0)
+            return ManagedProcessResult(124, True)
+        except KeyboardInterrupt:
+            _quiesce_managed_group(proc, _ACTIVE_TERMINATION_SIGNAL or signal.SIGINT, grace_seconds=1)
+            raise
+        finally:
+            worker.join(timeout=3)
+            if proc.stdout is not None:
+                proc.stdout.close()
+
+
+def _append_command_evidence(*, stage: str, name: str, argv: list[str],
+                             cwd: str, status: str, rc: int, log_path: str,
+                             timed_out: bool = False, error: str = "") -> None:
+    row: dict[str, object] = {
+        "index": len(_ACTIVE_COMMAND_EVIDENCE) + 1,
+        "stage": stage, "name": name[:256], "argv": argv[:24], "cwd": cwd[:256],
+        "status": status, "rc": rc, "log_path": log_path,
+        "timed_out": timed_out,
+    }
+    if error:
+        row["error"] = error[:512]
+    _ACTIVE_COMMAND_EVIDENCE.append(row)
+
+
+def _run_argv(root: Path, cmd: dict, *, label: str = "POST PATCH", log_path: Path | None = None) -> ManagedProcessResult:
     argv = cmd.get("argv")
     label_lower = label.lower().replace(" ", "_")
     if not isinstance(argv, list) or not argv or not all(isinstance(x, str) and x for x in argv):
@@ -563,7 +681,7 @@ def _run_argv(root: Path, cmd: dict, *, label: str = "POST PATCH") -> ManagedPro
     if _ACTIVE_SCRIPT_ORIGIN_GUARD is not None:
         _ACTIVE_SCRIPT_ORIGIN_GUARD.check(argv, cwd)
     print(f"{label}: {name}", flush=True)
-    outcome = _run_managed_process(argv, cwd=cwd, env=_external_command_env(), timeout=max(1, timeout))
+    outcome = _run_managed_command_logged(argv, cwd=cwd, timeout=max(1, timeout), log_path=log_path)
     if outcome.timed_out:
         print(f"ERROR: {label_lower} command timeout after {timeout}s", file=sys.stderr)
     return outcome
