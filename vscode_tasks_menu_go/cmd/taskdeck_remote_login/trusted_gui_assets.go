@@ -133,7 +133,7 @@ const trustedGUIHTML = `<!doctype html>
      </div>
      <pre id="long-task-output" hidden aria-live="polite"></pre><pre id="tasks-report-output" hidden aria-label="Báo cáo kết quả task E2EE"></pre>
      <section class="task-run-history" id="task-run-history" hidden aria-label="Kết quả chạy task trong phiên hiện tại">
-      <div class="task-run-history-head"><strong>Kết quả chạy task gần đây · chỉ lưu trong phiên</strong><button type="button" id="task-run-history-clear">Xóa kết quả</button></div>
+      <div class="task-run-history-head"><strong>Kết quả chạy task gần đây · chỉ lưu trong phiên</strong><button type="button" id="task-run-history-copy" disabled>Sao chép toàn bộ kết quả task</button><button type="button" id="task-run-history-clear">Xóa kết quả</button></div>
       <ol id="task-run-history-list"></ol>
      </section>
     </article>
@@ -379,6 +379,7 @@ const trustedGUIJavaScript = `'use strict';
   const longTaskOutput=document.getElementById('long-task-output');
   const taskRunHistoryView=document.getElementById('task-run-history');
   const taskRunHistoryList=document.getElementById('task-run-history-list');
+  const taskRunHistoryCopy=document.getElementById('task-run-history-copy');
   const taskRunHistoryClear=document.getElementById('task-run-history-clear');
   const taskPreviewSection=document.getElementById('task-preview');
   const taskTotal=document.getElementById('task-total');
@@ -431,6 +432,7 @@ const trustedGUIJavaScript = `'use strict';
   // Reconcile by host-result serial so streaming Poll never detaches unchanged
   // history rows, text selections, clipboard buttons or their scroll state.
   let taskRunHistoryDOM=new Map(),taskRunHistoryOrder='';
+  let taskRunHistoryCopySnapshot='';
   // Clipboard is a deliberately user-triggered local browser operation.
   // Never persist task output in Web Storage or send it to PHP/Relay.
   // If Firefox disallows clipboard writes, fail visibly and do not
@@ -561,8 +563,37 @@ const trustedGUIJavaScript = `'use strict';
     return true;
   }
 
+  // Copy all bounded session-only E2EE-verified Task results in actual
+  // execution order; neither host output nor copy text reaches Relay.
+  function taskHistoryBroadcastText(){
+    return taskRunHistory.slice().reverse().map(item=>{
+      const lines=['Task #'+String(item.taskID)+
+        (item.label?' · '+item.label:'')+' · '+item.kind+
+        ' · '+item.status+
+        (item.exitCode>=0?' · exit='+String(item.exitCode):'')];
+      if(item.workflowReport)
+        lines.push('[Báo cáo workflow đã xác minh]\n'+item.workflowReport);
+      if(item.output)lines.push('[Console đã nhận]\n'+item.output);
+      if(item.truncated)
+        lines.push('[Output đã cắt: đây chỉ là phần còn lưu trong phiên]');
+      return lines.join('\n');
+    }).join('\n\n-----\n\n');
+  }
+  taskRunHistoryCopy.addEventListener('click',()=>{
+    if(closed||terminated||!verified||taskRunHistory.length===0)return;
+    const snapshot=taskHistoryBroadcastText();
+    copyVerifiedTaskOutput(snapshot,taskRunHistoryCopy,()=>
+      taskRunHistory.length>0&&taskHistoryBroadcastText()===snapshot);
+  });
   function renderTaskRunHistory(){
     taskRunHistoryView.hidden=taskRunHistory.length===0;
+    const snapshot=taskHistoryBroadcastText();
+    if(taskRunHistoryCopySnapshot!==snapshot){
+      taskRunHistoryCopySnapshot=snapshot;
+      taskRunHistoryCopy.textContent='Sao chép toàn bộ kết quả task';
+    }
+    taskRunHistoryCopy.disabled=closed||terminated||!verified||
+      taskRunHistory.length===0;
     const activeSerial=activeTaskHistorySerial();
     taskRunHistoryClear.disabled=closed||!taskRunHistory.some(
       item=>item.serial!==activeSerial);
@@ -1552,6 +1583,9 @@ const trustedGUIJavaScript = `'use strict';
     longTaskHistorySerial=0;
     taskRunHistory=[];taskRunHistoryList.replaceChildren();
     taskRunHistoryDOM.clear();taskRunHistoryOrder='';
+    taskRunHistoryCopySnapshot='';
+    taskRunHistoryCopy.textContent='Sao chép toàn bộ kết quả task';
+    taskRunHistoryCopy.disabled=true;
     taskRunHistoryView.hidden=true;taskRunHistoryClear.disabled=true;
     longTaskMore=false;longTaskAuto=false;
     longTaskPollEpoch++;longTaskPollScheduled=false;

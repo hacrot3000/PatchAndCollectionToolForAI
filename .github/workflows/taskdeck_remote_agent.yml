@@ -223,6 +223,8 @@ jobs:
         run: go test -race ./internal/remotetransport ./internal/server -run 'TestRemoteTaskReport' -count=1 -timeout=90s
       - name: Verify trusted native bounded task run controls
         run: node remote_portal/tests/native_gui_task_run.test.cjs
+      - name: Verify bounded session-only Task history broadcast copy
+        run: node remote_portal/tests/native_gui_task_history_broadcast.test.cjs
       - name: Verify task stop revokes native E2EE and scrubs late results
         run: node remote_portal/tests/native_gui_task_stop.test.cjs
       - name: Verify bounded process-only prompt input from native GUI

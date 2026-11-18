@@ -1778,3 +1778,16 @@ real-host testing are considered **code complete**.
   during source/audit verification and final launch. The independent
   host flag is checked before every process, during live watchdogs
   (cancel process group on opt-out), and after exit before the next step.
+
+## 2026-11-18 — Native Task GUI: combined session history copy
+
+- A new button `Sao chép toàn bộ kết quả task` concatenates
+  the six most recent locally verified task results in chronological
+  order, including labels, Task IDs, status, exit codes, captured
+  console and authenticated workflow step summaries.
+- An explicit truncation marker distinguishes incomplete output.
+  No browser storage or additional E2EE request; the clipboard write
+  is user-triggered. Clear, logout and subsequent streaming updates
+  revoke stale copy UI/state and never detach the active live job.
+- Added a native GUI test for Unicode, HTML-safe literal output,
+  ordering, the six-record bound, Clear, logout and zero network calls.
