@@ -16,7 +16,7 @@ import (
 var (
 	safeShellToken = regexp.MustCompile("^[A-Za-z0-9_./-]+$")
 	safeRelativePath = regexp.MustCompile("^[A-Za-z0-9_./ -]{1,160}$")
-	safeFileGlob = regexp.MustCompile("^[A-Za-z0-9_./*?-]{1,128}$")
+	safeFileGlob = regexp.MustCompile("^[A-Za-z0-9_./*? -]{1,128}$")
 	safeSedRange = regexp.MustCompile("^([1-9][0-9]{0,5})(?:,([1-9][0-9]{0,5}))?p$")
 )
 
@@ -49,7 +49,8 @@ func safePattern(value string) bool {
 }
 
 func safeGlob(value string) bool {
-	return safeFileGlob.MatchString(value) && !strings.Contains(value, "..")
+	return safeFileGlob.MatchString(value) && !strings.Contains(value, "..") &&
+\t\t!strings.HasPrefix(value, "-") && strings.TrimSpace(value) == value
 }
 
 // POSIX-shell quoting is needed because OpenSSH's remote command interface
