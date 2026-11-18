@@ -599,6 +599,61 @@
         ],
         "switch_contract": "existing local branch only; clean worktree/index/untracked; no create/force/detach; --no-guess; hooks disabled"
       }
+    },
+    "command": {
+      "description": "Run one bounded whitelist-only read-only command to collect console evidence. transport=local uses project cwd; transport=ssh uses an exact saved TaskDeck SSH profile name (ask user when unknown). No shell, Python, scripts or mutating find flags.",
+      "required": [
+        "type",
+        "argv"
+      ],
+      "allowed_fields": [
+        "id",
+        "title",
+        "type",
+        "transport",
+        "profile_name",
+        "argv",
+        "cwd",
+        "timeout_seconds",
+        "max_output_bytes"
+      ],
+      "transport_allowed": [
+        "local",
+        "ssh"
+      ],
+      "local_whitelist": [
+        "pwd",
+        "ls",
+        "tree",
+        "find",
+        "grep",
+        "rg",
+        "cat",
+        "head",
+        "tail",
+        "wc",
+        "nl",
+        "sed"
+      ],
+      "forbidden": [
+        "scripts",
+        "shell",
+        "python",
+        "find -exec",
+        "find -delete",
+        "pipes",
+        "redirection"
+      ],
+      "limits": {
+        "timeout_seconds": [
+          1,
+          120
+        ],
+        "max_output_bytes": [
+          1024,
+          65536
+        ]
+      }
     }
   },
   "git_sections": [
