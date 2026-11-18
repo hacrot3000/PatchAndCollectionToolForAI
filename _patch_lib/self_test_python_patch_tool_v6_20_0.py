@@ -43,6 +43,7 @@ names=[
  'self_test_collect_historical_actions_v6_20_0.py',
  'self_test_git_safe_v6_20_0.py',
  'self_test_manual_execution_v6_20_0.py',
+ 'self_test_local_readonly_whitelist_v6_20_0.py',
  'self_test_script_origin_guard_v6_20_0.py',
  'self_test_remote_ssh_v6_20_0.py',
  'self_test_existing_capability_hardening_v6_20_2.py',
