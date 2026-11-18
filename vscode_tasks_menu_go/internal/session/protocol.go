@@ -32,6 +32,17 @@ type protocolEnvelope struct {
 	Seq      int64  `json:"seq"`
 }
 
+type ProtocolCommandEvidenceState struct {
+    Index int `json:"index"`
+    Name string `json:"name"`
+    Stage string `json:"stage"`
+    Argv []string `json:"argv,omitempty"`
+    Status string `json:"status"`
+    RC *int `json:"rc,omitempty"`
+    LogPath string `json:"log_path"`
+    TimedOut bool `json:"timed_out,omitempty"`
+}
+
 type ProtocolItemState struct {
 	Index          int      `json:"index"`
 	Total          int      `json:"total"`
@@ -46,6 +57,7 @@ type ProtocolItemState struct {
 	RepairHint     string   `json:"repair_hint,omitempty"`
 	DiscoveryDetail string  `json:"discovery_detail,omitempty"`
 	OutputTail     string   `json:"output_tail,omitempty"`
+    Commands []ProtocolCommandEvidenceState `json:"commands,omitempty"`
 }
 
 type ProtocolRunErrorState struct {
@@ -586,6 +598,7 @@ func protocolItemEvent(data []byte) (ProtocolItemState, string, error) {
 		RepairHint     string   `json:"repair_hint"`
 		DiscoveryDetail string  `json:"discovery_detail"`
 		OutputTail     string   `json:"output_tail"`
+        Commands []ProtocolCommandEvidenceState `json:"commands"`
 	}
 	if err := json.Unmarshal(data, &event); err != nil {
 		return ProtocolItemState{}, "", fmt.Errorf("invalid Patch item event JSON: %w", err)
@@ -617,6 +630,25 @@ func protocolItemEvent(data []byte) (ProtocolItemState, string, error) {
 		strings.ContainsRune(event.OutputTail, '\x00') {
 		return ProtocolItemState{}, "", fmt.Errorf("Patch item failure evidence is invalid")
 	}
+    if len(event.Commands) > 64 {
+        return ProtocolItemState{}, "", fmt.Errorf("too many PATCH command evidence entries")
+    }
+    for _, command := range event.Commands {
+        if command.Index < 1 || len(command.Name) > 512 || len(command.Stage) > 96 ||
+            len(command.Status) > 64 || len(command.Argv) > 24 ||
+            !strings.HasPrefix(command.LogPath, "artifacts/patch_tool/runs/") ||
+            !strings.Contains(command.LogPath, "/command_items/") ||
+            !strings.Contains(command.LogPath, "/command_logs/") ||
+            strings.Contains(command.LogPath, "..") ||
+            strings.ContainsAny(command.LogPath, "\\ ") {
+            return ProtocolItemState{}, "", fmt.Errorf("invalid PATCH command evidence path")
+        }
+        for _, arg := range command.Argv {
+            if len(arg) > 2048 {
+                return ProtocolItemState{}, "", fmt.Errorf("PATCH command evidence argv too large")
+            }
+        }
+    }
 	if event.Type == "item_started" {
 		status = "RUNNING"
 		event.DiagnosisKind = ""
@@ -624,6 +656,7 @@ func protocolItemEvent(data []byte) (ProtocolItemState, string, error) {
 		event.RepairHint = ""
 		event.DiscoveryDetail = ""
 		event.OutputTail = ""
+        event.Commands = nil
 	} else if status == "" {
 		return ProtocolItemState{}, "", fmt.Errorf("Patch item_finished status is required")
 	}
@@ -641,6 +674,7 @@ func protocolItemEvent(data []byte) (ProtocolItemState, string, error) {
 		RepairHint: event.RepairHint,
 		DiscoveryDetail: event.DiscoveryDetail,
 		OutputTail: event.OutputTail,
+        Commands: event.Commands,
 	}, event.Type, nil
 }
 
