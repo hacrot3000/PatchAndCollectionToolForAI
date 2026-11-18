@@ -32,6 +32,7 @@ type remoteWorkflowStep struct{
  retries int
  timeout time.Duration
  condition string // "" or "success" normally; "always" only at the final root.
+ hasEnv bool // Fixed host-authored environment, independently opted in.
  parallelJoin bool // Host-opted-in fork/join; never caller supplied.
  parallelPrefix int // 0–2 serial prerequisites before the parallel leaves.
 }
@@ -212,10 +213,68 @@ func remoteWorkflowSafeProcessArg(raw any)bool{
  default:return false
  }
 }
+// Host-owned process options: bounded fixed env only with a separate opt-in.
+// No client-controlled variable or value is admitted. Dangerous loader,
+// interpreter, SSH/Git and shell startup overrides are denied.
+func remoteWorkflowSafeEnvName(name string)bool{
+ if name==""||len(name)>32{return false}
+ for i:=0;i<len(name);i++{
+  ch:=name[i]
+  if !(ch>='A'&&ch<='Z'||ch>='a'&&ch<='z'||ch=='_'||
+   i>0&&ch>='0'&&ch<='9'){return false}
+ }
+ upper:=strings.ToUpper(name)
+ switch upper{
+ case "PATH","HOME","PWD","OLDPWD","SHELL","ENV","BASH_ENV",
+  "IFS","TERM","COLORTERM","TMPDIR","TMP","TEMP","NODE_OPTIONS",
+  "JAVA_TOOL_OPTIONS","JDK_JAVA_OPTIONS","GOFLAGS","GOTOOLCHAIN":
+  return false
+ }
+ for _,prefix:=range []string{
+  "LD_","DYLD_","GIT_","SSH_","PYTHON","PERL","RUBY","TASKDECK_REMOTE_",
+ }{
+  if strings.HasPrefix(upper,prefix){return false}
+ }
+ return true
+}
+func remoteWorkflowSafeEnvOption(raw any)bool{
+ if os.Getenv("TASKDECK_REMOTE_TASKS_WORKFLOW_ENV")!="1"{return false}
+ values,ok:=raw.(map[string]any)
+ if !ok||len(values)<1||len(values)>8{return false}
+ for key,rawValue:=range values{
+  value,ok:=rawValue.(string)
+  if !ok||!remoteWorkflowSafeEnvName(key)||
+   !remoteWorkflowSafeStaticArg(value){return false}
+ }
+ return true
+}
+func remoteWorkflowSafeProcessOptions(options map[string]any)bool{
+ if len(options)>2{return false}
+ for key,value:=range options{
+  switch key{
+  case "cwd":
+   if !remoteWorkflowSafeCwdOption(map[string]any{"cwd":value}){return false}
+  case "env":
+   if !remoteWorkflowSafeEnvOption(value){return false}
+  default:return false
+  }
+ }
+ return true
+}
+func remoteWorkflowStepEnvConsent(step remoteWorkflowStep)bool{
+ return !step.hasEnv||os.Getenv("TASKDECK_REMOTE_TASKS_WORKFLOW_ENV")=="1"
+}
+func remoteWorkflowAllEnvConsent(plan []remoteWorkflowStep)bool{
+ for _,step:=range plan{
+  if !remoteWorkflowStepEnvConsent(step){return false}
+ }
+ return true
+}
+
 func remoteWorkflowSafeProcess(task tasks.Task)bool{
  if task.Type!="process"||len(task.Inputs)!=0||
   len(task.SecretEnv)!=0||
-  !remoteWorkflowSafeCwdOption(task.Options){return false}
+  !remoteWorkflowSafeProcessOptions(task.Options){return false}
  if _,_,_,ok:=remoteWorkflowPolicyForTask(task);!ok{return false}
  command,ok:=task.Command.(string)
  if !ok||strings.Contains(command,"${"){return false}
@@ -434,7 +493,8 @@ func(s *Server)remoteWorkflowPostExitAuthorized(ctx context.Context,
   (parallel&&os.Getenv("TASKDECK_REMOTE_TASKS_WORKFLOW_PARALLEL")!="1")||
   (attempt>1&&os.Getenv("TASKDECK_REMOTE_TASKS_WORKFLOW_RETRY")!="1")||
   (step.timeout>0&&os.Getenv("TASKDECK_REMOTE_TASKS_WORKFLOW_TIMEOUT")!="1")||
-  (step.condition!=""&&os.Getenv("TASKDECK_REMOTE_TASKS_WORKFLOW_CONDITION")!="1"){
+  (step.condition!=""&&os.Getenv("TASKDECK_REMOTE_TASKS_WORKFLOW_CONDITION")!="1")||
+  !remoteWorkflowStepEnvConsent(step){
   return false
  }
  checkCtx,done:=context.WithTimeout(ctx,remoteLocalRevokeCheckDeadline)
@@ -488,6 +548,7 @@ func(s *Server)prepareRemoteLinearWorkflow(ctx context.Context,
   }
   plan=append(plan,remoteWorkflowStep{
    taskID:id,retries:retries,timeout:timeout,condition:condition,
+   hasEnv:byID[id].Options["env"]!=nil,
    parallelJoin:parallel&&id==rootTaskID,
    parallelPrefix:func()int{if id==rootTaskID{return parallelPrefix};return 0}(),
   })
@@ -590,6 +651,7 @@ func(s *Server)startRemoteLinearWorkflow(ctx context.Context,
  parallel:=len(plan)>=3&&last.parallelJoin
  if ctx.Err()!=nil||session.closed.Load()||
   !remoteWorkflowHostExecutionEnabled()||
+  !remoteWorkflowAllEnvConsent(plan)||
   !s.remoteShortTaskHostConsent(ctx,session)||
   (parallel&&!remoteParallelWorkflowConsent(session,last.parallelPrefix)){
   state:="cancelled"
@@ -617,6 +679,7 @@ func(s *Server)startRemoteLinearWorkflow(ctx context.Context,
  // The outer defer still owns the workspace lease on this denial.
  if ctx.Err()!=nil||session.closed.Load()||
   !remoteWorkflowHostExecutionEnabled()||
+  !remoteWorkflowAllEnvConsent(plan)||
   !s.remoteShortTaskHostConsent(ctx,session)||
   (parallel&&!remoteParallelWorkflowConsent(session,last.parallelPrefix)){
   cancel()
@@ -704,14 +767,14 @@ Workflow:
   for attempt:=1;attempt<=step.retries+1;attempt++{
    // Host revocation takes effect before the NEXT process/attempt,
    // even when the E2EE session and TaskDeck role remain valid.
-   if !remoteWorkflowHostExecutionEnabled(){
+   if (!remoteWorkflowHostExecutionEnabled()||!remoteWorkflowStepEnvConsent(step)){
     status="cancelled";exitCode=-1;break Workflow
    }
    // Disabling a host opt-in while a workflow is already running also
    // revokes future retries/timeout-governed steps.
    if (attempt>1&&os.Getenv("TASKDECK_REMOTE_TASKS_WORKFLOW_RETRY")!="1")||
     (step.timeout>0&&os.Getenv("TASKDECK_REMOTE_TASKS_WORKFLOW_TIMEOUT")!="1")||
-    (step.condition!=""&&os.Getenv("TASKDECK_REMOTE_TASKS_WORKFLOW_CONDITION")!="1"){
+    (step.condition!=""&&os.Getenv("TASKDECK_REMOTE_TASKS_WORKFLOW_CONDITION")!="1")||!remoteWorkflowStepEnvConsent(step){
     status="failed";exitCode=-1;break Workflow
    }
    if ctx.Err()!=nil||session.closed.Load(){
@@ -782,10 +845,10 @@ Workflow:
    // replay an attempt just because the prelaunch guard failed.
    deniedState:=""
    if ctx.Err()!=nil||session.closed.Load()||
-    !remoteWorkflowHostExecutionEnabled()||
+    (!remoteWorkflowHostExecutionEnabled()||!remoteWorkflowStepEnvConsent(step))||
     (step.timeout>0&&os.Getenv("TASKDECK_REMOTE_TASKS_WORKFLOW_TIMEOUT")!="1")||
     (attempt>1&&os.Getenv("TASKDECK_REMOTE_TASKS_WORKFLOW_RETRY")!="1")||
-    (step.condition!=""&&os.Getenv("TASKDECK_REMOTE_TASKS_WORKFLOW_CONDITION")!="1"){
+    (step.condition!=""&&os.Getenv("TASKDECK_REMOTE_TASKS_WORKFLOW_CONDITION")!="1")||!remoteWorkflowStepEnvConsent(step){
     deniedState="cancelled"
    }else if err:=s.authorizeRemoteAuthenticatedSession(ctx,session,
     session.channel,identity.PermissionTasksRun);err!=nil{
@@ -833,10 +896,10 @@ Workflow:
    cmd.Cancel=func()error{killGitJobProcess(cmd);return nil}
    cmd.WaitDelay=time.Second
    if ctx.Err()!=nil||session.closed.Load()||
-    !remoteWorkflowHostExecutionEnabled()||
+    (!remoteWorkflowHostExecutionEnabled()||!remoteWorkflowStepEnvConsent(step))||
     (step.timeout>0&&os.Getenv("TASKDECK_REMOTE_TASKS_WORKFLOW_TIMEOUT")!="1")||
     (attempt>1&&os.Getenv("TASKDECK_REMOTE_TASKS_WORKFLOW_RETRY")!="1")||
-    (step.condition!=""&&os.Getenv("TASKDECK_REMOTE_TASKS_WORKFLOW_CONDITION")!="1"){
+    (step.condition!=""&&os.Getenv("TASKDECK_REMOTE_TASKS_WORKFLOW_CONDITION")!="1")||!remoteWorkflowStepEnvConsent(step){
     cancelStep()
     _=s.auditRemoteWorkflowStep(session,job.taskID,
      step.taskID,i+1,len(plan),attempt,job.workflowRunID,"cancelled",-1)
@@ -873,10 +936,10 @@ Workflow:
        return
       }
      case <-ticker.C:
-      if !remoteWorkflowHostExecutionEnabled()||
+      if (!remoteWorkflowHostExecutionEnabled()||!remoteWorkflowStepEnvConsent(step))||
        (step.timeout>0&&os.Getenv("TASKDECK_REMOTE_TASKS_WORKFLOW_TIMEOUT")!="1")||
        (attempt>1&&os.Getenv("TASKDECK_REMOTE_TASKS_WORKFLOW_RETRY")!="1")||
-       (step.condition!=""&&os.Getenv("TASKDECK_REMOTE_TASKS_WORKFLOW_CONDITION")!="1"){
+       (step.condition!=""&&os.Getenv("TASKDECK_REMOTE_TASKS_WORKFLOW_CONDITION")!="1")||!remoteWorkflowStepEnvConsent(step){
        revokedDuringStep.Store(true)
        cancelStep()
        return
@@ -896,7 +959,7 @@ Workflow:
     if errors.Is(runCtx.Err(),context.DeadlineExceeded){
      deniedState="timed_out"
     }else if runCtx.Err()!=nil||session.closed.Load()||
-     !remoteWorkflowHostExecutionEnabled(){deniedState="cancelled"}
+     (!remoteWorkflowHostExecutionEnabled()||!remoteWorkflowStepEnvConsent(step)){deniedState="cancelled"}
     close(stopWatch)
     <-watcherDone
     cancelStep()

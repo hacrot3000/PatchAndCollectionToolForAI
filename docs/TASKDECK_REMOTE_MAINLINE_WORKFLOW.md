@@ -1763,3 +1763,18 @@ real-host testing are considered **code complete**.
   paths. The backend independently validates exact tracked paths.
 - Added a native GUI mock test for Unicode display/search and
   exact snapshot-bound Stage, plus a Go Agent CI gate.
+
+## 2026-11-18 — Host-opted-in fixed workflow environment
+
+- Agent opt-in `TASKDECK_REMOTE_TASKS_WORKFLOW_ENV=1` enables
+  small, host-authored `options.env` maps (up to eight fixed string
+  variables per process task), optionally alongside `options.cwd`.
+  Existing workflows with no per-task env keep their default behavior.
+- Values must be bounded (256 bytes), literal or use only fixed
+  workspace identity substitutions. Browser-supplied input/env variables,
+  executable/path/Git/SSH/loader and TaskDeck security overrides are
+  disallowed. The E2EE client still sends only issued Task.ID.
+- Both sequential and parallel executions bind the resolved environment
+  during source/audit verification and final launch. The independent
+  host flag is checked before every process, during live watchdogs
+  (cancel process group on opt-out), and after exit before the next step.
