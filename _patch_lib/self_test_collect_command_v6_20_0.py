@@ -1,0 +1,124 @@
+#!/usr/bin/env python3
+"""Read-only COLLECT command action: schema, runner, SSH bridge and report ZIP."""
+from __future__ import annotations
+
+import json
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import sys
+import tempfile
+import zipfile
+
+HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE))
+from python_patch_collect_schema import CollectSchemaError, validate_request_data
+from python_patch_collect_commands import (
+    CollectCommandError, validate_command_action, execute_collect_command,
+)
+
+for argv in (
+    ["bash", "scripts/read.sh"],
+    ["python3", "-c", "print(1)"],
+    ["sh", "-c", "id"],
+    ["./tool.sh"],
+):
+    try:
+        validate_command_action({"type": "command", "argv": argv})
+    except CollectCommandError:
+        pass
+    else:
+        raise AssertionError("COLLECT accepted executable/script: " + repr(argv))
+
+for options in (
+    {"type": "command", "argv": ["grep", "error", "."]},
+    {"type": "command", "argv": ["rg", "-n", "--", "connection failed", "."]},
+    {"type": "command", "transport": "ssh", "profile_name": "Production",
+     "argv": ["find", ".", "-maxdepth", "2", "-type", "f"]},
+):
+    normalized = validate_request_data({"actions": [options]})
+    assert normalized["actions"][0]["type"] == "command"
+
+for options in (
+    {"type": "command", "argv": ["bash", "script.sh"]},
+    {"type": "command", "transport": "ssh", "argv": ["pwd"]},
+    {"type": "command", "transport": "local", "profile_name": "remote", "argv": ["pwd"]},
+    {"type": "command", "argv": ["pwd"], "timeout_seconds": 999},
+    {"type": "command", "argv": ["pwd"], "unexpected": "bad"},
+):
+    try:
+        validate_request_data({"actions": [options]})
+    except CollectSchemaError:
+        pass
+    else:
+        raise AssertionError("COLLECT accepted bad command action: " + repr(options))
+
+with tempfile.TemporaryDirectory(prefix="ptv_collect_command_v6200_") as td:
+    root = Path(td)
+    (root / "src").mkdir()
+    (root / "patchs").mkdir()
+    (root / "src" / "code.txt").write_text("alpha\nneedle string\nomega\n", encoding="utf-8")
+    good = {"type": "command", "argv": ["grep", "-nF", "--", "needle string", "src/code.txt"],
+            "timeout_seconds": 15, "max_output_bytes": 8192}
+    result = execute_collect_command(root, good)
+    assert result["rc"] == 0 and "needle string" in result["output"], result
+    assert result["transport"] == "local"
+
+    for argv in (
+        ["find", ".", "-exec", "touch", "NEVER", ";"],
+        ["find", ".", "-delete"],
+        ["sed", "-i", "1d", "src/code.txt"],
+        ["rg", "--pre", "scripts/read.sh", "needle", "src"],
+    ):
+        try:
+            execute_collect_command(root, {"type": "command", "argv": argv})
+        except (CollectCommandError, OSError):
+            pass
+        else:
+            raise AssertionError("Unsafe COLLECT argv accepted: " + repr(argv))
+    assert not (root / "NEVER").exists()
+    assert (root / "src" / "code.txt").read_text().startswith("alpha\n")
+
+    # An SSH action must route through the TaskDeck bridge, not a local shell.
+    import python_patch_collect_commands as mod
+    prior = mod.run_remote_ssh
+    captured = []
+    def stub_ssh(project, request, *, dry_run):
+        captured.append((project, request, dry_run))
+        return {"rc": 0, "stdout": "REMOTE FILE\n", "stderr": ""}
+    mod.run_remote_ssh = stub_ssh
+    try:
+        response = execute_collect_command(root, {
+            "type": "command", "transport": "ssh", "profile_name": "Saved SSH",
+            "argv": ["pwd"], "timeout_seconds": 12,
+        })
+        assert response["output"] == "REMOTE FILE\n"
+        assert captured == [(root, {"profile_name": "Saved SSH", "argv": ["pwd"], "timeout_seconds": 12}, False)]
+    finally:
+        mod.run_remote_ssh = prior
+
+    # The public collector publishes console evidence as a normal report
+    # inside the result ZIP, even when no source file was selected for packing.
+    request = {"id": "collected-command", "actions": [good]}
+    source = root / "patchs" / "CODE_COLLECTION_REQUEST_command.zip"
+    with zipfile.ZipFile(source, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("CODE_COLLECTION_REQUEST_command.json", json.dumps(request))
+    env = dict(os.environ)
+    env["PYTHONDONTWRITEBYTECODE"] = "1"
+    cmd = [sys.executable, "-S", str(HERE / "python_patch_collect_compat.py"),
+           "--project-root", str(root), "request", "patchs/CODE_COLLECTION_REQUEST_command.zip"]
+    proc = subprocess.run(cmd, cwd=root, capture_output=True, text=True, env=env, timeout=60)
+    assert proc.returncode == 0, (proc.stdout, proc.stderr)
+    outputs = list((root / "artifacts" / "patch_tool_code_collections").glob("CODE_COLLECTION_RESULT_*.zip"))
+    assert len(outputs) == 1, outputs
+    with zipfile.ZipFile(outputs[0]) as zf:
+        manifest = json.loads(zf.read("COLLECTION_MANIFEST.json"))
+        assert manifest["collection_status"] == "PASS", manifest
+        assert manifest["file_count"] == 0 and manifest["action_count"] == 1, manifest
+        report = zf.read(manifest["reports"][0]["archive_path"]).decode("utf-8")
+        assert "needle string" in report and "Exit code: 0" in report
+    assert not source.exists()
+    assert (root / "patchs" / "patched" / source.name).is_file()
+
+print("PASS: COLLECT command schema, read-only local/SSH, result report and archive")
