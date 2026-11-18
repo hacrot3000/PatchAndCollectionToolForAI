@@ -1,5 +1,43 @@
 # AI / ChatGPT usage contract — Python Patch Tool v6.20.2
 
+## Automatic PATCH command and project-local script execution (AI Pack instructions)
+
+PATCH **can execute commands**; do not incorrectly claim that every build/test/script must use `manual_execution`. Choose the correct lane, and never confuse PATCH commands with COLLECT, which does not offer arbitrary shell execution:
+
+1. **Command-only PATCH** (manifest-only ZIP, no Python/OPS payload): `post_patch.commands` must contain **exactly one** command, `post_patch.run_when_no_changes=true`, and `post_patch.no_change_reason` must contain 20–500 non-whitespace characters. This lane **always** enforces `legacy_strict`, even if a manifest requests another profile.
+2. **Source-changing PATCH**: `post_patch.commands` is a sequence of automatic commands run **after** the payload. Its default `safety_profile` is `current`; select `safety_profile=legacy_strict` explicitly when strict limits are required. By default the sequence is skipped if the payload produced no detected project delta; `run_when_no_changes=true` enables execution even for an idempotent/no-op PATCH.
+3. **Failure diagnostics/cleanup**: `on_failure.commands` runs only after a valid PATCH entered execution and failed, after configured rollback is attempted; not on invalid manifest/preflight or interruption. This has the same structured-command contract as post commands, but not the `legacy_strict` post-command allowlist unless enforced separately. Do not treat it as a guaranteed cleanup after every failure.
+4. **Project-owned trusted validation**: `validation.profiles` lists **names only**. An operator configures `validation_profiles.<name>` in `.python_patch_tool.json`. The AI does not supply or overwrite these profile commands. They are executed after payload/post commands.
+5. **Human-only workflow**: `manual_execution` is for steps the operator must run manually in another terminal. Patch Tool prints a captured-command recipe, waits for evidence, and **never executes** the declared step. Do not use `manual_execution` when the request is to run an eligible existing project-local script automatically.
+
+### `legacy_strict` executable allowlist
+
+- Basic commands: `ls`, `tree`, `pwd`, `find`. `find` forbids `-exec`, `-execdir`, `-ok`, `-delete`, `-fls`, `-fprint`, `-fprintf`; `tree -o` is rejected; absolute and parent-traversal path arguments are forbidden for these basic commands.
+- Project-local script interpreters: `python`/`python3` for `.py`; `bash`/`sh` for `.sh`; `node` for `.js`, `.mjs`, `.cjs`; `pwsh`/`powershell`/`powershell.exe` for `.ps1`. Pass the **existing project-relative script path** as the first interpreter argument (for example `["bash","scripts/check.sh"]`). The interpreter must exist on the host and the script must be a real project file of the matching extension. Do not use an inline/module/evaluator launcher such as `bash -c`, `sh -c`, `python -c`, `python -m`, `node -e` or PowerShell `-EncodedCommand`.
+- A directly executable project-local file may also be invoked with a project-relative path containing a slash, such as `["./scripts/check.sh"]`; it must already exist and have executable permission where required. An arbitrary executable name resolved from PATH is not accepted except for the listed basic commands/interpreters.
+- Strict lane rejects credential-like arguments and paths escaping the project (absolute script path, `..`, or symlink resolution outside the project). Interpreter/script argument checks differ from basic-command argument checks; do **not** infer that an interpreter's extra arguments are a sandbox. Script contents may themselves execute additional operations and should be reviewed.
+
+### Structured command syntax and runtime rules
+
+Declare each automatic command as `{"name":"check","argv":["bash","scripts/check.sh"],"cwd":".","timeout_seconds":300}` inside `post_patch.commands` (or `on_failure.commands`). `argv` is a nonempty string array, **not** a shell command string; `cwd` is `.` or a safe directory relative to the project; timeout is 1–1800 seconds when provided (300 seconds default). PATH executables must exist and explicit executable paths must resolve; on POSIX a directly executed script needs executable permission. Commands are **non-interactive** (stdin is closed), run in order, and a failure stops that sequence. Timeout/interruption stops the managed process tree. Do not depend on background/detached jobs, prompts, passwords, or implicit shell expansion, pipelines, `&&`, redirection or globbing.
+
+**Example: automatic command-only PATCH** — this is the content of `PATCH_TOOL_MANIFEST.json` in a ZIP with no Python/OPS payload. Insert the real `project:{key,id}` from the active AI Pack before submission:
+
+```json
+{
+  "schema_version": 1,
+  "project": {"key": "<AI Pack project.key>", "id": "<AI Pack project.id>"},
+  "patch": {"id": "check-existing-project-script"},
+  "post_patch": {
+    "run_when_no_changes": true,
+    "no_change_reason": "Run the existing project check script without changing project source files.",
+    "commands": [{"name": "project check", "argv": ["bash", "scripts/check.sh"], "cwd": ".", "timeout_seconds": 300}]
+  }
+}
+```
+
+For a source-changing PATCH, the corresponding `post_patch` block may contain multiple command objects, e.g. `["python3","scripts/lint.py"]` and `["bash","scripts/build.sh"]` **when those scripts already belong to the project**. `current` permits broader executable/argv forms than `legacy_strict`; it does **not** magically make arbitrary commands safe. Do not assume commands work across Linux/macOS/Windows without the target interpreter. Whole-batch `transaction_policy=batch` rejects side-effectful post/on-failure commands and validation profiles. PATCH automatic Git add/commit/push remains forbidden; do not bypass that rule through a command or a script.
+
 ## v6.20.0 persistent failed-work queue state
 
 Failed/PREFLIGHT_FAIL/INCOMPLETE PATCH and COLLECT queue items MUST be persisted in `artifacts/patch_tool/UNRESOLVED_FAILURES.json`; grouping MUST NOT depend on LAST_RUN. An unrelated PASS/IDLE/history view must never clear this state. The normal queue renders all current unresolved items in `Failed patch/collect (unresolved)` below `New patch/collect`, using the same QueueItem operations. A failure resolves only when the exact SHA-bound package/request later PASSes or the operator deletes that exact queue item. v6.20.0 migrates still-queued v6.19.4 failures from HISTORY on first use. Persistent COLLECT failures are presentation state only and MUST NOT become PATCH dependency predecessors. Explicit `resume` remains PATCH-recovery oriented.
