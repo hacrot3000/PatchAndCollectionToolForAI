@@ -1,0 +1,53 @@
+name: TaskDeck COLLECT command and PATCH command History
+on:
+  push:
+    branches: [main]
+    paths:
+      - '_patch_lib/**'
+      - 'vscode_tasks_menu_go/internal/session/protocol.go'
+      - 'vscode_tasks_menu_go/internal/session/item_protocol_test.go'
+      - 'vscode_tasks_menu_go/internal/server/patchpanel_ui_test.go'
+      - 'vscode_tasks_menu_go/web/featuremods/patchpanel.js'
+      - '.github/workflows/taskdeck_patch_command_history.yml'
+  pull_request:
+    paths:
+      - '_patch_lib/**'
+      - 'vscode_tasks_menu_go/internal/session/protocol.go'
+      - 'vscode_tasks_menu_go/internal/session/item_protocol_test.go'
+      - 'vscode_tasks_menu_go/internal/server/patchpanel_ui_test.go'
+      - 'vscode_tasks_menu_go/web/featuremods/patchpanel.js'
+      - '.github/workflows/taskdeck_patch_command_history.yml'
+permissions:
+  contents: read
+jobs:
+  collect-patch-regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.23.x'
+          cache: false
+      - name: Syntax and whitelist-only COLLECT
+        run: |
+          python3 -m compileall -q _patch_lib
+          PYTHONDONTWRITEBYTECODE=1 python3 -B -S _patch_lib/self_test_collect_command_v6_20_0.py
+          PYTHONDONTWRITEBYTECODE=1 python3 -B -S _patch_lib/self_test_ai_collect_contract_v6_20_0.py
+      - name: Durable per-command console and History
+        run: |
+          PYTHONDONTWRITEBYTECODE=1 python3 -B -S _patch_lib/self_test_patch_command_history_v6_20_0.py
+          PYTHONDONTWRITEBYTECODE=1 python3 -B -S _patch_lib/self_test_script_origin_guard_v6_20_0.py
+      - name: Package checksum and bundling
+        run: PYTHONDONTWRITEBYTECODE=1 python3 -B -S _patch_lib/self_test_package_checksums_v6_20_0.py
+      - name: UI and Go session protocol
+        run: |
+          node --check vscode_tasks_menu_go/web/featuremods/patchpanel.js
+          cd vscode_tasks_menu_go
+          go test -count=1 -run 'TestProtocolItem|TestPatchPanel' ./internal/session ./internal/server
