@@ -45,6 +45,16 @@ var activeWorkspaceForUpdateCheck string
 const reloadConfigSignal = syscall.Signal(1)
 
 func main() {
+    // Same-user, non-interactive PATCH remote SSH bridge; the bridge itself
+    // enforces the profile and read-only command whitelist.
+    if len(os.Args) > 1 && os.Args[1] == "patch-ssh-command" {
+        if len(os.Args) != 4 || os.Args[2] != "--workspace" {
+            fatalIf(fmt.Errorf("usage: taskdeck patch-ssh-command --workspace ABSOLUTE_PATH (validated JSON request on stdin)"))
+            return
+        }
+        fatalIf(runPatchSSHCLI(os.Args[3], os.Stdin, os.Stdout, os.Stderr))
+        return
+    }
     // A same-user internal COLLECT bridge, not an HTTP endpoint or raw SQL
     // console. The helper itself verifies workspace identity and shared mode.
     if len(os.Args) > 1 && os.Args[1] == "collect-db-select" {
