@@ -1,4 +1,10 @@
 # Python Patch Tool v6.20.2 feature status
+## COLLECT command evidence and PATCH command-console History (2026-11-18)
+
+- **SOURCE IMPLEMENTED:** `COLLECT` now accepts one whitelist-only read-only `command` action per requested argv, with `transport=local|ssh`; local uses strict read-only command validator, SSH delegates to the saved TaskDeck SSH profile and Go whitelist. Output is included as a bounded report in the normal COLLECT result ZIP/TXT. Timeout and truncation are recorded.
+- **SOURCE IMPLEMENTED:** PATCH console output is captured per executed command in bounded log files owned by the run; command metadata is projected into live `item_finished` events and the stored History report. The UI shows per-command **View console / Copy console** in Current run and History.
+- **TESTS ADDED:** `self_test_collect_command_v6_20_0.py`, `self_test_patch_command_history_v6_20_0.py`; Go protocol + native UI tests. No live external SSH smoke is implied without an actual saved profile and reachable host.
+
 ## Read-only remote SSH PATCH through TaskDeck saved profiles (2026-11-18)
 
 - **UPDATED CONTENT SEARCH:** Local `legacy_strict` (including command-only) and remote SSH support safe `grep`, `rg`, `cat`, `head`, `tail`, `wc`, `nl`, `sed -n` operations with narrowly allowed options and project-/remote-login-relative file paths. Remote `find` now supports filename `-name/-iname` matching with bounded depth. `find -exec/-delete` and related executing/file-writing actions are forbidden in both modes; SSH script/Python/shell restrictions remain unchanged.
