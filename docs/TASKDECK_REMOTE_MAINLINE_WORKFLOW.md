@@ -1806,3 +1806,15 @@ real-host testing are considered **code complete**.
   output or pending cancellation keep the fast path.
 - Added in-browser native regression for delayed quiet polls, reset
   upon output, final diagnostics, bounded automatic polling and Clear.
+
+## 2026-11-18 — CI: Remote workflow race-test budget and earlier GUI gates
+
+- The aggregated `go test -race -run TestRemoteWorkflow` step exceeded
+  its 150-second Go timeout while a scrypt-backed operator fixture was
+  still initializing (no workflow deadlock was identified). Increase
+  the Go test timeout to 300 seconds without removing any test or
+  weakening race coverage.
+- Move bounded session-history copy, native long-task lifecycle and
+  adaptive idle-poll JavaScript tests before this expensive aggregate
+  workflow test. This catches GUI regressions promptly and avoids
+  wasting minutes when a fast browser-mock assertion fails.
