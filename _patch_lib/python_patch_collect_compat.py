@@ -2404,7 +2404,7 @@ def _run_request(root: Path, request_zip: Path) -> tuple[Path, Path, int, str]:
                     builder.add_report(index, kind, title, command_report(action, command_result))
                     if command_result.get("truncated") or command_result.get("timed_out") or int(command_result.get("rc") or 0) not in (0, 1):
                         builder.mark_incomplete(action=index, kind=kind, reasons=[
-                            f"command returned rc={command_result.get('rc')}, truncated={command_result.get('truncated')}, timeout={command_result.get('timed_out')}"
+                            f"command_evidence_incomplete: rc={command_result.get('rc')}, output_clipped={command_result.get('truncated')}, deadline_reached={command_result.get('timed_out')}"
                         ])
                 elif kind == "git":
                     git_result = _git_action(root, action)
