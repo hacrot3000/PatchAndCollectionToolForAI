@@ -59,7 +59,7 @@ def _capture_local(root: Path, action: dict) -> dict:
     if not cwd.is_dir():
         raise CollectCommandError("local command cwd is not a project directory")
     try:
-        _check_legacy_strict_command(root, {"argv": argv, "cwd": cwd_raw}, 0)
+        _check_legacy_strict_command(cwd, {"argv": argv, "cwd": "."}, 0)
     except PatchSchemaError as exc:
         raise CollectCommandError(f"local command denied: {exc}") from exc
     cap = int(action.get("max_output_bytes", MAX_OUTPUT))
@@ -72,6 +72,14 @@ def _capture_local(root: Path, action: dict) -> dict:
         kwargs["creationflags"] = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
     else:
         kwargs["start_new_session"] = True
+    # Limit the environment passed to COLLECT to public command inputs.
+    # Internal handoff channels must not be passed to a file-search process.
+    safe_env = dict(os.environ)
+    for key in ("PTV_PATCH_RESULT_FILE", "PTV_COLLECT_RESULT_FILE",
+                "PTV_PATCH_COMMAND_LOG_DIR", "PTV_PARENT_MUTATION_LOCK_TOKEN",
+                "PTV_PARENT_MUTATION_LOCK_KEY"):
+        safe_env.pop(key, None)
+    kwargs["env"] = safe_env
     proc = subprocess.Popen(argv, **kwargs)
     def pump() -> None:
         assert proc.stdout is not None
