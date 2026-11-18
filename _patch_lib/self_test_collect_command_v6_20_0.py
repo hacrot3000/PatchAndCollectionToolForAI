@@ -65,6 +65,44 @@ with tempfile.TemporaryDirectory(prefix="ptv_collect_command_v6200_") as td:
     assert result["rc"] == 0 and "needle string" in result["output"], result
     assert result["transport"] == "local"
 
+    # Bounded local traversal has to use the same conservative grammar as
+    # saved-profile SSH; the historical PATCH strict lane remains compatible.
+    for argv in (
+        ["pwd"],
+        ["ls", "-lah", "src"],
+        ["tree", "-L", "2", "."],
+        ["find", ".", "-maxdepth", "2", "-type", "f", "-name", "*.txt"],
+        ["find", ".", "-maxdepth", "2", "-mindepth", "1", "-iname", "*.TXT", "-print"],
+    ):
+        from python_patch_collect_commands import _validate_collect_basic_args
+        _validate_collect_basic_args(root, argv)
+    subdir_result = execute_collect_command(root, {
+        "type": "command", "argv": ["grep", "-nF", "--", "needle string", "code.txt"],
+        "cwd": "src",
+    })
+    assert subdir_result["rc"] == 0 and "needle string" in subdir_result["output"], subdir_result
+    for argv in (
+        ["pwd", "src"],
+        ["ls", "-R", "src"],
+        ["ls", "--recursive", "src"],
+        ["tree", "-oout.log", "."],
+        ["tree", "-o", "out.log"],
+        ["find", "."],
+        ["find", ".", "-name", "*.txt"],
+        ["find", ".", "-maxdepth", "7"],
+        ["find", ".", "-maxdepth", "2", "-printf", "%p"],
+        ["find", ".", "-maxdepth", "2", "-fprint", "dump.txt"],
+        ["find", ".", "-maxdepth", "2", "-execdir", "sh", "-c", "id", ";"],
+    ):
+        try:
+            execute_collect_command(root, {"type": "command", "argv": argv})
+        except CollectCommandError:
+            pass
+        else:
+            raise AssertionError("COLLECT basic whitelist accepted unsafe argv: " + repr(argv))
+    assert not (root / "out.log").exists()
+    assert not (root / "dump.txt").exists()
+
     for argv in (
         ["find", ".", "-exec", "touch", "NEVER", ";"],
         ["find", ".", "-delete"],
