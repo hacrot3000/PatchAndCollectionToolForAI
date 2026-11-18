@@ -412,13 +412,14 @@ def _check_legacy_strict_content_command(root: Path, argv: list[str], label: str
                 index += 1
                 break
             if name == "rg" and token == "-g":
-                if index + 1 >= len(args) or not re.fullmatch(r"[A-Za-z0-9_./*? -]{1,128}", args[index+1]):
+                if (index + 1 >= len(args) or ".." in args[index+1] or
+                        not re.fullmatch(r"[A-Za-z0-9_./*? -]{1,128}", args[index+1])):
                     reject("rg -g requires a safe file glob")
                 index += 2
                 continue
             if name == "grep" and token.startswith(("--include=", "--exclude=")):
                 glob = token.split("=", 1)[1]
-                if not re.fullmatch(r"[A-Za-z0-9_./*? -]{1,128}", glob):
+                if ".." in glob or not re.fullmatch(r"[A-Za-z0-9_./*? -]{1,128}", glob):
                     reject("grep include/exclude requires a safe file glob")
                 index += 1
                 continue
