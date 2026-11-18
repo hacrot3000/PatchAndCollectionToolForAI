@@ -15,6 +15,16 @@ import tempfile
 import zipfile
 
 HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE))
+from python_patch_batch import transaction_compatibility
+from types import SimpleNamespace
+
+# Atomic batch transactions must never include network SSH operations.
+batch_issues = transaction_compatibility(
+    [SimpleNamespace(name="remote", targets=[], manifest={"remote_ssh": {"profile_name": "X", "argv": ["pwd"]}})],
+    "batch",
+)
+assert any("remote_ssh" in issue for issue in batch_issues), batch_issues
 if os.name == "nt":
     print("SKIP: POSIX TaskDeck stub integration; Go SSH whitelist tests run on Windows")
     raise SystemExit(0)
