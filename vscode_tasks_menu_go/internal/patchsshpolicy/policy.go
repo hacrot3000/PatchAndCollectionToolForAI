@@ -50,7 +50,7 @@ func safePattern(value string) bool {
 
 func safeGlob(value string) bool {
 	return safeFileGlob.MatchString(value) && !strings.Contains(value, "..") &&
-\t\t!strings.HasPrefix(value, "-") && strings.TrimSpace(value) == value
+		!strings.HasPrefix(value, "-") && strings.TrimSpace(value) == value
 }
 
 // POSIX-shell quoting is needed because OpenSSH's remote command interface
