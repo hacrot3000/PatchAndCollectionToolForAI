@@ -1733,3 +1733,18 @@ real-host testing are considered **code complete**.
   repository drift. ASCII filenames without quoting behave as before.
 - Added actual Git repository Stage/Unstage tests for paths with spaces,
   Vietnamese and Git wildcard-like brackets; focused Go race CI preflight.
+
+## 2026-11-18 — Native workflow VS Code argument objects
+
+- Remote GUI workflows now accept host-authored native `process` argv
+  objects such as `{"value":"path with spaces","quoting":"strong"}`,
+  including `strong`, `weak`, `escape` and omitted quoting.
+  The `exec.Command` runner passes the entire `value` as ONE argv item;
+  none of the modes invoke or construct a shell.
+- The same strict static-workspace-variable and length policy applies
+  to object values as to string arguments. Unknown keys, missing/empty
+  values, non-string values, invalid quoting and dynamic env/input
+  references are rejected before host job creation. Full resolved argv
+  continues to be pinned through post-audit and final launch checks.
+- Added native serial/parallel workflow execution, policy and before-job
+  denial regression tests, plus dedicated Go race CI preflight.

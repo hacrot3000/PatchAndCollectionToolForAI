@@ -185,6 +185,27 @@ func remoteWorkflowSafeStaticArg(value string)bool{
  return !strings.Contains(remaining,"${")
 }
 
+// VS Code process arguments also accept {"value":"...","quoting":"strong"}.
+// The native exec.Command runner already treats value as ONE literal argv,
+// independent of the optional strong/weak/escape shell quoting hint.
+// Reject extra object keys or empty values (the shared task resolver silently
+// drops empty object values). No remote-provided env, inputs or shell flags.
+func remoteWorkflowSafeProcessArg(raw any)bool{
+ switch v:=raw.(type){
+ case string:
+  return remoteWorkflowSafeStaticArg(v)
+ case map[string]any:
+  if len(v)<1||len(v)>2{return false}
+  value,ok:=v["value"].(string)
+  if !ok||value==""||!remoteWorkflowSafeStaticArg(value){return false}
+  if q,present:=v["quoting"];present{
+   quoting,ok:=q.(string)
+   if !ok||(quoting!="strong"&&quoting!="weak"&&quoting!="escape"){return false}
+  }
+  return true
+ default:return false
+ }
+}
 func remoteWorkflowSafeProcess(task tasks.Task)bool{
  if task.Type!="process"||len(task.Inputs)!=0||
   len(task.SecretEnv)!=0||
@@ -197,8 +218,7 @@ func remoteWorkflowSafeProcess(task tasks.Task)bool{
   args,ok:=task.Args.([]any)
   if !ok||len(args)>16{return false}
   for _,v:=range args{
-   arg,ok:=v.(string)
-   if !ok||!remoteWorkflowSafeStaticArg(arg){return false}
+   if !remoteWorkflowSafeProcessArg(v){return false}
   }
  }
  return true
