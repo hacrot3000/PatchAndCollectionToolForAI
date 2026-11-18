@@ -196,6 +196,12 @@ func remoteWorkflowSafeProcessArg(raw any)bool{
   return remoteWorkflowSafeStaticArg(v)
  case map[string]any:
   if len(v)<1||len(v)>2{return false}
+  // Reject unknown map keys even when there are only two entries.
+  // The generic VS Code resolver ignores such keys, so silently
+  // accepting them here would create a misleading approved policy.
+  for key:=range v{
+   if key!="value"&&key!="quoting"{return false}
+  }
   value,ok:=v["value"].(string)
   if !ok||value==""||!remoteWorkflowSafeStaticArg(value){return false}
   if q,present:=v["quoting"];present{

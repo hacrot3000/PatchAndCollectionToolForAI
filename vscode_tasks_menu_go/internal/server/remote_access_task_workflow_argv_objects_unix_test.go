@@ -88,6 +88,8 @@ func TestRemoteWorkflowProcessArgObjectPolicyRejectsUnsafeShapes(t *testing.T){
   map[string]any{"value":"ok","quoting":"shell"},
   map[string]any{"value":"ok","quoting":true},
   map[string]any{"value":"ok","quoting":"strong","env":"evil"},
+  map[string]any{"value":"ok","unexpected":"ignored"},
+  map[string]any{"value":"ok","shell":false},
   map[string]any{"quoting":"strong"},
   map[string]any{"value":"\u0024{env:HOME}","quoting":"strong"},
   map[string]any{"value":"\u0024{input:token}","quoting":"strong"},
