@@ -668,7 +668,7 @@ def _append_command_evidence(*, stage: str, name: str, argv: list[str],
         "stage": stage, "name": name[:256],
         "argv": [
             ("[REDACTED]" if re.search(
-                r"(?i)(password|passwd|token|secret|api[_-]?key|authorization|bearer|cookie|credential)\\s*[:=]",
+                r"(?i)(password|passwd|token|secret|api[_-]?key|authorization|bearer|cookie|credential)\s*[:=]",
                 arg,
             ) else arg[:512])
             for arg in argv[:24]
