@@ -49,7 +49,7 @@ def run_remote_ssh(root: Path, remote: dict, *, dry_run: bool) -> dict[str, obje
             [executable, "patch-ssh-command", "--workspace", str(root.resolve(strict=True))],
             input=json.dumps(payload, ensure_ascii=False),
             cwd=root, capture_output=True, text=True,
-            stdin=None, timeout=timeout + 20, check=False,
+            timeout=timeout + 20, check=False,
         )
     except subprocess.TimeoutExpired as exc:
         raise RemoteSSHError("TaskDeck SSH command bridge timed out") from exc
