@@ -24,6 +24,7 @@ from dataclasses import dataclass
 
 from python_patch_utils import PatchFailure, diagnose_ops, finish_failure, run_ops
 from python_patch_package_schema import PatchSchemaError, path_is_link_or_reparse, resolve_project_path, run_preflight, sha256_file
+from python_patch_script_guard import ScriptOriginGuard
 
 try:
     from python_patch_version import VERSION
@@ -36,6 +37,7 @@ except ImportError:
     except Exception:
         VERSION = "unknown"
 _ACTIVE_TERMINATION_SIGNAL: int | None = None
+_ACTIVE_SCRIPT_ORIGIN_GUARD: ScriptOriginGuard | None = None
 MAX_ARCHIVE_ENTRIES = 10000
 MAX_ARCHIVE_MEMBER_BYTES = 64 * 1024 * 1024
 MAX_ARCHIVE_TOTAL_BYTES = 256 * 1024 * 1024
@@ -549,6 +551,8 @@ def _run_argv(root: Path, cmd: dict, *, label: str = "POST PATCH") -> ManagedPro
     cwd = _resolve_command_cwd(root, cwd_raw, label=label_lower)
     timeout = int(cmd.get("timeout_seconds", 300))
     name = cmd.get("name") or " ".join(argv)
+    if _ACTIVE_SCRIPT_ORIGIN_GUARD is not None:
+        _ACTIVE_SCRIPT_ORIGIN_GUARD.check(argv, cwd)
     print(f"{label}: {name}", flush=True)
     outcome = _run_managed_process(argv, cwd=cwd, env=_external_command_env(), timeout=max(1, timeout))
     if outcome.timed_out:
@@ -586,7 +590,7 @@ def _run_command_sequence(root: Path, commands: object, *, label: str) -> dict[s
             raise
         except Exception as exc:
             print(f"ERROR: {label.lower()} command invalid: {exc}", file=sys.stderr)
-            rows.append({"name": name, "status": "FAIL", "rc": 2, "timed_out": False, "error": f"{type(exc).__name__}: {exc}"})
+            rows.append({"name": name, "status": "FAIL", "rc": 2, "timed_out": False, "error": f"{type(exc).__name__}: {exc}", "error_kind": getattr(exc, "kind", None)})
             result.update({"status": "FAIL", "rc": 2})
             break
         if rc:
@@ -691,12 +695,14 @@ def _run_validation_profiles(root: Path, preflight: dict[str, object]) -> dict[s
         print(f"VALIDATION PROFILE: {name} | timeout={timeout}s", flush=True)
         profile_started = time.monotonic()
         try:
+            if _ACTIVE_SCRIPT_ORIGIN_GUARD is not None:
+                _ACTIVE_SCRIPT_ORIGIN_GUARD.check(argv, cwd)
             outcome = _run_managed_process(argv, cwd=cwd, env=_external_command_env(), timeout=max(1, timeout))
         except KeyboardInterrupt:
             raise
         except Exception as exc:
             print(f"ERROR: validation profile {name} could not start: {type(exc).__name__}: {exc}", file=sys.stderr)
-            rows.append({"name": name, "status": "FAIL", "rc": 2, "timed_out": False, "error": type(exc).__name__})
+            rows.append({"name": name, "status": "FAIL", "rc": 2, "timed_out": False, "error": f"{type(exc).__name__}: {exc}", "error_kind": getattr(exc, "kind", None)})
             report.update({"status": "FAIL", "rc": 2})
             return report
         rc = outcome.effective_rc
@@ -734,6 +740,8 @@ def _run_validation_profiles(root: Path, preflight: dict[str, object]) -> dict[s
                         rerun_timeout = int(rerun_cfg.get("timeout_seconds") or min(timeout, 600))
                         print(f"DIAGNOSTIC RERUN: {rerun_name}", flush=True)
                         try:
+                            if _ACTIVE_SCRIPT_ORIGIN_GUARD is not None:
+                                _ACTIVE_SCRIPT_ORIGIN_GUARD.check(rerun_argv, cwd)
                             rerun_outcome = _run_managed_process(rerun_argv, cwd=cwd, env=_external_command_env(), timeout=max(1, rerun_timeout))
                             rerun_row.update({
                                 "status": "PASS" if rerun_outcome.effective_rc == 0 else "FAIL",
@@ -1899,8 +1907,9 @@ def _execute_patch(root: Path, source: Path, *, no_validation: bool = False) -> 
         print(f"ERROR: PATCH input is not a regular non-symlink file: {source}", file=sys.stderr)
         return _finish_result(result, status="FAIL", rc=2, stage="input", diagnosis={"kind": "package_invalid", "message": "input is not a regular non-symlink file", "affected_paths": []})
 
-    global _ACTIVE_TERMINATION_SIGNAL
+    global _ACTIVE_TERMINATION_SIGNAL, _ACTIVE_SCRIPT_ORIGIN_GUARD
     _ACTIVE_TERMINATION_SIGNAL = None
+    _ACTIVE_SCRIPT_ORIGIN_GUARD = None
     input_temp: tempfile.TemporaryDirectory[str] | None = None
     execution_source: Path | None = None
     input_sha: str | None = None
@@ -1960,6 +1969,21 @@ def _execute_patch(root: Path, source: Path, *, no_validation: bool = False) -> 
         before_dirty = _dirty_paths(root)
         before_fp = _fingerprint_dirty_paths(root, before_dirty)
         before_targets = _snapshot_declared_paths(root, target_paths)
+        # Snapshot script origins before any PATCH payload can create files.
+        # Include failure handlers and all trusted validation profiles that
+        # may be selected later from the local project policy.
+        script_commands = []
+        for field in ("post_patch", "on_failure"):
+            node = manifest.get(field)
+            if isinstance(node, dict):
+                script_commands.extend(x for x in node.get("commands", []) if isinstance(x, dict))
+        script_commands.extend(preflight.get("_resolved_validation_profiles") or [])
+        selection = preflight.get("_resolved_validation_selection") or {}
+        selection_names = selection.get("referenced_profiles") or []
+        if selection_names:
+            from python_patch_project_state import resolve_validation_profile_names
+            script_commands.extend(resolve_validation_profile_names(root, selection_names))
+        _ACTIVE_SCRIPT_ORIGIN_GUARD = ScriptOriginGuard(root, script_commands)
         record_timing("git_and_target_baseline")
         rollback_cfg = preflight.get("rollback") if isinstance(preflight, dict) else None
         if isinstance(rollback_cfg, dict):
@@ -2083,7 +2107,10 @@ def _execute_patch(root: Path, source: Path, *, no_validation: bool = False) -> 
             failed_row = None
             if isinstance(post_rows, list):
                 failed_row = next((row for row in reversed(post_rows) if isinstance(row, dict) and row.get("status") != "PASS"), None)
-            if isinstance(failed_row, dict) and failed_row.get("timed_out") is True:
+            if isinstance(failed_row, dict) and failed_row.get("error_kind") == "new_script_execution_forbidden":
+                post_kind = "new_script_execution_forbidden"
+                post_message = str(failed_row.get("error") or "PATCH created and attempted to execute its own script")
+            elif isinstance(failed_row, dict) and failed_row.get("timed_out") is True:
                 post_kind = "post_patch_timeout"
                 post_message = f"post_patch command timed out (rc={rc})"
             elif isinstance(failed_row, dict) and failed_row.get("lingering_descendants") is True:
@@ -2193,7 +2220,10 @@ def _execute_patch(root: Path, source: Path, *, no_validation: bool = False) -> 
             failed_profile = None
             if isinstance(validation_rows, list):
                 failed_profile = next((row for row in reversed(validation_rows) if isinstance(row, dict) and row.get("status") != "PASS"), None)
-            if isinstance(failed_profile, dict) and failed_profile.get("timed_out") is True:
+            if isinstance(failed_profile, dict) and failed_profile.get("error_kind") == "new_script_execution_forbidden":
+                validation_kind = "new_script_execution_forbidden"
+                validation_message = str(failed_profile.get("error") or "PATCH created and attempted to execute its own validation script")
+            elif isinstance(failed_profile, dict) and failed_profile.get("timed_out") is True:
                 validation_kind = "validation_profile_timeout"
                 validation_message = f"trusted validation profile timed out (rc={rc})"
             elif isinstance(failed_profile, dict) and failed_profile.get("lingering_descendants") is True:
@@ -2328,6 +2358,7 @@ def _execute_patch(root: Path, source: Path, *, no_validation: bool = False) -> 
                 partial = {"detected": None, "changed_paths": list(partial.get("changed_paths") or []), "evidence": "internal_error_on_failure_failed_state_unknown"}
         return _finish_result(result, status="FAIL", rc=2, stage=stage, diagnosis=diagnosis, partial=partial)
     finally:
+        _ACTIVE_SCRIPT_ORIGIN_GUARD = None
         _release_project_mutation_lock(mutation_lock)
         if rollback_temp is not None:
             rollback_temp.cleanup()
