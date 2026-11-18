@@ -2,6 +2,7 @@
 """Bounded, whitelist-only COLLECT command evidence (local or saved SSH profile)."""
 from __future__ import annotations
 import os
+import re
 from pathlib import Path
 import signal
 import subprocess
@@ -51,6 +52,107 @@ def validate_command_action(action: dict, label: str = "COLLECT command") -> Non
             raise CollectCommandError(f"{label}.cwd must be a project-relative directory")
 
 
+
+_COLLECT_GLOB = re.compile(r"[A-Za-z0-9_./*? -]{1,128}\Z")
+
+
+def _validate_collect_basic_args(cwd: Path, argv: list[str]) -> None:
+    """Conservative argv grammar for COLLECT's four traversal commands.
+
+    PATCH's historical legacy_strict compatibility still accepts additional
+    read-only navigation options. COLLECT has no such compatibility promise:
+    enforce a bounded Go-SSH-like grammar locally as well.
+    """
+    from python_patch_package_schema import _strict_relative_file_arg
+
+    name, args = argv[0], argv[1:]
+
+    def deny(reason: str) -> None:
+        raise CollectCommandError(f"COLLECT {name}: {reason}")
+
+    def path(value: str) -> None:
+        try:
+            _strict_relative_file_arg(cwd, value, label=f"COLLECT {name}")
+        except PatchSchemaError as exc:
+            deny(str(exc))
+
+    if name == "pwd":
+        if args:
+            deny("pwd takes no operands")
+        return
+
+    if name == "ls":
+        file_seen = False
+        for token in args:
+            if token.startswith("-"):
+                if file_seen or token.startswith("--") or not token[1:] or not set(token[1:]) <= set("alh1"):
+                    deny("ls accepts only -a/-l/-h/-1 and one relative path")
+            else:
+                if file_seen:
+                    deny("ls accepts at most one relative path")
+                path(token)
+                file_seen = True
+        return
+
+    if name == "tree":
+        file_seen = False
+        depth_seen = False
+        i = 0
+        while i < len(args):
+            token = args[i]
+            if token in ("-a", "-d") and not file_seen:
+                i += 1
+            elif token == "-L" and not file_seen and not depth_seen:
+                if i + 1 >= len(args) or args[i + 1] not in {"1", "2", "3"}:
+                    deny("tree -L requires depth 1..3")
+                depth_seen = True
+                i += 2
+            elif not token.startswith("-") and not file_seen:
+                path(token)
+                file_seen = True
+                i += 1
+            else:
+                deny("tree allows -a/-d/-L 1..3 and one relative path only")
+        return
+
+    if name == "find":
+        i = 0
+        if i < len(args) and not args[i].startswith("-"):
+            path(args[i])
+            i += 1
+        if i + 1 >= len(args) or args[i] != "-maxdepth" or args[i + 1] not in {"1", "2", "3"}:
+            deny("find requires -maxdepth 1..3 (before filters)")
+        max_depth = int(args[i + 1])
+        i += 2
+        seen: set[str] = set()
+        while i < len(args):
+            token = args[i]
+            if token == "-type":
+                if token in seen or i + 1 >= len(args) or args[i + 1] not in {"f", "d"}:
+                    deny("find -type accepts only f or d once")
+                seen.add(token)
+                i += 2
+            elif token in {"-name", "-iname"}:
+                if "name" in seen or i + 1 >= len(args) or not _COLLECT_GLOB.fullmatch(args[i + 1]) or ".." in args[i + 1] or args[i + 1].startswith("-"):
+                    deny("find -name/-iname requires one safe file glob")
+                seen.add("name")
+                i += 2
+            elif token == "-mindepth":
+                if token in seen or i + 1 >= len(args) or not args[i + 1].isdigit() or not 0 <= int(args[i + 1]) <= max_depth:
+                    deny("find -mindepth must be between 0 and maxdepth")
+                seen.add(token)
+                i += 2
+            elif token in {"-print", "-print0"}:
+                i += 1
+            else:
+                # No command execution, file-writing actions, broad expressions
+                # or hidden options such as -exec, -delete, -fprint, -D, -L.
+                deny(f"find option/action outside read-only whitelist: {token}")
+        return
+
+    deny("unsupported basic command")
+
+
 def _capture_local(root: Path, action: dict) -> dict:
     from python_patch_package_schema import resolve_project_path
     argv = action["argv"]
@@ -58,6 +160,8 @@ def _capture_local(root: Path, action: dict) -> dict:
     cwd = root if cwd_raw == "." else resolve_project_path(root, cwd_raw)
     if not cwd.is_dir():
         raise CollectCommandError("local command cwd is not a project directory")
+    if argv[0] in {"pwd", "ls", "tree", "find"}:
+        _validate_collect_basic_args(cwd, argv)
     try:
         _check_legacy_strict_command(cwd, {"argv": argv, "cwd": "."}, 0)
     except PatchSchemaError as exc:
