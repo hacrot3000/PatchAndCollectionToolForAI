@@ -121,6 +121,11 @@ class ScriptOriginGuard:
             if path is not None:
                 self.before[path] = path.is_file()
 
+    def missing_paths(self) -> list[Path]:
+        """Direct command script inputs that did not exist at preflight."""
+        return sorted((path for path, exists in self.before.items() if not exists),
+                      key=str)
+
     def check(self, argv: list[str], cwd: Path) -> None:
         path = command_script_path(argv, cwd)
         if path is None:
