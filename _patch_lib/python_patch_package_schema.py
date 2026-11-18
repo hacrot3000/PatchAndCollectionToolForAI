@@ -518,6 +518,11 @@ def _check_legacy_strict_command(root: Path, command: dict[str, Any], index: int
 
     exe = argv[0]
     exe_name = Path(exe).name.lower()
+    if exe_name in _STRICT_CONTENT_COMMANDS | _STRICT_BASIC_COMMANDS and exe != exe_name:
+        raise PatchSchemaError(
+            f"{label} whitelisted commands must use their bare executable names: {exe}",
+            kind="command_not_allowed",
+        )
     if exe_name in _STRICT_CONTENT_COMMANDS:
         _check_legacy_strict_content_command(root, argv, label)
         return
