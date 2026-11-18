@@ -78,4 +78,60 @@ with tempfile.TemporaryDirectory(prefix="ptv_local_readonly_whitelist_") as td:
         else:
             raise AssertionError(f"unsafe local strict command was allowed: {argv}")
 
+
+# End-to-end command-only PATCH acceptance/rejection through the actual runner,
+# not merely the schema helper. Skip the POSIX launcher on Windows.
+import json
+import os
+import shutil
+import subprocess
+import zipfile
+
+if os.name != "nt" and shutil.which("grep"):
+    with tempfile.TemporaryDirectory(prefix="ptv_local_readonly_e2e_") as td:
+        root = Path(td)
+        shutil.copytree(HERE.parent, root / "tools")
+        (root / "tools" / "run_python_patches.sh").chmod(0o755)
+        (root / "patchs").mkdir()
+        (root / "src.txt").write_text("alpha\nsearch phrase\nomega\n", encoding="utf-8")
+        env = dict(os.environ)
+        env["PYTHONDONTWRITEBYTECODE"] = "1"
+        env["PTV_DISABLE_LIVE_STATUS"] = "1"
+
+        def run_command_only(name: str, argv: list[str]) -> subprocess.CompletedProcess:
+            manifest = {
+                "schema_version": 1,
+                "patch": {"id": name},
+                "post_patch": {
+                    "commands": [{"name": "readonly", "argv": argv, "cwd": ".",
+                                  "timeout_seconds": 10}],
+                    "run_when_no_changes": True,
+                    "no_change_reason": "Search pre-existing project files with a read-only command.",
+                },
+            }
+            archive = root / "patchs" / (name + ".zip")
+            with zipfile.ZipFile(archive, "w") as z:
+                z.writestr("PATCH_TOOL_MANIFEST.json", json.dumps(manifest))
+            return subprocess.run(
+                [str(root / "tools" / "run_python_patches.sh"),
+                 "--patch", "patchs/" + name + ".zip"],
+                cwd=root, capture_output=True, text=True, timeout=65, env=env,
+            )
+
+        result = run_command_only(
+            "allowed-grep", ["grep", "-nF", "--", "search phrase", "src.txt"]
+        )
+        assert result.returncode == 0, (result.stdout, result.stderr)
+        assert "search phrase" in result.stdout
+
+        for name, argv in [
+            ("forbidden-find-exec", ["find", ".", "-exec", "touch", "BAD", ";"]),
+            ("forbidden-find-delete", ["find", ".", "-delete"]),
+        ]:
+            result = run_command_only(name, argv)
+            assert result.returncode != 0, (name, result.stdout, result.stderr)
+            assert "command_not_allowed" in result.stdout + result.stderr
+            assert not (root / "BAD").exists()
+        assert (root / "src.txt").is_file()
+
 print("PASS: local legacy_strict safe content search and find no -exec/-delete")
