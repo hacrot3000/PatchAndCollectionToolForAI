@@ -835,5 +835,35 @@ def run_preflight(
                 raise PatchSchemaError(f"manual_execution cwd invalid: {cwd_raw}: {exc}", kind="manual_execution_invalid") from exc
         checks.append({"kind":"manual_execution","status":"PASS","steps":len(cfg["steps"]),"human_only":True})
 
+    # A PATCH must not generate a new script and then execute that script.
+    # Reject direct references that were absent BEFORE payload starts; this
+    # applies to current as well as legacy_strict, including failure handlers.
+    from python_patch_script_guard import ScriptOriginGuard
+    automatic_commands: list[dict[str, Any]] = []
+    for field in ("post_patch", "on_failure"):
+        section = manifest.get(field)
+        if isinstance(section, dict):
+            automatic_commands.extend(
+                command for command in (section.get("commands") or [])
+                if isinstance(command, dict)
+            )
+    automatic_commands.extend(
+        command for command in (report.get("_resolved_validation_profiles") or [])
+        if isinstance(command, dict)
+    )
+    origin_guard = ScriptOriginGuard(root, automatic_commands)
+    missing_scripts = origin_guard.missing_paths()
+    if missing_scripts:
+        script = str(missing_scripts[0])
+        raise PatchSchemaError(
+            "new_script_execution_forbidden: automatic PATCH command references "
+            f"a script not present before this PATCH: {script}. "
+            "Create the script in an earlier, separately completed PATCH.",
+            kind="new_script_execution_forbidden", path=script,
+        )
+    if automatic_commands:
+        checks.append({"kind": "script_origin", "status": "PASS",
+                       "preexisting_script_references": len(origin_guard.before)})
+
     report["target_paths"] = sorted(targets)
     return report
