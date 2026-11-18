@@ -52,6 +52,8 @@ with tempfile.TemporaryDirectory(prefix="ptv_local_readonly_whitelist_") as td:
         ["find", ".", "-fprint0", "results.txt"],
         ["find", ".", "-fprintf", "results.txt", "%p"],
         ["grep", "-f", "src/main.go", "src/main.go"],
+        ["/bin/grep", "-n", "TODO", "src/main.go"],
+        ["./grep", "TODO", "src/main.go"],
         ["grep", "--exclude-dir=.", "TODO", "src"],
         ["grep", "--include=../../etc", "TODO", "."],
         ["rg", "--pre", "src/main.go", "TODO", "."],
