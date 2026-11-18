@@ -40,7 +40,8 @@
     "use payload=manual_only only with manual_execution; non-TTY manual workflow must fail before payload mutation",
     "when package_result is enabled, preserve MANUAL_EXECUTION_RESULT ZIP+TXT and step logs as AI-facing evidence",
     "if manifest.provenance is present, use exactly ptv-patch-signature-v1 + ed25519 + a locally trusted key_id; never invent a signature or trust key; local require_signature policy may reject unsigned PATCHes",
-    "Automatic PATCH commands must reference scripts already present before this PATCH; never create then execute the same script in one PATCH (new_script_execution_forbidden), including post/on-failure/validation; use two completed PATCHes"
+    "Automatic PATCH commands must reference scripts already present before this PATCH; never create then execute the same script in one PATCH (new_script_execution_forbidden), including post/on-failure/validation; use two completed PATCHes",
+    "Remote SSH PATCH is manifest-only, requires exact user-confirmed TaskDeck SSH profile_name and project key/id, and uses a single read-only whitelisted argv; no scripts/Python/shell/OPS/local post_patch or SSH credentials; shared mode and missing profile fail closed"
   ],
   "known_migrations": {
     "source_baseline.files[].file": "preflight.files[].path",
