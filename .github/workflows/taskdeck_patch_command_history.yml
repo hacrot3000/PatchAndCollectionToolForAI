@@ -40,6 +40,7 @@ jobs:
           python3 -m compileall -q _patch_lib
           PYTHONDONTWRITEBYTECODE=1 python3 -B -S _patch_lib/self_test_collect_command_v6_20_0.py
           PYTHONDONTWRITEBYTECODE=1 python3 -B -S _patch_lib/self_test_ai_collect_contract_v6_20_0.py
+          PYTHONDONTWRITEBYTECODE=1 python3 -B -S _patch_lib/self_test_local_readonly_whitelist_v6_20_0.py
       - name: Durable per-command console and History
         run: |
           PYTHONDONTWRITEBYTECODE=1 python3 -B -S _patch_lib/self_test_patch_command_history_v6_20_0.py
@@ -93,4 +94,5 @@ jobs:
         run: |
           node --check vscode_tasks_menu_go/web/featuremods/patchpanel.js
           cd vscode_tasks_menu_go
+          go test -count=1 -run '^TestRemoteWhitelist' ./internal/patchsshpolicy
           go test -count=1 -run 'TestProtocolItem|TestPatchPanel' ./internal/session ./internal/server
