@@ -600,6 +600,47 @@ def run_preflight(
     }
     checks: list[dict[str, Any]] = report["checks"]
 
+    # Remote SSH is an isolated, manifest-only, read-only PATCH lane. It must
+    # never be combined with payload, local commands, recovery or validation:
+    # those would obscure the SSH effect and break authorization boundaries.
+    remote_ssh = manifest.get("remote_ssh")
+    if remote_ssh is not None or kind == "remote_ssh_only":
+        if kind != "remote_ssh_only" or not isinstance(remote_ssh, dict):
+            raise PatchSchemaError(
+                "remote_ssh must use a manifest-only package without Python/OPS payload",
+                kind="remote_ssh_contract_invalid")
+        forbidden = set(manifest) - {
+            "schema_version", "project", "patch", "compatibility",
+            "provenance", "ai_context", "execution", "remote_ssh",
+        }
+        if forbidden:
+            raise PatchSchemaError(
+                "remote_ssh cannot be combined with " + ", ".join(sorted(forbidden)),
+                kind="remote_ssh_contract_invalid")
+        project = manifest.get("project")
+        if not isinstance(project, dict) or not project.get("key") or not project.get("id"):
+            raise PatchSchemaError(
+                "remote_ssh requires project.key and project.id from the current AI Pack",
+                kind="remote_ssh_contract_invalid")
+        from python_patch_remote_ssh import RemoteSSHError, run_remote_ssh
+        try:
+            ssh_preflight = run_remote_ssh(root, remote_ssh, dry_run=True)
+        except RemoteSSHError as exc:
+            raise PatchSchemaError(
+                str(exc), kind="remote_ssh_preflight_rejected") from exc
+        checks.append({
+            "kind": "remote_ssh_readonly",
+            "status": "PASS",
+            "profile_name": remote_ssh["profile_name"],
+            "argv": list(remote_ssh["argv"]),
+            "dry_run": True,
+        })
+        report["remote_ssh_preflight"] = {
+            "status": "PASS",
+            "profile_name": remote_ssh["profile_name"],
+            "argv": list(remote_ssh["argv"]),
+        }
+
     # Cryptographic provenance is a local trust-policy preflight contract.
     # Verification covers canonical manifest semantics plus every regular
     # package file and always completes before any payload/source mutation.
