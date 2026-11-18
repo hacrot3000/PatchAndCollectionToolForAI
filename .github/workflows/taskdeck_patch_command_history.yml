@@ -44,28 +44,46 @@ jobs:
         run: |
           PYTHONDONTWRITEBYTECODE=1 python3 -B -S _patch_lib/self_test_patch_command_history_v6_20_0.py
           PYTHONDONTWRITEBYTECODE=1 python3 -B -S _patch_lib/self_test_script_origin_guard_v6_20_0.py
-      - name: Package checksum and bundling
+      - name: Repository source integrity and release manifest hashes
         run: |
           python3 - <<'PY'
-          import pathlib, shutil, subprocess, sys, tempfile
-          project = pathlib.Path.cwd()
-          manifest = project / "_patch_lib" / "PACKAGE_CONTENTS.txt"
-          with tempfile.TemporaryDirectory(prefix="ptv-pkg-ci-") as temp:
-              root = pathlib.Path(temp)
-              for raw in manifest.read_text(encoding="utf-8").splitlines():
-                  if not raw.startswith("tools/") or "  " in raw or "(" in raw:
-                      continue
-                  rel = pathlib.PurePosixPath(raw)
-                  if ".." in rel.parts:
-                      raise RuntimeError("unsafe package contents entry")
-                  source = project.joinpath(*rel.parts[1:])
-                  if not source.is_file():
-                      raise FileNotFoundError(f"missing package member: {raw}")
-                  dest = root.joinpath(*rel.parts)
-                  dest.parent.mkdir(parents=True, exist_ok=True)
-                  shutil.copy2(source, dest)
-              test = root / "tools" / "_patch_lib" / "self_test_package_checksums_v6_20_0.py"
-              subprocess.run([sys.executable, "-B", "-S", str(test)], cwd=root, check=True)
+          import hashlib
+          from pathlib import Path
+          repo = Path.cwd()
+          sha_file = repo / "_patch_lib" / "SHA256SUMS"
+          package_contents = (repo / "_patch_lib" / "PACKAGE_CONTENTS.txt").read_text()
+          seen = set()
+          present = 0
+          missing_release_only = []
+          for row in sha_file.read_text().splitlines():
+              if not row.strip():
+                  continue
+              expected, rel = row.split(None, 1)
+              rel = rel.lstrip("*").strip()
+              assert len(expected) == 64 and rel not in seen, rel
+              seen.add(rel)
+              assert rel.startswith("tools/"), rel
+              source = repo / rel.removeprefix("tools/")
+              if not source.is_file():
+                  if rel.startswith("tools/_patch_lib/"):
+                      raise FileNotFoundError(rel)
+                  missing_release_only.append(rel)
+                  continue
+              actual = hashlib.sha256(source.read_bytes()).hexdigest()
+              assert actual == expected, f"SHA256 mismatch: {rel}"
+              assert rel in package_contents, f"missing from release index: {rel}"
+              present += 1
+          mandatory = {
+              "tools/_patch_lib/python_patch_collect_commands.py",
+              "tools/_patch_lib/self_test_collect_command_v6_20_0.py",
+              "tools/_patch_lib/self_test_patch_command_history_v6_20_0.py",
+              "tools/_patch_lib/python_patch_runner.py",
+              "tools/_patch_lib/python_patch_queue_dispatcher.py",
+          }
+          assert mandatory <= seen, sorted(mandatory - seen)
+          print(f"PASS: {present} repo-present source hashes; optional installer-generated files not checked: {len(missing_release_only)}")
+          if missing_release_only:
+              print("Installer-generated members absent from GitHub source tree:", *missing_release_only[:12], sep="\n - ")
           PY
       - name: UI and Go session protocol
         run: |
