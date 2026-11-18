@@ -1,5 +1,11 @@
 # Python Patch Tool — cumulative capability ledger
 
+## COLLECT read-only commands and PATCH command History console (2026-11-18)
+
+- Added COLLECT `command` action using local or saved SSH profile, whitelist read-only argv, bounded output/timeout, and console evidence included in normal COLLECT result reports.
+- Added per-command PATCH console files (post-patch, failure-only, validation, rerun and SSH), structured command records, live Current run and History View/Copy console.
+- Regression: `self_test_collect_command_v6_20_0.py`, `self_test_patch_command_history_v6_20_0.py`; preserve in future changes.
+
 ## TaskDeck saved-profile read-only remote SSH lane (2026-11-18)
 
 - **NEW CONTENT SEARCH WHITELIST:** Both local command-only/`legacy_strict` and SSH read-only command paths now support `grep`, `rg`, `cat`, `head`, `tail`, `wc`, `nl`, numeric read-only `sed -n`, plus bounded safe `find -name/-iname` over SSH. Local `current` remains unchanged. `find -exec/-delete` and executing/writing variants stay forbidden in strict local and SSH. SSH search patterns and relative file paths use POSIX-shell quoting, and shell/script interpreters remain disallowed. Regression tests: `self_test_local_readonly_whitelist_v6_20_0.py` and `internal/patchsshpolicy/policy_test.go`.
