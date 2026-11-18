@@ -621,11 +621,12 @@ def _run_managed_command_logged(argv: list[str], *, cwd: Path, timeout: int,
                         sys.stdout.flush()
                 except (BrokenPipeError, OSError):
                     pass
-                if written < MAX_COMMAND_LOG_BYTES:
-                    part = chunk[:MAX_COMMAND_LOG_BYTES-written]
+                remaining = max(0, MAX_COMMAND_LOG_BYTES - written)
+                if remaining:
+                    part = chunk[:remaining]
                     output.write(part)
                     written += len(part)
-                if len(chunk) > len(part) if written <= MAX_COMMAND_LOG_BYTES else True:
+                if len(chunk) > remaining:
                     truncated = True
             if truncated:
                 output.write(b"\n[Command log truncated at 512 KiB]\n")
@@ -833,16 +834,19 @@ def _run_validation_profiles(root: Path, preflight: dict[str, object]) -> dict[s
             report.update({"status": "FAIL", "rc": 2})
             return report
         print(f"VALIDATION PROFILE: {name} | timeout={timeout}s", flush=True)
+        profile_log, profile_log_rel = _command_log_path(root, "validation")
         profile_started = time.monotonic()
         try:
             if _ACTIVE_SCRIPT_ORIGIN_GUARD is not None:
                 _ACTIVE_SCRIPT_ORIGIN_GUARD.check(argv, cwd)
-            outcome = _run_managed_process(argv, cwd=cwd, env=_external_command_env(), timeout=max(1, timeout))
+            outcome = _run_managed_command_logged(argv, cwd=cwd, timeout=max(1, timeout), log_path=profile_log)
         except KeyboardInterrupt:
             raise
         except Exception as exc:
             print(f"ERROR: validation profile {name} could not start: {type(exc).__name__}: {exc}", file=sys.stderr)
-            rows.append({"name": name, "status": "FAIL", "rc": 2, "timed_out": False, "error": f"{type(exc).__name__}: {exc}", "error_kind": getattr(exc, "kind", None)})
+            rows.append({"name": name, "status": "FAIL", "rc": 2, "timed_out": False, "error": f"{type(exc).__name__}: {exc}", "error_kind": getattr(exc, "kind", None), "log_path": profile_log_rel})
+            _append_command_evidence(stage="VALIDATION", name=name, argv=list(argv), cwd=cwd_raw,
+                                     status="FAIL", rc=2, log_path=profile_log_rel, error=str(exc))
             report.update({"status": "FAIL", "rc": 2})
             return report
         rc = outcome.effective_rc
@@ -855,7 +859,11 @@ def _run_validation_profiles(root: Path, preflight: dict[str, object]) -> dict[s
             "elapsed_seconds": elapsed,
             "timed_out": bool(outcome.timed_out),
             "lingering_descendants": bool(outcome.lingering_descendants),
+            "log_path": profile_log_rel,
         }
+        _append_command_evidence(stage="VALIDATION", name=name, argv=list(argv), cwd=cwd_raw,
+                                 status="PASS" if rc == 0 else "FAIL", rc=rc,
+                                 log_path=profile_log_rel, timed_out=bool(outcome.timed_out))
         rows.append(row)
         if rc != 0:
             rerun_cfg = profile.get("diagnostic_rerun")
