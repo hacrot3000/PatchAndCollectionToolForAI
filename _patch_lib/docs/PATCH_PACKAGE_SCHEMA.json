@@ -26,7 +26,8 @@
       "git",
       "recovery",
       "manual_execution",
-      "payload"
+      "payload",
+      "remote_ssh"
     ],
     "fields": {
       "schema_version": {
@@ -582,6 +583,35 @@
           }
         },
         "description": "Optional Ed25519 provenance signature. Trust is resolved only from local .python_patch_tool.json policy."
+      },
+      "remote_ssh": {
+        "type": "object",
+        "required": [
+          "profile_name",
+          "argv"
+        ],
+        "allowed_fields": [
+          "profile_name",
+          "argv",
+          "timeout_seconds"
+        ],
+        "fields": {
+          "profile_name": {
+            "type": "string"
+          },
+          "argv": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "timeout_seconds": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 120
+          }
+        },
+        "description": "Dedicated manifest-only PATCH remote command. Exactly one read-only SSH whitelist command, selected by unique saved TaskDeck SSH profile name; not compatible with source payload, post_patch or other execution stages. No interpreter, script or shell-string allowed."
       }
     }
   },
