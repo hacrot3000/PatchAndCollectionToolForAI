@@ -173,6 +173,18 @@ func remoteWorkflowSafeCwdOption(options map[string]any)bool{
  return true
 }
 
+// Only workspace identity constants are safe to expand in a host-authored
+// process argv. They do not depend on browser state, selection, secrets,
+// host env values, or a previously executed task. ResolveExecutionWithInputs
+// expands them on the Agent, and every prelaunch guard checks the EXACT
+// resolved argv against the original attempted-audit approval.
+func remoteWorkflowSafeStaticArg(value string)bool{
+ if len(value)>256||strings.ContainsAny(value,"\x00\r\n"){return false}
+ remaining:=strings.ReplaceAll(value,"${workspaceFolderBasename}","")
+ remaining=strings.ReplaceAll(remaining,"${workspaceFolder}","")
+ return !strings.Contains(remaining,"${")
+}
+
 func remoteWorkflowSafeProcess(task tasks.Task)bool{
  if task.Type!="process"||len(task.Inputs)!=0||
   len(task.SecretEnv)!=0||
@@ -186,8 +198,7 @@ func remoteWorkflowSafeProcess(task tasks.Task)bool{
   if !ok||len(args)>16{return false}
   for _,v:=range args{
    arg,ok:=v.(string)
-   if !ok||len(arg)>256||strings.Contains(arg,"${")||
-    strings.ContainsAny(arg,"\x00\r\n"){return false}
+   if !ok||!remoteWorkflowSafeStaticArg(arg){return false}
   }
  }
  return true

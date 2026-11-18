@@ -1701,3 +1701,20 @@ real-host testing are considered **code complete**.
   still sends only a previously approved root Task.ID, with no new wire
   protocol fields. Existing parallel workflows without the extra flag
   remain unchanged.
+
+## 2026-11-18 — Native workflow argv: stable workspace constants
+
+- Host-authored `process` task arguments may now use the standard VS Code
+  `${workspaceFolder}` or `${workspaceFolderBasename}` placeholders,
+  including inside a longer literal argument. The Agent expands both on
+  the canonical workspace; a remote GUI user still submits ONLY an
+  already-E2EE-issued root Task.ID.
+- Reject all other substitutions such as `${env:...}`,
+  `${input:...}`, file/active-editor variables, remote paths, and
+  commands. Executable command and input metadata remain unchanged.
+  Resolved argv is pinned by the same attempted-audit and final
+  process-launch execution-equivalence checks for serial and parallel
+  workflows. No new workflow environment or secret option is enabled.
+- Added tests for real sequential and parallel native processes,
+  interpolations in fixed and embedded argv, policy rejection before
+  host job creation, and a focused Go race CI preflight.
