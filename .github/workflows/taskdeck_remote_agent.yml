@@ -180,6 +180,9 @@ jobs:
       - name: Verify strict dependency graph codec, host snapshot and workflow safety
         working-directory: vscode_tasks_menu_go
         run: go test -race ./internal/remotetransport ./internal/server -run 'TestRemoteTaskDependencies' -count=1 -timeout=120s
+      - name: Preflight fixed host environment and active opt-out for native workflows
+        working-directory: vscode_tasks_menu_go
+        run: go test -race ./internal/server -run 'TestRemote(WorkflowFixedEnv(Sequential|PolicyRejectsUnsafeOptions|OptOutDeniedBeforeJob|RevocationStopsActiveStep)|ParallelWorkflowFixedEnv(Workers|RevocationStopsFork))' -count=1 -timeout=90s
       - name: Preflight VS Code process argument objects for native workflow
         working-directory: vscode_tasks_menu_go
         run: go test -race ./internal/server -run 'TestRemote(Workflow(ProcessArgObjects|ProcessArgObjectPolicyRejectsUnsafeShapes|ProcessArgObjectGraphDenial)|ParallelWorkflowProcessArgObjects)' -count=1 -timeout=90s

@@ -79,7 +79,7 @@ func remoteParallelStepTimeoutConsent(step remoteWorkflowStep)bool{
 }
 func remoteParallelAllTimeoutConsent(plan []remoteWorkflowStep)bool{
  for _,step:=range plan{
-  if !remoteParallelStepExecutionConsent(step){return false}
+  if !remoteParallelStepTimeoutConsent(step){return false}
  }
  return true
 }
