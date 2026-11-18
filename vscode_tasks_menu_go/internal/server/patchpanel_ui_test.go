@@ -1858,9 +1858,9 @@ func TestPatchPanelAIPackIsOnDemandCachedAndCopyable(t *testing.T) {
 		"Copy ZIP path",
 		"Copy absolute ZIP path on the TaskDeck host",
 		"/api/files/download?path=",
-		"aiPackActions.append(aiPackRefresh,aiPackCopyPrompt,aiPackDownload,aiPackCopyPath)",
+		"aiPackActions.append(aiPackRefresh,aiPackCopyPrompt,aiPackDownload,aiPackDownloadText,aiPackCopyText,aiPackCopyPath)",
 		"aiPackCopyPath.onclick=()=>latestAIPack&&copyFullPath(latestAIPack.path,aiPackCopyPath).catch(app.showError)",
-		"async function copyAIPackPrompt(button)",
+		"async function copyAIPackPrompt(button,full=false)",
 		"historySafeProjectPath(result.path)",
 		"/^[0-9a-f]{64}$/.test(fingerprint)",
 	} {
