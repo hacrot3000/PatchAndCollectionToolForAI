@@ -890,7 +890,15 @@ def _run_validation_profiles(root: Path, preflight: dict[str, object]) -> dict[s
                         try:
                             if _ACTIVE_SCRIPT_ORIGIN_GUARD is not None:
                                 _ACTIVE_SCRIPT_ORIGIN_GUARD.check(rerun_argv, cwd)
-                            rerun_outcome = _run_managed_process(rerun_argv, cwd=cwd, env=_external_command_env(), timeout=max(1, rerun_timeout))
+                            rerun_log, rerun_log_rel = _command_log_path(root, "diagnostic_rerun")
+                            rerun_outcome = _run_managed_command_logged(rerun_argv, cwd=cwd,
+                                                                       timeout=max(1, rerun_timeout), log_path=rerun_log)
+                            _append_command_evidence(stage="DIAGNOSTIC RERUN", name=rerun_name,
+                                                     argv=rerun_argv, cwd=cwd_raw,
+                                                     status="PASS" if rerun_outcome.effective_rc == 0 else "FAIL",
+                                                     rc=rerun_outcome.effective_rc,
+                                                     log_path=rerun_log_rel,
+                                                     timed_out=bool(rerun_outcome.timed_out))
                             rerun_row.update({
                                 "status": "PASS" if rerun_outcome.effective_rc == 0 else "FAIL",
                                 "rc": rerun_outcome.effective_rc,
@@ -2168,13 +2176,23 @@ def _execute_patch(root: Path, source: Path, *, no_validation: bool = False) -> 
         elif kind == "remote_ssh_only":
             from python_patch_remote_ssh import run_remote_ssh, RemoteSSHError
             print("PATCH PAYLOAD: REMOTE_SSH_ONLY (one read-only whitelisted SSH command)")
+            remote_node = manifest["remote_ssh"]
+            remote_argv = list(remote_node.get("argv") or [])
+            remote_name = "SSH · " + str(remote_node.get("profile_name") or "")
+            remote_log, remote_log_rel = _command_log_path(root, "remote_ssh")
             try:
-                ssh_result = run_remote_ssh(root, manifest["remote_ssh"], dry_run=False)
+                ssh_result = run_remote_ssh(root, remote_node, dry_run=False)
                 result["remote_ssh"] = ssh_result
+                console = str(ssh_result.get("stdout") or "") + str(ssh_result.get("stderr") or "")
+                if remote_log is not None:
+                    remote_log.write_text(console[:MAX_COMMAND_LOG_BYTES], encoding="utf-8")
                 for output_line in (ssh_result.get("stdout"), ssh_result.get("stderr")):
                     if output_line:
                         print(str(output_line), end="" if str(output_line).endswith("\n") else "\n")
                 rc = int(ssh_result.get("rc") or 0)
+                _append_command_evidence(stage="REMOTE SSH", name=remote_name, argv=remote_argv,
+                                         cwd="remote login", status="PASS" if rc == 0 else "FAIL",
+                                         rc=rc, log_path=remote_log_rel)
                 payload_diag = None if rc == 0 else {
                     "kind": "remote_ssh_execution_failed",
                     "message": "Saved-profile SSH command failed; see remote_ssh output",
@@ -2182,6 +2200,11 @@ def _execute_patch(root: Path, source: Path, *, no_validation: bool = False) -> 
                 }
             except RemoteSSHError as exc:
                 rc = 2
+                if remote_log is not None:
+                    remote_log.write_text(str(exc) + "\n", encoding="utf-8")
+                _append_command_evidence(stage="REMOTE SSH", name=remote_name, argv=remote_argv,
+                                         cwd="remote login", status="FAIL", rc=rc, log_path=remote_log_rel,
+                                         error=str(exc))
                 payload_diag = {"kind": exc.kind, "message": str(exc), "affected_paths": []}
                 print(f"ERROR: {exc}", file=sys.stderr)
         elif kind == "python":
