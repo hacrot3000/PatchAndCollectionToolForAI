@@ -338,6 +338,16 @@ def _check_command(root: Path, command: dict[str, Any], index: int, *, field: st
     argv = command.get("argv")
     if not isinstance(argv, list) or not argv or not all(isinstance(x, str) and x for x in argv):
         raise PatchSchemaError(f"{label}.argv must be a non-empty string array")
+    # The user-level find no-exec/no-delete contract applies to every direct
+    # local PATCH command, not only command-only/legacy_strict. Do not allow
+    # the broader source-changing "current" lane to bypass these find bans.
+    if Path(argv[0]).name.lower() == "find" and any(
+        arg in _STRICT_FIND_FORBIDDEN for arg in argv[1:]
+    ):
+        raise PatchSchemaError(
+            f"{label} uses a forbidden executing/writing find action",
+            kind="command_not_allowed",
+        )
     cwd_raw = str(command.get("cwd", "."))
     if cwd_raw == ".":
         cwd = root
