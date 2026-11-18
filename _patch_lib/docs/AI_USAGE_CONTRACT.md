@@ -1,5 +1,30 @@
 # AI / ChatGPT usage contract — Python Patch Tool v6.20.2
 
+## Remote SSH read-only command PATCH (TaskDeck saved SSH profile)
+
+**AI MUST ask for the exact saved TaskDeck SSH profile NAME before producing a remote command PATCH if the user has not supplied it.** Do not guess a hostname, SSH alias, profile name/ID, username, key path or password from project evidence. Ask the user to choose or provide the **exact unique name** from TaskDeck → Connections → SSH. Never copy credentials into a PATCH, COLLECT or AI Pack.
+
+Use **one dedicated manifest-only remote SSH PATCH** containing **only** \`PATCH_TOOL_MANIFEST.json\`; no Python entrypoint, OPS file, resources, post_patch/on_failure, local validation, recovery or scripts may be included. The manifest field is \`remote_ssh: {profile_name, argv, timeout_seconds}\`. It supports **one command per PATCH**, not a shell script or raw command string; \`timeout_seconds\` defaults to 30 and must be 1–120. Both \`project.key\` and \`project.id\` must match the current AI Pack.
+
+**Strict remote whitelist (not the broader local \`current\` profile):** \`pwd\` (no args); \`ls\` with only options made from \`a\`, \`l\`, \`h\`, \`1\` and at most one project-relative path; \`tree\` with only \`-a\`, \`-d\`, \`-L 1|2|3\` and at most one relative path; \`find\` with an optional relative path, mandatory \`-maxdepth 1|2|3\` and optional \`-type f|d\`. Example \`["find",".","-maxdepth","2","-type","f"]\`. Paths must not be absolute, escape with \`..\` or start with \`-\`. Shell metacharacters, spaces/quotes, variables, glob expansion, redirection, pipes, chaining, scripting, arbitrary binaries, \`bash\`, \`sh\`, \`python\`, \`python3\`, \`node\`, PowerShell, \`-c\`, and scripts of any extension are **never permitted** in this remote lane. Do not work around by using wrappers or file-writing options.
+
+Example **complete manifest** (replace identity/name with facts obtained from the user/current AI Pack; do not copy placeholders into a real package):
+
+\`\`\`json
+{
+  "schema_version": 1,
+  "project": {"key": "<project.key>", "id": "<project.id>"},
+  "patch": {"id": "remote-readonly-list"},
+  "remote_ssh": {
+    "profile_name": "<exact unique saved SSH profile name>",
+    "argv": ["ls", "-lah", "."],
+    "timeout_seconds": 30
+  }
+}
+\`\`\`
+
+The Python runner asks the local **TaskDeck executable** to validate the saved profile by exact name and execute the command through its existing OpenSSH/secret-store/host-key behavior, with no PTY, no stdin and bounded output. The command is **revalidated in Go immediately before SSH**; it never executes in a local shell. \`TaskDeck\` absent / profile missing or ambiguous / SSH unavailable / shared multi-user mode / unrecognized argv => fail closed before remote execution. In shared mode this CLI is intentionally disabled to avoid bypassing user permissions. Portable standalone Patch Tool cannot execute this remote lane. Remote commands execute from the remote login's default directory, **not** the project's local directory; custom SSH profile bootstrap and preset commands are not run. Running a command is an actual remote action, not a dry-run; PATCH preflight only validates the command and profile without connecting. Do not claim that the SSH host was contacted or the command succeeded until a completed execution result exists.
+
 ## Automatic PATCH command and project-local script execution (AI Pack instructions)
 
 **MANDATORY RULE — no create-and-execute in one PATCH:** A PATCH must NEVER create a new script file and then execute that same file in its payload, `post_patch.commands`, `on_failure.commands`, validation profiles, or command wrappers. Referenced automatic-command script files must already exist at the start of that PATCH. Runtime enforces the directly identifiable script-path rule at preflight and immediately before the automatic command runs; violations fail with `new_script_execution_forbidden` (or the existing `command_missing` preflight for direct executables). If a new script is required, use **two separately completed PATCHes**: PATCH A creates the script without running it; PATCH B references that existing script after PATCH A succeeded. AI must not hide the script behind `env`, inline shell snippets, a Python payload's subprocess, or an opaque build wrapper. **Scope:** static and runtime command-path checks are not a substitute for OS sandboxing of arbitrary Python payloads or opaque executables; do not claim such indirect execution is technically impossible until a separate sandbox is implemented.
