@@ -8,6 +8,7 @@ from typing import Any
 from python_patch_database_select import DatabaseSelectError, validate_database_select_action
 from python_patch_ai_sync import normalize_ai_context
 from python_patch_git_safe import GitSafeError, validate_git_action
+from python_patch_collect_commands import CollectCommandError, validate_command_action
 
 try:
     from python_patch_version import VERSION
@@ -400,6 +401,14 @@ def validate_request_data(data: Any) -> dict[str, Any]:
                 norm = validate_database_select_action(norm, label)
             except DatabaseSelectError as exc:
                 raise CollectSchemaError(str(exc)) from exc
+        elif action_type == "command":
+            try:
+                validate_command_action(norm, label)
+            except CollectCommandError as exc:
+                raise CollectSchemaError(str(exc)) from exc
+            norm["transport"] = norm.get("transport", "local")
+            norm["timeout_seconds"] = norm.get("timeout_seconds", 30)
+            norm["max_output_bytes"] = norm.get("max_output_bytes", 65536)
         elif action_type == "git":
             try:
                 norm = validate_git_action(norm, schema_git_sections=list(schema.get("git_sections") or []))
