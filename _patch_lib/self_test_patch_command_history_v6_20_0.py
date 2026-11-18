@@ -79,4 +79,17 @@ if os.name != "nt":
 else:
     print("SKIP: POSIX command artifact integration; Go protocol tests cover Windows")
 
+# A command refused before subprocess spawn must still leave History-readable
+# console evidence; an existing partial console must not be overwritten.
+from python_patch_runner import _write_command_failure_console
+with tempfile.TemporaryDirectory(prefix="ptv_failed_command_log_") as td:
+    log = Path(td) / "001_failed.log"
+    _write_command_failure_console(log, "permission_denied: blocked executable")
+    assert log.is_file() and "permission_denied" in log.read_text(), log
+    _write_command_failure_console(log, "second failure")
+    content = log.read_text()
+    assert "permission_denied" in content and "second failure" in content
+    if os.name != "nt":
+        assert log.stat().st_mode & 0o077 == 0, "command log must be private"
+
 print("PASS: each PATCH command owns a durable console artifact and History record")
