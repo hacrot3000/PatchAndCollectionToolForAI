@@ -1,5 +1,30 @@
 # CODE COLLECTION GUIDE — v6.20.2 AUTHORITATIVE CONTRACT
 
+## COLLECT read-only command action (local and SSH)
+
+COLLECT accepts `{"type":"command", "transport":"local"|"ssh", "argv":[...]}` as an **evidence-producing** action. AI must provide one literal argv array per action, not a shell script or command string. The collector executes a whitelisted read-only command, captures merged console stdout/stderr in a bounded report `reports/NNN_command.md`, records the exit status, and includes the report in the usual COLLECT ZIP and TXT. Multiple independent command actions may be included in one COLLECT request. No project source payload is run or modified.
+
+**Local example:**
+
+```json
+{"actions":[
+  {"type":"command","transport":"local","argv":["grep","-nriF","--","connection failed","src"],"cwd":".","timeout_seconds":30,"max_output_bytes":32768},
+  {"type":"command","transport":"local","argv":["head","-n","100","logs/app.log"]}
+]}
+```
+
+**SSH example** (AI must ASK for the exact saved SSH profile name if unknown; do not invent host/credentials):
+
+```json
+{"actions":[
+  {"type":"command","transport":"ssh","profile_name":"<saved unique TaskDeck profile name>","argv":["rg","-n","--","crash","logs"],"timeout_seconds":30,"max_output_bytes":32768}
+]}
+```
+
+In a real COLLECT request, replace placeholders and provide `project.key` and `project.id` from the current AI Pack. SSH uses TaskDeck's saved-profile bridge and the same strict Go SSH whitelist, not arbitrary OpenSSH arguments. In local mode, only the **read-only subset of local legacy_strict** is available; local script/interpreter execution is explicitly prohibited in COLLECT even though a standalone PATCH may run an already existing project script. Whitelisted commands: `pwd`, `ls`, `tree`, `find`, `grep`, `rg`, `cat`, `head`, `tail`, `wc`, `nl`, and numeric-print-only `sed -n`. `find -exec`/`-delete` and other execution/writing actions, `tail -f`, `sed -i`, `grep -f`, `rg --pre`, shell pipelines and redirects remain forbidden.
+
+Timeout is 1–120 seconds (default 30); `max_output_bytes` is 1024–65536 (default 65536). Output beyond the bound is marked truncated/INCOMPLETE; deadlines and non-success codes are reported with evidence. The command path never consumes stdin and does not create a script. SSH command files/paths resolve relative to the remote login directory; local command paths resolve relative to `cwd` under the project. **COLLECT commands can reveal sensitive information in command output**: AI should request only necessary diagnostics and avoid reading credentials/configurations with secrets. This does not replace the existing first-class `search`, `file`, `git`, `database_select` or other COLLECT actions; prefer those when structured provenance/coverage is needed.
+
 Python Patch Tool v6.19.3 ships a self-contained, read-only COLLECT runtime. The authoritative action/field list is `COLLECT_ACTION_SCHEMA.json`; this guide explains the intended semantics.
 
 This is an **AI/tool-facing technical document**. The public user workflow remains intentionally simple: AI provides one request ZIP (or one full plain-text JSON request for TaskDeck's Paste text mode); TaskDeck queues a canonical ZIP in `patchs/`, then the normal run workflow executes it.
