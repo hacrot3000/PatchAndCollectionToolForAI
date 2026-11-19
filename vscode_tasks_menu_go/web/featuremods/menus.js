@@ -112,7 +112,16 @@ function installHeaderMenus(){
   const aiPlansButton=document.createElement('button');aiPlansButton.type='button';aiPlansButton.textContent='Guided AI plans (review only)…';
   aiPlansButton.disabled=Boolean(app.sharedMode&&(!app.hasPermission?.('terminal.view_own')||!app.hasPermission?.('settings.read')));
   aiPlansButton.onclick=()=>{closeAll();globalThis.TaskMenuAIPlans?.open?.().catch(app.showError);};
-  addSection(settings.pop,'AI ASSISTANT',[only(canConfigure,aiSettingsButton),only(canReadSettings,aiPanelButton),only(canReadSettings,aiPlansButton)]);
+  const agentChatButton=document.createElement('button');agentChatButton.type='button';
+  agentChatButton.textContent='Open AI Agent Chat';
+  agentChatButton.disabled=Boolean(app.sharedMode&&(!app.hasPermission?.('settings.read')||!app.hasPermission?.('files.read')));
+  agentChatButton.onclick=()=>{closeAll();globalThis.TaskMenuAgentChat?.open?.().catch(app.showError);};
+  const agentProviderButton=document.createElement('button');agentProviderButton.type='button';
+  agentProviderButton.textContent='AI Agent providers / API keys…';
+  agentProviderButton.disabled=!canConfigure;
+  agentProviderButton.onclick=()=>{closeAll();globalThis.TaskMenuAgentChat?.settings?.().catch(app.showError);};
+  addSection(settings.pop,'AI ASSISTANT',[only(canConfigure,aiSettingsButton),only(canReadSettings,aiPanelButton),only(canReadSettings,aiPlansButton),
+    only(!agentChatButton.disabled,agentChatButton),only(canConfigure,agentProviderButton)]);
   addSection(settings.pop,'PATCH TOOL',[patchUIControl]);
   // Browser-local diagnostic visibility, not an administrator-wide server
   // setting. Hide the trace header control and palette entry by default.
