@@ -154,6 +154,24 @@ def emit_runtime_event(event_type: str, **payload: Any) -> bool:
         writer.close()
 
 
+def emit_command_state(command: dict[str, Any]) -> bool:
+    """Publish one nested command lifecycle update in the owning PATCH/COLLECT.
+
+    The queue dispatcher sets the parent item identity. The event channel is
+    inherited on POSIX and is observational: standalone CLI semantics are
+    unchanged when the parent FD is absent.
+    """
+    try:
+        index = int(os.environ.get("TASKDECK_PATCH_PROGRESS_INDEX", ""), 10)
+    except ValueError:
+        return False
+    name = os.environ.get("TASKDECK_PATCH_PROGRESS_ITEM_NAME", "")
+    if index < 1 or not name:
+        return False
+    return emit_runtime_event("command_state", item_index=index,
+                              item_name=name, command=command)
+
+
 def prompt_channels_from_env() -> tuple[EventWriter | None, CommandReader | None]:
     """Open child prompt channels only when both machine FDs are present.
 
