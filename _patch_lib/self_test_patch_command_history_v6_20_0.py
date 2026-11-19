@@ -47,11 +47,33 @@ if os.name != "nt":
         env = dict(os.environ)
         env["PYTHONDONTWRITEBYTECODE"] = "1"
         env["PTV_DISABLE_LIVE_STATUS"] = "1"
-        run = subprocess.run(
-            [str(root / "tools" / "run_python_patches.sh"),
-             "run", "--patch", "patchs/commands.zip", "-y"],
-            cwd=root, env=env, capture_output=True, text=True, timeout=90,
-        )
+        event_read, event_write = os.pipe()
+        env["TASKDECK_PATCH_EVENT_FD"] = str(event_write)
+        try:
+            run = subprocess.run(
+                [str(root / "tools" / "run_python_patches.sh"),
+                 "run", "--patch", "patchs/commands.zip", "-y"],
+                cwd=root, env=env, capture_output=True, text=True, timeout=90,
+                pass_fds=(event_write,),
+            )
+        finally:
+            os.close(event_write)
+        import select
+        event_parts = []
+        try:
+            while select.select([event_read], [], [], 0.3)[0]:
+                chunk = os.read(event_read, 65536)
+                if not chunk:
+                    break
+                event_parts.append(chunk)
+        finally:
+            os.close(event_read)
+        emitted = [json.loads(x) for x in b"".join(event_parts).decode("utf-8").splitlines()
+                   if x.strip()]
+        live = [x for x in emitted if x.get("type") == "command_state"]
+        assert [x["command"]["status"] for x in live] == ["QUEUE", "RUNNING", "PASS"], live
+        assert [x["command"]["index"] for x in live] == [1, 1, 1], live
+        assert all(x["item_index"] == 1 and x["item_name"] == "commands.zip" for x in live), live
         assert run.returncode == 0, (run.stdout, run.stderr)
         assert "alpha" in run.stdout
 
