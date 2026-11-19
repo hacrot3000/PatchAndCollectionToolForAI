@@ -1473,6 +1473,12 @@ func cloneProtocolState(in ProtocolState) ProtocolState {
 	}
 	out.Prompt = append(json.RawMessage(nil), in.Prompt...)
 	out.Items = append([]ProtocolItemState(nil), in.Items...)
+    for i := range out.Items {
+        out.Items[i].Commands = append([]ProtocolCommandEvidenceState(nil), in.Items[i].Commands...)
+        for j := range out.Items[i].Commands {
+            out.Items[i].Commands[j].Argv = append([]string(nil), in.Items[i].Commands[j].Argv...)
+        }
+    }
 	out.Artifacts = append([]ProtocolArtifactState(nil), in.Artifacts...)
 	out.RunErrors = append([]ProtocolRunErrorState(nil), in.RunErrors...)
 	if in.Progress != nil {
