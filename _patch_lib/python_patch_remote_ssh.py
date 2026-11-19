@@ -12,13 +12,79 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import signal
+import threading
+from typing import Callable
 
 
 class RemoteSSHError(ValueError):
     kind = "remote_ssh_rejected"
 
 
-def run_remote_ssh(root: Path, remote: dict, *, dry_run: bool) -> dict[str, object]:
+def _run_streamed_bridge(args: list[str], payload: str, root: Path, timeout: int,
+                         callback: Callable[[str, bytes], None]) -> subprocess.CompletedProcess:
+    """Stream bounded CLI output without using an interactive shell/stdin."""
+    kwargs = {"cwd": root, "stdin": subprocess.PIPE,
+              "stdout": subprocess.PIPE, "stderr": subprocess.PIPE}
+    if os.name != "nt":
+        kwargs["start_new_session"] = True
+    elif hasattr(subprocess, "CREATE_NEW_PROCESS_GROUP"):
+        kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
+    proc = subprocess.Popen(args, **kwargs)
+    collected: dict[str, bytearray] = {"stdout": bytearray(), "stderr": bytearray()}
+    def drain(kind: str, stream) -> None:
+        buffer = collected[kind]
+        while True:
+            chunk = os.read(stream.fileno(), 4096)
+            if not chunk:
+                break
+            buffer.extend(chunk)
+            if len(buffer) > 65536:
+                del buffer[:len(buffer) - 65536]
+            try:
+                callback(kind, chunk)
+            except Exception:
+                # Console is observational; do not interrupt authenticated SSH.
+                pass
+    threads = []
+    for kind, stream in (("stdout", proc.stdout), ("stderr", proc.stderr)):
+        thread = threading.Thread(target=drain, args=(kind, stream), daemon=True)
+        thread.start()
+        threads.append(thread)
+    try:
+        if proc.stdin is not None:
+            try:
+                proc.stdin.write(payload.encode("utf-8"))
+                proc.stdin.flush()
+            except BrokenPipeError:
+                pass
+            finally:
+                proc.stdin.close()
+        try:
+            rc = proc.wait(timeout=timeout + 20)
+        except subprocess.TimeoutExpired as exc:
+            try:
+                if os.name != "nt":
+                    os.killpg(proc.pid, signal.SIGKILL)
+                else:
+                    proc.kill()
+            except ProcessLookupError:
+                pass
+            proc.wait(timeout=5)
+            raise RemoteSSHError("TaskDeck SSH command bridge timed out") from exc
+    finally:
+        for thread in threads:
+            thread.join(timeout=3)
+        for stream in (proc.stdout, proc.stderr):
+            if stream is not None:
+                stream.close()
+    return subprocess.CompletedProcess(args, rc,
+                                       collected["stdout"].decode("utf-8", errors="replace"),
+                                       collected["stderr"].decode("utf-8", errors="replace"))
+
+
+def run_remote_ssh(root: Path, remote: dict, *, dry_run: bool,
+                   output_callback: Callable[[str, bytes], None] | None = None) -> dict[str, object]:
     if not isinstance(remote, dict):
         raise RemoteSSHError("remote_ssh must be an object")
     name = remote.get("profile_name")
@@ -45,12 +111,15 @@ def run_remote_ssh(root: Path, remote: dict, *, dry_run: bool) -> dict[str, obje
         "dry_run": bool(dry_run),
     }
     try:
-        result = subprocess.run(
-            [executable, "patch-ssh-command", "--workspace", str(root.resolve(strict=True))],
-            input=json.dumps(payload, ensure_ascii=False),
-            cwd=root, capture_output=True, text=True,
-            timeout=timeout + 20, check=False,
-        )
+        bridge = [executable, "patch-ssh-command", "--workspace", str(root.resolve(strict=True))]
+        serialized = json.dumps(payload, ensure_ascii=False)
+        if output_callback is not None and not dry_run:
+            result = _run_streamed_bridge(bridge, serialized, root, timeout, output_callback)
+        else:
+            result = subprocess.run(
+                bridge, input=serialized, cwd=root, capture_output=True,
+                text=True, timeout=timeout + 20, check=False,
+            )
     except subprocess.TimeoutExpired as exc:
         raise RemoteSSHError("TaskDeck SSH command bridge timed out") from exc
     except OSError as exc:
