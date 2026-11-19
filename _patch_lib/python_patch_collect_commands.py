@@ -266,19 +266,38 @@ def execute_collect_command(root: Path, action: dict, *, log_path: Path | None =
     transport = action.get("transport", "local")
     cap = int(action.get("max_output_bytes", MAX_OUTPUT))
     if transport == "ssh":
-        try:
-            result = run_remote_ssh(root, {
-                "profile_name": action["profile_name"],
-                "argv": argv,
-                "timeout_seconds": action.get("timeout_seconds", 30)
-            }, dry_run=False)
-        except RemoteSSHError as exc:
-            raise CollectCommandError(f"SSH command could not run: {exc}") from exc
-        content = (str(result.get("stdout") or "") + str(result.get("stderr") or "")).encode("utf-8", errors="replace")
+        log_stream = None
+        captured = [0]
         if log_path is not None:
-            # SSH bridge collects its bounded output at completion. RUNNING
-            # status remains live even if remote output is delayed.
             log_path.parent.mkdir(parents=True, exist_ok=True)
+            log_stream = log_path.open("wb")
+            try:
+                os.chmod(log_path, 0o600)
+            except OSError:
+                pass
+        def on_remote_output(channel: str, chunk: bytes) -> None:
+            if log_stream is None:
+                return
+            remaining = max(0, cap - captured[0])
+            if remaining:
+                piece = chunk[:remaining]
+                log_stream.write(piece)
+                log_stream.flush()
+                captured[0] += len(piece)
+        try:
+            try:
+                result = run_remote_ssh(root, {
+                    "profile_name": action["profile_name"],
+                    "argv": argv,
+                    "timeout_seconds": action.get("timeout_seconds", 30)
+                }, dry_run=False, output_callback=on_remote_output)
+            except RemoteSSHError as exc:
+                raise CollectCommandError(f"SSH command could not run: {exc}") from exc
+        finally:
+            if log_stream is not None:
+                log_stream.close()
+        content = (str(result.get("stdout") or "") + str(result.get("stderr") or "")).encode("utf-8", errors="replace")
+        if log_path is not None and captured[0] == 0:
             log_path.write_bytes(content[:cap])
         return {
             "transport": transport, "profile_name": action["profile_name"],
