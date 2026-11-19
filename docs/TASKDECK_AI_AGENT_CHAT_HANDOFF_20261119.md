@@ -120,11 +120,11 @@ These are **design targets**, not promises that routes already exist.
 
 ### F05 — Tool Gateway and Patch Tool feedback loop [IN PROGRESS: native path implemented, live validation / automatic recovery outstanding]
 - [x] F05.1 Function tool schema `taskdeck_submit_patch` with strict JSON name/patch_python; human approval required; no arbitrary shell tool.
-  - [ ] F05.1.1 Validate exact patch schema, project UUID, scope, approval, source drift, expected HEAD.
-  - [ ] F05.1.2 Idempotency ledger + durable queue binding before tool success acknowledgement.
+  - [ ] F05.1.1 Enforce native patch schema / both project identity headers / one-time approval / exact selection (DONE in code); source drift / expected Git HEAD verification remains TODO.
+  - [x] F05.1.2 Persist per-call idempotency ledger before queueing and once-only AI result output; shared cross-process transaction/locking remains F06.
 - [x] F05.2 Wire approved patches to existing Patch Paste queue and native Patch Session / prompt_response handlers; real runtime acceptance remains unverified.
   - [x] F05.2.1 Persist link from originating AI call_id to queued package SHA and native Patch Session ID (PATCH only; COLLECT future).
-  - [ ] F05.2.2 Collect exit code/status/times, bounded console/diff/artifact refs, tool result.
+  - [ ] F05.2.2 Collect native per-item status/RC/elapsed, command summary and bounded output tail (DONE in code); full console/diff/artifact-link UI remains TODO.
 - [ ] F05.3 Fully automatic AI feedback loop across long-running jobs/restarts (manual-confirmed continuation implemented, unattended recovery still pending).
   - [x] F05.3.1 Send evidence-backed `function_call_output` using exact call_id in a once-only opt-in continuation endpoint; further automatic scheduling pending.
   - [x] F05.3.2 Persist QUEUING/UNKNOWN transitions before side effects; no automatic patch resubmission; manual recovery of ambiguous runs remains pending.
@@ -216,9 +216,9 @@ Committed source:
 - `web/featuremods/agentchat.js`: review Python source, approve/reject, show queue and native Patch Session ID, poll result while Chat is open, send result to AI using explicit consent. Does NOT expose an arbitrary shell command route.
 - `internal/server/agent_chat_tools_test.go`, `agent_chat_native_test.go`, `agent_chat_sync_test.go`, UI/RBAC tests: native queue integration (without live execution), duplicate approval rejection, wrong project identity, exact package selection, protocol result truthfulness, filtered output and once-only AI tool feedback.
 
-**CI evidence:** [Run 44476766966](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/44476766966) — PASS on commit `2d6271c`, Go race tests/core, server Agent tests, JavaScript syntax check. No production endpoint credentials or live Python Patch runtime were executed in these tests.
+**CI evidence:** [Run 44477297240](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/44477297240) — PASS on commit `ccfac9b`; Go race tests/core, server Agent tests including a fake native Session Service that checks exact item selection through TaskDeck's actual handler chain, and JavaScript syntax check. No production endpoint credentials or live Python Patch runtime were executed in these tests.
 
-**Important outstanding work:** GUI-only polling is not an unattended server-side agent loop; after closing the browser no automatic model continuation occurs. A finished job requires the user to reopen the session and explicitly submit the verified result to AI. Real native Patch run, remote E2EE, workspace write leases/Git HEAD check, process restart reconciliation, streaming, provider fallback, artifact console previews, full regression testing, error recovery and security hardening remain open. **Code implemented ≠ live integration verified.** Do not mark unattended auto-run or end-to-end autonomous Agent as DONE.
+**Important outstanding work:** A fake-protocol integration test now exercises actual native /api/sessions + prompt-response handler linkage and confirms only the approved queued package is selected; it is **not** a live Python Patch run. GUI-only polling is not an unattended server-side agent loop; after closing the browser no automatic model continuation occurs. A finished job requires the user to reopen the session and explicitly submit the verified result to AI. Real native Patch run, remote E2EE, workspace write leases/Git HEAD check, process restart reconciliation, streaming, provider fallback, artifact console previews, full regression testing, error recovery and security hardening remain open. **Code implemented ≠ live integration verified.** Do not mark unattended auto-run or end-to-end autonomous Agent as DONE.
 
 ## 8. First implementation change boundaries and handoff to next engineer
 
