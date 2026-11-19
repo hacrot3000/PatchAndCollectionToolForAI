@@ -686,7 +686,8 @@ def _write_command_failure_console(path: Path | None, message: str) -> None:
 
 def _append_command_evidence(*, stage: str, name: str, argv: list[str],
                              cwd: str, status: str, rc: int, log_path: str,
-                             timed_out: bool = False, error: str = "") -> None:
+                             timed_out: bool = False, error: str = "",
+                             started_at: str = "", elapsed_seconds: float | None = None) -> None:
     row: dict[str, object] = {
         "index": len(_ACTIVE_COMMAND_EVIDENCE) + 1,
         "stage": stage, "name": name[:256],
@@ -701,6 +702,10 @@ def _append_command_evidence(*, stage: str, name: str, argv: list[str],
         "status": status, "rc": rc, "log_path": log_path,
         "timed_out": timed_out,
     }
+    if started_at:
+        row["started_at"] = started_at
+    if elapsed_seconds is not None:
+        row["elapsed_seconds"] = round(max(0.0, elapsed_seconds), 3)
     if error:
         row["error"] = error[:512]
     _ACTIVE_COMMAND_EVIDENCE.append(row)
@@ -798,7 +803,8 @@ def _run_command_sequence(root: Path, commands: object, *, label: str) -> dict[s
                          "log_path": log_rel})
             _append_command_evidence(stage=label, name=name, argv=argv_evidence,
                                      cwd=cwd_evidence, status=status, rc=rc,
-                                     log_path=log_rel, timed_out=bool(outcome.timed_out))
+                                     log_path=log_rel, timed_out=bool(outcome.timed_out),
+                                     started_at=started_at, elapsed_seconds=time.monotonic() - began)
             _live_command_event(index=command_index, stage=label, name=name,
                                 argv=argv_evidence, status=status, rc=rc,
                                 log_path=log_rel, started_at=started_at,
@@ -810,7 +816,8 @@ def _run_command_sequence(root: Path, commands: object, *, label: str) -> dict[s
                          "timed_out": False, "log_path": log_rel})
             _append_command_evidence(stage=label, name=name, argv=argv_evidence,
                                      cwd=cwd_evidence, status="INTERRUPTED", rc=rc,
-                                     log_path=log_rel)
+                                     log_path=log_rel, started_at=started_at,
+                                     elapsed_seconds=time.monotonic() - began)
             _live_command_event(index=command_index, stage=label, name=name,
                                 argv=argv_evidence, status="INTERRUPTED", rc=rc,
                                 log_path=log_rel, started_at=started_at,
@@ -825,7 +832,8 @@ def _run_command_sequence(root: Path, commands: object, *, label: str) -> dict[s
             _write_command_failure_console(log_file, f"{type(exc).__name__}: {exc}")
             _append_command_evidence(stage=label, name=name, argv=argv_evidence,
                                      cwd=cwd_evidence, status="FAIL", rc=2,
-                                     log_path=log_rel, error=f"{type(exc).__name__}: {exc}")
+                                     log_path=log_rel, error=f"{type(exc).__name__}: {exc}",
+                                     started_at=started_at, elapsed_seconds=time.monotonic() - began)
             _live_command_event(index=command_index, stage=label, name=name,
                                 argv=argv_evidence, status="FAIL", rc=2,
                                 log_path=log_rel, started_at=started_at,
@@ -961,7 +969,8 @@ def _run_validation_profiles(root: Path, preflight: dict[str, object]) -> dict[s
             _write_command_failure_console(profile_log, f"{type(exc).__name__}: {exc}")
             rows.append({"name": name, "status": "FAIL", "rc": 2, "timed_out": False, "error": f"{type(exc).__name__}: {exc}", "error_kind": getattr(exc, "kind", None), "log_path": profile_log_rel})
             _append_command_evidence(stage="VALIDATION", name=name, argv=list(argv), cwd=cwd_raw,
-                                     status="FAIL", rc=2, log_path=profile_log_rel, error=str(exc))
+                                     status="FAIL", rc=2, log_path=profile_log_rel, error=str(exc),
+                                     started_at=profile_utc, elapsed_seconds=time.monotonic() - profile_started)
             _live_command_event(index=profile_index, stage="VALIDATION", name=name,
                                 argv=list(argv), status="FAIL", rc=2,
                                 started_at=profile_utc, log_path=profile_log_rel,
@@ -982,7 +991,8 @@ def _run_validation_profiles(root: Path, preflight: dict[str, object]) -> dict[s
         }
         _append_command_evidence(stage="VALIDATION", name=name, argv=list(argv), cwd=cwd_raw,
                                  status="PASS" if rc == 0 else "FAIL", rc=rc,
-                                 log_path=profile_log_rel, timed_out=bool(outcome.timed_out))
+                                 log_path=profile_log_rel, timed_out=bool(outcome.timed_out),
+                                 started_at=profile_utc, elapsed_seconds=elapsed)
         _live_command_event(index=profile_index, stage="VALIDATION", name=name,
                             argv=list(argv), status="PASS" if rc == 0 else "FAIL", rc=rc,
                             log_path=profile_log_rel, started_at=profile_utc,
@@ -1029,7 +1039,8 @@ def _run_validation_profiles(root: Path, preflight: dict[str, object]) -> dict[s
                                                      status="PASS" if rerun_outcome.effective_rc == 0 else "FAIL",
                                                      rc=rerun_outcome.effective_rc,
                                                      log_path=rerun_log_rel,
-                                                     timed_out=bool(rerun_outcome.timed_out))
+                                                     timed_out=bool(rerun_outcome.timed_out),
+                                                     started_at=rerun_utc, elapsed_seconds=time.monotonic() - rerun_started)
                             _live_command_event(index=rerun_index, stage="DIAGNOSTIC RERUN",
                                                 name=rerun_name, argv=rerun_argv,
                                                 status="PASS" if rerun_outcome.effective_rc == 0 else "FAIL",
@@ -1048,7 +1059,8 @@ def _run_validation_profiles(root: Path, preflight: dict[str, object]) -> dict[s
                             _write_command_failure_console(rerun_log, f"{type(exc).__name__}: {exc}")
                             _append_command_evidence(stage="DIAGNOSTIC RERUN", name=rerun_name,
                                                      argv=rerun_argv, cwd=cwd_raw, status="FAIL",
-                                                     rc=2, log_path=rerun_log_rel, error=str(exc))
+                                                     rc=2, log_path=rerun_log_rel, error=str(exc),
+                                                     started_at=rerun_utc, elapsed_seconds=time.monotonic() - rerun_started)
                             _live_command_event(index=rerun_index, stage="DIAGNOSTIC RERUN",
                                                 name=rerun_name, argv=rerun_argv, status="FAIL",
                                                 rc=2, started_at=rerun_utc, log_path=rerun_log_rel,
@@ -2349,7 +2361,9 @@ def _execute_patch(root: Path, source: Path, *, no_validation: bool = False) -> 
                 rc = int(ssh_result.get("rc") or 0)
                 _append_command_evidence(stage="REMOTE SSH", name=remote_name, argv=remote_argv,
                                          cwd="remote login", status="PASS" if rc == 0 else "FAIL",
-                                         rc=rc, log_path=remote_log_rel)
+                                         rc=rc, log_path=remote_log_rel,
+                                         started_at=remote_started_at,
+                                         elapsed_seconds=time.monotonic() - remote_start)
                 _live_command_event(index=remote_index, stage="REMOTE SSH", name=remote_name,
                                     argv=remote_argv, status="PASS" if rc == 0 else "FAIL",
                                     rc=rc, log_path=remote_log_rel, started_at=remote_started_at,
@@ -2365,7 +2379,8 @@ def _execute_patch(root: Path, source: Path, *, no_validation: bool = False) -> 
                     remote_log.write_text(str(exc) + "\n", encoding="utf-8")
                 _append_command_evidence(stage="REMOTE SSH", name=remote_name, argv=remote_argv,
                                          cwd="remote login", status="FAIL", rc=rc, log_path=remote_log_rel,
-                                         error=str(exc))
+                                         error=str(exc), started_at=remote_started_at,
+                                         elapsed_seconds=time.monotonic() - remote_start)
                 _live_command_event(index=remote_index, stage="REMOTE SSH", name=remote_name,
                                     argv=remote_argv, status="FAIL", rc=rc,
                                     log_path=remote_log_rel, started_at=remote_started_at,
