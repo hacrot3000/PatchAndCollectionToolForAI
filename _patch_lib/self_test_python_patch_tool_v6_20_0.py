@@ -47,6 +47,7 @@ names=[
  'self_test_local_readonly_whitelist_v6_20_0.py',
  'self_test_script_origin_guard_v6_20_0.py',
  'self_test_patch_command_history_v6_20_0.py',
+ 'self_test_live_command_state_v6_20_0.py',
  'self_test_remote_ssh_v6_20_0.py',
  'self_test_existing_capability_hardening_v6_20_2.py',
  'self_test_historical_compatibility_v6_20_0.py',
