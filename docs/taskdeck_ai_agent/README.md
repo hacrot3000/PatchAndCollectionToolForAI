@@ -1,6 +1,6 @@
 # Kế hoạch triển khai TaskDeck AI Agent Chat
 
-Ngày lập: 2026-11-19. Tài liệu nguồn và checklist chính: [handoff](../TASKDECK_AI_AGENT_CHAT_HANDOFF_20261119.md). Các tài liệu bên dưới là phương án triển khai, không phải bằng chứng tính năng đã hoàn thành. Không tự đổi trạng thái checkbox khi chưa có mã và bằng chứng tương ứng.
+Ngày lập: 2026-11-19. Tài liệu nguồn và checklist chính: [handoff](../TASKDECK_AI_AGENT_CHAT_HANDOFF_20261119.md). Các tài liệu bên dưới là phương án triển khai, không phải bằng chứng tính năng đã hoàn thành. Đợt rà soát theo commit `b2f2234a` đã đối chiếu 9 file/đường link và code hiện tại; **chưa đạt release gate**. Chi tiết tại [Source Audit](09-source-audit.md). Không tự đổi trạng thái checkbox khi chưa có mã và bằng chứng tương ứng.
 
 ## Danh mục theo nhóm
 
@@ -14,6 +14,8 @@ Ngày lập: 2026-11-19. Tài liệu nguồn và checklist chính: [handoff](../
 | F06 | Đồng thời, writer lease và remote | [06-parallel-remote.md](06-parallel-remote.md) |
 | F07 | Bảo mật, kiểm thử, vận hành và nghiệm thu | [07-acceptance.md](07-acceptance.md) |
 | F08 | Planner tương lai, chỉ thiết kế | [08-future-planner.md](08-future-planner.md) |
+
+**Rà soát liên nhóm:** [09-source-audit.md](09-source-audit.md) — báo cáo P0/P1, bằng chứng source/CI, không tạo thêm feature F09.
 
 Mỗi dòng Fxx/Fxx.y/Fxx.y.z trong checklist nguồn liên kết trực tiếp đến tài liệu nhóm tương ứng. Khi thực hiện một mục, đọc cả phần nguyên tắc chung và phần ID cụ thể; không diễn giải mục `[x]` là được kiểm thử live.
 
@@ -41,3 +43,5 @@ Mỗi dòng Fxx/Fxx.y/Fxx.y.z trong checklist nguồn liên kết trực tiếp 
 - Hành vi với workspace không phải Git, branch detached, thay đổi chưa commit, symlink/mount và các process writer ngoài TaskDeck; nếu chưa có bảo đảm thì từ chối execution tự động.
 - Chính sách khôi phục UNKNOWN và xung đột cross-process sau crash; không bao giờ tự coi timeout là chưa chạy.
 - Remote Patch hiện chưa được chứng minh có operation tương ứng: phải có thiết kế, host opt-in và security gate riêng, không biến dispatcher hiện tại thành arbitrary HTTP/shell.
+
+**Lưu ý trạng thái:** `queue receipt` ≠ đã chạy, `prompt_response accepted` ≠ PASS, và `FeedbackSent` ≠ provider ACK. Tại thời điểm kiểm tra, CI selector cũ bỏ qua 10/25 Agent server tests; selector mới và PR triggers đã được sửa trong commit `7d6c6bed`, CI [44479964926](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/44479964926) PASS cho tập test được chọn, không phải live acceptance.
