@@ -942,7 +942,14 @@ def _run_validation_profiles(root: Path, preflight: dict[str, object]) -> dict[s
             return report
         print(f"VALIDATION PROFILE: {name} | timeout={timeout}s", flush=True)
         profile_log, profile_log_rel = _command_log_path(root, "validation")
+        profile_index = len(_ACTIVE_COMMAND_EVIDENCE) + 1
+        profile_utc = _command_utc_now()
         profile_started = time.monotonic()
+        _live_command_event(index=profile_index, stage="VALIDATION", name=name,
+                            argv=list(argv), status="QUEUE")
+        _live_command_event(index=profile_index, stage="VALIDATION", name=name,
+                            argv=list(argv), status="RUNNING", log_path=profile_log_rel,
+                            started_at=profile_utc)
         try:
             if _ACTIVE_SCRIPT_ORIGIN_GUARD is not None:
                 _ACTIVE_SCRIPT_ORIGIN_GUARD.check(argv, cwd)
@@ -955,6 +962,10 @@ def _run_validation_profiles(root: Path, preflight: dict[str, object]) -> dict[s
             rows.append({"name": name, "status": "FAIL", "rc": 2, "timed_out": False, "error": f"{type(exc).__name__}: {exc}", "error_kind": getattr(exc, "kind", None), "log_path": profile_log_rel})
             _append_command_evidence(stage="VALIDATION", name=name, argv=list(argv), cwd=cwd_raw,
                                      status="FAIL", rc=2, log_path=profile_log_rel, error=str(exc))
+            _live_command_event(index=profile_index, stage="VALIDATION", name=name,
+                                argv=list(argv), status="FAIL", rc=2,
+                                started_at=profile_utc, log_path=profile_log_rel,
+                                elapsed_seconds=time.monotonic() - profile_started)
             report.update({"status": "FAIL", "rc": 2})
             return report
         rc = outcome.effective_rc
@@ -972,6 +983,10 @@ def _run_validation_profiles(root: Path, preflight: dict[str, object]) -> dict[s
         _append_command_evidence(stage="VALIDATION", name=name, argv=list(argv), cwd=cwd_raw,
                                  status="PASS" if rc == 0 else "FAIL", rc=rc,
                                  log_path=profile_log_rel, timed_out=bool(outcome.timed_out))
+        _live_command_event(index=profile_index, stage="VALIDATION", name=name,
+                            argv=list(argv), status="PASS" if rc == 0 else "FAIL", rc=rc,
+                            log_path=profile_log_rel, started_at=profile_utc,
+                            elapsed_seconds=elapsed, timed_out=bool(outcome.timed_out))
         rows.append(row)
         if rc != 0:
             rerun_cfg = profile.get("diagnostic_rerun")
@@ -996,6 +1011,14 @@ def _run_validation_profiles(root: Path, preflight: dict[str, object]) -> dict[s
                         rerun_timeout = int(rerun_cfg.get("timeout_seconds") or min(timeout, 600))
                         print(f"DIAGNOSTIC RERUN: {rerun_name}", flush=True)
                         rerun_log, rerun_log_rel = _command_log_path(root, "diagnostic_rerun")
+                        rerun_index = len(_ACTIVE_COMMAND_EVIDENCE) + 1
+                        rerun_utc = _command_utc_now()
+                        rerun_started = time.monotonic()
+                        _live_command_event(index=rerun_index, stage="DIAGNOSTIC RERUN",
+                                            name=rerun_name, argv=rerun_argv, status="QUEUE")
+                        _live_command_event(index=rerun_index, stage="DIAGNOSTIC RERUN",
+                                            name=rerun_name, argv=rerun_argv, status="RUNNING",
+                                            started_at=rerun_utc, log_path=rerun_log_rel)
                         try:
                             if _ACTIVE_SCRIPT_ORIGIN_GUARD is not None:
                                 _ACTIVE_SCRIPT_ORIGIN_GUARD.check(rerun_argv, cwd)
@@ -1007,6 +1030,13 @@ def _run_validation_profiles(root: Path, preflight: dict[str, object]) -> dict[s
                                                      rc=rerun_outcome.effective_rc,
                                                      log_path=rerun_log_rel,
                                                      timed_out=bool(rerun_outcome.timed_out))
+                            _live_command_event(index=rerun_index, stage="DIAGNOSTIC RERUN",
+                                                name=rerun_name, argv=rerun_argv,
+                                                status="PASS" if rerun_outcome.effective_rc == 0 else "FAIL",
+                                                rc=rerun_outcome.effective_rc,
+                                                started_at=rerun_utc, log_path=rerun_log_rel,
+                                                elapsed_seconds=time.monotonic() - rerun_started,
+                                                timed_out=bool(rerun_outcome.timed_out))
                             rerun_row.update({
                                 "status": "PASS" if rerun_outcome.effective_rc == 0 else "FAIL",
                                 "rc": rerun_outcome.effective_rc,
@@ -1019,6 +1049,10 @@ def _run_validation_profiles(root: Path, preflight: dict[str, object]) -> dict[s
                             _append_command_evidence(stage="DIAGNOSTIC RERUN", name=rerun_name,
                                                      argv=rerun_argv, cwd=cwd_raw, status="FAIL",
                                                      rc=2, log_path=rerun_log_rel, error=str(exc))
+                            _live_command_event(index=rerun_index, stage="DIAGNOSTIC RERUN",
+                                                name=rerun_name, argv=rerun_argv, status="FAIL",
+                                                rc=2, started_at=rerun_utc, log_path=rerun_log_rel,
+                                                elapsed_seconds=time.monotonic() - rerun_started)
                             rerun_row.update({"status": "FAIL", "rc": 2, "error": type(exc).__name__,
                                               "name": rerun_name, "log_path": rerun_log_rel})
                         # Historical contract: diagnostic rerun is evidence only.
