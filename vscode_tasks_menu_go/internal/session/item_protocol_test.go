@@ -115,3 +115,48 @@ func TestProtocolItemRejectsUnsafeCommandConsolePaths(t *testing.T) {
 		}
 	}
 }
+
+
+func TestProtocolItemLiveCommandQueueRunningDoneAndSkipped(t *testing.T) {
+	s := &managedSession{protocol: ProtocolState{Available: true, Enabled: true}}
+	lines := []string{
+		`{"protocol":"taskdeck.patch","version":1,"type":"run_started","seq":1}`,
+		`{"protocol":"taskdeck.patch","version":1,"type":"item_started","seq":2,"index":1,"total":1,"name":"build.zip","kind":"PATCH"}`,
+		`{"protocol":"taskdeck.patch","version":1,"type":"command_state","seq":3,"item_index":1,"item_name":"build.zip","command":{"index":1,"name":"Compile","stage":"POST PATCH","argv":["bash","build.sh"],"status":"QUEUE"}}`,
+		`{"protocol":"taskdeck.patch","version":1,"type":"command_state","seq":4,"item_index":1,"item_name":"build.zip","command":{"index":2,"name":"Upload","stage":"POST PATCH","argv":["./upload.sh"],"status":"QUEUE"}}`,
+		`{"protocol":"taskdeck.patch","version":1,"type":"command_state","seq":5,"item_index":1,"item_name":"build.zip","command":{"index":1,"name":"Compile","stage":"POST PATCH","argv":["bash","build.sh"],"status":"RUNNING","started_at":"2026-11-19T10:00:00Z","log_path":"artifacts/patch_tool/runs/test/command_items/001_build/command_logs/001_post_patch.log"}}`,
+	}
+	for _, line := range lines {
+		s.applyProtocolLine([]byte(line))
+	}
+	current := cloneProtocolState(s.protocol)
+	if len(current.Items) != 1 || len(current.Items[0].Commands) != 2 ||
+		current.Items[0].Commands[0].Status != "RUNNING" || current.Items[0].Commands[1].Status != "QUEUE" {
+		t.Fatalf("live nested command lifecycle missing: %#v", current.Items)
+	}
+	s.applyProtocolLine([]byte(`{"protocol":"taskdeck.patch","version":1,"type":"command_state","seq":6,"item_index":1,"item_name":"build.zip","command":{"index":1,"name":"Compile","stage":"POST PATCH","status":"PASS","rc":0,"started_at":"2026-11-19T10:00:00Z","elapsed_seconds":62.5,"log_path":"artifacts/patch_tool/runs/test/command_items/001_build/command_logs/001_post_patch.log"}}`))
+	s.applyProtocolLine([]byte(`{"protocol":"taskdeck.patch","version":1,"type":"item_finished","seq":7,"index":1,"total":1,"name":"build.zip","kind":"PATCH","status":"FAIL","rc":2}`))
+	current = cloneProtocolState(s.protocol)
+	if len(current.Items) != 1 || len(current.Items[0].Commands) != 2 ||
+		current.Items[0].Commands[0].Status != "PASS" ||
+		current.Items[0].Commands[0].ElapsedSeconds == nil ||
+		*current.Items[0].Commands[0].ElapsedSeconds != 62.5 ||
+		current.Items[0].Commands[1].Status != "SKIPPED" {
+		t.Fatalf("completed command evidence was lost on parent finish: %#v", current.Items)
+	}
+}
+
+func TestProtocolItemCommandStateRejectsInvalidEvent(t *testing.T) {
+	for _, command := range []string{
+		`{"index":0,"name":"Bad","status":"QUEUE"}`,
+		`{"index":1,"name":"Bad","status":"EXECUTING"}`,
+		`{"index":1,"name":"Bad","status":"RUNNING","log_path":"../../token"}`,
+		`{"index":65,"name":"Bad","status":"QUEUE"}`,
+		`{"index":1,"name":"Bad","status":"RUNNING","elapsed_seconds":-3}`,
+	} {
+		event := []byte(`{"type":"command_state","item_index":1,"item_name":"a.zip","command":` + command + "}")
+		if _, _, _, err := protocolCommandStateEvent(event); err == nil {
+			t.Fatalf("invalid command state was accepted: %s", event)
+		}
+	}
+}
