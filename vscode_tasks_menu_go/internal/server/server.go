@@ -191,6 +191,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/db/sessions/", s.dbSessionItem)
 	mux.HandleFunc("/api/broadcast", s.broadcastStateAPI)
 	mux.HandleFunc("/api/terminal-history", s.terminalHistory)
+	mux.HandleFunc("/api/agent/providers", s.agentChatProvidersAPI)
+	mux.HandleFunc("/api/agent/providers/test", s.agentChatProviderTestAPI)
 	mux.HandleFunc("/api/agent/sessions", s.agentChatSessionsAPI)
 	mux.HandleFunc("/api/agent/sessions/", s.agentChatSessionItemAPI)
 	mux.HandleFunc("/api/ai/settings", s.aiSettingsAPI)
