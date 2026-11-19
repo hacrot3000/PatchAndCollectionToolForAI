@@ -249,6 +249,9 @@ func (s *managedSession) applyProtocolLine(line []byte) {
 	}
 	raw := append(json.RawMessage(nil), line...)
 	var itemState ProtocolItemState
+    var commandItemIndex int
+    var commandItemName string
+    var commandState ProtocolCommandEvidenceState
 	var runErrorState ProtocolRunErrorState
 	var artifactState ProtocolArtifactState
 	var progressState ProtocolProgressState
@@ -265,6 +268,14 @@ func (s *managedSession) applyProtocolLine(line []byte) {
 			return
 		}
 	}
+	if envelope.Type == "command_state" {
+        var err error
+        commandItemIndex, commandItemName, commandState, err = protocolCommandStateEvent(raw)
+        if err != nil {
+            s.setProtocolError(err.Error())
+            return
+        }
+    }
 	if envelope.Type == "item_started" || envelope.Type == "item_finished" {
 		var err error
 		itemState, _, err = protocolItemEvent(raw)
@@ -391,7 +402,63 @@ func (s *managedSession) applyProtocolLine(line []byte) {
 		s.protocol.HistorySupport = nil
 		s.protocol.HistoryReport = nil
 	case "item_started", "item_finished":
-		s.protocol.Items = upsertProtocolItem(s.protocol.Items, itemState)
+        if envelope.Type == "item_finished" {
+            // Final structured PATCH result may carry commands that finished.
+            // COLLECT has no top-level command array; preserve its live rows.
+            // Do not leave orphaned QUEUE/RUNNING children after the parent stops.
+            for _, old := range s.protocol.Items {
+                if old.Index != itemState.Index || old.Name != itemState.Name {
+                    continue
+                }
+                previous := append([]ProtocolCommandEvidenceState(nil), old.Commands...)
+                for _, completed := range itemState.Commands {
+                    found := false
+                    for j := range previous {
+                        if previous[j].Index == completed.Index {
+                            previous[j] = completed
+                            found = true
+                            break
+                        }
+                    }
+                    if !found && len(previous) < 64 {
+                        previous = append(previous, completed)
+                    }
+                }
+                for j := range previous {
+                    if previous[j].Status == "QUEUE" || previous[j].Status == "RUNNING" {
+                        if previous[j].Status == "RUNNING" && itemState.Status != "PASS" {
+                            previous[j].Status = "INTERRUPTED"
+                        } else {
+                            previous[j].Status = "SKIPPED"
+                        }
+                    }
+                }
+                sort.Slice(previous, func(i, j int) bool { return previous[i].Index < previous[j].Index })
+                itemState.Commands = previous
+                break
+            }
+        }
+        s.protocol.Items = upsertProtocolItem(s.protocol.Items, itemState)
+    case "command_state":
+        for i := range s.protocol.Items {
+            item := &s.protocol.Items[i]
+            if item.Index != commandItemIndex || item.Name != commandItemName || item.Status != "RUNNING" {
+                continue
+            }
+            updated := false
+            for j := range item.Commands {
+                if item.Commands[j].Index == commandState.Index {
+                    item.Commands[j] = commandState
+                    updated = true
+                    break
+                }
+            }
+            if !updated && len(item.Commands) < 64 {
+                item.Commands = append(item.Commands, commandState)
+                sort.Slice(item.Commands, func(i, j int) bool { return item.Commands[i].Index < item.Commands[j].Index })
+            }
+            break
+        }
 	case "error":
 		s.protocol.RunErrors = appendProtocolRunError(s.protocol.RunErrors, runErrorState)
 	case "artifact":
