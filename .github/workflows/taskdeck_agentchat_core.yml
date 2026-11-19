@@ -1,0 +1,31 @@
+name: TaskDeck Agent Chat protocol core
+
+on:
+  push:
+    paths:
+      - 'vscode_tasks_menu_go/internal/agentchat/**'
+      - '.github/workflows/taskdeck_agentchat_core.yml'
+  pull_request:
+    paths:
+      - 'vscode_tasks_menu_go/internal/agentchat/**'
+      - '.github/workflows/taskdeck_agentchat_core.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  agentchat-core:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.x'
+          cache-dependency-path: vscode_tasks_menu_go/go.sum
+      - name: Test agent chat context and session store
+        working-directory: vscode_tasks_menu_go
+        run: |
+          go test -race -count=1 ./internal/agentchat
+          go vet ./internal/agentchat
