@@ -4709,7 +4709,10 @@ def _protocol_history_item(root: Path, row: dict[str, object], index: int) -> di
         "depends_on": [_protocol_history_text(value, 256) for value in depends[:64]],
         "artifacts": _protocol_history_item_artifacts(root, row),
         "commands": _protocol_command_evidence(
-            root, row.get("patch_result") if isinstance(row.get("patch_result"), dict) else None
+            root,
+            row.get("patch_result") if isinstance(row.get("patch_result"), dict)
+            else {"commands": row.get("commands")} if isinstance(row.get("commands"), list)
+            else None,
         ),
         **({"rc": rc} if rc is not None else {}),
         **({"elapsed_seconds": round(safe_elapsed, 3)} if safe_elapsed is not None else {}),
@@ -7613,6 +7616,7 @@ def execute_items(
             console_log = ""
             patch_result = None
             collect_result = None
+            collect_command_evidence = None
             if item.kind == "PATCH":
                 rc, console_log, patch_result = _run_patch_child(
                     root, cmd, item, full_log_path=detail_log_path,
@@ -7626,7 +7630,9 @@ def execute_items(
             else:
                 runtime = _artifact_subdir(root, "runtime")
                 collect_result_path = runtime / f"collect_{int(time.time()*1000000)}_{os.getpid()}.json"
+                collect_commands_path = runtime / f"collect_commands_{int(time.time()*1000000)}_{os.getpid()}.json"
                 env = dict(os.environ); env["PTV_COLLECT_RESULT_FILE"] = str(collect_result_path)
+                env["PTV_COLLECT_COMMAND_RESULT_FILE"] = str(collect_commands_path)
                 if detail_log_path is not None:
                     env["PTV_COLLECT_COMMAND_LOG_DIR"] = str(
                         detail_log_path.parent.parent / "command_items" /
@@ -7639,6 +7645,9 @@ def execute_items(
                 env["TASKDECK_PATCH_PROGRESS_ITEM_KIND"] = item.kind
                 rc = _run_foreground_child(root, cmd, env=env, timeout=None, label="COLLECT")
                 collect_result = _load_json(collect_result_path)
+                collect_command_evidence = _load_json(collect_commands_path)
+                try: collect_commands_path.unlink()
+                except OSError: pass
                 try: collect_result_path.unlink()
                 except OSError: pass
         except KeyboardInterrupt:
@@ -7677,6 +7686,10 @@ def execute_items(
             except ValueError: detail["log_path"] = str(detail_log_path)
         if patch_result is not None:
             detail["patch_result"] = patch_result
+        if item.kind == "COLLECT" and isinstance(collect_command_evidence, dict):
+            raw_commands = collect_command_evidence.get("commands")
+            if isinstance(raw_commands, list):
+                detail["commands"] = raw_commands[:64]
         if compare_info is not None:
             detail["source_compare"] = compare_info
         if item.kind == "COLLECT":
@@ -7799,6 +7812,10 @@ def execute_items(
                 finished_payload["output_tail"] = output_tail
         if isinstance(patch_result, dict):
             command_list = _protocol_command_evidence(root, patch_result)
+            if command_list:
+                finished_payload["commands"] = command_list
+        elif item.kind == "COLLECT" and isinstance(detail.get("commands"), list):
+            command_list = _protocol_command_evidence(root, {"commands": detail["commands"]})
             if command_list:
                 finished_payload["commands"] = command_list
         _emit_protocol_event("item_finished", **finished_payload)
