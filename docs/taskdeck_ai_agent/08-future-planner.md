@@ -9,3 +9,5 @@ Chỉ bắt đầu sau khi có yêu cầu riêng và F03/F05/F06/F07 đạt gate
 ## F08.2 — scheduler sau khi được duyệt
 
 Dự kiến ready queue theo dependency terminal-success, bounded concurrency, durable transition/claim/fencing và backpressure; task failed/unknown không mở khóa dependent. Mỗi task có session/worktree cô lập và quota/consent/approval riêng. Controlled integration cần xác thực base HEAD, diff review, conflict, test và explicit approval trước branch mutation; không tự merge. Persist report provenance, resume/retry chỉ với hành động an toàn, test crash/concurrent scheduler và xung đột. Chọn strategy worktree/merge theo platform và chính sách người dùng vào thời điểm triển khai, không coi mô tả này là thiết kế được phê duyệt.
+
+**Phân biệt scope:** server continuation của một Patch Tool đã được người dùng phê duyệt để gửi kết quả về AI thuộc **F05.3 hiện hành**; nó không đồng nghĩa AI tự chia task. DAG scheduler/worktree/merge và tự hoạch định task thuộc **F08 deferred**, chỉ triển khai nếu người dùng duyệt riêng. [Source audit](09-source-audit.md).
