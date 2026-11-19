@@ -91,6 +91,13 @@ func (s *Server) agentChatSessionsAPI(w http.ResponseWriter,r *http.Request) {
 }
 
 func (s *Server) agentChatSessionItemAPI(w http.ResponseWriter,r *http.Request){
+	path:=strings.TrimPrefix(r.URL.Path,"/api/agent/sessions/")
+	segments:=strings.Split(path,"/")
+	if len(segments)==2 && segments[0]!="" && segments[1]=="messages" {
+		s.agentChatMessageAPI(w,r,segments[0])
+		return
+	}
+
 	if r.Method!=http.MethodGet{http.Error(w,"method not allowed",http.StatusMethodNotAllowed);return}
 	id:=strings.TrimPrefix(r.URL.Path,"/api/agent/sessions/")
 	if id==""||strings.Contains(id,"/"){http.Error(w,"invalid agent session",http.StatusBadRequest);return}
