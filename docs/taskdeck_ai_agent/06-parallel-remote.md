@@ -24,3 +24,7 @@
 2. Session bind target host/project/owner + channel identity; host xác thực quyền `patch.run`/`patch.view`, project key/ID, exact digest, approval, lease, HEAD và replay protection cho từng action; kiểm tra trước/sau theo hợp đồng remote. AI key chỉ ở nơi gọi provider, không chuyển sang host hoặc relay. Mã hóa E2EE không thay thế consent gửi context đến nhà cung cấp model.
 3. Host trả execution ID bền vững, trạng thái/sequence và artifact opaque; reconnect truy vấn theo ID + authorized principal; disconnect/restart không tự chạy lại, evidence thiếu thành UNKNOWN. Không dùng portal identity làm thay thế host-local authorization.
 4. Test E2EE mocked/host fixture: sai host/project, quyền thu hồi, portal compromise, replay frame, disconnect trước/sau dispatch, mất process và cancel race; live remote chỉ theo môi trường/ủy quyền riêng. Thêm test và release evidence theo [07](07-acceptance.md).
+
+## Cảnh báo scope E2EE
+
+Remote Task Run hiện hữu **không** đồng nghĩa đã có API Remote Agent Patch. Không gửi patch qua generic shell/HTTP proxy; phải thiết kế typed host operation, host opt-in và verify riêng `owner/project/target/call_id/digest/permissions` cùng native receipt trước khi mở F06. Không để local session mutex thay thế multi-process/host fencing. F08 planner vẫn deferred. [Source audit](09-source-audit.md).
