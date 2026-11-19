@@ -77,81 +77,81 @@ These are **design targets**, not promises that routes already exist.
 
 ## 4. Features & subtask checklist (max 3 levels)
 
-### F01 — Architecture and handoff [IN PROGRESS: F01.3 outstanding]
-- [x] F01.1 Baseline inventory of existing Smart Terminal/AI Pack/Patch/remote components.
-  - [x] F01.1.1 Record real code paths and no-regression boundaries in this document.
-- [x] F01.2 Define phased plan, user flows, security invariants, entities and acceptance gates.
-  - [x] F01.2.1 Decide stateful chain/conversation/stateless fallback contract.
-- [ ] F01.3 Align exact native Patch Tool schema and remote execution protocol with this proposal.
-  - [ ] F01.3.1 Pin proven parser/queue/execution APIs with source-line references; no duplicate parser.
+### F01 — Architecture and handoff [IN PROGRESS: F01.3 outstanding] — [Tài liệu triển khai](taskdeck_ai_agent/01-architecture.md)
+- [x] F01.1 Baseline inventory of existing Smart Terminal/AI Pack/Patch/remote components. — [Tài liệu triển khai](taskdeck_ai_agent/01-architecture.md)
+  - [x] F01.1.1 Record real code paths and no-regression boundaries in this document. — [Tài liệu triển khai](taskdeck_ai_agent/01-architecture.md)
+- [x] F01.2 Define phased plan, user flows, security invariants, entities and acceptance gates. — [Tài liệu triển khai](taskdeck_ai_agent/01-architecture.md)
+  - [x] F01.2.1 Decide stateful chain/conversation/stateless fallback contract. — [Tài liệu triển khai](taskdeck_ai_agent/01-architecture.md)
+- [ ] F01.3 Align exact native Patch Tool schema and remote execution protocol with this proposal. — [Tài liệu triển khai](taskdeck_ai_agent/01-architecture.md)
+  - [ ] F01.3.1 Pin proven parser/queue/execution APIs with source-line references; no duplicate parser. — [Tài liệu triển khai](taskdeck_ai_agent/01-architecture.md)
 
-### F02 — Model/provider settings & credentials [IN PROGRESS: core delivered, delete/key revoke and capability probes outstanding]
-- [x] F02.1 Versioned provider/model config (custom HTTPS, provider ID, `apiType`, capabilities, reasoning support) — Responses-only schema v1.
-  - [x] F02.1.1 Validate public HTTPS URL, DNS/public IP at connect, model ID, token bounds and unsupported settings; tested without live egress.
-  - [ ] F02.1.2 Separate secrets from exportable model JSON; explicit credential lifecycle.
-- [x] F02.2 Native settings UI and basic Responses text connection test (stream/tools/statefulness not yet probed).
-  - [ ] F02.2.1 Add/list/edit/remove providers, model reasoning, default selection; no plaintext key response.
-  - [ ] F02.2.2 Probe text/stream/tool calling/stateful modes; never assume capability from declaration alone.
-- [ ] F02.3 Provider adapters.
-  - [x] F02.3.1 Responses request/response format and default reasoning-effort parameter for configured model.
-  - [ ] F02.3.2 Streaming SSE, cancellation, errors, rate limits and tool-call output parsing.
-  - [ ] F02.3.3 Optional Chat Completions/Messages adapters (later).
+### F02 — Model/provider settings & credentials [IN PROGRESS: core delivered, delete/key revoke and capability probes outstanding] — [Tài liệu triển khai](taskdeck_ai_agent/02-providers.md)
+- [x] F02.1 Versioned provider/model config (custom HTTPS, provider ID, `apiType`, capabilities, reasoning support) — Responses-only schema v1. — [Tài liệu triển khai](taskdeck_ai_agent/02-providers.md)
+  - [x] F02.1.1 Validate public HTTPS URL, DNS/public IP at connect, model ID, token bounds and unsupported settings; tested without live egress. — [Tài liệu triển khai](taskdeck_ai_agent/02-providers.md)
+  - [ ] F02.1.2 Separate secrets from exportable model JSON; explicit credential lifecycle. — [Tài liệu triển khai](taskdeck_ai_agent/02-providers.md)
+- [x] F02.2 Native settings UI and basic Responses text connection test (stream/tools/statefulness not yet probed). — [Tài liệu triển khai](taskdeck_ai_agent/02-providers.md)
+  - [ ] F02.2.1 Add/list/edit/remove providers, model reasoning, default selection; no plaintext key response. — [Tài liệu triển khai](taskdeck_ai_agent/02-providers.md)
+  - [ ] F02.2.2 Probe text/stream/tool calling/stateful modes; never assume capability from declaration alone. — [Tài liệu triển khai](taskdeck_ai_agent/02-providers.md)
+- [ ] F02.3 Provider adapters. — [Tài liệu triển khai](taskdeck_ai_agent/02-providers.md)
+  - [x] F02.3.1 Responses request/response format and default reasoning-effort parameter for configured model. — [Tài liệu triển khai](taskdeck_ai_agent/02-providers.md)
+  - [ ] F02.3.2 Streaming SSE, cancellation, errors, rate limits and tool-call output parsing. — [Tài liệu triển khai](taskdeck_ai_agent/02-providers.md)
+  - [ ] F02.3.3 Optional Chat Completions/Messages adapters (later). — [Tài liệu triển khai](taskdeck_ai_agent/02-providers.md)
 
-### F03 — Durable sessions & context [IN PROGRESS]
-- [ ] F03.1 Independent multi-session store scoped by owner, workspace, project UUID and execution target.
-  - [x] F03.1.1 Atomic write/revision/size bound and session recovery after process restart (owner-bound private Go journal + tests).
-  - [ ] F03.1.2 Session list/create/rename/archive/cancel APIs + UI tabs.
-- [ ] F03.2 AI Pack first turn.
-  - [x] F03.2.1 Generate/validate bounded first-turn AI Pack text snapshot; pin fingerprint/project ID; mocked integration test.
-  - [x] F03.2.2 Separate mandatory system instructions from untrusted AI Pack body; validate project UUID before egress.
-- [ ] F03.3 Stateful and stateless memory.
-  - [x] F03.3.1 Previous-response chaining; persist response ID alongside completed assistant message (mocked two-turn test).
-  - [ ] F03.3.2 Conversations API ID mode; explicit compatibility tests; fallback to canonical history.
-  - [ ] F03.3.3 Canonical tool-call/results replay, context budget and compaction preserving commitments.
+### F03 — Durable sessions & context [IN PROGRESS] — [Tài liệu triển khai](taskdeck_ai_agent/03-sessions-context.md)
+- [ ] F03.1 Independent multi-session store scoped by owner, workspace, project UUID and execution target. — [Tài liệu triển khai](taskdeck_ai_agent/03-sessions-context.md)
+  - [x] F03.1.1 Atomic write/revision/size bound and session recovery after process restart (owner-bound private Go journal + tests). — [Tài liệu triển khai](taskdeck_ai_agent/03-sessions-context.md)
+  - [ ] F03.1.2 Session list/create/rename/archive/cancel APIs + UI tabs. — [Tài liệu triển khai](taskdeck_ai_agent/03-sessions-context.md)
+- [ ] F03.2 AI Pack first turn. — [Tài liệu triển khai](taskdeck_ai_agent/03-sessions-context.md)
+  - [x] F03.2.1 Generate/validate bounded first-turn AI Pack text snapshot; pin fingerprint/project ID; mocked integration test. — [Tài liệu triển khai](taskdeck_ai_agent/03-sessions-context.md)
+  - [x] F03.2.2 Separate mandatory system instructions from untrusted AI Pack body; validate project UUID before egress. — [Tài liệu triển khai](taskdeck_ai_agent/03-sessions-context.md)
+- [ ] F03.3 Stateful and stateless memory. — [Tài liệu triển khai](taskdeck_ai_agent/03-sessions-context.md)
+  - [x] F03.3.1 Previous-response chaining; persist response ID alongside completed assistant message (mocked two-turn test). — [Tài liệu triển khai](taskdeck_ai_agent/03-sessions-context.md)
+  - [ ] F03.3.2 Conversations API ID mode; explicit compatibility tests; fallback to canonical history. — [Tài liệu triển khai](taskdeck_ai_agent/03-sessions-context.md)
+  - [ ] F03.3.3 Canonical tool-call/results replay, context budget and compaction preserving commitments. — [Tài liệu triển khai](taskdeck_ai_agent/03-sessions-context.md)
 
-### F04 — Agent conversation & UI [IN PROGRESS: synchronous chat exists; streaming, resume and execution UI pending]
-- [ ] F04.1 Streaming backend turn coordinator, per-session state machine and quotas.
-  - [ ] F04.1.1 Append user+assistant messages transactionally; handle retry/timeouts/recovery.
-  - [ ] F04.1.2 Stop/cancel/pause/resume and bounded loop iteration.
-- [ ] F04.2 TaskDeck native Chat GUI.
-  - [ ] F04.2.1 Multi-tab session list, model/reasoning selector, prompt attachments and history.
-  - [ ] F04.2.2 Live status, per-command task subrows, console view/copy and AI final response.
-  - [ ] F04.2.3 Recover UI after refresh/reconnect; no duplicate sends or actions.
+### F04 — Agent conversation & UI [IN PROGRESS: synchronous chat exists; streaming, resume and execution UI pending] — [Tài liệu triển khai](taskdeck_ai_agent/04-conversation-ui.md)
+- [ ] F04.1 Streaming backend turn coordinator, per-session state machine and quotas. — [Tài liệu triển khai](taskdeck_ai_agent/04-conversation-ui.md)
+  - [ ] F04.1.1 Append user+assistant messages transactionally; handle retry/timeouts/recovery. — [Tài liệu triển khai](taskdeck_ai_agent/04-conversation-ui.md)
+  - [ ] F04.1.2 Stop/cancel/pause/resume and bounded loop iteration. — [Tài liệu triển khai](taskdeck_ai_agent/04-conversation-ui.md)
+- [ ] F04.2 TaskDeck native Chat GUI. — [Tài liệu triển khai](taskdeck_ai_agent/04-conversation-ui.md)
+  - [ ] F04.2.1 Multi-tab session list, model/reasoning selector, prompt attachments and history. — [Tài liệu triển khai](taskdeck_ai_agent/04-conversation-ui.md)
+  - [ ] F04.2.2 Live status, per-command task subrows, console view/copy and AI final response. — [Tài liệu triển khai](taskdeck_ai_agent/04-conversation-ui.md)
+  - [ ] F04.2.3 Recover UI after refresh/reconnect; no duplicate sends or actions. — [Tài liệu triển khai](taskdeck_ai_agent/04-conversation-ui.md)
 
-### F05 — Tool Gateway and Patch Tool feedback loop [IN PROGRESS: native path implemented, live validation / automatic recovery outstanding]
-- [x] F05.1 Function tool schema `taskdeck_submit_patch` with strict JSON name/patch_python; human approval required; no arbitrary shell tool.
-  - [ ] F05.1.1 Enforce native patch schema / both project identity headers / one-time approval / exact selection (DONE in code); source drift / expected Git HEAD verification remains TODO.
-  - [x] F05.1.2 Persist per-call idempotency ledger before queueing and once-only AI result output; shared cross-process transaction/locking remains F06.
-- [x] F05.2 Wire approved patches to existing Patch Paste queue and native Patch Session / prompt_response handlers; real runtime acceptance remains unverified.
-  - [x] F05.2.1 Persist link from originating AI call_id to queued package SHA and native Patch Session ID (PATCH only; COLLECT future).
-  - [ ] F05.2.2 Collect native per-item status/RC/elapsed, command summary and bounded output tail (DONE in code); full console/diff/artifact-link UI remains TODO.
-- [ ] F05.3 Fully automatic AI feedback loop across long-running jobs/restarts (manual-confirmed continuation implemented, unattended recovery still pending).
-  - [x] F05.3.1 Send evidence-backed `function_call_output` using exact call_id in a once-only opt-in continuation endpoint; further automatic scheduling pending.
-  - [x] F05.3.2 Persist QUEUING/UNKNOWN transitions before side effects; no automatic patch resubmission; manual recovery of ambiguous runs remains pending.
+### F05 — Tool Gateway and Patch Tool feedback loop [IN PROGRESS: native path implemented, live validation / automatic recovery outstanding] — [Tài liệu triển khai](taskdeck_ai_agent/05-patch-feedback.md)
+- [x] F05.1 Function tool schema `taskdeck_submit_patch` with strict JSON name/patch_python; human approval required; no arbitrary shell tool. — [Tài liệu triển khai](taskdeck_ai_agent/05-patch-feedback.md)
+  - [ ] F05.1.1 Enforce native patch schema / both project identity headers / one-time approval / exact selection (DONE in code); source drift / expected Git HEAD verification remains TODO. — [Tài liệu triển khai](taskdeck_ai_agent/05-patch-feedback.md)
+  - [x] F05.1.2 Persist per-call idempotency ledger before queueing and once-only AI result output; shared cross-process transaction/locking remains F06. — [Tài liệu triển khai](taskdeck_ai_agent/05-patch-feedback.md)
+- [x] F05.2 Wire approved patches to existing Patch Paste queue and native Patch Session / prompt_response handlers; real runtime acceptance remains unverified. — [Tài liệu triển khai](taskdeck_ai_agent/05-patch-feedback.md)
+  - [x] F05.2.1 Persist link from originating AI call_id to queued package SHA and native Patch Session ID (PATCH only; COLLECT future). — [Tài liệu triển khai](taskdeck_ai_agent/05-patch-feedback.md)
+  - [ ] F05.2.2 Collect native per-item status/RC/elapsed, command summary and bounded output tail (DONE in code); full console/diff/artifact-link UI remains TODO. — [Tài liệu triển khai](taskdeck_ai_agent/05-patch-feedback.md)
+- [ ] F05.3 Fully automatic AI feedback loop across long-running jobs/restarts (manual-confirmed continuation implemented, unattended recovery still pending). — [Tài liệu triển khai](taskdeck_ai_agent/05-patch-feedback.md)
+  - [x] F05.3.1 Send evidence-backed `function_call_output` using exact call_id in a once-only opt-in continuation endpoint; further automatic scheduling pending. — [Tài liệu triển khai](taskdeck_ai_agent/05-patch-feedback.md)
+  - [x] F05.3.2 Persist QUEUING/UNKNOWN transitions before side effects; no automatic patch resubmission; manual recovery of ambiguous runs remains pending. — [Tài liệu triển khai](taskdeck_ai_agent/05-patch-feedback.md)
 
-### F06 — Parallel sessions & remote [BLOCKED on F03/F05]
-- [ ] F06.1 Independently running sessions with separate histories, quotas, cancellation tokens.
-  - [ ] F06.1.1 Configurable max session/model/execution concurrency; queue backpressure.
-  - [ ] F06.1.2 Workspace write lease and branch/HEAD optimistic check.
-- [ ] F06.2 Bind remote target to authorized E2EE dispatcher, log and cancel.
-  - [ ] F06.2.1 Validate remote scope per action, never forward API keys.
-  - [ ] F06.2.2 Recover state after remote or GUI disconnection.
+### F06 — Parallel sessions & remote [BLOCKED on F03/F05] — [Tài liệu triển khai](taskdeck_ai_agent/06-parallel-remote.md)
+- [ ] F06.1 Independently running sessions with separate histories, quotas, cancellation tokens. — [Tài liệu triển khai](taskdeck_ai_agent/06-parallel-remote.md)
+  - [ ] F06.1.1 Configurable max session/model/execution concurrency; queue backpressure. — [Tài liệu triển khai](taskdeck_ai_agent/06-parallel-remote.md)
+  - [ ] F06.1.2 Workspace write lease and branch/HEAD optimistic check. — [Tài liệu triển khai](taskdeck_ai_agent/06-parallel-remote.md)
+- [ ] F06.2 Bind remote target to authorized E2EE dispatcher, log and cancel. — [Tài liệu triển khai](taskdeck_ai_agent/06-parallel-remote.md)
+  - [ ] F06.2.1 Validate remote scope per action, never forward API keys. — [Tài liệu triển khai](taskdeck_ai_agent/06-parallel-remote.md)
+  - [ ] F06.2.2 Recover state after remote or GUI disconnection. — [Tài liệu triển khai](taskdeck_ai_agent/06-parallel-remote.md)
 
-### F07 — Security/validation/operability [TODO]
-- [ ] F07.1 Auth, owner/project isolation and approvals for every new route and tool.
-  - [ ] F07.1.1 Fail closed on unknown capability or untrusted patch metadata; never accept AI's `approved` flag.
-  - [x] F07.1.2 Provider egress/SSRF/redirect policy, local/private-IP safeguards and TLS code; independent security audit remains pending.
-- [ ] F07.2 Tests and documentation.
-  - [x] F07.2.1 Unit tests for initial Responses request/parse, chaining, tool-call mapping, owner isolation and persistence; additional provider formats remain F02.3.3.
-  - [ ] F07.2.2 Integration tests for native Patch run/retry/cancel, concurrent sessions and remote E2EE.
-  - [ ] F07.2.3 CI/GUI smoke acceptance with zero regressions to suggestion-only Smart Terminal.
+### F07 — Security/validation/operability [TODO] — [Tài liệu triển khai](taskdeck_ai_agent/07-acceptance.md)
+- [ ] F07.1 Auth, owner/project isolation and approvals for every new route and tool. — [Tài liệu triển khai](taskdeck_ai_agent/07-acceptance.md)
+  - [ ] F07.1.1 Fail closed on unknown capability or untrusted patch metadata; never accept AI's `approved` flag. — [Tài liệu triển khai](taskdeck_ai_agent/07-acceptance.md)
+  - [x] F07.1.2 Provider egress/SSRF/redirect policy, local/private-IP safeguards and TLS code; independent security audit remains pending. — [Tài liệu triển khai](taskdeck_ai_agent/07-acceptance.md)
+- [ ] F07.2 Tests and documentation. — [Tài liệu triển khai](taskdeck_ai_agent/07-acceptance.md)
+  - [x] F07.2.1 Unit tests for initial Responses request/parse, chaining, tool-call mapping, owner isolation and persistence; additional provider formats remain F02.3.3. — [Tài liệu triển khai](taskdeck_ai_agent/07-acceptance.md)
+  - [ ] F07.2.2 Integration tests for native Patch run/retry/cancel, concurrent sessions and remote E2EE. — [Tài liệu triển khai](taskdeck_ai_agent/07-acceptance.md)
+  - [ ] F07.2.3 CI/GUI smoke acceptance with zero regressions to suggestion-only Smart Terminal. — [Tài liệu triển khai](taskdeck_ai_agent/07-acceptance.md)
 
-### F08 — Future task planner (NOT IMPLEMENTING NOW)
-- [ ] F08.1 Markdown → validated Task Manifest (dependencies, acceptance criteria, resources, task IDs).
-  - [ ] F08.1.1 Schema validation, dependency cycle detection, bounded number of tasks.
-- [ ] F08.2 Dependency DAG Scheduler and configurable concurrency.
-  - [ ] F08.2.1 Worktree/task isolation and controlled merge strategy.
-  - [ ] F08.2.2 Integration reports, retry/resume, explicit approval for branch mutation.
+### F08 — Future task planner (NOT IMPLEMENTING NOW) — [Tài liệu triển khai](taskdeck_ai_agent/08-future-planner.md)
+- [ ] F08.1 Markdown → validated Task Manifest (dependencies, acceptance criteria, resources, task IDs). — [Tài liệu triển khai](taskdeck_ai_agent/08-future-planner.md)
+  - [ ] F08.1.1 Schema validation, dependency cycle detection, bounded number of tasks. — [Tài liệu triển khai](taskdeck_ai_agent/08-future-planner.md)
+- [ ] F08.2 Dependency DAG Scheduler and configurable concurrency. — [Tài liệu triển khai](taskdeck_ai_agent/08-future-planner.md)
+  - [ ] F08.2.1 Worktree/task isolation and controlled merge strategy. — [Tài liệu triển khai](taskdeck_ai_agent/08-future-planner.md)
+  - [ ] F08.2.2 Integration reports, retry/resume, explicit approval for branch mutation. — [Tài liệu triển khai](taskdeck_ai_agent/08-future-planner.md)
 
 ## 5. Incremental delivery gates
 
