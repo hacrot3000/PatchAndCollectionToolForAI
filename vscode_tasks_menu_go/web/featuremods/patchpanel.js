@@ -4412,7 +4412,12 @@ function installPatchPanel(){
       if(!expectPrompt&&haveHealthSnapshot)return;
       if(!expectPrompt&&haveSnapshot&&!followLifecycle)return;
       if(state?.error){
-        if(healthMode){
+        // A transient/malformed event must not permanently stop the Task Run
+        // polling loop. The per-command run journal can still recover current
+        // QUEUE/RUNNING/finished rows on the next protocol snapshot.
+        if(runningMode&&sessionId===activeSessionId&&!runningFinished){
+          console.warn('Transient PATCH protocol error; continuing live polling:',state.error);
+        }else if(healthMode){
           healthStatus.textContent='Protocol error';
           healthMessages.textContent=String(state.error);
           return;
