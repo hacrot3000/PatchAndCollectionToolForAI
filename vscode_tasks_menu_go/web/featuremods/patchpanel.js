@@ -176,7 +176,17 @@ function installPatchPanel(){
   .task-patch-history-item-actions button{font-size:10px;padding:3px 6px}
   .task-patch-command-list{display:grid;gap:5px;margin:8px 0 6px;min-width:0}
   .task-patch-command-heading{font-size:11px;font-weight:700;opacity:.9}
-  .task-patch-command-row{padding:6px;border:1px solid #394557;border-radius:5px;background:#111820;min-width:0}
+  .task-patch-command-row{padding:7px 8px;border:1px solid #394557;border-radius:5px;background:#111820;min-width:0;margin-left:12px;border-left:3px solid #43556b}
+  .task-patch-command-row.running{border-left-color:#e0b464}
+  .task-patch-command-row.passed{border-left-color:#508aaf}
+  .task-patch-command-row.failed{border-left-color:#be6570}
+  .task-patch-command-row.queued{opacity:.72}
+  .task-patch-command-top{display:flex;align-items:center;gap:8px;min-width:0;flex-wrap:wrap}
+  .task-patch-command-top .task-patch-command-meta{flex:1;min-width:160px}
+  .task-patch-command-status{white-space:nowrap;font-size:10px;font-weight:700;font-variant-numeric:tabular-nums}
+  .task-patch-command-status.running{color:#f0c77b}
+  .task-patch-command-status.failed{color:#f7a6af}
+  .task-patch-command-argv{margin-top:4px}
   .task-patch-command-meta{overflow-wrap:anywhere;font-size:11px;font-weight:600}
   .task-patch-command-argv{font:10px/1.4 monospace;opacity:.75;white-space:pre-wrap;overflow-wrap:anywhere}
   .task-patch-command-actions{display:flex;gap:5px;flex-wrap:wrap;margin-top:5px}
@@ -745,6 +755,11 @@ function installPatchPanel(){
   const parallelCollectRuns=new Map();
   let foregroundRunDescriptor=null;
   let foregroundProtocolState=null;
+  const commandOpenPaths=new Set();
+  const commandConsoleCache=new Map();
+  const commandConsoleLastFetch=new Map();
+  const commandConsolePending=new Map();
+  const commandConsoleNodes=new Map();
   let patchChangesKey='',patchChangesSequence=0;
   for(const [mode,label,detail] of actionDefs){
     const button=document.createElement('button');
@@ -1907,37 +1922,99 @@ function installPatchPanel(){
     const previous=button.textContent;button.textContent='Copied ✓';
     setTimeout(()=>{if(button.isConnected)button.textContent=previous;},1200);
   }
+  function commandElapsedText(row){
+    const raw=String(row?.status||'').toUpperCase();
+    const started=Date.parse(String(row?.started_at||''));
+    const stored=Number(row?.elapsed_seconds);
+    const seconds=raw==='RUNNING'&&Number.isFinite(started)
+      ?Math.max(0,(Date.now()-started)/1000)
+      :Number.isFinite(stored)&&stored>=0?stored:null;
+    if(seconds===null)return '';
+    const total=Math.floor(seconds),hours=Math.floor(total/3600),mins=Math.floor(total%3600/60),secs=total%60;
+    return hours?hours+'h '+mins+'m '+secs+'s':mins?mins+'m '+secs+'s':secs+'s';
+  }
+  function commandDisplayStatus(status){
+    const raw=String(status||'').toUpperCase();
+    if(raw==='PASS'||raw==='SUCCESS')return 'DONE';
+    if(raw==='SKIPPED')return 'SKIPPED';
+    return raw||'QUEUE';
+  }
+  async function refreshCommandConsole(path,running=false,force=false){
+    const now=Date.now();
+    if(commandConsolePending.has(path))return commandConsolePending.get(path);
+    const cached=commandConsoleCache.get(path);
+    if(!force && cached!==undefined && (!running || now-Number(commandConsoleLastFetch.get(path)||0)<900))return cached;
+    commandConsoleLastFetch.set(path,now);
+    const promise=readCommandConsole(path).then(text=>{
+      commandConsoleCache.set(path,text);
+      const node=commandConsoleNodes.get(path);
+      if(node&&node.isConnected)node.textContent=text||'(Console chưa có output)';
+      return text;
+    }).catch(error=>{
+      // A command event can arrive before its log file is created.
+      // Keep the nested row visible and retry on the next RUNNING poll.
+      const node=commandConsoleNodes.get(path);
+      if(node&&node.isConnected){
+        node.textContent=running?'Đang chờ console output…':'Console không khả dụng: '+error.message;
+      }
+      if(!running)throw error;
+      return '';
+    }).finally(()=>commandConsolePending.delete(path));
+    commandConsolePending.set(path,promise);
+    return promise;
+  }
   function appendCommandEvidence(host,commands){
     const list=Array.isArray(commands)?commands.slice(0,64):[];
     if(!list.length)return 0;
     const outer=document.createElement('div');outer.className='task-patch-command-list';
     const heading=document.createElement('div');heading.className='task-patch-command-heading';
-    heading.textContent='Executed commands · '+list.length;
+    heading.textContent='Commands · '+list.length;
     outer.append(heading);
     for(const item of list){
-      const row=document.createElement('div');row.className='task-patch-command-row';
+      const raw=String(item?.status||'QUEUE').toUpperCase();
+      const active=raw==='RUNNING',done=raw==='PASS'||raw==='SUCCESS';
+      const row=document.createElement('div');
+      row.className='task-patch-command-row '+(active?'running':done?'passed':raw==='QUEUE'?'queued':raw==='FAIL'||raw==='INTERRUPTED'?'failed':'');
+      const top=document.createElement('div');top.className='task-patch-command-top';
       const meta=document.createElement('div');meta.className='task-patch-command-meta';
-      meta.textContent=[String(item?.index||''),String(item?.stage||''),String(item?.name||''),String(item?.status||''),
-        item?.rc===undefined||item?.rc===null?'':'rc='+item.rc].filter(Boolean).join(' · ');
+      meta.textContent=Number(item?.index||0)+'. '+String(item?.name||'Command')+(item?.stage?' · '+String(item.stage):'');
+      const state=document.createElement('span');state.className='task-patch-command-status '+(active?'running':raw==='FAIL'?'failed':'');
+      const duration=commandElapsedText(item),rc=item?.rc;
+      state.textContent=commandDisplayStatus(raw)+(duration?' ('+duration+')':'')+
+        (rc===undefined||rc===null||done?'':' · rc='+String(rc));
+      top.append(meta,state);row.append(top);
       const argv=document.createElement('div');argv.className='task-patch-command-argv';
       argv.textContent=Array.isArray(item?.argv)?item.argv.map(x=>JSON.stringify(x)).join(' '):'';
-      row.append(meta,argv);
+      if(argv.textContent)row.append(argv);
       const path=commandEvidencePath(item?.log_path);
       if(path){
         const actions=document.createElement('div');actions.className='task-patch-command-actions';
-        const view=document.createElement('button');view.type='button';view.textContent='View console';
+        const view=document.createElement('button');view.type='button';
+        view.textContent=commandOpenPaths.has(path)?'Hide console':'View console';
         const copy=document.createElement('button');copy.type='button';copy.textContent='Copy console';
-        const pre=document.createElement('pre');pre.className='task-patch-command-output';pre.hidden=true;
-        let cached=null;
-        const load=async()=>cached===null?(cached=await readCommandConsole(path)):cached;
-        view.onclick=()=>{void(async()=>{
-          if(!pre.hidden){pre.hidden=true;view.textContent='View console';return;}
-          view.disabled=true;
-          try{pre.textContent=await load();pre.hidden=false;view.textContent='Hide console';}
-          finally{view.disabled=false;}
-        })().catch(app.showError);};
-        copy.onclick=()=>{void(async()=>copyCommandText(await load(),copy))().catch(app.showError);};
+        const pre=document.createElement('pre');pre.className='task-patch-command-output';
+        pre.hidden=!commandOpenPaths.has(path);
+        pre.textContent=commandConsoleCache.has(path)?commandConsoleCache.get(path):'Đang tải console…';
+        commandConsoleNodes.set(path,pre);
+        view.onclick=()=>{
+          if(commandOpenPaths.has(path)){
+            commandOpenPaths.delete(path);pre.hidden=true;view.textContent='View console';
+          }else{
+            commandOpenPaths.add(path);pre.hidden=false;view.textContent='Hide console';
+            void refreshCommandConsole(path,active,true).catch(app.showError);
+          }
+        };
+        copy.onclick=()=>{
+          void (async()=>{
+            // Always copy the latest file content, even while RUNNING.
+            const text=await readCommandConsole(path);
+            await copyCommandText(text,copy);
+          })().catch(app.showError);
+        };
         actions.append(view,copy);row.append(actions,pre);
+        if(!pre.hidden){
+          void refreshCommandConsole(path,active,false).catch(()=>{});
+        }
       }
       outer.append(row);
     }
@@ -2258,6 +2335,10 @@ function installPatchPanel(){
     runningStartedAtMs=Date.now();
     runningLastEventCount=-1;
     runningLastEventAtMs=runningStartedAtMs;
+    commandOpenPaths.clear();
+    commandConsoleCache.clear();
+    commandConsoleNodes.clear();
+    commandConsoleLastFetch.clear();
     panel.classList.add('running');
     runningTitle.textContent='Current run';
     runningHead.classList.remove('finished','collect-success','failed');
@@ -2299,6 +2380,10 @@ function installPatchPanel(){
     terminalEvidence.hidden=false;
     foregroundRunDescriptor=null;
     foregroundProtocolState=null;
+    commandOpenPaths.clear();
+    commandConsoleNodes.clear();
+    commandConsoleCache.clear();
+    commandConsoleLastFetch.clear();
     patchChangesKey='';patchChangesSequence++;renderChangedFiles([]);
     renderProgress(null);
     renderItemLifecycle([]);
@@ -3213,7 +3298,10 @@ function installPatchPanel(){
       name.textContent=`${Number(item?.index||0)}. ${String(item?.name||'')} · ${String(item?.kind||'')}`;
       const status=document.createElement('span');status.className='task-patch-run-status';
       const rc=item?.rc;
-      status.textContent=rc===undefined||rc===null?itemStatus: `${itemStatus} (rc=${rc})`;
+      const itemDuration=commandElapsedText(item);
+      const visibleStatus=commandDisplayStatus(itemStatus);
+      status.textContent=visibleStatus+(itemDuration?' ('+itemDuration+')':'')+
+        (rc===undefined||rc===null?'':' · rc='+rc);
       row.append(name,status);
       appendCommandEvidence(row,item?.commands);
       if(failed){
