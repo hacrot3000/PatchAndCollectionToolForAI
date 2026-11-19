@@ -157,7 +157,7 @@ func (s *Server) agentChatToolDecisionAPI(w http.ResponseWriter,r *http.Request,
   return true
  }
  status:="queued"
- note:"Native Patch Tool queue received the package; execution has not started."
+ note:="Native Patch Tool queue received the package; execution has not started."
  if s.Sessions!=nil {
   if err:=s.agentVerifyQueuedPackage(receipt);err!=nil{
    x.ToolCalls[idx].Status="unknown"
