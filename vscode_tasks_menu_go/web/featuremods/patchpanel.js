@@ -4332,6 +4332,15 @@ function installPatchPanel(){
       try{
         state=await app.jsonFetch(`/api/sessions/${encodeURIComponent(sessionId)}/protocol`);
       }catch(error){
+        if(runningMode&&sessionId===activeSessionId&&!runningFinished){
+          // Temporary HTTP/session fetch errors must not abandon the only
+          // live UI poll loop. Preserve already shown child commands and
+          // resume reading the run-owned journal on the next request.
+          if(attempt%5===0)console.warn('Temporary PATCH protocol fetch error; retrying:',error);
+          runningMeta.textContent='Đang khôi phục trạng thái Task Run…';
+          await new Promise(resolve=>setTimeout(resolve,delayMs));
+          continue;
+        }
         resetSummary('Native state unavailable · Terminal fallback available');
         console.warn('Patch protocol state unavailable:',error);
         summaryWarnings.textContent='Patch protocol state unavailable. Open terminal evidence/fallback if needed.';
