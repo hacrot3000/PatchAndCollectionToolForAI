@@ -263,6 +263,9 @@ func sharedRoutePermissions(r *http.Request) []string {
 		if r.Method==http.MethodGet {return []string{identity.PermissionSettingsRead}}
 		if r.Method==http.MethodPut || r.Method==http.MethodDelete {return []string{identity.PermissionSettingsWrite}}
 		return nil
+	case "/api/agent/task-manifests/validate":
+		if r.Method == http.MethodPost { return []string{identity.PermissionSettingsRead} }
+		return nil
 	case "/api/agent/providers/test", "/api/agent/providers/probe":
 		if r.Method==http.MethodPost {return []string{identity.PermissionSettingsWrite}}
 		return nil

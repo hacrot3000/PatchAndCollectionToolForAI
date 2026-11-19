@@ -200,6 +200,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/agent/providers", s.agentChatProvidersAPI)
 	mux.HandleFunc("/api/agent/providers/test", s.agentChatProviderTestAPI)
 	mux.HandleFunc("/api/agent/providers/probe", s.agentChatProviderProbeAPI)
+	mux.HandleFunc("/api/agent/task-manifests/validate", s.agentTaskManifestValidateAPI)
 	mux.HandleFunc("/api/agent/sessions", s.agentChatSessionsAPI)
 	mux.HandleFunc("/api/agent/sessions/", s.agentChatSessionItemAPI)
 	mux.HandleFunc("/api/ai/settings", s.aiSettingsAPI)

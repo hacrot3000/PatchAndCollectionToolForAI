@@ -163,6 +163,20 @@ func TestAgentStartupReconciliationNeverReexecutes(t *testing.T) {
 	x.ToolCalls[0].PatchSessionID = "patch-session-startup"
 	x.ToolCalls[0].PromptID = "prompt-startup"
 	x.ToolCalls[0].SelectedIndex = 1
+	queueDir, err := s.patchUploadDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(queueDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	packageBytes := []byte("startup package")
+	if err := os.WriteFile(filepath.Join(queueDir, "agent_fixture.zip"), packageBytes, 0600); err != nil {
+		t.Fatal(err)
+	}
+	digest := sha256.Sum256(packageBytes)
+	x.ToolCalls[0].PackageSHA256 = hex.EncodeToString(digest[:])
+	x.ToolCalls[0].PackageSize = int64(len(packageBytes))
 	if _, err = store.Save(x, x.Revision); err != nil {
 		t.Fatal(err)
 	}
@@ -201,6 +215,20 @@ func TestAgentStartupReconciliationLeavesAmbiguousUnknown(t *testing.T) {
 	x.ToolCalls[0].PromptID = "prompt-x"
 	x.ToolCalls[0].SelectedIndex = 1
 	x.ToolCalls[0].RunID = "run-original"
+	queueDir, err := s.patchUploadDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(queueDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	packageBytes := []byte("ambiguous package")
+	if err := os.WriteFile(filepath.Join(queueDir, "agent_fixture.zip"), packageBytes, 0600); err != nil {
+		t.Fatal(err)
+	}
+	digest := sha256.Sum256(packageBytes)
+	x.ToolCalls[0].PackageSHA256 = hex.EncodeToString(digest[:])
+	x.ToolCalls[0].PackageSize = int64(len(packageBytes))
 	if _, err = store.Save(x, x.Revision); err != nil {
 		t.Fatal(err)
 	}

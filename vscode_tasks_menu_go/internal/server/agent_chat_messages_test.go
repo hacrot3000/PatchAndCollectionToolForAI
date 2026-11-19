@@ -158,13 +158,19 @@ func TestAgentChatToolCallsRemainNonExecuting(t *testing.T) {
 	}
 	w := invokeAI(t, s.agentChatSessionItemAPI, "POST", "/api/agent/sessions/"+id+"/messages",
 		map[string]any{"message": "test", "confirm_external": true, "expected_revision": 1})
-	if w.Code != 200 || !strings.Contains(w.Body.String(), "\"waiting_tool\"") || !strings.Contains(w.Body.String(), "\"execution_enabled\":false") {
-		t.Fatalf("tool call should await explicit gateway: %d %s", w.Code, w.Body)
+	if w.Code != 200 || !strings.Contains(w.Body.String(), "\"tool_rejected\"") || !strings.Contains(w.Body.String(), "\"execution_enabled\":false") {
+		t.Fatalf("malformed tool call was not quarantined: %d %s", w.Code, w.Body)
 	}
-	repeat := invokeAI(t, s.agentChatSessionItemAPI, "POST", "/api/agent/sessions/"+id+"/messages",
-		map[string]any{"message": "continue", "confirm_external": true, "expected_revision": 3})
-	if repeat.Code != 409 {
-		t.Fatalf("waiting tool session incorrectly advanced: %d", repeat.Code)
+	store, err := s.agentChatStore()
+	if err != nil {
+		t.Fatal(err)
+	}
+	x, err := store.Get(id, "local")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(x.ToolCalls) != 0 {
+		t.Fatalf("malformed model call created an execution intent: %+v", x.ToolCalls)
 	}
 }
 func TestAgentChatMessageSharedPermission(t *testing.T) {
@@ -435,4 +441,82 @@ func TestAgentProviderTurnSurvivesHTTPDisconnectUntilExplicitCancel(t *testing.T
 		t.Fatal("provider did not stop after explicit cancel")
 	}
 	<-finished
+}
+
+func TestAgentMultipleOrUnknownProviderToolCallsFailClosedAndRecover(t *testing.T) {
+	x := agentchat.Session{Mode: agentchat.Stateless, History: []agentchat.HistoryItem{}}
+	args := `{"name":"p","patch_python":"x"}`
+	appendAgentProviderResult(&x, agentchat.ResponsesResult{ResponseID: "r", Calls: []agentchat.FunctionCall{
+		{CallID: "c1", Name: "taskdeck_submit_patch", Arguments: args},
+		{CallID: "c2", Name: "taskdeck_submit_patch", Arguments: args},
+	}}, true)
+	if x.Status != "tool_rejected" || len(x.ToolCalls) != 0 || len(x.History) != 2 {
+		t.Fatalf("multiple calls were not quarantined: status=%s ledger=%d history=%d", x.Status, len(x.ToolCalls), len(x.History))
+	}
+	// Unknown calls are also retained for audit but cannot lock the session in
+	// waiting_tool forever or create an execution intent.
+	y := agentchat.Session{Mode: agentchat.Stateless, History: []agentchat.HistoryItem{}}
+	appendAgentProviderResult(&y, agentchat.ResponsesResult{ResponseID: "r2", Calls: []agentchat.FunctionCall{{CallID: "c3", Name: "run_shell", Arguments: `{}`}}}, true)
+	if y.Status != "tool_rejected" || len(y.ToolCalls) != 0 {
+		t.Fatalf("unknown call was accepted: %+v", y)
+	}
+}
+
+func TestAgentChatCompletionsProviderUsesStatelessCanonicalInput(t *testing.T) {
+	s := newAIServerForTest(t)
+	if err := os.MkdirAll(s.Workspace, 0700); err != nil {
+		t.Fatal(err)
+	}
+	p := agentProviderFixture()
+	p.APIType = "chat_completions"
+	p.Models[0].DefaultReasoningEffort = ""
+	p.Models[0].ReasoningEfforts = nil
+	providers, err := s.agentChatProviders()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := providers.Put("local", p); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.ConnectionSecrets.Put(agentProviderSecretID(s.Workspace, "local", p.ID), []byte("CHAT-KEY")); err != nil {
+		t.Fatal(err)
+	}
+	created := invokeAI(t, s.agentChatSessionsAPI, http.MethodPost, "/api/agent/sessions", map[string]any{
+		"provider_id": p.ID, "model_id": p.Models[0].ID, "mode": "stateless"})
+	if created.Code != 201 {
+		t.Fatalf("create failed: %d %s", created.Code, created.Body)
+	}
+	var view struct {
+		Session agentchat.Session `json:"session"`
+	}
+	if err := json.Unmarshal(created.Body.Bytes(), &view); err != nil {
+		t.Fatal(err)
+	}
+	s.AgentChatPack = func(workspace, executable string) (patchtool.AIPackResult, error) {
+		return patchtool.AIPackResult{TextContent: "safe pack", Fingerprint: "chat-fp", ProjectIdentity: patchtool.ProjectIdentity{ID: view.Session.ProjectID, Key: "project"}}, nil
+	}
+	s.AgentChatCall = func(ctx context.Context, p agentchat.ProviderConfig, key string, payload []byte) (agentchat.ResponsesResult, error) {
+		if p.APIType != "chat_completions" || key != "CHAT-KEY" {
+			t.Fatalf("wrong adapter/secret: %s %s", p.APIType, key)
+		}
+		var req map[string]any
+		if err := json.Unmarshal(payload, &req); err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := req["previous_response_id"]; ok {
+			t.Fatal("Chat Completions received previous_response_id")
+		}
+		if _, ok := req["conversation"]; ok {
+			t.Fatal("Chat Completions received conversation ID")
+		}
+		if req["store"] != false {
+			t.Fatal("Chat Completions request was not canonical/stateless")
+		}
+		return agentchat.ResponsesResult{ResponseID: "chat-id-1", Text: "reply"}, nil
+	}
+	w := invokeAI(t, s.agentChatSessionItemAPI, http.MethodPost, "/api/agent/sessions/"+view.Session.ID+"/messages", map[string]any{
+		"message": "hello", "confirm_external": true, "expected_revision": 1})
+	if w.Code != 200 {
+		t.Fatalf("Chat Completions turn failed: %d %s", w.Code, w.Body)
+	}
 }

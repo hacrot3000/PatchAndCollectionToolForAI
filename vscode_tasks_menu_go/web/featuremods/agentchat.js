@@ -61,6 +61,7 @@ windowBox.setAttribute('aria-modal','true');
 const heading=agentEl('div','agentchat-toolbar'),title=agentEl('strong','','TaskDeck AI Agent Chat');
 const newChat=agentButton('+ New session',()=>createSession().catch(showAgentError));
 const settingsButton=agentButton('Providers / API keys',()=>openAgentSettings().catch(showAgentError));
+const planButton=agentButton('Planning only',()=>openTaskManifestPreview());
 const refresh=agentButton('Refresh',()=>loadAgentState().catch(showAgentError));
 const close=agentButton('✕',()=>closeAgentPanel());
 const layout=agentEl('div','agentchat-layout'),sessionList=agentEl('div','agentchat-list');
@@ -94,7 +95,7 @@ const preview=agentButton('Preview context',()=>previewAgentContext().catch(show
 const rename=agentButton('Rename',()=>renameAgentSession().catch(showAgentError));
 const archive=agentButton('Archive',()=>archiveAgentSession().catch(showAgentError));
 rename.disabled=true;archive.disabled=true;
-heading.append(title,newChat,preview,rename,archive,settingsButton,refresh,close);
+heading.append(title,newChat,preview,rename,archive,planButton,settingsButton,refresh,close);
 actionLine.append(attachButton,autoFeedback,status,cancel,send);composer.append(attachList,prompt,actionLine);
 main.append(tabbar,modelBar,transcript,composer);layout.append(sessionList,main);
 const footer=agentEl('div','agentchat-info','Responses API • AI Pack on first turn • native Patch execution requires explicit approval per tool call. Results are verified from native protocol before AI feedback.');
@@ -103,7 +104,7 @@ windowBox.append(heading,layout,footer);root.append(windowBox);document.body.app
 const settingsOverlay=agentEl('div','agentchat-overlay agentchat-settings-overlay'),settingsBox=agentEl('section','agentchat-settings-box');
 settingsBox.setAttribute('role','dialog');settingsBox.setAttribute('aria-modal','true');settingsBox.setAttribute('aria-label','Agent provider settings');
 const settingsTitle=agentEl('h2','','Agent provider settings');
-const settingsInfo=agentEl('p','','Configure a public HTTPS Responses-compatible provider. API keys are stored on the TaskDeck server, not in browser storage.');
+const settingsInfo=agentEl('p','','Configure a public HTTPS Responses or Chat Completions provider. Chat Completions uses stateless canonical history; streaming/reasoning options are shown only when supported. API keys remain server-side.');
 const settingsPreset=agentButton('Load sample provider',()=>{providerEditor.value=JSON.stringify(agentSample,null,2);});
 const probeProvider=agentButton('Probe capabilities',()=>probeAgentProvider().catch(showAgentError));
 const deleteProvider=agentButton('Remove provider',()=>deleteAgentProvider().catch(showAgentError));
@@ -119,6 +120,19 @@ const closeSettings=agentButton('Close',()=>settingsOverlay.classList.remove('vi
 settingsActions.append(settingsPreset,saveProvider,testProvider,probeProvider,deleteProvider,closeSettings);
 settingsBox.append(settingsTitle,settingsInfo,settingsPicker,settingsAPIType,providerEditor,keyLabel,apiKey,settingsStatus,settingsActions);
 settingsOverlay.append(settingsBox);document.body.append(settingsOverlay);
+
+// F08.1 preview is planning-only: it validates Markdown and renders a DAG,
+// but has no persistence or execution action.
+const planOverlay=agentEl('div','agentchat-overlay agentchat-settings-overlay');
+const planBox=agentEl('section','agentchat-settings-box');
+const planTitle=agentEl('h2','','Task Manifest · Planning only');
+const planNote=agentEl('p','','Parse and validate a Markdown task plan. Validation performs no provider call, file write, task creation or execution.');
+const planInput=agentEl('textarea');planInput.placeholder='# Plan\n\n## Task A — Title\nDepends on: None\nAcceptance:\n- Criterion';
+const planOutput=agentEl('div','agentchat-info','');
+const planActions=agentEl('div','actions');
+const validatePlan=agentButton('Validate / Preview',()=>validateTaskManifest().catch(showAgentError));
+const closePlan=agentButton('Close',()=>planOverlay.classList.remove('visible'));
+planActions.append(validatePlan,closePlan);planBox.append(planTitle,planNote,planInput,planActions,planOutput);planOverlay.append(planBox);document.body.append(planOverlay);
 
 const agentSample={
  id:'custom-r2d',name:'Custom Endpoint',api_type:'responses',base_url:'https://api.r2d.dev/v1',

@@ -53,6 +53,10 @@ func TestProviderModelAndReasoningValidation(t *testing.T) {
 	}
 	p = sampleProvider()
 	p.APIType = "chat_completions"
+	if err := ValidateProvider(p); err != nil {
+		t.Fatalf("rejected Chat Completions adapter: %v", err)
+	}
+	p.APIType = "messages"
 	if ValidateProvider(p) == nil {
 		t.Fatal("accepted unsupported adapter")
 	}

@@ -36,8 +36,9 @@ func (s *Server) agentChatCallForOwner(ctx context.Context, owner string, p agen
 		return s.AgentChatCall(ctx, p, key, payload)
 	}
 	if p.APIType == "chat_completions" {
-		// Chat Completions remains stateless and uses its own JSON adapter.
-		// SSE is not advertised until a Chat Completions stream parser exists.
+		if p.Stream && owner != "" && s.agentStreamCapabilityVerified(owner, p) {
+			return agentchat.DoChatCompletionsStream(ctx, p, key, payload)
+		}
 		return agentchat.DoChatCompletions(ctx, p, key, payload)
 	}
 	if p.Stream && owner != "" && s.agentStreamCapabilityVerified(owner, p) {
@@ -165,7 +166,7 @@ func (s *Server) agentChatMessageAPI(w http.ResponseWriter, r *http.Request, id 
 	// was executed and the user turn is retained. waiting_tool and terminal tool
 	// states still require the approval/reconciliation flow instead.
 	switch session.Status {
-	case "created", "ready", "completed", "failed", "cancelled":
+	case "created", "ready", "completed", "failed", "cancelled", "tool_rejected":
 	default:
 		http.Error(w, "session is not ready for another message", 409)
 		return
