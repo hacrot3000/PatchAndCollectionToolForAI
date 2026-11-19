@@ -147,14 +147,23 @@ func (s *Server) agentChatToolDecisionAPI(w http.ResponseWriter,r *http.Request,
  // A live daemon launches the EXISTING native Patch Tool session and
  // selects ONLY this approved package. A non-running test fixture can still
  // verify the queue stage independently without a session service.
+ persistStatus:=func()bool{
+  saved,saveErr:=store.Save(x,x.Revision)
+  if saveErr!=nil{
+   http.Error(w,"Native Patch state became uncertain; inspect the existing Patch Tool session, do not resubmit",409)
+   return false
+  }
+  x=saved
+  return true
+ }
  status:="queued"
- note:="Native Patch Tool queue received the package; execution has not started."
+ note:"Native Patch Tool queue received the package; execution has not started."
  if s.Sessions!=nil {
   if err:=s.agentVerifyQueuedPackage(receipt);err!=nil{
    x.ToolCalls[idx].Status="unknown"
    x.ToolCalls[idx].Result="Queued package changed before native dispatch. No execution started."
    x.Status="tool_unknown"
-   x,_=store.Save(x,x.Revision)
+   if !persistStatus(){return}
    status="unknown"
    note="Queued package failed digest verification; inspect queue before retry."
   }else{
@@ -164,28 +173,25 @@ func (s *Server) agentChatToolDecisionAPI(w http.ResponseWriter,r *http.Request,
    }else{
     x.ToolCalls[idx].Status="dispatching"
     x.ToolCalls[idx].PatchSessionID=patchID
-    x,_=store.Save(x,x.Revision)
-    if x.Revision==0 {
-     http.Error(w,"Native Patch started but session journal is uncertain; inspect existing session",409);return
-    }
+    if !persistStatus(){return}
     if err:=s.agentVerifyQueuedPackage(receipt);err!=nil {
      x.ToolCalls[idx].Status="unknown"
      x.ToolCalls[idx].Result="Approved package changed after native session started; selection refused."
      x.Status="tool_unknown"
-     x,_=store.Save(x,x.Revision)
+     if !persistStatus(){return}
      status="unknown"
      note="Approved patch package changed before selection; inspect existing native session."
     }else if err:=s.agentSelectNativePatch(r.Context(),r,patchID,receipt.Name);err!=nil{
      x.ToolCalls[idx].Status="unknown"
      x.ToolCalls[idx].Result="Native Patch selection is ambiguous; inspect linked Patch session; no automatic retry."
      x.Status="tool_unknown"
-     x,_=store.Save(x,x.Revision)
+     if !persistStatus(){return}
      status="unknown"
      note="Native Patch selection was not confirmed; inspect existing session, do not requeue automatically."
     }else{
      x.ToolCalls[idx].Status="running"
      x.Status="waiting_tool"
-     x,_=store.Save(x,x.Revision)
+     if !persistStatus(){return}
      status="running"
      note="Native Patch Tool accepted an exact-name selection; await validated per-item result."
     }
