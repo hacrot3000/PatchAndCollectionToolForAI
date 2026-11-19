@@ -2159,3 +2159,23 @@ func TestPatchPanelLiveTaskRunShowsQueuedCommandsAndRefreshingConsoles(t *testin
 		}
 	}
 }
+
+
+func TestPatchPanelLiveRunRetriesProtocolErrorsWithoutLosingCommands(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, marker := range []string{
+		"if(runningMode&&sessionId===activeSessionId&&!runningFinished)",
+		"Temporary PATCH protocol fetch error; retrying:",
+		"continuing live polling:",
+		"await new Promise(resolve=>setTimeout(resolve,delayMs));",
+		"function appendCommandEvidence(host,commands)",
+	} {
+		if !strings.Contains(js, marker) {
+			t.Fatalf("Current run must retry recoverable polling failures; missing %q", marker)
+		}
+	}
+}
