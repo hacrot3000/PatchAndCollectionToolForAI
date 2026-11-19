@@ -76,6 +76,20 @@ func TestProtocolCommandJournalRestoresLiveQueuedRunningAndFinishedRows(t *testi
 	if len(state.Items[0].Commands) != 1 || state.Items[0].Commands[0].Status != "PASS" {
 		t.Fatalf("finished current run lost command rows: %#v", state.Items)
 	}
+	// Abrupt exit may leave the journal's most recent state as RUNNING; it
+	// must never look running after the parent item has completed.
+	writeJournal("RUNNING", 2)
+	state.Items[0].Commands = nil
+	applyCommandJournalToState(root, &state)
+	if len(state.Items[0].Commands) != 1 || state.Items[0].Commands[0].Status != "SKIPPED" {
+		t.Fatalf("stale running state revived under successful parent: %#v", state.Items)
+	}
+	state.Items[0].Status = "FAIL"
+	state.Items[0].Commands = nil
+	applyCommandJournalToState(root, &state)
+	if len(state.Items[0].Commands) != 1 || state.Items[0].Commands[0].Status != "INTERRUPTED" {
+		t.Fatalf("stale running state revived under failed parent: %#v", state.Items)
+	}
 }
 
 func TestProtocolCommandJournalRejectsInvalidPathsAndOversizedData(t *testing.T) {
