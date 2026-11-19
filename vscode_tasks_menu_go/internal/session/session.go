@@ -415,6 +415,12 @@ func (s *managedSession) applyProtocolLine(line []byte) {
                     found := false
                     for j := range previous {
                         if previous[j].Index == completed.Index {
+                            if completed.StartedAt == "" {
+                                completed.StartedAt = previous[j].StartedAt
+                            }
+                            if completed.ElapsedSeconds == nil {
+                                completed.ElapsedSeconds = previous[j].ElapsedSeconds
+                            }
                             previous[j] = completed
                             found = true
                             break
