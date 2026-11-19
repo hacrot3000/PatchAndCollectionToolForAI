@@ -181,28 +181,28 @@ These are **design targets**, not promises that routes already exist.
 
 ## 7. Implementation log and verified evidence (2026-11-19; updated)
 
-**Implemented on `main` (code-level scope):**
+**Historical M1–M3 source snapshot (retained for traceability; current native Tool Gateway is documented separately below):**
 - `internal/agentchat/responses.go`, `responses_test.go`: canonical context modes `stateless`, `previous_response`, `conversation` (conversation ID reuse only); tool-call/result encoding/parsing, mandatory instructions every request.
 - `internal/agentchat/store.go`, `store_test.go`: owner/project-bound 0600 canonical history, random session IDs, CAS revision guard, atomic saves, restart recovery.
 - `internal/agentchat/providers.go`, `providers_test.go`: provider/model schema v1, public HTTPS validation, DNS resolution public-IP checks on each connection, no proxy/redirect, bounded Responses HTTP request, owner-scoped metadata store. Agent keys are **not** stored in provider JSON.
 - `internal/server/agent_chat_providers.go`, `agent_chat_providers_test.go`: `GET/PUT /api/agent/providers` and opt-in `POST /api/agent/providers/test`. Credentials go through existing encrypted `ConnectionSecrets` with separate owner/workspace/provider keys. The probe tests **only basic Responses text**, not tool calling, streaming, stateful history or reasoning capabilities.
 - `internal/server/agent_chat_sessions.go`, `agent_chat_sessions_test.go`: `GET/POST /api/agent/sessions`, `GET /api/agent/sessions/{id}`; explicit custom provider/model selection and project UUID binding. Existing advisory settings remain backward-compatible, but legacy advisory provider keys do not automatically grant Agent Chat capabilities.
-- `internal/server/agent_chat_messages.go`, `agent_chat_messages_test.go`: `POST /api/agent/sessions/{id}/messages`; explicit external egress consent, per-session in-flight lock, revision compare-and-swap, AI Pack on first turn with size bound and fingerprint, mandatory system instructions, persisted user+assistant history, previous response chaining, tool-call recognition with `waiting_tool` status and **zero execution**. Error leaves a durable failed session; automatic retry deliberately disabled.
+- `internal/server/agent_chat_messages.go`, `agent_chat_messages_test.go`: `POST /api/agent/sessions/{id}/messages`; explicit external egress consent, per-session in-flight lock, revision compare-and-swap, AI Pack on first turn with size bound and fingerprint, mandatory system instructions, persisted user+assistant history, previous response chaining, tool-call recognition with `waiting_tool` status. M1–M3 had no executable gateway at that time; the separate native Tool Gateway continuation below supersedes this historical scope. Error leaves a durable failed session; automatic retry deliberately disabled.
 - `internal/server/server.go`, `shared_authorization.go`: routing and shared-server RBAC, including `files.read` before external project-context submission.
-- `web/featuremods/agentchat.js`, `next.js`, `menus.js`, `internal/server/agent_chat_ui_test.go`: integrated native UI under Settings → AI Assistant: Open AI Agent Chat / AI Agent providers; configure model/key, create/select sessions, show transcript, send/review external message, cancel active browser request, no command execution.
+- `web/featuremods/agentchat.js`, `next.js`, `menus.js`, `internal/server/agent_chat_ui_test.go`: integrated native UI under Settings → AI Assistant: Open AI Agent Chat / AI Agent providers; configure model/key, create/select sessions, show transcript, send/review external message, cancel active browser request, review/approve native PATCH and explicitly submit native results to AI. Browser abort is not native process cancellation.
 - `.github/workflows/taskdeck_agentchat_core.yml`: Go race/unit/vet, server Agent Chat integration tests and `node --check` for new UI.
 
-**Latest CI:** [Agent Chat protocol core run 44464121465](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/44464121465) — PASS. Includes Go race tests, provider/session/message mock tests, server RBAC/UI tests and JavaScript syntax check. These tests do not count as a live custom-endpoint or browser acceptance test.
+**Historical M1–M3 CI:** [run 44464121465](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/44464121465) PASS for then-selected tests. The old selector `'^TestAgentChat'` missed 10/25 Agent server tests. **Current selector fixed** in `7d6c6bed`; [run 44479964926](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/44479964926) PASS for all `TestAgent*` tests on that commit. Both are mock/unit evidence, not live provider/native Python/browser/remote acceptance.
 
 **Known limitations / must not overclaim:**
-1. Patch Tool execution/auto feedback is **NOT implemented**. Function calls received from a provider are stored as `waiting_tool`; they are not executed. No `taskdeck_submit_patch` tool is yet advertised to the model.
+1. **Patch Tool gateway exists in code**: with a user-declared `ToolCalling=true`, the model can propose `taskdeck_submit_patch`; user review/approval can queue/select native PATCH. However capability is **not probe-verified**, live Python runtime has not been accepted, and unattended server-side AI continuation remains **NOT IMPLEMENTED**.
 2. Basic Chat is synchronous JSON only: SSE streaming, pause/resume, cross-daemon locks, request idempotency, retry/recovery UI, session rename/delete and log console integration are incomplete.
 3. Conversations mode falls back to canonical stateless replay until a verified Conversations API create/ID negotiation path exists. `previous_response_id` mode assumes the provider supports chaining when selected; automatic capability negotiation/fallback on provider error is not implemented yet.
 4. The first AI Pack request sends a bounded/redacted text companion, not a ZIP. Server rejects oversize packs instead of silently truncating the tool contract. Automatic context compaction and an AI Pack preview/advanced egress policy are not yet implemented.
 5. Metadata editing and key creation/rotation exist, but delete provider, revoke API key, model discovery, pricing/token accounting and provider-specific reasoning validation require further work.
-6. Current browser UI only demonstrates basic chat and multi-session switching. Real endpoint/network smoke, browser usability and remote E2EE acceptance remain untested.
+6. Browser UI now has chat, patch review/approve/reject, native status polling while open, and explicit verified tool-result continuation. Real endpoint/network, live browser, benign Python runtime and remote E2EE acceptance remain untested.
 
-**Next ordered implementation:** (A) precise idempotent Tool Gateway + Patch Tool execution binding, (B) output/result collector and auto feedback loop, (C) SSE/context recovery + advanced provider probes, (D) remote/writer locks and task console, (E) release hardening. Keep future plan DAG deferred.
+**Next ordered implementation:** (A) audit internal-handler authorization and correlate native run/SHA result to exact approved package, (B) Git HEAD/dirty + multi-process write lease and crash recovery, (C) isolated benign Python Patch live test, provider capability probes, SSE and backend feedback continuation, (D) remote/artifacts/console, (E) release gates. Existing native Tool Gateway code must not be implemented a second time. Keep future plan DAG deferred.
 
 ### Implementation continuation — native Tool Gateway (2026-11-19)
 
@@ -220,14 +220,22 @@ Committed source:
 
 **Important outstanding work:** A fake-protocol integration test now exercises actual native /api/sessions + prompt-response handler linkage and confirms only the approved queued package is selected; it is **not** a live Python Patch run. GUI-only polling is not an unattended server-side agent loop; after closing the browser no automatic model continuation occurs. A finished job requires the user to reopen the session and explicitly submit the verified result to AI. Real native Patch run, remote E2EE, workspace write leases/Git HEAD check, process restart reconciliation, streaming, provider fallback, artifact console previews, full regression testing, error recovery and security hardening remain open. **Code implemented ≠ live integration verified.** Do not mark unattended auto-run or end-to-end autonomous Agent as DONE.
 
-## 8. First implementation change boundaries and handoff to next engineer
+### Documentation re-audit — “New deck AI document” (2026-11-19)
 
-1. Create a small standard-library core package for Responses payloads and parsing; do not mix this with `ai_assistant.go` advisory handlers.
-2. Add precise unit tests first, especially state reference vs stateless replay, mandatory instructions and malformed provider result.
-3. Introduce provider settings and durable session APIs **only after** owner/auth checks are reviewed.
-4. Connect actual `BuildAIPack` only when first-turn payload budget and secret scanning are defined; packaging a ZIP is not automatically a valid model input.
-5. Wire `taskdeck_submit_patch` to a **real existing** queue with tool-call ledger; do not count the existing `/api/patch/paste` package creation as execution.
-6. Update this document checkbox-by-checkbox after commit, tests and any actual live evidence. If only source is present and real-provider testing is absent, record both clearly.
+- Reviewed commit: `b2f2234a` and all 9 Markdown files under `docs/taskdeck_ai_agent/`. Structure F01–F08 and relative links are valid; **feature is NOT release ready**.
+- P0: CI selector originally skipped 10/25 Agent Server tests; PR paths were incomplete. Fixed at [7d6c6bed](https://github.com/hacrot3000/PatchAndCollectionToolForAI/commit/7d6c6bedaccb7436ce3fa730551f7a30368e6fa9) and [CI 44479964926](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/44479964926) PASS for the corrected test selection. Still not live Python/browser/provider evidence.
+- P0 still OPEN: tool advertised from declared, not verified capability; synthetic `httptest.NewRecorder` internal dispatch does not rerun router middleware; final native protocol evidence matches name/kind without exact approved SHA/run binding; HEAD/dirty and cross-process writer fencing are absent.
+- P1: `FeedbackSent` is set **before** provider HTTP request (outgoing attempt only; no provider ACK), browser abort does not prove native cancellation, no unattended server coordinator.
+- Detailed findings and source/state matrix: [Source audit](taskdeck_ai_agent/09-source-audit.md). Keep F05/F06/F07 checkboxes blocked until the specific acceptance evidence exists; do not label mock CI as live-ready.
+
+## 8. Remaining source-change boundaries and handoff
+
+1. Keep `internal/agentchat` Responses and the existing native Patch handlers; do not create a second shell/Python parser or merge Smart Terminal advisory and Agent execution.
+2. Audit auth/owner/origin/CSRF/lease at each **internal** native handler side effect; a recorder call is not equivalent to a full authenticated HTTP middleware path.
+3. Bind native result to run ID/package SHA plus server-derived Git HEAD/dirty; add cross-process claim, crash/UNKNOWN reconciliation, then isolated local live Python acceptance.
+4. Add per-endpoint capability probes (tool/stateful/stream), context consent/preview, separate provider ACK from local feedback attempt, server-side continuation and stateful event recovery.
+5. Re-run **all** Agent tests with the corrected `'^TestAgent'` selector and keep CI/native-live/provider-live/remote-live evidence separate.
+6. Keep F08 planner deferred and update checklist with commits/verified evidence instead of inferring DONE from source presence.
 
 ## 9. Commands for verification
 
