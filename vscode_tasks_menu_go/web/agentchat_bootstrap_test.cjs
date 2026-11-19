@@ -72,10 +72,14 @@ const root = section.children.find(child => child.className === 'agentchat-overl
 const [settingsOverlay] = document.body.children;
 assert.ok(root && settingsOverlay, 'Agent chat and provider settings DOM created');
 const [windowBox] = root.children;
-const [heading] = windowBox.children;
+const [heading, viewTabs, , debugPanel] = windowBox.children;
+assert.equal(windowBox.attributes.role, 'region', 'Main Agent Chat remains non-modal');
+assert.equal(windowBox.attributes['aria-modal'], undefined, 'Main Agent Chat must not create a modal backdrop');
+assert.ok(viewTabs.children.some(child => child.textContent === 'AI Debug'), 'AI Debug view tab missing');
+assert.equal(debugPanel.className, 'agentchat-debug-panel');
 const collectLabels = node => [node.textContent, ...node.children.flatMap(collectLabels)];
 const labels = collectLabels(heading);
-for (const label of ['AI Agent Chat', 'Bottom', 'Auto Hide', '⋯', 'Hide', '+ New session', 'Preview context',
+for (const label of ['AI Agent Chat', '🐞', 'Bottom', 'Auto Hide', '⋯', 'Hide', '+ New session', 'Preview context',
   'Rename', 'Archive', 'Providers / API keys', 'Refresh', '+ Text file', 'Auto-send results']) {
   assert.ok(labels.includes(label), 'Agent Chat control missing at runtime: ' + label);
 }

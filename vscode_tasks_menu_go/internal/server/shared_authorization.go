@@ -166,6 +166,11 @@ func sharedSessionItemPath(path string) bool {
 func sharedRoutePermissions(r *http.Request) []string {
 	path := r.URL.Path
 	switch {
+	case strings.HasPrefix(path, "/api/agent/debug/traces/"):
+		if r.Method == http.MethodGet {
+			return []string{identity.PermissionSettingsRead}
+		}
+		return nil
 	case strings.HasPrefix(path, "/api/agent/sessions/"):
 		if r.Method == http.MethodGet && (strings.HasSuffix(path, "/pack-preview") || strings.HasSuffix(path, "/execution")) {
 			return []string{identity.PermissionSettingsRead, identity.PermissionPatchView}
@@ -224,6 +229,24 @@ func sharedRoutePermissions(r *http.Request) []string {
 		return []string{identity.PermissionSettingsWrite}
 	}
 	switch path {
+	case "/api/agent/debug/state":
+		if r.Method == http.MethodGet {
+			return []string{identity.PermissionSettingsRead}
+		}
+		if r.Method == http.MethodPost {
+			return []string{identity.PermissionSettingsWrite}
+		}
+		return nil
+	case "/api/agent/debug/traces":
+		if r.Method == http.MethodGet {
+			return []string{identity.PermissionSettingsRead}
+		}
+		return nil
+	case "/api/agent/debug/clear":
+		if r.Method == http.MethodPost {
+			return []string{identity.PermissionSettingsWrite}
+		}
+		return nil
 	case "/api/restricted/status":
 		return []string{identity.PermissionFilesRead}
 	case "/api/restricted/command":

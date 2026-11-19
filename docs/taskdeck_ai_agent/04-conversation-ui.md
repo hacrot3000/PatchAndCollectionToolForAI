@@ -1,6 +1,6 @@
 # F04 — Điều phối hội thoại, streaming và giao diện
 
-**Bố cục Agent Chat dock:** [10 — Agent Chat Dockable Panel, Right/Bottom & Auto Hide](10-agent-chat-dock-panel-ui.md). Source hiện đã chuyển UI chính sang dock Right/Bottom, có dải thu gọn, auto-hide riêng, splitter và More actions; browser smoke/a11y, mobile và kiểm thử tương tác layout vẫn chưa được xác nhận. Giữ nguyên contract hội thoại và native Patch.
+**Bố cục Agent Chat dock:** [10 — Agent Chat Dockable Panel, Right/Bottom & Auto Hide](10-agent-chat-dock-panel-ui.md). Source hiện đã chuyển UI chính sang dock Right/Bottom, có dải thu gọn, auto-hide riêng, splitter và More actions; browser smoke/a11y, mobile và kiểm thử tương tác layout vẫn chưa được xác nhận. [AI Debug](11-agent-chat-debug-observability.md) bổ sung structured provider errors, server-side bounded trace và capture safe/raw opt-in; acceptance live/browser vẫn pending.
 
 **Đặc tả AI Debug riêng (chưa triển khai):** [11 — Agent Chat Debug / request-response observability](11-agent-chat-debug-observability.md). Yêu cầu nút Debug trên title dock, backend trace Test/Probe/Send/Tools, lỗi FAILED có nguyên nhân, console và safe/raw payload inspector.
 
@@ -20,7 +20,7 @@
 
 ## Trạng thái sau đợt hardening
 
-Đã có: `POST /api/agent/sessions/{id}/cancel` đăng ký/hủy provider context phía server (không tin browser abort), `PATCH /metadata` cho rename/archive (chặn archive khi còn tool call chưa xong), busy state theo từng session, UI probe/delete provider, panel evidence console (`GET .../execution`) với copy tùy chọn. Bổ sung: timeout được phân biệt (504) và vẫn không auto-retry; `failed`/`cancelled` cho phép người dùng gửi lượt mới thủ công. Đã có streaming SSE opt-in (probe verified) thay cho chỉ JSON. Chưa có: event journal/cursor, resume sau restart, pause, quota bền vững, browser acceptance thực.
+Đã có: provider turn context thuộc daemon lifecycle (browser disconnect không cancel; explicit Cancel và daemon shutdown vẫn cancel), `request_id` idempotency digest bao gồm attachments, durable transition journal + cursor API, per-session tab draft/attachment và generation guard khi GET trả đảo thứ tự, panel execution evidence/copy, bounded cancellation và rate/concurrency admission. Chat Completions SSE có adapter riêng; UI chọn API type và chỉ cho stateful mode khi Responses endpoint được probe phù hợp. Chưa có: pause/resume API, durable token/cost quota, interactive browser acceptance thực.
 
 ## F04.1.2 — cancel/pause/resume và quota
 

@@ -5,9 +5,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"strings"
+	"time"
 )
 
 const (
@@ -240,17 +240,29 @@ func DoResponsesStream(ctx context.Context, p ProviderConfig, key string, body [
 		return ResponsesResult{}, err
 	}
 	req.Header.Set("Accept", "text/event-stream")
+	RecordProviderDiagnostic(ctx, DiagnosticEvent{Level: "info", Stage: "provider_http", Event: "http.request", Endpoint: endpoint, APIType: p.APIType, ProviderID: p.ID, RequestBody: body, RequestBytes: len(body)})
+	started := time.Now()
 	resp, err := client.Do(req)
 	if err != nil {
-		return ResponsesResult{}, errors.New("provider request failed")
+		code, message, ambiguous := classifyProviderTransportError(ctx, err)
+		RecordProviderDiagnostic(ctx, DiagnosticEvent{Level: "error", Stage: "provider_http", Event: "http.error", Code: code, SafeMessage: message, Endpoint: endpoint, APIType: p.APIType, ProviderID: p.ID, RequestBytes: len(body), RequestSHA256: BodyDigest(body), Duration: time.Since(started)})
+		return ResponsesResult{}, &ProviderError{Code: code, Stage: "provider_http", Message: message, Retryable: ambiguous, Ambiguous: ambiguous}
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != 200 {
-		return ResponsesResult{}, fmt.Errorf("provider returned HTTP %d", resp.StatusCode)
+		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 256<<10+1))
+		if len(raw) > 256<<10 {
+			raw = raw[:256<<10]
+		}
+		pe := parseProviderHTTPError(resp.StatusCode, resp.Header.Get("Retry-After"), raw)
+		RecordProviderDiagnostic(ctx, DiagnosticEvent{Level: "error", Stage: "provider_http", Event: "http.response", Code: pe.Code, Endpoint: endpoint, APIType: p.APIType, ProviderID: p.ID, HTTPStatus: resp.StatusCode, ContentType: resp.Header.Get("Content-Type"), RetryAfter: resp.Header.Get("Retry-After"), ProviderRequestID: providerRequestID(resp.Header), ResponseBody: raw, RequestBytes: len(body), RequestSHA256: BodyDigest(body), ResponseBytes: len(raw), Duration: time.Since(started)})
+		return ResponsesResult{}, pe
 	}
 	if ct := strings.ToLower(resp.Header.Get("Content-Type")); !strings.HasPrefix(ct, "text/event-stream") {
-		return ResponsesResult{}, errors.New("provider did not return an event stream")
+		RecordProviderDiagnostic(ctx, DiagnosticEvent{Level: "error", Stage: "provider_parse", Event: "sse.invalid_content_type", Code: "SSE_INVALID_CONTENT_TYPE", Endpoint: endpoint, APIType: p.APIType, ProviderID: p.ID, HTTPStatus: resp.StatusCode, ContentType: resp.Header.Get("Content-Type"), RequestBytes: len(body), RequestSHA256: BodyDigest(body), Duration: time.Since(started)})
+		return ResponsesResult{}, &ProviderError{Code: "SSE_INVALID_CONTENT_TYPE", Stage: "provider_parse", Message: "Provider did not return an event stream", HTTPStatus: resp.StatusCode}
 	}
+	RecordProviderDiagnostic(ctx, DiagnosticEvent{Level: "info", Stage: "provider_http", Event: "http.response", Endpoint: endpoint, APIType: p.APIType, ProviderID: p.ID, HTTPStatus: resp.StatusCode, ContentType: resp.Header.Get("Content-Type"), ProviderRequestID: providerRequestID(resp.Header), RequestBytes: len(body), RequestSHA256: BodyDigest(body), Duration: time.Since(started)})
 	acc := newStreamAccumulator()
 	reader := bufio.NewReaderSize(io.LimitReader(resp.Body, maxSSETotalBytes+1), 32<<10)
 	var data strings.Builder
@@ -265,9 +277,14 @@ func DoResponsesStream(ctx context.Context, p ProviderConfig, key string, body [
 		}
 		ev, err := parseSSEEvent([]byte(payload))
 		if err != nil {
-			return err
+			RecordProviderDiagnostic(ctx, DiagnosticEvent{Level: "error", Stage: "provider_parse", Event: "sse.parse_error", Code: "SSE_PARSE_FAILED", SafeMessage: "Provider stream frame could not be parsed"})
+			return &ProviderError{Code: "SSE_PARSE_FAILED", Stage: "provider_parse", Message: "Provider stream frame could not be parsed"}
 		}
-		return acc.apply(ev)
+		if err = acc.apply(ev); err != nil {
+			RecordProviderDiagnostic(ctx, DiagnosticEvent{Level: "error", Stage: "provider_parse", Event: "sse.accumulate_error", Code: "SSE_INCOMPLETE", SafeMessage: "Provider stream did not contain a complete result"})
+			return &ProviderError{Code: "SSE_INCOMPLETE", Stage: "provider_parse", Message: "Provider stream did not contain a complete result"}
+		}
+		return nil
 	}
 	for {
 		line, err := reader.ReadString('\n')
@@ -276,6 +293,9 @@ func DoResponsesStream(ctx context.Context, p ProviderConfig, key string, body [
 			return ResponsesResult{}, errors.New("provider stream exceeded size limit")
 		}
 		trimmed := strings.TrimRight(line, "\r\n")
+		if line != "" {
+			RecordProviderDiagnostic(ctx, DiagnosticEvent{Level: "debug", Stage: "provider_stream", Event: "sse.frame", StreamFrame: []byte(line), ResponseBytes: len(line)})
+		}
 		switch {
 		case strings.HasPrefix(trimmed, "data:"):
 			chunk := strings.TrimPrefix(trimmed, "data:")

@@ -250,14 +250,14 @@ func (s *Server) agentChatProviderTestAPI(w http.ResponseWriter, r *http.Request
 		http.Error(w, "provider probe construction failed", 500)
 		return
 	}
-	res, err := s.agentChatCall(r.Context(), p, string(secret), body)
+	res, err, traceID := s.agentChatObservedCall(r.Context(), owner, "connection_test", "", p, string(secret), body)
 	if err != nil {
-		http.Error(w, "provider connection or Responses API test failed: "+err.Error(), 502)
+		writeAgentStructuredError(w, 502, err, traceID, "PROVIDER_REQUEST_FAILED", "provider_http", "Provider connection test failed; inspect the trace")
 		return
 	}
 	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, 200, map[string]any{
-		"ok": true, "provider_id": p.ID, "model_id": req.ModelID, "response_id": res.ResponseID,
+		"ok": true, "trace_id": traceID, "provider_id": p.ID, "model_id": req.ModelID, "response_id": res.ResponseID,
 		"input_tokens": res.InputTokens, "output_tokens": res.OutputTokens,
 		"text_supported":      strings.TrimSpace(res.Text) != "",
 		"tool_calling_tested": false, "streaming_tested": false, "stateful_tested": false,
@@ -413,7 +413,7 @@ func (s *Server) agentChatProviderProbeAPI(w http.ResponseWriter, r *http.Reques
 		Detail: map[string]string{}, ProbedAt: time.Now().UTC(),
 	}
 	for _, capability := range req.Capabilities {
-		status, detail := s.agentProbeCapability(r, p, model, string(secret), capability)
+		status, detail := s.agentProbeCapability(r, owner, p, model, string(secret), capability)
 		rec.Capabilities[capability] = status
 		if detail != "" {
 			rec.Detail[capability] = detail
@@ -438,7 +438,7 @@ func (s *Server) agentChatProviderProbeAPI(w http.ResponseWriter, r *http.Reques
 
 // agentProbeCapability runs exactly one bounded, harmless probe. It never
 // executes a tool and never includes project/AI Pack data.
-func (s *Server) agentProbeCapability(r *http.Request, p agentchat.ProviderConfig, m agentchat.ModelConfig, key, capability string) (string, string) {
+func (s *Server) agentProbeCapability(r *http.Request, owner string, p agentchat.ProviderConfig, m agentchat.ModelConfig, key, capability string) (string, string) {
 	ctx, cancel := context.WithTimeout(r.Context(), 45*time.Second)
 	defer cancel()
 	switch capability {
@@ -450,7 +450,7 @@ func (s *Server) agentProbeCapability(r *http.Request, p agentchat.ProviderConfi
 		if err != nil {
 			return agentchat.CapabilityInconclusive, "probe_build_failed"
 		}
-		res, err := s.agentChatCall(ctx, p, key, body)
+		res, err, _ := s.agentChatObservedCall(ctx, owner, "capability_probe_"+capability, "", p, key, body)
 		if err != nil {
 			return agentchat.CapabilityInconclusive, err.Error()
 		}
@@ -467,7 +467,7 @@ func (s *Server) agentProbeCapability(r *http.Request, p agentchat.ProviderConfi
 		if err != nil {
 			return agentchat.CapabilityInconclusive, "probe_build_failed"
 		}
-		if _, err := s.agentChatCall(ctx, p, key, body); err != nil {
+		if _, err, _ := s.agentChatObservedCall(ctx, owner, "capability_probe_"+capability, "", p, key, body); err != nil {
 			return agentchat.CapabilityInconclusive, err.Error()
 		}
 		// A successful structured Responses exchange with a function schema proves
@@ -485,7 +485,7 @@ func (s *Server) agentProbeCapability(r *http.Request, p agentchat.ProviderConfi
 		if err != nil {
 			return agentchat.CapabilityInconclusive, "probe_build_failed"
 		}
-		first, err := s.agentChatCall(ctx, p, key, body)
+		first, err, _ := s.agentChatObservedCall(ctx, owner, "capability_probe_"+capability, "", p, key, body)
 		if err != nil {
 			return agentchat.CapabilityInconclusive, err.Error()
 		}
@@ -500,7 +500,7 @@ func (s *Server) agentProbeCapability(r *http.Request, p agentchat.ProviderConfi
 		if err != nil {
 			return agentchat.CapabilityInconclusive, "probe_build_failed"
 		}
-		second, err := s.agentChatCall(ctx, p, key, follow)
+		second, err, _ := s.agentChatObservedCall(ctx, owner, "capability_probe_"+capability, "", p, key, follow)
 		if err != nil {
 			return agentchat.CapabilityInconclusive, err.Error()
 		}
@@ -521,7 +521,7 @@ func (s *Server) agentProbeCapability(r *http.Request, p agentchat.ProviderConfi
 		if err != nil {
 			return agentchat.CapabilityInconclusive, "probe_build_failed"
 		}
-		first, err := s.agentChatCall(ctx, p, key, body)
+		first, err, _ := s.agentChatObservedCall(ctx, owner, "capability_probe_"+capability, "", p, key, body)
 		if err != nil {
 			return agentchat.CapabilityInconclusive, err.Error()
 		}
@@ -536,7 +536,7 @@ func (s *Server) agentProbeCapability(r *http.Request, p agentchat.ProviderConfi
 		if err != nil {
 			return agentchat.CapabilityInconclusive, "probe_build_failed"
 		}
-		follow, err := s.agentChatCall(ctx, p, key, second)
+		follow, err, _ := s.agentChatObservedCall(ctx, owner, "capability_probe_"+capability, "", p, key, second)
 		if err != nil {
 			return agentchat.CapabilityInconclusive, err.Error()
 		}

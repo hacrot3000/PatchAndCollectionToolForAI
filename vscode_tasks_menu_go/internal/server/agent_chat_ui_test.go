@@ -59,6 +59,12 @@ func TestAgentChatUIHasNoExecutionAndWiresProviderSessions(t *testing.T) {
 		"globalThis.TaskMenuAgentChat=",
 		"API key",
 		"settingsOverlay",
+		"AI Debug",
+		"/api/agent/debug/state",
+		"/api/agent/debug/traces",
+		"/api/agent/debug/clear",
+		"Enable RAW…",
+		"RAW ACTIVE",
 	} {
 		if !strings.Contains(js, needle) {
 			t.Errorf("Agent Chat UI lacks %q", needle)

@@ -1,7 +1,7 @@
 # F04.UI-DEBUG — AI Agent Debug: cấu hình, request/response, streaming, tool execution và console
 
-**Trạng thái:** TÀI LIỆU CHỈ THỊ CODER — CHƯA TRIỂN KHAI CODE.  
-**Ngày:** 2026-11-19. **Branch mục tiêu:** main. **HEAD khảo sát:** b825d11b3d4cdaf36e650719fe0093f9a98a1bde.  
+**Trạng thái:** ĐÃ TRIỂN KHAI MỘT PHẦN — server trace/provider transport capture và panel cơ bản; browser/live acceptance, một số preflight spans và timings chi tiết còn thiếu. Xem evidence handoff bên dưới.
+**Ngày:** 2026-11-19. **Branch mục tiêu:** main. **HEAD khảo sát trước triển khai:** bba5eea603f768f7172ecf758d29f01a5a48bc7e.
 **Phụ thuộc bố cục:** [10 — Dock panel Right/Bottom và Auto Hide](10-agent-chat-dock-panel-ui.md).  
 **Liên quan:** [F02 Providers](02-providers.md), [F03 Sessions](03-sessions-context.md), [F04 UI](04-conversation-ui.md), [F05 Patch feedback](05-patch-feedback.md), [F07 Acceptance](07-acceptance.md).
 

@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 )
 
 // BuildChatCompletionsRequest translates the existing canonical Responses
@@ -211,14 +212,14 @@ func DoChatCompletions(ctx context.Context, p ProviderConfig, key string, canoni
 
 func doChatCompletionsWithClient(ctx context.Context, p ProviderConfig, key string, canonicalBody []byte, client *http.Client) (ResponsesResult, error) {
 	if p.APIType != "chat_completions" {
-		return ResponsesResult{}, errors.New("provider is not configured for Chat Completions")
+		return ResponsesResult{}, &ProviderError{Code: "UNSUPPORTED_API_TYPE", Stage: "request_validation", Message: "Provider is not configured for Chat Completions"}
 	}
 	endpoint, err := p.APIURL("chat_completions")
 	if err != nil {
-		return ResponsesResult{}, err
+		return ResponsesResult{}, classifyProviderPreflightError(err)
 	}
 	if key == "" || len(key) > 8192 {
-		return ResponsesResult{}, errors.New("provider credential unavailable")
+		return ResponsesResult{}, classifyProviderPreflightError(errors.New("provider credential unavailable"))
 	}
 	body, err := BuildChatCompletionsRequest(canonicalBody)
 	if err != nil {
@@ -228,20 +229,44 @@ func doChatCompletionsWithClient(ctx context.Context, p ProviderConfig, key stri
 	if err != nil {
 		return ResponsesResult{}, err
 	}
+	RecordProviderDiagnostic(ctx, DiagnosticEvent{Level: "info", Stage: "provider_http", Event: "http.request", Endpoint: endpoint, APIType: p.APIType, ProviderID: p.ID, RequestBody: body, RequestBytes: len(body)})
+	started := time.Now()
 	resp, err := client.Do(req)
 	if err != nil {
-		return ResponsesResult{}, errors.New("provider request failed")
+		code, message, ambiguous := classifyProviderTransportError(ctx, err)
+		RecordProviderDiagnostic(ctx, DiagnosticEvent{Level: "error", Stage: "provider_http", Event: "http.error", Code: code, SafeMessage: message, Endpoint: endpoint, APIType: p.APIType, ProviderID: p.ID, RequestBody: body, RequestBytes: len(body), Duration: time.Since(started)})
+		return ResponsesResult{}, &ProviderError{Code: code, Stage: "provider_http", Message: message, Retryable: ambiguous, Ambiguous: ambiguous}
 	}
 	defer resp.Body.Close()
+	raw, readErr := io.ReadAll(io.LimitReader(resp.Body, maxRequestBytes+1))
+	truncated := len(raw) > maxRequestBytes
+	if truncated {
+		raw = raw[:maxRequestBytes]
+	}
+	diagnostic := DiagnosticEvent{Level: "info", Stage: "provider_http", Event: "http.response", Endpoint: endpoint, APIType: p.APIType, ProviderID: p.ID, HTTPStatus: resp.StatusCode, ContentType: resp.Header.Get("Content-Type"), RetryAfter: resp.Header.Get("Retry-After"), ProviderRequestID: providerRequestID(resp.Header), ResponseBody: raw, RequestBytes: len(body), ResponseBytes: len(raw), RequestSHA256: BodyDigest(body), Truncated: truncated, Duration: time.Since(started)}
 	if resp.StatusCode != http.StatusOK {
-		return ResponsesResult{}, fmt.Errorf("provider returned HTTP %d", resp.StatusCode)
+		pe := parseProviderHTTPError(resp.StatusCode, resp.Header.Get("Retry-After"), raw)
+		diagnostic.Level = "error"
+		diagnostic.Code = pe.Code
+		diagnostic.SafeMessage = "Provider returned an HTTP error; inspect bounded diagnostics"
+		RecordProviderDiagnostic(ctx, diagnostic)
+		return ResponsesResult{}, pe
 	}
-	raw, err := io.ReadAll(io.LimitReader(resp.Body, maxRequestBytes+1))
-	if err != nil {
-		return ResponsesResult{}, errors.New("cannot read provider response")
+	if readErr != nil {
+		return ResponsesResult{}, &ProviderError{Code: "RESPONSE_READ_FAILED", Stage: "provider_http", Message: "Could not read provider response body", Ambiguous: true}
 	}
-	if len(raw) > maxRequestBytes {
-		return ResponsesResult{}, errors.New("provider response too large")
+	if truncated {
+		return ResponsesResult{}, &ProviderError{Code: "RESPONSE_TOO_LARGE", Stage: "provider_http", Message: "Provider response exceeded the configured size limit"}
 	}
-	return ParseChatCompletionsResult(raw)
+	result, parseErr := ParseChatCompletionsResult(raw)
+	if parseErr != nil {
+		diagnostic.Level = "error"
+		diagnostic.Stage = "provider_parse"
+		diagnostic.Code = "JSON_PARSE_FAILED"
+		diagnostic.SafeMessage = SafeProviderText(parseErr.Error())
+		RecordProviderDiagnostic(ctx, diagnostic)
+		return ResponsesResult{}, &ProviderError{Code: diagnostic.Code, Stage: diagnostic.Stage, Message: diagnostic.SafeMessage}
+	}
+	RecordProviderDiagnostic(ctx, diagnostic)
+	return result, nil
 }

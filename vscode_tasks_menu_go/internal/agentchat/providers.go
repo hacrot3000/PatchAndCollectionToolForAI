@@ -481,7 +481,7 @@ func validateProviderCall(p ProviderConfig, key string, body []byte) (string, er
 func DoResponses(ctx context.Context, p ProviderConfig, key string, body []byte) (ResponsesResult, error) {
 	endpoint, err := validateProviderCall(p, key, body)
 	if err != nil {
-		return ResponsesResult{}, err
+		return ResponsesResult{}, classifyProviderPreflightError(err)
 	}
 	client := newProviderClient()
 	defer client.CloseIdleConnections()
@@ -489,20 +489,126 @@ func DoResponses(ctx context.Context, p ProviderConfig, key string, body []byte)
 	if err != nil {
 		return ResponsesResult{}, err
 	}
+	RecordProviderDiagnostic(ctx, DiagnosticEvent{Level: "info", Stage: "provider_http", Event: "http.request", Endpoint: endpoint, APIType: p.APIType, ProviderID: p.ID, RequestBody: body, RequestBytes: len(body)})
+	started := time.Now()
 	resp, err := client.Do(req)
 	if err != nil {
-		return ResponsesResult{}, errors.New("provider request failed")
+		code, message, ambiguous := classifyProviderTransportError(ctx, err)
+		diagnostic := DiagnosticEvent{Level: "error", Stage: "provider_http", Event: "http.error", Code: code, SafeMessage: message, Endpoint: endpoint, APIType: p.APIType, ProviderID: p.ID, RequestBytes: len(body), RequestSHA256: BodyDigest(body), Duration: time.Since(started)}
+		RecordProviderDiagnostic(ctx, diagnostic)
+		return ResponsesResult{}, &ProviderError{Code: code, Stage: "provider_http", Message: message, Retryable: code == "CONNECT_FAILED" || code == "REQUEST_TIMEOUT", Ambiguous: ambiguous}
 	}
 	defer resp.Body.Close()
+	raw, readErr := io.ReadAll(io.LimitReader(resp.Body, maxRequestBytes+1))
+	truncated := len(raw) > maxRequestBytes
+	if truncated {
+		raw = raw[:maxRequestBytes]
+	}
+	diagnostic := DiagnosticEvent{Level: "info", Stage: "provider_http", Event: "http.response", Endpoint: endpoint, APIType: p.APIType, ProviderID: p.ID, HTTPStatus: resp.StatusCode, ContentType: resp.Header.Get("Content-Type"), RetryAfter: resp.Header.Get("Retry-After"), ProviderRequestID: providerRequestID(resp.Header), ResponseBody: raw, RequestBytes: len(body), ResponseBytes: len(raw), RequestSHA256: BodyDigest(body), Truncated: truncated, Duration: time.Since(started)}
 	if resp.StatusCode != http.StatusOK {
-		return ResponsesResult{}, fmt.Errorf("provider returned HTTP %d", resp.StatusCode)
+		providerErr := parseProviderHTTPError(resp.StatusCode, resp.Header.Get("Retry-After"), raw)
+		diagnostic.Level = "error"
+		diagnostic.Code = providerErr.Code
+		diagnostic.SafeMessage = providerErr.Message
+		RecordProviderDiagnostic(ctx, diagnostic)
+		return ResponsesResult{}, providerErr
 	}
-	raw, err := io.ReadAll(io.LimitReader(resp.Body, maxRequestBytes+1))
-	if err != nil {
-		return ResponsesResult{}, errors.New("cannot read provider response")
+	if readErr != nil {
+		diagnostic.Level = "error"
+		diagnostic.Code = "RESPONSE_READ_FAILED"
+		diagnostic.SafeMessage = "Could not read provider response body"
+		RecordProviderDiagnostic(ctx, diagnostic)
+		return ResponsesResult{}, &ProviderError{Code: diagnostic.Code, Stage: "provider_http", Message: diagnostic.SafeMessage, Ambiguous: true}
 	}
-	if len(raw) > maxRequestBytes {
-		return ResponsesResult{}, errors.New("provider response too large")
+	if truncated {
+		diagnostic.Level = "error"
+		diagnostic.Code = "RESPONSE_TOO_LARGE"
+		diagnostic.SafeMessage = "Provider response exceeded the configured size limit"
+		RecordProviderDiagnostic(ctx, diagnostic)
+		return ResponsesResult{}, &ProviderError{Code: diagnostic.Code, Stage: "provider_http", Message: diagnostic.SafeMessage}
 	}
-	return ParseResponsesResult(raw)
+	result, parseErr := ParseResponsesResult(raw)
+	if parseErr != nil {
+		diagnostic.Level = "error"
+		diagnostic.Stage = "provider_parse"
+		diagnostic.Event = "response.parse_error"
+		diagnostic.Code = "JSON_PARSE_FAILED"
+		diagnostic.SafeMessage = SafeProviderText(parseErr.Error())
+		RecordProviderDiagnostic(ctx, diagnostic)
+		return ResponsesResult{}, &ProviderError{Code: diagnostic.Code, Stage: diagnostic.Stage, Message: diagnostic.SafeMessage}
+	}
+	RecordProviderDiagnostic(ctx, diagnostic)
+	return result, nil
+}
+
+func providerRequestID(header http.Header) string {
+	for _, key := range []string{"X-Request-ID", "Request-ID", "OpenAI-Request-ID"} {
+		if value := strings.TrimSpace(header.Get(key)); value != "" {
+			return SafeProviderText(value)
+		}
+	}
+	return ""
+}
+
+func classifyProviderPreflightError(err error) error {
+	message := SafeProviderText(err.Error())
+	code := "CONFIG_INVALID"
+	if strings.Contains(strings.ToLower(message), "credential") {
+		code = "MISSING_API_KEY"
+	}
+	if strings.Contains(strings.ToLower(message), "payload exceeds") || strings.Contains(strings.ToLower(message), "too large") {
+		code = "REQUEST_TOO_LARGE"
+	}
+	return &ProviderError{Code: code, Stage: "request_validation", Message: message, Retryable: false, Ambiguous: false}
+}
+
+func classifyProviderTransportError(ctx context.Context, err error) (string, string, bool) {
+	if errors.Is(ctx.Err(), context.Canceled) {
+		return "REQUEST_CANCELLED", "Provider request was cancelled", true
+	}
+	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		return "REQUEST_TIMEOUT", "Provider request timed out", true
+	}
+	text := strings.ToLower(err.Error())
+	if strings.Contains(text, "dns lookup") || strings.Contains(text, "no such host") {
+		return "DNS_LOOKUP_FAILED", "Provider DNS lookup failed", false
+	}
+	if strings.Contains(text, "private") || strings.Contains(text, "reserved") {
+		return "PRIVATE_IP_BLOCKED", "Provider endpoint resolved to a blocked address", false
+	}
+	if strings.Contains(text, "tls") || strings.Contains(text, "certificate") {
+		return "TLS_HANDSHAKE_FAILED", "Provider TLS handshake failed", false
+	}
+	if strings.Contains(text, "timeout") || strings.Contains(text, "deadline") {
+		return "CONNECT_TIMEOUT", "Provider connection timed out", true
+	}
+	return "CONNECT_FAILED", "Provider connection failed", true
+}
+
+func parseProviderHTTPError(status int, retryAfter string, body []byte) *ProviderError {
+	code := fmt.Sprintf("PROVIDER_HTTP_%d", status)
+	providerType, providerCode, providerMessage := "", "", ""
+	var envelope struct {
+		Error json.RawMessage `json:"error"`
+	}
+	if json.Unmarshal(body, &envelope) == nil {
+		var detail struct {
+			Type    string `json:"type"`
+			Code    string `json:"code"`
+			Message string `json:"message"`
+		}
+		if json.Unmarshal(envelope.Error, &detail) == nil {
+			providerType, providerCode, providerMessage = detail.Type, detail.Code, detail.Message
+		} else if len(envelope.Error) > 0 {
+			providerMessage = string(envelope.Error)
+		}
+	}
+	providerType = SafeProviderText(providerType)
+	providerCode = SafeProviderText(providerCode)
+	providerMessage = SafeProviderText(providerMessage)
+	message := fmt.Sprintf("Provider rejected the request (HTTP %d)", status)
+	if providerMessage != "" {
+		message += ": " + providerMessage
+	}
+	return &ProviderError{Code: code, Stage: "provider_http", Message: message, ProviderErrorType: providerType, ProviderErrorCode: providerCode, ProviderMessage: providerMessage, HTTPStatus: status, RetryAfter: SafeProviderText(retryAfter), Retryable: status == 429 || status >= 500}
 }

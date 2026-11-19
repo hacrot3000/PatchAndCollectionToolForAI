@@ -235,15 +235,17 @@ func (s *Server) agentDeliverToolResult(ctx context.Context, store *agentchat.St
 	callCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
 	releaseRequest := registerAgentRequest(agentRequestKey(s.Workspace, owner, x.ID), cancel)
-	result, err := s.agentChatCallForOwner(callCtx, owner, p, string(secret), payload)
+	result, err, _ := s.agentChatCallForOwner(callCtx, owner, x.ID, p, string(secret), payload)
 	releaseRequest()
 	if err != nil {
 		if errors.Is(callCtx.Err(), context.Canceled) {
+			s.recordAgentDebugEvent(owner, x.ID, call.CallID, "feedback", "feedback.unknown", "FEEDBACK_DELIVERY_UNKNOWN", "Provider acknowledgement was not confirmed; result will not be resent")
 			x.Status = "cancelled"
 			x.ToolCalls[idx].FeedbackStatus = "unknown"
 			_, _ = store.Save(x, x.Revision)
 			return agentDeliverResult{}, agentContinueError{409, "continuation cancelled; the tool result was already recorded and will not be resent"}
 		}
+		s.recordAgentDebugEvent(owner, x.ID, call.CallID, "feedback", "feedback.unknown", "FEEDBACK_DELIVERY_UNKNOWN", "Provider acknowledgement was not confirmed; result will not be resent")
 		x.Status = "failed"
 		x.ToolCalls[idx].FeedbackStatus = "unknown"
 		_, _ = store.Save(x, x.Revision)
@@ -256,5 +258,6 @@ func (s *Server) agentDeliverToolResult(ctx context.Context, store *agentchat.St
 	if err != nil {
 		return agentDeliverResult{}, agentContinueError{409, "provider responded but journal write failed; inspect history before retry"}
 	}
+	s.recordAgentDebugEvent(owner, x.ID, call.CallID, "feedback", "feedback.acknowledged", "", "Provider response was persisted after tool-result continuation")
 	return agentDeliverResult{Session: x, Result: result}, nil
 }

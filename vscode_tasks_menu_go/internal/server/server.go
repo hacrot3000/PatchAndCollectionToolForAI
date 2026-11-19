@@ -41,6 +41,8 @@ type Server struct {
 	agentRunCancel         context.CancelFunc
 	AgentChatCall          func(context.Context, agentchat.ProviderConfig, string, []byte) (agentchat.ResponsesResult, error) // optional test adapter; nil = production HTTPS
 	AgentChatPack          func(string, string) (patchtool.AIPackResult, error)                                               // optional test builder; nil = current AI Pack
+	agentDebugMu           sync.Mutex
+	agentDebug             *agentDebugStore
 	Workspace              string
 	Config                 config.Config
 	Log                    *log.Logger
@@ -197,6 +199,10 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/db/sessions/", s.dbSessionItem)
 	mux.HandleFunc("/api/broadcast", s.broadcastStateAPI)
 	mux.HandleFunc("/api/terminal-history", s.terminalHistory)
+	mux.HandleFunc("/api/agent/debug/state", s.agentChatDebugStateAPI)
+	mux.HandleFunc("/api/agent/debug/traces", s.agentChatDebugTracesAPI)
+	mux.HandleFunc("/api/agent/debug/traces/", s.agentChatDebugTraceAPI)
+	mux.HandleFunc("/api/agent/debug/clear", s.agentChatDebugClearAPI)
 	mux.HandleFunc("/api/agent/providers", s.agentChatProvidersAPI)
 	mux.HandleFunc("/api/agent/providers/test", s.agentChatProviderTestAPI)
 	mux.HandleFunc("/api/agent/providers/probe", s.agentChatProviderProbeAPI)

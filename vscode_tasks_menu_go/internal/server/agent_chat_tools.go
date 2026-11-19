@@ -193,6 +193,7 @@ func (s *Server) agentChatToolDecisionAPI(w http.ResponseWriter, r *http.Request
 			http.Error(w, "cannot persist tool rejection", 409)
 			return
 		}
+		s.recordAgentDebugEvent(owner, sessionID, callID, "tool", "tool.rejected", "", "User rejected the proposed patch; nothing was queued")
 		w.Header().Set("Cache-Control", "no-store")
 		writeJSON(w, 200, map[string]any{"session_id": sessionID, "status": "rejected", "revision": x.Revision, "execution_enabled": false})
 		return
@@ -252,6 +253,7 @@ func (s *Server) agentChatToolDecisionAPI(w http.ResponseWriter, r *http.Request
 		http.Error(w, "cannot record tool idempotency marker", 409)
 		return
 	}
+	s.recordAgentDebugEvent(owner, sessionID, callID, "tool", "tool.queuing", "", "Approval recorded before native queue handoff")
 	// Re-check immediately before creating a queue package. If the worktree
 	// moved between the approval request and this write, stop and require a
 	// fresh review instead of applying the patch to an unreviewed state.
@@ -288,6 +290,7 @@ func (s *Server) agentChatToolDecisionAPI(w http.ResponseWriter, r *http.Request
 		http.Error(w, "Patch was queued but journal update failed; inspect queue, do not retry", 409)
 		return
 	}
+	s.recordAgentDebugEvent(owner, sessionID, callID, "tool", "tool.queued", "", "Native Patch queue accepted the approved package")
 	// A live daemon launches the EXISTING native Patch Tool session and
 	// selects ONLY this approved package. A non-running test fixture can still
 	// verify the queue stage independently without a session service.
@@ -365,6 +368,7 @@ func (s *Server) agentChatToolDecisionAPI(w http.ResponseWriter, r *http.Request
 			}
 		}
 	}
+	s.recordAgentDebugEvent(owner, sessionID, callID, "tool", "tool."+status, "", "Native Patch lifecycle is "+status)
 	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, 200, map[string]any{
 		"session_id": sessionID, "call_id": callID, "status": status,

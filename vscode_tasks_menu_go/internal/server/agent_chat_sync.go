@@ -60,6 +60,11 @@ func (s *Server) agentChatSyncAPI(w http.ResponseWriter, r *http.Request, id str
 			http.Error(w, "agent journal revision changed during sync", 409)
 			return
 		}
+		for _, record := range x.ToolCalls {
+			if record.Status == "done" || record.Status == "error" || record.Status == "unknown" {
+				s.recordAgentDebugEvent(owner, id, record.CallID, "tool", "tool.final", record.Status, "Native Patch final evidence reconciled: "+record.Status)
+			}
+		}
 	}
 	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, 200, map[string]any{

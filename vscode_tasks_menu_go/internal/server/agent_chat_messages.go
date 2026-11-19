@@ -33,20 +33,79 @@ func (s *Server) agentChatCall(ctx context.Context, p agentchat.ProviderConfig, 
 // a probe verified streaming for this exact endpoint/model/fingerprint. A
 // stream that ends without completion is an error; callers never replay a
 // turn that may already have had side effects.
-func (s *Server) agentChatCallForOwner(ctx context.Context, owner string, p agentchat.ProviderConfig, key string, payload []byte) (agentchat.ResponsesResult, error) {
+func (s *Server) agentChatCallForOwner(ctx context.Context, owner, sessionID string, p agentchat.ProviderConfig, key string, payload []byte) (agentchat.ResponsesResult, error, string) {
+	return s.agentChatObservedCall(ctx, owner, "provider_request", sessionID, p, key, payload)
+}
+
+func (s *Server) agentChatObservedCall(ctx context.Context, owner, action, sessionID string, p agentchat.ProviderConfig, key string, payload []byte) (agentchat.ResponsesResult, error, string) {
+	traceCtx, recorder, traceID := s.beginAgentDebug(ctx, owner, action, sessionID, p, modelFromAgentPayload(payload))
+	streaming := p.Stream && owner != "" && s.agentStreamCapabilityVerified(owner, p)
+	metadata := agentRequestDiagnosticMetadata(payload)
+	metadata.Level = "info"
+	metadata.Stage = "request_build"
+	metadata.Event = "request.built"
+	metadata.ProviderID = p.ID
+	metadata.APIType = p.APIType
+	metadata.RequestBytes = len(payload)
+	metadata.RequestSHA256 = agentchat.BodyDigest(payload)
+	metadata.APIKeyPresent = key != ""
+	metadata.Streaming = streaming
+	recorder.RecordProviderDiagnostic(metadata)
+	var result agentchat.ResponsesResult
+	var err error
 	if s.AgentChatCall != nil {
-		return s.AgentChatCall(ctx, p, key, payload)
-	}
-	if p.APIType == "chat_completions" {
-		if p.Stream && owner != "" && s.agentStreamCapabilityVerified(owner, p) {
-			return agentchat.DoChatCompletionsStream(ctx, p, key, payload)
+		result, err = s.AgentChatCall(traceCtx, p, key, payload)
+	} else if p.APIType == "chat_completions" {
+		if streaming {
+			result, err = agentchat.DoChatCompletionsStream(traceCtx, p, key, payload)
+		} else {
+			result, err = agentchat.DoChatCompletions(traceCtx, p, key, payload)
 		}
-		return agentchat.DoChatCompletions(ctx, p, key, payload)
+	} else if streaming {
+		result, err = agentchat.DoResponsesStream(traceCtx, p, key, payload)
+	} else {
+		result, err = agentchat.DoResponses(traceCtx, p, key, payload)
 	}
-	if p.Stream && owner != "" && s.agentStreamCapabilityVerified(owner, p) {
-		return agentchat.DoResponsesStream(ctx, p, key, payload)
+	if err != nil {
+		recorder.finish("PROVIDER_REQUEST_FAILED", "Provider request failed; inspect trace metadata")
+		var providerErr *agentchat.ProviderError
+		if errors.As(err, &providerErr) {
+			providerErr.TraceID = traceID
+		}
+	} else {
+		recorder.finish("", "Provider request completed")
 	}
-	return agentchat.DoResponses(ctx, p, key, payload)
+	return result, err, traceID
+}
+
+func modelFromAgentPayload(payload []byte) string {
+	var request struct {
+		Model string `json:"model"`
+	}
+	_ = json.Unmarshal(payload, &request)
+	return request.Model
+}
+
+func agentRequestDiagnosticMetadata(payload []byte) agentchat.DiagnosticEvent {
+	var request struct {
+		Input     []json.RawMessage `json:"input"`
+		Tools     []json.RawMessage `json:"tools"`
+		Reasoning struct {
+			Effort string `json:"effort"`
+		} `json:"reasoning"`
+		PreviousResponseID string          `json:"previous_response_id"`
+		Conversation       json.RawMessage `json:"conversation"`
+		Store              *bool           `json:"store"`
+	}
+	_ = json.Unmarshal(payload, &request)
+	mode := "stateless"
+	if request.PreviousResponseID != "" || request.Store != nil && *request.Store {
+		mode = "previous_response"
+	}
+	if len(request.Conversation) > 0 && string(request.Conversation) != "null" {
+		mode = "conversation"
+	}
+	return agentchat.DiagnosticEvent{ContextMode: mode, Reasoning: request.Reasoning.Effort, HistoryItems: len(request.Input), ToolCount: len(request.Tools)}
 }
 
 var agentTurnLocks sync.Map // key: workspace + owner + session ID
@@ -338,7 +397,7 @@ func (s *Server) agentChatMessageAPI(w http.ResponseWriter, r *http.Request, id 
 	// Register the provider request so an explicit cancel endpoint can stop it.
 	// A browser disconnect alone is not treated as server-side cancellation.
 	releaseRequest := registerAgentRequest(agentRequestKey(s.Workspace, owner, id), cancel)
-	result, callErr := s.agentChatCallForOwner(ctx, owner, p, string(secret), payload)
+	result, callErr, traceID := s.agentChatCallForOwner(ctx, owner, id, p, string(secret), payload)
 	releaseRequest()
 	if callErr != nil {
 		if errors.Is(ctx.Err(), context.Canceled) {
@@ -351,7 +410,7 @@ func (s *Server) agentChatMessageAPI(w http.ResponseWriter, r *http.Request, id 
 				http.Error(w, "request cancelled but session state could not be saved", 409)
 				return
 			}
-			http.Error(w, "AI request cancelled; no tool was executed", 409)
+			writeAgentStructuredError(w, 409, callErr, traceID, "REQUEST_CANCELLED", "provider_http", "AI request cancelled; no tool was executed")
 			return
 		}
 		// Distinguish a bounded timeout from a transport failure: both retain the
@@ -364,14 +423,14 @@ func (s *Server) agentChatMessageAPI(w http.ResponseWriter, r *http.Request, id 
 				http.Error(w, "provider timed out and session state could not be saved", 409)
 				return
 			}
-			http.Error(w, "AI provider timed out; the turn was retained and will not be retried automatically", 504)
+			writeAgentStructuredError(w, 504, callErr, traceID, "REQUEST_TIMEOUT", "provider_http", "AI provider timed out; the turn was retained and will not be retried automatically")
 			return
 		}
 		if _, saveErr := store.Save(session, session.Revision); saveErr != nil {
 			http.Error(w, "provider failed and session state could not be saved", 409)
 			return
 		}
-		http.Error(w, "AI provider request failed; original turn was retained and will not be retried automatically", 502)
+		writeAgentStructuredError(w, 502, callErr, traceID, "PROVIDER_REQUEST_FAILED", "provider_http", "AI provider request failed; original turn was retained and will not be retried automatically")
 		return
 	}
 	appendAgentProviderResult(&session, result, patchToolAvailable)
@@ -401,7 +460,7 @@ func (s *Server) agentChatMessageAPI(w http.ResponseWriter, r *http.Request, id 
 	}
 	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, 200, map[string]any{
-		"session_id": id, "revision": session.Revision, "status": session.Status,
+		"session_id": id, "trace_id": traceID, "revision": session.Revision, "status": session.Status,
 		"answer": result.Text, "tool_calls": result.Calls,
 		"response_id": result.ResponseID, "input_tokens": result.InputTokens,
 		"output_tokens": result.OutputTokens, "execution_enabled": false,
