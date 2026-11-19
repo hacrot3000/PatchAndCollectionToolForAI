@@ -142,12 +142,21 @@ func agentPatchResultFromProtocol(state session.ProtocolState,packageName string
   status:=strings.ToUpper(item.Status)
   switch status{
   case "PASS","FAIL","PREFLIGHT_FAIL","INCOMPLETE":
+   commands:=make([]map[string]any,0,len(item.Commands))
+   for _,c:=range item.Commands {
+    command:=map[string]any{
+     "index":c.Index,"stage":c.Stage,"status":c.Status,"timed_out":c.TimedOut,
+    }
+    if c.RC!=nil{command["rc"]=*c.RC}
+    commands=append(commands,command)
+    if len(commands)>=24{break}
+   }
    out:=map[string]any{
     "status":status,"name":item.Name,"run_id":item.RunID,
-    "failure_reason":item.FailureReason,
+    "failure_reason":scrubAIContext(item.FailureReason,400),
     "diagnosis_kind":item.DiagnosisKind,
     "elapsed_seconds":item.ElapsedSeconds,
-    "commands":item.Commands,
+    "commands":commands,
     "stdout_tail":scrubAIContext(item.OutputTail,1800),
    }
    if item.RC!=nil {out["rc"]=*item.RC}
