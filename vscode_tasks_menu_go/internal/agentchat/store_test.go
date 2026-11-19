@@ -44,7 +44,8 @@ func TestSessionStoreInvalidIDAndDirectory(t *testing.T){
 	x.ID="../file"
 	if _,err:=s.Save(x,0);!errors.Is(err,ErrInvalidSession){t.Fatalf("path traversal not rejected: %v",err)}
 	if _,err:=s.Get("../file","owner");!errors.Is(err,ErrNotFound){t.Fatalf("path traversal not rejected: %v",err)}
-	if err:=os.MkdirAll(s.dir,0755);err!=nil{t.Fatal(err)}
+	if err:=os.MkdirAll(s.dir,0700);err!=nil{t.Fatal(err)}
+	if err:=os.Chmod(s.dir,0755);err!=nil{t.Fatal(err)}
 	if _,err:=s.List("owner");err==nil{t.Fatal("world-readable state directory allowed")}
 }
 
