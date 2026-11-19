@@ -5,6 +5,9 @@ on:
     paths:
       - '_patch_lib/**'
       - 'vscode_tasks_menu_go/internal/session/protocol.go'
+      - 'vscode_tasks_menu_go/internal/session/session.go'
+      - 'vscode_tasks_menu_go/internal/session/command_journal.go'
+      - 'vscode_tasks_menu_go/internal/session/command_journal_test.go'
       - 'vscode_tasks_menu_go/internal/session/item_protocol_test.go'
       - 'vscode_tasks_menu_go/internal/server/patchpanel_ui_test.go'
       - 'vscode_tasks_menu_go/web/featuremods/patchpanel.js'
@@ -13,6 +16,9 @@ on:
     paths:
       - '_patch_lib/**'
       - 'vscode_tasks_menu_go/internal/session/protocol.go'
+      - 'vscode_tasks_menu_go/internal/session/session.go'
+      - 'vscode_tasks_menu_go/internal/session/command_journal.go'
+      - 'vscode_tasks_menu_go/internal/session/command_journal_test.go'
       - 'vscode_tasks_menu_go/internal/session/item_protocol_test.go'
       - 'vscode_tasks_menu_go/internal/server/patchpanel_ui_test.go'
       - 'vscode_tasks_menu_go/web/featuremods/patchpanel.js'
@@ -97,4 +103,4 @@ jobs:
           node --check vscode_tasks_menu_go/web/featuremods/patchpanel.js
           cd vscode_tasks_menu_go
           go test -count=1 -run '^TestRemoteWhitelist' ./internal/patchsshpolicy
-          go test -count=1 -run 'TestProtocolItem|TestPatchPanel' ./internal/session ./internal/server
+          go test -count=1 -run 'TestProtocolItem|TestProtocolCommandJournal|TestPatchPanel' ./internal/session ./internal/server
