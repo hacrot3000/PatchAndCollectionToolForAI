@@ -59,7 +59,10 @@ def _run_streamed_bridge(args: list[str], payload: str, root: Path, timeout: int
             except BrokenPipeError:
                 pass
             finally:
-                proc.stdin.close()
+                try:
+                    proc.stdin.close()
+                except BrokenPipeError:
+                    pass
         try:
             rc = proc.wait(timeout=timeout + 20)
         except subprocess.TimeoutExpired as exc:
