@@ -232,6 +232,13 @@ func sharedRoutePermissions(r *http.Request) []string {
 			return []string{identity.PermissionSecretsView}
 		}
 		return []string{identity.PermissionSecretsManage}
+	case "/api/agent/providers":
+		if r.Method==http.MethodGet {return []string{identity.PermissionSettingsRead}}
+		if r.Method==http.MethodPut {return []string{identity.PermissionSettingsWrite}}
+		return nil
+	case "/api/agent/providers/test":
+		if r.Method==http.MethodPost {return []string{identity.PermissionSettingsWrite}}
+		return nil
 	case "/api/agent/sessions":
 		if r.Method==http.MethodGet {return []string{identity.PermissionSettingsRead}}
 		if r.Method==http.MethodPost {return []string{identity.PermissionSettingsWrite}}
