@@ -144,6 +144,10 @@ with tempfile.TemporaryDirectory(prefix="ptv_collect_command_v6200_") as td:
         zf.writestr("CODE_COLLECTION_REQUEST_command.json", json.dumps(request))
     env = dict(os.environ)
     env["PYTHONDONTWRITEBYTECODE"] = "1"
+    command_log_dir = root / "artifacts" / "patch_tool" / "runs" / "fixture" / "command_items" / "001_collect" / "command_logs"
+    command_state_file = root / "artifacts" / "patch_tool" / "runtime" / "collect_commands_fixture.json"
+    env["PTV_COLLECT_COMMAND_LOG_DIR"] = str(command_log_dir)
+    env["PTV_COLLECT_COMMAND_RESULT_FILE"] = str(command_state_file)
     cmd = [sys.executable, "-S", str(HERE / "python_patch_collect_compat.py"),
            "--project-root", str(root), "request", "patchs/CODE_COLLECTION_REQUEST_command.zip"]
     proc = subprocess.run(cmd, cwd=root, capture_output=True, text=True, env=env, timeout=60)
@@ -158,5 +162,11 @@ with tempfile.TemporaryDirectory(prefix="ptv_collect_command_v6200_") as td:
         assert "needle string" in report and "Exit code: 0" in report
     assert not source.exists()
     assert (root / "patchs" / "patched" / source.name).is_file()
+    live = json.loads(command_state_file.read_text(encoding="utf-8"))
+    assert len(live["commands"]) == 1 and live["commands"][0]["status"] == "PASS", live
+    evidence = live["commands"][0]
+    assert evidence["started_at"] and evidence["elapsed_seconds"] >= 0
+    assert evidence["log_path"].endswith("001_collect_command.log"), evidence
+    assert "needle string" in (root / evidence["log_path"]).read_text(encoding="utf-8")
 
 print("PASS: COLLECT command schema, read-only local/SSH, result report and archive")
