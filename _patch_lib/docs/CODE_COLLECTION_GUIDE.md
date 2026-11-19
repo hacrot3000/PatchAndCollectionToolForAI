@@ -2,6 +2,8 @@
 
 ## COLLECT read-only command action (local and SSH)
 
+When COLLECT runs in TaskDeck, **Task Run** lists each planned `command` action as a nested **QUEUE** row, then **RUNNING**, followed by **DONE** or **FAIL**, including elapsed time. Read-only local commands and saved-profile SSH both flush their bounded stdout/stderr to a run-owned console log while executing. **View console / Hide console / Copy console** operate during the run and command evidence remains available in **History** after the collection has finished. The normal COLLECT result ZIP/TXT still includes its own command report; this live presentation is additional evidence, not shell access.
+
 COLLECT accepts `{"type":"command", "transport":"local"|"ssh", "argv":[...]}` as an **evidence-producing** action. AI must provide one literal argv array per action, not a shell script or command string. The collector executes a whitelisted read-only command, captures merged console stdout/stderr in a bounded report `reports/NNN_command.md`, records the exit status, and includes the report in the usual COLLECT ZIP and TXT. Multiple independent command actions may be included in one COLLECT request. No project source payload is run or modified.
 
 **Local example:**
