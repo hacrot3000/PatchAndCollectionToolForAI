@@ -18,6 +18,7 @@ import (
 	"sync"
 	"time"
 
+	"bletonfc/vscode_tasks_menu/internal/agentchat"
 	"bletonfc/vscode_tasks_menu/internal/approval"
 	"bletonfc/vscode_tasks_menu/internal/config"
 	"bletonfc/vscode_tasks_menu/internal/dbadapter"
@@ -35,6 +36,7 @@ import (
 )
 
 type Server struct {
+	AgentChatCall func(context.Context, agentchat.ProviderConfig, string, []byte) (agentchat.ResponsesResult, error) // optional test adapter; nil = production HTTPS
 	Workspace string
 	Config    config.Config
 	Log       *log.Logger
