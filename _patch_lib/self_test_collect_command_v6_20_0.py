@@ -122,8 +122,10 @@ with tempfile.TemporaryDirectory(prefix="ptv_collect_command_v6200_") as td:
     import python_patch_collect_commands as mod
     prior = mod.run_remote_ssh
     captured = []
-    def stub_ssh(project, request, *, dry_run):
+    def stub_ssh(project, request, *, dry_run, output_callback=None):
         captured.append((project, request, dry_run))
+        if output_callback is not None:
+            output_callback("stdout", b"REMOTE FILE\n")
         return {"rc": 0, "stdout": "REMOTE FILE\n", "stderr": ""}
     mod.run_remote_ssh = stub_ssh
     try:
