@@ -97,6 +97,27 @@ with tempfile.TemporaryDirectory(prefix="ptv-ssh-remote-") as td:
     assert [row["dry_run"] for row in calls] == [True, False], calls
     assert "remote-command-output" in result.stdout
 
+    # Both SSH pipes must reach the streaming console callback before the
+    # command result is returned. The stub uses no network/credentials.
+    from python_patch_remote_ssh import run_remote_ssh
+    before_exe = os.environ.get("PTV_TASKDECK_EXECUTABLE")
+    before_log = os.environ.get("PATCH_SSH_STUB_LOG")
+    os.environ["PTV_TASKDECK_EXECUTABLE"] = str(stub)
+    os.environ["PATCH_SSH_STUB_LOG"] = str(log)
+    streamed = []
+    try:
+        remote_result = run_remote_ssh(
+            root, make_manifest(root)["remote_ssh"], dry_run=False,
+            output_callback=lambda channel, chunk: streamed.append((channel, bytes(chunk))),
+        )
+        assert remote_result["rc"] == 0, remote_result
+        assert b"remote-command-output" in b"".join(part for _channel, part in streamed), streamed
+    finally:
+        if before_exe is None: os.environ.pop("PTV_TASKDECK_EXECUTABLE", None)
+        else: os.environ["PTV_TASKDECK_EXECUTABLE"] = before_exe
+        if before_log is None: os.environ.pop("PATCH_SSH_STUB_LOG", None)
+        else: os.environ["PATCH_SSH_STUB_LOG"] = before_log
+
     # No source mutation or helper scripts may accompany the remote command.
     for i, extra in enumerate((
         {"patch_apply.py": "print('unauthorized source payload')"},
