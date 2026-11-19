@@ -268,6 +268,7 @@ def execute_collect_command(root: Path, action: dict, *, log_path: Path | None =
     if transport == "ssh":
         log_stream = None
         captured = [0]
+        remote_output_lock = threading.Lock()
         if log_path is not None:
             log_path.parent.mkdir(parents=True, exist_ok=True)
             log_stream = log_path.open("wb")
@@ -278,12 +279,13 @@ def execute_collect_command(root: Path, action: dict, *, log_path: Path | None =
         def on_remote_output(channel: str, chunk: bytes) -> None:
             if log_stream is None:
                 return
-            remaining = max(0, cap - captured[0])
-            if remaining:
-                piece = chunk[:remaining]
-                log_stream.write(piece)
-                log_stream.flush()
-                captured[0] += len(piece)
+            with remote_output_lock:
+                remaining = max(0, cap - captured[0])
+                if remaining:
+                    piece = chunk[:remaining]
+                    log_stream.write(piece)
+                    log_stream.flush()
+                    captured[0] += len(piece)
         try:
             try:
                 result = run_remote_ssh(root, {
