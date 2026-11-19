@@ -18,35 +18,49 @@ class FakeElement {
     this.type = '';
     this.value = '';
     this.disabled = false;
-    this.style = {};
+    this.style = { setProperty() {} };
     this.dataset = {};
+    this.clientWidth = 0;
+    this.offsetWidth = 40;
     const classes = new Set();
     this.classList = {
       add: (...names) => names.forEach(name => classes.add(name)),
       remove: (...names) => names.forEach(name => classes.delete(name)),
       contains: name => classes.has(name),
+      toggle: (name, force) => {
+        const add = force === undefined ? !classes.has(name) : Boolean(force);
+        if (add) classes.add(name); else classes.delete(name);
+        return add;
+      },
     };
   }
   append(...nodes) {
     for (const node of nodes) {
       assert.notEqual(node, undefined, 'Cannot append an uninitialized toolbar button');
+      if (node.parentElement) node.parentElement.children = node.parentElement.children.filter(child => child !== node);
+      node.parentElement = this;
       this.children.push(node);
     }
   }
   setAttribute(name, value) { this.attributes[name] = String(value); }
   addEventListener() {}
 }
+const section = new FakeElement('section');
+const tabs = new FakeElement('div');
+const panes = new FakeElement('div');
 const document = {
   head: new FakeElement('head'),
   body: new FakeElement('body'),
   createElement: tag => new FakeElement(tag),
+  querySelector: selector => selector === 'main>section' ? section : selector === '#tabs' ? tabs : selector === '#panes' ? panes : null,
 };
 const context = {
   TaskMenuApp: {
     jsonFetch() { throw new Error('Bootstrap must not call the provider or other APIs'); },
   },
   document,
-  window: { addEventListener() {} },
+  Event: class Event { constructor(type) { this.type = type; } },
+  window: { innerWidth: 1200, innerHeight: 800, addEventListener() {}, dispatchEvent() {} },
 };
 assert.doesNotThrow(
   () => vm.runInNewContext(source, context, { filename: 'agentchat.js', timeout: 2000 }),
@@ -54,14 +68,25 @@ assert.doesNotThrow(
 );
 assert.equal(typeof context.TaskMenuAgentChat?.open, 'function', 'Agent Chat open action registered');
 assert.equal(typeof context.TaskMenuAgentChat?.settings, 'function', 'provider settings action registered');
-const [root, settingsOverlay] = document.body.children;
+const root = section.children.find(child => child.className === 'agentchat-overlay');
+const [settingsOverlay] = document.body.children;
 assert.ok(root && settingsOverlay, 'Agent chat and provider settings DOM created');
 const [windowBox] = root.children;
 const [heading] = windowBox.children;
-const labels = heading.children.map(child => child.textContent);
-for (const label of ['TaskDeck AI Agent Chat', '+ New session', 'Preview context',
-  'Rename', 'Archive', 'Providers / API keys', 'Refresh', '✕']) {
-  assert.ok(labels.includes(label), 'Toolbar button missing at runtime: ' + label);
+const collectLabels = node => [node.textContent, ...node.children.flatMap(collectLabels)];
+const labels = collectLabels(heading);
+for (const label of ['AI Agent Chat', 'Bottom', 'Auto Hide', '⋯', 'Hide', '+ New session', 'Preview context',
+  'Rename', 'Archive', 'Providers / API keys', 'Refresh', '+ Text file', 'Auto-send results']) {
+  assert.ok(labels.includes(label), 'Agent Chat control missing at runtime: ' + label);
 }
-assert.equal(new Set(labels).size, labels.length, 'Toolbar buttons not duplicated');
-console.log('PASS: Agent Chat bootstraps successfully; all toolbar controls are initialized and mounted');
+for (const label of ['Bottom', 'Auto Hide', '⋯', 'Hide', '+ New session', 'Preview context',
+  'Rename', 'Archive', 'Providers / API keys', 'Refresh', '+ Text file', 'Auto-send results']) {
+  assert.equal(labels.filter(value => value === label).length, 1, 'Control duplicated: ' + label);
+}
+assert.equal(context.TaskMenuAgentChat.dockPosition, 'right');
+context.TaskMenuAgentChat.setDockPosition('bottom');
+assert.equal(context.TaskMenuAgentChat.dockPosition, 'bottom');
+assert.ok(section.classList.contains('agent-dock-bottom'), 'Bottom dock layout applied');
+context.TaskMenuAgentChat.setAutoHide(true);
+assert.equal(context.TaskMenuAgentChat.autoHide, true);
+console.log('PASS: Agent Chat bootstraps and dock position/auto-hide state transitions work');

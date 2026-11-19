@@ -257,7 +257,7 @@ func TestAgentChatSessionReasoningEffortSelection(t *testing.T) {
 	}
 }
 
-func TestAgentPackPreviewDoesNotContactProviderOrPersist(t *testing.T){
+func TestAgentPackPreviewDoesNotContactProviderOrPersist(t *testing.T) {
 	s, id := newAgentConversationFixture(t, "stateless")
 	store, err := s.agentChatStore()
 	if err != nil {
@@ -299,7 +299,7 @@ func TestAgentPackPreviewDoesNotContactProviderOrPersist(t *testing.T){
 	}
 }
 
-func TestAgentChatSessionTargetIsLocalOnly(t *testing.T){
+func TestAgentChatSessionTargetIsLocalOnly(t *testing.T) {
 	s, _ := newAgentConversationFixture(t, "stateless")
 	p := agentProviderFixture()
 	bad := invokeAI(t, s.agentChatSessionsAPI, http.MethodPost, "/api/agent/sessions", map[string]any{
@@ -323,26 +323,41 @@ func TestAgentChatSessionTargetIsLocalOnly(t *testing.T){
 	}
 }
 
-func TestAgentRefreshDuringRequestOffersCancelNotDuplicate(t *testing.T){
-	s,id:=newAgentConversationFixture(t,"stateless")
-	store,err:=s.agentChatStore();if err!=nil{t.Fatal(err)}
-	x,err:=store.Get(id,"local");if err!=nil{t.Fatal(err)}
-	x.Status="requesting_ai"
-	if _,err=store.Save(x,x.Revision);err!=nil{t.Fatal(err)}
+func TestAgentRefreshDuringRequestOffersCancelNotDuplicate(t *testing.T) {
+	s, id := newAgentConversationFixture(t, "stateless")
+	store, err := s.agentChatStore()
+	if err != nil {
+		t.Fatal(err)
+	}
+	x, err := store.Get(id, "local")
+	if err != nil {
+		t.Fatal(err)
+	}
+	x.Status = "requesting_ai"
+	if _, err = store.Save(x, x.Revision); err != nil {
+		t.Fatal(err)
+	}
 	// A duplicate send while a request is registered must be refused, and the
 	// cancel endpoint must report it as active rather than "nothing".
-	key:=agentRequestKey(s.Workspace,"local",id)
-	ctx,cancel:=context.WithCancel(context.Background())
-	release:=registerAgentRequest(key,cancel)
-	dup:=invokeAI(t,s.agentChatSessionItemAPI,http.MethodPost,"/api/agent/sessions/"+id+"/messages",
-		map[string]any{"message":"again","confirm_external":true,"expected_revision":x.Revision+1})
-	if dup.Code!=409{t.Fatalf("duplicate send during request allowed: %d %s",dup.Code,dup.Body)}
-	stop:=invokeAI(t,s.agentChatSessionItemAPI,http.MethodPost,"/api/agent/sessions/"+id+"/cancel",map[string]any{})
-	if stop.Code!=200||!strings.Contains(stop.Body.String(),`"cancelled":true`){
-		t.Fatalf("refresh-time cancel did not stop the registered request: %d %s",stop.Code,stop.Body)
+	key := agentRequestKey(s.Workspace, "local", id)
+	ctx, cancel := context.WithCancel(context.Background())
+	release := registerAgentRequest(key, cancel)
+	dup := invokeAI(t, s.agentChatSessionItemAPI, http.MethodPost, "/api/agent/sessions/"+id+"/messages",
+		map[string]any{"message": "again", "confirm_external": true, "expected_revision": x.Revision + 1})
+	if dup.Code != 409 {
+		t.Fatalf("duplicate send during request allowed: %d %s", dup.Code, dup.Body)
+	}
+	stop := invokeAI(t, s.agentChatSessionItemAPI, http.MethodPost, "/api/agent/sessions/"+id+"/cancel", map[string]any{})
+	if stop.Code != 200 || !strings.Contains(stop.Body.String(), `"cancelled":true`) {
+		t.Fatalf("refresh-time cancel did not stop the registered request: %d %s", stop.Code, stop.Body)
 	}
 	<-ctx.Done()
 	release()
-	after,err:=store.Get(id,"local");if err!=nil{t.Fatal(err)}
-	if after.Status!="cancelled"{t.Fatalf("cancel not persisted after refresh: %q",after.Status)}
+	after, err := store.Get(id, "local")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.Status != "cancelled" {
+		t.Fatalf("cancel not persisted after refresh: %q", after.Status)
+	}
 }

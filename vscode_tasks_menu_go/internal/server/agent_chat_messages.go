@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -10,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"bletonfc/vscode_tasks_menu/internal/agentchat"
 	"bletonfc/vscode_tasks_menu/internal/patchtool"
@@ -70,7 +72,16 @@ func (s *Server) agentChatMessageAPI(w http.ResponseWriter, r *http.Request, id 
 	// Budget must fit a 16 KiB message plus up to 64 KiB of attachments plus
 	// JSON escaping/overhead; the validator below remains the authority.
 	r.Body = http.MaxBytesReader(w, r.Body, agentMessageBodyLimit)
-	dec := json.NewDecoder(r.Body)
+	rawBody, readErr := io.ReadAll(r.Body)
+	if readErr != nil {
+		http.Error(w, "message request exceeds body limit or cannot be read", 413)
+		return
+	}
+	if !utf8.Valid(rawBody) {
+		http.Error(w, "message request must be valid UTF-8", 400)
+		return
+	}
+	dec := json.NewDecoder(bytes.NewReader(rawBody))
 	dec.DisallowUnknownFields()
 	var req struct {
 		Message          string `json:"message"`

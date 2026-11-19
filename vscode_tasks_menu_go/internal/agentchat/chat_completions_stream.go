@@ -19,6 +19,7 @@ const (
 
 type chatStreamAccumulator struct {
 	responseID string
+	model      string
 	text       strings.Builder
 	calls      []FunctionCall
 	callIndex  map[int]int
@@ -26,6 +27,7 @@ type chatStreamAccumulator struct {
 	events     int
 	totalBytes int
 	finished   bool
+	done       bool
 	finish     string
 	input      int
 	output     int
@@ -37,7 +39,10 @@ func newChatStreamAccumulator() *chatStreamAccumulator {
 
 func (a *chatStreamAccumulator) apply(payload []byte) error {
 	if string(payload) == "[DONE]" {
-		a.finished = true
+		if !a.finished {
+			return errors.New("Chat Completions stream ended without a finish reason")
+		}
+		a.done = true
 		return nil
 	}
 	a.events++
@@ -46,6 +51,7 @@ func (a *chatStreamAccumulator) apply(payload []byte) error {
 	}
 	var chunk struct {
 		ID      string `json:"id"`
+		Model   string `json:"model"`
 		Choices []struct {
 			FinishReason *string `json:"finish_reason"`
 			Delta        struct {
@@ -71,6 +77,9 @@ func (a *chatStreamAccumulator) apply(payload []byte) error {
 	}
 	if chunk.ID != "" {
 		a.responseID = chunk.ID
+	}
+	if chunk.Model != "" {
+		a.model = chunk.Model
 	}
 	for _, choice := range chunk.Choices {
 		if choice.Delta.Content != "" {
@@ -118,8 +127,8 @@ func (a *chatStreamAccumulator) apply(payload []byte) error {
 }
 
 func (a *chatStreamAccumulator) result() (ResponsesResult, error) {
-	if !a.finished {
-		return ResponsesResult{}, errors.New("Chat Completions stream ended before completion")
+	if !a.finished || !a.done || a.finish == "" {
+		return ResponsesResult{}, errors.New("Chat Completions stream ended before completion/finish reason")
 	}
 	if a.responseID == "" || len(a.responseID) > 256 {
 		return ResponsesResult{}, errors.New("Chat Completions stream missing response ID")
@@ -137,7 +146,7 @@ func (a *chatStreamAccumulator) result() (ResponsesResult, error) {
 	if len(a.calls) == 0 && strings.TrimSpace(a.text.String()) == "" {
 		return ResponsesResult{}, errors.New("empty Chat Completions stream")
 	}
-	return ResponsesResult{ResponseID: a.responseID, Text: a.text.String(), Calls: a.calls, InputTokens: a.input, OutputTokens: a.output, Status: "completed"}, nil
+	return ResponsesResult{ResponseID: a.responseID, Text: a.text.String(), Calls: a.calls, InputTokens: a.input, OutputTokens: a.output, Status: "completed", FinishReason: a.finish, Model: a.model}, nil
 }
 
 // DoChatCompletionsStream sends a stateless Chat Completions request through
@@ -217,7 +226,7 @@ func DoChatCompletionsStream(ctx context.Context, p ProviderConfig, key string, 
 			if err := dispatch(); err != nil {
 				return ResponsesResult{}, err
 			}
-			if acc.finished {
+			if acc.done {
 				return acc.result()
 			}
 		}
@@ -226,7 +235,7 @@ func DoChatCompletionsStream(ctx context.Context, p ProviderConfig, key string, 
 				if err := dispatch(); err != nil {
 					return ResponsesResult{}, err
 				}
-				if acc.finished {
+				if acc.done {
 					return acc.result()
 				}
 				return ResponsesResult{}, errors.New("Chat Completions stream ended before completion")

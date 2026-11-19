@@ -4,6 +4,8 @@ on:
   push:
     paths:
       - 'vscode_tasks_menu_go/internal/agentchat/**'
+      - 'vscode_tasks_menu_go/internal/taskmanifest/**'
+      - 'vscode_tasks_menu_go/internal/server/agent_chat_task_manifest*'
       - 'vscode_tasks_menu_go/web/featuremods/agentchat.js'
       - 'vscode_tasks_menu_go/web/agentchat_bootstrap_test.cjs'
       - 'vscode_tasks_menu_go/web/featuremods/next.js'
@@ -15,6 +17,8 @@ on:
   pull_request:
     paths:
       - 'vscode_tasks_menu_go/internal/agentchat/**'
+      - 'vscode_tasks_menu_go/internal/taskmanifest/**'
+      - 'vscode_tasks_menu_go/internal/server/agent_chat_task_manifest*'
       - 'vscode_tasks_menu_go/web/featuremods/agentchat.js'
       - 'vscode_tasks_menu_go/web/agentchat_bootstrap_test.cjs'
       - 'vscode_tasks_menu_go/web/featuremods/next.js'
@@ -42,7 +46,8 @@ jobs:
         working-directory: vscode_tasks_menu_go
         run: |
           go test -race -count=1 ./internal/agentchat
-          go vet ./internal/agentchat
+          go test -race -count=1 ./internal/taskmanifest
+          go vet ./internal/agentchat ./internal/taskmanifest
           go vet ./internal/server
           node --check web/featuremods/agentchat.js
           node web/agentchat_bootstrap_test.cjs

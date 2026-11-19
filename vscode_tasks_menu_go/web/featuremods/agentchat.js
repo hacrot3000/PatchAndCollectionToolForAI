@@ -4,11 +4,39 @@ const agentApp=globalThis.TaskMenuApp;
 if(!agentApp)throw new Error('TaskMenuApp unavailable for Agent Chat');
 const agentCSS=document.createElement('style');
 agentCSS.textContent=[
-'.agentchat-overlay{position:fixed;inset:0;z-index:17100;display:none;align-items:center;justify-content:center;background:#000a;padding:15px}',
+'.agentchat-overlay{display:none;min-width:0;min-height:0;overflow:hidden;background:#141c27;color:#e6eef9;border:1px solid #55657a}',
 '.agentchat-overlay.visible{display:flex}',
-'.agentchat-window{display:flex;flex-direction:column;width:min(980px,98vw);height:min(820px,94vh);background:#141c27;color:#e6eef9;border:1px solid #55657a;border-radius:12px;box-shadow:0 16px 65px #0009;overflow:hidden}',
-'.agentchat-toolbar{padding:10px;display:flex;align-items:center;gap:8px;border-bottom:1px solid #35445c;flex-wrap:wrap}',
-'.agentchat-toolbar strong{font-size:15px;margin-right:auto}',
+'.agentchat-window{display:flex;flex:1;min-width:0;min-height:0;flex-direction:column;overflow:hidden}',
+'.agentchat-toolbar{position:relative;z-index:4;min-height:44px;padding:5px 7px;display:flex;align-items:center;gap:5px;border-bottom:1px solid #35445c;flex-wrap:nowrap}',
+'.agentchat-toolbar strong{font-size:13px;white-space:nowrap}',
+'.agentchat-toolbar-actions{display:flex;align-items:center;gap:4px;min-width:0;overflow:hidden}',
+'.agentchat-toolbar button{white-space:nowrap;padding:5px 7px}',
+'.agentchat-more-menu{position:absolute;right:6px;top:calc(100% + 4px);z-index:20;display:none;min-width:190px;max-width:min(300px,90vw);max-height:70vh;overflow:auto;padding:5px;background:#192330;border:1px solid #55657a;border-radius:7px;box-shadow:0 8px 28px #0009}',
+'.agentchat-more-menu.open{display:flex;flex-direction:column;align-items:stretch;gap:4px}',
+'.agentchat-more-menu button{text-align:left}',
+'.task-agent-dock-section{display:grid;grid-template-columns:minmax(0,1fr) 0 0;grid-template-rows:minmax(0,1fr);position:relative;overflow:hidden}',
+'.task-agent-dock-section.agent-dock-right{grid-template-columns:minmax(0,1fr) 6px var(--agent-dock-size,420px)}',
+'.task-agent-dock-section.agent-dock-bottom{grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr) 6px var(--agent-dock-size,320px)}',
+'.task-agent-content{display:flex;min-width:0;min-height:0;flex-direction:column;overflow:hidden}',
+'.task-agent-content>#tabs{flex:none}.task-agent-content>#panes{flex:1;min-height:0}',
+'.task-agent-dock-section>.agentchat-overlay{grid-column:3;grid-row:1}',
+'.task-agent-dock-section.agent-dock-bottom>.agentchat-overlay{grid-column:1;grid-row:3}',
+'.agentchat-dock-resizer{display:none;touch-action:none;z-index:2;background:transparent}',
+'.agent-dock-right>.agentchat-dock-resizer{display:block;grid-column:2;grid-row:1;cursor:col-resize}',
+'.agent-dock-bottom>.agentchat-dock-resizer{display:block;grid-column:1;grid-row:2;cursor:row-resize}',
+'.agentchat-strip{display:none;position:absolute;z-index:10;align-items:center;justify-content:center;background:#192330;border:1px solid #55657a;color:inherit;cursor:pointer}',
+'.agent-dock-collapsed.agent-dock-right>.agentchat-strip{display:flex;right:0;top:0;bottom:0;width:34px;writing-mode:vertical-rl}',
+'.agent-dock-collapsed.agent-dock-bottom>.agentchat-strip{display:flex;left:0;right:0;bottom:0;height:34px}',
+'.agent-dock-collapsed.agent-dock-right{grid-template-columns:minmax(0,1fr) 34px!important}',
+'.agent-dock-collapsed.agent-dock-bottom{grid-template-rows:minmax(0,1fr) 34px!important}',
+'.agent-dock-collapsed>.agentchat-dock-resizer{display:none}',
+'.agent-dock-floating.agent-dock-right{grid-template-columns:minmax(0,1fr)!important}',
+'.agent-dock-floating.agent-dock-bottom,.agent-dock-responsive.agent-dock-bottom{grid-template-rows:minmax(0,1fr)!important}',
+'.agent-dock-responsive.agent-dock-right{grid-template-columns:minmax(0,1fr)!important}',
+'.agent-dock-floating>.agentchat-overlay,.agent-dock-responsive>.agentchat-overlay{position:absolute;z-index:8;box-shadow:0 8px 28px #0009}',
+'.agent-dock-floating.agent-dock-right>.agentchat-overlay,.agent-dock-responsive.agent-dock-right>.agentchat-overlay{right:0;top:0;bottom:0;width:min(var(--agent-dock-size,420px),90%)}',
+'.agent-dock-floating.agent-dock-bottom>.agentchat-overlay,.agent-dock-responsive.agent-dock-bottom>.agentchat-overlay{left:0;right:0;bottom:0;height:min(var(--agent-dock-size,320px),80%)}',
+'.agent-dock-responsive>.agentchat-dock-resizer{display:none}',
 '.agentchat-window button{font-size:12px;padding:7px 10px;border-radius:5px;cursor:pointer}',
 '.agentchat-window button:disabled{opacity:.48;cursor:not-allowed}',
 '.agentchat-layout{display:flex;flex:1;min-height:0}',
@@ -33,9 +61,9 @@ agentCSS.textContent=[
 
 '.agentchat-composer{padding:9px;border-top:1px solid #35445c;display:flex;flex-direction:column;gap:6px}',
 '.agentchat-composer textarea{width:100%;min-height:66px;max-height:160px;resize:vertical}',
-'.agentchat-composer-actions{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:11px;flex-wrap:wrap}',
 '.agentchat-info{font-size:11px;color:#b6cce2;line-height:1.5;padding:4px 8px}',
-'.agentchat-settings-overlay{z-index:17110}',
+'.agentchat-settings-overlay{position:fixed;inset:0;z-index:17110;display:none;align-items:center;justify-content:center;background:#000a;padding:15px}',
+'.agentchat-settings-overlay.visible{display:flex}',
 '.agentchat-settings-box{width:min(730px,97vw);max-height:90vh;overflow:auto;background:#141c27;color:#e6eef9;border:1px solid #55657a;border-radius:12px;padding:16px;display:flex;flex-direction:column;gap:10px}',
 '.agentchat-settings-box textarea{width:100%;min-height:250px;resize:vertical;background:#0f1723;border:1px solid #55667b;color:inherit;font:12px/1.5 ui-monospace,monospace;padding:8px;box-sizing:border-box}',
 '.agentchat-settings-box input{width:100%;padding:8px;box-sizing:border-box}',
@@ -45,7 +73,9 @@ agentCSS.textContent=[
 'html[data-taskmenu-theme="light"] .agentchat-bubble.user{background:#d9edfc}',
 'html[data-taskmenu-theme="light"] .agentchat-bubble.assistant{background:#eef3f8}',
 'html[data-taskmenu-theme="light"] .agentchat-bubble.tool{background:#fff0d8;color:#523815}',
-'@media(max-width:630px){.agentchat-list{width:110px;min-width:90px}.agentchat-modelbar select{max-width:155px}.agentchat-overlay{padding:4px}.agentchat-window{height:97vh}}'
+'.agentchat-dock-floating>.agentchat-dock-resizer{display:none}',
+'.agentchat-composer-actions{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:11px;flex-wrap:wrap}',
+'@media(max-width:700px){.agentchat-list{width:100px;min-width:80px}.agentchat-modelbar select{max-width:120px}.task-agent-dock-section.agent-dock-right:not(.agent-dock-floating){grid-template-columns:minmax(0,1fr) 6px minmax(290px,55vw)}}'
 ].join('\n');document.head.append(agentCSS);
 function agentEl(tag,cls,text){
  const node=document.createElement(tag);
@@ -56,14 +86,23 @@ function agentEl(tag,cls,text){
 function agentButton(text,fn){const b=agentEl('button','',text);b.type='button';b.onclick=fn;return b;}
 function agentOption(value,label){const op=agentEl('option','',label);op.value=value;return op;}
 const root=agentEl('div','agentchat-overlay'),windowBox=agentEl('section','agentchat-window');
-windowBox.setAttribute('role','dialog');windowBox.setAttribute('aria-label','TaskDeck Agent Chat');
-windowBox.setAttribute('aria-modal','true');
-const heading=agentEl('div','agentchat-toolbar'),title=agentEl('strong','','TaskDeck AI Agent Chat');
+windowBox.setAttribute('role','region');windowBox.setAttribute('aria-label','TaskDeck Agent Chat');
+const heading=agentEl('div','agentchat-toolbar'),title=agentEl('strong','','AI Agent Chat');
 const newChat=agentButton('+ New session',()=>createSession().catch(showAgentError));
 const settingsButton=agentButton('Providers / API keys',()=>openAgentSettings().catch(showAgentError));
 const planButton=agentButton('Planning only',()=>openTaskManifestPreview());
 const refresh=agentButton('Refresh',()=>loadAgentState().catch(showAgentError));
-const close=agentButton('✕',()=>closeAgentPanel());
+const close=agentButton('Hide',()=>closeAgentPanel());
+const dockPositionButton=agentButton('Bottom',()=>setAgentDockPosition(agentDock.position==='right'?'bottom':'right'));
+dockPositionButton.title='Move Agent Chat between right and bottom';dockPositionButton.setAttribute('aria-label','Move Agent Chat to bottom');
+const autoHideButton=agentButton('Auto Hide',()=>setAgentDockAutoHide(!agentDock.autoHide));
+autoHideButton.title='Toggle Agent Chat auto hide';autoHideButton.setAttribute('aria-label','Enable Agent Chat auto hide');
+const moreButton=agentButton('⋯',()=>toggleAgentMore());moreButton.title='More Agent Chat actions';moreButton.setAttribute('aria-label','More Agent Chat actions');
+const toolbarActions=agentEl('div','agentchat-toolbar-actions'),moreMenu=agentEl('div','agentchat-more-menu');
+const agentDock={position:'right',autoHide:false,expanded:false,rightWidth:420,bottomHeight:320,observer:null};
+const dockResizer=agentEl('div','agentchat-dock-resizer');dockResizer.tabIndex=0;dockResizer.setAttribute('role','separator');
+const agentStrip=agentButton('✦ AI Agent Chat',()=>openAgentPanel().catch(showAgentError));
+agentStrip.className='agentchat-strip';agentStrip.setAttribute('aria-label','Open Agent Chat');
 const layout=agentEl('div','agentchat-layout'),sessionList=agentEl('div','agentchat-list');
 const main=agentEl('div','agentchat-main'),modelBar=agentEl('div','agentchat-modelbar');
 // Open tabs are UI-only: the server remains the source of truth for every
@@ -95,11 +134,14 @@ const preview=agentButton('Preview context',()=>previewAgentContext().catch(show
 const rename=agentButton('Rename',()=>renameAgentSession().catch(showAgentError));
 const archive=agentButton('Archive',()=>archiveAgentSession().catch(showAgentError));
 rename.disabled=true;archive.disabled=true;
-heading.append(title,newChat,preview,rename,archive,planButton,settingsButton,refresh,close);
-actionLine.append(attachButton,autoFeedback,status,cancel,send);composer.append(attachList,prompt,actionLine);
+for(const button of [newChat,preview,rename,archive,planButton,settingsButton,refresh,attachButton,autoFeedback])toolbarActions.append(button);
+heading.append(title,toolbarActions,dockPositionButton,autoHideButton,moreButton,close,moreMenu);
+actionLine.append(status,cancel,send);composer.append(attachList,prompt,actionLine);
 main.append(tabbar,modelBar,transcript,composer);layout.append(sessionList,main);
 const footer=agentEl('div','agentchat-info','Responses API • AI Pack on first turn • native Patch execution requires explicit approval per tool call. Results are verified from native protocol before AI feedback.');
-windowBox.append(heading,layout,footer);root.append(windowBox);document.body.append(root);
+windowBox.append(heading,layout,footer);root.append(windowBox);
+const agentToolbarItems=[newChat,preview,rename,archive,planButton,settingsButton,refresh,attachButton,autoFeedback];
+mountAgentDock();
 
 const settingsOverlay=agentEl('div','agentchat-overlay agentchat-settings-overlay'),settingsBox=agentEl('section','agentchat-settings-box');
 settingsBox.setAttribute('role','dialog');settingsBox.setAttribute('aria-modal','true');settingsBox.setAttribute('aria-label','Agent provider settings');
@@ -127,12 +169,14 @@ const planOverlay=agentEl('div','agentchat-overlay agentchat-settings-overlay');
 const planBox=agentEl('section','agentchat-settings-box');
 const planTitle=agentEl('h2','','Task Manifest · Planning only');
 const planNote=agentEl('p','','Parse and validate a Markdown task plan. Validation performs no provider call, file write, task creation or execution.');
+const planFormat=agentEl('select');planFormat.append(agentOption('markdown','Markdown'),agentOption('canonical_json','Canonical JSON'));
 const planInput=agentEl('textarea');planInput.placeholder='# Plan\n\n## Task A — Title\nDepends on: None\nAcceptance:\n- Criterion';
 const planOutput=agentEl('div','agentchat-info','');
 const planActions=agentEl('div','actions');
 const validatePlan=agentButton('Validate / Preview',()=>validateTaskManifest().catch(showAgentError));
+const savePlan=agentButton('Download canonical JSON',()=>downloadTaskManifest());savePlan.disabled=true;
 const closePlan=agentButton('Close',()=>planOverlay.classList.remove('visible'));
-planActions.append(validatePlan,closePlan);planBox.append(planTitle,planNote,planInput,planActions,planOutput);planOverlay.append(planBox);document.body.append(planOverlay);
+planActions.append(validatePlan,savePlan,closePlan);planBox.append(planTitle,planNote,planFormat,planInput,planActions,planOutput);planOverlay.append(planBox);document.body.append(planOverlay);
 
 const agentSample={
  id:'custom-r2d',name:'Custom Endpoint',api_type:'responses',base_url:'https://api.r2d.dev/v1',
@@ -623,6 +667,43 @@ async function toggleAutoFeedback(){
   ?'Auto-send enabled until '+new Date(result.auto_feedback_until).toLocaleTimeString()+'. Patch execution still requires approval.'
   :'Auto-send disabled.';
 }
+function openTaskManifestPreview(){planOverlay.classList.add('visible');}
+function downloadTaskManifest(){
+ if(!lastValidatedManifest||!lastValidatedManifest.valid)return;
+ const blob=new Blob([JSON.stringify(lastValidatedManifest,null,2)],{type:'application/json'});
+ const link=document.createElement('a');
+ link.href=URL.createObjectURL(blob);link.download=(String(lastValidatedManifest.name||'task-manifest').replace(/[^a-zA-Z0-9._-]+/g,'-')+'.json');
+ link.click();setTimeout(()=>URL.revokeObjectURL(link.href),0);
+}
+let lastValidatedManifest=null;
+async function validateTaskManifest(){
+ const input=planInput.value;
+ const format=planFormat.value;
+ planOutput.replaceChildren(agentEl('p','agentchat-info','Validating locally via TaskDeck (no AI/provider call)…'));
+ const payload=format==='canonical_json'?{format,canonical_json:input}:{format,markdown:input};
+ const data=await agentApp.jsonFetch('/api/agent/task-manifests/validate',{
+  method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload),
+ });
+ const manifest=data.manifest||{};
+ lastValidatedManifest=manifest;
+ savePlan.disabled=!manifest.valid;
+ const summary=agentEl('p','agentchat-info',
+  (manifest.valid?'VALID':'INVALID')+' · '+String(manifest.tasks?.length||0)+' tasks · '+
+  String(manifest.graph?.roots?.length||0)+' roots · '+String(manifest.graph?.blocked?.length||0)+' dependency-blocked · Planning only');
+ planOutput.replaceChildren(summary);
+ const rows=agentEl('div','agentchat-info');
+ for(const task of (manifest.tasks||[])){
+  const deps=(task.dependencies||[]).length?(task.dependencies||[]).join(', '):'None';
+  const acceptance=(task.acceptance_criteria||[]).map(x=>'  • '+x).join('\n');
+  rows.append(agentEl('pre','agentchat-tool-summary',task.id+' — '+task.title+'\nDepends on: '+deps+'\n'+acceptance));
+ }
+ planOutput.append(rows);
+ const order=manifest.graph?.topological_order;
+ if(order)planOutput.append(agentEl('p','agentchat-info','Topological preview: '+order.join(' → ')));
+ for(const issue of (manifest.issues||[])){
+  planOutput.append(agentEl('p','agentchat-tool-summary',(issue.warning?'Warning':'Error')+(issue.line?' · line '+issue.line:'')+' · '+issue.code+': '+issue.message));
+ }
+}
 async function previewAgentContext(){
  if(!agentActive)return;
  const id=agentActive;
@@ -683,19 +764,140 @@ async function loadAgentState(){
  else if(agentSessions.length)await selectAgentSession(agentSessions[0].id);
  else displayAgentSession(null);
 }
+function agentDockKey(){
+ const workspace=String(agentApp.taskData?.workspace||'').trim()||'default';
+ return 'vscode-tasks-menu:agent-chat-dock:v1:'+workspace;
+}
+function saveAgentDock(){
+ try{localStorage.setItem(agentDockKey(),JSON.stringify({position:agentDock.position,autoHide:agentDock.autoHide,expanded:agentDock.expanded,rightWidth:agentDock.rightWidth,bottomHeight:agentDock.bottomHeight}));}catch{}
+}
+function applyAgentDock(){
+ const section=root.parentElement;
+ if(!section?.classList?.contains('task-agent-dock-section'))return;
+ section.classList.toggle('agent-dock-right',agentDock.position==='right');
+ section.classList.toggle('agent-dock-bottom',agentDock.position==='bottom');
+ section.classList.toggle('agent-dock-collapsed',!agentDock.expanded);
+ section.classList.toggle('agent-dock-floating',agentDock.autoHide&&agentDock.expanded);
+ section.classList.toggle('agent-dock-responsive',agentDock.expanded&&(agentDock.position==='right'?section.clientWidth<640:section.clientHeight<440));
+ const size=agentDock.position==='right'?agentDock.rightWidth:agentDock.bottomHeight;
+ section.style.setProperty('--agent-dock-size',size+'px');
+ root.classList.toggle('visible',agentDock.expanded);
+ agentStrip.setAttribute('aria-expanded',String(agentDock.expanded));
+ dockPositionButton.textContent=agentDock.position==='right'?'Bottom':'Right';
+ dockPositionButton.setAttribute('aria-label','Move Agent Chat to '+(agentDock.position==='right'?'bottom':'right'));
+ autoHideButton.textContent=agentDock.autoHide?'Pin':'Auto Hide';
+ autoHideButton.setAttribute('aria-label',agentDock.autoHide?'Pin Agent Chat':'Enable Agent Chat auto hide');
+ dockResizer.setAttribute('aria-orientation',agentDock.position==='right'?'vertical':'horizontal');
+ if(agentDock.position==='right')dockResizer.setAttribute('aria-label','Resize Agent Chat width');
+ else dockResizer.setAttribute('aria-label','Resize Agent Chat height');
+}
+function mountAgentDock(){
+ if(typeof document.querySelector!=='function'){document.body.append(root);return;}
+ const section=document.querySelector('main>section'),tabs=document.querySelector('#tabs'),panes=document.querySelector('#panes');
+ if(!section||!tabs||!panes){document.body.append(root);return;}
+ const content=agentEl('div','task-agent-content');
+ section.classList.add('task-agent-dock-section');
+ content.append(tabs,panes);section.append(content,dockResizer,root,agentStrip);
+ let restored=null;
+ try{restored=JSON.parse(localStorage.getItem(agentDockKey())||'null');}catch{}
+ if(restored&&typeof restored==='object'){
+  agentDock.position=restored.position==='bottom'?'bottom':'right';
+  agentDock.autoHide=Boolean(restored.autoHide);
+  agentDock.expanded=Boolean(restored.expanded);
+  agentDock.rightWidth=clampDockSize(restored.rightWidth,'right');
+  agentDock.bottomHeight=clampDockSize(restored.bottomHeight,'bottom');
+ }
+ if(agentApp.layoutProfile==='mobile')agentDock.autoHide=true;
+ if(typeof ResizeObserver==='function'){
+  agentDock.observer=new ResizeObserver(()=>{applyAgentDock();rebalanceAgentToolbar();});
+  agentDock.observer.observe(heading);agentDock.observer.observe(section);
+ }
+ rebalanceAgentToolbar();applyAgentDock();
+}
+function clampDockSize(value,position){
+ const n=Number(value)||(position==='right'?420:320);
+ if(position==='right')return Math.round(Math.max(300,Math.min(n,Math.min(window.innerWidth*.65,Math.max(300,window.innerWidth-360)))));
+ return Math.round(Math.max(190,Math.min(n,Math.max(190,window.innerHeight*.65))));
+}
+function rebalanceAgentToolbar(){
+ if(!toolbarActions.isConnected&&root.parentElement?.classList?.contains('task-agent-dock-section')===false)return;
+ for(const button of agentToolbarItems)toolbarActions.append(button);
+ moreMenu.classList.remove('open');moreButton.setAttribute('aria-expanded','false');
+ const space=heading.clientWidth||0;
+ if(!space)return;
+ const always=dockPositionButton.offsetWidth+autoHideButton.offsetWidth+moreButton.offsetWidth+close.offsetWidth+title.offsetWidth+24;
+ while(toolbarActions.scrollWidth>Math.max(0,space-always)&&toolbarActions.children.length>1){
+  const button=toolbarActions.lastElementChild;moreMenu.prepend(button);
+ }
+}
+function toggleAgentMore(force){
+ const open=force===undefined?!moreMenu.classList.contains('open'):Boolean(force);
+ moreMenu.classList.toggle('open',open);moreButton.setAttribute('aria-expanded',String(open));
+ if(open)moreMenu.querySelector('button')?.focus();else moreButton.focus();
+}
+function setAgentDockPosition(position){
+ if(position!=='right'&&position!=='bottom')return;
+ agentDock.position=position;
+ applyAgentDock();saveAgentDock();
+ window.dispatchEvent(new Event('resize'));
+}
+function setAgentDockAutoHide(enabled){agentDock.autoHide=Boolean(enabled);applyAgentDock();saveAgentDock();}
+function resizeAgentDock(event){
+ if(event.button!==0)return;
+ const start=agentDock.position==='right'?event.clientX:event.clientY;
+ const initial=agentDock.position==='right'?agentDock.rightWidth:agentDock.bottomHeight;
+ dockResizer.setPointerCapture?.(event.pointerId);event.preventDefault();
+ const move=e=>{
+  const delta=agentDock.position==='right'?start-e.clientX:start-e.clientY;
+  const size=clampDockSize(initial+delta,agentDock.position);
+  if(agentDock.position==='right')agentDock.rightWidth=size;else agentDock.bottomHeight=size;
+  applyAgentDock();
+ };
+ const done=e=>{
+  dockResizer.removeEventListener('pointermove',move);dockResizer.removeEventListener('pointerup',done);dockResizer.removeEventListener('pointercancel',done);
+  try{dockResizer.releasePointerCapture?.(e.pointerId);}catch{}
+  saveAgentDock();window.dispatchEvent(new Event('resize'));
+ };
+ dockResizer.addEventListener('pointermove',move);dockResizer.addEventListener('pointerup',done);dockResizer.addEventListener('pointercancel',done);
+}
+dockResizer.addEventListener('pointerdown',resizeAgentDock);
+dockResizer.addEventListener('keydown',event=>{
+ const step=event.shiftKey?25:10;let next=agentDock.position==='right'?agentDock.rightWidth:agentDock.bottomHeight;
+ if(event.key==='Home')next=agentDock.position==='right'?300:190;
+ else if(event.key==='End')next=agentDock.position==='right'?window.innerWidth*.65:window.innerHeight*.65;
+ else if(agentDock.position==='right'&&event.key==='ArrowLeft')next-=step;
+ else if(agentDock.position==='right'&&event.key==='ArrowRight')next+=step;
+ else if(agentDock.position==='bottom'&&event.key==='ArrowUp')next-=step;
+ else if(agentDock.position==='bottom'&&event.key==='ArrowDown')next+=step;
+ else return;
+ event.preventDefault();if(agentDock.position==='right')agentDock.rightWidth=clampDockSize(next,'right');else agentDock.bottomHeight=clampDockSize(next,'bottom');applyAgentDock();saveAgentDock();
+});
+moreButton.addEventListener('click',event=>{event.stopPropagation();toggleAgentMore();});
+moreMenu.addEventListener('click',event=>event.stopPropagation());
+for(const overlay of [settingsOverlay,planOverlay])overlay.addEventListener('pointerdown',event=>event.stopPropagation());
+document.addEventListener?.('pointerdown',event=>{
+ if(!agentDock.expanded||!agentDock.autoHide)return;
+ if(root.contains(event.target)||agentStrip.contains(event.target)||moreMenu.contains(event.target)||settingsOverlay.contains(event.target)||planOverlay.contains(event.target)||dockResizer.contains(event.target))return;
+ agentDock.expanded=false;applyAgentDock();saveAgentDock();
+},true);
+window.addEventListener('resize',()=>{agentDock.rightWidth=clampDockSize(agentDock.rightWidth,'right');agentDock.bottomHeight=clampDockSize(agentDock.bottomHeight,'bottom');applyAgentDock();rebalanceAgentToolbar();});
 async function openAgentPanel(){
- root.classList.add('visible');
+ agentDock.expanded=true;applyAgentDock();saveAgentDock();
  await loadAgentState();
  return true;
 }
-function closeAgentPanel(){clearTimeout(agentMonitorTimer);agentMonitorTimer=0;root.classList.remove('visible');}
-root.addEventListener('click',e=>{if(e.target===root)closeAgentPanel();});
+function closeAgentPanel(){agentDock.expanded=false;toggleAgentMore(false);applyAgentDock();saveAgentDock();}
+root.addEventListener('click',e=>e.stopPropagation());
 settingsOverlay.addEventListener('click',e=>{if(e.target===settingsOverlay)settingsOverlay.classList.remove('visible');});
 window.addEventListener('keydown',e=>{
- if(e.key==='Escape'){
-  if(settingsOverlay.classList.contains('visible'))settingsOverlay.classList.remove('visible');
-  else if(root.classList.contains('visible'))closeAgentPanel();
- }
+ if(e.key!=='Escape')return;
+ if(moreMenu.classList.contains('open')){e.preventDefault();toggleAgentMore(false);}
+ else if(planOverlay.classList.contains('visible'))planOverlay.classList.remove('visible');
+ else if(settingsOverlay.classList.contains('visible'))settingsOverlay.classList.remove('visible');
+ else if(agentDock.expanded&&agentDock.autoHide){e.preventDefault();closeAgentPanel();}
 });
 globalThis.TaskMenuAgentChat={open:openAgentPanel,close:closeAgentPanel,settings:openAgentSettings,
- get visible(){return root.classList.contains('visible');}};
+ setDockPosition:setAgentDockPosition,setAutoHide:setAgentDockAutoHide,
+ get dockPosition(){return agentDock.position;},get autoHide(){return agentDock.autoHide;},
+ get visible(){return agentDock.expanded;}};
+if(agentDock.expanded)loadAgentState().catch(showAgentError);

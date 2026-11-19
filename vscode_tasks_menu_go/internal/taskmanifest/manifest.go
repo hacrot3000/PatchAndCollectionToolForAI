@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 )
 
 const (
@@ -73,6 +74,9 @@ func ParseMarkdown(markdown, projectID string) (Manifest, error) {
 	}
 	if strings.TrimSpace(projectID) == "" || len(projectID) > 128 {
 		return Manifest{}, errors.New("verified project ID required")
+	}
+	if !utf8.ValidString(markdown) {
+		return Manifest{}, errors.New("markdown must be valid UTF-8")
 	}
 	if strings.ContainsRune(markdown, '\x00') {
 		return Manifest{}, errors.New("markdown contains NUL")
@@ -200,6 +204,14 @@ func ParseMarkdown(markdown, projectID string) (Manifest, error) {
 		}
 	}
 	manifest.Graph = buildGraph(manifest.Tasks, ids, &manifest.Issues, raws)
+	for _, issue := range manifest.Issues {
+		switch issue.Code {
+		case "unknown_dependency", "self_dependency", "duplicate_dependency", "duplicate_id", "dependency_cycle":
+			// Do not present a topological order as actionable when dependency
+			// references are invalid or cyclic.
+			manifest.Graph.Topological = nil
+		}
+	}
 	manifest.Valid = true
 	for _, issue := range manifest.Issues {
 		if !issue.Warning {

@@ -26,9 +26,16 @@ func (s *Server) agentTaskManifestValidateAPI(w http.ResponseWriter, r *http.Req
 	dec := json.NewDecoder(r.Body)
 	dec.DisallowUnknownFields()
 	var req struct {
-		Markdown string `json:"markdown"`
+		Format        string `json:"format,omitempty"`
+		Markdown      string `json:"markdown,omitempty"`
+		CanonicalJSON string `json:"canonical_json,omitempty"`
 	}
 	if err := dec.Decode(&req); err != nil {
+		var maxErr *http.MaxBytesError
+		if errors.As(err, &maxErr) {
+			http.Error(w, "Task Manifest request exceeds body limit", http.StatusRequestEntityTooLarge)
+			return
+		}
 		http.Error(w, "invalid Task Manifest request", 400)
 		return
 	}
@@ -37,8 +44,15 @@ func (s *Server) agentTaskManifestValidateAPI(w http.ResponseWriter, r *http.Req
 		http.Error(w, "exactly one JSON object required", 400)
 		return
 	}
-	if len(req.Markdown) == 0 {
-		http.Error(w, "markdown is required", 400)
+	if req.Format == "" {
+		req.Format = "markdown"
+	}
+	if req.Format != "markdown" && req.Format != "canonical_json" {
+		http.Error(w, "format must be markdown or canonical_json", 400)
+		return
+	}
+	if (req.Format == "markdown" && len(req.Markdown) == 0) || (req.Format == "canonical_json" && len(req.CanonicalJSON) == 0) {
+		http.Error(w, "input for selected format is required", 400)
 		return
 	}
 	verified, err := patchtool.EnsureProjectIdentity(s.Workspace)
@@ -46,10 +60,15 @@ func (s *Server) agentTaskManifestValidateAPI(w http.ResponseWriter, r *http.Req
 		http.Error(w, "verified project identity unavailable", 409)
 		return
 	}
-	manifest, err := taskmanifest.ParseMarkdown(req.Markdown, verified.ID)
+	var manifest taskmanifest.Manifest
+	if req.Format == "canonical_json" {
+		manifest, err = taskmanifest.ParseCanonicalJSON(req.CanonicalJSON, verified.ID)
+	} else {
+		manifest, err = taskmanifest.ParseMarkdown(req.Markdown, verified.ID)
+	}
 	if err != nil {
 		status := 400
-		if len(req.Markdown) > taskmanifest.MaxMarkdownBytes {
+		if len(req.Markdown) > taskmanifest.MaxMarkdownBytes || len(req.CanonicalJSON) > taskmanifest.MaxMarkdownBytes {
 			status = 413
 		}
 		http.Error(w, err.Error(), status)

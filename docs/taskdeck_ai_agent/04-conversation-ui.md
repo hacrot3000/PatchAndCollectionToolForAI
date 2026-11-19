@@ -1,6 +1,6 @@
 # F04 — Điều phối hội thoại, streaming và giao diện
 
-**Đặc tả giao diện dock mới (chưa triển khai):** [10 — Agent Chat Dockable Panel, Right/Bottom & Auto Hide](10-agent-chat-dock-panel-ui.md). Tài liệu này chỉ đạo thay modal chính bằng dock, header action/overflow menu và auto-hide độc lập sidebar trái; giữ nguyên contract hội thoại và native Patch.
+**Bố cục Agent Chat dock:** [10 — Agent Chat Dockable Panel, Right/Bottom & Auto Hide](10-agent-chat-dock-panel-ui.md). Source hiện đã chuyển UI chính sang dock Right/Bottom, có dải thu gọn, auto-hide riêng, splitter và More actions; browser smoke/a11y, mobile và kiểm thử tương tác layout vẫn chưa được xác nhận. Giữ nguyên contract hội thoại và native Patch.
 
 
 Điều hướng: [kế hoạch chung](README.md). Áp dụng F04, F04.1, F04.1.1–F04.1.2, F04.2, F04.2.1–F04.2.3.

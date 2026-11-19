@@ -1,9 +1,11 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -74,10 +76,10 @@ func TestAgentMaxSizeAttachmentsAcceptedAndOversizeRejected(t *testing.T) {
 	per := agentMaxAttachmentTotal / agentMaxAttachments
 	files := make([]map[string]string, 0, agentMaxAttachments)
 	for i := 0; i < agentMaxAttachments; i++ {
-		files = append(files, map[string]string{"name": "f.txt", "mime": "text/plain", "text": strings.Repeat("a", per)})
+		files = append(files, map[string]string{"name": "f.txt", "mime": "text/plain", "text": strings.Repeat("\n", per)})
 	}
 	ok := invokeAI(t, s.agentChatSessionItemAPI, http.MethodPost, "/api/agent/sessions/"+id+"/messages", map[string]any{
-		"message": strings.Repeat("m", agentMessageTextLimit), "confirm_external": true, "expected_revision": 1, "attachments": files,
+		"message": strings.Repeat("a\n", agentMessageTextLimit/2), "confirm_external": true, "expected_revision": 1, "attachments": files,
 	})
 	if ok.Code != 200 {
 		t.Fatalf("maximum valid payload rejected: %d %s", ok.Code, ok.Body)
@@ -136,5 +138,18 @@ func TestAgentRequestIdDigestCoversAttachments(t *testing.T) {
 	}
 	if calls != 1 {
 		t.Fatalf("provider called %d times", calls)
+	}
+}
+
+func TestAgentMessageRejectsInvalidRawUTF8(t *testing.T) {
+	s, id := newAgentConversationFixture(t, "stateless")
+	body := []byte("{\"message\":\"bad-")
+	body = append(body, 0xff)
+	body = append(body, []byte("\",\"confirm_external\":true,\"expected_revision\":1}")...)
+	r := httptest.NewRequest(http.MethodPost, "/api/agent/sessions/"+id+"/messages", bytes.NewReader(body))
+	w := httptest.NewRecorder()
+	s.agentChatSessionItemAPI(w, r)
+	if w.Code != 400 || !strings.Contains(w.Body.String(), "UTF-8") {
+		t.Fatalf("invalid UTF-8 was not rejected: %d %s", w.Code, w.Body)
 	}
 }

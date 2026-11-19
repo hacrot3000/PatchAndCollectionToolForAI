@@ -19,6 +19,9 @@ func TestChatCompletionsStreamAccumulatesFragmentedTextAndToolArguments(t *testi
 			t.Fatal(err)
 		}
 	}
+	if err := a.apply([]byte("[DONE]")); err != nil {
+		t.Fatal(err)
+	}
 	res, err := a.result()
 	if err != nil {
 		t.Fatal(err)

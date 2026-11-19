@@ -24,8 +24,8 @@ import (
 	"bletonfc/vscode_tasks_menu/internal/dbadapter"
 	"bletonfc/vscode_tasks_menu/internal/dbprofile"
 	"bletonfc/vscode_tasks_menu/internal/dbsession"
-	"bletonfc/vscode_tasks_menu/internal/identity"
 	"bletonfc/vscode_tasks_menu/internal/filetransferprofile"
+	"bletonfc/vscode_tasks_menu/internal/identity"
 	"bletonfc/vscode_tasks_menu/internal/patchtool"
 	"bletonfc/vscode_tasks_menu/internal/secretstore"
 	"bletonfc/vscode_tasks_menu/internal/session"
@@ -36,27 +36,27 @@ import (
 )
 
 type Server struct {
-	agentRunMu sync.Mutex
-	agentRunCtx context.Context
-	agentRunCancel context.CancelFunc
-	AgentChatCall func(context.Context, agentchat.ProviderConfig, string, []byte) (agentchat.ResponsesResult, error) // optional test adapter; nil = production HTTPS
-	AgentChatPack func(string, string) (patchtool.AIPackResult, error) // optional test builder; nil = current AI Pack
-	Workspace string
-	Config    config.Config
-	Log       *log.Logger
-	Sessions             session.Service
-	Identity             identity.Store
-	InternalControlToken string
-	SSHProfiles          *sshprofile.Store
-	FileTransferProfiles *filetransferprofile.Store
-	DBProfiles           *dbprofile.Store
-	DBAdapters           *dbadapter.Registry
-	DBSessions           *dbsession.Manager
-	SSHTunnels           *sshtunnel.Manager
-	ConnectionSecrets    secretstore.Store
-	ConnectionAudit      ConnectionAuditFunc
-	SFTPExecutable       string
-	OpenWorkspace        func(string) error
+	agentRunMu             sync.Mutex
+	agentRunCtx            context.Context
+	agentRunCancel         context.CancelFunc
+	AgentChatCall          func(context.Context, agentchat.ProviderConfig, string, []byte) (agentchat.ResponsesResult, error) // optional test adapter; nil = production HTTPS
+	AgentChatPack          func(string, string) (patchtool.AIPackResult, error)                                               // optional test builder; nil = current AI Pack
+	Workspace              string
+	Config                 config.Config
+	Log                    *log.Logger
+	Sessions               session.Service
+	Identity               identity.Store
+	InternalControlToken   string
+	SSHProfiles            *sshprofile.Store
+	FileTransferProfiles   *filetransferprofile.Store
+	DBProfiles             *dbprofile.Store
+	DBAdapters             *dbadapter.Registry
+	DBSessions             *dbsession.Manager
+	SSHTunnels             *sshtunnel.Manager
+	ConnectionSecrets      secretstore.Store
+	ConnectionAudit        ConnectionAuditFunc
+	SFTPExecutable         string
+	OpenWorkspace          func(string) error
 	GitRebaseEditorCommand string // internal/test override; production defaults to the TaskDeck executable
 
 	projectIndexMu         sync.Mutex
@@ -76,9 +76,9 @@ type Server struct {
 	gitJobsMu       sync.Mutex
 	gitJobs         map[string]*gitJob
 
-	aiUsageMu sync.Mutex
+	aiUsageMu        sync.Mutex
 	aiRecentRequests map[string][]time.Time
-	aiInFlight map[string]bool
+	aiInFlight       map[string]bool
 
 	authMu        sync.Mutex
 	authFailures  map[string]authFailureState
@@ -88,30 +88,30 @@ type Server struct {
 	browserLeaseMu sync.Mutex
 	browserLease   *browserLease
 
-	fileTransferDownloadMu sync.Mutex
-	fileTransferDownloads  map[string]fileTransferDownloadTicket
+	fileTransferDownloadMu       sync.Mutex
+	fileTransferDownloads        map[string]fileTransferDownloadTicket
 	fileTransferDownloadProgress map[string]*fileTransferBrowserProgress
 
 	fileTransferJobsMu       sync.Mutex
 	fileTransferJobQueues    map[string]*fileTransferServerQueue
-	fileTransferJobsLoaded    bool
-	fileTransferPersistMu     sync.Mutex
-	fileTransferPersistTimer  *time.Timer
+	fileTransferJobsLoaded   bool
+	fileTransferPersistMu    sync.Mutex
+	fileTransferPersistTimer *time.Timer
 
-	terminalStateMu     sync.RWMutex
-	terminalStateFrozen bool
+	terminalStateMu      sync.RWMutex
+	terminalStateFrozen  bool
 	workspaceSnapshotsMu sync.Mutex
-	projectNotesMu sync.Mutex
-	projectProfilesMu     sync.Mutex
-	workspaceRootsMu      sync.Mutex
-	taskRunHistoryMu      sync.Mutex
-	approvalStoreMu       sync.Mutex
-	approvalStore         *approval.Store
+	projectNotesMu       sync.Mutex
+	projectProfilesMu    sync.Mutex
+	workspaceRootsMu     sync.Mutex
+	taskRunHistoryMu     sync.Mutex
+	approvalStoreMu      sync.Mutex
+	approvalStore        *approval.Store
 
-	scheduleMu sync.Mutex
-	scheduleState *scheduleEngine
+	scheduleMu       sync.Mutex
+	scheduleState    *scheduleEngine
 	restrictedEditMu sync.Mutex
-	sharedMutation sharedMutationLock
+	sharedMutation   sharedMutationLock
 }
 
 func (s *Server) FreezeTerminalStatePersistence() {
@@ -141,9 +141,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/tasks", s.tasks)
 	mux.HandleFunc("/api/task-runs", s.taskRuns)
 	mux.HandleFunc("/api/task-runs/log", s.taskRunLog)
-	mux.HandleFunc("/api/schedules",s.schedulesAPI)
-	mux.HandleFunc("/api/schedules/log",s.scheduleLogAPI)
-	mux.HandleFunc("/api/schedules/repositories",s.scheduleRepositoriesAPI)
+	mux.HandleFunc("/api/schedules", s.schedulesAPI)
+	mux.HandleFunc("/api/schedules/log", s.scheduleLogAPI)
+	mux.HandleFunc("/api/schedules/repositories", s.scheduleRepositoriesAPI)
 	mux.HandleFunc("/api/state/tasks", s.taskState)
 	mux.HandleFunc("/api/workspace-snapshots", s.workspaceSnapshots)
 	mux.HandleFunc("/api/project-notes", s.projectNotes)
@@ -312,12 +312,12 @@ func (s *Server) Serve(listener net.Listener) error {
 			_ = listener.Close()
 			return err
 		}
-        // Relocate legacy private queue state before opening the shared HTTP
-        // listener; stale .vscode state must not remain browser-readable.
-        if _,err:=s.fileTransferQueueStatePath();err!=nil{
-            _=listener.Close()
-            return fmt.Errorf("private transfer queue migration: %w",err)
-        }
+		// Relocate legacy private queue state before opening the shared HTTP
+		// listener; stale .vscode state must not remain browser-readable.
+		if _, err := s.fileTransferQueueStatePath(); err != nil {
+			_ = listener.Close()
+			return fmt.Errorf("private transfer queue migration: %w", err)
+		}
 	}
 	// Best-effort Agent Patch reconciliation BEFORE serving. It only reads
 	// native protocol evidence and never re-queues or re-executes anything.
@@ -339,7 +339,7 @@ func (s *Server) Serve(listener net.Listener) error {
 	}()
 	defer autoCancel()
 	go s.startAgentAutoFeedback(autoCtx)
-	scheduleCtx,scheduleCancel:=context.WithCancel(context.Background())
+	scheduleCtx, scheduleCancel := context.WithCancel(context.Background())
 	defer scheduleCancel()
 	defer s.scheduleStopAll()
 	go s.scheduleLoop(scheduleCtx)
@@ -401,16 +401,16 @@ func (s *Server) sessionsRoot(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"sessions": s.withStoredTitles(items)})
 	case http.MethodPost:
 		var req struct {
-			Kind      string            `json:"kind"`
-			TaskID    int               `json:"task_id"`
-			Inputs    map[string]string `json:"inputs,omitempty"`
-			Editor    *taskEditorVariableRequest `json:"editor,omitempty"`
-			Env       map[string]string `json:"env,omitempty"`
-			Cwd          string            `json:"cwd,omitempty"`
-			RemoteCwd    string            `json:"remote_cwd,omitempty"`
-			SSHProfileID string            `json:"ssh_profile_id,omitempty"`
-			PatchMode    string            `json:"patch_mode,omitempty"`
-			PatchUI   string            `json:"patch_ui,omitempty"`
+			Kind         string                     `json:"kind"`
+			TaskID       int                        `json:"task_id"`
+			Inputs       map[string]string          `json:"inputs,omitempty"`
+			Editor       *taskEditorVariableRequest `json:"editor,omitempty"`
+			Env          map[string]string          `json:"env,omitempty"`
+			Cwd          string                     `json:"cwd,omitempty"`
+			RemoteCwd    string                     `json:"remote_cwd,omitempty"`
+			SSHProfileID string                     `json:"ssh_profile_id,omitempty"`
+			PatchMode    string                     `json:"patch_mode,omitempty"`
+			PatchUI      string                     `json:"patch_ui,omitempty"`
 		}
 		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 256<<10)).Decode(&req); err != nil {
 			http.Error(w, "invalid JSON", http.StatusBadRequest)
@@ -709,12 +709,12 @@ func patchParallelCollectItems(state session.ProtocolState, req patchParallelCol
 // taskdeck found in PATH may be an older release after a daemon handoff.
 // This value is process-local; it is not stored in any project or ZIP.
 func pinPatchToolTaskDeckExecutable(spec *tasks.Execution, executable string) error {
-    if spec == nil || !filepath.IsAbs(executable) {
-        return fmt.Errorf("TaskDeck Patch requires an absolute running executable path")
-    }
-    return tasks.ApplyEnvironmentOverrides(spec, map[string]string{
-        "PTV_TASKDECK_EXECUTABLE": executable,
-    })
+	if spec == nil || !filepath.IsAbs(executable) {
+		return fmt.Errorf("TaskDeck Patch requires an absolute running executable path")
+	}
+	return tasks.ApplyEnvironmentOverrides(spec, map[string]string{
+		"PTV_TASKDECK_EXECUTABLE": executable,
+	})
 }
 
 func patchCollectExecution(workspace, requestName string) (tasks.Execution, error) {
@@ -758,8 +758,8 @@ func patchCollectExecution(workspace, requestName string) (tasks.Execution, erro
 	spec.ProtocolEvents = true
 	spec.ProtocolCommands = false
 	if err := pinPatchToolTaskDeckExecutable(&spec, exe); err != nil {
-        return tasks.Execution{}, err
-    }
+		return tasks.Execution{}, err
+	}
 	if err := tasks.ApplyEnvironmentOverrides(&spec, map[string]string{
 		"TASKDECK_PATCH_DIRECT_COLLECT":     "1",
 		"TASKDECK_PATCH_PROGRESS_INDEX":     "1",
@@ -816,9 +816,9 @@ func patchToolExecutionForUI(workspace, mode, uiMode string) (tasks.Execution, e
 	if err != nil {
 		return tasks.Execution{}, err
 	}
-    if err := pinPatchToolTaskDeckExecutable(&spec, exe); err != nil {
-        return tasks.Execution{}, err
-    }
+	if err := pinPatchToolTaskDeckExecutable(&spec, exe); err != nil {
+		return tasks.Execution{}, err
+	}
 	if uiMode == "terminal" {
 		return spec, nil
 	}
@@ -1852,7 +1852,7 @@ func (s *Server) sessionItem(w http.ResponseWriter, r *http.Request) {
 		}
 		s.auditSharedSessionStart(r, meta, map[string]any{
 			"cloned_from": id,
-			"cwd": meta.Cwd,
+			"cwd":         meta.Cwd,
 		})
 		writeJSON(w, http.StatusCreated, s.withStoredTitle(meta))
 	case "stop":
@@ -1980,12 +1980,16 @@ func (s *Server) sessionItem(w http.ResponseWriter, r *http.Request) {
 			var ok bool
 			mutationLease, ok = s.ensureSharedPatchMutationForSession(w, r, id)
 			if !ok {
-				if releaseWorkGate != nil { delete(patchWorkReserved, id) }
+				if releaseWorkGate != nil {
+					delete(patchWorkReserved, id)
+				}
 				return
 			}
 		}
 		if err := writer.ProtocolCommand(id, command); err != nil {
-			if releaseWorkGate != nil { delete(patchWorkReserved, id) }
+			if releaseWorkGate != nil {
+				delete(patchWorkReserved, id)
+			}
 			s.releaseSharedMutation(mutationLease)
 			http.Error(w, err.Error(), http.StatusConflict)
 			return

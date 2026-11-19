@@ -14,7 +14,7 @@ Ngày lập: 2026-11-19. Tài liệu nguồn và checklist chính: [handoff](../
 | F06 | Đồng thời, writer lease và remote | [06-parallel-remote.md](06-parallel-remote.md) |
 | F07 | Bảo mật, kiểm thử, vận hành và nghiệm thu | [07-acceptance.md](07-acceptance.md) |
 | F08 | Planner tương lai, chỉ thiết kế | [08-future-planner.md](08-future-planner.md) |
-| F04.UI-D | Đặc tả Agent Chat dock phải/dưới, auto-hide riêng và header/overflow menu (**chưa triển khai**) | [10-agent-chat-dock-panel-ui.md](10-agent-chat-dock-panel-ui.md) |
+| F04.UI-D | Agent Chat dock phải/dưới, auto-hide riêng và header/overflow menu (**source + DOM bootstrap; browser acceptance pending**) | [10-agent-chat-dock-panel-ui.md](10-agent-chat-dock-panel-ui.md) |
 
 **Rà soát liên nhóm:** [09-source-audit.md](09-source-audit.md) — báo cáo P0/P1, bằng chứng source/CI, không tạo thêm feature F09.
 

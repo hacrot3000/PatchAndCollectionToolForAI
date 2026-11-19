@@ -11,8 +11,10 @@ const (
 	agentMaxAttachmentBytes = 32 << 10
 	agentMaxAttachmentTotal = 64 << 10
 	agentMessageTextLimit   = 16 << 10
-	// Body budget: message + attachment text + delimiters + JSON escaping.
-	agentMessageBodyLimit = agentMessageTextLimit + agentMaxAttachmentTotal + 32<<10
+	// JSON may expand control characters to six bytes each. Reserve the worst
+	// escaped size for the 16 KiB message + 64 KiB attachments, plus structural
+	// overhead, while validators keep the decoded text bounds unchanged.
+	agentMessageBodyLimit = 512 << 10
 )
 
 // agentAttachmentJSONOverheadForTest documents the escaping headroom reserved

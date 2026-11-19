@@ -231,6 +231,8 @@ type ResponsesResult struct {
 	InputTokens    int
 	OutputTokens   int
 	Status         string
+	FinishReason   string
+	Model          string
 }
 
 // ParseResponsesResult extracts text and function_call items without accepting

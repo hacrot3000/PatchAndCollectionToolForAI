@@ -3,6 +3,7 @@ package agentchat
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -128,5 +129,45 @@ func TestDoChatCompletionsUsesSharedHardenedTransport(t *testing.T) {
 	canonical, _ := BuildResponsesRequest(RequestConfig{Model: "model-x", Instructions: "i", Mode: Stateless, Next: []HistoryItem{{Type: "user", Content: "hi"}}})
 	if _, err := DoChatCompletions(context.Background(), p, "key", canonical); err == nil {
 		t.Fatal("loopback provider was accepted")
+	}
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+func TestDoChatCompletionsUsesChatEndpointBearerAndCanonicalParser(t *testing.T) {
+	p := chatProvider("https://api.example.invalid/v1")
+	canonical, err := BuildResponsesRequest(RequestConfig{Model: "model-x", Instructions: "policy", Mode: Stateless,
+		Next: []HistoryItem{{Type: "user", Content: "hello"}}, MaxOutputTokens: 20})
+	if err != nil {
+		t.Fatal(err)
+	}
+	client := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.URL.String() != "https://api.example.invalid/v1/chat/completions" {
+			t.Fatalf("wrong endpoint: %s", req.URL)
+		}
+		if req.Header.Get("Authorization") != "Bearer secret" {
+			t.Fatal("missing provider credential")
+		}
+		var payload map[string]any
+		if err := json.NewDecoder(req.Body).Decode(&payload); err != nil {
+			t.Fatal(err)
+		}
+		if payload["model"] != "model-x" || payload["stream"] != false {
+			t.Fatalf("bad payload: %+v", payload)
+		}
+		messages := payload["messages"].([]any)
+		if messages[0].(map[string]any)["role"] != "system" || messages[1].(map[string]any)["content"] != "hello" {
+			t.Fatalf("bad canonical mapping: %+v", messages)
+		}
+		return &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": []string{"application/json"}}, Body: io.NopCloser(strings.NewReader(`{"id":"chat-id","model":"model-x","choices":[{"finish_reason":"stop","message":{"content":"ok"}}],"usage":{"prompt_tokens":3,"completion_tokens":2}}`))}, nil
+	})}
+	result, err := doChatCompletionsWithClient(context.Background(), p, "secret", canonical, client)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.ResponseID != "chat-id" || result.Model != "model-x" || result.FinishReason != "stop" || result.InputTokens != 3 || result.OutputTokens != 2 {
+		t.Fatalf("bad result: %+v", result)
 	}
 }

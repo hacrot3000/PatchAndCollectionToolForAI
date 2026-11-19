@@ -140,6 +140,7 @@ func ParseChatCompletionsResult(body []byte) (ResponsesResult, error) {
 	}
 	var raw struct {
 		ID      string `json:"id"`
+		Model   string `json:"model"`
 		Choices []struct {
 			FinishReason string `json:"finish_reason"`
 			Message      struct {
@@ -182,7 +183,7 @@ func ParseChatCompletionsResult(body []byte) (ResponsesResult, error) {
 	default:
 		return ResponsesResult{}, errors.New("provider returned non-text assistant content")
 	}
-	result := ResponsesResult{ResponseID: raw.ID, Text: text, InputTokens: raw.Usage.PromptTokens, OutputTokens: raw.Usage.CompletionTokens, Status: "completed"}
+	result := ResponsesResult{ResponseID: raw.ID, Text: text, InputTokens: raw.Usage.PromptTokens, OutputTokens: raw.Usage.CompletionTokens, Status: "completed", FinishReason: choice.FinishReason, Model: raw.Model}
 	seen := make(map[string]bool)
 	for _, tc := range choice.Message.ToolCalls {
 		if tc.Type != "function" || tc.ID == "" || len(tc.ID) > 256 || tc.Function.Name == "" || len(tc.Function.Name) > 128 || !json.Valid([]byte(tc.Function.Arguments)) || seen[tc.ID] {
@@ -201,10 +202,14 @@ func ParseChatCompletionsResult(body []byte) (ResponsesResult, error) {
 }
 
 // DoChatCompletions reuses the same hardened public-IP pinned transport as
-// Responses. This adapter is JSON-only in this implementation; streaming is
-// intentionally not claimed for a provider until its protocol-specific probe
-// and parser are available.
+// Responses. Streaming uses the separately bounded Chat Completions SSE parser.
 func DoChatCompletions(ctx context.Context, p ProviderConfig, key string, canonicalBody []byte) (ResponsesResult, error) {
+	client := newProviderClient()
+	defer client.CloseIdleConnections()
+	return doChatCompletionsWithClient(ctx, p, key, canonicalBody, client)
+}
+
+func doChatCompletionsWithClient(ctx context.Context, p ProviderConfig, key string, canonicalBody []byte, client *http.Client) (ResponsesResult, error) {
 	if p.APIType != "chat_completions" {
 		return ResponsesResult{}, errors.New("provider is not configured for Chat Completions")
 	}
@@ -219,8 +224,6 @@ func DoChatCompletions(ctx context.Context, p ProviderConfig, key string, canoni
 	if err != nil {
 		return ResponsesResult{}, err
 	}
-	client := newProviderClient()
-	defer client.CloseIdleConnections()
 	req, err := newProviderRequest(ctx, endpoint, key, body)
 	if err != nil {
 		return ResponsesResult{}, err

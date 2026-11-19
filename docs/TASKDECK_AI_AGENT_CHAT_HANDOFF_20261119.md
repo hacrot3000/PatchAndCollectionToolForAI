@@ -287,3 +287,10 @@ node test_ai_smart_terminal.cjs
 ```
 
 Run platform/remote smoke tests as available. External API requests incur cost: never perform paid provider calls or remote command execution merely to make tests green; use mocked HTTP servers and fake task executors until explicitly testing with real credentials.
+
+### UI continuation — Agent Chat dock (source + DOM bootstrap; browser acceptance pending)
+
+- `web/featuremods/agentchat.js` now mounts Agent Chat as a non-modal region inside the existing `main > section`, preserving the real `#tabs` and `#panes` nodes. Right/Bottom layout and a dedicated splitter do not modify sidebar grid or terminal split-tree.
+- Agent Chat has a persistent collapsed strip, per-workspace dock preference, separate right width/bottom height, Auto Hide/Pin state, outside-click/Esc collapse, and a responsive title More menu that moves existing action nodes (no duplicate handlers). Hide does not call cancel; reopening reloads authoritative session state.
+- DOM bootstrap test exercises mount, toolbar presence, duplicate-control guard, and Right→Bottom plus Auto Hide state changes. JavaScript syntax and focused Go UI contract tests pass.
+- **Not verified:** real browser Playwright smoke, keyboard/focus navigation end-to-end, light/dark and mobile visual acceptance, editor/terminal resize behavior, and full cross-browser regression. Do not claim GUI acceptance from the DOM bootstrap test.

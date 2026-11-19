@@ -61,3 +61,27 @@ func TestAgentTaskManifestValidateRejectsMalformedAndOversized(t *testing.T) {
 		t.Fatalf("oversize markdown accepted: %d", tooBig.Code)
 	}
 }
+
+func TestAgentTaskManifestValidateCanonicalJSON(t *testing.T) {
+	s := newAIServerForTest(t)
+	if err := os.MkdirAll(s.Workspace, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := patchtool.EnsureProjectIdentity(s.Workspace); err != nil {
+		t.Fatal(err)
+	}
+	id, err := patchtool.EnsureProjectIdentity(s.Workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	canonical := `{"schema_version":1,"name":"p","project_id":"` + id.ID + `","tasks":[{"id":"A","title":"api","dependencies":[],"acceptance_criteria":["ok"]}]}`
+	w := invokeAI(t, s.agentTaskManifestValidateAPI, http.MethodPost, "/api/agent/task-manifests/validate", map[string]string{"format": "canonical_json", "canonical_json": canonical})
+	if w.Code != 200 || !strings.Contains(w.Body.String(), `"valid":true`) {
+		t.Fatalf("canonical validation failed: %d %s", w.Code, w.Body)
+	}
+	wrong := strings.Replace(canonical, id.ID, "other-project", 1)
+	w = invokeAI(t, s.agentTaskManifestValidateAPI, http.MethodPost, "/api/agent/task-manifests/validate", map[string]string{"format": "canonical_json", "canonical_json": wrong})
+	if w.Code != 400 {
+		t.Fatalf("cross-project canonical JSON accepted: %d %s", w.Code, w.Body)
+	}
+}

@@ -17,14 +17,14 @@ func (s *Server) requireSharedActionPermission(w http.ResponseWriter, r *http.Re
 	}
 	principal, ok := PrincipalFromContext(r.Context())
 	if !ok {
-        // Direct handler calls and future routes must not silently inherit
-        // single-user privileges when shared mode is enabled. Middleware
-        // remains the first line of defense, but every action gate also
-        // fails closed without an authenticated project principal.
-        if s.Config.SharedServerEnabled {
-            sharedAuthError(w,identity.ErrUnauthenticated)
-            return false
-        }
+		// Direct handler calls and future routes must not silently inherit
+		// single-user privileges when shared mode is enabled. Middleware
+		// remains the first line of defense, but every action gate also
+		// fails closed without an authenticated project principal.
+		if s.Config.SharedServerEnabled {
+			sharedAuthError(w, identity.ErrUnauthenticated)
+			return false
+		}
 		// Local single-user mode has no shared principal by design.
 		return true
 	}
@@ -109,15 +109,15 @@ func (s *Server) sharedAuthorize(next http.Handler) http.Handler {
 			// the requested kind and is enforced inside sessionsRoot.
 			next.ServeHTTP(w, r)
 		case r.URL.Path == "/api/schedules" || r.URL.Path == "/api/schedules/log" || r.URL.Path == "/api/schedules/repositories":
-            // Schedule view grants only a redacted listing. Execution and
-            // mutation require BOTH manage and run: there is no per-schedule
-            // ownership or independent daemon privilege boundary yet.
-            // Handlers enforce this after the shared login middleware.
-            if _, ok := PrincipalFromContext(r.Context()); !ok {
-                sharedAuthError(w, identity.ErrUnauthenticated)
-                return
-            }
-            next.ServeHTTP(w, r)
+			// Schedule view grants only a redacted listing. Execution and
+			// mutation require BOTH manage and run: there is no per-schedule
+			// ownership or independent daemon privilege boundary yet.
+			// Handlers enforce this after the shared login middleware.
+			if _, ok := PrincipalFromContext(r.Context()); !ok {
+				sharedAuthError(w, identity.ErrUnauthenticated)
+				return
+			}
+			next.ServeHTTP(w, r)
 		case r.URL.Path == "/api/terminal-history":
 			// Terminal command history contains session output. Authorization
 			// therefore follows the target session ownership/view/control rules
@@ -167,33 +167,35 @@ func sharedRoutePermissions(r *http.Request) []string {
 	path := r.URL.Path
 	switch {
 	case strings.HasPrefix(path, "/api/agent/sessions/"):
-		if r.Method==http.MethodGet && (strings.HasSuffix(path,"/pack-preview")||strings.HasSuffix(path,"/execution")) {
-			return []string{identity.PermissionSettingsRead,identity.PermissionPatchView}
+		if r.Method == http.MethodGet && (strings.HasSuffix(path, "/pack-preview") || strings.HasSuffix(path, "/execution")) {
+			return []string{identity.PermissionSettingsRead, identity.PermissionPatchView}
 		}
-		if r.Method==http.MethodGet && strings.HasSuffix(path,"/events") {
+		if r.Method == http.MethodGet && strings.HasSuffix(path, "/events") {
 			return []string{identity.PermissionSettingsRead}
 		}
-		if r.Method==http.MethodGet {return []string{identity.PermissionSettingsRead}}
-		if r.Method==http.MethodPatch && strings.HasSuffix(path,"/metadata") {
+		if r.Method == http.MethodGet {
+			return []string{identity.PermissionSettingsRead}
+		}
+		if r.Method == http.MethodPatch && strings.HasSuffix(path, "/metadata") {
 			return []string{identity.PermissionSettingsWrite}
 		}
-		if r.Method==http.MethodPost && strings.HasSuffix(path,"/cancel") {
+		if r.Method == http.MethodPost && strings.HasSuffix(path, "/cancel") {
 			return []string{identity.PermissionSettingsRead}
 		}
-		if r.Method==http.MethodPost && strings.HasSuffix(path,"/auto-feedback") {
-			return []string{identity.PermissionSettingsRead,identity.PermissionPatchView,identity.PermissionFilesRead}
+		if r.Method == http.MethodPost && strings.HasSuffix(path, "/auto-feedback") {
+			return []string{identity.PermissionSettingsRead, identity.PermissionPatchView, identity.PermissionFilesRead}
 		}
-		if r.Method==http.MethodPost && strings.HasSuffix(path,"/messages") {
-			return []string{identity.PermissionSettingsRead,identity.PermissionFilesRead}
+		if r.Method == http.MethodPost && strings.HasSuffix(path, "/messages") {
+			return []string{identity.PermissionSettingsRead, identity.PermissionFilesRead}
 		}
-		if r.Method==http.MethodPost && strings.HasSuffix(path,"/sync") {
-			return []string{identity.PermissionSettingsRead,identity.PermissionPatchView}
+		if r.Method == http.MethodPost && strings.HasSuffix(path, "/sync") {
+			return []string{identity.PermissionSettingsRead, identity.PermissionPatchView}
 		}
-		if r.Method==http.MethodPost && strings.HasSuffix(path,"/decision") && strings.Contains(path,"/tools/") {
-			return []string{identity.PermissionSettingsRead,identity.PermissionPatchRun}
+		if r.Method == http.MethodPost && strings.HasSuffix(path, "/decision") && strings.Contains(path, "/tools/") {
+			return []string{identity.PermissionSettingsRead, identity.PermissionPatchRun}
 		}
-		if r.Method==http.MethodPost && strings.HasSuffix(path,"/continue") && strings.Contains(path,"/tools/") {
-			return []string{identity.PermissionSettingsRead,identity.PermissionPatchView,identity.PermissionFilesRead}
+		if r.Method == http.MethodPost && strings.HasSuffix(path, "/continue") && strings.Contains(path, "/tools/") {
+			return []string{identity.PermissionSettingsRead, identity.PermissionPatchView, identity.PermissionFilesRead}
 		}
 		return nil
 	case strings.HasPrefix(path, "/api/ssh/profiles/"):
@@ -216,21 +218,25 @@ func sharedRoutePermissions(r *http.Request) []string {
 	case strings.HasPrefix(path, "/api/addons/"):
 		return []string{identity.PermissionSettingsRead}
 	case strings.HasPrefix(path, "/api/remote-workspaces/"):
-		if r.Method == http.MethodGet { return []string{identity.PermissionSettingsRead} }
+		if r.Method == http.MethodGet {
+			return []string{identity.PermissionSettingsRead}
+		}
 		return []string{identity.PermissionSettingsWrite}
 	}
 	switch path {
- case "/api/restricted/status":
-  return []string{identity.PermissionFilesRead}
- case "/api/restricted/command":
-  // Preserve existing shared-server RBAC and authenticated principals,
-  // even though Git repository permissions remain the final Git authority.
-  return []string{identity.PermissionGitStatus}
- case "/api/restricted/file-window", "/api/restricted/search", "/api/restricted/compare", "/api/restricted/diff":
-  return []string{identity.PermissionFilesRead}
- case "/api/restricted/file-edit":
-  if r.Method!=http.MethodPost{return nil}
-  return []string{identity.PermissionFilesWrite}
+	case "/api/restricted/status":
+		return []string{identity.PermissionFilesRead}
+	case "/api/restricted/command":
+		// Preserve existing shared-server RBAC and authenticated principals,
+		// even though Git repository permissions remain the final Git authority.
+		return []string{identity.PermissionGitStatus}
+	case "/api/restricted/file-window", "/api/restricted/search", "/api/restricted/compare", "/api/restricted/diff":
+		return []string{identity.PermissionFilesRead}
+	case "/api/restricted/file-edit":
+		if r.Method != http.MethodPost {
+			return nil
+		}
+		return []string{identity.PermissionFilesWrite}
 	case "/api/admin/users", "/api/admin/users/access", "/api/admin/users/permission":
 		if r.Method == http.MethodGet {
 			return []string{identity.PermissionUsersView}
@@ -260,30 +266,44 @@ func sharedRoutePermissions(r *http.Request) []string {
 		}
 		return []string{identity.PermissionSecretsManage}
 	case "/api/agent/providers":
-		if r.Method==http.MethodGet {return []string{identity.PermissionSettingsRead}}
-		if r.Method==http.MethodPut || r.Method==http.MethodDelete {return []string{identity.PermissionSettingsWrite}}
+		if r.Method == http.MethodGet {
+			return []string{identity.PermissionSettingsRead}
+		}
+		if r.Method == http.MethodPut || r.Method == http.MethodDelete {
+			return []string{identity.PermissionSettingsWrite}
+		}
 		return nil
 	case "/api/agent/task-manifests/validate":
-		if r.Method == http.MethodPost { return []string{identity.PermissionSettingsRead} }
+		if r.Method == http.MethodPost {
+			return []string{identity.PermissionSettingsRead}
+		}
 		return nil
 	case "/api/agent/providers/test", "/api/agent/providers/probe":
-		if r.Method==http.MethodPost {return []string{identity.PermissionSettingsWrite}}
+		if r.Method == http.MethodPost {
+			return []string{identity.PermissionSettingsWrite}
+		}
 		return nil
 	case "/api/agent/sessions":
-		if r.Method==http.MethodGet {return []string{identity.PermissionSettingsRead}}
-		if r.Method==http.MethodPost {return []string{identity.PermissionSettingsWrite}}
+		if r.Method == http.MethodGet {
+			return []string{identity.PermissionSettingsRead}
+		}
+		if r.Method == http.MethodPost {
+			return []string{identity.PermissionSettingsWrite}
+		}
 		return nil
 	case "/api/ai/settings":
-		if r.Method == http.MethodGet { return []string{identity.PermissionSettingsRead} }
+		if r.Method == http.MethodGet {
+			return []string{identity.PermissionSettingsRead}
+		}
 		return []string{identity.PermissionSettingsWrite}
 	case "/api/ai/assist", "/api/ai/session-context":
 		return []string{identity.PermissionTerminalViewOwn, identity.PermissionSettingsRead}
 	case "/api/ai/plans", "/api/ai/plans/decision", "/api/ai/plans/validate":
 		return []string{identity.PermissionTerminalViewOwn, identity.PermissionSettingsRead}
 	case "/api/schedules", "/api/schedules/log", "/api/schedules/repositories":
-        // The handler performs action-specific Schedule checks; route policy
-        // describes the minimum capability for read-only requests.
-        return []string{identity.PermissionSchedulesView}
+		// The handler performs action-specific Schedule checks; route policy
+		// describes the minimum capability for read-only requests.
+		return []string{identity.PermissionSchedulesView}
 	case "/api/tasks":
 		return []string{identity.PermissionTasksView}
 	case "/api/task-runs":
@@ -326,9 +346,9 @@ func sharedRoutePermissions(r *http.Request) []string {
 	case "/api/file-transfer/jobs":
 		return []string{identity.PermissionTransferRead}
 	case "/api/file-transfer/jobs/control":
-        // This is a global queue for the saved profile, not a per-user job
-        // queue. Shared-mode controls can affect other users' file writes
-        // and remote deletes, so do not treat read permission as control.
+		// This is a global queue for the saved profile, not a per-user job
+		// queue. Shared-mode controls can affect other users' file writes
+		// and remote deletes, so do not treat read permission as control.
 		return []string{identity.PermissionProjectAdmin}
 	case "/api/file-transfer/mutate":
 		return []string{identity.PermissionTransferRead}
@@ -338,8 +358,8 @@ func sharedRoutePermissions(r *http.Request) []string {
 		// Device identity, onboarding and presence details are administrative.
 		return []string{identity.PermissionProjectAdmin}
 	case "/api/config/auth-mode":
-        // Authentication migration exposes global identity settings.
-        return []string{identity.PermissionProjectAdmin}
+		// Authentication migration exposes global identity settings.
+		return []string{identity.PermissionProjectAdmin}
 	case "/api/workspace-snapshots":
 		if r.Method == http.MethodGet {
 			return []string{identity.PermissionSettingsRead}
@@ -363,16 +383,18 @@ func sharedRoutePermissions(r *http.Request) []string {
 	case "/api/addons":
 		return []string{identity.PermissionSettingsRead}
 	case "/api/remote-workspaces":
-		if r.Method == http.MethodGet { return []string{identity.PermissionSettingsRead} }
+		if r.Method == http.MethodGet {
+			return []string{identity.PermissionSettingsRead}
+		}
 		return []string{identity.PermissionSettingsWrite}
 	case "/api/remote-workspace-files", "/api/remote-workspace-git":
 		return []string{identity.PermissionSettingsRead, identity.PermissionSSHUse}
 	case "/api/lsp":
 		return []string{identity.PermissionFilesRead}
 	case "/api/config/self-update", "/api/config-backup":
-        // Global update source and portable backup can expose privileged
-        // repository/configuration metadata even on GET requests.
-        return []string{identity.PermissionSettingsWrite}
+		// Global update source and portable backup can expose privileged
+		// repository/configuration metadata even on GET requests.
+		return []string{identity.PermissionSettingsWrite}
 	case "/api/config/page-title", "/api/config/terminal-cwds", "/api/config/running-indicator", "/api/command-presets":
 		if r.Method == http.MethodGet {
 			return []string{identity.PermissionSettingsRead}
@@ -398,14 +420,14 @@ func sharedRoutePermissions(r *http.Request) []string {
 			return nil
 		}
 		switch strings.TrimSpace(r.URL.Query().Get("view")) {
-        // Historical revision information requires git.log, regardless
-        // of whether the browser opens it from the history or graph panel.
+		// Historical revision information requires git.log, regardless
+		// of whether the browser opens it from the history or graph panel.
 		case "log", "graph", "reflog", "lost-commits", "rebase-plan", "file-history", "stashes":
 			return []string{identity.PermissionGitLog}
-        // These views can reveal source lines, blame text, object IDs and
-        // changed-path metadata. A git.status-only role must not read them.
+			// These views can reveal source lines, blame text, object IDs and
+			// changed-path metadata. A git.status-only role must not read them.
 		case "diff", "blame", "compare", "compare-tree", "compare-tree-diff",
-             "file-content", "commit-files", "graph-compare-head", "semantics-preview":
+			"file-content", "commit-files", "graph-compare-head", "semantics-preview":
 			return []string{identity.PermissionGitDiff}
 		default:
 			return []string{identity.PermissionGitStatus}
@@ -413,8 +435,12 @@ func sharedRoutePermissions(r *http.Request) []string {
 	case "/api/patch/ai-pack", "/api/patch/project-identity":
 		return []string{identity.PermissionPatchView}
 	case "/api/patch/project-rules":
-		if r.Method == http.MethodGet { return []string{identity.PermissionPatchView} }
-		if r.Method == http.MethodPut { return []string{identity.PermissionPatchRun} }
+		if r.Method == http.MethodGet {
+			return []string{identity.PermissionPatchView}
+		}
+		if r.Method == http.MethodPut {
+			return []string{identity.PermissionPatchRun}
+		}
 		return nil
 	case "/api/patch/upload", "/api/patch/paste":
 		return []string{identity.PermissionPatchRun}
