@@ -36,6 +36,7 @@ type ToolCallRecord struct {
  PackageSHA256 string `json:"package_sha256,omitempty"`
  PatchSessionID string `json:"patch_session_id,omitempty"`
  Result string `json:"result,omitempty"`
+ FeedbackSent bool `json:"feedback_sent,omitempty"`
 }
 
 // Session is persisted locally even when the provider offers server-side
