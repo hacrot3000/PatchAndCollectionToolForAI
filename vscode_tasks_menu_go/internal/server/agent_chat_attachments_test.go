@@ -61,3 +61,80 @@ func TestAgentMessageForwardsTextAttachmentsToProvider(t *testing.T) {
 		t.Fatalf("binary attachment accepted: %d %s", bad.Code, bad.Body)
 	}
 }
+
+func TestAgentMaxSizeAttachmentsAcceptedAndOversizeRejected(t *testing.T) {
+	s, id := newAgentConversationFixture(t, "stateless")
+	calls := 0
+	s.AgentChatCall = func(ctx context.Context, p agentchat.ProviderConfig, key string, payload []byte) (agentchat.ResponsesResult, error) {
+		calls++
+		return agentchat.ResponsesResult{ResponseID: "resp_big", Text: "ok"}, nil
+	}
+	// Four attachments totalling exactly the 64 KiB cap must pass the HTTP and
+	// attachment layers (this previously failed at 32 KiB).
+	per := agentMaxAttachmentTotal / agentMaxAttachments
+	files := make([]map[string]string, 0, agentMaxAttachments)
+	for i := 0; i < agentMaxAttachments; i++ {
+		files = append(files, map[string]string{"name": "f.txt", "mime": "text/plain", "text": strings.Repeat("a", per)})
+	}
+	ok := invokeAI(t, s.agentChatSessionItemAPI, http.MethodPost, "/api/agent/sessions/"+id+"/messages", map[string]any{
+		"message": strings.Repeat("m", agentMessageTextLimit), "confirm_external": true, "expected_revision": 1, "attachments": files,
+	})
+	if ok.Code != 200 {
+		t.Fatalf("maximum valid payload rejected: %d %s", ok.Code, ok.Body)
+	}
+	store, err := s.agentChatStore()
+	if err != nil {
+		t.Fatal(err)
+	}
+	x, err := store.Get(id, "local")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// One byte over the per-file limit fails with a clear error.
+	over := []map[string]string{{"name": "f.txt", "mime": "text/plain", "text": strings.Repeat("a", agentMaxAttachmentBytes+1)}}
+	bad := invokeAI(t, s.agentChatSessionItemAPI, http.MethodPost, "/api/agent/sessions/"+id+"/messages", map[string]any{
+		"message": "x", "confirm_external": true, "expected_revision": x.Revision, "attachments": over,
+	})
+	if bad.Code != 400 || !strings.Contains(bad.Body.String(), "32 KiB") {
+		t.Fatalf("oversize attachment not rejected clearly: %d %s", bad.Code, bad.Body)
+	}
+	// Binary and invalid UTF-8 are refused.
+	bin := invokeAI(t, s.agentChatSessionItemAPI, http.MethodPost, "/api/agent/sessions/"+id+"/messages", map[string]any{
+		"message": "x", "confirm_external": true, "expected_revision": x.Revision,
+		"attachments": []map[string]string{{"name": "a.bin", "mime": "application/octet-stream", "text": "x"}}})
+	if bin.Code != 400 {
+		t.Fatalf("binary attachment accepted: %d", bin.Code)
+	}
+}
+
+func TestAgentRequestIdDigestCoversAttachments(t *testing.T) {
+	s, id := newAgentConversationFixture(t, "stateless")
+	calls := 0
+	s.AgentChatCall = func(ctx context.Context, p agentchat.ProviderConfig, key string, payload []byte) (agentchat.ResponsesResult, error) {
+		calls++
+		return agentchat.ResponsesResult{ResponseID: "resp_att_idem", Text: "ok"}, nil
+	}
+	first := invokeAI(t, s.agentChatSessionItemAPI, http.MethodPost, "/api/agent/sessions/"+id+"/messages", map[string]any{
+		"message": "same text", "confirm_external": true, "expected_revision": 1, "request_id": "rid-att",
+		"attachments": []map[string]string{{"name": "a.txt", "mime": "text/plain", "text": "one"}}})
+	if first.Code != 200 {
+		t.Fatalf("first send failed: %d %s", first.Code, first.Body)
+	}
+	// Same key, identical payload → replay, no second provider call.
+	same := invokeAI(t, s.agentChatSessionItemAPI, http.MethodPost, "/api/agent/sessions/"+id+"/messages", map[string]any{
+		"message": "same text", "confirm_external": true, "expected_revision": 1, "request_id": "rid-att",
+		"attachments": []map[string]string{{"name": "a.txt", "mime": "text/plain", "text": "one"}}})
+	if same.Code != 200 || !strings.Contains(same.Body.String(), `"replay":true`) {
+		t.Fatalf("identical retry not replayed: %d %s", same.Code, same.Body)
+	}
+	// Same key, different attachment content → conflict.
+	diff := invokeAI(t, s.agentChatSessionItemAPI, http.MethodPost, "/api/agent/sessions/"+id+"/messages", map[string]any{
+		"message": "same text", "confirm_external": true, "expected_revision": 1, "request_id": "rid-att",
+		"attachments": []map[string]string{{"name": "a.txt", "mime": "text/plain", "text": "two"}}})
+	if diff.Code != 409 {
+		t.Fatalf("key reuse with different attachments accepted: %d %s", diff.Code, diff.Body)
+	}
+	if calls != 1 {
+		t.Fatalf("provider called %d times", calls)
+	}
+}

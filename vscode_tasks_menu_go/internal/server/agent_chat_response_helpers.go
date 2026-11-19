@@ -24,6 +24,7 @@ func agentChatInstructions(projectID string,patchToolAvailable bool)string{
 // never dispatched without strict validation and a durable approval record.
 func appendAgentProviderResult(x *agentchat.Session,result agentchat.ResponsesResult,toolAvailable bool){
  if result.Text!=""{x.History=append(x.History,agentchat.HistoryItem{Type:"assistant",Content:result.Text})}
+ registeredCall:=false
  for i,call:=range result.Calls{
   x.History=append(x.History,agentchat.HistoryItem{Type:"function_call",CallID:call.CallID,Name:call.Name,Arguments:call.Arguments})
   if toolAvailable&&i==0&&len(result.Calls)==1&&call.Name=="taskdeck_submit_patch"{
@@ -33,12 +34,22 @@ func appendAgentProviderResult(x *agentchat.Session,result agentchat.ResponsesRe
      ModelTurnID:result.ResponseID,
      ArgumentsSHA256:agentPatchPayloadSHA256(call.Arguments),
     })
+    registeredCall=true
    }
   }
  }
  if x.Mode==agentchat.PreviousResponse{x.PreviousResponseID=result.ResponseID}
  if x.Mode==agentchat.Conversation{x.ConversationID=result.ConversationID}
- if len(result.Calls)>0 {x.Status="waiting_tool"}else{x.Status="completed"}
+ if registeredCall {
+  x.Status="waiting_tool"
+ } else if len(result.Calls)>0 {
+  // A provider may ignore parallel_tool_calls:false or return an unsupported
+  // function. Keep the canonical transcript for audit, but fail closed rather
+  // than leaving an unresolvable waiting_tool session.
+  x.Status="tool_rejected"
+ } else {
+  x.Status="completed"
+ }
 }
 
 // agentReasoningEffort prefers the immutable per-session selection and falls
@@ -46,4 +57,11 @@ func appendAgentProviderResult(x *agentchat.Session,result agentchat.ResponsesRe
 func agentReasoningEffort(sessionEffort string,model agentchat.ModelConfig)string{
  if sessionEffort!=""{return sessionEffort}
  return model.DefaultReasoningEffort
+}
+
+// Generic Chat Completions has no portable reasoning parameter; vendor-specific
+// reasoning options are not guessed or forwarded.
+func agentProviderReasoningEffort(p agentchat.ProviderConfig,sessionEffort string,model agentchat.ModelConfig)string{
+ if p.APIType=="chat_completions"{return ""}
+ return agentReasoningEffort(sessionEffort,model)
 }

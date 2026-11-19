@@ -78,11 +78,13 @@ func (s *Server) agentChatSessionsAPI(w http.ResponseWriter,r *http.Request) {
 	for _,sess:=range sessions{if !sess.Archived{active++}}
 	if active>=agentSessionLimit{http.Error(w,"too many active sessions",http.StatusTooManyRequests);return}
 	providerID,modelID:=req.ProviderID,req.ModelID
+	providerAPIType := ""
 	if providerID!="" {
 		registry,err:=s.agentChatProviders()
 		if err!=nil{http.Error(w,"provider store unavailable",500);return}
 		p,err:=registry.Get(owner,providerID)
 		if err!=nil{http.Error(w,"provider not configured",400);return}
+		providerAPIType=p.APIType
 		if modelID==""{modelID=p.Models[0].ID}
 		if _,ok:=p.FindModel(modelID);!ok{http.Error(w,"model not available in provider",400);return}
 	} else {
@@ -100,11 +102,19 @@ func (s *Server) agentChatSessionsAPI(w http.ResponseWriter,r *http.Request) {
 		http.Error(w,"remote execution target is not supported for Agent Chat",400)
 		return
 	}
+	if providerAPIType=="chat_completions"&&req.Mode!=agentchat.Stateless{
+		http.Error(w,"Chat Completions supports stateless canonical history only",400)
+		return
+	}
 	item,err:=agentchat.NewSession(owner,s.Workspace,identity.ID,providerID,modelID,req.Mode)
 	if err!=nil{http.Error(w,"invalid session mode or identity",http.StatusBadRequest);return}
 	// A reasoning effort must be advertised by the chosen model; an unknown
 	// value would otherwise be silently forwarded to the provider.
 	if effort:=strings.TrimSpace(req.ReasoningEffort);effort!="" {
+		if providerAPIType=="chat_completions"{
+			http.Error(w,"generic Chat Completions does not support portable reasoning options",400)
+			return
+		}
 		registry,err:=s.agentChatProviders()
 		if err!=nil{http.Error(w,"provider store unavailable",500);return}
 		p,err:=registry.Get(owner,providerID)

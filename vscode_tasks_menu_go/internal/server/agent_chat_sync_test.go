@@ -2,11 +2,15 @@ package server
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -19,6 +23,13 @@ type fakeAgentPatchProtocol struct {
 	session.Service
 	state      session.ProtocolState
 	expectedID string
+}
+
+func (f *fakeAgentPatchProtocol) Metadata(id string) (session.Metadata, bool) {
+	if id != f.expectedID {
+		return session.Metadata{}, false
+	}
+	return session.Metadata{ID: id, Status: "running"}, true
 }
 
 func (f *fakeAgentPatchProtocol) ProtocolState(id string) (session.ProtocolState, error) {
@@ -42,6 +53,21 @@ func TestAgentChatSyncFinalNativePatchEvidence(t *testing.T) {
 	x.ToolCalls[0].PatchSessionID = "patch-session-1"
 	x.ToolCalls[0].PromptID = "prompt-1"
 	x.ToolCalls[0].SelectedIndex = 1
+	queueDir, err := s.patchUploadDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(queueDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	packagePath := filepath.Join(queueDir, "agent_fixture.zip")
+	packageBytes := []byte("approved test package")
+	if err := os.WriteFile(packagePath, packageBytes, 0600); err != nil {
+		t.Fatal(err)
+	}
+	digest := sha256.Sum256(packageBytes)
+	x.ToolCalls[0].PackageSHA256 = hex.EncodeToString(digest[:])
+	x.ToolCalls[0].PackageSize = int64(len(packageBytes))
 	x, err = store.Save(x, x.Revision)
 	if err != nil {
 		t.Fatal(err)

@@ -69,7 +69,9 @@ const main=agentEl('div','agentchat-main'),modelBar=agentEl('div','agentchat-mod
 // Open tabs are UI-only: the server remains the source of truth for every
 // session. Each tab keeps its own composer draft.
 const tabbar=agentEl('div','agentchat-modelbar');
-let agentTabs=[];const agentDrafts=new Map();
+let agentTabs=[];const agentDrafts=new Map();const agentAttachmentDrafts=new Map();
+const agentRequestIDs=new Map();
+let agentSelectGeneration=0;
 const providerSelect=agentEl('select'),modelSelect=agentEl('select'),modeSelect=agentEl('select'),effortSelect=agentEl('select');
 for(const mode of [['stateless','Stateless'],['previous_response','Response chain'],['conversation','Conversations (fallback)']]){
  modeSelect.append(agentOption(mode[0],mode[1]));
@@ -105,7 +107,8 @@ const settingsInfo=agentEl('p','','Configure a public HTTPS Responses-compatible
 const settingsPreset=agentButton('Load sample provider',()=>{providerEditor.value=JSON.stringify(agentSample,null,2);});
 const probeProvider=agentButton('Probe capabilities',()=>probeAgentProvider().catch(showAgentError));
 const deleteProvider=agentButton('Remove provider',()=>deleteAgentProvider().catch(showAgentError));
-const settingsPicker=agentEl('select'),providerEditor=agentEl('textarea');
+const settingsPicker=agentEl('select'),settingsAPIType=agentEl('select'),providerEditor=agentEl('textarea');
+settingsAPIType.append(agentOption('responses','Responses API'),agentOption('chat_completions','Chat Completions API'));
 const keyLabel=agentEl('label','','API key (enter only to set/change)'),apiKey=agentEl('input');
 apiKey.type='password';apiKey.autocomplete='new-password';apiKey.placeholder='Leave blank to keep existing key';
 const settingsStatus=agentEl('div','agentchat-info','');
@@ -114,7 +117,7 @@ const saveProvider=agentButton('Save provider',()=>saveAgentProvider().catch(sho
 const testProvider=agentButton('Test connection (uses API)',()=>testAgentProvider().catch(showAgentError));
 const closeSettings=agentButton('Close',()=>settingsOverlay.classList.remove('visible'));
 settingsActions.append(settingsPreset,saveProvider,testProvider,probeProvider,deleteProvider,closeSettings);
-settingsBox.append(settingsTitle,settingsInfo,settingsPicker,providerEditor,keyLabel,apiKey,settingsStatus,settingsActions);
+settingsBox.append(settingsTitle,settingsInfo,settingsPicker,settingsAPIType,providerEditor,keyLabel,apiKey,settingsStatus,settingsActions);
 settingsOverlay.append(settingsBox);document.body.append(settingsOverlay);
 
 const agentSample={
@@ -179,8 +182,15 @@ function updateAgentModels(){
  for(const m of (p?.models||[]))modelSelect.append(agentOption(m.id,m.name||m.id));
  const current=(p?.models||[]).find(m=>m.id===modelSelect.value)||(p?.models||[])[0];
  effortSelect.replaceChildren(agentOption('','Model default'));
- for(const effort of (current?.reasoning_efforts||[]))effortSelect.append(agentOption(effort,effort));
- effortSelect.value=(current?.default_reasoning_effort||'');
+ if(p?.api_type!=='chat_completions'){
+  for(const effort of (current?.reasoning_efforts||[]))effortSelect.append(agentOption(effort,effort));
+  effortSelect.value=(current?.default_reasoning_effort||'');
+ }else{effortSelect.value='';}
+ const statelessOnly=p?.api_type==='chat_completions';
+ for(const option of modeSelect.options){
+  option.disabled=statelessOnly&&option.value!=='stateless';
+ }
+ if(statelessOnly)modeSelect.value='stateless';
  const hasAgent=Boolean(p&&p.has_api_key);
  newChat.disabled=!hasAgent||agentBusy;
  attachButton.disabled=false;
@@ -190,16 +200,28 @@ modelSelect.addEventListener('change',()=>{
  const p=agentProviders.find(x=>x.id===providerSelect.value);
  const m=(p?.models||[]).find(x=>x.id===modelSelect.value);
  effortSelect.replaceChildren(agentOption('','Model default'));
- for(const effort of (m?.reasoning_efforts||[]))effortSelect.append(agentOption(effort,effort));
- effortSelect.value=(m?.default_reasoning_effort||'');
+ if(p?.api_type!=='chat_completions'){
+  for(const effort of (m?.reasoning_efforts||[]))effortSelect.append(agentOption(effort,effort));
+  effortSelect.value=(m?.default_reasoning_effort||'');
+ }else{effortSelect.value='';}
 });
 settingsPicker.addEventListener('change',()=>{
  const p=agentProviders.find(x=>x.id===settingsPicker.value);
- providerEditor.value=JSON.stringify(p?normalizeProvider(p):agentSample,null,2);
+ const current=p?normalizeProvider(p):agentSample;
+ providerEditor.value=JSON.stringify(current,null,2);
+ settingsAPIType.value=current.api_type||'responses';
  apiKey.value='';settingsStatus.textContent=p?.has_api_key?'API key already configured (write-only).':'API key is not configured.';
+});
+settingsAPIType.addEventListener('change',()=>{
+ try{
+  const parsed=normalizeProvider(JSON.parse(providerEditor.value));
+  parsed.api_type=settingsAPIType.value;
+  providerEditor.value=JSON.stringify(parsed,null,2);
+ }catch{}
 });
 async function saveAgentProvider(){
  const parsed=normalizeProvider(JSON.parse(providerEditor.value));
+ parsed.api_type=settingsAPIType.value||parsed.api_type;
  const body={provider:parsed};if(apiKey.value)body.api_key=apiKey.value;
  const data=await agentApp.jsonFetch('/api/agent/providers',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
  apiKey.value='';
@@ -208,6 +230,7 @@ async function saveAgentProvider(){
 }
 async function testAgentProvider(){
  const parsed=normalizeProvider(JSON.parse(providerEditor.value));
+ parsed.api_type=settingsAPIType.value||parsed.api_type;
  if(!window.confirm('Send a short test prompt to '+parsed.base_url+' using the saved API key?'))return;
  const p=agentProviders.find(x=>x.id===parsed.id);
  if(!p){settingsStatus.textContent='Save this provider first.';return;}
@@ -221,6 +244,7 @@ async function testAgentProvider(){
 }
 async function probeAgentProvider(){
  const parsed=normalizeProvider(JSON.parse(providerEditor.value));
+ parsed.api_type=settingsAPIType.value||parsed.api_type;
  const p=agentProviders.find(x=>x.id===parsed.id);
  if(!p){settingsStatus.textContent='Save this provider first.';return;}
  const model=p.models?.[0]?.id;
@@ -351,7 +375,6 @@ function openAgentTab(id){
 }
 function closeAgentTab(id){
  agentTabs=agentTabs.filter(x=>x!==id);
- agentDrafts.delete(id);
  if(agentActive===id){
   agentActive=null;
   if(agentTabs.length)selectAgentSession(agentTabs[agentTabs.length-1]).catch(showAgentError);
@@ -360,17 +383,30 @@ function closeAgentTab(id){
  renderAgentTabs();
 }
 async function selectAgentSession(id){
+ const previousID=agentActive;
+ // Save the outgoing draft BEFORE awaiting the next session fetch. Attachments
+ // are per-session too; never let a response race copy one session's state to
+ // another tab.
+ if(previousID&&previousID!==id){
+  agentDrafts.set(previousID,prompt.value);
+  agentAttachmentDrafts.set(previousID,agentAttachments.map(a=>({...a})));
+ }
+ const generation=++agentSelectGeneration;
  const data=await agentApp.jsonFetch('/api/agent/sessions/'+encodeURIComponent(id));
- agentActive=id;
+ if(generation!==agentSelectGeneration)return null;
  const sess=data.session;
- if(agentActive&&agentActive!==id)agentDrafts.set(agentActive,prompt.value);
+ agentActive=id;
  openAgentTab(id);
- prompt.value=agentDrafts.get(id)||prompt.value;
+ prompt.value=agentDrafts.get(id)||'';
+ agentAttachments=(agentAttachmentDrafts.get(id)||[]).map(a=>({...a}));
+ renderAgentAttachments();
  // After a refresh/reconnect, an in-flight provider turn has no browser
  // request attached. Reflect it instead of offering a duplicate send.
  if(sess.status==='requesting_ai'&&!agentSessionBusy(id)){
   status.textContent='A model request is still running on the server. Use Cancel if you want to stop waiting.';
   send.disabled=true;cancel.disabled=false;
+ }else{
+  send.disabled=agentSessionBusy(id);cancel.disabled=!agentSessionBusy(id);
  }
  const p=agentProviders.find(p=>p.id===sess.provider_id);
  if(p){providerSelect.value=p.id;updateAgentModels();modelSelect.value=sess.model_id;}
@@ -378,6 +414,7 @@ async function selectAgentSession(id){
  effortSelect.value=sess.reasoning_effort||'';
  displayAgentSession(sess);
  scheduleAgentMonitor(sess);
+ renderAgentTabs();
  await loadAgentSessions();
  return sess;
 }
@@ -489,28 +526,46 @@ async function createSession(){
 async function sendAgentMessage(){
  if(!agentActive)throw new Error('Create a session first.');
  if(agentSessionBusy(agentActive))return;
- const msg=prompt.value.trim();
- if(!msg)throw new Error('Enter a message.');
- if(!window.confirm('Send this request and, on the first turn, the TaskDeck AI Pack to the selected external provider? This chat may propose patch execution, which requires a separate approval.'))return;
- const s=await selectAgentSession(agentActive);
  const sessionID=agentActive;
+ const msg=prompt.value.trim();
+ const attachments=(agentAttachments||[]).map(a=>({...a}));
+ if(!msg)throw new Error('Enter a message.');
+ if(!window.confirm('Send this request, its text attachments'+(attachments.length?' ('+attachments.length+')':'')+' and, on the first turn, the TaskDeck AI Pack to the selected external provider? This chat may propose patch execution, which requires a separate approval.'))return;
+ const s=await selectAgentSession(sessionID);
+ if(!s||agentActive!==sessionID)return;
  agentBusy=true;markAgentSessionBusy(sessionID,true);
  agentAbort=new AbortController();
  try{
   status.textContent='Waiting for AI provider…';
-  // A stable per-composition key makes an accidental double submit a replay,
-  // not a second provider turn.
-  const requestID='ui-'+sessionID+'-'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2,8);
+  // Keep one key per composition while retrying after a transport failure.
+  let requestID=agentRequestIDs.get(sessionID);
+  if(!requestID){
+   requestID='ui-'+sessionID+'-'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2,8);
+   agentRequestIDs.set(sessionID,requestID);
+  }
   const response=await agentApp.jsonFetch('/api/agent/sessions/'+encodeURIComponent(sessionID)+'/messages',{
    method:'POST',headers:{'Content-Type':'application/json'},
    body:JSON.stringify({message:msg,confirm_external:true,expected_revision:s.revision,request_id:requestID,
-    attachments:agentAttachments}),
+    attachments}),
    signal:agentAbort.signal
   });
-  prompt.value='';agentAttachments=[];renderAgentAttachments();
+  agentRequestIDs.delete(sessionID);
+  agentDrafts.delete(sessionID);agentAttachmentDrafts.delete(sessionID);
+  if(agentActive===sessionID){prompt.value='';agentAttachments=[];renderAgentAttachments();}
   if(agentActive===sessionID)await selectAgentSession(sessionID);
-  status.textContent=response.status==='waiting_tool'?'AI requested a patch; review/approve explicitly.':
-   'Response received. No commands executed.';
+  if(agentActive===sessionID){
+   status.textContent=response.status==='waiting_tool'?'AI requested a patch; review/approve explicitly.':
+    'Response received. No commands executed.';
+  }
+ }catch(error){
+  agentDrafts.set(sessionID,msg);
+  agentAttachmentDrafts.set(sessionID,attachments);
+  if(agentActive===sessionID){
+   prompt.value=msg;
+   agentAttachments=attachments.map(a=>({...a}));
+   renderAgentAttachments();
+  }
+  throw error;
  }finally{
   agentAbort=null;agentBusy=false;markAgentSessionBusy(sessionID,false);
  }

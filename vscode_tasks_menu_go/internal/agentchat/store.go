@@ -81,6 +81,7 @@ type ToolCallRecord struct {
 	ArgumentsSHA256       string     `json:"arguments_sha256,omitempty"`
 	QueuePath             string     `json:"queue_path,omitempty"`
 	PackageSHA256         string     `json:"package_sha256,omitempty"`
+	PackageSize           int64      `json:"package_size,omitempty"`
 	PatchSessionID        string     `json:"patch_session_id,omitempty"`
 	PromptID              string     `json:"prompt_id,omitempty"`
 	SelectedIndex         int        `json:"selected_index,omitempty"`
@@ -252,7 +253,7 @@ func validateSession(x Session) error {
 	}
 	seenCalls := make(map[string]bool, len(x.ToolCalls))
 	for _, call := range x.ToolCalls {
-		if call.CallID == "" || len(call.CallID) > 256 || call.Name != "taskdeck_submit_patch" || seenCalls[call.CallID] || len(call.QueuePath) > 512 || len(call.PackageSHA256) > 64 || len(call.PatchSessionID) > 256 || len(call.Result) > 4096 {
+		if call.CallID == "" || len(call.CallID) > 256 || call.Name != "taskdeck_submit_patch" || seenCalls[call.CallID] || len(call.QueuePath) > 512 || len(call.PackageSHA256) > 64 || call.PackageSize < 0 || call.PackageSize > 2<<20 || len(call.PatchSessionID) > 256 || len(call.Result) > 4096 {
 			return ErrInvalidSession
 		}
 		seenCalls[call.CallID] = true
@@ -267,6 +268,12 @@ func validateSession(x Session) error {
 		if len(call.ModelTurnID) > 256 || len(call.ArgumentsSHA256) > 64 || len(call.ExpectedHead) > 64 ||
 			len(call.ExpectedBranch) > 256 || len(call.WorkspaceStatusSHA256) > 64 || len(call.PromptID) > 256 ||
 			len(call.RunID) > 256 || call.SelectedIndex < 0 || call.SelectedIndex > maxItems {
+			return ErrInvalidSession
+		}
+		if call.PackageSHA256 != "" && len(call.PackageSHA256) != 64 {
+			return ErrInvalidSession
+		}
+		if call.PackageSHA256 != "" && call.PackageSize == 0 {
 			return ErrInvalidSession
 		}
 		if call.ArgumentsSHA256 != "" && len(call.ArgumentsSHA256) != 64 {

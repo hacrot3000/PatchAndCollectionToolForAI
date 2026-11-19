@@ -10,7 +10,15 @@ const (
 	agentMaxAttachments     = 4
 	agentMaxAttachmentBytes = 32 << 10
 	agentMaxAttachmentTotal = 64 << 10
+	agentMessageTextLimit   = 16 << 10
+	// Body budget: message + attachment text + delimiters + JSON escaping.
+	agentMessageBodyLimit = agentMessageTextLimit + agentMaxAttachmentTotal + 32<<10
 )
+
+// agentAttachmentJSONOverheadForTest documents the escaping headroom reserved
+// above 16 KiB + 64 KiB so a valid maximum payload is never rejected by the
+// HTTP layer before the attachment validator runs.
+const agentAttachmentJSONOverheadForTest = 32 << 10
 
 // agentAttachment is a text-only prompt attachment. There is deliberately no
 // path, URL or base64 field: TaskDeck will not read arbitrary files chosen by

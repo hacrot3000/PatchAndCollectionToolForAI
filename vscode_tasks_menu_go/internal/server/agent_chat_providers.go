@@ -165,7 +165,7 @@ func (s *Server) agentChatProviderTestAPI(w http.ResponseWriter,r *http.Request)
   MaxOutputTokens:64,
  })
  if err!=nil{http.Error(w,"provider probe construction failed",500);return}
- res,err:=agentchat.DoResponses(r.Context(),p,string(secret),body)
+ res, err := s.agentChatCall(r.Context(), p, string(secret), body)
  if err!=nil{http.Error(w,"provider connection or Responses API test failed: "+err.Error(),502);return}
  w.Header().Set("Cache-Control","no-store")
  writeJSON(w,200,map[string]any{
@@ -309,6 +309,7 @@ func (s *Server) agentProbeCapability(r *http.Request,p agentchat.ProviderConfig
   // not required and is not inferred.
   return agentchat.CapabilityVerified,"schema_accepted"
  case agentchat.ProbePreviousResponse:
+  if p.APIType=="chat_completions"{return agentchat.CapabilityUnsupported,"Chat Completions uses stateless canonical history"}
   body,err:=agentchat.BuildResponsesRequest(agentchat.RequestConfig{
    Model:m.ID,Instructions:"Capability probe. Reply briefly.",Mode:agentchat.PreviousResponse,
    Next:[]agentchat.HistoryItem{{Type:"user",Content:"Remember the number 41. Reply OK."}},MaxOutputTokens:32,
@@ -328,6 +329,7 @@ func (s *Server) agentProbeCapability(r *http.Request,p agentchat.ProviderConfig
   if strings.Contains(second.Text,"42"){return agentchat.CapabilityVerified,""}
   return agentchat.CapabilityUnsupported,"chained_context_not_recalled"
  case agentchat.ProbeConversation:
+  if p.APIType=="chat_completions"{return agentchat.CapabilityUnsupported,"Chat Completions uses stateless canonical history"}
   // Two turns: the first must return a conversation ID, the second must send
   // that ID back. A single response cannot prove reuse.
   body,err:=agentchat.BuildResponsesRequest(agentchat.RequestConfig{
@@ -349,6 +351,7 @@ func (s *Server) agentProbeCapability(r *http.Request,p agentchat.ProviderConfig
   if strings.Contains(follow.Text,"42"){return agentchat.CapabilityVerified,""}
   return agentchat.CapabilityUnsupported,"conversation_context_not_reused"
  case agentchat.ProbeStreaming:
+  if p.APIType=="chat_completions"{return agentchat.CapabilityUnsupported,"Chat Completions streaming adapter not implemented"}
   if !p.Stream{return agentchat.CapabilityUnsupported,"provider_stream_disabled"}
   body,err:=agentchat.BuildResponsesRequest(agentchat.RequestConfig{
    Model:m.ID,Instructions:"Capability probe. Reply briefly.",Mode:agentchat.Stateless,

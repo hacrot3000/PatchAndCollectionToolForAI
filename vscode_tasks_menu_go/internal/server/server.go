@@ -36,6 +36,9 @@ import (
 )
 
 type Server struct {
+	agentRunMu sync.Mutex
+	agentRunCtx context.Context
+	agentRunCancel context.CancelFunc
 	AgentChatCall func(context.Context, agentchat.ProviderConfig, string, []byte) (agentchat.ResponsesResult, error) // optional test adapter; nil = production HTTPS
 	AgentChatPack func(string, string) (patchtool.AIPackResult, error) // optional test builder; nil = current AI Pack
 	Workspace string
@@ -318,9 +321,21 @@ func (s *Server) Serve(listener net.Listener) error {
 	// Best-effort Agent Patch reconciliation BEFORE serving. It only reads
 	// native protocol evidence and never re-queues or re-executes anything.
 	go s.agentReconcilePendingOnStartup(context.Background())
-	// Opt-in automatic tool-result continuation. Runs only for sessions whose
-	// user granted a bounded trust window; it never executes or retries a patch.
+	// Provider turns and opt-in continuation are server-owned, not children of
+	// an HTTP request. Browser disconnect does not cancel a turn; explicit
+	// /cancel and daemon shutdown still do.
 	autoCtx, autoCancel := context.WithCancel(context.Background())
+	s.agentRunMu.Lock()
+	s.agentRunCtx = autoCtx
+	s.agentRunCancel = autoCancel
+	s.agentRunMu.Unlock()
+	defer func() {
+		autoCancel()
+		s.agentRunMu.Lock()
+		s.agentRunCtx = nil
+		s.agentRunCancel = nil
+		s.agentRunMu.Unlock()
+	}()
 	defer autoCancel()
 	go s.startAgentAutoFeedback(autoCtx)
 	scheduleCtx,scheduleCancel:=context.WithCancel(context.Background())

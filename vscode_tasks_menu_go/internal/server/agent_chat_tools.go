@@ -197,6 +197,7 @@ func (s *Server) agentChatToolDecisionAPI(w http.ResponseWriter,r *http.Request,
  x.AppendEvent("tool_queued","waiting_tool",callID,"")
  x.ToolCalls[idx].QueuePath=receipt.QueuePath
  x.ToolCalls[idx].PackageSHA256=receipt.SHA256
+ x.ToolCalls[idx].PackageSize = receipt.Size
  x.Status="waiting_tool"
  x,err=store.Save(x,x.Revision)
  if err!=nil{http.Error(w,"Patch was queued but journal update failed; inspect queue, do not retry",409);return}

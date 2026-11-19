@@ -69,8 +69,8 @@ func ValidateProvider(p ProviderConfig) error {
 	if !providerIDPattern.MatchString(p.ID) || len(p.Name) == 0 || len(p.Name) > 128 {
 		return errors.New("invalid provider ID/name")
 	}
-	if p.APIType != "responses" {
-		return errors.New("only Responses API is enabled for Agent Chat")
+	if p.APIType != "responses" && p.APIType != "chat_completions" {
+		return errors.New("unsupported Agent Chat API type")
 	}
 	u, err := url.Parse(p.BaseURL)
 	if err != nil || u.Scheme != "https" || u.Host == "" || u.Opaque != "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || u.RawFragment != "" {
@@ -147,18 +147,37 @@ func (p ProviderConfig) FindModel(id string) (ModelConfig, bool) {
 	}
 	return ModelConfig{}, false
 }
-func (p ProviderConfig) ResponsesURL() (string, error) {
+func (p ProviderConfig) APIURL(apiType string) (string, error) {
 	if err := ValidateProvider(p); err != nil {
 		return "", err
 	}
+	if apiType != p.APIType {
+		return "", errors.New("requested API type does not match provider configuration")
+	}
+	endpoint := ""
+	switch apiType {
+	case "responses":
+		endpoint = "responses"
+	case "chat_completions":
+		endpoint = "chat/completions"
+	default:
+		return "", errors.New("unsupported Agent Chat API type")
+	}
 	u, _ := url.Parse(p.BaseURL)
 	path := strings.TrimRight(u.Path, "/")
-	if !strings.HasSuffix(path, "/responses") {
-		path += "/responses"
+	if !strings.HasSuffix(path, "/"+endpoint) {
+		path += "/" + endpoint
 	}
 	u.Path = path
 	u.RawPath = ""
 	return u.String(), nil
+}
+
+func (p ProviderConfig) ResponsesURL() (string, error) {
+	if p.APIType != "responses" {
+		return "", errors.New("provider is not configured for Responses API")
+	}
+	return p.APIURL("responses")
 }
 
 // ProviderStore saves public model metadata only. API keys belong in the

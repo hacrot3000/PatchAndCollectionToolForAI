@@ -73,10 +73,51 @@ func (s *Server) runAgentAutoFeedback(ctx context.Context) {
 		if sess.Owner != "local" {
 			continue
 		}
-		if _, ok := agentAutoFeedbackCandidate(sess); !ok {
+		// Reconcile running native jobs in the background. GUI polling is not
+		// required for final-state adoption or automatic feedback.
+		s.reconcileAgentSession(ctx, store, sess.ID)
+		fresh, err := store.Get(sess.ID, "local")
+		if err != nil {
+			continue
+		}
+		if _, ok := agentAutoFeedbackCandidate(fresh); !ok {
 			continue
 		}
 		s.autoFeedbackOne(ctx, store, sess.ID)
+	}
+}
+
+// reconcileAgentSession adopts final evidence directly from the native
+// Session Service while holding the same per-session lock used by approval,
+// sync and feedback. It never starts, selects, cancels or repeats a patch.
+func (s *Server) reconcileAgentSession(ctx context.Context, store *agentchat.Store, id string) {
+	release, ok := lockAgentTurn(s.Workspace, "local", id)
+	if !ok {
+		return
+	}
+	defer release()
+	x, err := store.Get(id, "local")
+	if err != nil || x.Owner != "local" || x.Workspace != s.Workspace {
+		return
+	}
+	changed := false
+	for i, record := range x.ToolCalls {
+		if ctx.Err() != nil {
+			return
+		}
+		if record.Status != "running" {
+			continue
+		}
+		view := agentToolReconcileView{Record: record}
+		s.agentReconcilePatchRecord(&view)
+		if view.Changed {
+			x.ToolCalls[i] = view.Record
+			x.AppendEvent("tool_final", view.Record.Status, record.CallID, "background_reconcile")
+			changed = true
+		}
+	}
+	if changed {
+		_, _ = store.Save(x, x.Revision)
 	}
 }
 

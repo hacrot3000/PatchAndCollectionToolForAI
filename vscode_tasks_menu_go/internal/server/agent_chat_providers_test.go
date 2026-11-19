@@ -363,35 +363,114 @@ func TestAgentStreamingProbeRequiresOptInAndAdoption(t *testing.T) {
 	}
 }
 
-func TestAgentCapabilityProbeCoversEveryDeclaredMode(t *testing.T){
- s,id:=agentUnverifiedToolFixture(t)
- if id==""{t.Fatal("missing session")}
- p:=agentProviderFixture();p.Stream=true
- if w:=agentProviderRequest(t,s.agentChatProvidersAPI,http.MethodPut,"/api/agent/providers",map[string]any{"provider":p});w.Code!=200{
-  t.Fatalf("put stream provider: %d %s",w.Code,w.Body)
- }
- var seen []string
- s.AgentChatCall=func(ctx context.Context,p agentchat.ProviderConfig,key string,payload []byte)(agentchat.ResponsesResult,error){
-  var req map[string]any
-  if err:=json.Unmarshal(payload,&req);err!=nil{t.Fatal(err)}
-  if _,ok:=req["conversation"];ok{seen=append(seen,"conversation_followup")}
-  if _,ok:=req["previous_response_id"];ok{seen=append(seen,"previous_followup")}
-  return agentchat.ResponsesResult{ResponseID:"resp_probe",ConversationID:"conv_probe",Text:"42 OK"},nil
- }
- // Streaming deliberately uses the real adapter, so restrict to the modes
- // that route through AgentChatCall for this assertion.
- w:=agentProviderRequest(t,s.agentChatProviderProbeAPI,http.MethodPost,"/api/agent/providers/probe",
-  map[string]any{"provider_id":p.ID,"model_id":p.Models[0].ID,"confirm_external":true,
-   "capabilities":[]string{agentchat.ProbeToolCalling,agentchat.ProbePreviousResponse,agentchat.ProbeConversation}})
- if w.Code!=200{t.Fatalf("probe failed: %d %s",w.Code,w.Body)}
- body:=w.Body.String()
- for _,want:=range []string{`"tool_calling":"verified"`,`"previous_response":"verified"`,`"conversation":"verified"`}{
-  if !strings.Contains(body,want){t.Fatalf("missing %s in %s",want,body)}
- }
- sawConversation,sawPrevious:=false,false
- for _,v:=range seen{
-  if v=="conversation_followup"{sawConversation=true}
-  if v=="previous_followup"{sawPrevious=true}
- }
- if !sawConversation||!sawPrevious{t.Fatalf("probe did not verify chaining/state reuse: %v",seen)}
+func TestAgentCapabilityProbeCoversEveryDeclaredMode(t *testing.T) {
+	s, id := agentUnverifiedToolFixture(t)
+	if id == "" {
+		t.Fatal("missing session")
+	}
+	p := agentProviderFixture()
+	p.Stream = true
+	if w := agentProviderRequest(t, s.agentChatProvidersAPI, http.MethodPut, "/api/agent/providers", map[string]any{"provider": p}); w.Code != 200 {
+		t.Fatalf("put stream provider: %d %s", w.Code, w.Body)
+	}
+	var seen []string
+	s.AgentChatCall = func(ctx context.Context, p agentchat.ProviderConfig, key string, payload []byte) (agentchat.ResponsesResult, error) {
+		var req map[string]any
+		if err := json.Unmarshal(payload, &req); err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := req["conversation"]; ok {
+			seen = append(seen, "conversation_followup")
+		}
+		if _, ok := req["previous_response_id"]; ok {
+			seen = append(seen, "previous_followup")
+		}
+		return agentchat.ResponsesResult{ResponseID: "resp_probe", ConversationID: "conv_probe", Text: "42 OK"}, nil
+	}
+	// Streaming deliberately uses the real adapter, so restrict to the modes
+	// that route through AgentChatCall for this assertion.
+	w := agentProviderRequest(t, s.agentChatProviderProbeAPI, http.MethodPost, "/api/agent/providers/probe",
+		map[string]any{"provider_id": p.ID, "model_id": p.Models[0].ID, "confirm_external": true,
+			"capabilities": []string{agentchat.ProbeToolCalling, agentchat.ProbePreviousResponse, agentchat.ProbeConversation}})
+	if w.Code != 200 {
+		t.Fatalf("probe failed: %d %s", w.Code, w.Body)
+	}
+	body := w.Body.String()
+	for _, want := range []string{`"tool_calling":"verified"`, `"previous_response":"verified"`, `"conversation":"verified"`} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("missing %s in %s", want, body)
+		}
+	}
+	sawConversation, sawPrevious := false, false
+	for _, v := range seen {
+		if v == "conversation_followup" {
+			sawConversation = true
+		}
+		if v == "previous_followup" {
+			sawPrevious = true
+		}
+	}
+	if !sawConversation || !sawPrevious {
+		t.Fatalf("probe did not verify chaining/state reuse: %v", seen)
+	}
+}
+
+func TestAgentChatCompletionsSettingsAndCapabilities(t *testing.T) {
+	s := newAIServerForTest(t)
+	if err := os.MkdirAll(s.Workspace, 0700); err != nil {
+		t.Fatal(err)
+	}
+	p := agentProviderFixture()
+	p.ID = "chat-provider"
+	p.APIType = "chat_completions"
+	p.Models[0].DefaultReasoningEffort = ""
+	p.Models[0].ReasoningEfforts = nil
+	if w := agentProviderRequest(t, s.agentChatProvidersAPI, http.MethodPut, "/api/agent/providers", map[string]any{
+		"provider": p, "api_key": "CHAT-KEY",
+	}); w.Code != 200 {
+		t.Fatalf("save Chat Completions provider: %d %s", w.Code, w.Body)
+	}
+	registry, err := s.agentChatProviders()
+	if err != nil {
+		t.Fatal(err)
+	}
+	stored, err := registry.Get("local", p.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.APIType != "chat_completions" {
+		t.Fatalf("API type not preserved: %q", stored.APIType)
+	}
+	created := invokeAI(t, s.agentChatSessionsAPI, http.MethodPost, "/api/agent/sessions", map[string]any{
+		"provider_id": p.ID, "model_id": p.Models[0].ID, "mode": "stateless", "reasoning_effort": ""})
+	if created.Code != 201 {
+		t.Fatalf("stateless session refused: %d %s", created.Code, created.Body)
+	}
+	var view struct {
+		Session agentchat.Session `json:"session"`
+	}
+	if err := json.Unmarshal(created.Body.Bytes(), &view); err != nil {
+		t.Fatal(err)
+	}
+	stateful := invokeAI(t, s.agentChatSessionsAPI, http.MethodPost, "/api/agent/sessions", map[string]any{
+		"provider_id": p.ID, "model_id": p.Models[0].ID, "mode": "previous_response"})
+	if stateful.Code != 400 {
+		t.Fatalf("Chat Completions accepted previous_response mode: %d", stateful.Code)
+	}
+	s.AgentChatCall = func(ctx context.Context, p agentchat.ProviderConfig, key string, payload []byte) (agentchat.ResponsesResult, error) {
+		return agentchat.ResponsesResult{ResponseID: "probe-chat", Text: "OK"}, nil
+	}
+	probe := agentProviderRequest(t, s.agentChatProviderProbeAPI, http.MethodPost, "/api/agent/providers/probe", map[string]any{
+		"provider_id": p.ID, "model_id": p.Models[0].ID, "confirm_external": true,
+		"capabilities": []string{agentchat.ProbeText, agentchat.ProbeToolCalling, agentchat.ProbePreviousResponse, agentchat.ProbeConversation, agentchat.ProbeStreaming},
+	})
+	if probe.Code != 200 {
+		t.Fatalf("capability probe failed: %d %s", probe.Code, probe.Body)
+	}
+	body := probe.Body.String()
+	for _, entry := range []string{`"text":"verified"`, `"tool_calling":"verified"`, `"previous_response":"unsupported"`, `"conversation":"unsupported"`, `"streaming":"unsupported"`} {
+		if !strings.Contains(body, entry) {
+			t.Fatalf("missing capability evidence %s in %s", entry, body)
+		}
+	}
 }
