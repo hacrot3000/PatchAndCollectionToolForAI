@@ -24,6 +24,10 @@ agentCSS.textContent=[
 '.agentchat-bubble.user{align-self:flex-end;background:#203b56}',
 '.agentchat-bubble.assistant{align-self:flex-start;background:#222c3a}',
 '.agentchat-bubble.tool{align-self:flex-start;background:#443522;border-color:#97744a}',
+'.agentchat-tool-actions{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:8px}',
+'.agentchat-tool-code{font:11px/1.5 ui-monospace,monospace;white-space:pre-wrap;overflow-wrap:anywhere;max-height:280px;overflow:auto;border:1px solid #5f6675;padding:8px;border-radius:6px}',
+'.agentchat-tool-summary{font-size:11px;color:#c5dbed;line-height:1.4;white-space:pre-wrap;overflow-wrap:anywhere}',
+
 '.agentchat-composer{padding:9px;border-top:1px solid #35445c;display:flex;flex-direction:column;gap:6px}',
 '.agentchat-composer textarea{width:100%;min-height:66px;max-height:160px;resize:vertical}',
 '.agentchat-composer-actions{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:11px;flex-wrap:wrap}',
@@ -68,13 +72,13 @@ const transcript=agentEl('div','agentchat-transcript');
 const composer=agentEl('div','agentchat-composer'),prompt=agentEl('textarea');
 prompt.setAttribute('placeholder','Type an AI request for this TaskDeck project…');
 const actionLine=agentEl('div','agentchat-composer-actions');
-const status=agentEl('span','', 'No session selected. Tool execution disabled.');
+const status=agentEl('span','', 'No session selected. Patch execution requires per-call approval.');
 const send=agentButton('Send',()=>sendAgentMessage().catch(showAgentError));
 const cancel=agentButton('Cancel request',()=>agentAbort?.abort());
 cancel.disabled=true;
 actionLine.append(status,cancel,send);composer.append(prompt,actionLine);
 main.append(modelBar,transcript,composer);layout.append(sessionList,main);
-const footer=agentEl('div','agentchat-info','Responses API • AI Pack on first turn • execution disabled until Tool Gateway is implemented. Sending data requires confirmation.');
+const footer=agentEl('div','agentchat-info','Responses API • AI Pack on first turn • native Patch execution requires explicit approval per tool call. Results are verified from native protocol before AI feedback.');
 windowBox.append(heading,layout,footer);root.append(windowBox);document.body.append(root);
 
 const settingsOverlay=agentEl('div','agentchat-overlay agentchat-settings-overlay'),settingsBox=agentEl('section','agentchat-settings-box');
@@ -177,14 +181,59 @@ function userMessageText(value){
  const idx=text.lastIndexOf(marker);
  return idx<0?text:text.slice(idx+marker.length);
 }
+function renderAgentTool(session,item){
+ const box=agentEl('div','agentchat-bubble tool');
+ const record=(session.tool_calls||[]).find(c=>c.call_id===item.call_id);
+ const state=record?.status||'blocked';
+ box.append(agentEl('strong','',String(item.name||'Unknown tool')+' · '+state.toUpperCase()));
+ if(item.name!=='taskdeck_submit_patch'){
+  box.append(agentEl('p','agentchat-tool-summary','Unrecognized function; execution blocked.'));
+  return box;
+ }
+ let args=null;
+ try{args=JSON.parse(item.arguments||'');}catch{}
+ if(!record||!args||typeof args.patch_python!=='string'){
+  box.append(agentEl('p','agentchat-tool-summary','Malformed/unapproved model tool call. Nothing is executable.'));
+  return box;
+ }
+ const details=agentEl('details');
+ details.append(agentEl('summary','','Review Python patch · '+String(args.name||'unnamed')));
+ details.append(agentEl('pre','agentchat-tool-code',args.patch_python));
+ box.append(details);
+ if(record.queue_path)box.append(agentEl('p','agentchat-tool-summary','Native queue: '+record.queue_path));
+ if(record.patch_session_id)box.append(agentEl('p','agentchat-tool-summary','Patch Session: '+record.patch_session_id));
+ if(record.result){
+  const result=agentEl('pre','agentchat-tool-code',record.result);
+  const summary=agentEl('details');summary.append(agentEl('summary','','Verified tool result / diagnostic'));summary.append(result);box.append(summary);
+ }
+ const actions=agentEl('div','agentchat-tool-actions');
+ if(state==='pending'){
+  const approve=agentButton('Approve & run in Patch Tool',()=>agentToolDecision(session,item.call_id,'approve').catch(showAgentError));
+  approve.disabled=Boolean(agentApp.sharedMode&&!agentApp.hasPermission?.('patch.run'));
+  const reject=agentButton('Reject patch',()=>agentToolDecision(session,item.call_id,'reject').catch(showAgentError));
+  actions.append(approve,reject);
+ }
+ if(state==='running'||state==='dispatching'||state==='queued'){
+  const refresh=agentButton('Check native Patch status',()=>syncAgentPatch(session.id).catch(showAgentError));
+  refresh.disabled=Boolean(agentApp.sharedMode&&!agentApp.hasPermission?.('patch.view'));
+  actions.append(refresh);
+ }
+ if((state==='done'||state==='error'||state==='rejected')&&!record.feedback_sent){
+  const next=agentButton('Send verified result to AI',()=>continueAgentTool(session,item.call_id).catch(showAgentError));
+  actions.append(next);
+ }
+ if(state==='unknown')actions.append(agentEl('p','agentchat-tool-summary','Execution state unknown. Inspect the linked native Patch session; never re-submit blindly.'));
+ if(actions.childElementCount)box.append(actions);
+ return box;
+}
 function displayAgentSession(session){
  transcript.replaceChildren();
  if(!session){transcript.append(agentEl('p','','Create or select a session to begin.'));return;}
  for(const item of (session.history||[])){
   if(item.type==='user')transcript.append(agentEl('div','agentchat-bubble user',userMessageText(item.content)));
   if(item.type==='assistant')transcript.append(agentEl('div','agentchat-bubble assistant',item.content));
-  if(item.type==='function_call')transcript.append(agentEl('div','agentchat-bubble tool',
-   'Pending tool call: '+String(item.name||'unknown')+' — execution not enabled'));
+  if(item.type==='function_call')transcript.append(renderAgentTool(session,item));
+  if(item.type==='function_call_output')transcript.append(agentEl('div','agentchat-bubble tool','Native Patch result sent to AI: '+String(item.call_id||'')));
  }
  transcript.scrollTop=transcript.scrollHeight;
  status.textContent='Session '+session.id.slice(0,8)+' · '+session.status+' · revision '+session.revision;
@@ -212,6 +261,51 @@ async function selectAgentSession(id){
  await loadAgentSessions();
  return sess;
 }
+async function agentToolDecision(session,callID,action){
+ if(agentBusy)return;
+ const review=(session.history||[]).find(item=>item.type==='function_call'&&item.call_id===callID);
+ if(!review)throw new Error('Missing original tool call');
+ if(action==='approve'){
+  if(!window.confirm('Approve this exact Python patch for execution by the native TaskDeck Patch Tool? Review the code above first. Other queue items will NOT be selected.'))return;
+ }else if(!window.confirm('Reject this patch without queueing or executing it?'))return;
+ agentBusy=true;
+ try{
+  const result=await agentApp.jsonFetch('/api/agent/sessions/'+encodeURIComponent(session.id)+'/tools/'+encodeURIComponent(callID)+'/decision',{
+   method:'POST',headers:{'Content-Type':'application/json'},
+   body:JSON.stringify({action,expected_revision:session.revision,confirm_execution:action==='approve'}),
+  });
+  await selectAgentSession(session.id);
+  status.textContent=action==='approve'
+   ?('Native Patch '+result.status+' · '+(result.note||'Inspect Patch Tool for execution progress.'))
+   :'Patch was rejected; nothing executed.';
+ }finally{agentBusy=false;}
+}
+async function syncAgentPatch(id){
+ if(agentBusy)return;
+ const result=await agentApp.jsonFetch('/api/agent/sessions/'+encodeURIComponent(id)+'/sync',{
+  method:'POST',headers:{'Content-Type':'application/json'},body:'{}',
+ });
+ await selectAgentSession(id);
+ return result;
+}
+async function continueAgentTool(session,callID){
+ if(agentBusy)return;
+ if(!window.confirm('Send the verified native Patch execution result back to the external AI provider to continue this conversation?'))return;
+ agentBusy=true;send.disabled=true;newChat.disabled=true;
+ agentAbort=new AbortController();cancel.disabled=false;
+ try{
+  const result=await agentApp.jsonFetch('/api/agent/sessions/'+encodeURIComponent(session.id)+'/tools/'+encodeURIComponent(callID)+'/continue',{
+   method:'POST',headers:{'Content-Type':'application/json'},
+   body:JSON.stringify({expected_revision:session.revision,confirm_external:true}),signal:agentAbort.signal,
+  });
+  await selectAgentSession(session.id);
+  status.textContent=result.status==='waiting_tool'
+   ?'AI proposed another patch; review and approve separately.'
+   :'AI has received the verified native Patch result.';
+ }finally{
+  agentAbort=null;agentBusy=false;send.disabled=false;newChat.disabled=false;cancel.disabled=true;updateAgentModels();
+ }
+}
 async function createSession(){
  if(agentBusy)return;
  if(!providerSelect.value||!modelSelect.value)throw new Error('Configure provider, API key and model before creating a session.');
@@ -226,7 +320,7 @@ async function sendAgentMessage(){
  const msg=prompt.value.trim();
  if(!agentActive)throw new Error('Create a session first.');
  if(!msg)throw new Error('Enter a message.');
- if(!window.confirm('Send this request and, on the first turn, the TaskDeck AI Pack to the selected external provider? No patch or shell command will be executed.'))return;
+ if(!window.confirm('Send this request and, on the first turn, the TaskDeck AI Pack to the selected external provider? This chat may propose patch execution, which requires a separate approval.'))return;
  const s=await selectAgentSession(agentActive);
  agentBusy=true;send.disabled=true;newChat.disabled=true;cancel.disabled=false;
  agentAbort=new AbortController();
@@ -239,7 +333,7 @@ async function sendAgentMessage(){
   });
   prompt.value='';
   await selectAgentSession(agentActive);
-  status.textContent=response.status==='waiting_tool'?'AI requested a tool; execution remains disabled.':
+  status.textContent=response.status==='waiting_tool'?'AI requested a patch; review/approve explicitly.':
    'Response received. No commands executed.';
  }finally{
   agentAbort=null;agentBusy=false;send.disabled=false;cancel.disabled=true;
