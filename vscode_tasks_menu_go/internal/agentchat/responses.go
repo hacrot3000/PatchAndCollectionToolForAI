@@ -102,7 +102,7 @@ func BuildResponsesRequest(c RequestConfig)([]byte,error){
 	if strings.TrimSpace(c.Model)=="" || len(c.Model)>128 {return nil,errors.New("invalid model")}
 	if strings.TrimSpace(c.Instructions)=="" || len(c.Instructions)>maxInstructionsBytes {return nil,errors.New("mandatory instructions required or too large")}
 	if len(c.Next)==0 {return nil,errors.New("next message or tool result required")}
-	if len(c.Next)+len(c.History)>maxItems {return nil,errors.New("too many input items")}
+	if len(c.Next)>maxItems {return nil,errors.New("too many next input items")}
 	if c.MaxOutputTokens<0 || c.MaxOutputTokens>200000 {return nil,errors.New("invalid output token limit")}
 	if c.ReasoningEffort!="" {
 		switch c.ReasoningEffort {
