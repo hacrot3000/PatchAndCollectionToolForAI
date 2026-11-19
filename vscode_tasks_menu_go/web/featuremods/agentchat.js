@@ -106,6 +106,7 @@ const agentSample={
  ]
 };
 let agentProviders=[],agentSessions=[],agentActive=null,agentBusy=false,agentAbort=null;
+let agentMonitorTimer=0;
 function showAgentError(error){
  status.textContent='Error: '+String(error?.message||error);
  settingsStatus.textContent='Error: '+String(error?.message||error);
@@ -258,6 +259,7 @@ async function selectAgentSession(id){
  if(p){providerSelect.value=p.id;updateAgentModels();modelSelect.value=sess.model_id;}
  modeSelect.value=sess.mode;
  displayAgentSession(sess);
+ scheduleAgentMonitor(sess);
  await loadAgentSessions();
  return sess;
 }
@@ -306,6 +308,22 @@ async function continueAgentTool(session,callID){
   agentAbort=null;agentBusy=false;send.disabled=false;newChat.disabled=false;cancel.disabled=true;updateAgentModels();
  }
 }
+function scheduleAgentMonitor(sess){
+ clearTimeout(agentMonitorTimer);agentMonitorTimer=0;
+ if(!root.classList.contains('visible')||!sess)return;
+ if(agentApp.sharedMode&&!agentApp.hasPermission?.('patch.view'))return;
+ if(!(sess.tool_calls||[]).some(c=>c.status==='running'))return;
+ const id=sess.id;
+ agentMonitorTimer=setTimeout(async()=>{
+  if(agentActive!==id||!root.classList.contains('visible'))return;
+  if(agentBusy){scheduleAgentMonitor(sess);return;}
+  try{await syncAgentPatch(id);}
+  catch(error){
+   status.textContent='Native Patch polling failed: '+String(error?.message||error);
+   agentMonitorTimer=setTimeout(()=>selectAgentSession(id).catch(showAgentError),5000);
+  }
+ },2800);
+}
 async function createSession(){
  if(agentBusy)return;
  if(!providerSelect.value||!modelSelect.value)throw new Error('Configure provider, API key and model before creating a session.');
@@ -351,7 +369,7 @@ async function openAgentPanel(){
  await loadAgentState();
  return true;
 }
-function closeAgentPanel(){root.classList.remove('visible');}
+function closeAgentPanel(){clearTimeout(agentMonitorTimer);agentMonitorTimer=0;root.classList.remove('visible');}
 root.addEventListener('click',e=>{if(e.target===root)closeAgentPanel();});
 settingsOverlay.addEventListener('click',e=>{if(e.target===settingsOverlay)settingsOverlay.classList.remove('visible');});
 window.addEventListener('keydown',e=>{
