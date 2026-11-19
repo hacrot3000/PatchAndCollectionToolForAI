@@ -77,7 +77,7 @@ These are **design targets**, not promises that routes already exist.
 
 ## 4. Features & subtask checklist (max 3 levels)
 
-### F01 — Architecture and handoff [IN PROGRESS]
+### F01 — Architecture and handoff [IN PROGRESS: F01.3 outstanding]
 - [x] F01.1 Baseline inventory of existing Smart Terminal/AI Pack/Patch/remote components.
   - [x] F01.1.1 Record real code paths and no-regression boundaries in this document.
 - [x] F01.2 Define phased plan, user flows, security invariants, entities and acceptance gates.
@@ -97,9 +97,9 @@ These are **design targets**, not promises that routes already exist.
   - [ ] F02.3.2 Streaming SSE, cancellation, errors, rate limits and tool-call output parsing.
   - [ ] F02.3.3 Optional Chat Completions/Messages adapters (later).
 
-### F03 — Durable sessions & context [TODO]
+### F03 — Durable sessions & context [IN PROGRESS]
 - [ ] F03.1 Independent multi-session store scoped by owner, workspace, project UUID and execution target.
-  - [ ] F03.1.1 Atomic write/revision/size bound and session recovery after process restart.
+  - [x] F03.1.1 Atomic write/revision/size bound and session recovery after process restart (owner-bound private Go journal + tests).
   - [ ] F03.1.2 Session list/create/rename/archive/cancel APIs + UI tabs.
 - [ ] F03.2 AI Pack first turn.
   - [ ] F03.2.1 Generate/validate bounded AI Pack snapshot on first user message and pin fingerprint/identity.
@@ -142,7 +142,7 @@ These are **design targets**, not promises that routes already exist.
   - [ ] F07.1.1 Fail closed on unknown capability or untrusted patch metadata; never accept AI's `approved` flag.
   - [ ] F07.1.2 Provider egress/SSRF/redirect policy, local/private-IP safeguards and TLS.
 - [ ] F07.2 Tests and documentation.
-  - [ ] F07.2.1 Unit tests for provider formats, chaining, tool-call mapping, owner isolation and persistence.
+  - [x] F07.2.1 Unit tests for initial Responses request/parse, chaining, tool-call mapping, owner isolation and persistence; additional provider formats remain F02.3.3.
   - [ ] F07.2.2 Integration tests for native Patch run/retry/cancel, concurrent sessions and remote E2EE.
   - [ ] F07.2.3 CI/GUI smoke acceptance with zero regressions to suggestion-only Smart Terminal.
 
@@ -157,9 +157,9 @@ These are **design targets**, not promises that routes already exist.
 
 | Milestone | Evidence required | Status |
 |---|---|---|
-| M0 handoff | This document with verified code map and statuses | IN PROGRESS |
-| M1 protocol core | Stateful/stateless request building, parse response, tests | TODO |
-| M2 session API + provider settings | Persisted concurrent sessions, BYOK secrets, capability testing | TODO |
+| M0 handoff | This document with verified code map and statuses | DONE (source) |
+| M1 protocol core | Stateful/stateless request building, parse response, tests | DONE (code + CI) |
+| M2 session API + provider settings | Persisted concurrent sessions, BYOK secrets, capability testing | IN PROGRESS (session create/list/get only) |
 | M3 chat GUI | Real messages with streaming, cancel and recovery | TODO |
 | M4 Patch loop | Real queue run + tool results + idempotency + approvals | TODO |
 | M5 remote & multi-session | E2EE live tests, lock safety, session isolation | TODO |
@@ -179,7 +179,19 @@ These are **design targets**, not promises that routes already exist.
 - A9: Existing Smart Terminal suggestion-only behavior and Patch Tool manual behavior remain intact.
 - A10: After reopening GUI or restarting backend, session history and execution identities are recoverable.
 
-## 7. First implementation change boundaries and handoff to next engineer
+## 7. Implementation log and verified evidence (2026-11-19)
+
+**Implemented on `main`:**
+- `vscode_tasks_menu_go/internal/agentchat/responses.go` and `responses_test.go`: create Responses API payloads in stateless / `previous_response_id` / conversation modes, replay canonical user/assistant/function call/output items, refresh instructions every request, parse text/tool calls, reject invalid/duplicate calls and oversized requests. **No network call or execution primitive is exposed in the package.**
+- `vscode_tasks_menu_go/internal/agentchat/store.go` and `store_test.go`: owner-bound private canonical sessions with project UUID/model/mode, cryptographically random session ID, atomic file writes, revision compare-and-swap, owner filtering and restart-recovery tests.
+- `vscode_tasks_menu_go/internal/server/agent_chat_sessions.go`, `agent_chat_sessions_test.go`, `server.go`, `shared_authorization.go`: `GET/POST /api/agent/sessions` and `GET /api/agent/sessions/{id}`; project UUID supplied by backend, external-provider consent required for list/create, route-level shared-server permissions; sessions remain `execution_enabled=false`.
+- `.github/workflows/taskdeck_agentchat_core.yml`: dedicated Go race/unit/vet CI for package plus Agent Session API/RBAC tests.
+
+**CI evidence:** [TaskDeck Agent Chat protocol core run 44459978173](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/44459978173) — PASS, `go test -race -count=1 ./internal/agentchat`, `go vet ./internal/agentchat`, `go test -count=1 ./internal/server -run '^TestAgentChat'`. Subsequent commits must trigger/reconfirm CI.
+
+**Not yet implemented:** Chat message send API, Responses HTTP adapter and provider credentials/config UI, real AI Pack first-turn input, streaming, model tool call execution, Patch loop, console UI, remote binding, scheduler. An API that creates a session is **not** a functional AI chat. Never claim otherwise.
+
+## 8. First implementation change boundaries and handoff to next engineer
 
 1. Create a small standard-library core package for Responses payloads and parsing; do not mix this with `ai_assistant.go` advisory handlers.
 2. Add precise unit tests first, especially state reference vs stateless replay, mandatory instructions and malformed provider result.
@@ -188,7 +200,7 @@ These are **design targets**, not promises that routes already exist.
 5. Wire `taskdeck_submit_patch` to a **real existing** queue with tool-call ledger; do not count the existing `/api/patch/paste` package creation as execution.
 6. Update this document checkbox-by-checkbox after commit, tests and any actual live evidence. If only source is present and real-provider testing is absent, record both clearly.
 
-## 8. Commands for verification
+## 9. Commands for verification
 
 ```sh
 cd vscode_tasks_menu_go
