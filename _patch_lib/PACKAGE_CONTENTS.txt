@@ -13,6 +13,7 @@ Optional maintenance entry point:
   tools/_patch_lib/install_python_patch_tool_v5.py   (historical filename wrapper)
 
 Core private runtime:
+  tools/_patch_lib/python_patch_protocol.py
   tools/_patch_lib/python_patch_queue_dispatcher.py
   tools/_patch_lib/python_patch_runner.py
   tools/_patch_lib/python_patch_remote_ssh.py
@@ -157,6 +158,7 @@ tools/_patch_lib/python_patch_ops_worker.py
 tools/_patch_lib/python_patch_package_schema.py
 tools/_patch_lib/python_patch_project_state.py
 tools/_patch_lib/python_patch_provenance.py
+tools/_patch_lib/python_patch_protocol.py
 tools/_patch_lib/python_patch_queue_dispatcher.py
 tools/_patch_lib/python_patch_readonly_collector.py
 tools/_patch_lib/python_patch_release_metadata.py
