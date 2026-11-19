@@ -562,7 +562,9 @@ func (m *Manager) ProtocolState(id string) (ProtocolState, error) {
 	}
 	s.mu.Lock()
 	state := cloneProtocolState(s.protocol)
+    root := s.meta.Cwd
 	s.mu.Unlock()
+    applyCommandJournalToState(root, &state)
 	return state, nil
 }
 
