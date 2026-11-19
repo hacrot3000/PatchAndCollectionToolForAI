@@ -7,6 +7,8 @@
 
 Liên quan: [F04 — Conversation UI](04-conversation-ui.md), [README](README.md), [F05 — Patch feedback](05-patch-feedback.md), [Acceptance](07-acceptance.md).
 
+**Mở rộng chức năng khi triển khai UI dock:** [11 — AI Debug observability](11-agent-chat-debug-observability.md). Icon AI Debug ON/OFF phải nằm trực tiếp trên title của dock ở cả Right/Bottom, kể cả khi hẹp; khi bật có tab Debug để xem cấu hình, lỗi, timeline, console, HTTP, serialized payload, response/SSE và tool evidence. Yêu cầu Debug Safe/Raw/ACL nằm ở tài liệu 11.
+
 ## 1. Yêu cầu cần đạt
 
 Thay **modal toàn màn hình với nền tối** hiện tại bằng **panel gắn trong workspace** (kiểu VS Code) có hai vị trí:
@@ -95,7 +97,7 @@ Header cố định ở đầu panel (kể cả khi transcript dài), gồm ba v
 
 **More menu** là popover/menu gắn với nút ⋯ (context menu theo cách gọi trong yêu cầu). Click nút mở, chọn hành động thực thi, Esc/click ngoài đóng. Nút trong menu phản ánh chính xác trạng thái disabled, quyền, auto-send ON/OFF, và tên hành động, không lộ các hành động đã bị cấm. Menu tự định vị không tràn viewport, không bị panel overflow:hidden cắt mất, có keyboard navigation/focus restore. Khi panel đủ rộng, nút trở về toolbar; **không có hai bản nút cùng active trong DOM gây double fire**.
 
-**Không được** đặt các nút dock trong menu ẩn duy nhất; user phải đổi Right/Bottom trực tiếp từ title. Nếu quá hẹp, giữ tối thiểu icon title + dock toggle + Pin + More + Hide.
+**Không được** đặt các nút dock trong menu ẩn duy nhất; user phải đổi Right/Bottom trực tiếp từ title. Nếu quá hẹp, giữ tối thiểu icon title + dock toggle + Pin + **Debug toggle** + More + Hide. Debug ON/OFF không được chỉ có trong More.
 
 ### 4.2. Nội dung panel
 
