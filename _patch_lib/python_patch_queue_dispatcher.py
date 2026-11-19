@@ -4671,6 +4671,12 @@ def _protocol_command_evidence(root: Path, patch_result: dict[str, object] | Non
         status = str(item.get("status") or "")
         rc = item.get("rc")
         argv = item.get("argv") if isinstance(item.get("argv"), list) else []
+        elapsed = item.get("elapsed_seconds")
+        duration = (
+            round(float(elapsed), 3)
+            if isinstance(elapsed, (int, float)) and not isinstance(elapsed, bool)
+            and 0 <= float(elapsed) < 2592000 else None
+        )
         out.append({
             "index": len(out) + 1,
             "name": _protocol_history_text(item.get("name") or "Command", 256),
@@ -4680,6 +4686,9 @@ def _protocol_command_evidence(root: Path, patch_result: dict[str, object] | Non
             "rc": rc if isinstance(rc, int) and not isinstance(rc, bool) else None,
             "log_path": rel,
             "timed_out": item.get("timed_out") is True,
+            **({"started_at": _protocol_history_text(item.get("started_at"), 96)}
+               if item.get("started_at") else {}),
+            **({"elapsed_seconds": duration} if duration is not None else {}),
         })
     return out
 
