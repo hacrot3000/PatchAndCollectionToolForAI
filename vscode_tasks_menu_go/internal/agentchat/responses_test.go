@@ -75,24 +75,18 @@ func TestResponsesRejectsMalformedInputs(t *testing.T){
 }
 
 func TestParseResponsesTextToolCallsAndConversation(t *testing.T){
- raw:=[]byte(`{
-   "id":"resp_9","status":"completed",
-   "conversation":{"id":"conv_9"},
-   "usage":{"input_tokens":12,"output_tokens":8},
-   "output":[
-     {"type":"message","content":[{"type":"output_text","text":"Checking patch"}]},
-     {"type":"function_call","call_id":"call_9","name":"taskdeck_submit_patch","arguments":"{\\"patch_text\\":\\"test\\"}"}
-   ]
- }`)
- // Use a raw JSON string for arguments; escaping is handled by JSON itself.
- raw=[]byte(`{"id":"resp_9","status":"completed","conversation":{"id":"conv_9"},"usage":{"input_tokens":12,"output_tokens":8},"output":[{"type":"message","content":[{"type":"output_text","text":"Checking patch"}]},{"type":"function_call","call_id":"call_9","name":"taskdeck_submit_patch","arguments":"{\\\"patch_text\\\":\\\"test\\\"}"}]}`)
- var decoded map[string]any
- if err:=json.Unmarshal(raw,&decoded);err!=nil{t.Fatal(err)}
- // Marshal tool arguments to avoid depending on escaped literals in fixtures.
- call:=decoded["output"].([]any)[1].(map[string]any)
  arg,_:=json.Marshal(map[string]string{"patch_text":"test"})
- call["arguments"]=string(arg)
- raw,_=json.Marshal(decoded)
+ response:=map[string]any{
+  "id":"resp_9",
+  "status":"completed",
+  "conversation":map[string]string{"id":"conv_9"},
+  "usage":map[string]int{"input_tokens":12,"output_tokens":8},
+  "output":[]any{
+   map[string]any{"type":"message","content":[]any{map[string]string{"type":"output_text","text":"Checking patch"}}},
+   map[string]string{"type":"function_call","call_id":"call_9","name":"taskdeck_submit_patch","arguments":string(arg)},
+  },
+ }
+ raw,_:=json.Marshal(response)
  result,err:=ParseResponsesResult(raw);if err!=nil{t.Fatal(err)}
  if result.ResponseID!="resp_9"||result.ConversationID!="conv_9"||result.Text!="Checking patch"||result.InputTokens!=12{t.Fatalf("bad response: %+v",result)}
  if len(result.Calls)!=1||result.Calls[0].CallID!="call_9"{t.Fatalf("lost call: %+v",result.Calls)}
