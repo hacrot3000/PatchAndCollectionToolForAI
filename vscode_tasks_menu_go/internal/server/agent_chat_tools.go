@@ -144,13 +144,61 @@ func (s *Server) agentChatToolDecisionAPI(w http.ResponseWriter,r *http.Request,
  x.Status="waiting_tool"
  x,err=store.Save(x,x.Revision)
  if err!=nil{http.Error(w,"Patch was queued but journal update failed; inspect queue, do not retry",409);return}
- // This milestone queues an approved patch in the real native Patch Tool.
- // Execution dispatch and function_call_output are separate protocol stages.
+ // A live daemon launches the EXISTING native Patch Tool session and
+ // selects ONLY this approved package. A non-running test fixture can still
+ // verify the queue stage independently without a session service.
+ status:="queued"
+ note:="Native Patch Tool queue received the package; execution has not started."
+ if s.Sessions!=nil {
+  if err:=s.agentVerifyQueuedPackage(receipt);err!=nil{
+   x.ToolCalls[idx].Status="unknown"
+   x.ToolCalls[idx].Result="Queued package changed before native dispatch. No execution started."
+   x.Status="tool_unknown"
+   x,_=store.Save(x,x.Revision)
+   status="unknown"
+   note="Queued package failed digest verification; inspect queue before retry."
+  }else{
+   patchID,startErr:=s.agentStartNativePatch(r)
+   if startErr!=nil{
+    note="Native Patch session could not start; package remains in queue for manual review."
+   }else{
+    x.ToolCalls[idx].Status="dispatching"
+    x.ToolCalls[idx].PatchSessionID=patchID
+    x,_=store.Save(x,x.Revision)
+    if x.Revision==0 {
+     http.Error(w,"Native Patch started but session journal is uncertain; inspect existing session",409);return
+    }
+    if err:=s.agentVerifyQueuedPackage(receipt);err!=nil {
+     x.ToolCalls[idx].Status="unknown"
+     x.ToolCalls[idx].Result="Approved package changed after native session started; selection refused."
+     x.Status="tool_unknown"
+     x,_=store.Save(x,x.Revision)
+     status="unknown"
+     note="Approved patch package changed before selection; inspect existing native session."
+    }else if err:=s.agentSelectNativePatch(r.Context(),r,patchID,receipt.Name);err!=nil{
+     x.ToolCalls[idx].Status="unknown"
+     x.ToolCalls[idx].Result="Native Patch selection is ambiguous; inspect linked Patch session; no automatic retry."
+     x.Status="tool_unknown"
+     x,_=store.Save(x,x.Revision)
+     status="unknown"
+     note="Native Patch selection was not confirmed; inspect existing session, do not requeue automatically."
+    }else{
+     x.ToolCalls[idx].Status="running"
+     x.Status="waiting_tool"
+     x,_=store.Save(x,x.Revision)
+     status="running"
+     note="Native Patch Tool accepted an exact-name selection; await validated per-item result."
+    }
+   }
+  }
+ }
  w.Header().Set("Cache-Control","no-store")
  writeJSON(w,200,map[string]any{
-  "session_id":sessionID,"call_id":callID,"status":"queued",
+  "session_id":sessionID,"call_id":callID,"status":status,
   "queue_path":receipt.QueuePath,"sha256":receipt.SHA256,
-  "revision":x.Revision,"executed":false,"execution_enabled":false,
+  "patch_session_id":x.ToolCalls[idx].PatchSessionID,
+  "revision":x.Revision,"note":note,
+  "executed":false,"execution_enabled":status=="running",
  })
 }
 
