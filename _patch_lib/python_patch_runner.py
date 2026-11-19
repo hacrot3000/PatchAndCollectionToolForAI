@@ -2347,17 +2347,36 @@ def _execute_patch(root: Path, source: Path, *, no_validation: bool = False) -> 
             _live_command_event(index=remote_index, stage="REMOTE SSH", name=remote_name,
                                 argv=remote_argv, status="RUNNING", started_at=remote_started_at,
                                 log_path=remote_log_rel)
-            if remote_log is not None:
-                remote_log.touch(mode=0o600, exist_ok=True)
+            remote_stream = remote_log.open("wb") if remote_log is not None else None
+            remote_stream_lock = threading.Lock()
+            remote_written = [0]
+            def on_remote_chunk(channel: str, chunk: bytes) -> None:
+                with remote_stream_lock:
+                    target = sys.stderr if channel == "stderr" else sys.stdout
+                    try:
+                        if hasattr(target, "buffer"):
+                            target.buffer.write(chunk)
+                            target.buffer.flush()
+                        else:
+                            target.write(chunk.decode("utf-8", errors="replace"))
+                            target.flush()
+                    except (BrokenPipeError, OSError):
+                        pass
+                    if remote_stream is not None:
+                        remaining = max(0, MAX_COMMAND_LOG_BYTES - remote_written[0])
+                        if remaining:
+                            piece = chunk[:remaining]
+                            remote_stream.write(piece)
+                            remote_stream.flush()
+                            remote_written[0] += len(piece)
             try:
-                ssh_result = run_remote_ssh(root, remote_node, dry_run=False)
+                try:
+                    ssh_result = run_remote_ssh(root, remote_node, dry_run=False,
+                                                output_callback=on_remote_chunk)
+                finally:
+                    if remote_stream is not None:
+                        remote_stream.close()
                 result["remote_ssh"] = ssh_result
-                console = str(ssh_result.get("stdout") or "") + str(ssh_result.get("stderr") or "")
-                if remote_log is not None:
-                    remote_log.write_text(console[:MAX_COMMAND_LOG_BYTES], encoding="utf-8")
-                for output_line in (ssh_result.get("stdout"), ssh_result.get("stderr")):
-                    if output_line:
-                        print(str(output_line), end="" if str(output_line).endswith("\n") else "\n")
                 rc = int(ssh_result.get("rc") or 0)
                 _append_command_evidence(stage="REMOTE SSH", name=remote_name, argv=remote_argv,
                                          cwd="remote login", status="PASS" if rc == 0 else "FAIL",
@@ -2375,8 +2394,7 @@ def _execute_patch(root: Path, source: Path, *, no_validation: bool = False) -> 
                 }
             except RemoteSSHError as exc:
                 rc = 2
-                if remote_log is not None:
-                    remote_log.write_text(str(exc) + "\n", encoding="utf-8")
+                _write_command_failure_console(remote_log, str(exc))
                 _append_command_evidence(stage="REMOTE SSH", name=remote_name, argv=remote_argv,
                                          cwd="remote login", status="FAIL", rc=rc, log_path=remote_log_rel,
                                          error=str(exc), started_at=remote_started_at,
