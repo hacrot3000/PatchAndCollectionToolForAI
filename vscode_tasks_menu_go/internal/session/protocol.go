@@ -41,6 +41,8 @@ type ProtocolCommandEvidenceState struct {
     RC *int `json:"rc,omitempty"`
     LogPath string `json:"log_path"`
     TimedOut bool `json:"timed_out,omitempty"`
+    StartedAt string `json:"started_at,omitempty"`
+    ElapsedSeconds *float64 `json:"elapsed_seconds,omitempty"`
 }
 
 type ProtocolItemState struct {
@@ -580,6 +582,55 @@ func protocolPlanSnapshotEvent(data []byte) (ProtocolPlanSnapshotState, error) {
 		Warnings: append([]string(nil), event.Warnings...),
 		Error: event.Error,
 	}, nil
+}
+
+
+// protocolCommandStateEvent validates an in-flight command lifecycle update.
+// The parent must already have been announced via item_started; only the
+// owning task's command entries may be modified by the session state.
+func protocolCommandStateEvent(data []byte) (int, string, ProtocolCommandEvidenceState, error) {
+	var event struct {
+		Type string `json:"type"`
+		ItemIndex int `json:"item_index"`
+		ItemName string `json:"item_name"`
+		Command ProtocolCommandEvidenceState `json:"command"`
+	}
+	if err := json.Unmarshal(data, &event); err != nil {
+		return 0, "", ProtocolCommandEvidenceState{}, fmt.Errorf("invalid command state JSON: %w", err)
+	}
+	command := event.Command
+	if event.Type != "command_state" || event.ItemIndex < 1 || event.ItemIndex > maxProtocolItems ||
+		strings.TrimSpace(event.ItemName) == "" || len(event.ItemName) > 512 ||
+		command.Index < 1 || command.Index > 64 || strings.TrimSpace(command.Name) == "" ||
+		len(command.Name) > 512 || len(command.Stage) > 96 ||
+		len(command.Argv) > 24 || len(command.StartedAt) > 96 ||
+		len(command.Status) > 32 || strings.ContainsRune(command.Name, '\x00') {
+		return 0, "", ProtocolCommandEvidenceState{}, fmt.Errorf("invalid command state identity")
+	}
+	switch command.Status {
+	case "QUEUE", "RUNNING", "PASS", "FAIL", "INTERRUPTED", "SKIPPED":
+	default:
+		return 0, "", ProtocolCommandEvidenceState{}, fmt.Errorf("unsupported command state")
+	}
+	for _, arg := range command.Argv {
+		if len(arg) > 512 || strings.ContainsRune(arg, '\x00') {
+			return 0, "", ProtocolCommandEvidenceState{}, fmt.Errorf("invalid command argv")
+		}
+	}
+	if command.ElapsedSeconds != nil &&
+		(*command.ElapsedSeconds < 0 || *command.ElapsedSeconds > 2592000 ||
+			math.IsNaN(*command.ElapsedSeconds) || math.IsInf(*command.ElapsedSeconds, 0)) {
+		return 0, "", ProtocolCommandEvidenceState{}, fmt.Errorf("invalid command elapsed time")
+	}
+	if command.LogPath != "" && (!strings.HasPrefix(command.LogPath, "artifacts/patch_tool/runs/") ||
+		!strings.Contains(command.LogPath, "/command_items/") ||
+		!strings.Contains(command.LogPath, "/command_logs/") ||
+		!strings.HasSuffix(command.LogPath, ".log") ||
+		strings.Contains(command.LogPath, "..") ||
+		strings.ContainsAny(command.LogPath, "\\\x00")) {
+		return 0, "", ProtocolCommandEvidenceState{}, fmt.Errorf("invalid command log path")
+	}
+	return event.ItemIndex, event.ItemName, command, nil
 }
 
 func protocolItemEvent(data []byte) (ProtocolItemState, string, error) {
