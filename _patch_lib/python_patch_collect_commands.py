@@ -153,7 +153,26 @@ def _validate_collect_basic_args(cwd: Path, argv: list[str]) -> None:
     deny("unsupported basic command")
 
 
-def _capture_local(root: Path, action: dict) -> dict:
+def collect_command_log_path(root: Path, index: int) -> tuple[Path | None, str]:
+    """Project-scoped console evidence owned by the active TaskDeck run."""
+    raw = os.environ.get("PTV_COLLECT_COMMAND_LOG_DIR", "").strip()
+    if not raw or not 1 <= index <= 64:
+        return None, ""
+    try:
+        candidate = Path(raw).resolve(strict=False)
+        rel = candidate.relative_to(root.resolve(strict=True))
+        parts = rel.parts
+        if (len(parts) < 7 or parts[:3] != ("artifacts", "patch_tool", "runs")
+                or parts[-3] != "command_items" or parts[-1] != "command_logs"):
+            return None, ""
+        candidate.mkdir(parents=True, exist_ok=True)
+        dest = candidate / f"{index:03d}_collect_command.log"
+        return dest, dest.relative_to(root).as_posix()
+    except (OSError, ValueError):
+        return None, ""
+
+
+def _capture_local(root: Path, action: dict, *, log_path: Path | None = None) -> dict:
     from python_patch_package_schema import resolve_project_path
     argv = action["argv"]
     cwd_raw = action.get("cwd", ".")
@@ -184,16 +203,34 @@ def _capture_local(root: Path, action: dict) -> dict:
                 "PTV_PARENT_MUTATION_LOCK_KEY"):
         safe_env.pop(key, None)
     kwargs["env"] = safe_env
-    proc = subprocess.Popen(argv, **kwargs)
+    log_stream = None
+    if log_path is not None:
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        log_stream = log_path.open("wb")
+        try:
+            os.chmod(log_path, 0o600)
+        except OSError:
+            pass
+    try:
+        proc = subprocess.Popen(argv, **kwargs)
+    except BaseException:
+        if log_stream is not None:
+            log_stream.close()
+        raise
     def pump() -> None:
         assert proc.stdout is not None
         while True:
-            chunk = proc.stdout.read(4096)
+            chunk = os.read(proc.stdout.fileno(), 4096)
             if not chunk:
                 break
             total[0] += len(chunk)
-            if len(data) < cap:
-                data.extend(chunk[:cap-len(data)])
+            remaining = max(0, cap - len(data))
+            if remaining:
+                part = chunk[:remaining]
+                data.extend(part)
+                if log_stream is not None:
+                    log_stream.write(part)
+                    log_stream.flush()  # View console while COLLECT is RUNNING
     reader = threading.Thread(target=pump, daemon=True)
     reader.start()
     timed_out = False
@@ -215,13 +252,15 @@ def _capture_local(root: Path, action: dict) -> dict:
         reader.join(timeout=2)
         if proc.stdout is not None:
             proc.stdout.close()
+        if log_stream is not None:
+            log_stream.close()
     return {"rc": 124 if timed_out else int(proc.returncode or 0),
             "timed_out": timed_out, "truncated": total[0] > cap,
             "elapsed_seconds": round(time.monotonic() - started, 3),
             "output": bytes(data).decode("utf-8", errors="replace")}
 
 
-def execute_collect_command(root: Path, action: dict) -> dict:
+def execute_collect_command(root: Path, action: dict, *, log_path: Path | None = None) -> dict:
     validate_command_action(action)
     argv = list(action["argv"])
     transport = action.get("transport", "local")
@@ -236,13 +275,19 @@ def execute_collect_command(root: Path, action: dict) -> dict:
         except RemoteSSHError as exc:
             raise CollectCommandError(f"SSH command could not run: {exc}") from exc
         content = (str(result.get("stdout") or "") + str(result.get("stderr") or "")).encode("utf-8", errors="replace")
+        if log_path is not None:
+            # SSH bridge collects its bounded output at completion. RUNNING
+            # status remains live even if remote output is delayed.
+            log_path.parent.mkdir(parents=True, exist_ok=True)
+            log_path.write_bytes(content[:cap])
         return {
             "transport": transport, "profile_name": action["profile_name"],
             "argv": argv, "rc": int(result.get("rc") or 0),
             "timed_out": False, "truncated": len(content) > cap,
             "output": content[:cap].decode("utf-8", errors="replace"),
         }
-    return {"transport": transport, "argv": argv, **_capture_local(root, action)}
+    return {"transport": transport, "argv": argv,
+            **_capture_local(root, action, log_path=log_path)}
 
 
 def command_report(action: dict, result: dict) -> str:
