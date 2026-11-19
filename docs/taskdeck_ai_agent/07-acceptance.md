@@ -25,10 +25,16 @@
 
 Chạy test tập trung tại `vscode_tasks_menu_go`: `go test ./internal/agentchat -count=1`; `go test ./internal/server -run '^TestAgentChat' -count=1`; `go test ./internal/patchtool -count=1`; `node --check web/featuremods/agentchat.js`; `node test_ai_smart_terminal.cjs` nếu file có trong checkout. Thêm `go test -race` cho concurrency và `go test ./...` ở release gate khi môi trường cho phép. Kiểm tra tên test thực tế trước khi dùng selector; báo test không chạy/không có file, không coi regex không khớp là PASS.
 
-`.github/workflows/taskdeck_agentchat_core.yml` hiện chạy race agentchat, vet, syntax và server Agent tests trên Go 1.25; nhánh `pull_request.paths` hiện không bao gồm `internal/server/agent_chat_*`/authorization như nhánh push. Khi sửa CI, bổ sung path trigger tương ứng, test mới và kiểm tra Go/platform matrix thực tế, không tuyên bố CI là live acceptance.
+`.github/workflows/taskdeck_agentchat_core.yml` hiện chạy race agentchat, vet, syntax và server Agent tests trên Go 1.25; nhánh `pull_request.paths` trong commit tài liệu gốc thiếu `internal/server/agent_chat_*`/authorization; đã sửa ở commit `7d6c6bed`. Khi sửa CI, bổ sung path trigger tương ứng, test mới và kiểm tra Go/platform matrix thực tế, không tuyên bố CI là live acceptance.
 
 ## Gate phát hành và vận hành
 
 - Ghi commit, lệnh, môi trường, trạng thái, artifact đã scrub; tách unit/mock, native live, browser live, remote E2EE live, provider live và independent security review. Thiếu bất kỳ live/permission nào phải để NOT VERIFIED/BLOCKED.
 - Test provider thật có thể tốn tiền và đưa data ra ngoài: chỉ chạy khi được phép, dùng project giả và dữ liệu không nhạy cảm. Live Patch/remote chỉ trên workspace test cô lập có quyền; cleanup có xác nhận mục tiêu.
 - Cung cấp runbook xem session/run/queue, điều tra UNKNOWN, thu hồi local key, nâng schema/backup/rollback, quota và lỗi authorization. Không hứa rollback side effect patch chỉ bằng restore journal. Chỉ cập nhật checkbox với bằng chứng phù hợp mức yêu cầu.
+
+## CI selector — finding and fix đã có bằng chứng
+
+Commit `b2f2234a` có **25** server tests `TestAgent*` trong `agent_chat_*_test.go`, trong khi selector CI `-run '^TestAgentChat'` chỉ match **15**, **bỏ qua 10** `TestAgentTool*`, `TestAgentNative*`, `TestAgentApproved*`. Commit [7d6c6bed](https://github.com/hacrot3000/PatchAndCollectionToolForAI/commit/7d6c6bedaccb7436ce3fa730551f7a30368e6fa9) sửa selector thành `'^TestAgent'` và thêm PR paths thiếu; [CI 44479964926](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/44479964926) **PASS**. Kết quả CI là **unit/mock Go + JS syntax**, không phải browser/native Python live/real provider/remote.
+
+Không đóng M4/M6 khi còn thiếu middleware/auth tại internal handler, native result proof theo `run_id`+SHA, tool capability probe, HEAD/dirty/write lease và cross-process transaction. [Source audit](09-source-audit.md).
