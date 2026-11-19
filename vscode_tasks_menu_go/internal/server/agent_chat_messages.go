@@ -4,7 +4,6 @@ import (
  "context"
  "encoding/json"
  "errors"
- "fmt"
  "io"
  "net/http"
  "os"
@@ -81,12 +80,17 @@ func (s *Server) agentChatMessageAPI(w http.ResponseWriter,r *http.Request,id st
  if !allowed{http.Error(w,"model concurrency or quota limit exceeded",429);return}
  defer releaseQuota()
 
+ if len(session.History)>250{
+  http.Error(w,"context is full; compaction is required before further turns",413);return
+ }
  first:=len(session.History)==0
  next:=agentchat.HistoryItem{Type:"user",Content:msg}
  if first {
   executable,err:=os.Executable()
   if err!=nil{http.Error(w,"TaskDeck runtime unavailable",500);return}
-  pack,err:=patchtool.BuildAIPack(s.Workspace,executable)
+  builder:=patchtool.BuildAIPack
+  if s.AgentChatPack!=nil{builder=s.AgentChatPack}
+  pack,err:=builder(s.Workspace,executable)
   if err!=nil{http.Error(w,"AI Pack unavailable: "+err.Error(),409);return}
   if pack.ProjectIdentity.ID!=session.ProjectID{http.Error(w,"AI Pack project identity mismatch",409);return}
   // Text companion is canonical pack instructions + required schemas/docs.
@@ -151,4 +155,3 @@ func (s *Server) agentChatMessageAPI(w http.ResponseWriter,r *http.Request,id st
  })
 }
 
-var _ = fmt.Sprintf
