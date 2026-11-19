@@ -28,11 +28,6 @@ func (s *Server) agentChatSessionsAPI(w http.ResponseWriter,r *http.Request) {
 	if r.Method!=http.MethodGet&&r.Method!=http.MethodPost{
 		http.Error(w,"method not allowed",http.StatusMethodNotAllowed);return
 	}
-	cfg,err:=s.readAISettings()
-	if err!=nil{http.Error(w,"AI settings unavailable",http.StatusInternalServerError);return}
-	if !cfg.Enabled||!cfg.Consent{
-		http.Error(w,"AI is disabled or external provider consent is missing",http.StatusForbidden);return
-	}
 	store,err:=s.agentChatStore()
 	if err!=nil{http.Error(w,"session storage unavailable",http.StatusInternalServerError);return}
 	owner:=aiPlanOwner(r)
@@ -53,7 +48,11 @@ func (s *Server) agentChatSessionsAPI(w http.ResponseWriter,r *http.Request) {
 		return
 	}
 	r.Body=http.MaxBytesReader(w,r.Body,2048)
-	var req struct{Mode agentchat.ContextMode `json:"mode"`}
+	var req struct{
+		Mode agentchat.ContextMode `json:"mode"`
+		ProviderID string `json:"provider_id"`
+		ModelID string `json:"model_id"`
+	}
 	decoder:=json.NewDecoder(r.Body);decoder.DisallowUnknownFields()
 	if err=decoder.Decode(&req);err!=nil{http.Error(w,"invalid agent session request",http.StatusBadRequest);return}
 	var extra any
@@ -64,9 +63,26 @@ func (s *Server) agentChatSessionsAPI(w http.ResponseWriter,r *http.Request) {
 	sessions,err:=store.List(owner)
 	if err!=nil{http.Error(w,"session storage unavailable",http.StatusInternalServerError);return}
 	if len(sessions)>=agentSessionLimit{http.Error(w,"too many active/archived sessions",http.StatusTooManyRequests);return}
-	identity,err:=patchtool.EnsureProjectIdentity(s.Workspace)
+	providerID,modelID:=req.ProviderID,req.ModelID
+	if providerID!="" {
+		registry,err:=s.agentChatProviders()
+		if err!=nil{http.Error(w,"provider store unavailable",500);return}
+		p,err:=registry.Get(owner,providerID)
+		if err!=nil{http.Error(w,"provider not configured",400);return}
+		if modelID==""{modelID=p.Models[0].ID}
+		if _,ok:=p.FindModel(modelID);!ok{http.Error(w,"model not available in provider",400);return}
+	} else {
+		if modelID!=""{http.Error(w,"provider_id required when model_id is set",400);return}
+		// Legacy default is kept for existing Smart Terminal users, but
+		// explicitly configured Agent providers are fully independent.
+		cfg,err:=s.readAISettings()
+		if err!=nil{http.Error(w,"AI settings unavailable",500);return}
+		if !cfg.Enabled||!cfg.Consent{http.Error(w,"AI default provider disabled",403);return}
+		providerID,modelID=cfg.Provider,cfg.Model
+	}
+		identity,err:=patchtool.EnsureProjectIdentity(s.Workspace)
 	if err!=nil{http.Error(w,"project identity unavailable",http.StatusConflict);return}
-	item,err:=agentchat.NewSession(owner,s.Workspace,identity.ID,cfg.Provider,cfg.Model,req.Mode)
+	item,err:=agentchat.NewSession(owner,s.Workspace,identity.ID,providerID,modelID,req.Mode)
 	if err!=nil{http.Error(w,"invalid session mode or identity",http.StatusBadRequest);return}
 	item,err=store.Save(item,0)
 	if err!=nil{http.Error(w,"cannot save agent session",http.StatusInternalServerError);return}
