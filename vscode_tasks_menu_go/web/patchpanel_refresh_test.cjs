@@ -228,3 +228,67 @@ assert.equal(queueSessionSnapshotSettled(),false,'silent handoff must settle');
 settledContext.queueSilentRefreshPending=false;
 assert.equal(queueSessionSnapshotSettled(),true,'ready queue resumes timed refresh');
 console.log('PASS: prompt action controls recover after an empty queue and refresh awaits Python prompt');
+
+
+// The production command-console scroll helpers must follow the newest output
+// when a RUNNING command's View console button opens, but preserve a manual
+// scroll-back across protocol-driven re-renders.
+const consoleScrollBegin=source.indexOf('  function commandConsoleAtBottom(node){');
+const consoleScrollEnd=source.indexOf('  async function refreshCommandConsole(path,running=false,force=false){',consoleScrollBegin);
+assert.ok(consoleScrollBegin>=0&&consoleScrollEnd>consoleScrollBegin,'production console scroll helpers exist');
+const consoleScrollState=new Map();
+const {commandConsoleAtBottom,recordCommandConsoleScroll,restoreCommandConsoleScroll}=vm.runInNewContext(
+  source.slice(consoleScrollBegin,consoleScrollEnd)+
+  '\n({commandConsoleAtBottom,recordCommandConsoleScroll,restoreCommandConsoleScroll})',
+  {commandConsoleScrollState:consoleScrollState}
+);
+class FakeCommandConsole {
+  constructor(height=5000){this.scrollHeight=height;this.clientHeight=260;this._top=0;this.hidden=false;this.isConnected=true;}
+  get scrollTop(){return this._top;}
+  set scrollTop(top){this._top=Math.max(0,Math.min(Number(top)||0,this.scrollHeight-this.clientHeight));}
+}
+const pathA='artifacts/patch_tool/runs/run-1/command_items/1/command_logs/build.log';
+const firstConsole=new FakeCommandConsole();
+consoleScrollState.set(pathA,{follow:true,top:0});
+restoreCommandConsoleScroll(pathA,firstConsole);
+assert.equal(firstConsole.scrollTop,4740,'opening a long console immediately shows its last line');
+assert.equal(commandConsoleAtBottom(firstConsole),true,'opened console is pinned to latest output');
+recordCommandConsoleScroll(pathA,firstConsole);
+assert.equal(consoleScrollState.get(pathA).follow,true,'tail-follow state is recorded');
+
+firstConsole.scrollTop=1200; // User scrolls up to inspect older compile output.
+recordCommandConsoleScroll(pathA,firstConsole);
+assert.equal(consoleScrollState.get(pathA).follow,false,'manual scroll away disables forced tail following');
+const rebuiltConsole=new FakeCommandConsole(7000);
+restoreCommandConsoleScroll(pathA,rebuiltConsole);
+assert.equal(rebuiltConsole.scrollTop,1200,'refresh/rebuild preserves scroll-back location');
+rebuiltConsole.scrollHeight=8500; // New output arrives while reading older lines.
+restoreCommandConsoleScroll(pathA,rebuiltConsole);
+assert.equal(rebuiltConsole.scrollTop,1200,'new output does not steal scroll position from user');
+
+rebuiltConsole.scrollTop=rebuiltConsole.scrollHeight; // User scrolls to tail again.
+recordCommandConsoleScroll(pathA,rebuiltConsole);
+assert.equal(consoleScrollState.get(pathA).follow,true,'reaching end resumes tail-follow');
+const continuedConsole=new FakeCommandConsole(11000);
+restoreCommandConsoleScroll(pathA,continuedConsole);
+assert.equal(continuedConsole.scrollTop,10740,'live console updates stay on most recent line');
+continuedConsole.hidden=true;
+continuedConsole.scrollTop=200;
+restoreCommandConsoleScroll(pathA,continuedConsole);
+assert.equal(continuedConsole.scrollTop,200,'hidden console should not be scrolled');
+continuedConsole.hidden=false;continuedConsole.isConnected=false;
+recordCommandConsoleScroll(pathA,continuedConsole);
+assert.equal(consoleScrollState.get(pathA).follow,true,'detached console does not override active scroll state');
+
+for(const contract of [
+  "pre.addEventListener('scroll',()=>recordCommandConsoleScroll(path,pre))",
+  'commandConsoleScrollState.set(path,{follow:true,top:0})',
+  'restoreCommandConsoleScroll(path,pre)',
+  'requestAnimationFrame(()=>{',
+  'if(commandConsoleNodes.get(path)===pre&&pre.isConnected&&!pre.hidden)',
+  'node.scrollTop=followTail?node.scrollHeight:previousTop',
+  'commandConsoleScrollState.clear();'
+]){
+  assert.ok(source.includes(contract),'live command-console UI must wire scroll behavior: '+contract);
+}
+console.log('PASS: opening a RUNNING console jumps to its tail; live updates follow without stealing manual scroll-back');

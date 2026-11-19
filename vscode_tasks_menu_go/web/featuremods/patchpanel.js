@@ -761,6 +761,9 @@ function installPatchPanel(){
   const commandConsoleLastFetch=new Map();
   const commandConsolePending=new Map();
   const commandConsoleNodes=new Map();
+  // Preserve the user's scroll position across protocol-driven row rebuilds.
+  // A newly opened console follows the live tail until the user scrolls away.
+  const commandConsoleScrollState=new Map();
   let patchChangesKey='',patchChangesSequence=0;
   for(const [mode,label,detail] of actionDefs){
     const button=document.createElement('button');
@@ -1940,6 +1943,18 @@ function installPatchPanel(){
     if(raw==='SKIPPED')return 'SKIPPED';
     return raw||'QUEUE';
   }
+  function commandConsoleAtBottom(node){
+    return node.scrollHeight-node.clientHeight-node.scrollTop<=32;
+  }
+  function recordCommandConsoleScroll(path,node){
+    if(!node||node.hidden||!node.isConnected)return;
+    commandConsoleScrollState.set(path,{follow:commandConsoleAtBottom(node),top:node.scrollTop});
+  }
+  function restoreCommandConsoleScroll(path,node){
+    if(!node||node.hidden)return;
+    const state=commandConsoleScrollState.get(path);
+    node.scrollTop=state?.follow===false?state.top:node.scrollHeight;
+  }
   async function refreshCommandConsole(path,running=false,force=false){
     const now=Date.now();
     if(commandConsolePending.has(path))return commandConsolePending.get(path);
@@ -1949,14 +1964,22 @@ function installPatchPanel(){
     const promise=readCommandConsole(path).then(text=>{
       commandConsoleCache.set(path,text);
       const node=commandConsoleNodes.get(path);
-      if(node&&node.isConnected)node.textContent=text||'(Console chưa có output)';
+      if(node&&node.isConnected){
+        const previousTop=node.scrollTop;
+        const followTail=commandConsoleScrollState.get(path)?.follow!==false;
+        node.textContent=text||'(Console chưa có output)';
+        if(!node.hidden)node.scrollTop=followTail?node.scrollHeight:previousTop;
+      }
       return text;
     }).catch(error=>{
       // A command event can arrive before its log file is created.
       // Keep the nested row visible and retry on the next RUNNING poll.
       const node=commandConsoleNodes.get(path);
       if(node&&node.isConnected){
+        const previousTop=node.scrollTop;
+        const followTail=commandConsoleScrollState.get(path)?.follow!==false;
         node.textContent=running?'Đang chờ console output…':'Console không khả dụng: '+error.message;
+        if(!node.hidden)node.scrollTop=followTail?node.scrollHeight:previousTop;
       }
       if(!running)throw error;
       return '';
@@ -1997,11 +2020,19 @@ function installPatchPanel(){
         pre.hidden=!commandOpenPaths.has(path);
         pre.textContent=commandConsoleCache.has(path)?commandConsoleCache.get(path):'Đang tải console…';
         commandConsoleNodes.set(path,pre);
+        pre.addEventListener('scroll',()=>recordCommandConsoleScroll(path,pre));
         view.onclick=()=>{
           if(commandOpenPaths.has(path)){
-            commandOpenPaths.delete(path);pre.hidden=true;view.textContent='View console';
+            commandOpenPaths.delete(path);
+            commandConsoleScrollState.delete(path);
+            pre.hidden=true;view.textContent='View console';
           }else{
-            commandOpenPaths.add(path);pre.hidden=false;view.textContent='Hide console';
+            // Always start at the latest line when opening (including when
+            // a RUNNING command already has a long cached console).
+            commandOpenPaths.add(path);
+            commandConsoleScrollState.set(path,{follow:true,top:0});
+            pre.hidden=false;view.textContent='Hide console';
+            restoreCommandConsoleScroll(path,pre);
             void refreshCommandConsole(path,active,true).catch(app.showError);
           }
         };
@@ -2014,6 +2045,13 @@ function installPatchPanel(){
         };
         actions.append(view,copy);row.append(actions,pre);
         if(!pre.hidden){
+          // Rows are recreated during live polls. Restore only after this
+          // element is attached; do not reset scroll when reading old logs.
+          requestAnimationFrame(()=>{
+            if(commandConsoleNodes.get(path)===pre&&pre.isConnected&&!pre.hidden){
+              restoreCommandConsoleScroll(path,pre);
+            }
+          });
           void refreshCommandConsole(path,active,false).catch(()=>{});
         }
       }
@@ -2339,6 +2377,7 @@ function installPatchPanel(){
     commandOpenPaths.clear();
     commandConsoleCache.clear();
     commandConsoleNodes.clear();
+    commandConsoleScrollState.clear();
     commandConsoleLastFetch.clear();
     panel.classList.add('running');
     runningTitle.textContent='Current run';
@@ -2384,6 +2423,7 @@ function installPatchPanel(){
     commandOpenPaths.clear();
     commandConsoleNodes.clear();
     commandConsoleCache.clear();
+    commandConsoleScrollState.clear();
     commandConsoleLastFetch.clear();
     patchChangesKey='';patchChangesSequence++;renderChangedFiles([]);
     renderProgress(null);
