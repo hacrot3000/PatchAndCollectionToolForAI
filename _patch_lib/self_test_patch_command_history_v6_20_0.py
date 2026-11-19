@@ -74,6 +74,10 @@ if os.name != "nt":
         assert [x["command"]["status"] for x in live] == ["QUEUE", "RUNNING", "PASS"], live
         assert [x["command"]["index"] for x in live] == [1, 1, 1], live
         assert all(x["item_index"] == 1 and x["item_name"] == "commands.zip" for x in live), live
+        finished = [x for x in emitted if x.get("type") == "item_finished"
+                    and x.get("name") == "commands.zip"]
+        assert len(finished) == 1 and len(finished[0].get("commands") or []) == 1, finished
+        assert finished[0]["commands"][0]["name"] == "Line one", finished
         assert run.returncode == 0, (run.stdout, run.stderr)
         assert "alpha" in run.stdout
 
