@@ -4,6 +4,9 @@ on:
   push:
     paths:
       - 'vscode_tasks_menu_go/internal/agentchat/**'
+      - 'vscode_tasks_menu_go/web/featuremods/agentchat.js'
+      - 'vscode_tasks_menu_go/web/featuremods/next.js'
+      - 'vscode_tasks_menu_go/web/featuremods/menus.js'
       - 'vscode_tasks_menu_go/internal/server/agent_chat_*'
       - 'vscode_tasks_menu_go/internal/server/server.go'
       - 'vscode_tasks_menu_go/internal/server/shared_authorization.go'
@@ -11,6 +14,9 @@ on:
   pull_request:
     paths:
       - 'vscode_tasks_menu_go/internal/agentchat/**'
+      - 'vscode_tasks_menu_go/web/featuremods/agentchat.js'
+      - 'vscode_tasks_menu_go/web/featuremods/next.js'
+      - 'vscode_tasks_menu_go/web/featuremods/menus.js'
       - '.github/workflows/taskdeck_agentchat_core.yml'
   workflow_dispatch:
 
@@ -32,4 +38,5 @@ jobs:
         run: |
           go test -race -count=1 ./internal/agentchat
           go vet ./internal/agentchat
+          node --check web/featuremods/agentchat.js
           go test -count=1 ./internal/server -run '^TestAgentChat'
