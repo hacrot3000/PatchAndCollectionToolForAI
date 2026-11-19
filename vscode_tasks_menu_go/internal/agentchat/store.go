@@ -25,6 +25,19 @@ var (
 	agentJournalMu sync.Mutex
 )
 
+// ToolCallRecord is a durable, owner-bound execution intent. An absent or
+// ambiguous run is never retried automatically. A call is identified by its
+// provider call_id and the canonical transcript contains its exact arguments.
+type ToolCallRecord struct {
+ CallID string `json:"call_id"`
+ Name string `json:"name"`
+ Status string `json:"status"`
+ QueuePath string `json:"queue_path,omitempty"`
+ PackageSHA256 string `json:"package_sha256,omitempty"`
+ PatchSessionID string `json:"patch_session_id,omitempty"`
+ Result string `json:"result,omitempty"`
+}
+
 // Session is persisted locally even when the provider offers server-side
 // context. It never contains API keys. All mutations require owner/identity
 // matching and revision compare-and-swap.
@@ -41,6 +54,7 @@ type Session struct {
 	ConversationID    string        `json:"conversation_id,omitempty"`
 	Status            string        `json:"status"`
 	History           []HistoryItem `json:"history"`
+	ToolCalls         []ToolCallRecord `json:"tool_calls,omitempty"`
 	Revision          uint64        `json:"revision"`
 	CreatedAt         time.Time     `json:"created_at"`
 	UpdatedAt         time.Time     `json:"updated_at"`
@@ -92,6 +106,22 @@ func validateSession(x Session)error{
 	if x.Mode!=Stateless&&x.Mode!=PreviousResponse&&x.Mode!=Conversation{return ErrInvalidSession}
 	if x.Status==""||len(x.Status)>64||len(x.History)>maxItems{return ErrInvalidSession}
 	for _,item:=range x.History{if err:=validHistoryItem(item);err!=nil{return err}}
+	if len(x.ToolCalls)>32{return ErrInvalidSession}
+	seenCalls:=make(map[string]bool,len(x.ToolCalls))
+	for _,call:=range x.ToolCalls{
+		if call.CallID==""||len(call.CallID)>256||call.Name!="taskdeck_submit_patch"||seenCalls[call.CallID]||len(call.QueuePath)>512||len(call.PackageSHA256)>64||len(call.PatchSessionID)>256||len(call.Result)>4096{return ErrInvalidSession}
+		seenCalls[call.CallID]=true
+		switch call.Status{
+		case "pending","rejected","queuing","queued","running","done","error","unknown":
+		default:return ErrInvalidSession
+		}
+		if call.Status=="queued" && call.QueuePath=="" {return ErrInvalidSession}
+		found:=false
+		for _,item:=range x.History{
+			if item.Type=="function_call"&&item.CallID==call.CallID&&item.Name==call.Name{found=true;break}
+		}
+		if !found{return ErrInvalidSession}
+	}
 	if len(x.PreviousResponseID)>256||len(x.ConversationID)>256||len(x.AIPackFingerprint)>128{return ErrInvalidSession}
 	return nil
 }
