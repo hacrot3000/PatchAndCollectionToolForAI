@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import argparse
 from collections import Counter
-from datetime import datetime
+from datetime import datetime, timezone
 import fnmatch
 import hashlib
 import json
@@ -19,7 +19,8 @@ import time
 import zipfile
 
 from python_patch_collect_schema import CollectSchemaError, validate_request_data
-from python_patch_collect_commands import CollectCommandError, execute_collect_command, command_report
+from python_patch_collect_commands import CollectCommandError, execute_collect_command, command_report, collect_command_log_path
+from python_patch_protocol import emit_command_state
 from python_patch_database_select import DatabaseSelectError, execute_database_select
 from python_patch_project_state import ensure_project_identity, identity_ai_instructions
 
@@ -2275,6 +2276,30 @@ def _archive_request(root: Path, request_zip: Path, executed_snapshot: Path, exp
     return destination, lifecycle
 
 
+def _publish_collect_command_rows(root: Path, rows: list[dict]) -> None:
+    """Sidecar consumed by TaskDeck's History view even after COLLECT exits."""
+    raw = os.environ.get("PTV_COLLECT_COMMAND_RESULT_FILE", "").strip()
+    if not raw:
+        return
+    try:
+        target = Path(raw).resolve(strict=False)
+        rel = target.relative_to(root.resolve(strict=True))
+        if rel.parts[:3] != ("artifacts", "patch_tool", "runtime") or len(rel.parts) != 4:
+            return
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(json.dumps({"commands": rows[:64]}, ensure_ascii=False),
+                          encoding="utf-8")
+    except (OSError, ValueError):
+        pass
+
+
+def _collect_command_row(index: int, action: dict) -> dict:
+    argv = list(action.get("argv") or [])[:24]
+    name = str(action.get("title") or action.get("id") or " ".join(argv) or "Command")[:256]
+    return {"index": index, "name": name, "stage": "COLLECT", "argv": argv,
+            "status": "QUEUE", "log_path": ""}
+
+
 def _run_request(root: Path, request_zip: Path) -> tuple[Path, Path, int, str]:
     input_temp, execution_request, request_sha = _snapshot_request_input(request_zip)
     try:
@@ -2286,6 +2311,17 @@ def _run_request(root: Path, request_zip: Path) -> tuple[Path, Path, int, str]:
                     requested_identity.get("id") != actual_identity["id"]):
                 raise ValueError(f"COLLECT project_identity mismatch: request={requested_identity!r}; local={actual_identity!r}; refuse cross-project source collection")
         builder = ResultBuilder(root, request_data, request_member)
+        command_rows = []
+        command_action_indexes: dict[int, int] = {}
+        for action_index, planned in enumerate(request_data["actions"], 1):
+            if planned.get("type") == "command" and len(command_rows) < 64:
+                command_number = len(command_rows) + 1
+                command_action_indexes[action_index] = command_number
+                planned_row = _collect_command_row(command_number, planned)
+                command_rows.append(planned_row)
+        _publish_collect_command_rows(root, command_rows)
+        for planned_row in command_rows:
+            emit_command_state(dict(planned_row))
         try:
             for index, action in enumerate(request_data["actions"], 1):
                 kind = action["type"]
@@ -2397,10 +2433,40 @@ def _run_request(root: Path, request_zip: Path) -> tuple[Path, Path, int, str]:
                         if quota_reasons:
                             builder.mark_incomplete(action=index, kind=kind, reasons=quota_reasons)
                 elif kind == "command":
+                    command_number = command_action_indexes.get(index)
+                    live = command_rows[command_number - 1] if command_number else None
+                    log_path, log_relative = collect_command_log_path(root, command_number or 0)
+                    started_at = datetime.now(timezone.utc).isoformat(timespec="milliseconds")
+                    started_monotonic = time.monotonic()
+                    if live is not None:
+                        live.update({"status": "RUNNING", "log_path": log_relative,
+                                     "started_at": started_at})
+                        emit_command_state(dict(live))
+                        _publish_collect_command_rows(root, command_rows)
                     try:
-                        command_result = execute_collect_command(root, action)
-                    except CollectCommandError as exc:
-                        raise ValueError(f"COLLECT read-only command rejected: {exc}") from exc
+                        command_result = execute_collect_command(root, action, log_path=log_path)
+                    except Exception as exc:
+                        if log_path is not None:
+                            try:
+                                with log_path.open("ab") as console:
+                                    console.write(("\\n[COLLECT command failed] " + str(exc)[:1024] + "\\n").encode("utf-8", errors="replace"))
+                            except OSError:
+                                pass
+                        if live is not None:
+                            live.update({"status": "FAIL", "rc": 2,
+                                         "elapsed_seconds": round(time.monotonic() - started_monotonic, 3)})
+                            emit_command_state(dict(live))
+                            _publish_collect_command_rows(root, command_rows)
+                        if isinstance(exc, CollectCommandError):
+                            raise ValueError(f"COLLECT read-only command rejected: {exc}") from exc
+                        raise
+                    if live is not None:
+                        rc = int(command_result.get("rc") or 0)
+                        live.update({"status": "PASS" if rc in (0, 1) else "FAIL", "rc": rc,
+                                     "timed_out": bool(command_result.get("timed_out")),
+                                     "elapsed_seconds": round(time.monotonic() - started_monotonic, 3)})
+                        emit_command_state(dict(live))
+                        _publish_collect_command_rows(root, command_rows)
                     builder.add_report(index, kind, title, command_report(action, command_result))
                     if command_result.get("truncated") or command_result.get("timed_out") or int(command_result.get("rc") or 0) not in (0, 1):
                         builder.mark_incomplete(action=index, kind=kind, reasons=[
