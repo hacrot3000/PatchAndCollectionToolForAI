@@ -41,6 +41,7 @@ type RequestConfig struct {
 	Next             []HistoryItem
 	MaxOutputTokens  int
 	ReasoningEffort  string
+	EnablePatchTool bool // explicitly opt in to the only supported execution tool definition
 }
 
 const (
@@ -140,6 +141,24 @@ func BuildResponsesRequest(c RequestConfig)([]byte,error){
 	}
 	if c.MaxOutputTokens>0 {req["max_output_tokens"]=c.MaxOutputTokens}
 	if c.ReasoningEffort!="" {req["reasoning"]=map[string]string{"effort":c.ReasoningEffort}}
+	if c.EnablePatchTool{
+		req["tools"]=[]any{map[string]any{
+			"type":"function",
+			"name":"taskdeck_submit_patch",
+			"description":"Submit a Python Patch Tool package. TaskDeck validates the project identity and requires explicit user approval before any execution. Never claim that submission means execution.",
+			"strict":true,
+			"parameters":map[string]any{
+				"type":"object",
+				"properties":map[string]any{
+					"name":map[string]string{"type":"string","description":"Short descriptive patch name"},
+					"patch_python":map[string]string{"type":"string","description":"Complete TaskDeck Python patch with TASKDECK_PROJECT_KEY and TASKDECK_PROJECT_ID headers"},
+				},
+				"required":[]string{"name","patch_python"},
+				"additionalProperties":false,
+			},
+		}}
+		req["parallel_tool_calls"]=false
+	}
 	b,err:=json.Marshal(req);if err!=nil{return nil,err}
 	if len(b)>maxRequestBytes {return nil,errors.New("AI request exceeds 4 MiB context limit")}
 	return b,nil
