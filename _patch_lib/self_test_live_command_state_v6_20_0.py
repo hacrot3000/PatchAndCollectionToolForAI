@@ -86,6 +86,14 @@ with tempfile.TemporaryDirectory(prefix="ptv_command_live_") as td:
             "No QUEUE + RUNNING states while PATCH subprocess was still active. "
             f"seen={seen!r}; returncode={proc.poll()!r}"
         )
+        live_journals = list((root / "artifacts" / "patch_tool" / "runs").glob(
+            "*/command_items/*/command_logs/command_states.json"
+        ))
+        assert len(live_journals) == 1, live_journals
+        current = json.loads(live_journals[0].read_text(encoding="utf-8"))
+        assert current["format"] == "taskdeck.patch.command-states.v1", current
+        assert current["commands"][0]["status"] == "RUNNING", current
+        assert proc.poll() is None, "command journal was written only after run finished"
         # Release head only AFTER observing RUNNING in the frontend event pipe.
         with pipe.open("w", encoding="utf-8") as stream:
             stream.write("alpha\n")
