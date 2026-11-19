@@ -26,3 +26,12 @@ Gateway, approval, queue paste, native session selection, sync và explicit cont
 2. Tạo manual recovery workflow owner/permission: xem evidence, mở native session, đánh dấu đã kiểm tra với audit; quyết định `not run`/`completed` chỉ khi có bằng chứng phù hợp và có phê duyệt. Không cho user text trở thành giả PASS. Sau khi resolve, tạo proposal/approval mới nếu cần chạy lại.
 3. Scheduler continuation server-side chỉ bật khi user consent rõ phạm vi và quota, có durable lease/claim; khi có final result, persist đúng `call_id` một lần trước egress. Nếu timeout sau khi gửi output, trạng thái gửi UNKNOWN; không resend, không rerun patch. Nếu model đưa patch tiếp theo, dừng chờ approval mới. Đóng browser không làm mất scheduler nhưng không tự kéo dài consent hay quyền.
 4. Fault injection tại từng điểm persist/publish/start/select/result/send, restart cả server và native process, duplicate sync/continue, hủy đồng thời; xác nhận không có lần thực thi thứ hai. `go test ./internal/server -run '^TestAgentChat' -count=1`, `go test -race ./internal/agentchat ./internal/server -run 'TestAgentChat|Test.*Store' -count=1`. Live acceptance và automated fake evidence ghi riêng.
+
+## Release blockers đã xác minh qua source (P0)
+
+- **Internal handler auth:** `agentQueueViaNativePaste`, `agentStartNativePatch`, `agentSelectNativePatch` dùng `httptest.NewRecorder` để gọi `patchPaste`/`sessionsRoot`/`sessionItem`. Đây là code reuse, **không** tự chạy lại middleware. Phải audit owner, CSRF/origin, `PrincipalFromContext`, shared `patch.run`, audit và write lease tại mỗi side effect; hướng đến typed service layer.
+- **Final PASS correlation:** `agentExactPatchSelection` chỉ chọn đúng một index theo tên; `agentPatchResultFromProtocol` chỉ match `name+kind` trong Patch Session. Cần native `run_id`, queue receipt SHA, prompt ID và owner mapping khép kín trước khi nói verified PASS. Package digest trước dispatch chưa thay thế correlation lúc kết thúc.
+- **Source drift:** `TASKDECK_PROJECT_KEY/ID` xác nhận identity, **không** xác nhận HEAD/branch/dirty/untracked; thiếu server-derived drift guard và write lease trước queue/start/select.
+- **Ambiguous side effects:** process-local mutex + JSON journal không cho exactly-once đa daemon; `FeedbackSent=true` trước provider request không chứng minh provider ACK. Không auto requeue/resend khi crash/timeout.
+
+Những gate này phải giữ **BLOCKED** cho unattended execution dù mock-native integration test PASS. Chỉ test live benign Python tại workspace cô lập có quyền. [Source audit](09-source-audit.md).
