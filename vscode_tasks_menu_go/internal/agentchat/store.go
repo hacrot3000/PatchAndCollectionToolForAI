@@ -112,7 +112,7 @@ func validateSession(x Session)error{
 		if call.CallID==""||len(call.CallID)>256||call.Name!="taskdeck_submit_patch"||seenCalls[call.CallID]||len(call.QueuePath)>512||len(call.PackageSHA256)>64||len(call.PatchSessionID)>256||len(call.Result)>4096{return ErrInvalidSession}
 		seenCalls[call.CallID]=true
 		switch call.Status{
-		case "pending","rejected","queuing","queued","running","done","error","unknown":
+		case "pending","rejected","queuing","queued","dispatching","running","done","error","unknown":
 		default:return ErrInvalidSession
 		}
 		if call.Status=="queued" && call.QueuePath=="" {return ErrInvalidSession}
