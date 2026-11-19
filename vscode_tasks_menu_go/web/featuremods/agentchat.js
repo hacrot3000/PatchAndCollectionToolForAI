@@ -63,7 +63,6 @@ const newChat=agentButton('+ New session',()=>createSession().catch(showAgentErr
 const settingsButton=agentButton('Providers / API keys',()=>openAgentSettings().catch(showAgentError));
 const refresh=agentButton('Refresh',()=>loadAgentState().catch(showAgentError));
 const close=agentButton('✕',()=>closeAgentPanel());
-heading.append(title,newChat,preview,rename,archive,settingsButton,refresh,close);
 const layout=agentEl('div','agentchat-layout'),sessionList=agentEl('div','agentchat-list');
 const main=agentEl('div','agentchat-main'),modelBar=agentEl('div','agentchat-modelbar');
 // Open tabs are UI-only: the server remains the source of truth for every
@@ -93,6 +92,7 @@ const preview=agentButton('Preview context',()=>previewAgentContext().catch(show
 const rename=agentButton('Rename',()=>renameAgentSession().catch(showAgentError));
 const archive=agentButton('Archive',()=>archiveAgentSession().catch(showAgentError));
 rename.disabled=true;archive.disabled=true;
+heading.append(title,newChat,preview,rename,archive,settingsButton,refresh,close);
 actionLine.append(attachButton,autoFeedback,status,cancel,send);composer.append(attachList,prompt,actionLine);
 main.append(tabbar,modelBar,transcript,composer);layout.append(sessionList,main);
 const footer=agentEl('div','agentchat-info','Responses API • AI Pack on first turn • native Patch execution requires explicit approval per tool call. Results are verified from native protocol before AI feedback.');
