@@ -2130,3 +2130,32 @@ func TestPatchPanelExposesPerCommandConsoleInCurrentAndHistory(t *testing.T) {
 		}
 	}
 }
+
+
+func TestPatchPanelLiveTaskRunShowsQueuedCommandsAndRefreshingConsoles(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, marker := range []string{
+		"function commandElapsedText(row)",
+		"function commandDisplayStatus(status)",
+		"function appendCommandEvidence(host,commands)",
+		"const commandOpenPaths=new Set()",
+		"commandOpenPaths.has(path)",
+		"function refreshCommandConsole(path,running=false,force=false)",
+		"readCommandConsole(path)",
+		"View console",
+		"Copy console",
+		"QUEUE",
+		"RUNNING",
+		"PASS",
+		"appendCommandEvidence(row,item?.commands)",
+		"status.textContent=visibleStatus",
+	} {
+		if !strings.Contains(js, marker) {
+			t.Fatalf("live Task Run command UI missing %q", marker)
+		}
+	}
+}
