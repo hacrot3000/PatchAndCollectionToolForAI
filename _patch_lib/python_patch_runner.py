@@ -2327,6 +2327,16 @@ def _execute_patch(root: Path, source: Path, *, no_validation: bool = False) -> 
             remote_argv = list(remote_node.get("argv") or [])
             remote_name = "SSH · " + str(remote_node.get("profile_name") or "")
             remote_log, remote_log_rel = _command_log_path(root, "remote_ssh")
+            remote_index = len(_ACTIVE_COMMAND_EVIDENCE) + 1
+            remote_started_at = _command_utc_now()
+            remote_start = time.monotonic()
+            _live_command_event(index=remote_index, stage="REMOTE SSH", name=remote_name,
+                                argv=remote_argv, status="QUEUE")
+            _live_command_event(index=remote_index, stage="REMOTE SSH", name=remote_name,
+                                argv=remote_argv, status="RUNNING", started_at=remote_started_at,
+                                log_path=remote_log_rel)
+            if remote_log is not None:
+                remote_log.touch(mode=0o600, exist_ok=True)
             try:
                 ssh_result = run_remote_ssh(root, remote_node, dry_run=False)
                 result["remote_ssh"] = ssh_result
@@ -2340,6 +2350,10 @@ def _execute_patch(root: Path, source: Path, *, no_validation: bool = False) -> 
                 _append_command_evidence(stage="REMOTE SSH", name=remote_name, argv=remote_argv,
                                          cwd="remote login", status="PASS" if rc == 0 else "FAIL",
                                          rc=rc, log_path=remote_log_rel)
+                _live_command_event(index=remote_index, stage="REMOTE SSH", name=remote_name,
+                                    argv=remote_argv, status="PASS" if rc == 0 else "FAIL",
+                                    rc=rc, log_path=remote_log_rel, started_at=remote_started_at,
+                                    elapsed_seconds=time.monotonic() - remote_start)
                 payload_diag = None if rc == 0 else {
                     "kind": "remote_ssh_execution_failed",
                     "message": "Saved-profile SSH command failed; see remote_ssh output",
@@ -2352,6 +2366,10 @@ def _execute_patch(root: Path, source: Path, *, no_validation: bool = False) -> 
                 _append_command_evidence(stage="REMOTE SSH", name=remote_name, argv=remote_argv,
                                          cwd="remote login", status="FAIL", rc=rc, log_path=remote_log_rel,
                                          error=str(exc))
+                _live_command_event(index=remote_index, stage="REMOTE SSH", name=remote_name,
+                                    argv=remote_argv, status="FAIL", rc=rc,
+                                    log_path=remote_log_rel, started_at=remote_started_at,
+                                    elapsed_seconds=time.monotonic() - remote_start)
                 payload_diag = {"kind": exc.kind, "message": str(exc), "affected_paths": []}
                 print(f"ERROR: {exc}", file=sys.stderr)
         elif kind == "python":
