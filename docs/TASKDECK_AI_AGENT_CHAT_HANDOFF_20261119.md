@@ -85,15 +85,15 @@ These are **design targets**, not promises that routes already exist.
 - [ ] F01.3 Align exact native Patch Tool schema and remote execution protocol with this proposal.
   - [ ] F01.3.1 Pin proven parser/queue/execution APIs with source-line references; no duplicate parser.
 
-### F02 — Model/provider settings & credentials [TODO]
-- [ ] F02.1 Versioned provider/model config (custom HTTPS, provider ID, `apiType`, capabilities, reasoning support).
-  - [ ] F02.1.1 Validate URL/pinning rules, model ID, token bounds and unsupported settings without runtime assumptions.
+### F02 — Model/provider settings & credentials [IN PROGRESS: core delivered, delete/key revoke and capability probes outstanding]
+- [x] F02.1 Versioned provider/model config (custom HTTPS, provider ID, `apiType`, capabilities, reasoning support) — Responses-only schema v1.
+  - [x] F02.1.1 Validate public HTTPS URL, DNS/public IP at connect, model ID, token bounds and unsupported settings; tested without live egress.
   - [ ] F02.1.2 Separate secrets from exportable model JSON; explicit credential lifecycle.
-- [ ] F02.2 Native settings UI and test connection.
+- [x] F02.2 Native settings UI and basic Responses text connection test (stream/tools/statefulness not yet probed).
   - [ ] F02.2.1 Add/list/edit/remove providers, model reasoning, default selection; no plaintext key response.
   - [ ] F02.2.2 Probe text/stream/tool calling/stateful modes; never assume capability from declaration alone.
 - [ ] F02.3 Provider adapters.
-  - [ ] F02.3.1 Responses request/response format and reasoning parameter translation.
+  - [x] F02.3.1 Responses request/response format and default reasoning-effort parameter for configured model.
   - [ ] F02.3.2 Streaming SSE, cancellation, errors, rate limits and tool-call output parsing.
   - [ ] F02.3.3 Optional Chat Completions/Messages adapters (later).
 
@@ -102,14 +102,14 @@ These are **design targets**, not promises that routes already exist.
   - [x] F03.1.1 Atomic write/revision/size bound and session recovery after process restart (owner-bound private Go journal + tests).
   - [ ] F03.1.2 Session list/create/rename/archive/cancel APIs + UI tabs.
 - [ ] F03.2 AI Pack first turn.
-  - [ ] F03.2.1 Generate/validate bounded AI Pack snapshot on first user message and pin fingerprint/identity.
-  - [ ] F03.2.2 Separate system instructions from untrusted pack/docs/logs; block cross-project context.
+  - [x] F03.2.1 Generate/validate bounded first-turn AI Pack text snapshot; pin fingerprint/project ID; mocked integration test.
+  - [x] F03.2.2 Separate mandatory system instructions from untrusted AI Pack body; validate project UUID before egress.
 - [ ] F03.3 Stateful and stateless memory.
-  - [ ] F03.3.1 Previous-response chaining; persist response ID only after successful append.
+  - [x] F03.3.1 Previous-response chaining; persist response ID alongside completed assistant message (mocked two-turn test).
   - [ ] F03.3.2 Conversations API ID mode; explicit compatibility tests; fallback to canonical history.
   - [ ] F03.3.3 Canonical tool-call/results replay, context budget and compaction preserving commitments.
 
-### F04 — Agent conversation & UI [TODO]
+### F04 — Agent conversation & UI [IN PROGRESS: synchronous chat exists; streaming, resume and execution UI pending]
 - [ ] F04.1 Streaming backend turn coordinator, per-session state machine and quotas.
   - [ ] F04.1.1 Append user+assistant messages transactionally; handle retry/timeouts/recovery.
   - [ ] F04.1.2 Stop/cancel/pause/resume and bounded loop iteration.
@@ -140,7 +140,7 @@ These are **design targets**, not promises that routes already exist.
 ### F07 — Security/validation/operability [TODO]
 - [ ] F07.1 Auth, owner/project isolation and approvals for every new route and tool.
   - [ ] F07.1.1 Fail closed on unknown capability or untrusted patch metadata; never accept AI's `approved` flag.
-  - [ ] F07.1.2 Provider egress/SSRF/redirect policy, local/private-IP safeguards and TLS.
+  - [x] F07.1.2 Provider egress/SSRF/redirect policy, local/private-IP safeguards and TLS code; independent security audit remains pending.
 - [ ] F07.2 Tests and documentation.
   - [x] F07.2.1 Unit tests for initial Responses request/parse, chaining, tool-call mapping, owner isolation and persistence; additional provider formats remain F02.3.3.
   - [ ] F07.2.2 Integration tests for native Patch run/retry/cancel, concurrent sessions and remote E2EE.
@@ -159,8 +159,8 @@ These are **design targets**, not promises that routes already exist.
 |---|---|---|
 | M0 handoff | This document with verified code map and statuses | DONE (source) |
 | M1 protocol core | Stateful/stateless request building, parse response, tests | DONE (code + CI) |
-| M2 session API + provider settings | Persisted concurrent sessions, BYOK secrets, capability testing | IN PROGRESS (session create/list/get only) |
-| M3 chat GUI | Real messages with streaming, cancel and recovery | TODO |
+| M2 session API + provider settings | Persisted sessions, BYOK secrets, capability testing | IN PROGRESS (BYOK and basic probe done; advanced capability tests/revoke pending) |
+| M3 chat GUI | Real messages with streaming, cancel and recovery | IN PROGRESS (synchronous chat + GUI done; streaming/recovery pending) |
 | M4 Patch loop | Real queue run + tool results + idempotency + approvals | TODO |
 | M5 remote & multi-session | E2EE live tests, lock safety, session isolation | TODO |
 | M6 release acceptance | Regression suite, real provider smoke, security review | TODO |
@@ -179,17 +179,30 @@ These are **design targets**, not promises that routes already exist.
 - A9: Existing Smart Terminal suggestion-only behavior and Patch Tool manual behavior remain intact.
 - A10: After reopening GUI or restarting backend, session history and execution identities are recoverable.
 
-## 7. Implementation log and verified evidence (2026-11-19)
+## 7. Implementation log and verified evidence (2026-11-19; updated)
 
-**Implemented on `main`:**
-- `vscode_tasks_menu_go/internal/agentchat/responses.go` and `responses_test.go`: create Responses API payloads in stateless / `previous_response_id` / conversation modes, replay canonical user/assistant/function call/output items, refresh instructions every request, parse text/tool calls, reject invalid/duplicate calls and oversized requests. **No network call or execution primitive is exposed in the package.**
-- `vscode_tasks_menu_go/internal/agentchat/store.go` and `store_test.go`: owner-bound private canonical sessions with project UUID/model/mode, cryptographically random session ID, atomic file writes, revision compare-and-swap, owner filtering and restart-recovery tests.
-- `vscode_tasks_menu_go/internal/server/agent_chat_sessions.go`, `agent_chat_sessions_test.go`, `server.go`, `shared_authorization.go`: `GET/POST /api/agent/sessions` and `GET /api/agent/sessions/{id}`; project UUID supplied by backend, external-provider consent required for list/create, route-level shared-server permissions; sessions remain `execution_enabled=false`.
-- `.github/workflows/taskdeck_agentchat_core.yml`: dedicated Go race/unit/vet CI for package plus Agent Session API/RBAC tests.
+**Implemented on `main` (code-level scope):**
+- `internal/agentchat/responses.go`, `responses_test.go`: canonical context modes `stateless`, `previous_response`, `conversation` (conversation ID reuse only); tool-call/result encoding/parsing, mandatory instructions every request.
+- `internal/agentchat/store.go`, `store_test.go`: owner/project-bound 0600 canonical history, random session IDs, CAS revision guard, atomic saves, restart recovery.
+- `internal/agentchat/providers.go`, `providers_test.go`: provider/model schema v1, public HTTPS validation, DNS resolution public-IP checks on each connection, no proxy/redirect, bounded Responses HTTP request, owner-scoped metadata store. Agent keys are **not** stored in provider JSON.
+- `internal/server/agent_chat_providers.go`, `agent_chat_providers_test.go`: `GET/PUT /api/agent/providers` and opt-in `POST /api/agent/providers/test`. Credentials go through existing encrypted `ConnectionSecrets` with separate owner/workspace/provider keys. The probe tests **only basic Responses text**, not tool calling, streaming, stateful history or reasoning capabilities.
+- `internal/server/agent_chat_sessions.go`, `agent_chat_sessions_test.go`: `GET/POST /api/agent/sessions`, `GET /api/agent/sessions/{id}`; explicit custom provider/model selection and project UUID binding. Existing advisory settings remain backward-compatible, but legacy advisory provider keys do not automatically grant Agent Chat capabilities.
+- `internal/server/agent_chat_messages.go`, `agent_chat_messages_test.go`: `POST /api/agent/sessions/{id}/messages`; explicit external egress consent, per-session in-flight lock, revision compare-and-swap, AI Pack on first turn with size bound and fingerprint, mandatory system instructions, persisted user+assistant history, previous response chaining, tool-call recognition with `waiting_tool` status and **zero execution**. Error leaves a durable failed session; automatic retry deliberately disabled.
+- `internal/server/server.go`, `shared_authorization.go`: routing and shared-server RBAC, including `files.read` before external project-context submission.
+- `web/featuremods/agentchat.js`, `next.js`, `menus.js`, `internal/server/agent_chat_ui_test.go`: integrated native UI under Settings → AI Assistant: Open AI Agent Chat / AI Agent providers; configure model/key, create/select sessions, show transcript, send/review external message, cancel active browser request, no command execution.
+- `.github/workflows/taskdeck_agentchat_core.yml`: Go race/unit/vet, server Agent Chat integration tests and `node --check` for new UI.
 
-**CI evidence:** [TaskDeck Agent Chat protocol core run 44459978173](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/44459978173) — PASS, `go test -race -count=1 ./internal/agentchat`, `go vet ./internal/agentchat`, `go test -count=1 ./internal/server -run '^TestAgentChat'`. Subsequent commits must trigger/reconfirm CI.
+**Latest CI:** [Agent Chat protocol core run 44464121465](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/44464121465) — PASS. Includes Go race tests, provider/session/message mock tests, server RBAC/UI tests and JavaScript syntax check. These tests do not count as a live custom-endpoint or browser acceptance test.
 
-**Not yet implemented:** Chat message send API, Responses HTTP adapter and provider credentials/config UI, real AI Pack first-turn input, streaming, model tool call execution, Patch loop, console UI, remote binding, scheduler. An API that creates a session is **not** a functional AI chat. Never claim otherwise.
+**Known limitations / must not overclaim:**
+1. Patch Tool execution/auto feedback is **NOT implemented**. Function calls received from a provider are stored as `waiting_tool`; they are not executed. No `taskdeck_submit_patch` tool is yet advertised to the model.
+2. Basic Chat is synchronous JSON only: SSE streaming, pause/resume, cross-daemon locks, request idempotency, retry/recovery UI, session rename/delete and log console integration are incomplete.
+3. Conversations mode falls back to canonical stateless replay until a verified Conversations API create/ID negotiation path exists. `previous_response_id` mode assumes the provider supports chaining when selected; automatic capability negotiation/fallback on provider error is not implemented yet.
+4. The first AI Pack request sends a bounded/redacted text companion, not a ZIP. Server rejects oversize packs instead of silently truncating the tool contract. Automatic context compaction and an AI Pack preview/advanced egress policy are not yet implemented.
+5. Metadata editing and key creation/rotation exist, but delete provider, revoke API key, model discovery, pricing/token accounting and provider-specific reasoning validation require further work.
+6. Current browser UI only demonstrates basic chat and multi-session switching. Real endpoint/network smoke, browser usability and remote E2EE acceptance remain untested.
+
+**Next ordered implementation:** (A) precise idempotent Tool Gateway + Patch Tool execution binding, (B) output/result collector and auto feedback loop, (C) SSE/context recovery + advanced provider probes, (D) remote/writer locks and task console, (E) release hardening. Keep future plan DAG deferred.
 
 ## 8. First implementation change boundaries and handoff to next engineer
 
