@@ -26,7 +26,8 @@ with tempfile.TemporaryDirectory(prefix="ptv_command_live_") as td:
     shutil.copytree(HERE.parent, root / "tools")
     (root / "tools" / "run_python_patches.sh").chmod(0o755)
     (root / "patchs").mkdir()
-    (root / "sample.txt").write_text("alpha\nbeta\n", encoding="utf-8")
+    pipe = root / "live_pipe.txt"
+    os.mkfifo(pipe)
     manifest = {
         "schema_version": 1,
         "patch": {"id": "live-child-command"},
@@ -34,9 +35,7 @@ with tempfile.TemporaryDirectory(prefix="ptv_command_live_") as td:
             "run_when_no_changes": True,
             "no_change_reason": "Verify live command status events before run completion.",
             "commands": [
-                {"name": "Slow first command", "argv": ["sleep", "4"],
-                 "cwd": ".", "timeout_seconds": 15},
-                {"name": "Fast second command", "argv": ["head", "-n", "1", "sample.txt"],
+                {"name": "Read from slow FIFO", "argv": ["head", "-n", "1", "live_pipe.txt"],
                  "cwd": ".", "timeout_seconds": 15},
             ],
         },
@@ -76,9 +75,8 @@ with tempfile.TemporaryDirectory(prefix="ptv_command_live_") as td:
                 if event.get("type") != "command_state":
                     continue
                 seen.append(event)
-                rows = {item["command"]["index"]: item["command"]["status"]
-                        for item in seen}
-                if rows.get(1) == "RUNNING" and rows.get(2) == "QUEUE":
+                statuses = [item["command"]["status"] for item in seen]
+                if statuses[:2] == ["QUEUE", "RUNNING"]:
                     if proc.poll() is None:
                         saw_concurrent = True
                     break
@@ -88,8 +86,13 @@ with tempfile.TemporaryDirectory(prefix="ptv_command_live_") as td:
             "No QUEUE + RUNNING states while PATCH subprocess was still active. "
             f"seen={seen!r}; returncode={proc.poll()!r}"
         )
+        # Release head only AFTER observing RUNNING in the frontend event pipe.
+        with pipe.open("w", encoding="utf-8") as stream:
+            stream.write("alpha\n")
     finally:
         os.close(read_fd)
+        if not saw_concurrent and proc.poll() is None:
+            proc.kill()
         try:
             output, _ = proc.communicate(timeout=30)
         except subprocess.TimeoutExpired:
@@ -101,6 +104,6 @@ with tempfile.TemporaryDirectory(prefix="ptv_command_live_") as td:
     own = next(x for x in (state.get("details") or state.get("results") or [])
                if x.get("name") == "live.zip")
     commands = own["patch_result"]["commands"]
-    assert [x["status"] for x in commands] == ["PASS", "PASS"], commands
+    assert [x["status"] for x in commands] == ["PASS"], commands
     assert all((root / x["log_path"]).is_file() for x in commands), commands
 print("PASS: native command-state events were visible while a slow PATCH was executing")
