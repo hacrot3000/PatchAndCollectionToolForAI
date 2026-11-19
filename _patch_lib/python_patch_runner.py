@@ -629,6 +629,7 @@ def _run_managed_command_logged(argv: list[str], *, cwd: Path, timeout: int,
                 if remaining:
                     part = chunk[:remaining]
                     output.write(part)
+                    output.flush()  # live Task Run may read while subprocess continues
                     written += len(part)
                 if len(chunk) > remaining:
                     truncated = True
@@ -705,6 +706,35 @@ def _append_command_evidence(*, stage: str, name: str, argv: list[str],
     _ACTIVE_COMMAND_EVIDENCE.append(row)
 
 
+def _live_command_event(*, index: int, stage: str, name: str, argv: list[str],
+                        status: str, log_path: str = "", started_at: str = "",
+                        elapsed_seconds: float | None = None, rc: int | None = None,
+                        timed_out: bool = False) -> None:
+    if not 1 <= index <= 64:
+        return
+    from python_patch_protocol import emit_command_state
+    command: dict[str, object] = {
+        "index": index, "name": name[:256], "stage": stage[:64],
+        "argv": [("[REDACTED]" if re.search(
+            r"(?i)(password|passwd|token|secret|api[_-]?key|authorization|bearer|cookie|credential)\s*[:=]",
+            part) else part[:512]) for part in argv[:24]],
+        "status": status, "log_path": log_path,
+    }
+    if started_at:
+        command["started_at"] = started_at
+    if elapsed_seconds is not None:
+        command["elapsed_seconds"] = round(max(0.0, elapsed_seconds), 3)
+    if rc is not None:
+        command["rc"] = int(rc)
+    if timed_out:
+        command["timed_out"] = True
+    emit_command_state(command)
+
+
+def _command_utc_now() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="milliseconds")
+
+
 def _run_argv(root: Path, cmd: dict, *, label: str = "POST PATCH", log_path: Path | None = None) -> ManagedProcessResult:
     argv = cmd.get("argv")
     label_lower = label.lower().replace(" ", "_")
@@ -729,48 +759,91 @@ def _run_command_sequence(root: Path, commands: object, *, label: str) -> dict[s
         return result
     rows: list[dict[str, object]] = []
     result["commands"] = rows
-    for cmd in commands:
+    # Queue all known commands before executing the first one. Each command
+    # keeps the same global index for QUEUE -> RUNNING -> PASS/FAIL/SKIPPED.
+    base_index = len(_ACTIVE_COMMAND_EVIDENCE)
+    def parts(cmd: object) -> tuple[str, list[str], str]:
         if not isinstance(cmd, dict):
-            rows.append({"name": "<invalid>", "status": "FAIL", "rc": 2, "timed_out": False})
-            result.update({"status": "FAIL", "rc": 2})
-            print(f"ERROR: invalid {label.lower()} command object", file=sys.stderr)
-            break
-        name = str(cmd.get("name") or " ".join(cmd.get("argv") or []) or "<unnamed>")
-        argv_evidence = list(cmd.get("argv") or [])
-        cwd_evidence = str(cmd.get("cwd") or ".")
+            return "<invalid>", [], "."
+        argv = cmd.get("argv")
+        safe_argv = list(argv) if isinstance(argv, list) else []
+        name = str(cmd.get("name") or " ".join(str(x) for x in safe_argv) or "<unnamed>")
+        return name, safe_argv, str(cmd.get("cwd") or ".")
+    for offset, command in enumerate(commands):
+        name, argv, _ = parts(command)
+        _live_command_event(index=base_index + offset + 1, stage=label,
+                            name=name, argv=argv, status="QUEUE")
+    stopped_at = len(commands)
+    for offset, cmd in enumerate(commands):
+        name, argv_evidence, cwd_evidence = parts(cmd)
+        command_index = base_index + offset + 1
+        started_at = _command_utc_now()
+        began = time.monotonic()
         log_file, log_rel = _command_log_path(root, label)
+        _live_command_event(index=command_index, stage=label, name=name,
+                            argv=argv_evidence, status="RUNNING",
+                            log_path=log_rel, started_at=started_at)
+        rc = 2
         try:
+            if not isinstance(cmd, dict):
+                raise ValueError(f"invalid {label.lower()} command object")
             outcome = _run_argv(root, cmd, label=label, log_path=log_file)
             rc = outcome.effective_rc
             if outcome.lingering_descendants:
                 print(f"ERROR: {label.lower()} command left descendant processes after its leader exited; descendants were terminated", file=sys.stderr)
-            rows.append({"name": name, "status": "PASS" if rc == 0 else "FAIL", "rc": rc, "timed_out": bool(outcome.timed_out), "lingering_descendants": bool(outcome.lingering_descendants), "log_path": log_rel})
-            _append_command_evidence(stage=label, name=name, argv=argv_evidence, cwd=cwd_evidence,
-                                     status="PASS" if rc == 0 else "FAIL", rc=rc,
+            status = "PASS" if rc == 0 else "FAIL"
+            rows.append({"name": name, "status": status, "rc": rc,
+                         "timed_out": bool(outcome.timed_out),
+                         "lingering_descendants": bool(outcome.lingering_descendants),
+                         "log_path": log_rel})
+            _append_command_evidence(stage=label, name=name, argv=argv_evidence,
+                                     cwd=cwd_evidence, status=status, rc=rc,
                                      log_path=log_rel, timed_out=bool(outcome.timed_out))
+            _live_command_event(index=command_index, stage=label, name=name,
+                                argv=argv_evidence, status=status, rc=rc,
+                                log_path=log_rel, started_at=started_at,
+                                elapsed_seconds=time.monotonic() - began,
+                                timed_out=bool(outcome.timed_out))
         except KeyboardInterrupt:
             rc = 143 if _ACTIVE_TERMINATION_SIGNAL == getattr(signal, "SIGTERM", None) else 130
-            rows.append({"name": name, "status": "INTERRUPTED", "rc": rc, "timed_out": False, "log_path": log_rel})
-            _append_command_evidence(stage=label, name=name, argv=argv_evidence, cwd=cwd_evidence,
-                                     status="INTERRUPTED", rc=rc, log_path=log_rel)
-            result.update({"status": "INTERRUPTED", "rc": rc})
+            rows.append({"name": name, "status": "INTERRUPTED", "rc": rc,
+                         "timed_out": False, "log_path": log_rel})
+            _append_command_evidence(stage=label, name=name, argv=argv_evidence,
+                                     cwd=cwd_evidence, status="INTERRUPTED", rc=rc,
+                                     log_path=log_rel)
+            _live_command_event(index=command_index, stage=label, name=name,
+                                argv=argv_evidence, status="INTERRUPTED", rc=rc,
+                                log_path=log_rel, started_at=started_at,
+                                elapsed_seconds=time.monotonic() - began)
             print(f"{label}: interrupted by user/termination signal", file=sys.stderr, flush=True)
-            # User termination is a control-flow event, not an ordinary command
-            # failure.  Propagate it so the runner/dispatcher globally stops the
-            # batch after the managed process tree has been quiesced.
             raise
         except Exception as exc:
             print(f"ERROR: {label.lower()} command invalid: {exc}", file=sys.stderr)
-            rows.append({"name": name, "status": "FAIL", "rc": 2, "timed_out": False, "error": f"{type(exc).__name__}: {exc}", "error_kind": getattr(exc, "kind", None), "log_path": log_rel})
+            rows.append({"name": name, "status": "FAIL", "rc": 2, "timed_out": False,
+                         "error": f"{type(exc).__name__}: {exc}",
+                         "error_kind": getattr(exc, "kind", None), "log_path": log_rel})
             _write_command_failure_console(log_file, f"{type(exc).__name__}: {exc}")
-            _append_command_evidence(stage=label, name=name, argv=argv_evidence, cwd=cwd_evidence,
-                                     status="FAIL", rc=2, log_path=log_rel,
-                                     error=f"{type(exc).__name__}: {exc}")
-            result.update({"status": "FAIL", "rc": 2})
-            break
+            _append_command_evidence(stage=label, name=name, argv=argv_evidence,
+                                     cwd=cwd_evidence, status="FAIL", rc=2,
+                                     log_path=log_rel, error=f"{type(exc).__name__}: {exc}")
+            _live_command_event(index=command_index, stage=label, name=name,
+                                argv=argv_evidence, status="FAIL", rc=2,
+                                log_path=log_rel, started_at=started_at,
+                                elapsed_seconds=time.monotonic() - began)
         if rc:
             result.update({"status": "FAIL", "rc": rc})
+            stopped_at = offset + 1
             break
+    # Remaining planned commands were not executed; finalize their statuses
+    # before another stage (such as on_failure) can reuse their index.
+    for offset in range(stopped_at, len(commands)):
+        name, argv, cwd = parts(commands[offset])
+        index = base_index + offset + 1
+        rows.append({"name": name, "status": "SKIPPED", "rc": None, "log_path": ""})
+        _append_command_evidence(stage=label, name=name, argv=argv, cwd=cwd,
+                                 status="SKIPPED", rc=0, log_path="")
+        _live_command_event(index=index, stage=label, name=name, argv=argv,
+                            status="SKIPPED")
     return result
 
 
