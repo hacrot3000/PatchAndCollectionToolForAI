@@ -1184,12 +1184,18 @@ def _run_patch_child(
     expected_patch_sha256: str | None = None,
     expected_targets: list[str] | None = None,
     live_status: _LivePatchStatus | None = None,
+    item_index: int = 1,
+    item_total: int = 1,
 ) -> tuple[int, str, dict[str, object] | None]:
     runtime = _artifact_subdir(root, "runtime")
     token = f"{int(time.time()*1000000)}_{os.getpid()}_{_safe_slug(item.name,48)}"
     result_path = runtime / f"{token}.json"
     env = dict(os.environ)
     env["PTV_PATCH_RESULT_FILE"] = str(result_path)
+    env["TASKDECK_PATCH_PROGRESS_INDEX"] = str(item_index)
+    env["TASKDECK_PATCH_PROGRESS_TOTAL"] = str(item_total)
+    env["TASKDECK_PATCH_PROGRESS_ITEM_NAME"] = item.name
+    env["TASKDECK_PATCH_PROGRESS_ITEM_KIND"] = item.kind
     if full_log_path is not None:
         # Scoped to this one item and run. History cleanup owns the same run
         # directory; per-command evidence survives later sessions until then.
@@ -1227,6 +1233,16 @@ def _run_patch_child(
     }
     if os.name != "nt":
         child_kwargs["start_new_session"] = True
+        # The Python runner publishes command QUEUE/RUNNING/DONE on the same
+        # existing framed event pipe. Without pass_fds its events were lost.
+        raw_fd = str(env.get("TASKDECK_PATCH_EVENT_FD", "")).strip()
+        try:
+            event_fd = int(raw_fd, 10)
+            if event_fd >= 3:
+                os.fstat(event_fd)
+                child_kwargs["pass_fds"] = (event_fd,)
+        except (ValueError, OSError):
+            pass
     elif hasattr(subprocess, "CREATE_NEW_PROCESS_GROUP"):
         child_kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
     proc = subprocess.Popen(cmd, **child_kwargs)
@@ -7603,12 +7619,19 @@ def execute_items(
                     expected_patch_sha256=(meta.package_sha256 if meta is not None else None),
                     expected_targets=(list(meta.effective_targets) if meta is not None else None),
                     live_status=live_status,
+                    item_index=index + 1,
+                    item_total=len(chosen),
                 )
                 patch_result = _enrich_patch_diagnosis(patch_result, console_log)
             else:
                 runtime = _artifact_subdir(root, "runtime")
                 collect_result_path = runtime / f"collect_{int(time.time()*1000000)}_{os.getpid()}.json"
                 env = dict(os.environ); env["PTV_COLLECT_RESULT_FILE"] = str(collect_result_path)
+                if detail_log_path is not None:
+                    env["PTV_COLLECT_COMMAND_LOG_DIR"] = str(
+                        detail_log_path.parent.parent / "command_items" /
+                        detail_log_path.stem / "command_logs"
+                    )
                 env["TASKDECK_PATCH_PROGRESS_RUN_ID"] = str(_ACTIVE_RUN_ID or "")
                 env["TASKDECK_PATCH_PROGRESS_INDEX"] = str(index + 1)
                 env["TASKDECK_PATCH_PROGRESS_TOTAL"] = str(len(chosen))
