@@ -45,6 +45,18 @@ func TestProtocolCommandJournalRestoresLiveQueuedRunningAndFinishedRows(t *testi
 		t.Fatalf("queued row missing from current run: %#v", state.Items)
 	}
 	writeJournal("RUNNING", 1.5)
+	// Read through the same Manager.ProtocolState method used by the HTTP
+	// endpoint, not only the isolated journal helper.
+	manager := NewManager(0)
+	manager.sessions["active"] = &managedSession{
+		meta: Metadata{Cwd: root},
+		protocol: ProtocolState{Items: append([]ProtocolItemState(nil), state.Items...)},
+	}
+	snapshot, err := manager.ProtocolState("active")
+	if err != nil || len(snapshot.Items) != 1 || len(snapshot.Items[0].Commands) != 1 ||
+		snapshot.Items[0].Commands[0].Status != "RUNNING" {
+		t.Fatalf("live protocol API snapshot omitted RUNNING journal: %#v, %v", snapshot.Items, err)
+	}
 	applyCommandJournalToState(root, &state)
 	if state.Items[0].Commands[0].Status != "RUNNING" {
 		t.Fatalf("running row was not refreshed: %#v", state.Items)
