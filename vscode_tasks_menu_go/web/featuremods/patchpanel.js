@@ -314,6 +314,7 @@ function installPatchPanel(){
   .task-patch-run-title{font-weight:700;margin-bottom:6px}
   .task-patch-run-items{display:grid;gap:4px}
   .task-patch-run-item{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px;padding:5px 6px;border-radius:4px;background:#171c23;border:1px solid transparent}
+  .task-patch-run-item > .task-patch-command-list{grid-column:1/-1;min-width:0;width:100%;box-sizing:border-box}
   .task-patch-run-item.running{border-color:#546f95;background:#182536}
   .task-patch-run-item.passed{border-color:#4f7d5c;background:#17281c}
   .task-patch-run-item.passed.collect-success{border-color:#8b7338;background:#292313}
