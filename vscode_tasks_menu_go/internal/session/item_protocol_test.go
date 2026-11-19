@@ -160,3 +160,17 @@ func TestProtocolItemCommandStateRejectsInvalidEvent(t *testing.T) {
 		}
 	}
 }
+
+
+func TestProtocolItemPreservesRunIDForCommandJournalRecovery(t *testing.T) {
+	item, event, err := protocolItemEvent([]byte(`{"protocol":"taskdeck.patch","version":1,"type":"item_started","index":1,"total":2,"run_id":"1795061800896644_898883","name":"example.zip","kind":"PATCH"}`))
+	if err != nil || event != "item_started" || item.RunID != "1795061800896644_898883" {
+		t.Fatalf("run_id needed for live journal was dropped: %#v %q %v", item, event, err)
+	}
+	for _, invalid := range []string{"../escape", "/etc/passwd", "bad\\path", "bad.name"} {
+		data := []byte(`{"protocol":"taskdeck.patch","version":1,"type":"item_started","index":1,"total":1,"run_id":` + `"` + invalid + `"` + `,"name":"example.zip","kind":"PATCH"}`)
+		if _, _, err := protocolItemEvent(data); err == nil {
+			t.Fatalf("unsafe run ID accepted: %q", invalid)
+		}
+	}
+}
