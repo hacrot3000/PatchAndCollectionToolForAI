@@ -108,11 +108,6 @@ func (s *Server) agentChatToolDecisionAPI(w http.ResponseWriter,r *http.Request,
  if !found{http.Error(w,"original model call missing",409);return}
  arguments,err:=parseAgentPatchArguments(call.Arguments)
  if err!=nil{http.Error(w,"invalid original tool arguments",400);return}
- // Native validation verifies BOTH identity headers against this workspace.
- // Do it before mutating the durable journal.
- if _,err=pastedPythonPackage(arguments.PatchPython,identity,patchPasteSlug(arguments.Name));err!=nil {
-  http.Error(w,"Patch Tool contract validation failed: "+err.Error(),400);return
- }
  if request.Action=="reject"{
   x.ToolCalls[idx].Status="rejected"
   x.ToolCalls[idx].Result="User rejected patch execution; no patch was queued or executed."
@@ -121,6 +116,10 @@ func (s *Server) agentChatToolDecisionAPI(w http.ResponseWriter,r *http.Request,
   if err!=nil{http.Error(w,"cannot persist tool rejection",409);return}
   w.Header().Set("Cache-Control","no-store")
   writeJSON(w,200,map[string]any{"session_id":sessionID,"status":"rejected","revision":x.Revision,"execution_enabled":false});return
+ }
+ // Native validation checks BOTH identity headers against this workspace.
+ if _,err=pastedPythonPackage(arguments.PatchPython,identity,patchPasteSlug(arguments.Name));err!=nil {
+  http.Error(w,"Patch Tool contract validation failed: "+err.Error(),400);return
  }
  // Commit a non-retryable QUEUING marker BEFORE the file-side effect.
  // A crash after this point is explicitly UNKNOWN; no duplicate package or
