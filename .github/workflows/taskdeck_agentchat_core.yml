@@ -5,6 +5,7 @@ on:
     paths:
       - 'vscode_tasks_menu_go/internal/agentchat/**'
       - 'vscode_tasks_menu_go/web/featuremods/agentchat.js'
+      - 'vscode_tasks_menu_go/web/agentchat_bootstrap_test.cjs'
       - 'vscode_tasks_menu_go/web/featuremods/next.js'
       - 'vscode_tasks_menu_go/web/featuremods/menus.js'
       - 'vscode_tasks_menu_go/internal/server/agent_chat_*'
@@ -15,6 +16,7 @@ on:
     paths:
       - 'vscode_tasks_menu_go/internal/agentchat/**'
       - 'vscode_tasks_menu_go/web/featuremods/agentchat.js'
+      - 'vscode_tasks_menu_go/web/agentchat_bootstrap_test.cjs'
       - 'vscode_tasks_menu_go/web/featuremods/next.js'
       - 'vscode_tasks_menu_go/web/featuremods/menus.js'
       - 'vscode_tasks_menu_go/internal/server/agent_chat_*'
@@ -43,5 +45,6 @@ jobs:
           go vet ./internal/agentchat
           go vet ./internal/server
           node --check web/featuremods/agentchat.js
+          node web/agentchat_bootstrap_test.cjs
           node test_ai_smart_terminal.cjs
           go test -count=1 ./internal/server -run '^TestAgent'
