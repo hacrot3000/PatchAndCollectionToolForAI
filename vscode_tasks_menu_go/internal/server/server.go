@@ -37,6 +37,7 @@ import (
 
 type Server struct {
 	AgentChatCall func(context.Context, agentchat.ProviderConfig, string, []byte) (agentchat.ResponsesResult, error) // optional test adapter; nil = production HTTPS
+	AgentChatPack func(string, string) (patchtool.AIPackResult, error) // optional test builder; nil = current AI Pack
 	Workspace string
 	Config    config.Config
 	Log       *log.Logger
