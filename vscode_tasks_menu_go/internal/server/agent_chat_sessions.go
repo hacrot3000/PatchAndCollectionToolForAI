@@ -97,6 +97,10 @@ func (s *Server) agentChatSessionItemAPI(w http.ResponseWriter,r *http.Request){
 		s.agentChatMessageAPI(w,r,segments[0])
 		return
 	}
+	if len(segments)==4 && segments[0]!="" && segments[1]=="tools" && segments[2]!="" && segments[3]=="decision" {
+		s.agentChatToolDecisionAPI(w,r,segments[0],segments[2])
+		return
+	}
 
 	if r.Method!=http.MethodGet{http.Error(w,"method not allowed",http.StatusMethodNotAllowed);return}
 	id:=strings.TrimPrefix(r.URL.Path,"/api/agent/sessions/")
