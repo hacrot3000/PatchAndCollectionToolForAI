@@ -32,6 +32,15 @@ func applyCommandJournalToState(projectRoot string, state *ProtocolState) {
 			continue
 		}
 		for _, row := range rows {
+            // A stale journal can survive abrupt process termination. Do not
+            // present QUEUE/RUNNING under a completed parent task.
+            if item.Status != "RUNNING" && (row.Status == "QUEUE" || row.Status == "RUNNING") {
+                if row.Status == "RUNNING" && item.Status != "PASS" {
+                    row.Status = "INTERRUPTED"
+                } else {
+                    row.Status = "SKIPPED"
+                }
+            }
 			updated := false
 			for j := range item.Commands {
 				if item.Commands[j].Index == row.Index {
