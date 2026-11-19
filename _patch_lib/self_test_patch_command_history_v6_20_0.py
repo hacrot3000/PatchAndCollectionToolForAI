@@ -92,4 +92,37 @@ with tempfile.TemporaryDirectory(prefix="ptv_failed_command_log_") as td:
     if os.name != "nt":
         assert log.stat().st_mode & 0o077 == 0, "command log must be private"
 
+# Live protocol emits all planned commands before the first starts and keeps
+# their indices stable until terminal result, including SKIPPED remainder.
+import python_patch_runner as runner
+import python_patch_protocol as protocol
+with tempfile.TemporaryDirectory(prefix="ptv_live_commands_") as td:
+    root = Path(td)
+    (root / "code.txt").write_text("first\nsecond\n", encoding="utf-8")
+    log_dir = root / "artifacts" / "patch_tool" / "runs" / "test" / "command_items" / "01_test" / "command_logs"
+    log_dir.mkdir(parents=True)
+    prior_emit = protocol.emit_command_state
+    previous_log_dir = runner._ACTIVE_COMMAND_LOG_DIR
+    previous_commands = runner._ACTIVE_COMMAND_EVIDENCE
+    events = []
+    protocol.emit_command_state = lambda command: events.append(dict(command)) or True
+    runner._ACTIVE_COMMAND_LOG_DIR = log_dir
+    runner._ACTIVE_COMMAND_EVIDENCE = []
+    try:
+        result = runner._run_command_sequence(root, [
+            {"name": "Head one", "argv": ["head", "-n", "1", "code.txt"], "cwd": ".", "timeout_seconds": 10},
+            {"name": "Head two", "argv": ["head", "-n", "2", "code.txt"], "cwd": ".", "timeout_seconds": 10},
+        ], label="POST PATCH")
+        assert result["status"] == "PASS", result
+        assert [e["status"] for e in events] == ["QUEUE", "QUEUE", "RUNNING", "PASS", "RUNNING", "PASS"], events
+        assert [e["index"] for e in events] == [1, 2, 1, 1, 2, 2], events
+        assert all(e["started_at"] and e["elapsed_seconds"] >= 0 for e in events if e["status"] == "PASS")
+        assert len(runner._ACTIVE_COMMAND_EVIDENCE) == 2
+        assert (log_dir / "001_post_patch.log").read_text().strip() == "first"
+        assert "second" in (log_dir / "002_post_patch.log").read_text()
+    finally:
+        protocol.emit_command_state = prior_emit
+        runner._ACTIVE_COMMAND_LOG_DIR = previous_log_dir
+        runner._ACTIVE_COMMAND_EVIDENCE = previous_commands
+
 print("PASS: each PATCH command owns a durable console artifact and History record")
