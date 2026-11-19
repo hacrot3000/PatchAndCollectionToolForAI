@@ -177,6 +177,9 @@ func sharedRoutePermissions(r *http.Request) []string {
 		if r.Method==http.MethodPost && strings.HasSuffix(path,"/decision") && strings.Contains(path,"/tools/") {
 			return []string{identity.PermissionSettingsRead,identity.PermissionPatchRun}
 		}
+		if r.Method==http.MethodPost && strings.HasSuffix(path,"/continue") && strings.Contains(path,"/tools/") {
+			return []string{identity.PermissionSettingsRead,identity.PermissionPatchView,identity.PermissionFilesRead}
+		}
 		return nil
 	case strings.HasPrefix(path, "/api/ssh/profiles/"):
 		if r.Method == http.MethodGet {
