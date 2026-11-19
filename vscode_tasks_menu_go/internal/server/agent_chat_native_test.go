@@ -23,42 +23,52 @@ func TestAgentNativePatchSelectionRequiresExactNameAndActivePrompt(t *testing.T)
  rows[1].(map[string]any)["name"]="PATCH_agent_approved.zip"
  rows[1].(map[string]any)["kind"]="PATCH"
  prompt.Prompt,_=json.Marshal(parsed)
- selected,err:=agentExactPatchSelection(prompt,"PATCH_agent_approved.zip")
+ selected,promptID,index,err:=agentExactPatchSelection(prompt,"PATCH_agent_approved.zip")
  if err!=nil{t.Fatal(err)}
  if len(selected.Indexes)!=1||selected.Indexes[0]!=2||selected.Action!="select"{t.Fatalf("incorrect native selection %+v",selected)}
- if _,err:=agentExactPatchSelection(prompt,"other.zip");err==nil{t.Fatal("selected missing package")}
+ if promptID==""||index!=2{t.Fatalf("missing prompt/index binding %q %d",promptID,index)}
+ if _,_,_,err:=agentExactPatchSelection(prompt,"other.zip");err==nil{t.Fatal("selected missing package")}
  rows[0].(map[string]any)["name"]="PATCH_agent_approved.zip"
  prompt.Prompt,_=json.Marshal(parsed)
- if _,err:=agentExactPatchSelection(prompt,"PATCH_agent_approved.zip");err==nil{t.Fatal("duplicate package name selected")}
+ if _,_,_,err:=agentExactPatchSelection(prompt,"PATCH_agent_approved.zip");err==nil{t.Fatal("duplicate package name selected")}
  rows[0].(map[string]any)["name"]="unrelated.zip"
  rows[1].(map[string]any)["selectable"]=false
  prompt.Prompt,_=json.Marshal(parsed)
- if _,err:=agentExactPatchSelection(prompt,"PATCH_agent_approved.zip");err==nil{t.Fatal("disabled selection accepted")}
+ if _,_,_,err:=agentExactPatchSelection(prompt,"PATCH_agent_approved.zip");err==nil{t.Fatal("disabled selection accepted")}
  prompt.CommandsEnabled=false
- if _,err:=agentExactPatchSelection(prompt,"PATCH_agent_approved.zip");err==nil{t.Fatal("disabled protocol command channel accepted")}
+ if _,_,_,err:=agentExactPatchSelection(prompt,"PATCH_agent_approved.zip");err==nil{t.Fatal("disabled protocol command channel accepted")}
 }
 func TestAgentNativeResultsOnlyAcceptMatchingFinalProtocolItem(t *testing.T){
  state:=queueSelectionState()
  state.Items=[]session.ProtocolItemState{
-  {Name:"unrelated.zip",Kind:"PATCH",Status:"PASS"},
-  {Name:"approved.zip",Kind:"PATCH",Status:"RUNNING"},
+  {Name:"unrelated.zip",Kind:"PATCH",Status:"PASS",RunID:"run-other"},
+  {Name:"approved.zip",Kind:"PATCH",Status:"RUNNING",Index:2,RunID:"run-1"},
  }
- if _,_,ok:=agentPatchResultFromProtocol(state,"approved.zip");ok{t.Fatal("running patch reported success")}
+ expect:=agentPatchExpectation{Name:"approved.zip",PromptID:"agent-prompt-1",ItemIndex:2}
+ if _,_,_,ok:=agentPatchResultFromProtocol(state,expect);ok{t.Fatal("running patch reported success")}
  state.Items[1].Status="FAIL"
  rc:=5
  state.Items[1].RC=&rc
  state.Items[1].FailureReason="test failed"
  state.Items[1].OutputTail="some output"
  state.Items[1].Commands=[]session.ProtocolCommandEvidenceState{{Index:1,Stage:"apply",Status:"FAIL",Argv:[]string{"secret-token"},LogPath:"/private/secret/file"}}
- status,result,ok:=agentPatchResultFromProtocol(state,"approved.zip")
+ status,result,runID,ok:=agentPatchResultFromProtocol(state,expect)
  if !ok||status!="error"{t.Fatalf("invalid FAIL result %q %s",status,result)}
+ if runID!="run-1"{t.Fatalf("run ID not bound to result: %q",runID)}
  if strings.Contains(result,"secret-token")||strings.Contains(result,"/private/secret/file"){
   t.Fatalf("sensitive command metadata leaked: %s",result)
  }
  if !strings.Contains(result,`"rc":5`){t.Fatalf("missing observed RC: %s",result)}
  state.Items[1].Status="PASS"
- status,_,ok=agentPatchResultFromProtocol(state,"approved.zip")
+ status,_,_,ok=agentPatchResultFromProtocol(state,expect)
  if !ok||status!="done"{t.Fatal("PASS not reported as done")}
+ // A different approved index must never inherit this PASS.
+ if _,_,_,ok:=agentPatchResultFromProtocol(state,agentPatchExpectation{Name:"approved.zip",ItemIndex:1});ok{
+  t.Fatal("final result attributed to a different approved index")
+ }
+ // A missing run ID is not evidence of completion.
+ state.Items[1].RunID=""
+ if _,_,_,ok:=agentPatchResultFromProtocol(state,expect);ok{t.Fatal("run-less item accepted as final evidence")}
 }
 func TestAgentToolContinuationExactCallIDAndOnceOnly(t *testing.T){
  s,id,_:=agentPendingCallFixture(t,true)

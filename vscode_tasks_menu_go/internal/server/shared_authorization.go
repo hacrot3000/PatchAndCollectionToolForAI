@@ -167,7 +167,22 @@ func sharedRoutePermissions(r *http.Request) []string {
 	path := r.URL.Path
 	switch {
 	case strings.HasPrefix(path, "/api/agent/sessions/"):
+		if r.Method==http.MethodGet && (strings.HasSuffix(path,"/pack-preview")||strings.HasSuffix(path,"/execution")) {
+			return []string{identity.PermissionSettingsRead,identity.PermissionPatchView}
+		}
+		if r.Method==http.MethodGet && strings.HasSuffix(path,"/events") {
+			return []string{identity.PermissionSettingsRead}
+		}
 		if r.Method==http.MethodGet {return []string{identity.PermissionSettingsRead}}
+		if r.Method==http.MethodPatch && strings.HasSuffix(path,"/metadata") {
+			return []string{identity.PermissionSettingsWrite}
+		}
+		if r.Method==http.MethodPost && strings.HasSuffix(path,"/cancel") {
+			return []string{identity.PermissionSettingsRead}
+		}
+		if r.Method==http.MethodPost && strings.HasSuffix(path,"/auto-feedback") {
+			return []string{identity.PermissionSettingsRead,identity.PermissionPatchView,identity.PermissionFilesRead}
+		}
 		if r.Method==http.MethodPost && strings.HasSuffix(path,"/messages") {
 			return []string{identity.PermissionSettingsRead,identity.PermissionFilesRead}
 		}
@@ -246,9 +261,9 @@ func sharedRoutePermissions(r *http.Request) []string {
 		return []string{identity.PermissionSecretsManage}
 	case "/api/agent/providers":
 		if r.Method==http.MethodGet {return []string{identity.PermissionSettingsRead}}
-		if r.Method==http.MethodPut {return []string{identity.PermissionSettingsWrite}}
+		if r.Method==http.MethodPut || r.Method==http.MethodDelete {return []string{identity.PermissionSettingsWrite}}
 		return nil
-	case "/api/agent/providers/test":
+	case "/api/agent/providers/test", "/api/agent/providers/probe":
 		if r.Method==http.MethodPost {return []string{identity.PermissionSettingsWrite}}
 		return nil
 	case "/api/agent/sessions":

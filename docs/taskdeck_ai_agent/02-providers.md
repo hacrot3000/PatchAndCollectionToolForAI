@@ -23,6 +23,10 @@
 
 Trích transport dùng chung từ `DoResponses` để streaming giữ nguyên DNS pin, TLS, cấm redirect/proxy, giới hạn bytes/time và cancellation; parser incremental có giới hạn frame/total, tập hợp function arguments theo event rồi chỉ persist kết quả hoàn chỉnh. Phân loại timeout/429/4xx/5xx không lộ secret; backoff chỉ cho probe/read an toàn, không tự retry turn không rõ kết quả. Test fragmented UTF-8/SSE, event lặp, EOF thiếu completion, cancel, tool-call ID. Chỉ xây Chat Completions/Messages khi được duyệt riêng; adapter phải ánh xạ canonical history và không giả định hỗ trợ tool/stateful.
 
+## Trạng thái sau đợt hardening
+
+Đã có: `DELETE /api/agent/providers` (metadata và tùy chọn xóa credential cục bộ, nêu rõ không phải revoke phía vendor, báo partial failure), `POST /api/agent/providers/probe` lưu evidence theo fingerprint endpoint/model/API type/config/bump version, `tool_calling: verified` là điều kiện duy nhất để bật `taskdeck_submit_patch`. Probe lỗi/timeout/429 = `inconclusive`; streaming = `unsupported` vì adapter chưa có. Đã có thêm streaming SSE adapter (`internal/agentchat/stream.go`) với giới hạn event/tổng byte, yêu cầu completion, giới hạn tool-call fragments; chỉ dùng khi probe `streaming: verified` và provider bật `stream`. Chưa có: Chat Completions/Messages, model discovery, pricing/token accounting.
+
 ## P0 — Declared tool capability không phải verified capability
 
 `agentChatMessageAPI` hiện lấy `model.ToolCalling` từ cấu hình người dùng và đưa trực tiếp vào `EnablePatchTool`; **không đợi probe**. Vì vậy phần F02.2.2 là việc **chưa hoàn tất**, không phải bảo đảm sẵn có. Phải probe với function vô hại, consent rõ, fingerprint endpoint/model; lỗi timeout/429/5xx là inconclusive chứ không phải unsupported. Basic `/api/agent/providers/test` chỉ chứng minh text Responses, không chứng minh tool calling, Conversations, `previous_response_id` hay streaming. Chặn auto-execution khi capability chưa verified. [Source audit](09-source-audit.md).

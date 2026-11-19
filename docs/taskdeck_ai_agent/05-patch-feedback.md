@@ -27,6 +27,12 @@ Gateway, approval, queue paste, native session selection, sync và explicit cont
 3. Scheduler continuation server-side chỉ bật khi user consent rõ phạm vi và quota, có durable lease/claim; khi có final result, persist đúng `call_id` một lần trước egress. Nếu timeout sau khi gửi output, trạng thái gửi UNKNOWN; không resend, không rerun patch. Nếu model đưa patch tiếp theo, dừng chờ approval mới. Đóng browser không làm mất scheduler nhưng không tự kéo dài consent hay quyền.
 4. Fault injection tại từng điểm persist/publish/start/select/result/send, restart cả server và native process, duplicate sync/continue, hủy đồng thời; xác nhận không có lần thực thi thứ hai. `go test ./internal/server -run '^TestAgentChat' -count=1`, `go test -race ./internal/agentchat ./internal/server -run 'TestAgentChat|Test.*Store' -count=1`. Live acceptance và automated fake evidence ghi riêng.
 
+## Trạng thái sau đợt hardening (source + mock tests)
+
+Đã có trong mã: snapshot HEAD/branch/dirty digest tại proposal, verify lại trước queue và trước selection; approval TTL 10 phút + bind `arguments_sha256`; lease workspace cho Agent; journal `flock`; result yêu cầu name + approved index + `run_id`; `FeedbackStatus` thay cho niềm tin `FeedbackSent`; startup reconcile read-only; `GET .../tools/{call_id}/execution` cho console.
+
+Vẫn chưa: ZIP SHA trong evidence cuối, native owner ID trong evidence cuối, dùng chung lease với Patch Panel thủ công, fault-injection đa process/restart, và toàn bộ nghiệm thu live. Các gate dưới đây vẫn phải giữ BLOCKED cho unattended.
+
 ## Release blockers đã xác minh qua source (P0)
 
 - **Internal handler auth:** `agentQueueViaNativePaste`, `agentStartNativePatch`, `agentSelectNativePatch` dùng `httptest.NewRecorder` để gọi `patchPaste`/`sessionsRoot`/`sessionItem`. Đây là code reuse, **không** tự chạy lại middleware. Phải audit owner, CSRF/origin, `PrincipalFromContext`, shared `patch.run`, audit và write lease tại mỗi side effect; hướng đến typed service layer.

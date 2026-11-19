@@ -196,6 +196,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/terminal-history", s.terminalHistory)
 	mux.HandleFunc("/api/agent/providers", s.agentChatProvidersAPI)
 	mux.HandleFunc("/api/agent/providers/test", s.agentChatProviderTestAPI)
+	mux.HandleFunc("/api/agent/providers/probe", s.agentChatProviderProbeAPI)
 	mux.HandleFunc("/api/agent/sessions", s.agentChatSessionsAPI)
 	mux.HandleFunc("/api/agent/sessions/", s.agentChatSessionItemAPI)
 	mux.HandleFunc("/api/ai/settings", s.aiSettingsAPI)
@@ -314,6 +315,14 @@ func (s *Server) Serve(listener net.Listener) error {
             return fmt.Errorf("private transfer queue migration: %w",err)
         }
 	}
+	// Best-effort Agent Patch reconciliation BEFORE serving. It only reads
+	// native protocol evidence and never re-queues or re-executes anything.
+	go s.agentReconcilePendingOnStartup(context.Background())
+	// Opt-in automatic tool-result continuation. Runs only for sessions whose
+	// user granted a bounded trust window; it never executes or retries a patch.
+	autoCtx, autoCancel := context.WithCancel(context.Background())
+	defer autoCancel()
+	go s.startAgentAutoFeedback(autoCtx)
 	scheduleCtx,scheduleCancel:=context.WithCancel(context.Background())
 	defer scheduleCancel()
 	defer s.scheduleStopAll()

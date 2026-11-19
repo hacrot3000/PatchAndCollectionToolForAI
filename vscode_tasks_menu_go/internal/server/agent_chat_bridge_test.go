@@ -3,8 +3,11 @@ package server
 import (
  "encoding/json"
  "fmt"
+ "net/http"
  "os"
  "path/filepath"
+ "strings"
+ "sync"
  "testing"
 
  "bletonfc/vscode_tasks_menu/internal/session"
@@ -96,4 +99,134 @@ func TestAgentApprovedPatchRunsExactlyOneNativeQueueEntry(t *testing.T){
  retry:=invokeAI(t,s.agentChatSessionItemAPI,"POST","/api/agent/sessions/"+id+"/tools/call_agent_001/decision",
   map[string]any{"action":"approve","confirm_execution":true,"expected_revision":current.Revision})
  if retry.Code!=409||fake.started!=1{t.Fatalf("replayed native execution: code=%d start=%d",retry.Code,fake.started)}
+}
+
+func TestAgentNativePatchCancelAndReconcileKeepSingleExecution(t *testing.T){
+	s, id, _ := agentPendingCallFixture(t, true)
+	runtimeDir := t.TempDir()
+	entry := filepath.Join(runtimeDir, "python_patch_entry.py")
+	python := filepath.Join(runtimeDir, "python3")
+	for _, path := range []string{entry, python} {
+		if err := os.WriteFile(path, []byte("#!/bin/sh\n"), 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("TASKDECK_PATCH_RUNTIME", entry)
+	t.Setenv("TASKDECK_PATCH_PYTHON", python)
+	fake := &fakeAgentNativeBridge{workspace: s.Workspace}
+	s.Sessions = fake
+	store, err := s.agentChatStore()
+	if err != nil {
+		t.Fatal(err)
+	}
+	pending, err := store.Get(id, "local")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if w := invokeAI(t, s.agentChatSessionItemAPI, "POST", "/api/agent/sessions/"+id+"/tools/call_agent_001/decision",
+		map[string]any{"action": "approve", "confirm_execution": true, "expected_revision": pending.Revision}); w.Code != 200 {
+		t.Fatalf("dispatch failed: %d %s", w.Code, w.Body)
+	}
+	current, err := store.Get(id, "local")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Cancelling the chat does NOT claim the native Patch execution stopped.
+	cancel := invokeAI(t, s.agentChatSessionItemAPI, http.MethodPost, "/api/agent/sessions/"+id+"/cancel", map[string]any{})
+	if cancel.Code != 200 || !strings.Contains(cancel.Body.String(), `"patch_execution_untouched":true`) {
+		t.Fatalf("cancel misreported native execution state: %d %s", cancel.Code, cancel.Body)
+	}
+	if fake.started != 1 {
+		t.Fatalf("cancel started another native run: %d", fake.started)
+	}
+	// While the native item has no final status, reconciliation must not invent one.
+	rc := 0
+	fake.state.Items = []session.ProtocolItemState{{Index: 2, Name: filepath.Base(current.ToolCalls[0].QueuePath), Kind: "PATCH", Status: "RUNNING"}}
+	sync1 := invokeAI(t, s.agentChatSessionItemAPI, http.MethodPost, "/api/agent/sessions/"+id+"/sync", map[string]any{})
+	if sync1.Code != 200 {
+		t.Fatalf("sync failed: %d %s", sync1.Code, sync1.Body)
+	}
+	still, err := store.Get(id, "local")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if still.ToolCalls[0].Status != "running" {
+		t.Fatalf("non-final item adopted: %s", still.ToolCalls[0].Status)
+	}
+	// Final evidence resolves it exactly once.
+	fake.state.Items = []session.ProtocolItemState{{Index: 2, Name: filepath.Base(current.ToolCalls[0].QueuePath), Kind: "PATCH", Status: "FAIL", RC: &rc, RunID: "run-cancel-1"}}
+	sync2 := invokeAI(t, s.agentChatSessionItemAPI, http.MethodPost, "/api/agent/sessions/"+id+"/sync", map[string]any{})
+	if sync2.Code != 200 {
+		t.Fatalf("final sync failed: %d %s", sync2.Code, sync2.Body)
+	}
+	done, err := store.Get(id, "local")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if done.ToolCalls[0].Status != "error" || done.ToolCalls[0].RunID != "run-cancel-1" {
+		t.Fatalf("final evidence not adopted: %+v", done.ToolCalls[0])
+	}
+	// A second sync is a no-op, not a new run or a new ledger entry.
+	before := done.Revision
+	again := invokeAI(t, s.agentChatSessionItemAPI, http.MethodPost, "/api/agent/sessions/"+id+"/sync", map[string]any{})
+	if again.Code != 200 {
+		t.Fatalf("no-op sync failed: %d", again.Code)
+	}
+	after, err := store.Get(id, "local")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.Revision != before || len(after.ToolCalls) != 1 || fake.started != 1 {
+		t.Fatalf("reconciliation duplicated work: revision %d→%d calls=%d started=%d", before, after.Revision, len(after.ToolCalls), fake.started)
+	}
+}
+
+func TestAgentConcurrentApprovalsStartOneNativeExecution(t *testing.T){
+	s, id, _ := agentPendingCallFixture(t, true)
+	runtimeDir := t.TempDir()
+	entry := filepath.Join(runtimeDir, "python_patch_entry.py")
+	python := filepath.Join(runtimeDir, "python3")
+	for _, path := range []string{entry, python} {
+		if err := os.WriteFile(path, []byte("#!/bin/sh\n"), 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("TASKDECK_PATCH_RUNTIME", entry)
+	t.Setenv("TASKDECK_PATCH_PYTHON", python)
+	fake := &fakeAgentNativeBridge{workspace: s.Workspace}
+	s.Sessions = fake
+	store, err := s.agentChatStore()
+	if err != nil {
+		t.Fatal(err)
+	}
+	pending, err := store.Get(id, "local")
+	if err != nil {
+		t.Fatal(err)
+	}
+	const attempts = 6
+	var wg sync.WaitGroup
+	codes := make(chan int, attempts)
+	for i := 0; i < attempts; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			w := invokeAI(t, s.agentChatSessionItemAPI, "POST", "/api/agent/sessions/"+id+"/tools/call_agent_001/decision",
+				map[string]any{"action": "approve", "confirm_execution": true, "expected_revision": pending.Revision})
+			codes <- w.Code
+		}()
+	}
+	wg.Wait()
+	close(codes)
+	ok := 0
+	for code := range codes {
+		if code == 200 {
+			ok++
+		}
+	}
+	if ok != 1 {
+		t.Fatalf("expected exactly one winning approval, got %d", ok)
+	}
+	if fake.started != 1 {
+		t.Fatalf("native execution started %d times", fake.started)
+	}
 }

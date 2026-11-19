@@ -3,3 +3,5 @@ deploy/docker/.env
 
 # TaskDeck runtime auth config can contain passwords and private settings.
 **/.vscode/vscode_tasks_menu.ini
+
+.lh/

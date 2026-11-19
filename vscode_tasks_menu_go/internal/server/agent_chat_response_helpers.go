@@ -28,11 +28,22 @@ func appendAgentProviderResult(x *agentchat.Session,result agentchat.ResponsesRe
   x.History=append(x.History,agentchat.HistoryItem{Type:"function_call",CallID:call.CallID,Name:call.Name,Arguments:call.Arguments})
   if toolAvailable&&i==0&&len(result.Calls)==1&&call.Name=="taskdeck_submit_patch"{
    if _,err:=parseAgentPatchArguments(call.Arguments);err==nil {
-    x.ToolCalls=append(x.ToolCalls,agentchat.ToolCallRecord{CallID:call.CallID,Name:call.Name,Status:"pending"})
+    x.ToolCalls=append(x.ToolCalls,agentchat.ToolCallRecord{
+     CallID:call.CallID,Name:call.Name,Status:"pending",
+     ModelTurnID:result.ResponseID,
+     ArgumentsSHA256:agentPatchPayloadSHA256(call.Arguments),
+    })
    }
   }
  }
  if x.Mode==agentchat.PreviousResponse{x.PreviousResponseID=result.ResponseID}
  if x.Mode==agentchat.Conversation{x.ConversationID=result.ConversationID}
  if len(result.Calls)>0 {x.Status="waiting_tool"}else{x.Status="completed"}
+}
+
+// agentReasoningEffort prefers the immutable per-session selection and falls
+// back to the model default. Both are validated before reaching this point.
+func agentReasoningEffort(sessionEffort string,model agentchat.ModelConfig)string{
+ if sessionEffort!=""{return sessionEffort}
+ return model.DefaultReasoningEffort
 }

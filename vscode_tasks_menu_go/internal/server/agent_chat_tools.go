@@ -11,12 +11,17 @@ import (
  "net/http"
  "net/http/httptest"
  "strings"
+ "time"
  "unicode/utf8"
 
  "bletonfc/vscode_tasks_menu/internal/agentchat"
  "bletonfc/vscode_tasks_menu/internal/identity"
  "bletonfc/vscode_tasks_menu/internal/patchtool"
 )
+
+// agentApprovalTTL bounds how long a one-time human approval may be consumed.
+// A stale approval must be re-reviewed, never applied implicitly later.
+const agentApprovalTTL = 10 * time.Minute
 
 type agentPatchArguments struct {
  Name string `json:"name"`
@@ -108,9 +113,15 @@ func (s *Server) agentChatToolDecisionAPI(w http.ResponseWriter,r *http.Request,
  if !found{http.Error(w,"original model call missing",409);return}
  arguments,err:=parseAgentPatchArguments(call.Arguments)
  if err!=nil{http.Error(w,"invalid original tool arguments",400);return}
+ // The exact model arguments are bound at proposal time. An approval must
+ // never apply to a different payload (e.g. a caller edited the transcript).
+ if digest:=agentPatchPayloadSHA256(call.Arguments);x.ToolCalls[idx].ArgumentsSHA256!=""&&x.ToolCalls[idx].ArgumentsSHA256!=digest{
+  http.Error(w,"tool arguments changed since the model proposed the patch",409);return
+ }
  if request.Action=="reject"{
   x.ToolCalls[idx].Status="rejected"
   x.ToolCalls[idx].Result="User rejected patch execution; no patch was queued or executed."
+  x.AppendEvent("tool_rejected","tool_rejected",callID,"")
   x.Status="tool_rejected"
   x,err=store.Save(x,x.Revision)
   if err!=nil{http.Error(w,"cannot persist tool rejection",409);return}
@@ -121,13 +132,57 @@ func (s *Server) agentChatToolDecisionAPI(w http.ResponseWriter,r *http.Request,
  if _,err=pastedPythonPackage(arguments.PatchPython,identity,patchPasteSlug(arguments.Name));err!=nil {
   http.Error(w,"Patch Tool contract validation failed: "+err.Error(),400);return
  }
+ // Reserve the canonical workspace for the whole queue/launch/select sequence
+ // so two Agent approvals cannot mutate the same worktree concurrently.
+ lease,err:=agentReserveWorkspaceExecution(r.Context(),s.Workspace)
+ if err!=nil{
+  http.Error(w,"another Agent execution currently owns this workspace",409);return
+ }
+ defer lease()
+ // The proposal normally captured Git evidence when the model returned the
+ // tool call. Legacy/pending records without a snapshot are captured here.
+ // An already expired approval is refused; a fresh one gets a bounded TTL.
+ if x.ToolCalls[idx].ApprovalExpiresAt!=nil && time.Now().UTC().After(*x.ToolCalls[idx].ApprovalExpiresAt){
+  http.Error(w,"approval has expired; request a new proposal",409);return
+ }
+ if x.ToolCalls[idx].ExpectedHead=="" && !x.ToolCalls[idx].GitIsRepo {
+  snapshot,err:=agentWorkspaceSnapshotOf(r.Context(),s.Workspace)
+  if err!=nil{http.Error(w,"workspace drift guard unavailable: "+err.Error(),409);return}
+  x.ToolCalls[idx].ExpectedHead=snapshot.Head
+  x.ToolCalls[idx].ExpectedBranch=snapshot.Branch
+  x.ToolCalls[idx].WorkspaceStatusSHA256=snapshot.StatusSHA256
+  x.ToolCalls[idx].GitIsRepo=snapshot.IsRepo
+ }
+ if x.ToolCalls[idx].ApprovalExpiresAt==nil{
+  expires:=time.Now().UTC().Add(agentApprovalTTL)
+  x.ToolCalls[idx].ApprovalExpiresAt=&expires
+ }
+ // Verify the recorded snapshot now; drift is parked as UNKNOWN below.
+ if err:=s.agentVerifyApprovalStillValid(r.Context(),&x.ToolCalls[idx]);err!=nil{
+  x.ToolCalls[idx].Status="unknown"
+  x.ToolCalls[idx].Result="Workspace changed since review; no patch was queued. Request a new proposal."
+  x.Status="tool_unknown"
+  _,_=store.Save(x,x.Revision)
+  http.Error(w,"workspace changed since review; approval is stale",409);return
+ }
  // Commit a non-retryable QUEUING marker BEFORE the file-side effect.
  // A crash after this point is explicitly UNKNOWN; no duplicate package or
  // execution is permitted through the same call_id.
  x.ToolCalls[idx].Status="queuing"
  x.Status="tool_queuing"
+ x.AppendEvent("tool_queuing","tool_queuing",callID,"")
  x,err=store.Save(x,x.Revision)
  if err!=nil{http.Error(w,"cannot record tool idempotency marker",409);return}
+ // Re-check immediately before creating a queue package. If the worktree
+ // moved between the approval request and this write, stop and require a
+ // fresh review instead of applying the patch to an unreviewed state.
+ if err:=s.agentVerifyApprovalStillValid(r.Context(),&x.ToolCalls[idx]);err!=nil{
+  x.ToolCalls[idx].Status="unknown"
+  x.ToolCalls[idx].Result="Workspace changed before queue handoff; no patch was queued. Request a new proposal."
+  x.Status="tool_unknown"
+  _,_=store.Save(x,x.Revision)
+  http.Error(w,"workspace changed before queue handoff; approval is stale",409);return
+ }
  receipt,err:=s.agentQueueViaNativePaste(r,arguments)
  if err!=nil{
   x.ToolCalls[idx].Status="unknown"
@@ -139,6 +194,7 @@ func (s *Server) agentChatToolDecisionAPI(w http.ResponseWriter,r *http.Request,
  // The hash/filename receipt is verified against the native queue result.
  if len(receipt.SHA256)!=64{http.Error(w,"invalid native Patch queue receipt",502);return}
  x.ToolCalls[idx].Status="queued"
+ x.AppendEvent("tool_queued","waiting_tool",callID,"")
  x.ToolCalls[idx].QueuePath=receipt.QueuePath
  x.ToolCalls[idx].PackageSHA256=receipt.SHA256
  x.Status="waiting_tool"
@@ -170,6 +226,14 @@ func (s *Server) agentChatToolDecisionAPI(w http.ResponseWriter,r *http.Request,
    patchID,startErr:=s.agentStartNativePatch(r)
    if startErr!=nil{
     note="Native Patch session could not start; package remains in queue for manual review."
+   }else if err:=s.agentVerifyApprovalStillValid(r.Context(),&x.ToolCalls[idx]);err!=nil{
+    x.ToolCalls[idx].Status="unknown"
+    x.ToolCalls[idx].Result="Workspace changed after the native session started; selection refused. Inspect the existing Patch session."
+    x.ToolCalls[idx].PatchSessionID=patchID
+    x.Status="tool_unknown"
+    if !persistStatus(){return}
+    status="unknown"
+    note="Workspace drift detected before native selection; no patch was executed."
    }else{
     x.ToolCalls[idx].Status="dispatching"
     x.ToolCalls[idx].PatchSessionID=patchID
@@ -181,7 +245,7 @@ func (s *Server) agentChatToolDecisionAPI(w http.ResponseWriter,r *http.Request,
      if !persistStatus(){return}
      status="unknown"
      note="Approved patch package changed before selection; inspect existing native session."
-    }else if err:=s.agentSelectNativePatch(r.Context(),r,patchID,receipt.Name);err!=nil{
+    }else if promptID,index,err:=s.agentSelectNativePatch(r.Context(),r,patchID,receipt.Name);err!=nil{
      x.ToolCalls[idx].Status="unknown"
      x.ToolCalls[idx].Result="Native Patch selection is ambiguous; inspect linked Patch session; no automatic retry."
      x.Status="tool_unknown"
@@ -190,6 +254,9 @@ func (s *Server) agentChatToolDecisionAPI(w http.ResponseWriter,r *http.Request,
      note="Native Patch selection was not confirmed; inspect existing session, do not requeue automatically."
     }else{
      x.ToolCalls[idx].Status="running"
+     x.AppendEvent("tool_running","waiting_tool",callID,"")
+     x.ToolCalls[idx].PromptID=promptID
+     x.ToolCalls[idx].SelectedIndex=index
      x.Status="waiting_tool"
      if !persistStatus(){return}
      status="running"

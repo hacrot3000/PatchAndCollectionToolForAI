@@ -24,9 +24,11 @@ var errAgentPatchPromptNotReady=errors.New("native Patch selection prompt is not
 
 // agentExactPatchSelection selects exactly the approved package from a native
 // queue snapshot. Never run "all selected" or trust model-provided indexes.
-func agentExactPatchSelection(state session.ProtocolState,name string)(patchPromptResponseRequest,error){
- if !state.CommandsEnabled||!state.Available{return patchPromptResponseRequest{},errAgentPatchPromptNotReady}
- if len(state.Prompt)==0{return patchPromptResponseRequest{},errAgentPatchPromptNotReady}
+// It returns the prompt ID and item index so the caller can bind the final
+// result to this exact approval.
+func agentExactPatchSelection(state session.ProtocolState,name string)(patchPromptResponseRequest,string,int,error){
+ if !state.CommandsEnabled||!state.Available{return patchPromptResponseRequest{},"",0,errAgentPatchPromptNotReady}
+ if len(state.Prompt)==0{return patchPromptResponseRequest{},"",0,errAgentPatchPromptNotReady}
  var prompt struct{
   Protocol string `json:"protocol"`
   Version int `json:"version"`
@@ -41,24 +43,24 @@ func agentExactPatchSelection(state session.ProtocolState,name string)(patchProm
    Selectable *bool `json:"selectable"`
   } `json:"items"`
  }
- if err:=json.Unmarshal(state.Prompt,&prompt);err!=nil{return patchPromptResponseRequest{},errors.New("unreadable native Patch prompt")}
+ if err:=json.Unmarshal(state.Prompt,&prompt);err!=nil{return patchPromptResponseRequest{},"",0,errors.New("unreadable native Patch prompt")}
  if prompt.Protocol!="taskdeck.patch"||prompt.Version!=1||prompt.Type!="prompt"||prompt.PromptKind!="queue_selection"||prompt.PromptID==""{
-  return patchPromptResponseRequest{},errors.New("native Patch session has an unexpected active prompt")
+  return patchPromptResponseRequest{},"",0,errors.New("native Patch session has an unexpected active prompt")
  }
  allowed:=false
  for _,v:=range prompt.Actions{if v=="select"{allowed=true;break}}
- if !allowed{return patchPromptResponseRequest{},errors.New("native Patch prompt does not advertise select")}
+ if !allowed{return patchPromptResponseRequest{},"",0,errors.New("native Patch prompt does not advertise select")}
  selected:=0
  for _,item:=range prompt.Items{
   if item.Name!=name{continue}
-  if selected!=0{return patchPromptResponseRequest{},errors.New("native Patch prompt contains duplicate approved item names")}
+  if selected!=0{return patchPromptResponseRequest{},"",0,errors.New("native Patch prompt contains duplicate approved item names")}
   if item.Index<1||strings.ToUpper(item.Kind)!="PATCH"||(item.Selectable!=nil&&!*item.Selectable){
-   return patchPromptResponseRequest{},errors.New("approved Patch package is not selectable")
+   return patchPromptResponseRequest{},"",0,errors.New("approved Patch package is not selectable")
   }
   selected=item.Index
  }
- if selected==0{return patchPromptResponseRequest{},errAgentPatchPromptNotReady}
- return patchPromptResponseRequest{PromptID:prompt.PromptID,Action:"select",Indexes:[]int{selected}},nil
+ if selected==0{return patchPromptResponseRequest{},"",0,errAgentPatchPromptNotReady}
+ return patchPromptResponseRequest{PromptID:prompt.PromptID,Action:"select",Indexes:[]int{selected}},prompt.PromptID,selected,nil
 }
 
 func (s *Server) agentVerifyQueuedPackage(receipt patchUploadResult)error{
@@ -98,75 +100,104 @@ func (s *Server) agentStartNativePatch(r *http.Request)(string,error){
 
 // agentSelectNativePatch uses the SAME session prompt-response HTTP handler
 // used by the Patch Panel, including native prompt ID validation,
-// reservePatchWorkKind and workspace mutation leases.
-func (s *Server) agentSelectNativePatch(ctx context.Context,r *http.Request,sessionID,name string)error{
+// reservePatchWorkKind and workspace mutation leases. It returns the accepted
+// prompt ID and index so the ledger can bind the eventual final result.
+func (s *Server) agentSelectNativePatch(ctx context.Context,r *http.Request,sessionID,name string)(string,int,error){
  provider,ok:=s.Sessions.(session.ProtocolStateProvider)
- if !ok{return errors.New("native Patch protocol state unavailable")}
+ if !ok{return "",0,errors.New("native Patch protocol state unavailable")}
  if _,ok:=s.Sessions.(session.ProtocolCommandWriter);!ok{
-  return errors.New("native Patch command channel unavailable")
+  return "",0,errors.New("native Patch command channel unavailable")
  }
  ticker:=time.NewTicker(200*time.Millisecond);defer ticker.Stop()
  timeout,cancel:=context.WithTimeout(ctx,16*time.Second);defer cancel()
  for {
   state,err:=provider.ProtocolState(sessionID)
   if err==nil {
-   selection,selErr:=agentExactPatchSelection(state,name)
+   selection,promptID,index,selErr:=agentExactPatchSelection(state,name)
    if selErr==nil{
     payload,_:=json.Marshal(selection)
     endpoint:="/api/sessions/"+sessionID+"/prompt-response"
     request,e:=http.NewRequestWithContext(r.Context(),http.MethodPost,endpoint,bytes.NewReader(payload))
-    if e!=nil{return e}
+    if e!=nil{return "",0,e}
     request.Header.Set("Content-Type","application/json")
     response:=httptest.NewRecorder()
     s.sessionItem(response,request)
-    if response.Code!=http.StatusOK{return fmt.Errorf("native Patch selection refused (HTTP %d)",response.Code)}
-    return nil
+    if response.Code!=http.StatusOK{return "",0,fmt.Errorf("native Patch selection refused (HTTP %d)",response.Code)}
+    return promptID,index,nil
    }
-   if !errors.Is(selErr,errAgentPatchPromptNotReady){return selErr}
+   if !errors.Is(selErr,errAgentPatchPromptNotReady){return "",0,selErr}
    if len(state.LastEvent)>0 && bytes.Contains(state.LastEvent,[]byte(`"run_finished"`)){
-    return errors.New("native Patch session finished before approved queue package was selected")
+    return "",0,errors.New("native Patch session finished before approved queue package was selected")
    }
   }
   select{
-  case <-timeout.Done():return errors.New("native Patch selection timeout; inspect existing session, never re-submit automatically")
+  case <-timeout.Done():return "",0,errors.New("native Patch selection timeout; inspect existing session, never re-submit automatically")
   case <-ticker.C:
   }
  }
 }
 
+// agentPatchExpectation binds a final protocol observation to the exact queue
+// item and prompt a human approved. A missing index/run is not proof of PASS.
+type agentPatchExpectation struct {
+	Name      string
+	PromptID  string
+	ItemIndex int
+}
+
 // agentPatchResultFromProtocol is strictly evidence-based: only a matching
-// native item with a final status can satisfy the model tool call.
-func agentPatchResultFromProtocol(state session.ProtocolState,packageName string)(string,string,bool){
- for _,item:=range state.Items{
-  if item.Name!=packageName||strings.ToUpper(item.Kind)!="PATCH"{continue}
-  status:=strings.ToUpper(item.Status)
-  switch status{
-  case "PASS","FAIL","PREFLIGHT_FAIL","INCOMPLETE":
-   commands:=make([]map[string]any,0,len(item.Commands))
-   for _,c:=range item.Commands {
-    command:=map[string]any{
-     "index":c.Index,"stage":c.Stage,"status":c.Status,"timed_out":c.TimedOut,
-    }
-    if c.RC!=nil{command["rc"]=*c.RC}
-    commands=append(commands,command)
-    if len(commands)>=24{break}
-   }
-   out:=map[string]any{
-    "status":status,"name":item.Name,"run_id":item.RunID,
-    "failure_reason":scrubAIContext(item.FailureReason,400),
-    "diagnosis_kind":item.DiagnosisKind,
-    "elapsed_seconds":item.ElapsedSeconds,
-    "commands":commands,
-    "stdout_tail":scrubAIContext(item.OutputTail,1800),
-   }
-   if item.RC!=nil {out["rc"]=*item.RC}
-   b,_:=json.Marshal(out)
-   if len(b)>4096 {b=[]byte(`{"status":"INCOMPLETE","reason":"result exceeded data limit"}`)}
-   if status=="PASS"{return "done",string(b),true}
-   return "error",string(b),true
-  }
- }
- return "", "", false
+// native item with a final status can satisfy the model tool call. Name-only
+// matching is insufficient because a reused/renamed queue item would be
+// attributed to the wrong approval.
+func agentPatchResultFromProtocol(state session.ProtocolState, expect agentPatchExpectation) (string, string, string, bool) {
+	for _, item := range state.Items {
+		if item.Name != expect.Name || strings.ToUpper(item.Kind) != "PATCH" {
+			continue
+		}
+		if expect.ItemIndex > 0 && item.Index != expect.ItemIndex {
+			continue
+		}
+		if strings.TrimSpace(item.RunID) == "" {
+			return "", "", "", false
+		}
+		status := strings.ToUpper(item.Status)
+		switch status {
+		case "PASS", "FAIL", "PREFLIGHT_FAIL", "INCOMPLETE":
+			commands := make([]map[string]any, 0, len(item.Commands))
+			for _, c := range item.Commands {
+				command := map[string]any{
+					"index": c.Index, "stage": c.Stage, "status": c.Status, "timed_out": c.TimedOut,
+				}
+				if c.RC != nil {
+					command["rc"] = *c.RC
+				}
+				commands = append(commands, command)
+				if len(commands) >= 24 {
+					break
+				}
+			}
+			out := map[string]any{
+				"status": status, "name": item.Name, "run_id": item.RunID,
+				"failure_reason": scrubAIContext(item.FailureReason, 400),
+				"diagnosis_kind": item.DiagnosisKind,
+				"elapsed_seconds": item.ElapsedSeconds,
+				"commands":        commands,
+				"stdout_tail":     scrubAIContext(item.OutputTail, 1800),
+			}
+			if item.RC != nil {
+				out["rc"] = *item.RC
+			}
+			b, _ := json.Marshal(out)
+			if len(b) > 4096 {
+				b = []byte(`{"status":"INCOMPLETE","reason":"result exceeded data limit"}`)
+			}
+			if status == "PASS" {
+				return "done", string(b), item.RunID, true
+			}
+			return "error", string(b), item.RunID, true
+		}
+	}
+	return "", "", "", false
 }
 
 // Callers may present status but MUST NOT invent success when the process
@@ -175,10 +206,19 @@ func (s *Server) agentReconcilePatchRecord(x *agentToolReconcileView) {
  if x==nil||x.Record.Status!="running"||x.Record.PatchSessionID==""||s.Sessions==nil{return}
  provider,ok:=s.Sessions.(session.ProtocolStateProvider);if !ok{return}
  state,err:=provider.ProtocolState(x.Record.PatchSessionID);if err!=nil{return}
- status,result,complete:=agentPatchResultFromProtocol(state,filepath.Base(x.Record.QueuePath))
+ expect:=agentPatchExpectation{
+  Name:filepath.Base(x.Record.QueuePath),
+  PromptID:x.Record.PromptID,
+  ItemIndex:x.Record.SelectedIndex,
+ }
+ status,result,runID,complete:=agentPatchResultFromProtocol(state,expect)
  if !complete{return}
+ // A run ID that was already bound must remain identical; otherwise the
+ // observed item belongs to a different execution.
+ if x.Record.RunID!=""&&runID!=x.Record.RunID{return}
  x.Record.Status=status
  x.Record.Result=result
+ x.Record.RunID=runID
  x.Changed=true
 }
 

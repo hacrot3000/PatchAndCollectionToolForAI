@@ -41,5 +41,7 @@ jobs:
         run: |
           go test -race -count=1 ./internal/agentchat
           go vet ./internal/agentchat
+          go vet ./internal/server
           node --check web/featuremods/agentchat.js
+          node test_ai_smart_terminal.cjs
           go test -count=1 ./internal/server -run '^TestAgent'

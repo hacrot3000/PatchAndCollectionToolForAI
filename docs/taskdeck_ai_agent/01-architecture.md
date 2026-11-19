@@ -24,6 +24,26 @@ Khi thay đổi route hay protocol, cập nhật bảng bản đồ trong handof
 
 Hoàn tất khi có source references chính xác, bảng state/side effect và test; không cần gọi provider hay thực thi remote thật. Những thay đổi execution triển khai theo [05](05-patch-feedback.md) và [06](06-parallel-remote.md).
 
+## F01.3 — bảng field-to-field đã pin (source lines, revision hiện tại)
+
+| Bước | Source | Field/ID | Giới hạn & fail-closed |
+| --- | --- | --- | --- |
+| Model request | `internal/agentchat/responses.go:106` `BuildResponsesRequest` | `instructions` mỗi lượt, `input`, `tools`, `previous_response_id`/`conversation` | instructions bắt buộc, ≤1 MiB; item ≤512 KiB; ≤256 item; request ≤4 MiB; không mix conversation + previous_response |
+| Model response | `:205` `ParseResponsesResult` | `response.id`, `output[].call_id/name/arguments`, `usage` | ID bắt buộc; status phải `completed`; call_id/name trùng hoặc JSON args sai → từ chối |
+| Function schema | cùng file (khối `EnablePatchTool`) | `name`, `patch_python`, `additionalProperties:false` | chỉ một tool, `parallel_tool_calls:false`; không có shell/file tool |
+| Arguments | `internal/server/agent_chat_tools.go:31` `parseAgentPatchArguments` | JSON đúng 1 object, `name` ≤80, Python ≤480 KiB | `DisallowUnknownFields`, trailing data, NUL và UTF-8 sai bị từ chối |
+| Proposal ledger | `internal/server/agent_chat_response_helpers.go` + `internal/agentchat/store.go` `ToolCallRecord` | `call_id`, `model_turn_id`, `arguments_sha256` | một call duy nhất, không trùng call ID, không có output mồ côi |
+| Approval | `agent_chat_tools.go:79` `agentChatToolDecisionAPI` | owner, revision, project ID, `patch.run`, `confirm_execution` | native validation + `arguments_sha256` + approval TTL + Git snapshot; drift → `unknown`, không queue |
+| Queue | `patch_paste.go:103` `pastedPythonPackage` | 2 header `TASKDECK_PROJECT_KEY`/`TASKDECK_PROJECT_ID`, ZIP `PATCH_TOOL_MANIFEST.json` + `entrypoint.py` | sai/rỗng/thiếu header bị từ chối; paste chỉ tạo file queue, không chạy |
+| Queue receipt | `patchUploadResult` (`queue_path`, `size`, `sha256`) | SHA256 + size | `agentVerifyQueuedPackage` kiểm tra path/regular file/size/digest trước dispatch và trước selection |
+| Native start | `agent_chat_native.go:85` `agentStartNativePatch` | `kind=patch`, `patch_mode=queue`, `patch_ui=native`, session ID | handler native giữ owner/quyền/lease; không có executor mới |
+| Selection | `agent_chat_native.go:29` `agentExactPatchSelection` | prompt ID, index, name, kind | phải `taskdeck.patch` v1/`queue_selection`; đúng một item, selectable, không trùng tên |
+| Result | `agent_chat_native.go:152` `agentPatchResultFromProtocol` | name + approved index + `run_id`, PASS/FAIL/PREFLIGHT_FAIL/INCOMPLETE | thiếu `run_id`, sai index hoặc run mismatch → không kết luận; argv/log path bị loại |
+| Reconcile | `agent_chat_sync.go:17` (explicit) và `:54` (startup read-only) | ledger revision | không queue/launch/select; chỉ nhận evidence final duy nhất |
+| Feedback | `agent_chat_tool_feedback.go:19` `agentChatToolContinueAPI` | đúng `call_id`, `FeedbackStatus` | persist trước egress; timeout/cancel → `unknown`; không resend |
+
+**Remote:** `internal/remotetransport/action*.go` không có operation Patch/Python (chỉ `git.patch.*` là diff hunk, `files.*`, `tasks.*`, `terminal.*`). Vì vậy F06.2 cho Agent Patch vẫn **chưa có hợp đồng** và không được mở rộng dispatcher hiện tại.
+
 ## Contract và crash boundaries cần khóa trước live
 
 | Bước | Source/hàm | ID/evidence | Không được tự suy |

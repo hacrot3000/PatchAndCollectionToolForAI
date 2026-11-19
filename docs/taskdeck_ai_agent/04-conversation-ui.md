@@ -13,6 +13,10 @@
 3. Thêm event journal có sequence monotonic theo session, giới hạn dung lượng/retention, owner-scoped `GET .../events` SSE. Event chỉ là thông báo, state bền vững là nguồn chân lý; cursor hết hạn trả lỗi/resync rõ ràng. Ghi trước khi publish, không phát token/response chưa được lưu như đã hoàn tất.
 4. Reuse transport bảo vệ egress theo [02](02-providers.md), parse streaming incremental có backpressure và bound; tool calls chỉ dispatch sau response hoàn chỉnh, validate và human approval. Browser reconnect dùng cursor + snapshot revision, deduplicate event; không retry POST gây side effect.
 
+## Trạng thái sau đợt hardening
+
+Đã có: `POST /api/agent/sessions/{id}/cancel` đăng ký/hủy provider context phía server (không tin browser abort), `PATCH /metadata` cho rename/archive (chặn archive khi còn tool call chưa xong), busy state theo từng session, UI probe/delete provider, panel evidence console (`GET .../execution`) với copy tùy chọn. Bổ sung: timeout được phân biệt (504) và vẫn không auto-retry; `failed`/`cancelled` cho phép người dùng gửi lượt mới thủ công. Đã có streaming SSE opt-in (probe verified) thay cho chỉ JSON. Chưa có: event journal/cursor, resume sau restart, pause, quota bền vững, browser acceptance thực.
+
 ## F04.1.2 — cancel/pause/resume và quota
 
 - Cancel server-side đăng ký context theo run ID; yêu cầu quyền/owner, ghi ý định cancel, hủy provider request và gọi API native cancel có sẵn nếu chính xác run và được ủy quyền. Nếu native không xác nhận kết thúc, hiển thị `cancellation_requested` hoặc `unknown`, không `cancelled` giả. Không gửi tool output mới sau cancel.

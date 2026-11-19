@@ -12,6 +12,10 @@
 2. Bổ sung rename/archive/list và cancel đúng scope; quyết định delete vật lý/retention trước khi thêm API. Ràng buộc không archive/delete run đang hoạt động hoặc UNKNOWN nếu chưa có chính sách; danh sách trả summary có pagination/bounds và phân biệt active/archive. Kiểm tra route/action quyền và audit, revision CAS; limit 32 phải định nghĩa active khác archive.
 3. Đưa transaction và cross-process lock/store theo [06](06-parallel-remote.md), không dùng mutex Go làm bằng chứng liên process; migration crash-safe, file cũ hợp lệ hoặc rollback được. Test 2 owner/workspace, version cũ/mới, concurrent update, crash và restart; không làm mất dữ liệu nhạy cảm.
 
+## Trạng thái sau đợt hardening
+
+Đã có: `schema_version`, `title`, `archived`, `target` (chỉ `local`), migration in-memory cho bản ghi cũ, giới hạn 32 chỉ tính session active, `PATCH /metadata` chặn archive khi còn `queuing/queued/dispatching/running/unknown`, store reject orphan `function_call_output`/duplicate call ID, journal có cross-process lock. Đã có thêm compaction an toàn (`internal/agentchat/compact.go`) chỉ bỏ lượt text hoàn tất trước tool exchange và ngoài tail bảo vệ, fail closed khi không còn gì an toàn. Đã có: Conversations ID chỉ dùng khi probe verified, nếu không thì replay stateless canonical history (mode lưu trữ giữ nguyên). Chưa có: budget theo token/tokenizer tương thích, delete vật lý/retention, pagination, migration crash-safe có test.
+
 ## F03.2 — AI Pack
 
 Giữ first-turn snapshot text bound, tách system instruction ra khỏi dữ liệu không tin cậy và xác minh project ID; kiểm tra cả key khi chuẩn bị Patch. Thêm preview/redaction cảnh báo và consent trước egress theo [07](07-acceptance.md); không gửi ZIP bytes, không cắt âm thầm schema bắt buộc. Lưu fingerprint, provenance và các version cần thiết để phát hiện stale; không lưu key trong snapshot. Test pack thiếu docs/oversize/identity drift và prompt injection. Việc đánh dấu F03.2.1/2 đã làm chỉ phản ánh mock, không phải kiểm định redaction tuyệt đối.

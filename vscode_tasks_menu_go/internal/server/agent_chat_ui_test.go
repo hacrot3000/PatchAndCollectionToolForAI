@@ -18,14 +18,33 @@ func TestAgentChatUIHasNoExecutionAndWiresProviderSessions(t *testing.T){
  for _,needle:=range []string{
   "'/api/agent/providers'",
   "'/api/agent/providers/test'",
+  "'/api/agent/providers/probe'",
+  "'/cancel'",
+  "'/metadata'",
   "'/api/agent/sessions'",
   "'/messages'",
   "confirm_external:true",
   "expected_revision:s.revision",
   "Approve & run in Patch Tool",
   "Check native Patch status",
+  "/execution",
+  "/pack-preview",
+  "+ Text file",
+  "/auto-feedback",
+  "/events",
+  "syncAgentEvents",
+  "renderAgentTabs",
+  "closeAgentTab",
+  "agentDrafts",
+  "Auto-send results",
+  "requesting_ai",
+  "attachments:agentAttachments",
+  "request_id:requestID",
+  "View console",
   "Send verified result to AI",
   "confirm_execution:action==='approve'",
+  "agentSessionBusy",
+  "tool_calling=verified",
   "expected_revision:session.revision",
   "globalThis.TaskMenuAgentChat=",
   "API key",
@@ -42,4 +61,22 @@ func TestAgentChatUIHasNoExecutionAndWiresProviderSessions(t *testing.T){
  if !strings.Contains(content[files[2]],"Open AI Agent Chat")||!strings.Contains(content[files[2]],"AI Agent providers / API keys"){
   t.Error("Settings menu lacks Agent Chat launch actions")
  }
+}
+
+// Regression gate: Agent Chat must stay an independent surface. Advisory
+// Smart Terminal must keep no execution path, and the native Patch panel must
+// not gain an Agent-execution shortcut.
+func TestAgentChatDoesNotEscalateAdvisoryOrNativePatchSurfaces(t *testing.T){
+	agentJS,err:=webassets.Files.ReadFile("featuremods/agentchat.js");if err!=nil{t.Fatal(err)}
+	for _,forbidden:=range []string{"execCommand","child_process","/api/terminal/","/api/patch/upload"}{
+		if strings.Contains(string(agentJS),forbidden){t.Errorf("Agent Chat UI reaches an unrelated execution surface: %q",forbidden)}
+	}
+	advice,err:=webassets.Files.ReadFile("featuremods/aiassistant.js");if err!=nil{t.Fatal(err)}
+	for _,forbidden:=range []string{"/api/agent/sessions","agentChatCall","taskdeck_submit_patch"}{
+		if strings.Contains(string(advice),forbidden){t.Errorf("advisory Smart Terminal gained Agent execution surface: %q",forbidden)}
+	}
+	panel,err:=webassets.Files.ReadFile("featuremods/patchpanel.js");if err!=nil{t.Fatal(err)}
+	for _,forbidden:=range []string{"/api/agent/sessions","taskdeck_submit_patch"}{
+		if strings.Contains(string(panel),forbidden){t.Errorf("native Patch panel gained an Agent shortcut: %q",forbidden)}
+	}
 }

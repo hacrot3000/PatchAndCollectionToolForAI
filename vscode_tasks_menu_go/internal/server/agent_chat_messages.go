@@ -18,7 +18,18 @@ import (
 // Tests can inject a fake Responses provider on an individual Server. The
 // production path exclusively uses the HTTPS/public-address gated adapter.
 func (s *Server) agentChatCall(ctx context.Context,p agentchat.ProviderConfig,key string,payload []byte)(agentchat.ResponsesResult,error){
+ return s.agentChatCallForOwner(ctx,"",p,key,payload)
+}
+
+// agentChatCallForOwner selects streaming only when the provider opted in AND
+// a probe verified streaming for this exact endpoint/model/fingerprint. A
+// stream that ends without completion is an error; callers never replay a
+// turn that may already have had side effects.
+func (s *Server) agentChatCallForOwner(ctx context.Context,owner string,p agentchat.ProviderConfig,key string,payload []byte)(agentchat.ResponsesResult,error){
  if s.AgentChatCall!=nil {return s.AgentChatCall(ctx,p,key,payload)}
+ if p.Stream&&owner!=""&&s.agentStreamCapabilityVerified(owner,p) {
+  return agentchat.DoResponsesStream(ctx,p,key,payload)
+ }
  return agentchat.DoResponses(ctx,p,key,payload)
 }
 
@@ -43,12 +54,22 @@ func (s *Server) agentChatMessageAPI(w http.ResponseWriter,r *http.Request,id st
   Message string `json:"message"`
   ConfirmExternal bool `json:"confirm_external"`
   ExpectedRevision uint64 `json:"expected_revision"`
+  // RequestID is an optional client-generated idempotency key. A retried
+  // request with the same key replays the recorded outcome instead of
+  // contacting the provider a second time.
+  RequestID string `json:"request_id,omitempty"`
+  // Attachments are bounded UTF-8 text snippets. Binary, office documents and
+  // images are refused rather than silently base64-inlined into the context.
+  Attachments []agentAttachment `json:"attachments,omitempty"`
  }
  if err:=dec.Decode(&req);err!=nil{http.Error(w,"invalid message request",400);return}
  var extra any
  if err:=dec.Decode(&extra);!errors.Is(err,io.EOF){http.Error(w,"exactly one message object is required",400);return}
  msg:=strings.TrimSpace(req.Message)
  if msg==""||len(msg)>16<<10{http.Error(w,"message must contain 1 to 16384 bytes",400);return}
+ attachmentContext,err:=agentAttachmentContext(req.Attachments)
+ if err!=nil{http.Error(w,err.Error(),400);return}
+ if attachmentContext!=""{msg=msg+"\n\n"+attachmentContext}
  if !req.ConfirmExternal{http.Error(w,"external model data sharing consent required",403);return}
  owner:=aiPlanOwner(r)
  release,ok:=lockAgentTurn(s.Workspace,owner,id)
@@ -58,9 +79,29 @@ func (s *Server) agentChatMessageAPI(w http.ResponseWriter,r *http.Request,id st
  session,err:=store.Get(id,owner)
  if errors.Is(err,agentchat.ErrNotFound){http.Error(w,"session not found",404);return}
  if err!=nil{http.Error(w,"session unavailable",500);return}
- if session.Revision!=req.ExpectedRevision{http.Error(w,"stale session revision",409);return}
  if session.Workspace!=s.Workspace{http.Error(w,"workspace mismatch",403);return}
- if session.Status!="created"&&session.Status!="ready"&&session.Status!="completed" {
+ // Idempotent replay must be evaluated BEFORE the revision check: a retried
+ // request arrives with the pre-turn revision, which is now stale.
+ requestKey:=strings.TrimSpace(req.RequestID)
+ if len(requestKey)>128||strings.ContainsAny(requestKey,"\x00\r\n"){http.Error(w,"invalid request_id",400);return}
+ if requestKey!=""&&session.LastRequestKey==requestKey{
+  if session.LastRequestSHA!=""&&session.LastRequestSHA!=agentRequestDigest(msg){
+   http.Error(w,"request_id reused with a different message",409);return
+  }
+  w.Header().Set("Cache-Control","no-store")
+  writeJSON(w,200,map[string]any{
+   "session_id":id,"revision":session.Revision,"status":session.Status,
+   "replay":true,"execution_enabled":false,
+  })
+  return
+ }
+ if session.Revision!=req.ExpectedRevision{http.Error(w,"stale session revision",409);return}
+ // failed/cancelled turns are recoverable by an explicit new message: no tool
+ // was executed and the user turn is retained. waiting_tool and terminal tool
+ // states still require the approval/reconciliation flow instead.
+ switch session.Status{
+ case "created","ready","completed","failed","cancelled":
+ default:
   http.Error(w,"session is not ready for another message",409);return
  }
  // Legacy advisory provider keys are not implicitly promoted into an
@@ -76,12 +117,25 @@ func (s *Server) agentChatMessageAPI(w http.ResponseWriter,r *http.Request,id st
  identity,err:=patchtool.EnsureProjectIdentity(s.Workspace)
  if err!=nil||identity.ID!=session.ProjectID{http.Error(w,"project identity drift",409);return}
 
+ releaseSlot,admitted:=acquireAgentSlot(aiWorkspaceHash(s.Workspace)+":"+owner)
+ if !admitted{http.Error(w,"Agent concurrency limit reached; retry after an active turn finishes",429);return}
+ defer releaseSlot()
  releaseQuota,allowed:=s.reserveAIRequest(aiWorkspaceHash(s.Workspace)+":"+owner,20)
- if !allowed{http.Error(w,"model concurrency or quota limit exceeded",429);return}
+ if !allowed{http.Error(w,"model rate quota limit exceeded",429);return}
  defer releaseQuota()
 
- if len(session.History)>250{
-  http.Error(w,"context is full; compaction is required before further turns",413);return
+ if len(session.History)>200{
+  // Remove only completed plain-text turns that precede any tool exchange or
+  // the protected tail. If nothing safe can be dropped, fail closed with 413
+  // rather than truncating pending commitments or tool pairs.
+  compacted:=agentchat.CompactHistory(session.History,agentchat.CompactionConfig{KeepTail:120,MaxDropped:120})
+  if compacted.Dropped==0{
+   http.Error(w,"context is full and no safe compaction is available; start a new session",413);return
+  }
+  session.History=compacted.History
+  if session.Status==""{session.Status="ready"}
+  session,err=store.Save(session,session.Revision)
+  if err!=nil{http.Error(w,"cannot persist compacted context",409);return}
  }
  first:=len(session.History)==0
  next:=agentchat.HistoryItem{Type:"user",Content:msg}
@@ -104,33 +158,97 @@ func (s *Server) agentChatMessageAPI(w http.ResponseWriter,r *http.Request,id st
  }
  // Only the explicit TaskDeck tool schema is advertised. No model output
  // can execute a patch without a one-time user decision and native preflight.
- patchToolAvailable:=model.ToolCalling
+ // A user-declared capability is insufficient: the endpoint/model pair must
+ // have verified tool-calling evidence from a user-triggered probe.
+ patchToolAvailable:=model.ToolCalling&&s.agentToolCapabilityVerified(owner,p,model)
  instructions:=agentChatInstructions(session.ProjectID,patchToolAvailable)
  limit:=4096
  if model.MaxOutputTokens>0&&model.MaxOutputTokens<limit{limit=model.MaxOutputTokens}
+ // Conversations mode is only trusted with verified evidence for this exact
+ // endpoint/model. Otherwise replay canonical history statelessly; the stored
+ // session mode stays immutable for audit and a later verified retry.
+ mode:=session.Mode
+ conversationID:=session.ConversationID
+ if mode==agentchat.Conversation&&!s.agentConversationCapabilityVerified(owner,p,model){
+  mode=agentchat.Stateless
+  conversationID=""
+ }
  payload,err:=agentchat.BuildResponsesRequest(agentchat.RequestConfig{
-  Model:session.ModelID,Instructions:instructions,Mode:session.Mode,
-  PreviousResponseID:session.PreviousResponseID,ConversationID:session.ConversationID,
+  Model:session.ModelID,Instructions:instructions,Mode:mode,
+  PreviousResponseID:session.PreviousResponseID,ConversationID:conversationID,
   History:session.History,Next:[]agentchat.HistoryItem{next},MaxOutputTokens:limit,
-  ReasoningEffort:model.DefaultReasoningEffort,
+  ReasoningEffort:agentReasoningEffort(session.ReasoningEffort,model),
   EnablePatchTool:patchToolAvailable,
  })
  if err!=nil{http.Error(w,"cannot build bounded AI context: "+err.Error(),413);return}
  oldRevision:=session.Revision
  session.History=append(session.History,next)
  session.Status="requesting_ai"
+ session.AppendEvent("turn_started","requesting_ai","","")
+ // Persist the idempotency intent BEFORE egress so a crash/retry cannot send
+ // the same user request twice.
+ if requestKey!=""{
+  session.LastRequestKey=requestKey
+  session.LastRequestSHA=agentRequestDigest(msg)
+  session.LastRequestCode=0
+  session.LastRequestResponse=""
+ }
  session,err=store.Save(session,oldRevision)
  if err!=nil{http.Error(w,"cannot persist user message",409);return}
  ctx,cancel:=context.WithTimeout(r.Context(),60*time.Second)
  defer cancel()
- result,callErr:=s.agentChatCall(ctx,p,string(secret),payload)
+ // Register the provider request so an explicit cancel endpoint can stop it.
+ // A browser disconnect alone is not treated as server-side cancellation.
+ releaseRequest:=registerAgentRequest(agentRequestKey(s.Workspace,owner,id),cancel)
+ result,callErr:=s.agentChatCallForOwner(ctx,owner,p,string(secret),payload)
+ releaseRequest()
  if callErr!=nil{
+  if errors.Is(ctx.Err(),context.Canceled){
+   // The turn was explicitly cancelled: keep the user's message, but never
+   // record a partial or late provider response as final.
+   session.Status="cancelled"
+   session.AppendEvent("turn_cancelled","cancelled","","")
+   _,saveErr:=store.Save(session,session.Revision)
+   if saveErr!=nil{http.Error(w,"request cancelled but session state could not be saved",409);return}
+   http.Error(w,"AI request cancelled; no tool was executed",409)
+   return
+  }
+  // Distinguish a bounded timeout from a transport failure: both retain the
+  // user turn and neither is retried automatically. A timeout may still have
+  // reached the provider, so the durable status is failed (not "safe to retry").
   session.Status="failed"
-  _,_ = store.Save(session,session.Revision)
+  session.AppendEvent("turn_failed","failed","","timeout_or_transport")
+  if errors.Is(callErr,context.DeadlineExceeded){
+   if _,saveErr:=store.Save(session,session.Revision);saveErr!=nil{
+    http.Error(w,"provider timed out and session state could not be saved",409);return
+   }
+   http.Error(w,"AI provider timed out; the turn was retained and will not be retried automatically",504)
+   return
+  }
+  if _,saveErr:=store.Save(session,session.Revision);saveErr!=nil{
+   http.Error(w,"provider failed and session state could not be saved",409);return
+  }
   http.Error(w,"AI provider request failed; original turn was retained and will not be retried automatically",502)
   return
  }
  appendAgentProviderResult(&session,result,patchToolAvailable)
+ session.AppendEvent("turn_finished",session.Status,"","")
+ // Capture the reviewed workspace state now, at proposal time, so a later
+ // approval can detect drift. Best effort: an unreadable workspace records no
+ // snapshot and the approval path will capture/verify one itself.
+ if patchToolAvailable {
+  if snap,err:=agentWorkspaceSnapshotOf(r.Context(),s.Workspace);err==nil{
+   for i:=range session.ToolCalls{
+    if session.ToolCalls[i].Status=="pending"&&session.ToolCalls[i].ExpectedHead==""&&!session.ToolCalls[i].GitIsRepo{
+     session.ToolCalls[i].ExpectedHead=snap.Head
+     session.ToolCalls[i].ExpectedBranch=snap.Branch
+     session.ToolCalls[i].WorkspaceStatusSHA256=snap.StatusSHA256
+     session.ToolCalls[i].GitIsRepo=snap.IsRepo
+    }
+   }
+  }
+ }
+ if requestKey!=""{session.LastRequestCode=200}
  session,err=store.Save(session,session.Revision)
  if err!=nil{http.Error(w,"provider responded but durable session update failed; inspect session before retry",409);return}
  w.Header().Set("Cache-Control","no-store")

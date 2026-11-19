@@ -9,6 +9,10 @@
 3. Egress provider: duy trì HTTPS/public-IP mỗi kết nối, DNS rebinding, TLS, không redirect/proxy, timeout và size bound cho mọi adapter/stream/probe. Probe chỉ gửi dữ liệu tổng hợp giả, người dùng consent; preview context trước gửi và cảnh báo redaction không đảm bảo. Thực hiện independent security review trước release; không suy ra an toàn chỉ từ test SSRF.
 4. Remote dùng host authorization/opt-in và E2EE; token/key không đi remote. Cô lập state private, kiểm tra mode/path/symlink, retention và xóa theo chính sách đã chốt; ghi nhận backup, artifact và log có thể chứa dữ liệu nhạy cảm.
 
+## Trạng thái sau đợt hardening
+
+Đã có: capability chưa verify → không quảng cáo tool thực thi (`agentToolCapabilityVerified`), Conversations chưa verify → stateless, approval không bao giờ đọc cờ từ model, route mới (`DELETE /providers`, `/providers/probe`, `PATCH /metadata`, `/cancel`, `GET .../execution`) đều map quyền trong `shared_authorization.go`, audit không chứa key, và lỗi không lộ secret. Còn thiếu: re-authorize tường minh/typed service thay cho `httptest` handler reuse, independent security review, và toàn bộ live acceptance.
+
 ## F07.2 — test và CI
 
 | Mục | Test tối thiểu | Bằng chứng |
@@ -23,9 +27,13 @@
 | A9 | advisory AI và manual Patch không đổi | test regression Smart Terminal và Patch native |
 | A10 | refresh/backend restart | transcript, ID, cursor và ledger nhất quán |
 
+Trạng thái bằng chứng hiện tại (cập nhật cùng đợt hardening thứ hai): A1–A6 và A10 có test Go (mock/fixture) cho phần Agent; A7 remote vẫn **BLOCKED** vì chưa có typed remote Patch operation; A8 chỉ có static/contract gate, chưa có independent audit; A9 có static gate + `node test_ai_smart_terminal.cjs`. Không mục nào ở đây được coi là live acceptance.
+
 Chạy test tập trung tại `vscode_tasks_menu_go`: `go test ./internal/agentchat -count=1`; `go test ./internal/server -run '^TestAgentChat' -count=1`; `go test ./internal/patchtool -count=1`; `node --check web/featuremods/agentchat.js`; `node test_ai_smart_terminal.cjs` nếu file có trong checkout. Thêm `go test -race` cho concurrency và `go test ./...` ở release gate khi môi trường cho phép. Kiểm tra tên test thực tế trước khi dùng selector; báo test không chạy/không có file, không coi regex không khớp là PASS.
 
-`.github/workflows/taskdeck_agentchat_core.yml` hiện chạy race agentchat, vet, syntax và server Agent tests trên Go 1.25; nhánh `pull_request.paths` trong commit tài liệu gốc thiếu `internal/server/agent_chat_*`/authorization; đã sửa ở commit `7d6c6bed`. Khi sửa CI, bổ sung path trigger tương ứng, test mới và kiểm tra Go/platform matrix thực tế, không tuyên bố CI là live acceptance.
+Ghi chú bằng chứng cục bộ (Go 1.20.14, Linux, sau đợt hardening): `go test ./internal/server -run '^TestAgent' -count=1` PASS; `go test -race ./internal/agentchat` PASS; `go test ./internal/patchtool` PASS; `go vet` sạch; `node --check` PASS; `go build ./cmd/vscode_tasks_menu` PASS. Chạy toàn bộ `go test ./internal/server` phát hiện 13 test fail **có sẵn trên HEAD sạch** (foreground lock/UI contract, grouped menus, restricted role, WSS app ping, terminal detect) — đã đối chiếu bằng worktree `c25d48be`, không do thay đổi Agent Chat.
+
+`.github/workflows/taskdeck_agentchat_core.yml` hiện chạy race agentchat, vet (agentchat + server), syntax và toàn bộ server `^TestAgent` trên Go 1.25; nhánh `pull_request.paths` trong commit tài liệu gốc thiếu `internal/server/agent_chat_*`/authorization; đã sửa ở commit `7d6c6bed`. Khi sửa CI, bổ sung path trigger tương ứng, test mới và kiểm tra Go/platform matrix thực tế, không tuyên bố CI là live acceptance.
 
 ## Gate phát hành và vận hành
 
