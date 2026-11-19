@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import json
 import os
+from pathlib import Path
+import tempfile
 import threading
 import time
 from typing import Any
@@ -154,6 +156,61 @@ def emit_runtime_event(event_type: str, **payload: Any) -> bool:
         writer.close()
 
 
+_COMMAND_JOURNALS: dict[str, dict[int, dict[str, Any]]] = {}
+
+
+def _write_command_status_journal(command: dict[str, Any]) -> None:
+    """Mirror live command states under their run-owned artifacts directory.
+
+    The normal protocol event is still primary. This bounded, atomic mirror
+    permits TaskDeck to reconstruct live rows if it missed an event or the
+    user returns to the running panel later.
+    """
+    raw = (os.environ.get("PTV_PATCH_COMMAND_LOG_DIR") or
+           os.environ.get("PTV_COLLECT_COMMAND_LOG_DIR") or "").strip()
+    if not raw:
+        return
+    try:
+        folder = Path(raw).resolve(strict=False)
+        root = Path.cwd().resolve(strict=True)
+        relative = folder.relative_to(root)
+        parts = relative.parts
+        if (len(parts) != 7 or parts[:3] != ("artifacts", "patch_tool", "runs")
+                or parts[4] != "command_items" or parts[-1] != "command_logs"):
+            return
+        index = command.get("index")
+        if type(index) is not int or not 1 <= index <= 64:
+            return
+        folder.mkdir(parents=True, exist_ok=True)
+        key = str(folder)
+        rows = _COMMAND_JOURNALS.setdefault(key, {})
+        rows[index] = dict(command)
+        snapshot = json.dumps({
+            "format": "taskdeck.patch.command-states.v1",
+            "commands": [rows[k] for k in sorted(rows)],
+        }, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+        if len(snapshot) > 65536:
+            return
+        fd, name = tempfile.mkstemp(prefix=".command_states_", suffix=".tmp",
+                                    dir=folder)
+        try:
+            with os.fdopen(fd, "wb") as output:
+                output.write(snapshot)
+            try:
+                os.chmod(name, 0o600)
+            except OSError:
+                pass
+            os.replace(name, folder / "command_states.json")
+        finally:
+            try:
+                os.unlink(name)
+            except FileNotFoundError:
+                pass
+    except (OSError, ValueError, TypeError):
+        # The mirror must never alter PATCH/COLLECT execution semantics.
+        pass
+
+
 def emit_command_state(command: dict[str, Any]) -> bool:
     """Publish one nested command lifecycle update in the owning PATCH/COLLECT.
 
@@ -168,6 +225,7 @@ def emit_command_state(command: dict[str, Any]) -> bool:
     name = os.environ.get("TASKDECK_PATCH_PROGRESS_ITEM_NAME", "")
     if index < 1 or not name:
         return False
+    _write_command_status_journal(command)
     return emit_runtime_event("command_state", item_index=index,
                               item_name=name, command=command)
 
