@@ -46,6 +46,7 @@ type ProtocolCommandEvidenceState struct {
 }
 
 type ProtocolItemState struct {
+    RunID string `json:"run_id,omitempty"`
 	Index          int      `json:"index"`
 	Total          int      `json:"total"`
 	Name           string   `json:"name"`
@@ -636,6 +637,7 @@ func protocolCommandStateEvent(data []byte) (int, string, ProtocolCommandEvidenc
 func protocolItemEvent(data []byte) (ProtocolItemState, string, error) {
 	var event struct {
 		Type           string   `json:"type"`
+        RunID string `json:"run_id"`
 		Index          int      `json:"index"`
 		Total          int      `json:"total"`
 		Name           string   `json:"name"`
@@ -663,6 +665,12 @@ func protocolItemEvent(data []byte) (ProtocolItemState, string, error) {
 	if strings.TrimSpace(event.Name) == "" || strings.TrimSpace(event.Kind) == "" {
 		return ProtocolItemState{}, "", fmt.Errorf("Patch item event identity is incomplete")
 	}
+    if len(event.RunID) > 96 || strings.IndexFunc(event.RunID, func(r rune) bool {
+        return !((r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') ||
+            (r >= '0' && r <= '9') || r == '_' || r == '-')
+    }) >= 0 {
+        return ProtocolItemState{}, "", fmt.Errorf("invalid PATCH run_id")
+    }
 	status := strings.TrimSpace(event.Status)
 	event.DiagnosisKind = strings.TrimSpace(event.DiagnosisKind)
 	event.FailureReason = strings.TrimSpace(event.FailureReason)
@@ -712,6 +720,7 @@ func protocolItemEvent(data []byte) (ProtocolItemState, string, error) {
 		return ProtocolItemState{}, "", fmt.Errorf("Patch item_finished status is required")
 	}
 	return ProtocolItemState{
+        RunID: event.RunID,
 		Index: event.Index,
 		Total: event.Total,
 		Name: event.Name,
