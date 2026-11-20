@@ -1475,7 +1475,7 @@ function normalizeStagedAttachments(items){
   if(name.length>120)throw new Error('Attachment name is too long.');
   let mime=String(item.mime||'text/plain').toLowerCase().trim();
   if(!(mime.startsWith('text/')||mime==='application/json'))throw new Error('Only text and JSON attachments are supported.');
-  const text=item.text,bytes=attachmentByteLength(text);
+  const text=typeof item.rawText==='string'?item.rawText:item.text,bytes=attachmentByteLength(text);
   try{if(new TextDecoder('utf-8',{fatal:true}).decode(new TextEncoder().encode(text))!==text)throw new Error();}catch{throw new Error(name+' is not valid UTF-8 text.');}
   if(bytes>agentMaxAttachmentBytes)throw new Error(name+' is '+bytes+' bytes; the per-file limit is 32 KiB. Select a smaller range.');
   const source=item.source&&typeof item.source==='object'?{...item.source}:{};
@@ -1495,7 +1495,7 @@ function normalizeStagedAttachments(items){
   const wrappedBytes=attachmentByteLength(wrapped);
   if(wrappedBytes>agentMaxAttachmentBytes)throw new Error(name+' plus its source metadata exceeds 32 KiB; select a smaller range.');
   total+=wrappedBytes;if(total>agentMaxAttachmentTotal)throw new Error('Attachments including source metadata total '+total+' bytes; the combined limit is 64 KiB.');
-  return {name,mime,text:wrapped,kind,source,bytes:wrappedBytes,preview:text.slice(0,300)};
+  return {name,mime,text:wrapped,rawText:text,kind,source,quotes:Array.isArray(item.quotes)?item.quotes.map(q=>({...q})):undefined,bytes:wrappedBytes,preview:text.slice(0,300)};
  });
 }
 function currentStagedAttachments(){return agentActive?agentAttachments:agentPendingAttachments;}
@@ -1536,15 +1536,44 @@ function renderAgentAttachments(){
   card.append(title,path,actions);attachList.append(card);
  });
 }
+// Quote excerpts are immutable snapshots. Separate selections from the
+// same local file occupy one attachment and retain every individual line range.
+function quotesForContext(context){
+ if(Array.isArray(context.quotes)&&context.quotes.length)return context.quotes.map(q=>({...q}));
+ const source=context.source||{};
+ if(source.start_line===undefined)return [];
+ return [{start_line:source.start_line,start_column:source.start_column||1,
+  end_line:source.end_line,end_column:source.end_column||1,text:context.rawText??context.text}];
+}
+function stageFileSelectionQuotes(current,item){
+ if(item.kind!=='file_selection'||!item.source?.path)return [...current,item];
+ const existingIndex=current.findIndex(old=>old.kind==='file_selection' &&
+  old.source?.path===item.source.path &&
+  Boolean(old.source?.dirty)===Boolean(item.source.dirty) &&
+  old.source?.content_source===item.source.content_source);
+ const previous=existingIndex<0?[]:quotesForContext(current[existingIndex]);
+ const incoming=quotesForContext(item);
+ const all=[...previous,...incoming];
+ if(!all.length)return [...current,item];
+ const text=all.map((q,index)=>'QUOTE '+(index+1)+' · L'+q.start_line+
+  ':C'+q.start_column+'-L'+q.end_line+':C'+q.end_column+'\n'+q.text).join('\n\n');
+ const source={...item.source,start_line:all[0].start_line,start_column:all[0].start_column,
+  end_line:all[all.length-1].end_line,end_column:all[all.length-1].end_column,
+  ranges:all.map(({start_line,start_column,end_line,end_column})=>
+   ({start_line,start_column,end_line,end_column}))};
+ const merged={...item,text,rawText:text,source,quotes:all};
+ if(existingIndex<0)return [...current,merged];
+ const next=current.slice();next[existingIndex]=merged;return next;
+}
 async function stageContext(context,options={}){
  const targetSessionID=Object.prototype.hasOwnProperty.call(options,'session_id')?(options.session_id||null):agentSelectedChatSession();
  try{
   if(!context||typeof context!=='object'||typeof context.text!=='string')throw new Error('Attachment context must include text.');
   const kind=['file','file_selection','terminal_console','terminal_selection'].includes(context.kind)?context.kind:null;
   if(!kind)throw new Error('Unsupported attachment context kind.');
-  const item={kind,name:context.name,mime:context.mime||'text/plain',text:context.text,source:context.source||{}};
+  const item={kind,name:context.name,mime:context.mime||'text/plain',text:context.text,source:context.source||{},quotes:context.quotes};
   const current=targetSessionID?(targetSessionID===agentActive?agentAttachments:(agentAttachmentDrafts.get(targetSessionID)||[])):agentPendingAttachments;
-  const staged=normalizeStagedAttachments([...current,item]);
+  const staged=normalizeStagedAttachments(stageFileSelectionQuotes(current,item));
   current.splice(0,current.length,...staged);
   if(targetSessionID){agentAttachmentDrafts.set(targetSessionID,staged.map(a=>({...a})));agentRequestIDs.delete(targetSessionID);}
   if(!targetSessionID||targetSessionID===agentActive)renderAgentAttachments();
@@ -1574,7 +1603,7 @@ function editorContextActions(view,selectionSnapshot){
  const targetSessionID=agentSelectedChatSession();
  const actions=[{label:'Attach file to Chat',run:async options=>{const sessionID=options?.session_id??targetSessionID;const result=await stageContext(editorSourceContext(view),{open:true,...(sessionID?{session_id:sessionID}:{})});if(!result.ok)throw new Error(result.error);return result;}}];
  const selection=selectionSnapshot||view?.cm?.state?.selection;
- if(((selection?.ranges?.length?selection.ranges:[selection?.main])).some(range=>range&&range.from!==range.to))actions.push({label:'Attach selected text to Chat',run:async options=>{const sessionID=options?.session_id??targetSessionID;const result=await stageContext(editorSelectionContexts(view,selection),{open:true,...(sessionID?{session_id:sessionID}:{})});if(!result.ok)throw new Error(result.error);return result;}});
+ if(((selection?.ranges?.length?selection.ranges:[selection?.main])).some(range=>range&&range.from!==range.to))actions.push({label:'Add selection to chat',run:async options=>{const sessionID=options?.session_id??targetSessionID;const result=await stageContext(editorSelectionContexts(view,selection),{open:true,...(sessionID?{session_id:sessionID}:{})});if(!result.ok)throw new Error(result.error);return result;}});
  return actions;
 }
 function openAttachContextMenu(context,event,label='Attach selection to Chat',options={}){
@@ -1625,23 +1654,24 @@ function editorSourceContext(view,selectionSnapshot=null){
  return {kind:'file',name:String(view.file.path).split(/[\\/]/).pop(),mime:attachmentMime(view.file.path),text,source:{path:view.file.path,content_source:view.dirty?'unsaved_editor_buffer':'editor_buffer',dirty:Boolean(view.dirty),captured_at:new Date().toISOString()}};
 }
 function editorSelectionContexts(view,selectionSnapshot=null){
- if(!view||view.closed||view.file?.streamed)throw new Error('Selection is unavailable for this editor.');
+ if(!view||view.closed||view.file?.streamed||view.file?.remote_workspace_id||view.file?.remote_transfer_profile_id)throw new Error('Selection is unavailable for this editor.');
  const doc=view.cm?.state?.doc,state=view.cm?.state;if(!doc||!state)throw new Error('Editor content is unavailable.');
  const selection=selectionSnapshot||state.selection;
  const ranges=(selection.ranges?.length?selection.ranges:[selection.main]).filter(range=>range&&range.from!==range.to);
  if(!ranges.length)throw new Error('Select text before attaching a selection.');
  const ordered=ranges.map(range=>({from:range.from,to:range.to})).sort((a,b)=>a.from-b.from||a.to-b.to);
- let total=0;const pieces=[];const metadata=[];
+ let total=0;const pieces=[];const metadata=[];const quotes=[];
  for(let i=0;i<ordered.length;i++){
   const range=ordered[i],start=doc.lineAt(range.from),end=doc.lineAt(range.to);
   const startColumn=range.from-start.from+1,endColumn=range.to-end.from+1;
   const selected=doc.sliceString(range.from,range.to);if(!isValidUTF8Text(selected))throw new Error('Selected range is not valid UTF-8 text.');total+=attachmentByteLength(selected);
   if(total>agentMaxAttachmentBytes)throw new Error('Selected text exceeds 32 KiB; select a smaller range.');
   metadata.push({start_line:start.number,start_column:startColumn,end_line:end.number,end_column:endColumn});
+  quotes.push({start_line:start.number,start_column:startColumn,end_line:end.number,end_column:endColumn,text:selected});
   pieces.push((ordered.length>1?'RANGE '+(i+1)+' · ':'')+'L'+start.number+':C'+startColumn+'-L'+end.number+':C'+endColumn+'\n'+selected);
  }
  const main=metadata[0],last=metadata[metadata.length-1];
- return {kind:'file_selection',name:String(view.file.path).split(/[\\/]/).pop(),mime:attachmentMime(view.file.path),text:pieces.join('\n\n'),source:{path:view.file.path,start_line:main.start_line,start_column:main.start_column,end_line:last.end_line,end_column:last.end_column,ranges:metadata,content_source:view.dirty?'unsaved_editor_buffer':'editor_buffer',dirty:Boolean(view.dirty),captured_at:new Date().toISOString()}};
+ return {kind:'file_selection',name:String(view.file.path).split(/[\\/]/).pop(),mime:attachmentMime(view.file.path),text:pieces.join('\n\n'),quotes,source:{path:view.file.path,start_line:main.start_line,start_column:main.start_column,end_line:last.end_line,end_column:last.end_column,ranges:metadata,content_source:view.dirty?'unsaved_editor_buffer':'editor_buffer',dirty:Boolean(view.dirty),captured_at:new Date().toISOString()}};
 }
 function editorSelectionContextFromBrowserSelection(view,selection){
  if(!view||view.closed||view.file?.streamed||!selection?.toString?.().trim())throw new Error('Select text in a complete text viewer before attaching.');
@@ -1652,7 +1682,8 @@ function editorSelectionContextFromBrowserSelection(view,selection){
  const range={from:Math.min(from,to),to:Math.max(from,to)};
  const start=doc.lineAt(range.from),end=doc.lineAt(range.to),text=doc.sliceString(range.from,range.to);
  if(!text.trim()||text!==String(selection.toString()))throw new Error('Could not accurately map the selected text to source positions.');
- return {kind:'file_selection',name:String(view.file.path).split(/[\\/]/).pop(),mime:attachmentMime(view.file.path),text,source:{path:view.file.path,start_line:start.number,start_column:range.from-start.from+1,end_line:end.number,end_column:range.to-end.from+1,content_source:'readonly_editor_view',dirty:Boolean(view.dirty),captured_at:new Date().toISOString()}};
+ const quote={start_line:start.number,start_column:range.from-start.from+1,end_line:end.number,end_column:range.to-end.from+1,text};
+ return {kind:'file_selection',name:String(view.file.path).split(/[\\/]/).pop(),mime:attachmentMime(view.file.path),text,quotes:[quote],source:{path:view.file.path,start_line:start.number,start_column:range.from-start.from+1,end_line:end.number,end_column:range.to-end.from+1,content_source:'readonly_editor_view',dirty:Boolean(view.dirty),captured_at:new Date().toISOString()}};
 }
 function pickAgentAttachment(targetSessionID=agentSelectedChatSession()){
  const input=document.createElement('input');
