@@ -751,6 +751,9 @@ console.log('PASS: safe Markdown, syntax-highlighted PHP/Python, per-block Copy,
   };
   context.flowSession=baseFlow;
   vm.runInNewContext("displayAgentSession(flowSession);prompt.value='Create helloworld.php';",context);
+  // Even if a long conversation was scrolled to the top, the user's explicit
+  // Send must reveal the optimistic bubble and the Sending indicator.
+  transcript.scrollHeight=1500;transcript.clientHeight=180;transcript.scrollTop=0;
   let resolveFlow;
   const postedMessages=[];
   context.TaskMenuApp.jsonFetch=async(url,opts)=>{
@@ -768,8 +771,11 @@ console.log('PASS: safe Markdown, syntax-highlighted PHP/Python, per-block Copy,
   const liveLine=transcript.children.at(-1);
   assert.equal(liveLine.className,'agentchat-live-status','live status should follow the sent bubble');
   assert.equal(liveLine.children[1].textContent,'Sending request…');
+  assert.equal(transcript.scrollTop,1500,'Send must scroll into view even from older history');
   assert.equal(vm.runInNewContext('prompt.value',context),'','composer clears on sending');
   const initialBubble=transcript.children[0];
+  // Do not yank the user down again if they intentionally scroll up.
+  transcript.scrollTop=0;
   context.flowSession={...baseFlow,status:'requesting_ai',revision:2,event_seq:1,
     history:[{type:'user',content:'Create helloworld.php'}],
     events:[{seq:1,kind:'turn_started',status:'requesting_ai',history_index:1}]};
@@ -779,6 +785,8 @@ console.log('PASS: safe Markdown, syntax-highlighted PHP/Python, per-block Copy,
   assert.notEqual(transcript.children[0],initialBubble,'the optimistic node must be reconciled');
   assert.equal(transcript.children.at(-1),liveLine,'status is one stable node across all phases');
   assert.equal(liveLine.children[1].textContent,'Thinking…');
+  assert.equal(transcript.scrollTop,0,'Background updates must respect intentional history scrolling');
+  transcript.scrollTop=1500;
   context.flowSession={...context.flowSession,revision:3,event_seq:2,
     history:[{type:'user',content:'Create helloworld.php'},
       {type:'function_call',call_id:'collect-1',name:'taskdeck_collect_workspace',arguments:'{"actions":[{"type":"ls","path":"."}]}'},
@@ -788,6 +796,7 @@ console.log('PASS: safe Markdown, syntax-highlighted PHP/Python, per-block Copy,
   };
   vm.runInNewContext('displayAgentSession(flowSession)',context);
   assert.equal(liveLine.children[1].textContent,'Sending Collection result to AI…');
+  assert.equal(transcript.scrollTop,1500,'Live status should remain visible when user is at the bottom');
   assert.equal(transcript.children.filter(x=>x===liveLine).length,1,'changing phase must not accumulate spinner nodes');
   assert.ok(transcript.children.some(node=>node.className==='agentchat-io-details'&&node.children[0].textContent.includes('Collection result sent')),
     'verified Collection response should be accessible in chronological history');

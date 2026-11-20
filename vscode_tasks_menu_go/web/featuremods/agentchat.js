@@ -951,6 +951,17 @@ function agentToolRenderVersion(item,records,outputs){
  }
  return 'patch:'+JSON.stringify(records.get(item.call_id)||null);
 }
+// Auto-follow recent activity without stealing scroll when the user reads history.
+function agentAtLatest(){
+ return transcript.scrollHeight-transcript.scrollTop-transcript.clientHeight<=64;
+}
+function agentScrollToLatest(sessionID){
+ if(agentActive!==sessionID)return;
+ transcript.scrollTop=transcript.scrollHeight;
+ if(typeof requestAnimationFrame==='function')requestAnimationFrame(()=>{
+  if(agentActive===sessionID&&agentAtLatest())transcript.scrollTop=transcript.scrollHeight;
+ });
+}
 function displayAgentSession(session){
  if(!session){
   if(agentLiveRow.parentElement)agentLiveRow.remove();
@@ -965,6 +976,7 @@ function displayAgentSession(session){
   return;
  }
  const switched=agentRenderedSessionID!==session.id;
+ const followLatest=switched||agentAtLatest();
  if(switched){
   if(agentLiveRow.parentElement)agentLiveRow.remove();
   transcript.replaceChildren();
@@ -995,7 +1007,7 @@ function displayAgentSession(session){
  }
  const changed=switched||prefix<history.length||prefix<agentRenderedHistory.length;
  if(changed){
-  const nearBottom=switched||transcript.scrollHeight-transcript.scrollTop-transcript.clientHeight<64;
+  const nearBottom=followLatest;
   const previousScroll=transcript.scrollTop;
   for(let i=agentRenderedHistory.length-1;i>=prefix;i--){
    agentRenderedNodes[i]?.remove();
@@ -1026,6 +1038,8 @@ function displayAgentSession(session){
   agentRenderedToolVersions.set(item.call_id,version);
  }
  agentUpdateLiveRow(session);
+ // The live status is appended after the history scroll decision.
+ if(followLatest)agentScrollToLatest(session.id);
  const last=(session.tool_calls||[]).slice(-1)[0];
  let stateNote='Session '+session.id.slice(0,8)+' · '+session.status+' · revision '+session.revision;
  if(last&&session.status==='waiting_tool'){
@@ -1406,6 +1420,8 @@ async function sendAgentMessage(){
  if(agentLiveRow.parentElement)agentLiveRow.remove();
  transcript.append(turn.optimisticNode);
  agentUpdateLiveRow(agentCurrentSession||{id:sessionID,status:'created',history:[],events:[]});
+ // Sending is an explicit user action; show the message and sending status.
+ agentScrollToLatest(sessionID);
  prompt.value='';
  agentDrafts.set(sessionID,'');
  // Sending is explicit authorization to contact the configured provider.
