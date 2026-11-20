@@ -25,13 +25,17 @@ const (
 // agentAutoFeedbackCandidate reports whether a session currently qualifies.
 // It is a pure read used by both the scheduler and tests.
 func agentAutoFeedbackCandidate(x agentchat.Session) (int, bool) {
-	if !x.AutoFeedback || x.Archived {
+	if x.Archived {
 		return 0, false
 	}
-	if !x.AutoFeedbackPersistent &&
-		(x.AutoFeedbackUntil == nil || time.Now().UTC().After(*x.AutoFeedbackUntil)) {
-		return 0, false
-	}
+	granted:=x.AutoFeedback && (x.AutoFeedbackPersistent ||
+  (x.AutoFeedbackUntil!=nil && !time.Now().UTC().After(*x.AutoFeedbackUntil)))
+ if !granted {
+  for _,call:=range x.ToolCalls {
+   if call.SendAfterRetry && !call.FeedbackSent {granted=true;break}
+  }
+ }
+ if !granted {return 0,false}
 	if x.Status != "waiting_tool" {
 		return 0, false
 	}
@@ -47,7 +51,8 @@ func agentAutoFeedbackCandidate(x agentchat.Session) (int, bool) {
 		}
 		switch call.Status {
 		case "done", "error", "rejected":
-			return i, true
+            if x.AutoFeedback || call.SendAfterRetry {return i,true}
+            return 0,false
 		}
 		return 0, false
 	}
@@ -98,12 +103,21 @@ func (s *Server) runAgentAutoFeedback(ctx context.Context) {
 // Auto Patch performs a single exact-call approval under the existing native
 // workspace lease, identity validation, revision fence and idempotency marker.
 // No automatic retry is attempted after an ambiguous queue/dispatch result.
+// A one-shot user-approved reapply is independent from persistent Auto Patch.
+func agentAutoApprovalAuthorized(x agentchat.Session,callID string) bool {
+ if x.AutoPatch {return true}
+ for _,call:=range x.ToolCalls {
+  if call.CallID==callID {return call.Status=="pending" && call.AutoRunOnce && !call.ManualRetryOnly}
+ }
+ return false
+}
+
 func agentAutoPatchCandidate(x agentchat.Session) (string, bool) {
-	if x.Owner != "local" || !x.AutoPatch || x.Archived || x.Status != "waiting_tool" {
+	if x.Owner != "local" || x.Archived || x.Status != "waiting_tool" {
 		return "",false
 	}
 	for _,call:=range x.ToolCalls {
-		if call.Status == "pending" && !call.FeedbackSent && !call.ManualRetryOnly {
+		if call.Status == "pending" && !call.FeedbackSent && !call.ManualRetryOnly && (x.AutoPatch || call.AutoRunOnce) {
 			return call.CallID,true
 		}
 		switch call.Status {
@@ -133,6 +147,22 @@ func (s *Server) autoPatchOne(ctx context.Context, store *agentchat.Store, id st
 	w:=httptest.NewRecorder()
 	s.agentChatToolDecisionAPI(w,req,id,callID)
 	if w.Code!=http.StatusOK {
+        // Do not repeat a refused one-shot approval every scheduler tick.
+        release,locked:=lockAgentTurn(s.Workspace,"local",id)
+        if locked {
+          current,e:=store.Get(id,"local")
+          if e==nil {
+           for i:=range current.ToolCalls {
+            if current.ToolCalls[i].CallID==callID && current.ToolCalls[i].Status=="pending" && current.ToolCalls[i].AutoRunOnce {
+             current.ToolCalls[i].AutoRunOnce=false
+             current.ToolCalls[i].SendAfterRetry=false
+             current.ToolCalls[i].ManualRetryOnly=true
+             _,_=store.Save(current,current.Revision)
+            }
+           }
+          }
+          release()
+        }
 		s.recordAgentDebugEvent("local",id,callID,"tool","tool.auto_patch_blocked",
 			"AUTO_PATCH_FAILED","Auto Patch was refused or became stale; no automatic retry")
 	}
@@ -189,8 +219,8 @@ func (s *Server) autoFeedbackOne(ctx context.Context, store *agentchat.Store, id
 		return
 	}
 	// Consent must still be valid at the moment of egress.
-	if !x.AutoFeedbackPersistent &&
-		(x.AutoFeedbackUntil == nil || time.Now().UTC().After(*x.AutoFeedbackUntil)) {
+	if !x.ToolCalls[idx].SendAfterRetry && (!x.AutoFeedback || (!x.AutoFeedbackPersistent &&
+        (x.AutoFeedbackUntil == nil || time.Now().UTC().After(*x.AutoFeedbackUntil)))) {
 		return
 	}
 	if _, err = s.agentDeliverToolResult(ctx, store, x, idx, true); err != nil {
