@@ -2,11 +2,9 @@ package server
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"time"
 
 	"bletonfc/vscode_tasks_menu/internal/agentchat"
@@ -165,6 +163,3 @@ func (s *Server) agentChatRunCollection(
 	}, nil
 }
 
-// Guard against unsupported structured calls: they are not executable JSON,
-// and the caller's existing patch dispatcher will reject them explicitly.
-var _ = errors.New
