@@ -6,7 +6,6 @@ import (
 	"io"
 	"net/http"
 	"strings"
-	"time"
 
 	"bletonfc/vscode_tasks_menu/internal/agentchat"
 	"bletonfc/vscode_tasks_menu/internal/identity"
@@ -66,11 +65,11 @@ func (s *Server) agentChatAutomationAPI(w http.ResponseWriter, r *http.Request, 
 	case "collection":
 		x.AutoCollection=&req.Enabled
 	case "feedback":
+		// Automation is an explicit persistent session setting. The legacy
+		// auto-feedback endpoint retains its original 30-minute lease.
 		x.AutoFeedback=req.Enabled
-		if req.Enabled {
-			until:=time.Now().UTC().Add(agentAutoFeedbackMaxAge)
-			x.AutoFeedbackUntil=&until
-		} else { x.AutoFeedbackUntil=nil }
+		x.AutoFeedbackPersistent=req.Enabled
+		x.AutoFeedbackUntil=nil
 	}
 	x.AppendEvent("automation_changed", x.Status, "", req.Option)
 	x,err=store.Save(x,x.Revision)
