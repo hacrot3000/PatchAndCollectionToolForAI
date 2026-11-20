@@ -68,7 +68,7 @@ func (s *Server) agentChatPatchRecoveryAPI(w http.ResponseWriter,r *http.Request
   // Legacy native terminals may have multiple failed History records for
   // the same immutable package. Only a user-initiated recovery may choose
   // the latest matching timestamped record; background sync stays strict.
-  if !view.Changed && !s.agentNativePatchActive(call) {
+  if view.Record.Status!="done" && view.Record.Status!="error" && !s.agentNativePatchActive(call) {
    st,res,run,ok:=s.agentLatestResultFromHistory(call)
    if ok {view.Record.Status=st;view.Record.Result=res;view.Record.RunID=run;view.Changed=true}
   }
