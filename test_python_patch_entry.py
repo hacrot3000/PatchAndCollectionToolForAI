@@ -1209,6 +1209,28 @@ class ProtocolContractTests(unittest.TestCase):
         self.assertIn('"output_tail"', dispatcher[finished_payload:finished])
         self.assertNotIn('"item_started"', dispatcher[dispatcher.index('if item.kind == "PATCH" and preflight_detail is not None:'):running])
 
+    def test_successful_patch_preserves_failing_nested_test_output_for_ai(self):
+        # Nested test scripts may return rc=1 even when their wrapper PATCH
+        # catches the failure and exits rc=0. The native protocol must publish
+        # the script's console tail on PASS as well as FAIL.
+        from python_patch_queue_dispatcher import _bounded_failure_output_tail
+        dispatcher = (self.base / "_patch_lib" / "python_patch_queue_dispatcher.py").read_text(encoding="utf-8")
+        detail_start = dispatcher.index('if item.kind == "PATCH" and console_log:')
+        detail_finish = dispatcher.index("_LAST_EXECUTION_DETAILS.append(detail)", detail_start)
+        self.assertIn('detail["output_tail"]', dispatcher[detail_start:detail_finish])
+        payload_start = dispatcher.index('if item.kind == "PATCH" and failure_status == "PASS":')
+        payload_end = dispatcher.index('_emit_protocol_event("item_finished", **finished_payload)', payload_start)
+        self.assertIn('finished_payload["output_tail"]', dispatcher[payload_start:payload_end])
+        sample = ('Fixed helloworld.php: testcli1() -> testcli().\n'
+                  '--- testphp.sh output (rc=1) ---\n'
+                  'Xin chào, thế giới!\n'
+                  'PHP Warning: proc_open() expects string, array given\n'
+                  'WARNING: testphp.sh exited with rc=1\n')
+        tail = _bounded_failure_output_tail(sample, max_bytes=3200)
+        self.assertIn('testphp.sh exited with rc=1', tail)
+        self.assertIn('proc_open()', tail)
+        self.assertIn('Xin chào', tail)
+
     def test_dispatcher_artifact_rows_only_publish_real_project_artifacts(self):
         from python_patch_queue_dispatcher import _detail_artifact_rows
 
