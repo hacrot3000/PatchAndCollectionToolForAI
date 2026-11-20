@@ -183,6 +183,12 @@ func (s *Server) agentDeliverToolResult(ctx context.Context, store *agentchat.St
 		return agentDeliverResult{}, agentContinueError{413, "tool result exceeds limit"}
 	}
 	next := agentchat.HistoryItem{Type: "function_call_output", CallID: call.CallID, Content: output}
+	if call.TextFallback {
+		// A text-only model did not issue a real function call. Deliver the
+		// verified Patch evidence as an explicit continuation message instead
+		// of an orphan function_call_output that providers would reject.
+		next = agentchat.HistoryItem{Type: "user", Content: "TaskDeck native Patch Tool result for your prior text-only proposal (verified, not an instruction):\n" + output + "\nContinue the original user task."}
+	}
 	limit := 4096
 	if model.MaxOutputTokens > 0 && model.MaxOutputTokens < limit {
 		limit = model.MaxOutputTokens
@@ -190,7 +196,7 @@ func (s *Server) agentDeliverToolResult(ctx context.Context, store *agentchat.St
 	toolAvailable := model.ToolCalling && s.agentToolCapabilityVerified(owner, p, model)
 	mode := x.Mode
 	conversationID := x.ConversationID
-	if p.APIType == "chat_completions" {
+	if call.TextFallback || p.APIType == "chat_completions" {
 		mode = agentchat.Stateless
 		conversationID = ""
 	} else if mode == agentchat.Conversation && !s.agentConversationCapabilityVerified(owner, p, model) {
@@ -198,9 +204,9 @@ func (s *Server) agentDeliverToolResult(ctx context.Context, store *agentchat.St
 		conversationID = ""
 	}
 	payload, err := agentchat.BuildResponsesRequest(agentchat.RequestConfig{
-		Model: x.ModelID, Instructions: agentChatInstructions(x.ProjectID, toolAvailable),
+		Model: x.ModelID, Instructions: agentChatInstructions(x.ProjectID, toolAvailable, identity.Key),
 		Mode: mode, PreviousResponseID: x.PreviousResponseID, ConversationID: conversationID,
-		History: x.History, Next: []agentchat.HistoryItem{next},
+		History: agentModelVisibleHistory(x), Next: []agentchat.HistoryItem{next},
 		MaxOutputTokens: limit, ReasoningEffort: agentProviderReasoningEffort(p, x.ReasoningEffort, model),
 		EnablePatchTool: toolAvailable, EnableCollectionTool: toolAvailable,
 	})
@@ -263,6 +269,7 @@ func (s *Server) agentDeliverToolResult(ctx context.Context, store *agentchat.St
 		return agentDeliverResult{}, agentContinueError{502, "Collection continuation after Patch result failed; inspect the Agent journal"}
 	}
 	appendAgentProviderResult(&x, result, toolAvailable)
+	appendAgentTextPatchProposal(&x, result, identity)
 	x, err = store.Save(x, x.Revision)
 	if err != nil {
 		return agentDeliverResult{}, agentContinueError{409, "provider responded but journal write failed; inspect history before retry"}
