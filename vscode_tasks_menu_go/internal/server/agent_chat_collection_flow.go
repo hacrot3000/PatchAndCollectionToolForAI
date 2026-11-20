@@ -149,9 +149,9 @@ func (s *Server) agentChatRunCollection(
 			limit = model.MaxOutputTokens
 		}
 		payload, err := agentchat.BuildResponsesRequest(agentchat.RequestConfig{
-			Model: x.ModelID, Instructions: agentChatInstructions(x.ProjectID, toolAvailable),
+			Model: x.ModelID, Instructions: agentChatInstructions(x.ProjectID, toolAvailable, identity.Key),
 			Mode: mode, PreviousResponseID: x.PreviousResponseID, ConversationID: conversationID,
-			History: x.History, Next: []agentchat.HistoryItem{next},
+			History: agentModelVisibleHistory(*x), Next: []agentchat.HistoryItem{next},
 			MaxOutputTokens: limit,
 			ReasoningEffort: agentProviderReasoningEffort(provider, x.ReasoningEffort, model),
 			EnablePatchTool: toolAvailable, EnableCollectionTool: toolAvailable,
