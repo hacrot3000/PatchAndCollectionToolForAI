@@ -8,6 +8,23 @@ const path = require('node:path');
 const vm = require('node:vm');
 
 const source = fs.readFileSync(path.join(__dirname, 'featuremods/agentchat.js'), 'utf8');
+// Module imports execute in strict mode. A sloppy vm.runInNewContext can
+// accept duplicate function declarations that Firefox rejects at parse time.
+// Parse as a strict script and guard same-scope function names explicitly.
+assert.doesNotThrow(() => new vm.Script("'use strict';\\n" + source, { filename: 'agentchat.js' }),
+  'Agent Chat must parse with strict/module-level redeclaration rules');
+const agentFunctionDefinitions = new Map();
+for (const match of source.matchAll(/^\s*(?:async\s+)?function\s+([A-Za-z_$][\w$]*)\s*\(/gm)) {
+  const name = match[1];
+  const line = source.slice(0, match.index).split('\n').length;
+  if (!agentFunctionDefinitions.has(name)) agentFunctionDefinitions.set(name, []);
+  agentFunctionDefinitions.get(name).push(line);
+}
+assert.deepEqual([...agentFunctionDefinitions.entries()].filter(([, positions]) => positions.length > 1), [],
+  'Agent Chat must not declare the same function twice after merging feature branches');
+assert.equal((source.match(/function currentStagedAttachments\s*\(/g) || []).length, 1,
+  'Attachment session staging helper must have exactly one implementation');
+
 class FakeElement {
   constructor(tag) {
     this.tagName = tag;
