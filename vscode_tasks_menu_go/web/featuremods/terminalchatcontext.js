@@ -305,6 +305,11 @@ installAll();
 globalThis.TaskMenuTerminalChatContext={
  attachConsole,
  attachSelection,
+ captureSelectionContext(view){
+  if(!canReadTerminal(view))throw new Error('This terminal is closed or not readable.');
+  const position=selectionPosition(view);
+  return {position,metadata:captureMetadata(view,'terminal_selection',position)};
+ },
  captureConsole:getConsoleSnapshot,
  installView,
  installAll,

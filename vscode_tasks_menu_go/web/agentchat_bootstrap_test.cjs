@@ -487,6 +487,59 @@ console.log('PASS: safe Markdown, syntax-highlighted PHP/Python, per-block Copy,
   assert.equal(multiple.source.ranges.length, 2);
   assert.match(multiple.text, /RANGE 1/);
   assert.match(multiple.text, /RANGE 2/);
+  // Multiple quotes selected at different times from one file occupy one
+  // attachment and retain each range even with dirty UTF-8 editor buffers.
+  vm.runInNewContext('agentPendingAttachments.splice(0);renderAgentAttachments()',context);
+  const quoteOne={kind:'file_selection',name:'main.go',mime:'text/plain',
+    text:'alpha',quotes:[{start_line:1,start_column:1,end_line:1,end_column:6,text:'alpha'}],
+    source:{path:'src/app/main.go',start_line:1,start_column:1,end_line:1,end_column:6,
+      content_source:'unsaved_editor_buffer',dirty:true}};
+  const quoteTwo={kind:'file_selection',name:'main.go',mime:'text/plain',
+    text:'gamma',quotes:[{start_line:3,start_column:1,end_line:3,end_column:6,text:'gamma'}],
+    source:{path:'src/app/main.go',start_line:3,start_column:1,end_line:3,end_column:6,
+      content_source:'unsaved_editor_buffer',dirty:true}};
+  const stagedOne=await context.TaskMenuAgentChat.stageContext(quoteOne,{open:false});
+  const stagedTwo=await context.TaskMenuAgentChat.stageContext(quoteTwo,{open:false});
+  assert.equal(stagedOne.ok,true,stagedOne.error);
+  assert.equal(stagedTwo.ok,true,stagedTwo.error);
+  assert.equal(stagedTwo.attachment_count,1,'Repeated quotes from same file must share an attachment');
+  const quoted=vm.runInNewContext('agentPendingAttachments[0]',context);
+  assert.equal(quoted.quotes.length,2);
+  assert.match(quoted.text,/RANGE 1: L1:C1-L1:C6/);
+  assert.match(quoted.text,/RANGE 2: L3:C1-L3:C6/);
+  assert.match(quoted.text,/QUOTE 1 · L1:C1-L1:C6\nalpha/);
+  assert.match(quoted.text,/QUOTE 2 · L3:C1-L3:C6\ngamma/);
+  assert.equal((quoted.text.match(/SOURCE_TYPE:/g)||[]).length,1,
+    'Re-normalization must never duplicate the existing metadata wrapper');
+  assert.equal(quoted.source.dirty,true);
+  const quoteCard=vm.runInNewContext('attachList.children[0]',context);
+  assert.equal(quoteCard.children.length,3,'Compact chips have only label, source and actions');
+  assert.equal(quoteCard.children[0].children[0].textContent,'main.go');
+  assert.equal(quoteCard.children[1].textContent,'src/app/main.go');
+  assert.equal(Boolean(find(quoteCard,n=>n.className==='agentchat-attachment-preview')),false);
+  const info=quoteCard.children[2].children[0],remove=quoteCard.children[2].children[1];
+  assert.equal(info.textContent,'ⓘ');
+  assert.match(info.title,/Quote 1: L1:C1/);
+  assert.match(info.title,/Quote 2: L3:C1/);
+  assert.match(info.title,/Preview:/);
+  assert.equal(remove.attributes['aria-label'],'Remove attachment: main.go');
+  const separate=await context.TaskMenuAgentChat.stageContext({...quoteOne,name:'other.go',
+    source:{...quoteOne.source,path:'src/other.go'}},{open:false});
+  assert.equal(separate.attachment_count,2,'Selections from separate files remain distinct');
+  const terminal=await context.TaskMenuAgentChat.stageContext({
+    kind:'terminal_selection',name:'terminal-selection-A.txt',mime:'text/plain',
+    text:'READY',source:{terminal_id:'A',terminal_title:'Terminal A',cwd:'/project/A'}
+  },{open:false});
+  assert.equal(terminal.ok,true,terminal.error);
+  const terminalCard=vm.runInNewContext('attachList.children[2]',context);
+  assert.equal(terminalCard.children[0].children[0].textContent,'Terminal A');
+  assert.equal(terminalCard.children[1].textContent,'Terminal ID: A');
+  assert.match(terminalCard.children[2].children[0].title,/READY/);
+  remove.onclick();
+  assert.equal(vm.runInNewContext('agentPendingAttachments.length',context),2);
+  vm.runInNewContext('agentPendingAttachments.splice(0);renderAgentAttachments()',context);
+  console.log('PASS: compact chips, info tooltip and multi-range file quotes');
+
   let saved;
   context.window.confirm = () => true;
   context.TaskMenuApp.jsonFetch = async (url, options) => {

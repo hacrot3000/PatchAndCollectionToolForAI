@@ -135,12 +135,17 @@ agentCSS.textContent=[
 
 '.agentchat-composer{padding:9px;border-top:1px solid #35445c;display:flex;flex-direction:column;gap:6px}',
 '.agentchat-attachment-list{display:flex;flex-direction:column;gap:5px;max-height:150px;overflow:auto}',
-'.agentchat-attachment-card{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:2px 8px;padding:6px 8px;border:1px solid #465365;border-radius:6px;font-size:11px}',
+'.agentchat-attachment-card{display:grid;grid-template-columns:minmax(0,1fr) auto;grid-template-rows:auto auto;gap:2px 8px;padding:6px 8px;border:1px solid #465365;border-radius:6px;font-size:11px}',
 '.agentchat-attachment-title{display:flex;gap:6px;min-width:0;font-weight:650}',
 '.agentchat-attachment-title span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
-'.agentchat-attachment-path,.agentchat-attachment-meta{grid-column:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;opacity:.68;font:10px ui-monospace,monospace}',
-'.agentchat-attachment-preview{grid-column:1/3;max-height:42px;overflow:hidden;white-space:pre-wrap;overflow-wrap:anywhere;opacity:.8;font:10px/1.35 ui-monospace,monospace}',
-'.agentchat-attachment-remove{grid-column:2;grid-row:1/4;padding:2px 6px!important}',
+'.agentchat-attachment-path{grid-column:1;grid-row:2;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;opacity:.72;font:10px ui-monospace,monospace}',
+'.agentchat-attachment-actions{grid-column:2;grid-row:1/3;display:flex;gap:4px;align-items:center;justify-content:flex-end}',
+'.agentchat-attachment-info{position:relative;display:inline-flex;align-items:center;justify-content:center;min-width:21px;height:22px;padding:0 4px!important;border-radius:50%;font-size:11px;cursor:help}',
+'.agentchat-attachment-tooltip{display:none;position:absolute;bottom:calc(100% + 6px);right:0;z-index:30;width:min(330px,70vw);max-height:220px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;text-align:left;font:11px/1.45 ui-monospace,monospace;background:#101a28;border:1px solid #70849d;border-radius:6px;color:#edf3ff;padding:8px;box-shadow:0 6px 20px #0009;pointer-events:none}',
+'.agentchat-attachment-info:hover .agentchat-attachment-tooltip,.agentchat-attachment-info:focus-visible .agentchat-attachment-tooltip{display:block}',
+'.agentchat-attachment-tooltip.visible{display:block;position:fixed;bottom:auto;right:auto}',
+'.agentchat-attachment-remove{padding:2px 5px!important;min-width:22px;height:22px}',
+'html[data-taskmenu-theme="light"] .agentchat-attachment-tooltip{background:#fff;color:#17283a;border-color:#b1c4d9;box-shadow:0 6px 20px #0002}',
 '.agentchat-attach-context-menu{position:fixed;z-index:17200;display:none;min-width:190px;padding:5px;background:#192330;color:#e6eef9;border:1px solid #55657a;border-radius:7px;box-shadow:0 8px 28px #0009}',
 '.agentchat-attach-context-menu.open{display:block}.agentchat-attach-context-menu button{width:100%;text-align:left}',
 'html[data-taskmenu-theme="light"] .agentchat-attach-context-menu{background:#fff;color:#17283a}',
@@ -1471,7 +1476,7 @@ function normalizeStagedAttachments(items){
   if(name.length>120)throw new Error('Attachment name is too long.');
   let mime=String(item.mime||'text/plain').toLowerCase().trim();
   if(!(mime.startsWith('text/')||mime==='application/json'))throw new Error('Only text and JSON attachments are supported.');
-  const text=item.text,bytes=attachmentByteLength(text);
+  const text=typeof item.rawText==='string'?item.rawText:item.text,bytes=attachmentByteLength(text);
   try{if(new TextDecoder('utf-8',{fatal:true}).decode(new TextEncoder().encode(text))!==text)throw new Error();}catch{throw new Error(name+' is not valid UTF-8 text.');}
   if(bytes>agentMaxAttachmentBytes)throw new Error(name+' is '+bytes+' bytes; the per-file limit is 32 KiB. Select a smaller range.');
   const source=item.source&&typeof item.source==='object'?{...item.source}:{};
@@ -1491,29 +1496,97 @@ function normalizeStagedAttachments(items){
   const wrappedBytes=attachmentByteLength(wrapped);
   if(wrappedBytes>agentMaxAttachmentBytes)throw new Error(name+' plus its source metadata exceeds 32 KiB; select a smaller range.');
   total+=wrappedBytes;if(total>agentMaxAttachmentTotal)throw new Error('Attachments including source metadata total '+total+' bytes; the combined limit is 64 KiB.');
-  return {name,mime,text:wrapped,kind,source,bytes:wrappedBytes,preview:text.slice(0,300)};
+  return {name,mime,text:wrapped,rawText:text,kind,source,quotes:Array.isArray(item.quotes)?item.quotes.map(q=>({...q})):undefined,bytes:wrappedBytes,preview:text.slice(0,300)};
  });
 }
 function currentStagedAttachments(){return agentActive?agentAttachments:agentPendingAttachments;}
+let agentAttachmentTooltip=null;
 function renderAgentAttachments(){
+ agentAttachmentTooltip?.remove?.();agentAttachmentTooltip=null;
  const items=currentStagedAttachments();attachList.replaceChildren();
- if(!items.length)return;
  items.forEach((item,index)=>{
   const card=agentEl('div','agentchat-attachment-card');
-  const title=agentEl('div','agentchat-attachment-title',(item.kind==='file_selection'||item.kind==='terminal_selection'?'▤':'📄'));
-  title.append(agentEl('span','',item.name));
-  const remove=agentButton('Remove',()=>{
+  const terminal=item.kind==='terminal_console'||item.kind==='terminal_selection';
+  const label=terminal?(item.source?.terminal_title||item.name):item.name;
+  const title=agentEl('div','agentchat-attachment-title',terminal?'▤':'📄');
+  title.append(agentEl('span','',label));
+  const origin=terminal?'Terminal ID: '+(item.source?.terminal_id||'unknown'):(item.source?.path||item.name);
+  const path=agentEl('div','agentchat-attachment-path',origin);
+  path.title=origin;
+  const actions=agentEl('div','agentchat-attachment-actions');
+  const details=agentButton('ⓘ',()=>{});
+  details.className='agentchat-attachment-info';
+  details.setAttribute('aria-label','Attachment details: '+label);
+  const ranges=Array.isArray(item.source?.ranges)&&item.source.ranges.length?
+   item.source.ranges.map((r,i)=>'Quote '+(i+1)+': L'+r.start_line+':C'+(r.start_column||1)+'–L'+r.end_line+':C'+(r.end_column||1)).join('\n'):
+   (item.source?.start_line!==undefined?'Lines '+item.source.start_line+'–'+item.source.end_line:'');
+  const summary=['Name: '+item.name,'Source: '+origin,item.source?.cwd?'CWD: '+item.source.cwd:'',
+   item.bytes+' bytes'+(item.source?.dirty?' · unsaved buffer':''),ranges,'Preview:',item.preview||''].filter(Boolean).join('\n');
+  details.title=summary;
+  const tip=agentEl('span','agentchat-attachment-tooltip',summary);
+  tip.setAttribute('role','tooltip');details.append(tip);
+  const showDetails=()=>{
+   if(agentAttachmentTooltip&&agentAttachmentTooltip!==tip)agentAttachmentTooltip.remove();
+   const rect=details.getBoundingClientRect?.();
+   if(!rect)return;
+   const width=Math.min(330,Math.max(175,window.innerWidth-16));
+   document.body.append(tip);tip.classList.add('visible');
+   tip.style.width=width+'px';
+   tip.style.left=Math.max(8,Math.min(rect.right-width,window.innerWidth-width-8))+'px';
+   const height=tip.offsetHeight||115;
+   tip.style.top=(rect.top-height-7>=6?rect.top-height-7:Math.min(rect.bottom+7,window.innerHeight-height-6))+'px';
+   agentAttachmentTooltip=tip;
+  };
+  const hideDetails=()=>{
+   tip.classList.remove('visible');tip.remove();
+   if(agentAttachmentTooltip===tip)agentAttachmentTooltip=null;
+  };
+  details.addEventListener('mouseenter',showDetails);
+  details.addEventListener('mouseleave',hideDetails);
+  details.addEventListener('focus',showDetails);
+  details.addEventListener('blur',hideDetails);
+  const remove=agentButton('×',()=>{
    items.splice(index,1);
    if(agentActive)agentAttachmentDrafts.set(agentActive,agentAttachments.map(a=>({...a})));
    if(agentActive)agentRequestIDs.delete(agentActive);
    else agentPendingAttachments.splice(0,agentPendingAttachments.length,...items.map(a=>({...a})));
    renderAgentAttachments();
-  });remove.className='agentchat-attachment-remove';
-  const path=agentEl('div','agentchat-attachment-path',item.source?.path||item.source?.terminal_title||item.name);
-  const range=item.source?.start_line!==undefined?' · L'+item.source.start_line+'–'+item.source.end_line:'';
-  const meta=agentEl('div','agentchat-attachment-meta',item.bytes+' bytes'+range+(item.source?.dirty?' · unsaved buffer':''));
-  card.append(title,remove,path,meta,agentEl('pre','agentchat-attachment-preview',item.preview||''));attachList.append(card);
+  });
+  remove.className='agentchat-attachment-remove';
+  remove.title='Remove attachment';
+  remove.setAttribute('aria-label','Remove attachment: '+label);
+  actions.append(details,remove);
+  card.append(title,path,actions);attachList.append(card);
  });
+}
+// Quote excerpts are immutable snapshots. Separate selections from the
+// same local file occupy one attachment and retain every individual line range.
+function quotesForContext(context){
+ if(Array.isArray(context.quotes)&&context.quotes.length)return context.quotes.map(q=>({...q}));
+ const source=context.source||{};
+ if(source.start_line===undefined)return [];
+ return [{start_line:source.start_line,start_column:source.start_column||1,
+  end_line:source.end_line,end_column:source.end_column||1,text:context.rawText??context.text}];
+}
+function stageFileSelectionQuotes(current,item){
+ if(item.kind!=='file_selection'||!item.source?.path)return [...current,item];
+ const existingIndex=current.findIndex(old=>old.kind==='file_selection' &&
+  old.source?.path===item.source.path &&
+  Boolean(old.source?.dirty)===Boolean(item.source.dirty) &&
+  old.source?.content_source===item.source.content_source);
+ const previous=existingIndex<0?[]:quotesForContext(current[existingIndex]);
+ const incoming=quotesForContext(item);
+ const all=[...previous,...incoming];
+ if(!all.length)return [...current,item];
+ const text=all.map((q,index)=>'QUOTE '+(index+1)+' · L'+q.start_line+
+  ':C'+q.start_column+'-L'+q.end_line+':C'+q.end_column+'\n'+q.text).join('\n\n');
+ const source={...item.source,start_line:all[0].start_line,start_column:all[0].start_column,
+  end_line:all[all.length-1].end_line,end_column:all[all.length-1].end_column,
+  ranges:all.map(({start_line,start_column,end_line,end_column})=>
+   ({start_line,start_column,end_line,end_column}))};
+ const merged={...item,text,rawText:text,source,quotes:all};
+ if(existingIndex<0)return [...current,merged];
+ const next=current.slice();next[existingIndex]=merged;return next;
 }
 async function stageContext(context,options={}){
  const targetSessionID=Object.prototype.hasOwnProperty.call(options,'session_id')?(options.session_id||null):agentSelectedChatSession();
@@ -1521,9 +1594,9 @@ async function stageContext(context,options={}){
   if(!context||typeof context!=='object'||typeof context.text!=='string')throw new Error('Attachment context must include text.');
   const kind=['file','file_selection','terminal_console','terminal_selection'].includes(context.kind)?context.kind:null;
   if(!kind)throw new Error('Unsupported attachment context kind.');
-  const item={kind,name:context.name,mime:context.mime||'text/plain',text:context.text,source:context.source||{}};
+  const item={kind,name:context.name,mime:context.mime||'text/plain',text:context.text,source:context.source||{},quotes:context.quotes};
   const current=targetSessionID?(targetSessionID===agentActive?agentAttachments:(agentAttachmentDrafts.get(targetSessionID)||[])):agentPendingAttachments;
-  const staged=normalizeStagedAttachments([...current,item]);
+  const staged=normalizeStagedAttachments(stageFileSelectionQuotes(current,item));
   current.splice(0,current.length,...staged);
   if(targetSessionID){agentAttachmentDrafts.set(targetSessionID,staged.map(a=>({...a})));agentRequestIDs.delete(targetSessionID);}
   if(!targetSessionID||targetSessionID===agentActive)renderAgentAttachments();
@@ -1553,7 +1626,7 @@ function editorContextActions(view,selectionSnapshot){
  const targetSessionID=agentSelectedChatSession();
  const actions=[{label:'Attach file to Chat',run:async options=>{const sessionID=options?.session_id??targetSessionID;const result=await stageContext(editorSourceContext(view),{open:true,...(sessionID?{session_id:sessionID}:{})});if(!result.ok)throw new Error(result.error);return result;}}];
  const selection=selectionSnapshot||view?.cm?.state?.selection;
- if(((selection?.ranges?.length?selection.ranges:[selection?.main])).some(range=>range&&range.from!==range.to))actions.push({label:'Attach selected text to Chat',run:async options=>{const sessionID=options?.session_id??targetSessionID;const result=await stageContext(editorSelectionContexts(view,selection),{open:true,...(sessionID?{session_id:sessionID}:{})});if(!result.ok)throw new Error(result.error);return result;}});
+ if(((selection?.ranges?.length?selection.ranges:[selection?.main])).some(range=>range&&range.from!==range.to))actions.push({label:'Add selection to chat',run:async options=>{const sessionID=options?.session_id??targetSessionID;const result=await stageContext(editorSelectionContexts(view,selection),{open:true,...(sessionID?{session_id:sessionID}:{})});if(!result.ok)throw new Error(result.error);return result;}});
  return actions;
 }
 function openAttachContextMenu(context,event,label='Attach selection to Chat',options={}){
@@ -1604,23 +1677,24 @@ function editorSourceContext(view,selectionSnapshot=null){
  return {kind:'file',name:String(view.file.path).split(/[\\/]/).pop(),mime:attachmentMime(view.file.path),text,source:{path:view.file.path,content_source:view.dirty?'unsaved_editor_buffer':'editor_buffer',dirty:Boolean(view.dirty),captured_at:new Date().toISOString()}};
 }
 function editorSelectionContexts(view,selectionSnapshot=null){
- if(!view||view.closed||view.file?.streamed)throw new Error('Selection is unavailable for this editor.');
+ if(!view||view.closed||view.file?.streamed||view.file?.remote_workspace_id||view.file?.remote_transfer_profile_id)throw new Error('Selection is unavailable for this editor.');
  const doc=view.cm?.state?.doc,state=view.cm?.state;if(!doc||!state)throw new Error('Editor content is unavailable.');
  const selection=selectionSnapshot||state.selection;
  const ranges=(selection.ranges?.length?selection.ranges:[selection.main]).filter(range=>range&&range.from!==range.to);
  if(!ranges.length)throw new Error('Select text before attaching a selection.');
  const ordered=ranges.map(range=>({from:range.from,to:range.to})).sort((a,b)=>a.from-b.from||a.to-b.to);
- let total=0;const pieces=[];const metadata=[];
+ let total=0;const pieces=[];const metadata=[];const quotes=[];
  for(let i=0;i<ordered.length;i++){
   const range=ordered[i],start=doc.lineAt(range.from),end=doc.lineAt(range.to);
   const startColumn=range.from-start.from+1,endColumn=range.to-end.from+1;
   const selected=doc.sliceString(range.from,range.to);if(!isValidUTF8Text(selected))throw new Error('Selected range is not valid UTF-8 text.');total+=attachmentByteLength(selected);
   if(total>agentMaxAttachmentBytes)throw new Error('Selected text exceeds 32 KiB; select a smaller range.');
   metadata.push({start_line:start.number,start_column:startColumn,end_line:end.number,end_column:endColumn});
+  quotes.push({start_line:start.number,start_column:startColumn,end_line:end.number,end_column:endColumn,text:selected});
   pieces.push((ordered.length>1?'RANGE '+(i+1)+' · ':'')+'L'+start.number+':C'+startColumn+'-L'+end.number+':C'+endColumn+'\n'+selected);
  }
  const main=metadata[0],last=metadata[metadata.length-1];
- return {kind:'file_selection',name:String(view.file.path).split(/[\\/]/).pop(),mime:attachmentMime(view.file.path),text:pieces.join('\n\n'),source:{path:view.file.path,start_line:main.start_line,start_column:main.start_column,end_line:last.end_line,end_column:last.end_column,ranges:metadata,content_source:view.dirty?'unsaved_editor_buffer':'editor_buffer',dirty:Boolean(view.dirty),captured_at:new Date().toISOString()}};
+ return {kind:'file_selection',name:String(view.file.path).split(/[\\/]/).pop(),mime:attachmentMime(view.file.path),text:pieces.join('\n\n'),quotes,source:{path:view.file.path,start_line:main.start_line,start_column:main.start_column,end_line:last.end_line,end_column:last.end_column,ranges:metadata,content_source:view.dirty?'unsaved_editor_buffer':'editor_buffer',dirty:Boolean(view.dirty),captured_at:new Date().toISOString()}};
 }
 function editorSelectionContextFromBrowserSelection(view,selection){
  if(!view||view.closed||view.file?.streamed||!selection?.toString?.().trim())throw new Error('Select text in a complete text viewer before attaching.');
@@ -1631,7 +1705,8 @@ function editorSelectionContextFromBrowserSelection(view,selection){
  const range={from:Math.min(from,to),to:Math.max(from,to)};
  const start=doc.lineAt(range.from),end=doc.lineAt(range.to),text=doc.sliceString(range.from,range.to);
  if(!text.trim()||text!==String(selection.toString()))throw new Error('Could not accurately map the selected text to source positions.');
- return {kind:'file_selection',name:String(view.file.path).split(/[\\/]/).pop(),mime:attachmentMime(view.file.path),text,source:{path:view.file.path,start_line:start.number,start_column:range.from-start.from+1,end_line:end.number,end_column:range.to-end.from+1,content_source:'readonly_editor_view',dirty:Boolean(view.dirty),captured_at:new Date().toISOString()}};
+ const quote={start_line:start.number,start_column:range.from-start.from+1,end_line:end.number,end_column:range.to-end.from+1,text};
+ return {kind:'file_selection',name:String(view.file.path).split(/[\\/]/).pop(),mime:attachmentMime(view.file.path),text,quotes:[quote],source:{path:view.file.path,start_line:start.number,start_column:range.from-start.from+1,end_line:end.number,end_column:range.to-end.from+1,content_source:'readonly_editor_view',dirty:Boolean(view.dirty),captured_at:new Date().toISOString()}};
 }
 function pickAgentAttachment(targetSessionID=agentSelectedChatSession()){
  const input=document.createElement('input');

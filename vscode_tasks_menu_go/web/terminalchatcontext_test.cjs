@@ -72,6 +72,10 @@ function makeView(id,consoleText){
  app.active='B'; // the tab clicked below is A; active view must be irrelevant.
  const module=context.TaskMenuTerminalChatContext;
  assert.ok(module,'terminal chat module public test surface missing');
+ const captured=module.captureSelectionContext(a);
+ assert.equal(captured.metadata.terminal_id,'A');
+ assert.equal(captured.position.selection_start.buffer_row,10);
+ assert.equal(captured.position.selection_end.column,8);
  module.installAll();module.installView(a);module.installView(a);
  const buttonsA=a.pane.popover.children.filter(x=>x.className==='terminal-chat-attach-console');
  assert.equal(buttonsA.length,1,'repeated lifecycle events must not duplicate action');

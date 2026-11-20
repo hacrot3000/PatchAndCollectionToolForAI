@@ -36,3 +36,49 @@ test('Guided Plans never has an execution API path',()=>{
   assert.ok(plans.includes('execution disabled'));
   assert.ok(plans.includes('/api/ai/plans/decision'));
 });
+
+test('Terminal right-click menu stacks actions and stages the exact selected snapshot',async()=>{
+ const code=fs.readFileSync(path.join(__dirname,'web/featuremods/ai_terminal_troubleshoot.js'),'utf8');
+ assert.match(code,/\.ai-terminal-menu button\{display:block;box-sizing:border-box;width:100%;text-align:left/);
+ const stageCalls=[],copyCalls=[],views=new Map();
+ const term={selection:'  Xin chào\n \terror  ',element:{contains:()=>true},getSelection(){return this.selection;}};
+ const view={meta:{id:'terminal-007'},term};
+ views.set('terminal-007',view);
+ const classes=new Set();
+ const menu={classList:{add:c=>classes.add(c)},style:{},offsetWidth:245,offsetHeight:140};
+ const btn=()=>({disabled:false,onclick:null}),ask=btn(),copy=btn(),add=btn();
+ const stage={
+  captureSelectionContext:()=>({position:{selection_start:{buffer_row:17,column:3}},
+    metadata:{terminal_id:'terminal-007',terminal_title:'Bash',cwd:'/project',captured_at:'now'}}),
+  attachSelection:async(...args)=>{stageCalls.push(args);}
+ };
+ const globals={
+  TaskMenuTerminalChatContext:stage,
+  navigator:{clipboard:{writeText:async text=>copyCalls.push(text)}}
+ };
+ const sandbox={
+  app:{views,showError(error){throw error;}},selectionCache:new WeakMap(),
+  hideMenu(){},ctxmenu:menu,askSelection:ask,copySelection:copy,addSelection:add,
+  open:()=>true,window:{innerWidth:900,innerHeight:600},Date,Promise,globalThis:globals
+ };
+ const src=slice(code,'const docContext=e=>{',"document.addEventListener('contextmenu',docContext,true);");
+ const fn=vm.runInNewContext(src+';docContext',sandbox);
+ const e={target:{closest:()=>true},clientX:500,clientY:300,
+  preventDefault(){this.prevented=true;},stopPropagation(){this.stopped=true;}};
+ fn(e);
+ assert.equal(e.prevented,true);
+ assert.equal(add.disabled,false);
+ assert.equal(typeof add.onclick,'function');
+ assert.equal(classes.has('visible'),true);
+ term.selection='unrelated new selection';
+ add.onclick();
+ await new Promise(resolve=>setImmediate(resolve));
+ assert.equal(stageCalls.length,1);
+ assert.equal(stageCalls[0][0],view);
+ assert.equal(stageCalls[0][1],'  Xin chào\n \terror  ','must stage the original selection without trimming');
+ assert.equal(stageCalls[0][3].terminal_id,'terminal-007');
+ assert.equal(stageCalls[0][2].selection_start.buffer_row,17);
+ copy.onclick();
+ await new Promise(resolve=>setImmediate(resolve));
+ assert.deepEqual(copyCalls,['  Xin chào\n \terror  ']);
+});
