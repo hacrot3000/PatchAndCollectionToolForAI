@@ -7,13 +7,13 @@ agentCSS.textContent=[
 '.agentchat-overlay{display:none;min-width:0;min-height:0;overflow:hidden;background:#141c27;color:#e6eef9;border:1px solid #55657a}',
 '.agentchat-overlay.visible{display:flex}',
 '.agentchat-window{display:flex;flex:1;min-width:0;min-height:0;flex-direction:column;overflow:hidden}',
-'.agentchat-toolbar{position:relative;z-index:4;min-height:44px;padding:5px 7px;display:flex;align-items:center;gap:5px;border-bottom:1px solid #35445c;flex-wrap:nowrap}',
+'.agentchat-toolbar{position:relative;z-index:20;min-height:44px;padding:5px 7px;display:flex;align-items:center;gap:5px;border-bottom:1px solid #35445c;flex-wrap:nowrap}',
 '.agentchat-toolbar strong{font-size:13px;white-space:nowrap}',
 '.agentchat-header-group{position:relative;display:inline-flex;flex:none;align-items:center}',
 '.agentchat-header-group>summary{list-style:none;cursor:pointer;white-space:nowrap;border:1px solid #55657a;border-radius:6px;padding:5px 7px;font-size:12px}',
 '.agentchat-header-group>summary::-webkit-details-marker{display:none}',
 '.agentchat-header-group[open]>summary{background:#273b52}',
-'.agentchat-header-menu{position:absolute;z-index:25;top:calc(100% + 5px);left:0;display:flex;flex-direction:column;gap:4px;min-width:210px;padding:7px;background:#192330;border:1px solid #657589;border-radius:7px;box-shadow:0 8px 24px #0008}',
+'.agentchat-header-menu{position:absolute;z-index:30;top:100%;left:auto;right:0;display:none;flex-direction:column;gap:3px;min-width:210px;padding:7px;background:#192330;border:1px solid #657589;border-radius:7px;box-shadow:0 8px 24px #0008}',
 '.agentchat-header-menu button{text-align:left;white-space:nowrap;width:100%}',
 '.agentchat-session-row{display:flex;align-items:center;gap:4px}',
 '.agentchat-session-row>.agentchat-session{flex:1;min-width:0}',
@@ -21,12 +21,13 @@ agentCSS.textContent=[
 '.agentchat-header-group:focus-within .agentchat-header-menu{outline:0}',
 '.agentchat-toolbar-actions{overflow:visible}',
 '.agentchat-more-menu .agentchat-header-menu{left:auto;right:0}',
-'.agentchat-header-group[open] .agentchat-header-menu{display:flex}',
-'.agentchat-header-menu{max-height:min(70vh,400px);overflow:auto}',
-'.agentchat-toolbar-actions{display:flex;align-items:center;gap:4px;min-width:0;overflow:hidden}',
+'.agentchat-header-group[open]>.agentchat-header-menu{display:flex}',
+'.agentchat-header-menu{max-height:min(65vh,320px);overflow-y:auto}',
+'.agentchat-toolbar-actions{display:flex;align-items:center;gap:4px;min-width:0;overflow:visible}',
 '.agentchat-toolbar button{white-space:nowrap;padding:5px 7px}',
 '.agentchat-more-menu{position:absolute;right:6px;top:calc(100% + 4px);z-index:20;display:none;min-width:190px;max-width:min(300px,90vw);max-height:70vh;overflow:auto;padding:5px;background:#192330;border:1px solid #55657a;border-radius:7px;box-shadow:0 8px 28px #0009}',
 '.agentchat-more-menu.open{display:flex;flex-direction:column;align-items:stretch;gap:4px}',
+'.agentchat-more-menu.open:has(.agentchat-header-group[open]){overflow:visible;max-height:none}',
 '.agentchat-more-menu button{text-align:left}',
 '.agentchat-view-tabs{position:relative;z-index:3;display:flex;flex:none;align-items:center;gap:4px;padding:4px 7px;border-bottom:1px solid #35445c}',
 '.agentchat-view-tabs button[aria-selected="true"]{background:#344b66;border-color:#7db6e6}',
@@ -66,19 +67,22 @@ agentCSS.textContent=[
 '.agentchat-list.open{display:flex}',
 '.agentchat-config-menu{position:relative;flex:none}',
 '.agentchat-config-menu>button[aria-expanded="true"]{background:#273b52;border-color:#7db6e6}',
-'.agentchat-config-panel{display:none;position:absolute;z-index:31;right:0;top:calc(100% + 5px);width:220px;max-width:calc(100vw - 18px);padding:6px;background:#192330;border:1px solid #60748b;border-radius:7px;box-shadow:0 8px 24px #0008}',
+'.agentchat-config-panel{display:none;position:absolute;z-index:31;right:0;top:100%;width:245px;max-width:calc(100vw - 18px);max-height:min(68vh,420px);overflow-y:auto;overscroll-behavior:contain;padding:5px;background:#192330;border:1px solid #60748b;border-radius:7px;box-shadow:0 8px 24px #0008}',
 '.agentchat-config-menu.open>.agentchat-config-panel{display:flex;flex-direction:column;gap:3px}',
 '.agentchat-config-category{position:relative;min-width:0}',
-'.agentchat-config-category>button{display:flex;width:100%;justify-content:space-between;align-items:center;text-align:left;gap:8px}',
-'.agentchat-config-category[aria-expanded="true"]>button,.agentchat-config-category:hover>button,.agentchat-config-category:focus-within>button{background:#273b52}',
-'.agentchat-config-category-values{display:none;position:absolute;z-index:32;right:100%;top:0;width:230px;max-width:calc(100vw - 18px);max-height:min(50vh,360px);overflow:auto;padding:5px;background:#192330;border:1px solid #60748b;border-radius:7px;box-shadow:0 8px 24px #0008}',
-'.agentchat-config-category:hover>.agentchat-config-category-values,.agentchat-config-category:focus-within>.agentchat-config-category-values,.agentchat-config-category[aria-expanded="true"]>.agentchat-config-category-values{display:flex;flex-direction:column;gap:2px}',
-'.agentchat-config-category-values button{width:100%;text-align:left;white-space:normal;overflow-wrap:anywhere}',
-'.agentchat-config-category-values button[aria-checked="true"]{background:#344c66;border-color:#7db6e6}',
-'.task-agent-dock-section.agent-dock-right .agentchat-config-category-values{right:0;top:calc(100% + 2px)}',
+'.agentchat-config-category>button{display:flex;width:100%;justify-content:space-between;align-items:center;text-align:left;gap:8px;border:0;background:transparent;box-shadow:none;border-radius:3px;padding:7px 8px}',
+'.agentchat-config-category[aria-expanded="true"]>button{background:#273b52}',
+'.agentchat-config-category-values{display:none;position:static;width:auto;max-height:min(35vh,250px);overflow-y:auto;overscroll-behavior:contain;margin:0 0 4px 8px;padding:3px 0 3px 7px;border-left:1px solid #60748b;background:transparent}',
+'.agentchat-config-category[aria-expanded="true"]>.agentchat-config-category-values{display:flex;flex-direction:column;gap:1px}',
+'.agentchat-config-category-values button{width:100%;text-align:left;white-space:normal;overflow-wrap:anywhere;border:0;border-radius:3px;background:transparent;box-shadow:none;padding:6px 8px}',
+'.agentchat-config-category-values button:hover,.agentchat-config-category-values button:focus-visible{background:#273b52}',
+'.agentchat-config-category-values button[aria-checked="true"]{background:#344c66;color:#f2f7ff;font-weight:600}',
+'.task-agent-dock-section.agent-dock-bottom .agentchat-header-menu{max-height:min(45vh,220px)}',
 '.agentchat-config-note{font-size:11px;line-height:1.4;padding:5px;color:#b6cce2}',
-'@media(max-width:700px){.agentchat-config-category-values{right:0;top:calc(100% + 2px)}}',
-'html[data-taskmenu-theme="light"] .agentchat-config-panel,html[data-taskmenu-theme="light"] .agentchat-config-category-values{background:#fff;color:#17283a;border-color:#bac8d8}',
+'@media(max-width:700px){.agentchat-config-panel{width:min(245px,calc(100vw - 18px))}}',
+'html[data-taskmenu-theme="light"] .agentchat-config-panel{background:#fff;color:#17283a;border-color:#bac8d8}',
+'html[data-taskmenu-theme="light"] .agentchat-config-category-values{border-color:#bac8d8}',
+'html[data-taskmenu-theme="light"] .agentchat-config-category-values button:hover,html[data-taskmenu-theme="light"] .agentchat-config-category[aria-expanded="true"]>button{background:#e8f0fa}',
 
 '.agentchat-session{display:flex;align-items:center;gap:7px;text-align:left;width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
 '.agentchat-session.selected{border-color:#60a8e6;background:#263f59}',
@@ -286,6 +290,11 @@ function makeAgentHeaderGroup(label,items){
  const summary=agentEl('summary','',label+' ▾');
  const panel=agentEl('div','agentchat-header-menu');
  panel.append(...items);group.append(summary,panel);
+ group.addEventListener('toggle',()=>{
+  if(group.open){
+   for(const other of agentHeaderGroups)if(other!==group)other.open=false;
+  }
+ });
  panel.addEventListener('click',event=>{if(event.target.closest('button'))group.open=false;});
  return group;
 }
@@ -441,7 +450,8 @@ function renderAgentConfigMenu(){
   for(const [value,label] of choices){
    const option=agentButton((value===current?'✓ ':'')+label,()=>{
     select(value);
-    toggleAgentConfigMenu(false);
+    // Keep AI setup and the selected category expanded so a user can
+    // compare choices without repeatedly navigating nested menus.
    });
    option.setAttribute('role','menuitemradio');
    option.setAttribute('aria-checked',String(value===current));
