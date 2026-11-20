@@ -160,7 +160,7 @@ func agentCollectionRead(root, rel string) (string, error) {
 		return "", errors.New("binary or oversized file cannot be included inline")
 	}
 	if len(data) > 12000 {
-		return string(data[:12000]) + "\n[TRUNCATED: request a narrower source file or search]", nil
+		return agentCollectionUTF8Prefix(string(data), 12000) + "\n[TRUNCATED: read one source file with start_line/max_lines or narrow search]", nil
 	}
 	return string(data), nil
 }
