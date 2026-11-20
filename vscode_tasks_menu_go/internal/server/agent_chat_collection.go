@@ -325,6 +325,16 @@ func executeAgentCollection(root string, identity patchtool.ProjectIdentity, arg
 // READ-ONLY format. Never interpret arbitrary prose or a text Patch as code.
 func agentCollectionTextFallback(text string, identity patchtool.ProjectIdentity) (agentCollectionArguments, bool) {
 	text = strings.TrimSpace(text)
+	// Accept exactly one standalone JSON envelope, optionally wrapped in a
+	// single Markdown JSON fence or blockquote. Never extract commands from
+	// surrounding prose, so instructions embedded in prose stay inert.
+	if strings.HasPrefix(text, "```json\n") && strings.HasSuffix(text, "\n```") {
+		text = strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(text, "```json\n"), "\n```"))
+	} else if strings.HasPrefix(text, "```\n") && strings.HasSuffix(text, "\n```") {
+		text = strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(text, "```\n"), "\n```"))
+	} else if strings.HasPrefix(text, "> ") && !strings.Contains(text, "\n") {
+		text = strings.TrimSpace(strings.TrimPrefix(text, "> "))
+	}
 	if !strings.HasPrefix(text, "{") || !strings.HasSuffix(text, "}") {
 		return agentCollectionArguments{}, false
 	}
