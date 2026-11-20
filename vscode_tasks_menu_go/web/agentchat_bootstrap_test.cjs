@@ -111,6 +111,9 @@ assert.equal(windowBox.attributes.role, 'region', 'Main Agent Chat remains non-m
 assert.equal(windowBox.attributes['aria-modal'], undefined, 'Main Agent Chat must not create a modal backdrop');
 assert.ok(viewTabs.children.some(child => child.textContent === 'AI Debug'), 'AI Debug view tab missing');
 assert.equal(debugPanel.className, 'agentchat-debug-panel');
+const debugButtons = (() => {const scan = node => [ ...(node.tagName==='button'?[node]:[]),...node.children.flatMap(scan) ];return scan(debugPanel);})();
+assert.equal(debugButtons.length,1,'AI Debug must expose exactly one action');
+assert.equal(debugButtons[0].textContent,'Copy log','one action must be Copy log');
 const find = (node, predicate) => predicate(node) ? node : node.children.map(child => find(child, predicate)).find(Boolean);
 const sessionsButton = find(windowBox, node => node.textContent === 'Saved conversations ▾');
 const sessionsList = find(windowBox, node => node.id === 'agentchat-saved-sessions');
@@ -139,7 +142,7 @@ assert.equal(moreButton.attributes['aria-expanded'], 'true');
 moreButton.click();
 assert.equal(moreMenu.classList.contains('open'), false, 'Second click closes More actions');
 assert.equal(moreButton.attributes['aria-expanded'], 'false');
-for (const label of ['AI Agent Chat', '🐞', 'Bottom', 'Auto Hide', '⋯', 'Hide', '+ New session', 'Preview context',
+for (const label of ['AI Agent Chat', 'Bottom', 'Auto Hide', '⋯', 'Hide', '+ New session', 'Preview context',
   'Rename', 'Archive', 'Providers / API keys', 'Refresh', '+ Text file', 'Auto-send results']) {
   assert.ok(labels.includes(label), 'Agent Chat control missing at runtime: ' + label);
 }
