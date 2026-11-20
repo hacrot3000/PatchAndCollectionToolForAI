@@ -11,7 +11,7 @@ const source = fs.readFileSync(path.join(__dirname, 'featuremods/agentchat.js'),
 // Module imports execute in strict mode. A sloppy vm.runInNewContext can
 // accept duplicate function declarations that Firefox rejects at parse time.
 // Parse as a strict script and guard same-scope function names explicitly.
-assert.doesNotThrow(() => new vm.Script("'use strict';\\n" + source, { filename: 'agentchat.js' }),
+assert.doesNotThrow(() => new vm.Script("'use strict';\n" + source, { filename: 'agentchat.js' }),
   'Agent Chat must parse with strict/module-level redeclaration rules');
 const agentFunctionDefinitions = new Map();
 for (const match of source.matchAll(/^\s*(?:async\s+)?function\s+([A-Za-z_$][\w$]*)\s*\(/gm)) {
