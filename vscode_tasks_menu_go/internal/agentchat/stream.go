@@ -282,7 +282,7 @@ func DoResponsesStream(ctx context.Context, p ProviderConfig, key string, body [
 		}
 		if err = acc.apply(ev); err != nil {
 			RecordProviderDiagnostic(ctx, DiagnosticEvent{Level: "error", Stage: "provider_parse", Event: "sse.accumulate_error", Code: "SSE_INCOMPLETE", SafeMessage: "Provider stream did not contain a complete result"})
-			return &ProviderError{Code: "SSE_INCOMPLETE", Stage: "provider_parse", Message: "Provider stream did not contain a complete result"}
+			return &ProviderError{Code: "SSE_INCOMPLETE", Stage: "provider_parse", Message: "Provider stream did not contain a complete result", Retryable: true, Ambiguous: true}
 		}
 		return nil
 	}
@@ -321,7 +321,7 @@ func DoResponsesStream(ctx context.Context, p ProviderConfig, key string, body [
 				if acc.sawDone {
 					return acc.result()
 				}
-				return ResponsesResult{}, errors.New("provider stream ended before completion")
+				return ResponsesResult{}, &ProviderError{Code: "SSE_INCOMPLETE", Stage: "provider_stream", Message: "Provider stream ended before completion", Retryable: true, Ambiguous: true}
 			}
 			if ctx.Err() != nil {
 				return ResponsesResult{}, ctx.Err()

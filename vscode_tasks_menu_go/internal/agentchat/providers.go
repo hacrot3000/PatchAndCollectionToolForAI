@@ -523,6 +523,43 @@ func validateProviderCall(p ProviderConfig, key string, body []byte) (string, er
 	return endpoint, nil
 }
 
+// classifyProviderResponseParseError marks only recoverable provider failures
+// retryable. The returned response is never allowed to execute native tools.
+func classifyProviderResponseParseError(raw []byte, cause error) *ProviderError {
+ pe := &ProviderError{Code:"JSON_PARSE_FAILED", Stage:"provider_parse", Message:SafeProviderText(cause.Error())}
+ if !json.Valid(raw) {
+  pe.Retryable,pe.Ambiguous=true,true
+  return pe
+ }
+ var v struct {
+  Status string `json:"status"`
+  IncompleteDetails struct { Reason string `json:"reason"` } `json:"incomplete_details"`
+  Error struct { Code string `json:"code"` } `json:"error"`
+ }
+ if json.Unmarshal(raw,&v)!=nil {return pe}
+ switch v.Status {
+ case "incomplete":
+  reason:=SafeProviderText(v.IncompleteDetails.Reason)
+  pe.Code,pe.ProviderErrorCode="RESPONSE_INCOMPLETE",reason
+  pe.Message="Provider returned an incomplete response"
+  if reason!=""{pe.Message+=" ("+reason+")"}
+  switch reason {
+  case "content_filter","context_length_exceeded","context_window_exceeded","invalid_request","insufficient_quota":
+  default:pe.Retryable=true
+  }
+ case "failed":
+  reason:=SafeProviderText(v.Error.Code)
+  pe.Code,pe.ProviderErrorCode="RESPONSE_FAILED",reason
+  pe.Message="Provider reported a failed response"
+  if reason!=""{pe.Message+=" ("+reason+")"}
+  switch reason {
+  case "server_error","rate_limit_exceeded","temporarily_unavailable","timeout","overloaded":
+   pe.Retryable=true
+  }
+ }
+ return pe
+}
+
 func DoResponses(ctx context.Context, p ProviderConfig, key string, body []byte) (ResponsesResult, error) {
 	endpoint, err := validateProviderCall(p, key, body)
 	if err != nil {
@@ -563,7 +600,7 @@ func DoResponses(ctx context.Context, p ProviderConfig, key string, body []byte)
 		diagnostic.Code = "RESPONSE_READ_FAILED"
 		diagnostic.SafeMessage = "Could not read provider response body"
 		RecordProviderDiagnostic(ctx, diagnostic)
-		return ResponsesResult{}, &ProviderError{Code: diagnostic.Code, Stage: "provider_http", Message: diagnostic.SafeMessage, Ambiguous: true}
+		return ResponsesResult{}, &ProviderError{Code: diagnostic.Code, Stage: "provider_http", Message: diagnostic.SafeMessage, Retryable: true, Ambiguous: true}
 	}
 	if truncated {
 		diagnostic.Level = "error"
@@ -574,13 +611,14 @@ func DoResponses(ctx context.Context, p ProviderConfig, key string, body []byte)
 	}
 	result, parseErr := ParseResponsesResult(raw)
 	if parseErr != nil {
+		pe := classifyProviderResponseParseError(raw,parseErr)
 		diagnostic.Level = "error"
-		diagnostic.Stage = "provider_parse"
+		diagnostic.Stage = pe.Stage
 		diagnostic.Event = "response.parse_error"
-		diagnostic.Code = "JSON_PARSE_FAILED"
-		diagnostic.SafeMessage = SafeProviderText(parseErr.Error())
+		diagnostic.Code = pe.Code
+		diagnostic.SafeMessage = pe.Message
 		RecordProviderDiagnostic(ctx, diagnostic)
-		return ResponsesResult{}, &ProviderError{Code: diagnostic.Code, Stage: diagnostic.Stage, Message: diagnostic.SafeMessage}
+		return ResponsesResult{}, pe
 	}
 	RecordProviderDiagnostic(ctx, diagnostic)
 	return result, nil

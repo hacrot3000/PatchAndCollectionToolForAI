@@ -129,7 +129,7 @@ func (a *chatStreamAccumulator) apply(payload []byte) error {
 
 func (a *chatStreamAccumulator) result() (ResponsesResult, error) {
 	if !a.finished || !a.done || a.finish == "" {
-		return ResponsesResult{}, errors.New("Chat Completions stream ended before completion/finish reason")
+		return ResponsesResult{}, &ProviderError{Code: "SSE_INCOMPLETE", Stage: "provider_stream", Message: "Chat Completions stream ended before completion/finish reason", Retryable: true, Ambiguous: true}
 	}
 	if a.responseID == "" || len(a.responseID) > 256 {
 		return ResponsesResult{}, errors.New("Chat Completions stream missing response ID")
@@ -254,7 +254,7 @@ func DoChatCompletionsStream(ctx context.Context, p ProviderConfig, key string, 
 				if acc.done {
 					return acc.result()
 				}
-				return ResponsesResult{}, errors.New("Chat Completions stream ended before completion")
+				return ResponsesResult{}, &ProviderError{Code: "SSE_INCOMPLETE", Stage: "provider_stream", Message: "Chat Completions stream ended before completion", Retryable: true, Ambiguous: true}
 			}
 			if ctx.Err() != nil {
 				return ResponsesResult{}, ctx.Err()

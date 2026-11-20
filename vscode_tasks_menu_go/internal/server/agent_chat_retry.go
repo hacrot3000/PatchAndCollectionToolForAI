@@ -79,6 +79,29 @@ func agentRetryCode(err error)string{
  if errors.Is(err,context.DeadlineExceeded){return "PROVIDER_TIMEOUT"}
  return "TRANSIENT_TRANSPORT_FAILURE"
 }
+// An incomplete max_output_tokens response requires a larger output budget,
+// not an infinite loop of byte-identical requests. History and tool inputs
+// remain unchanged; the ceiling is the selected model's configured maximum.
+func agentRetryLargerOutputPayload(payload []byte,p agentchat.ProviderConfig)([]byte,bool){
+ var req map[string]json.RawMessage
+ if json.Unmarshal(payload,&req)!=nil{return nil,false}
+ var current int
+ var modelID string
+ if json.Unmarshal(req["max_output_tokens"],&current)!=nil||current<=0||
+  json.Unmarshal(req["model"],&modelID)!=nil{return nil,false}
+ cap:=32768
+ for _,m:=range p.Models {
+  if m.ID==modelID{if m.MaxOutputTokens>0{cap=m.MaxOutputTokens};break}
+ }
+ if cap>200000{cap=200000}
+ if current>=cap{return nil,false}
+ next:=current*2
+ if next>cap{next=cap}
+ req["max_output_tokens"],_=json.Marshal(next)
+ b,err:=json.Marshal(req)
+ return b,err==nil
+}
+
 // agentChatProviderWithRetry runs one 60-second-scoped provider attempt at a
 // time. A limited retry means ONE initial attempt + FIVE retries 10s apart.
 // An unlimited retry stops only on success, explicit Stop or daemon shutdown.
@@ -86,6 +109,7 @@ func agentRetryCode(err error)string{
 // or verified tool-result egress is replayed by this helper itself.
 func (s *Server) agentChatProviderWithRetry(ctx context.Context,owner,sessionID string,p agentchat.ProviderConfig,key string,payload []byte)(agentchat.ResponsesResult,error,string){
  mode:=agentRetryModeForSession(s,owner,sessionID)
+ replayPayload:=payload
  defer agentRetryPublish(s.Workspace,owner,sessionID,agentRetryProgress{Phase:"idle"})
  for attempt:=1; ;attempt++{
   if err:=ctx.Err();err!=nil{return agentchat.ResponsesResult{},err,""}
@@ -93,7 +117,7 @@ func (s *Server) agentChatProviderWithRetry(ctx context.Context,owner,sessionID 
   if mode==agentchat.RetryLimited{remaining=6-attempt}
   agentRetryPublish(s.Workspace,owner,sessionID,agentRetryProgress{Mode:mode,Attempt:attempt,Remaining:remaining,Phase:"sending"})
   callCtx,cancel:=context.WithTimeout(ctx,60*time.Second)
-  result,err,trace:=s.agentChatObservedCall(callCtx,owner,"provider_request",sessionID,p,key,payload)
+  result,err,trace:=s.agentChatObservedCall(callCtx,owner,"provider_request",sessionID,p,key,replayPayload)
   cancel()
   // User Stop/daemon shutdown is authoritative even when the transport
   // reports a generic provider error after the context was cancelled.
@@ -102,6 +126,12 @@ func (s *Server) agentChatProviderWithRetry(ctx context.Context,owner,sessionID 
   if mode==agentchat.RetryOff||!agentProviderRetryable(err)||
     (mode==agentchat.RetryLimited&&attempt>=6)||ctx.Err()!=nil{
    return result,err,trace
+  }
+  var pe *agentchat.ProviderError
+  if errors.As(err,&pe)&&pe.Code=="RESPONSE_INCOMPLETE"&&pe.ProviderErrorCode=="max_output_tokens"{
+   expanded,ok:=agentRetryLargerOutputPayload(replayPayload,p)
+   if !ok{return result,err,trace}
+   replayPayload=expanded
   }
   next:=time.Now().UTC().Add(agentRetryDelay)
   agentRetryPublish(s.Workspace,owner,sessionID,agentRetryProgress{
