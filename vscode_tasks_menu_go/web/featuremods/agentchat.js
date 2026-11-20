@@ -1874,7 +1874,9 @@ function rebalanceAgentToolbar(){
   moreButton.hidden=false;
   const withMore=Math.max(0,available-moreButton.offsetWidth);
   while(toolbarActions.scrollWidth>withMore && toolbarActions.children.length){
-   moreMenu.prepend(toolbarActions.lastElementChild);
+   const last=toolbarActions.lastElementChild||toolbarActions.children[toolbarActions.children.length-1];
+   if(!last)break;
+   moreMenu.prepend(last);
   }
  }
  // Never leave an inert ellipsis on the title bar.
