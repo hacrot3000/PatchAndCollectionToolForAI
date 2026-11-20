@@ -18,7 +18,7 @@ func agentChatInstructions(projectID string, patchToolAvailable bool, projectKey
 			"Do not claim a patch was queued, executed, or passed until TaskDeck sends verified feedback. " +
 			"Submit no more than one patch per turn; never invent execution results."
 	} else {
-		instructions += " No execution tools are enabled as native function calls for this model. " +
+		instructions += " Function calling is not available for this model, but TaskDeck supports reviewable text-only Patch proposals. " +
 			"You can STILL propose file creation and source edits with an exact, standalone JSON object. " +
 			"Use this JSON schema with no surrounding prose: " +
 			`{"type":"taskdeck_patch_proposal","project":{"key":"PROJECT_KEY","id":"PROJECT_ID"},"name":"short title","patch_python":"complete Python Patch with TASKDECK_PROJECT_KEY and TASKDECK_PROJECT_ID comment headers"}. ` +
