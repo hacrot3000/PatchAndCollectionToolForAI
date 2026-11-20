@@ -492,10 +492,21 @@ func TestAgentChatCompletionsSettingsAndCapabilities(t *testing.T) {
 	if err := json.Unmarshal(created.Body.Bytes(), &view); err != nil {
 		t.Fatal(err)
 	}
-	stateful := invokeAI(t, s.agentChatSessionsAPI, http.MethodPost, "/api/agent/sessions", map[string]any{
-		"provider_id": p.ID, "model_id": p.Models[0].ID, "mode": "previous_response"})
-	if stateful.Code != 400 {
-		t.Fatalf("Chat Completions accepted previous_response mode: %d", stateful.Code)
+	// These are UI/session preferences. Chat Completions still uses canonical
+	// local-history replay; unsupported Responses references are never sent.
+	for _, mode := range []agentchat.ContextMode{agentchat.PreviousResponse, agentchat.Conversation} {
+		stateful := invokeAI(t, s.agentChatSessionsAPI, http.MethodPost, "/api/agent/sessions", map[string]any{
+			"provider_id": p.ID, "model_id": p.Models[0].ID, "mode": mode})
+		if stateful.Code != 201 {
+			t.Fatalf("Chat Completions refused local-history fallback %s: %d %s", mode, stateful.Code, stateful.Body)
+		}
+		var selected struct { Session agentchat.Session `json:"session"` }
+		if err := json.Unmarshal(stateful.Body.Bytes(), &selected); err != nil {
+			t.Fatal(err)
+		}
+		if selected.Session.Mode != mode {
+			t.Fatalf("saved context preference lost: got %q want %q", selected.Session.Mode, mode)
+		}
 	}
 	s.AgentChatCall = func(ctx context.Context, p agentchat.ProviderConfig, key string, payload []byte) (agentchat.ResponsesResult, error) {
 		return agentchat.ResponsesResult{ResponseID: "probe-chat", Text: "OK"}, nil
@@ -512,5 +523,42 @@ func TestAgentChatCompletionsSettingsAndCapabilities(t *testing.T) {
 		if !strings.Contains(body, entry) {
 			t.Fatalf("missing capability evidence %s in %s", entry, body)
 		}
+	}
+}
+
+
+func TestAgentChatCompletionsAcceptsDeclaredModelReasoningEfforts(t *testing.T) {
+	s:=newAIServerForTest(t)
+	p:=agentProviderFixture()
+	p.ID="chat-with-reasoning"
+	p.APIType="chat_completions"
+	p.Models=[]agentchat.ModelConfig{
+		{ID:"composer-2.5",Name:"composer-2.5",ToolCalling:true,
+			MaxInputTokens:1280000,MaxOutputTokens:160000,
+			ReasoningEfforts:[]string{"low","medium","high"},DefaultReasoningEffort:"medium"},
+		{ID:"gpt-6.1-sol",Name:"gpt-6.1-sol",ToolCalling:true,
+			MaxInputTokens:1280000,MaxOutputTokens:160000,
+			ReasoningEfforts:[]string{"low","medium","high","xhigh","max"},DefaultReasoningEffort:"xhigh"},
+	}
+	if resp:=agentProviderRequest(t,s.agentChatProvidersAPI,http.MethodPut,"/api/agent/providers",
+		map[string]any{"provider":p,"api_key":"CHAT-KEY"});resp.Code!=200 {
+		t.Fatalf("cannot save advertised reasoning options: %d %s",resp.Code,resp.Body)
+	}
+	for _,tc:=range []struct{model,effort string}{
+		{"composer-2.5","low"},{"composer-2.5","medium"},{"composer-2.5","high"},
+		{"gpt-6.1-sol","low"},{"gpt-6.1-sol","medium"},{"gpt-6.1-sol","high"},
+		{"gpt-6.1-sol","xhigh"},{"gpt-6.1-sol","max"},
+	} {
+		w:=invokeAI(t,s.agentChatSessionsAPI,http.MethodPost,"/api/agent/sessions",map[string]any{
+			"provider_id":p.ID,"model_id":tc.model,"mode":"stateless","reasoning_effort":tc.effort})
+		if w.Code!=201 { t.Fatalf("%s/%s rejected: %d %s",tc.model,tc.effort,w.Code,w.Body) }
+		var view struct { Session agentchat.Session `json:"session"` }
+		if err:=json.Unmarshal(w.Body.Bytes(),&view);err!=nil{t.Fatal(err)}
+		if view.Session.ReasoningEffort!=tc.effort{t.Fatalf("reasoning %s/%s not persisted",tc.model,tc.effort)}
+	}
+	for _,tc:=range []struct{model,effort string}{{"composer-2.5","xhigh"},{"composer-2.5","max"},{"gpt-6.1-sol","minimal"}}{
+		w:=invokeAI(t,s.agentChatSessionsAPI,http.MethodPost,"/api/agent/sessions",map[string]any{
+			"provider_id":p.ID,"model_id":tc.model,"mode":"stateless","reasoning_effort":tc.effort})
+		if w.Code!=400{t.Fatalf("unsupported effort %s/%s accepted: %d",tc.model,tc.effort,w.Code)}
 	}
 }
