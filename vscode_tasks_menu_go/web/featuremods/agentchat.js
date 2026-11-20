@@ -496,9 +496,9 @@ function renderAgentTool(session,item){
  if(record.result)box.append(detail('Verified native result / diagnosis',record.result,'patch-result'));
  const actions=agentEl('div','agentchat-tool-actions');
  if(state==='pending'){
-  const approve=agentButton('Approve & run in Patch Tool',()=>agentToolDecision(session,item.call_id,'approve').catch(showAgentError));
+  const approve=agentButton('Approve & run in Patch Tool',()=>agentToolDecision(agentCurrentSession||session,item.call_id,'approve').catch(showAgentError));
   approve.disabled=Boolean(agentApp.sharedMode&&!agentApp.hasPermission?.('patch.run'));
-  actions.append(approve,agentButton('Reject patch',()=>agentToolDecision(session,item.call_id,'reject').catch(showAgentError)));
+  actions.append(approve,agentButton('Reject patch',()=>agentToolDecision(agentCurrentSession||session,item.call_id,'reject').catch(showAgentError)));
  }
  if(['running','dispatching','queued'].includes(state)){
   const refresh=agentButton('Check native Patch status',()=>syncAgentPatch(session.id).catch(showAgentError));
@@ -508,7 +508,7 @@ function renderAgentTool(session,item){
  }
  if(['done','error','rejected'].includes(state)){
   actions.append(agentButton('View native result',()=>showAgentExecution(session.id,item.call_id).catch(showAgentError)));
-  if(!record.feedback_sent)actions.append(agentButton('Send verified result to AI',()=>continueAgentTool(session,item.call_id).catch(showAgentError)));
+  if(!record.feedback_sent)actions.append(agentButton('Send verified result to AI',()=>continueAgentTool(agentCurrentSession||session,item.call_id).catch(showAgentError)));
  }
  if(state==='unknown')actions.append(agentEl('p','agentchat-tool-summary','Result unverified. Inspect native Patch History before retrying.'));
  if(actions.childElementCount)box.append(actions);
@@ -693,10 +693,10 @@ function closeAgentTab(id){
 }
 async function selectAgentSession(id){
  const previousID=agentActive;
- // Save the outgoing draft BEFORE awaiting the next session fetch. Attachments
- // are per-session too; never let a response race copy one session's state to
- // another tab.
- if(previousID&&previousID!==id){
+ const switched=previousID!==id;
+ // Polling must not reset a draft, attachments, model controls or the read
+ // position of the current session. These change only on a tab switch.
+ if(switched&&previousID){
   agentExecutionPanel.classList.remove('visible');agentExecutionTarget=null;
   agentDrafts.set(previousID,prompt.value);
   agentAttachmentDrafts.set(previousID,agentAttachments.map(a=>({...a})));
@@ -705,37 +705,42 @@ async function selectAgentSession(id){
  const data=await agentApp.jsonFetch('/api/agent/sessions/'+encodeURIComponent(id));
  if(generation!==agentSelectGeneration)return null;
  const sess=data.session;
- toolNotice.replaceChildren();
- const toolStatus=data.patch_tool_status;
- if(toolStatus==='enabled'){
-  toolNotice.textContent='Native Patch available: proposals require explicit approval; read-only Collection results continue automatically.';
- }else{
-  const reasons={model_disabled:'Tool calling is disabled for this model.',unverified:'Tool calling has not been verified for this provider and model.',unavailable:'Provider or capability information is unavailable.'};
-  toolNotice.append(agentEl('span','',(reasons[toolStatus]||'Patch tool status is unavailable.')+' Text-only Patch JSON proposals can still be reviewed and executed through native Patch approval. '));
-  toolNotice.append(agentButton('Provider settings',()=>openAgentSettings().catch(showAgentError)));
+ if(switched||agentToolNoticeKey!==data.patch_tool_status){
+  toolNotice.replaceChildren();
+  const toolStatus=data.patch_tool_status;
+  if(toolStatus==='enabled'){
+   toolNotice.textContent='Native Patch available: proposals require explicit approval; read-only Collection results continue automatically.';
+  }else{
+   const reasons={model_disabled:'Tool calling is disabled for this model.',unverified:'Tool calling has not been verified for this provider and model.',unavailable:'Provider or capability information is unavailable.'};
+   toolNotice.append(agentEl('span','',(reasons[toolStatus]||'Patch tool status is unavailable.')+' Text-only Patch JSON proposals can still be reviewed and executed through native Patch approval. '));
+   toolNotice.append(agentButton('Provider settings',()=>openAgentSettings().catch(showAgentError)));
+  }
+  agentToolNoticeKey=toolStatus;
  }
  toolNotice.hidden=false;
  agentActive=id;
- openAgentTab(id);
- prompt.value=agentDrafts.get(id)||'';
- agentAttachments=(agentAttachmentDrafts.get(id)||[]).map(a=>({...a}));
- renderAgentAttachments();
- // After a refresh/reconnect, an in-flight provider turn has no browser
- // request attached. Reflect it instead of offering a duplicate send.
- if(sess.status==='requesting_ai'&&!agentSessionBusy(id)){
-  status.textContent='A model request is still running on the server. Use Cancel if you want to stop waiting.';
-  send.disabled=true;cancel.disabled=false;
- }else{
-  send.disabled=agentSessionBusy(id);cancel.disabled=!agentSessionBusy(id);
+ if(switched){
+  prompt.value=agentDrafts.get(id)||'';
+  agentAttachments=(agentAttachmentDrafts.get(id)||[]).map(a=>({...a}));
+  renderAgentAttachments();
+  const p=agentProviders.find(p=>p.id===sess.provider_id);
+  if(p){providerSelect.value=p.id;updateAgentModels();modelSelect.value=sess.model_id;}
+  modeSelect.value=sess.mode;
+  effortSelect.value=sess.reasoning_effort||'';
  }
- const p=agentProviders.find(p=>p.id===sess.provider_id);
- if(p){providerSelect.value=p.id;updateAgentModels();modelSelect.value=sess.model_id;}
- modeSelect.value=sess.mode;
- effortSelect.value=sess.reasoning_effort||'';
+ send.disabled=agentSessionBusy(id)||(sess.status==='requesting_ai');
+ cancel.disabled=!agentSessionBusy(id)&&sess.status!=='requesting_ai';
+ const summary=agentSessions.find(x=>x.id===id);
+ if(summary){
+  summary.status=sess.status;
+  summary.title=sess.title;summary.archived=sess.archived;
+  updateAgentSessionRows();
+ }
+ openAgentTab(id);
  displayAgentSession(sess);
+ if(sess.status==='requesting_ai'&&!agentSessionBusy(id))
+  status.textContent='A model request is still running on the server. Use Cancel if you want to stop waiting.';
  scheduleAgentMonitor(sess);
- renderAgentTabs();
- await loadAgentSessions();
  return sess;
 }
 async function agentToolDecision(session,callID,action){
