@@ -98,6 +98,10 @@ agentCSS.textContent=[
 '.agentchat-bubble.user{align-self:flex-end;background:#203b56}',
 '.agentchat-bubble.assistant{align-self:flex-start;background:transparent;border-color:transparent;padding:4px 0}',
 '.agentchat-bubble.tool{align-self:flex-start;background:#1d2936;border-color:#394b60}',
+'.agentchat-preview-header{display:flex;align-items:center;gap:10px}',
+'.agentchat-preview-header strong{flex:1;min-width:0}',
+'.agentchat-preview-close{flex:none;border:0!important;background:transparent!important;padding:2px 7px!important;color:inherit;opacity:.75;font-size:17px!important;line-height:1}',
+'.agentchat-preview-close:hover,.agentchat-preview-close:focus-visible{opacity:1;background:#344b66!important}',
 '.agentchat-bubble.optimistic{opacity:.86}',
 '.agentchat-live-status{display:flex;align-items:center;gap:8px;align-self:flex-start;max-width:95%;padding:5px 7px;color:#b7ccdf;font-size:12px;line-height:1.5}',
 '.agentchat-live-status.error{color:#ffb1ae}',
@@ -1626,8 +1630,16 @@ async function previewAgentContext(){
  if(!agentActive)return;
  const id=agentActive;
  const data=await agentApp.jsonFetch('/api/agent/sessions/'+encodeURIComponent(id)+'/pack-preview');
+ // Do not attach an asynchronous preview to a different conversation.
+ if(agentActive!==id)return;
  const box=agentEl('div','agentchat-bubble tool');
- box.append(agentEl('strong','','AI Pack preview · no request sent'));
+ const header=agentEl('div','agentchat-preview-header');
+ const closePreview=agentButton('×',()=>box.remove());
+ closePreview.className='agentchat-preview-close';
+ closePreview.title='Close AI Pack preview';
+ closePreview.setAttribute('aria-label','Close AI Pack preview');
+ header.append(agentEl('strong','','AI Pack preview · no request sent'),closePreview);
+ box.append(header);
  box.append(agentEl('p','agentchat-tool-summary',
   'Fingerprint '+String(data.fingerprint||'?')+' · '+String(data.pack_bytes||0)+' bytes · redaction '+String(data.redaction||'best_effort')+
   (data.oversize?' · OVERSIZE (the first send will be refused)':'')));
