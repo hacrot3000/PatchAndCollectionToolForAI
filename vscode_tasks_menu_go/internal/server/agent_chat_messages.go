@@ -345,7 +345,9 @@ func (s *Server) agentChatMessageAPI(w http.ResponseWriter, r *http.Request, id 
 	// can execute a patch without a one-time user decision and native preflight.
 	// A user-declared capability is insufficient: the endpoint/model pair must
 	// have verified tool-calling evidence from a user-triggered probe.
-	patchToolAvailable := model.ToolCalling && s.agentToolCapabilityVerified(owner, p, model)
+	// The first consented turn performs a harmless, project-data-free tool
+	// schema probe when a configured model has not yet been verified.
+	patchToolAvailable := s.agentChatEnsureTools(r.Context(), owner, p, model, string(secret))
 	instructions := agentChatInstructions(session.ProjectID, patchToolAvailable)
 	limit := 4096
 	if model.MaxOutputTokens > 0 && model.MaxOutputTokens < limit {
@@ -368,7 +370,7 @@ func (s *Server) agentChatMessageAPI(w http.ResponseWriter, r *http.Request, id 
 		PreviousResponseID: session.PreviousResponseID, ConversationID: conversationID,
 		History: session.History, Next: []agentchat.HistoryItem{next}, MaxOutputTokens: limit,
 		ReasoningEffort: agentProviderReasoningEffort(p, session.ReasoningEffort, model),
-		EnablePatchTool: patchToolAvailable,
+		EnablePatchTool: patchToolAvailable, EnableCollectionTool: patchToolAvailable,
 	})
 	if err != nil {
 		http.Error(w, "cannot build bounded AI context: "+err.Error(), 413)
@@ -431,6 +433,20 @@ func (s *Server) agentChatMessageAPI(w http.ResponseWriter, r *http.Request, id 
 			return
 		}
 		writeAgentStructuredError(w, 502, callErr, traceID, "PROVIDER_REQUEST_FAILED", "provider_http", "AI provider request failed; original turn was retained and will not be retried automatically")
+		return
+	}
+	// Collection tool calls (and project-bound legacy Collection JSON) are
+	// read-only. Execute and feed them back to the provider automatically until
+	// it answers or proposes a Patch requiring the existing human approval.
+	result, callErr = s.agentChatRunCollection(ctx, store, &session, result, p, model, string(secret), identity, patchToolAvailable)
+	if callErr != nil {
+		session.Status = "failed"
+		session.AppendEvent("collect_failed", "failed", "", "")
+		if _, saveErr := store.Save(session, session.Revision); saveErr != nil {
+			http.Error(w, "Collection continuation failed; inspect the persisted Agent session", 409)
+			return
+		}
+		writeAgentStructuredError(w, 502, callErr, traceID, "COLLECTION_CONTINUATION_FAILED", "tool_execution", "Agent Collection inspection could not finish; no patch was executed")
 		return
 	}
 	appendAgentProviderResult(&session, result, patchToolAvailable)
