@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"time"
 
 	"bletonfc/vscode_tasks_menu/internal/agentchat"
@@ -12,6 +13,26 @@ import (
 )
 
 const agentCollectionMaxRounds = 6
+
+// Requests that need workspace access may establish the harmless tool
+// capability probe on first use. Ordinary conversation should not silently
+// consume an extra provider request or promote an unverified tool declaration.
+func agentNeedsWorkspaceTools(message string) bool {
+	text := strings.ToLower(strings.TrimSpace(message))
+	for _, hint := range []string{
+		"file", "folder", "directory", "project", "workspace", "repository", "repo",
+		"source", "code", "php", "patch", "collection", "root",
+		"create", "write", "edit", "modify", "change", "inspect", "search", "find",
+		"implement", "update", "fix", "debug", "delete", "remove", "list files",
+		"tạo", "sửa", "thay đổi", "bổ sung", "kiểm tra", "tra soát", "tìm", "đọc",
+		"mã nguồn", "dự án", "thư mục", "xoá", "xóa", "liệt kê", "chỉnh",
+	} {
+		if strings.Contains(text, hint) {
+			return true
+		}
+	}
+	return false
+}
 
 // A configured model can establish native tool compatibility on its first
 // consented turn. This harmless schema probe carries NO project data and
