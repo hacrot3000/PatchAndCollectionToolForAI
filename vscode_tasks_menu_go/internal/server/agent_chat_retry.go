@@ -95,6 +95,9 @@ func (s *Server) agentChatProviderWithRetry(ctx context.Context,owner,sessionID 
   callCtx,cancel:=context.WithTimeout(ctx,60*time.Second)
   result,err,trace:=s.agentChatObservedCall(callCtx,owner,"provider_request",sessionID,p,key,payload)
   cancel()
+  // User Stop/daemon shutdown is authoritative even when the transport
+  // reports a generic provider error after the context was cancelled.
+  if ctx.Err()!=nil{return agentchat.ResponsesResult{},ctx.Err(),trace}
   if err==nil{return result,nil,trace}
   if mode==agentchat.RetryOff||!agentProviderRetryable(err)||
     (mode==agentchat.RetryLimited&&attempt>=6)||ctx.Err()!=nil{
