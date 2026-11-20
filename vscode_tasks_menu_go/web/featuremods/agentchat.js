@@ -1004,6 +1004,7 @@ function agentScrollToLatest(sessionID){
 }
 function displayAgentSession(session){
  if(!session){
+  closeAgentAttachmentsPopup();
   if(agentLiveRow.parentElement)agentLiveRow.remove();
   if(agentRenderedSessionID!==null){
    transcript.replaceChildren();
