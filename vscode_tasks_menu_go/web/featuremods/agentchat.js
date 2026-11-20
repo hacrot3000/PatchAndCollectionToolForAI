@@ -755,10 +755,16 @@ function renderAgentTool(session,item){
    actions.append(agentButton('Get the last result and send to AI',
     ()=>recoverAgentPatch(agentCurrentSession||session,item.call_id,'send_existing').catch(showAgentError)));
   }
-  const reapply=agentButton('Re-apply Patch then send to AI',
-   ()=>recoverAgentPatch(agentCurrentSession||session,item.call_id,'rerun_and_send').catch(showAgentError));
-  reapply.disabled=Boolean(agentApp.sharedMode&&!agentApp.hasPermission?.('patch.run'));
-  actions.append(reapply);
+  if(state!=='done'){
+   const reapply=agentButton('Re-apply Patch then send to AI',
+    ()=>recoverAgentPatch(agentCurrentSession||session,item.call_id,'rerun_and_send').catch(showAgentError));
+   reapply.disabled=Boolean(agentApp.sharedMode&&!agentApp.hasPermission?.('patch.run'));
+   actions.append(reapply);
+  }
+ }
+ if(state==='rejected'&&!record.feedback_sent){
+  actions.append(agentButton('Send rejection to AI',
+   ()=>continueAgentTool(agentCurrentSession||session,item.call_id).catch(showAgentError)));
  }
  if(state==='unknown')actions.append(agentEl('p','agentchat-tool-summary',
   'Old native result is not verified yet. Recovery will inspect the original run; it will not rerun an uncertain Patch.'));
