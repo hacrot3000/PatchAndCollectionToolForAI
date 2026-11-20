@@ -238,8 +238,8 @@ func TestAgentDeclaredToolCapabilityDoesNotEnableExecution(t *testing.T) {
 		if _, ok := req["tools"]; ok {
 			t.Fatal("unverified declared capability advertised an execution tool")
 		}
-		if !strings.Contains(fmt.Sprint(req["instructions"]), "No execution tools are enabled") {
-			t.Fatal("instructions still claimed an execution tool")
+		if !strings.Contains(fmt.Sprint(req["instructions"]), "taskdeck_patch_proposal") {
+			t.Fatal("unverified model must receive text-only, approval-gated Patch proposal instructions")
 		}
 		return agentchat.ResponsesResult{ResponseID: "resp_text", Text: "No tools available"}, nil
 	}
