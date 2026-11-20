@@ -10,7 +10,6 @@ import (
 	"os"
 	"strings"
 	"sync"
-	"time"
 	"unicode/utf8"
 
 	"bletonfc/vscode_tasks_menu/internal/agentchat"
