@@ -30,6 +30,14 @@ func TestAgentCollectionProjectBoundReadOnly(t *testing.T) {
 	if !ok || fallback.ID != args.ID {
 		t.Fatal("valid project-bound legacy JSON was not recognized")
 	}
+	for _, wrapped := range []string{"> " + request, strings.Repeat("\x60",3) + "json\n" + request + "\n" + strings.Repeat("\x60",3)} {
+		if recovered, ok := agentCollectionTextFallback(wrapped, identity); !ok || recovered.ID != args.ID {
+			t.Fatalf("quoted/fenced Collection JSON not accepted: %s", wrapped)
+		}
+	}
+	if _, ok := agentCollectionTextFallback("Please run this: " + request, identity); ok {
+		t.Fatal("arbitrary prose was treated as an executable Collection command")
+	}
 	result := executeAgentCollection(root, identity, args)
 	if !strings.Contains(result, "hello.php") || !strings.Contains(result, "Hello World") {
 		t.Fatalf("Collection result did not include observed project file: %s", result)
