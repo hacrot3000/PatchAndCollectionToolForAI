@@ -234,6 +234,11 @@ func agentPatchResultFromProtocol(state session.ProtocolState, expect agentPatch
 				"elapsed_seconds": item.ElapsedSeconds,
 				"commands":        commands,
 				"stdout_tail":     scrubAIContext(item.OutputTail, 1800),
+				"project_unchanged": status=="PREFLIGHT_FAIL",
+				"automatic_retry": false,
+			}
+			if status=="PREFLIGHT_FAIL" && item.DiagnosisKind=="insufficient_disk_space" {
+				out["remediation"]="Free space in the project and temporary directories, then request a fresh Patch. The current Patch was NOT applied."
 			}
 			if item.RC != nil {
 				out["rc"] = *item.RC
@@ -255,23 +260,27 @@ func agentPatchResultFromProtocol(state session.ProtocolState, expect agentPatch
 // Match ONLY a final PREFLIGHT_FAIL for this exact immutable package in this
 // native session. This cannot establish PASS or authorize a new execution.
 func (s *Server) agentVerifiedPreflight(record agentchat.ToolCallRecord, state session.ProtocolState) (string, string, string, bool) {
- if s.agentVerifyFinalPackage(record)!=nil { return "","","",false }
+ if s.agentVerifyFinalPackage(record)!=nil {return "","","",false}
  name:=filepath.Base(record.QueuePath)
- matching:=0
- for _,item:=range state.Items {
-  if item.Name!=name || strings.ToUpper(item.Kind)!="PATCH" { continue }
-  matching++
-  if record.SelectedIndex>0 && record.SelectedIndex!=item.Index {return "","","",false}
-  if strings.ToUpper(item.Status)!="PREFLIGHT_FAIL" || strings.TrimSpace(item.RunID)=="" {continue}
-  if record.RunID!="" && record.RunID!=item.RunID {return "","","",false}
-  if strings.TrimSpace(item.DiagnosisKind)=="" && strings.TrimSpace(item.FailureReason)=="" {return "","","",false}
-  status,result,runID,ok:=agentPatchResultFromProtocol(state,agentPatchExpectation{
-   Name:name,ItemIndex:item.Index,
-  })
-  if matching!=1||!ok||status!="error"||runID!=item.RunID {return "","","",false}
-  return status,result,runID,true
+ var matched *session.ProtocolItemState
+ for i:=range state.Items {
+  item:=&state.Items[i]
+  if item.Name!=name || strings.ToUpper(item.Kind)!="PATCH" {continue}
+  if matched!=nil {return "","","",false} // duplicate names are ambiguous
+  matched=item
  }
- return "","","",false
+ if matched==nil || strings.ToUpper(matched.Status)!="PREFLIGHT_FAIL" ||
+   strings.TrimSpace(matched.RunID)=="" ||
+   (record.SelectedIndex>0 && record.SelectedIndex!=matched.Index) ||
+   (record.RunID!="" && record.RunID!=matched.RunID) ||
+   (strings.TrimSpace(matched.DiagnosisKind)=="" && strings.TrimSpace(matched.FailureReason)=="") {
+  return "","","",false
+ }
+ status,result,runID,ok:=agentPatchResultFromProtocol(state,agentPatchExpectation{
+  Name:name,ItemIndex:matched.Index,
+ })
+ if !ok || status!="error" || runID!=matched.RunID {return "","","",false}
+ return status,result,runID,true
 }
 
 // Callers may present status but MUST NOT invent success when the process
