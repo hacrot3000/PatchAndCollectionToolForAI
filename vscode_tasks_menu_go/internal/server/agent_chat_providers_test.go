@@ -529,6 +529,7 @@ func TestAgentChatCompletionsSettingsAndCapabilities(t *testing.T) {
 
 func TestAgentChatCompletionsAcceptsDeclaredModelReasoningEfforts(t *testing.T) {
 	s:=newAIServerForTest(t)
+	if err:=os.MkdirAll(s.Workspace,0700);err!=nil{t.Fatal(err)}
 	if err:=os.MkdirAll(s.Workspace,0700);err!=nil {t.Fatal(err)}
 	p:=agentProviderFixture()
 	p.ID="chat-with-reasoning"
