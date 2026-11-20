@@ -308,7 +308,7 @@ func TestAgentEventsJournalResyncsAfterCursor(t *testing.T) {
 		return agentchat.ResponsesResult{ResponseID: "resp_ev", Text: "ok"}, nil
 	}
 	if w := invokeAI(t, s.agentChatSessionItemAPI, http.MethodPost, "/api/agent/sessions/"+id+"/messages",
-		map[string]any{"message": "hi", "confirm_external": true, "expected_revision": 1}); w.Code != 200 {
+		map[string]any{"message": "CANARY_PRIVATE_PROMPT_NOT_FOR_EVENTS_4917", "confirm_external": true, "expected_revision": 1}); w.Code != 200 {
 		t.Fatalf("turn failed: %d %s", w.Code, w.Body)
 	}
 	all := invokeAI(t, s.agentChatSessionItemAPI, http.MethodGet, "/api/agent/sessions/"+id+"/events", nil)
@@ -332,7 +332,7 @@ func TestAgentEventsJournalResyncsAfterCursor(t *testing.T) {
 		t.Fatalf("cursor not honoured: %d %s", tail.Code, tail.Body)
 	}
 	// The journal must never carry prompt text.
-	if strings.Contains(all.Body.String(), "hi") {
+	if strings.Contains(all.Body.String(), "CANARY_PRIVATE_PROMPT_NOT_FOR_EVENTS_4917") {
 		t.Fatalf("journal leaked prompt text: %s", all.Body)
 	}
 	bad := httptest.NewRequest(http.MethodGet, "/api/agent/sessions/"+id+"/events?since=abc", nil)
