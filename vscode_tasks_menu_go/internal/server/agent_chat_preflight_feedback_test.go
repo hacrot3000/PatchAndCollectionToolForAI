@@ -193,3 +193,44 @@ func TestAgentApproveRefreshSafeAfterAutomationRevisionChanges(t *testing.T) {
  y,err:=store.Get(id,"local")
  if err!=nil || y.ToolCalls[0].Status!="queued" {t.Fatalf("native approval did not queue correct patch: %+v %v",y,err)}
 }
+
+
+func TestAgentCollectionReadFailureIsReturnedToAIWithoutASecondApproval(t *testing.T) {
+ s,id:=newAgentConversationFixture(t,"stateless")
+ calls:=0
+ s.AgentChatCall=func(_ context.Context,_ agentchat.ProviderConfig,_ string,payload []byte)(agentchat.ResponsesResult,error){
+  calls++
+  if calls==1 {
+   return agentchat.ResponsesResult{ResponseID:"read-missing",Calls:[]agentchat.FunctionCall{{
+    CallID:"collect-file-missing",Name:"taskdeck_collect_workspace",
+    Arguments:`{"actions":[{"type":"read","path":"not-created.php"}]}`,
+   }}},nil
+  }
+  if calls!=2 {t.Fatalf("unexpected tool retry: %d",calls)}
+  var req struct {Input []map[string]any `json:"input"`}
+  if err:=json.Unmarshal(payload,&req);err!=nil {t.Fatal(err)}
+  found:=false
+  for _,item:=range req.Input {
+   if item["type"]=="function_call_output" && item["call_id"]=="collect-file-missing" {
+    if strings.Contains(item["output"].(string),"not-created.php") &&
+     strings.Contains(item["output"].(string),`\"error\"`) {found=true}
+   }
+  }
+  if !found {
+   t.Fatalf("read-only Collection failure was not returned to model: %s",payload)
+  }
+  return agentchat.ResponsesResult{ResponseID:"diagnosed-missing-file",
+   Text:"Không tìm thấy file not-created.php trong project. Hãy kiểm tra đường dẫn trước khi sửa."},nil
+ }
+ w:=invokeAI(t,s.agentChatSessionItemAPI,http.MethodPost,
+  "/api/agent/sessions/"+id+"/messages",
+  map[string]any{"message":"read not-created.php","confirm_external":true,"expected_revision":uint64(1)})
+ if w.Code!=200 || calls!=2 {t.Fatalf("Collection failure did not reach AI: %d %s (calls=%d)",w.Code,w.Body,calls)}
+ store,err:=s.agentChatStore()
+ if err!=nil {t.Fatal(err)}
+ x,err:=store.Get(id,"local")
+ if err!=nil {t.Fatal(err)}
+ if x.Status!="completed" || len(x.ToolCalls)!=0 || !strings.Contains(x.History[len(x.History)-1].Content,"Không tìm thấy") {
+  t.Fatalf("AI did not respond to Collection failure: %+v",x)
+ }
+}
