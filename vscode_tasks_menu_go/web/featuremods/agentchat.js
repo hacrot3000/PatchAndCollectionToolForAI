@@ -75,6 +75,7 @@ agentCSS.textContent=[
 '.agentchat-config-category:hover>.agentchat-config-category-values,.agentchat-config-category:focus-within>.agentchat-config-category-values,.agentchat-config-category[aria-expanded="true"]>.agentchat-config-category-values{display:flex;flex-direction:column;gap:2px}',
 '.agentchat-config-category-values button{width:100%;text-align:left;white-space:normal;overflow-wrap:anywhere}',
 '.agentchat-config-category-values button[aria-checked="true"]{background:#344c66;border-color:#7db6e6}',
+'.task-agent-dock-section.agent-dock-right .agentchat-config-category-values{right:0;top:calc(100% + 2px)}',
 '.agentchat-config-note{font-size:11px;line-height:1.4;padding:5px;color:#b6cce2}',
 '@media(max-width:700px){.agentchat-config-category-values{right:0;top:calc(100% + 2px)}}',
 'html[data-taskmenu-theme="light"] .agentchat-config-panel,html[data-taskmenu-theme="light"] .agentchat-config-category-values{background:#fff;color:#17283a;border-color:#bac8d8}',
