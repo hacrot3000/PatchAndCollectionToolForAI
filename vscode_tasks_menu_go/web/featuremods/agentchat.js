@@ -98,6 +98,7 @@ agentCSS.textContent=[
 '.agentchat-settings-box input{width:100%;padding:8px;box-sizing:border-box}',
 '.agentchat-settings-box .actions{display:flex;gap:8px;justify-content:flex-end}',
 'html[data-taskmenu-theme="light"] .agentchat-window,html[data-taskmenu-theme="light"] .agentchat-settings-box{background:#fff;color:#17283a}',
+'html[data-taskmenu-theme="light"] .agentchat-header-menu{background:#fff;color:#17283a;border-color:#bac8d8}',
 'html[data-taskmenu-theme="light"] .agentchat-window textarea,html[data-taskmenu-theme="light"] .agentchat-window input,html[data-taskmenu-theme="light"] .agentchat-window select,html[data-taskmenu-theme="light"] .agentchat-settings-box textarea,html[data-taskmenu-theme="light"] .agentchat-settings-box input{background:#f7faff;color:#17283a;border-color:#b6c6d7}',
 'html[data-taskmenu-theme="light"] .agentchat-bubble.user{background:#d9edfc}',
 'html[data-taskmenu-theme="light"] .agentchat-bubble.assistant{background:transparent;border-color:transparent}',
@@ -654,6 +655,11 @@ function updateAgentSessionRows(){
    row.append(button,remove);sessionList.append(row);
   }
   if(button.textContent!==label)button.textContent=label;
+  const remove=button.parentElement?.children?.[1];
+  if(remove){
+   remove.disabled=['requesting_ai','waiting_tool','tool_queuing','tool_unknown'].includes(sess.status);
+   remove.title=remove.disabled?'Resolve the running/pending Patch before deleting':'Permanently delete this conversation';
+  }
   const cls='agentchat-session'+(sess.id===agentActive?' selected':'');
   if(button.className!==cls)button.className=cls;
  }
@@ -731,17 +737,17 @@ async function selectAgentSession(id){
  const data=await agentApp.jsonFetch('/api/agent/sessions/'+encodeURIComponent(id));
  if(generation!==agentSelectGeneration)return null;
  const sess=data.session;
- if(switched||agentToolNoticeKey!==data.patch_tool_status){
+ if(switched||agentToolNoticeKey!==data.patch_tool_status+':'+(sess.auto_patch?'auto':'manual')){
   toolNotice.replaceChildren();
   const toolStatus=data.patch_tool_status;
   if(toolStatus==='enabled'){
-   toolNotice.textContent='Native Patch available · '+(sess.auto_patch?'automatic approval enabled for this conversation.':'manual approval.') ;
+   toolNotice.textContent='Native Patch available · '+(sess.auto_patch?'automatic approval enabled for this conversation.':'manual approval.');
   }else{
    const reasons={model_disabled:'Tool calling is disabled for this model.',unverified:'Tool calling has not been verified for this provider and model.',unavailable:'Provider or capability information is unavailable.'};
-   toolNotice.append(agentEl('span','',(reasons[toolStatus]||'Patch tool status is unavailable.')+' Text-only Patch JSON proposals can still be reviewed and executed through native Patch approval. '));
+   toolNotice.append(agentEl('span','',(reasons[toolStatus]||'Patch tool status is unavailable.')+' Text-only Patch JSON proposals can use Native Patch. '+(sess.auto_patch?'Auto apply is enabled.':'Manual approval is enabled.')));
    // Provider/API Key configuration belongs to TaskDeck Settings, not this panel.
   }
-  agentToolNoticeKey=toolStatus;
+  agentToolNoticeKey=toolStatus+':'+(sess.auto_patch?'auto':'manual');
  }
  toolNotice.hidden=false;
  agentActive=id;
@@ -1084,6 +1090,7 @@ async function deleteAgentSession(id){
   agentRenderedSessionID=null;agentRenderedHistory=[];agentRenderedNodes=[];agentRenderedToolVersions.clear();
   prompt.value='';agentAttachments=[];renderAgentAttachments();
  }
+ toggleAgentSessions(false);
  await loadAgentSessions();
  if(agentActive)await selectAgentSession(agentActive);
  else if(agentTabs.length)await selectAgentSession(agentTabs[agentTabs.length-1]);
@@ -1245,6 +1252,9 @@ moreMenu.addEventListener('click',event=>{
 });
 for(const overlay of [settingsOverlay,planOverlay])overlay.addEventListener('pointerdown',event=>event.stopPropagation());
 document.addEventListener?.('pointerdown',event=>{
+ for(const group of agentHeaderGroups){
+  if(group.open&&!group.contains(event.target))group.open=false;
+ }
  if(sessionList.classList.contains('open')&&!sessionMenu.contains(event.target))toggleAgentSessions(false);
  if(moreMenu.classList.contains('open')&&!moreMenu.contains(event.target)&&!moreButton.contains(event.target)){
   moreMenu.classList.remove('open');moreButton.setAttribute('aria-expanded','false');
@@ -1320,7 +1330,10 @@ root.addEventListener('click',e=>e.stopPropagation());
 settingsOverlay.addEventListener('click',e=>{if(e.target===settingsOverlay)settingsOverlay.classList.remove('visible');});
 window.addEventListener('keydown',e=>{
  if(e.key!=='Escape')return;
- if(sessionList.classList.contains('open')){e.preventDefault();toggleAgentSessions(false);sessionMenuButton.focus();}
+ if(agentHeaderGroups.some(group=>group.open)){
+  e.preventDefault();for(const group of agentHeaderGroups)group.open=false;
+ }
+ else if(sessionList.classList.contains('open')){e.preventDefault();toggleAgentSessions(false);sessionMenuButton.focus();}
  else if(moreMenu.classList.contains('open')){e.preventDefault();toggleAgentMore(false);}
  else if(planOverlay.classList.contains('visible'))planOverlay.classList.remove('visible');
  else if(settingsOverlay.classList.contains('visible'))settingsOverlay.classList.remove('visible');
