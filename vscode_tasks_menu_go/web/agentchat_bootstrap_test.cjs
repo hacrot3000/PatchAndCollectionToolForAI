@@ -113,6 +113,7 @@ const context = {
   Event: class Event { constructor(type) { this.type = type; } },
   TextEncoder,
   TextDecoder,
+  AbortController,
   ResizeObserver: class ResizeObserver {
     constructor(callback) { this.callback = callback; resizeObserver = this; }
     observe() {}
