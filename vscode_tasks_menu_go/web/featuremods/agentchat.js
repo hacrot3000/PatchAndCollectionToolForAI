@@ -125,6 +125,7 @@ const debugPanel=agentEl('div','agentchat-debug-panel');
 const debugToolbar=agentEl('div','agentchat-debug-toolbar');
 const debugStateLabel=agentEl('span','agentchat-info','Safe AI diagnostic metadata is collected automatically.');
 const debugCopy=agentButton('Copy log',()=>copyAgentDebug().catch(showAgentError));
+debugCopy.disabled=true; // enabled after the report is loaded; clipboard write stays inside the click
 debugToolbar.append(debugStateLabel,debugCopy);
 const debugOutput=agentEl('pre','agentchat-debug-output','Opening AI Debug will load one complete safe diagnostic report.');
 debugPanel.append(debugToolbar,debugOutput);
@@ -1186,41 +1187,48 @@ function setAgentDebugView(view){
 // durable Agent journal entries, even if the previous debug toggle was OFF.
 async function loadAgentDebugReport(){
  if(agentDebugFetchInFlight)return agentDebugFetchInFlight;
+ debugCopy.disabled=true;
  agentDebugFetchInFlight=(async()=>{
-  const data=await agentApp.jsonFetch('/api/agent/debug/report');
-  const bundle={...data,
-   browser:{session_id:agentActive||null,
+  try{
+   const data=await agentApp.jsonFetch('/api/agent/debug/report');
+   const bundle={...data,browser:{
+    session_id:agentActive||null,
     current_conversation_status:agentCurrentSession?.status||null,
     local_time:new Date().toString(),
     captured_client_errors:agentDebugClientErrors.slice(),
    }};
-  agentDebugLog=JSON.stringify(bundle,null,2);
+   agentDebugLog=JSON.stringify(bundle,null,2);
+   const traces=Array.isArray(data.provider_traces)?data.provider_traces.length:0;
+   const sessions=Array.isArray(data.sessions)?data.sessions.length:0;
+   debugStateLabel.textContent='Automatic safe capture · '+traces+' provider trace(s) · '+sessions+' saved conversation(s)';
+  }catch(error){
+   // Even if the diagnostic endpoint itself fails, Copy log must yield a
+   // useful support artifact describing that failure and recent browser errors.
+   agentDebugLog=JSON.stringify({
+    format:'taskdeck.agent.debug.report.unavailable.v1',
+    generated_at:new Date().toISOString(),
+    report_error:String(error?.message||error),
+    browser_errors:agentDebugClientErrors.slice(),
+    session_id:agentActive||null,
+   },null,2);
+   debugStateLabel.textContent='Server log unavailable · browser diagnostic ready';
+  }
   debugOutput.textContent=agentDebugLog;
-  const traces=Array.isArray(data.provider_traces)?data.provider_traces.length:0;
-  const sessions=Array.isArray(data.sessions)?data.sessions.length:0;
-  debugStateLabel.textContent='Automatic safe capture · '+traces+' provider trace(s) · '+sessions+' saved conversation(s)';
+  debugCopy.disabled=false;
   return agentDebugLog;
  })();
  try{return await agentDebugFetchInFlight;}
  finally{agentDebugFetchInFlight=null;}
 }
 async function copyAgentDebug(){
- // Always obtain the latest combined report, rather than copying a selected
- // trace or a stale rendered panel. A failed report is itself copyable.
- let log;
- try{log=await loadAgentDebugReport();}
- catch(error){
-  log=JSON.stringify({format:'taskdeck.agent.debug.report.fallback.v1',
-   generated_at:new Date().toISOString(),
-   report_error:String(error?.message||error),
-   browser_errors:agentDebugClientErrors.slice(),
-   session_id:agentActive||null},null,2);
-  agentDebugLog=log;
-  debugOutput.textContent=log;
- }
- if(!navigator.clipboard?.writeText)throw new Error('Clipboard API unavailable. Use the browser clipboard permission or copy the displayed log.');
- await navigator.clipboard.writeText(log);
- debugStateLabel.textContent='Log copied · '+log.length+' characters · safe metadata';
+ // Firefox and other browsers can expire transient user activation during
+ // await fetch(). The report is prefetched upon opening AI Debug, and the
+ // clipboard operation begins synchronously inside the actual click handler.
+ if(!navigator.clipboard?.writeText)throw new Error('Clipboard API unavailable. Check browser clipboard permissions and HTTPS/localhost.');
+ if(!agentDebugLog)throw new Error('AI Debug log is still loading.');
+ const content=agentDebugLog;
+ await navigator.clipboard.writeText(content);
+ debugStateLabel.textContent='Log copied · '+content.length+' characters · safe metadata';
 }
 async function openAgentPanel(){
  agentDock.expanded=true;applyAgentDock();saveAgentDock();
