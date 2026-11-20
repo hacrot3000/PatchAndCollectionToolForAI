@@ -373,8 +373,7 @@ for(const role of ['user','assistant']){
  const copied=[];
  context.navigator={clipboard:{writeText:async text=>{copied.push(text);}}};
  copyButton.onclick();
- await Promise.resolve();
- await Promise.resolve();
+ await new Promise(resolve=>setImmediate(resolve)); // Flush cross-realm clipboard callbacks
  assert.equal(copied[0],'<?php\necho "Xin chào, thế giới!\\n";\nphpinfo();',
    'Copy must use the exact original code, without Markdown fences or language labels');
  assert.equal(copyButton.textContent,'✓','Copy should acknowledge clipboard success');
