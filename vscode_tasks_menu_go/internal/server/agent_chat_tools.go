@@ -17,6 +17,7 @@ import (
 	"bletonfc/vscode_tasks_menu/internal/agentchat"
 	"bletonfc/vscode_tasks_menu/internal/identity"
 	"bletonfc/vscode_tasks_menu/internal/patchtool"
+	"bletonfc/vscode_tasks_menu/internal/session"
 )
 
 // agentApprovalTTL bounds how long a one-time human approval may be consumed.
