@@ -41,7 +41,8 @@ type RequestConfig struct {
 	Next               []HistoryItem
 	MaxOutputTokens    int
 	ReasoningEffort    string
-	EnablePatchTool    bool // explicitly opt in to the only supported execution tool definition
+	EnablePatchTool    bool // gated, approval-required native Patch function
+	EnableCollectionTool bool // bounded, read-only project inspection
 	// ProbeToolName advertises a single harmless function with no required
 	// arguments. It exists only for a user-triggered capability probe and can
 	// never dispatch a Patch or any other side effect.
@@ -189,8 +190,37 @@ func BuildResponsesRequest(c RequestConfig) ([]byte, error) {
 		}}
 		req["parallel_tool_calls"] = false
 	}
-	if c.EnablePatchTool {
+	if c.EnableCollectionTool {
 		req["tools"] = []any{map[string]any{
+			"type": "function", "name": "taskdeck_collect_workspace",
+			"description": "Read-only inspect actual TaskDeck project files and return bounded observed results. Call this to list the project root, search source or read files BEFORE proposing a patch. Never output Collection JSON as chat text.",
+			"strict": false,
+			"parameters": map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"actions": map[string]any{
+						"type": "array", "minItems": 1, "maxItems": 6,
+						"items": map[string]any{"type":"object",
+							"properties": map[string]any{
+								"type": map[string]any{"type":"string","enum":[]string{"ls","tree","find","search","read","pack"}},
+								"path": map[string]string{"type":"string"},
+								"paths": map[string]any{"type":"array","items":map[string]string{"type":"string"}},
+								"patterns": map[string]any{"type":"array","items":map[string]string{"type":"string"}},
+								"query": map[string]string{"type":"string"},
+								"max_entries": map[string]string{"type":"integer"},
+								"max_results": map[string]string{"type":"integer"},
+								"max_matches": map[string]string{"type":"integer"},
+							}, "required": []string{"type"}, "additionalProperties": false},
+					},
+				},
+				"required": []string{"actions"}, "additionalProperties": false,
+			},
+		}}
+		req["parallel_tool_calls"] = false
+	}
+	if c.EnablePatchTool {
+		tools, _ := req["tools"].([]any)
+		req["tools"] = append(tools, map[string]any{
 			"type":        "function",
 			"name":        "taskdeck_submit_patch",
 			"description": "Submit a Python Patch Tool package. TaskDeck validates the project identity and requires explicit user approval before any execution. Never claim that submission means execution.",
@@ -204,7 +234,7 @@ func BuildResponsesRequest(c RequestConfig) ([]byte, error) {
 				"required":             []string{"name", "patch_python"},
 				"additionalProperties": false,
 			},
-		}}
+		})
 		req["parallel_tool_calls"] = false
 	}
 	b, err := json.Marshal(req)
