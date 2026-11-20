@@ -1317,6 +1317,7 @@ function toggleAgentMore(force){
 }
 function toggleAgentSessions(force){
  const open=force===undefined?!sessionList.classList.contains('open'):Boolean(force);
+ if(open)toggleAgentConfigMenu(false);
  sessionList.classList.toggle('open',open);sessionMenuButton.setAttribute('aria-expanded',String(open));
 }
 function setAgentDockPosition(position){
@@ -1366,6 +1367,7 @@ document.addEventListener?.('pointerdown',event=>{
   if(group.open&&!group.contains(event.target))group.open=false;
  }
  if(sessionList.classList.contains('open')&&!sessionMenu.contains(event.target))toggleAgentSessions(false);
+ if(agentConfigMenu.classList.contains('open')&&!agentConfigMenu.contains(event.target))toggleAgentConfigMenu(false);
  if(moreMenu.classList.contains('open')&&!moreMenu.contains(event.target)&&!moreButton.contains(event.target)){
   moreMenu.classList.remove('open');moreButton.setAttribute('aria-expanded','false');
  }
@@ -1443,6 +1445,7 @@ window.addEventListener('keydown',e=>{
  if(agentHeaderGroups.some(group=>group.open)){
   e.preventDefault();for(const group of agentHeaderGroups)group.open=false;
  }
+ else if(agentConfigMenu.classList.contains('open')){e.preventDefault();toggleAgentConfigMenu(false);agentConfigButton.focus();}
  else if(sessionList.classList.contains('open')){e.preventDefault();toggleAgentSessions(false);sessionMenuButton.focus();}
  else if(moreMenu.classList.contains('open')){e.preventDefault();toggleAgentMore(false);}
  else if(planOverlay.classList.contains('visible'))planOverlay.classList.remove('visible');
