@@ -48,12 +48,10 @@ func agentRetryModeForSession(s *Server,owner,id string) agentchat.RetryMode{
  default:return agentchat.RetryOff
  }
 }
-func agentRetryTurnContext(parent context.Context,mode agentchat.RetryMode)(context.Context,context.CancelFunc){
- switch mode{
- case agentchat.RetryLimited:return context.WithTimeout(parent,30*time.Minute)
- case agentchat.RetryUnlimited:return context.WithCancel(parent)
- default:return context.WithTimeout(parent,7*time.Minute)
- }
+// A user's Collection task has no cumulative 7/30-minute deadline.
+// Preserve 60s per network attempt, retry-mode limits and explicit Stop.
+func agentRetryTurnContext(parent context.Context,_ agentchat.RetryMode)(context.Context,context.CancelFunc){
+ return context.WithCancel(parent)
 }
 // Permanent 4xx model/auth errors and invalid local request payloads must not
 // be repeated forever. For transient failure, the user's explicit setting
