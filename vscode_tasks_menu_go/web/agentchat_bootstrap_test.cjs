@@ -834,6 +834,62 @@ console.log('PASS: Agent Chat bootstraps and dock position/auto-hide state trans
   assert.ok(retryLive.children[1].textContent.includes('attempt 3'));
   assert.equal(transcript.children.filter(node=>node.className==='agentchat-live-status').length,1);
 
+  // The AI retry label opens a real submenu; it must never silently rotate
+  // off → limited → unlimited just from clicking the label.
+  const retrySubmenu=find(automationGroup,node=>node.className==='agentchat-retry-submenu');
+  assert.ok(retrySubmenu,'Automation contains a nested AI retry selector');
+  const retryChoices=retrySubmenu.children[1].children;
+  assert.equal(retryChoices.map(node=>node.textContent).join(','),'Off,5 times,Unlimited',
+    'exactly the three retry policies must be selectable');
+  assert.deepEqual(retryChoices.map(node=>node.dataset.retryMode),['off','limited','unlimited']);
+  assert.equal(retryControl.getAttribute('aria-expanded'),'false');
+  retryControl.onclick();
+  assert.equal(retrySubmenu.classList.contains('open'),true,'AI retry opens on click');
+  assert.equal(retryControl.getAttribute('aria-expanded'),'true');
+  assert.equal(retryChoices[1].getAttribute('aria-checked'),'true',
+    'current limited retry mode is checked');
+  retryControl.onclick();
+  assert.equal(retrySubmenu.classList.contains('open'),false,'second click closes only retry submenu');
+  // Exercise canonical GET/POST paths and persisted selected-mode indicators.
+  context.retrySelection={...retryBase,status:'ready',history:[],events:[],retry_runtime:null,revision:7};
+  vm.runInNewContext("agentActive='retry-progress';renderAgentAutomationControls(retrySelection);",context);
+  const retryWrites=[];
+  let retryConfirmations=0;
+  context.window.confirm=()=>{retryConfirmations++;return true;};
+  context.TaskMenuApp.jsonFetch=async(url,opts)=>{
+    if(url==='/api/agent/sessions/retry-progress')
+      return {session:context.retrySelection,patch_tool_status:'enabled'};
+    if(url==='/api/agent/sessions/retry-progress/retry'){
+      const payload=JSON.parse(opts.body);
+      retryWrites.push(payload);
+      assert.equal(opts.method,'POST');
+      assert.equal(payload.expected_revision,context.retrySelection.revision,'retry saves against current revision');
+      context.retrySelection={...context.retrySelection,
+        retry_mode:payload.mode,revision:context.retrySelection.revision+1};
+      return {session:context.retrySelection};
+    }
+    throw new Error('Unexpected retry policy HTTP request: '+url);
+  };
+  retryControl.onclick();
+  assert.equal(retryWrites.length,0,'opening AI retry cannot change mode');
+  await retryChoices[1].onclick();
+  assert.equal(retryWrites.length,0,'clicking the already-selected policy is a no-op');
+  await retryChoices[2].onclick();
+  assert.equal(retryWrites.length,1,'Unlimited is selected directly, no intermediate rotation');
+  assert.equal(retryWrites[0].mode,'unlimited');
+  assert.equal(retryWrites[0].confirm_external,true);
+  assert.equal(retryChoices[2].getAttribute('aria-checked'),'true');
+  assert.equal(retrySubmenu.classList.contains('open'),true,'choices stay visible after selection');
+  await retryChoices[0].onclick();
+  assert.equal(retryWrites.length,2);
+  assert.equal(retryWrites[1].mode,'off');
+  assert.equal(retryWrites[1].confirm_external,false);
+  assert.equal(retryChoices[0].getAttribute('aria-checked'),'true');
+  assert.equal(retryConfirmations,1,'only enabling retry requires risk confirmation');
+  retryControl.onclick();
+  assert.equal(retrySubmenu.classList.contains('open'),false);
+  console.log('PASS: AI retry submenu selects Off / 5 times / Unlimited without cycling');
+
   const stuckPatch={id:'old-patch',status:'waiting_tool',revision:8,
     history:[{type:'function_call',call_id:'old-call',name:'taskdeck_submit_patch',
       arguments:JSON.stringify({name:'Vietnamese diacritics and phpinfo output',patch_python:'print(1)'})}],
