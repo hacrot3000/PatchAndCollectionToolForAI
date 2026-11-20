@@ -227,11 +227,9 @@ func (s *Server) agentChatRunCollection(
 		// A slow inspection round must not exhaust the next provider request.
 		// The parent is the cancelable, multi-round turn context; each call
 		// receives an independent timeout (and keeps the same cancel handle).
-		callCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
 		var callErr error
 		var traceID string
-		result, callErr, traceID = s.agentChatCallForOwner(callCtx, x.Owner, x.ID, provider, key, payload)
-		cancel()
+		result, callErr, traceID = s.agentChatCallForOwner(ctx, x.Owner, x.ID, provider, key, payload)
 		if callErr != nil {
 			s.recordAgentDebugEvent(x.Owner, x.ID, next.CallID, "collection", "collection.continuation_failed",
 				"COLLECTION_PROVIDER_FAILED", fmt.Sprintf("Collection round %d provider continuation failed; see trace %s", round+1, traceID))
