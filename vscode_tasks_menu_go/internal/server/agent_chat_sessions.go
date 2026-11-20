@@ -282,7 +282,7 @@ func (s *Server) agentChatSessionItemAPI(w http.ResponseWriter, r *http.Request)
 	}
 	// The API currently exposes a transcript only to its authenticated owner.
 	w.Header().Set("Cache-Control", "no-store")
-	writeJSON(w, http.StatusOK, map[string]any{"session": item, "execution_enabled": false})
+	writeJSON(w, http.StatusOK, map[string]any{"session": item, "execution_enabled": false, "patch_tool_status": s.agentPatchToolStatus(aiPlanOwner(r), item.ProviderID, item.ModelID)})
 }
 
 // agentChatSessionMetadataAPI renames or archives a session. These are the

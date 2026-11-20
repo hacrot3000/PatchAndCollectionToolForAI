@@ -30,6 +30,8 @@
 
 ## F04.2 — UI
 
+The session view reports whether the Patch tool is available for its provider and model. If tool calling is disabled or has no verified probe evidence, model text (including JSON that resembles commands) cannot create files. Select the session's provider and model in provider settings and explicitly run the capability probe; a successful schema probe enables Patch proposals, which still require review and approval. A schema-acceptance probe does not guarantee that a model will actually generate a function call.
+
 1. Chia state theo session/run, không dùng một `agentBusy` global; mỗi tab giữ model/target server-authoritative, revision, draft riêng. Add rename/archive, reasoning selector theo capability verified, attachments chỉ khi có schema, size, MIME, consent và backend thực sự hỗ trợ; không gửi bí mật hay tin metadata client.
 2. Render event/status `queued/running/done/error/cancelled/unknown` theo authoritative execution; hiển thị subitems, thời gian, RC, console/copy và artifact theo quyền, không dựng thành công từ text model. Dùng `textContent`, giới hạn nội dung; không nhúng HTML model. Preview context và cảnh báo gửi ra ngoài riêng approval patch.
 3. Refresh/reconnect tải snapshot, khôi phục cursor rồi nhận event, xử lý duplicate/gap và stale revision, clear busy khi lỗi. UI cho UNKNOWN và manual recovery, phân biệt browser disconnect với cancel. Không dùng localStorage chứa transcript/secrets.

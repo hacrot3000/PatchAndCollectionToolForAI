@@ -148,6 +148,7 @@ sessionList.setAttribute('aria-label','Saved conversations');
 sessionMenu.append(sessionMenuButton,sessionList);
 viewTabs.append(sessionMenu);
 const main=agentEl('div','agentchat-main'),modelBar=agentEl('div','agentchat-modelbar');
+const toolNotice=agentEl('div','agentchat-info');toolNotice.hidden=true;
 // Open tabs are UI-only: the server remains the source of truth for every
 // session. Each tab keeps its own composer draft.
 const tabbar=agentEl('div','agentchat-modelbar');
@@ -180,7 +181,7 @@ rename.disabled=true;archive.disabled=true;
 for(const button of [newChat,preview,rename,archive,planButton,settingsButton,refresh,attachButton,autoFeedback])toolbarActions.append(button);
 heading.append(title,toolbarActions,dockPositionButton,autoHideButton,debugButton,moreButton,close,moreMenu);
 actionLine.append(status,cancel,send);composer.append(attachList,prompt,actionLine);
-main.append(tabbar,modelBar,transcript,composer);layout.append(main);
+main.append(tabbar,modelBar,toolNotice,transcript,composer);layout.append(main);
 const footer=agentEl('div','agentchat-info','Responses API • AI Pack on first turn • native Patch execution requires explicit approval per tool call. Results are verified from native protocol before AI feedback.');
 windowBox.append(heading,viewTabs,layout,debugPanel,footer);root.append(windowBox);
 const agentToolbarItems=[newChat,preview,rename,archive,planButton,settingsButton,refresh,attachButton,autoFeedback];
@@ -194,7 +195,8 @@ const settingsInfo=agentEl('p','','Configure an HTTPS Responses or Chat Completi
 const settingsPreset=agentButton('Load sample provider',()=>{providerEditor.value=JSON.stringify(agentSample,null,2);});
 const probeProvider=agentButton('Probe capabilities',()=>probeAgentProvider().catch(showAgentError));
 const deleteProvider=agentButton('Remove provider',()=>deleteAgentProvider().catch(showAgentError));
-const settingsPicker=agentEl('select'),settingsAPIType=agentEl('select'),providerEditor=agentEl('textarea');
+const settingsPicker=agentEl('select'),settingsModel=agentEl('select'),settingsAPIType=agentEl('select'),providerEditor=agentEl('textarea');
+settingsModel.setAttribute('aria-label','Model for connection and capability probes');
 settingsAPIType.append(agentOption('responses','Responses API'),agentOption('chat_completions','Chat Completions API'));
 const keyLabel=agentEl('label','','API key (enter only to set/change)'),apiKey=agentEl('input');
 apiKey.type='password';apiKey.autocomplete='new-password';apiKey.placeholder='Leave blank to keep existing key';
@@ -204,7 +206,7 @@ const saveProvider=agentButton('Save provider',()=>saveAgentProvider().catch(sho
 const testProvider=agentButton('Test connection (uses API)',()=>testAgentProvider().catch(showAgentError));
 const closeSettings=agentButton('Close',()=>settingsOverlay.classList.remove('visible'));
 settingsActions.append(settingsPreset,saveProvider,testProvider,probeProvider,deleteProvider,closeSettings);
-settingsBox.append(settingsTitle,blockedIPNotice,settingsInfo,settingsPicker,settingsAPIType,providerEditor,keyLabel,apiKey,settingsStatus,settingsActions);
+settingsBox.append(settingsTitle,blockedIPNotice,settingsInfo,settingsPicker,settingsModel,settingsAPIType,providerEditor,keyLabel,apiKey,settingsStatus,settingsActions);
 settingsOverlay.append(settingsBox);document.body.append(settingsOverlay);
 
 // F08.1 preview is planning-only: it validates Markdown and renders a DAG,
@@ -314,6 +316,9 @@ settingsPicker.addEventListener('change',()=>{
  blockedIPNotice.hidden=true;blockedIPNotice.replaceChildren();
  const p=agentProviders.find(x=>x.id===settingsPicker.value);
  const current=p?normalizeProvider(p):agentSample;
+ settingsModel.replaceChildren();
+ for(const model of current.models||[])settingsModel.append(agentOption(model.id,model.name||model.id));
+ if(p&&providerSelect.value===p.id&&Array.from(settingsModel.options).some(model=>model.value===modelSelect.value))settingsModel.value=modelSelect.value;
  providerEditor.value=JSON.stringify(current,null,2);
  settingsAPIType.value=current.api_type||'responses';
  apiKey.value='';settingsStatus.textContent=p?.has_api_key?'API key already configured (write-only).':'API key is not configured.';
@@ -344,7 +349,7 @@ async function testAgentProvider(){
  if(!window.confirm('Send a short test prompt to '+parsed.base_url+' using the saved API key?'))return;
  const p=agentProviders.find(x=>x.id===parsed.id);
  if(!p){settingsStatus.textContent='Save this provider first.';return;}
- const model=p.models?.[0]?.id;
+ const model=settingsModel.value;
  if(!model){settingsStatus.textContent='No model configured.';return;}
  blockedIPNotice.hidden=true;blockedIPNotice.replaceChildren();
  settingsStatus.textContent='Testing Responses API...';
@@ -384,7 +389,7 @@ async function probeAgentProvider(){
  parsed.api_type=settingsAPIType.value||parsed.api_type;
  const p=agentProviders.find(x=>x.id===parsed.id);
  if(!p){settingsStatus.textContent='Save this provider first.';return;}
- const model=p.models?.[0]?.id;
+ const model=settingsModel.value;
  if(!model){settingsStatus.textContent='No model configured.';return;}
  if(!window.confirm('Run harmless capability probes against '+parsed.base_url+'? This sends no project data and can incur provider cost.'))return;
  settingsStatus.textContent='Probing text, tool schema, response chaining'+(parsed.stream?' and streaming':'')+'...';
@@ -393,7 +398,7 @@ async function probeAgentProvider(){
    capabilities:parsed.stream?['text','tool_calling','previous_response','streaming']:['text','tool_calling','previous_response']})});
  const caps=result.capabilities||{};
  settingsStatus.textContent='Probe evidence: '+Object.entries(caps).map(([k,v])=>k+'='+v).join(' · ')+
-  ' · Probe traces are available in AI Debug. Tool execution stays disabled unless tool_calling=verified.';
+  ' · Probe traces are available in AI Debug. Tool execution stays disabled unless tool_calling=verified. Refresh or reopen the session to update its status.';
 }
 async function deleteAgentProvider(){
  const parsed=normalizeProvider(JSON.parse(providerEditor.value));
@@ -406,7 +411,15 @@ async function deleteAgentProvider(){
  await loadAgentProviders();
  settingsStatus.textContent=(result.note||'Provider removed.')+(result.partial?' PARTIAL: retry.':'');
 }
-async function openAgentSettings(){await loadAgentProviders();settingsOverlay.classList.add('visible');return true;}
+async function openAgentSettings(){
+ const active=agentSessions.find(session=>session.id===agentActive);
+ await loadAgentProviders();
+ if(active&&agentProviders.some(provider=>provider.id===active.provider_id)){
+  settingsPicker.value=active.provider_id;settingsPicker.dispatchEvent(new Event('change'));
+  if(Array.from(settingsModel.options).some(model=>model.value===active.model_id))settingsModel.value=active.model_id;
+ }
+ settingsOverlay.classList.add('visible');return true;
+}
 function userMessageText(value){
  const text=String(value||'');
  const marker='USER REQUEST:\n';
@@ -462,7 +475,7 @@ function renderAgentTool(session,item){
 }
 function displayAgentSession(session){
  transcript.replaceChildren();
- if(!session){transcript.append(agentEl('p','','Create or select a session to begin.'));return;}
+ if(!session){toolNotice.hidden=true;transcript.append(agentEl('p','','Create or select a session to begin.'));return;}
  for(const item of (session.history||[])){
   if(item.type==='user')transcript.append(agentEl('div','agentchat-bubble user',userMessageText(item.content)));
   if(item.type==='assistant')transcript.append(agentEl('div','agentchat-bubble assistant',item.content));
@@ -532,6 +545,16 @@ async function selectAgentSession(id){
  const data=await agentApp.jsonFetch('/api/agent/sessions/'+encodeURIComponent(id));
  if(generation!==agentSelectGeneration)return null;
  const sess=data.session;
+ toolNotice.replaceChildren();
+ const toolStatus=data.patch_tool_status;
+ if(toolStatus==='enabled'){
+  toolNotice.textContent='Patch tool available: proposed changes require your approval; text or JSON alone does not create files.';
+ }else{
+  const reasons={model_disabled:'Tool calling is disabled for this model.',unverified:'Tool calling has not been verified for this provider and model.',unavailable:'Provider or capability information is unavailable.'};
+  toolNotice.append(agentEl('span','',(reasons[toolStatus]||'Patch tool status is unavailable.')+' AI responses are text only and cannot create files. '));
+  toolNotice.append(agentButton('Provider settings',()=>openAgentSettings().catch(showAgentError)));
+ }
+ toolNotice.hidden=false;
  agentActive=id;
  openAgentTab(id);
  prompt.value=agentDrafts.get(id)||'';
@@ -888,7 +911,13 @@ function mountAgentDock(){
  }
  if(agentApp.layoutProfile==='mobile')agentDock.autoHide=true;
  if(typeof ResizeObserver==='function'){
-  agentDock.observer=new ResizeObserver(()=>{applyAgentDock();rebalanceAgentToolbar();});
+  let lastSize='';
+  agentDock.observer=new ResizeObserver(()=>{
+   const size=section.clientWidth+':'+section.clientHeight+':'+heading.clientWidth;
+   if(size===lastSize)return;
+   lastSize=size;
+   applyAgentDock();rebalanceAgentToolbar();
+  });
   agentDock.observer.observe(heading);agentDock.observer.observe(section);
  }
  rebalanceAgentToolbar();applyAgentDock();
@@ -900,10 +929,10 @@ function clampDockSize(value,position){
 }
 function rebalanceAgentToolbar(){
  if(!toolbarActions.isConnected&&root.parentElement?.classList?.contains('task-agent-dock-section')===false)return;
- for(const button of agentToolbarItems)toolbarActions.append(button);
- moreMenu.classList.remove('open');moreButton.setAttribute('aria-expanded','false');
  const space=heading.clientWidth||0;
  if(!space)return;
+ for(const button of agentToolbarItems)toolbarActions.append(button);
+ moreMenu.classList.remove('open');moreButton.setAttribute('aria-expanded','false');
  const always=dockPositionButton.offsetWidth+autoHideButton.offsetWidth+debugButton.offsetWidth+moreButton.offsetWidth+close.offsetWidth+title.offsetWidth+24;
  while(toolbarActions.scrollWidth>Math.max(0,space-always)&&toolbarActions.children.length>1){
   const button=toolbarActions.lastElementChild;moreMenu.prepend(button);
@@ -1014,7 +1043,7 @@ async function renderAgentDebugTrace(){
  const events=Array.isArray(trace.events)?trace.events:[];
  const selected=events.filter(event=>agentDebugTab==='http'?event.stage==='provider_http':agentDebugTab==='tools'?event.stage==='tool'||event.event?.startsWith('tool.'):agentDebugTab==='configuration'?event.stage==='config':true);
  if(agentDebugTab==='payload'){debugOutput.textContent='Choose REQUEST, RESPONSE or SSE above. Safe view hides free-text bodies; metadata remains available in Timeline/HTTP. Use RAW only during the explicit short-lived grant.';return;}
- if(agentDebugTab==='console')debugOutput.textContent=selected.map(event=>new Date(event.at).toLocaleString()+' ['+String(event.level||'info').toUpperCase()+'] '+event.stage+'.'+event.event+(event.code?' '+event.code:'')+(event.safe_message?' — '+event.safe_message:'')).join('\\n')||'No console entries.';
+ if(agentDebugTab==='console')debugOutput.textContent=selected.map(event=>new Date(event.at).toLocaleString()+' ['+String(event.level||'info').toUpperCase()+'] '+event.stage+'.'+event.event+(event.code?' '+event.code:'')+(event.safe_message?' — '+event.safe_message:'')).join('\n')||'No console entries.';
  else debugOutput.textContent=JSON.stringify(selected,null,2)||'[]';
 }
 async function loadAgentDebugPayload(){

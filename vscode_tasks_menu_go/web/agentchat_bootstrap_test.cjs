@@ -23,6 +23,7 @@ class FakeElement {
     this.clientWidth = 0;
     this.offsetWidth = 40;
     this.listeners = {};
+    this.appendCount = 0;
     const classes = new Set();
     this.classList = {
       add: (...names) => names.forEach(name => classes.add(name)),
@@ -36,6 +37,7 @@ class FakeElement {
     };
   }
   append(...nodes) {
+    this.appendCount += nodes.length;
     for (const node of nodes) {
       assert.notEqual(node, undefined, 'Cannot append an uninitialized toolbar button');
       if (node.parentElement) node.parentElement.children = node.parentElement.children.filter(child => child !== node);
@@ -63,12 +65,17 @@ const document = {
   createElement: tag => new FakeElement(tag),
   querySelector: selector => selector === 'main>section' ? section : selector === '#tabs' ? tabs : selector === '#panes' ? panes : null,
 };
+let resizeObserver;
 const context = {
   TaskMenuApp: {
     jsonFetch() { throw new Error('Bootstrap must not call the provider or other APIs'); },
   },
   document,
   Event: class Event { constructor(type) { this.type = type; } },
+  ResizeObserver: class ResizeObserver {
+    constructor(callback) { this.callback = callback; resizeObserver = this; }
+    observe() {}
+  },
   window: { innerWidth: 1200, innerHeight: 800, addEventListener() {}, dispatchEvent() {} },
 };
 assert.doesNotThrow(
@@ -102,6 +109,12 @@ const collectLabels = node => [node.textContent, ...node.children.flatMap(collec
 const labels = collectLabels(heading);
 const moreButton = heading.children.find(child => child.textContent === '⋯');
 const moreMenu = heading.children.find(child => child.className === 'agentchat-more-menu');
+const toolbarActions = heading.children.find(child => child.className === 'agentchat-toolbar-actions');
+section.clientWidth = 1000; section.clientHeight = 700; heading.clientWidth = 800;
+resizeObserver.callback();
+const countAfterResize = toolbarActions.appendCount;
+for (let i = 0; i < 50; i++) resizeObserver.callback();
+assert.equal(toolbarActions.appendCount, countAfterResize, 'Repeated identical resize notifications must not rearrange actions');
 moreButton.click();
 assert.equal(moreMenu.classList.contains('open'), true, 'One click opens More actions');
 assert.equal(moreButton.attributes['aria-expanded'], 'true');

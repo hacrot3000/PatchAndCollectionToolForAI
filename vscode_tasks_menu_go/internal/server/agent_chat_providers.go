@@ -81,6 +81,38 @@ func (s *Server) agentConversationCapabilityVerified(owner string, p agentchat.P
 	return rec.Capabilities[agentchat.ProbeConversation] == agentchat.CapabilityVerified
 }
 
+// agentPatchToolStatus describes why the current provider/model can or cannot
+// advertise the patch tool; the model's declaration alone is not evidence.
+func (s *Server) agentPatchToolStatus(owner, providerID, modelID string) string {
+	store, err := s.agentChatProviders()
+	if err != nil {
+		return "unavailable"
+	}
+	p, err := store.Get(owner, providerID)
+	if err != nil {
+		return "unavailable"
+	}
+	m, ok := p.FindModel(modelID)
+	if !ok {
+		return "unavailable"
+	}
+	if !m.ToolCalling {
+		return "model_disabled"
+	}
+	caps, err := s.agentChatCapabilities()
+	if err != nil {
+		return "unavailable"
+	}
+	rec, ok, err := caps.Get(owner, p.ID, m.ID, agentchat.CapabilityFingerprint(p, m))
+	if err != nil {
+		return "unavailable"
+	}
+	if !ok || rec.Capabilities[agentchat.ProbeToolCalling] != agentchat.CapabilityVerified {
+		return "unverified"
+	}
+	return "enabled"
+}
+
 // agentToolCapabilityVerified reports whether a probe (not a user declaration)
 // demonstrated tool calling for this exact endpoint/model configuration.
 // Anything other than explicit "verified" keeps the execution tool disabled.

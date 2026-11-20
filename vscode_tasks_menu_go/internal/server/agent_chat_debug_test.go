@@ -14,6 +14,21 @@ import (
 	"bletonfc/vscode_tasks_menu/internal/identity"
 )
 
+func TestAgentDebugRequestShowsZeroToolsAndRealTimestamp(t *testing.T) {
+	s := &Server{}
+	store := s.debugStore()
+	store.mu.Lock()
+	store.owner("local").State.Enabled = true
+	store.mu.Unlock()
+	recorder, id := s.startAgentDebug("local", "provider_request", "", agentchat.ProviderConfig{}, "m")
+	recorder.RecordProviderDiagnostic(agentchat.DiagnosticEvent{Level: "info", Stage: "request_build", Event: "request.built", APIKeyPresent: true})
+	w := httptest.NewRecorder()
+	s.agentChatDebugTraceAPI(w, httptest.NewRequest("GET", "/api/agent/debug/traces/"+id, nil))
+	if w.Code != 200 || !strings.Contains(w.Body.String(), `"tool_count":0`) || strings.Contains(w.Body.String(), `0001-01-01`) || !strings.Contains(w.Body.String(), `"api_key_present":true`) {
+		t.Fatalf("misleading request diagnostics: %d %s", w.Code, w.Body)
+	}
+}
+
 func TestAgentDebugErrorIncludesBlockedSharedIP(t *testing.T) {
 	err := &agentchat.ProviderError{Code: "PRIVATE_IP_BLOCKED", Stage: "provider_http", BlockedSharedIP: "100.64.0.19"}
 	data := debugErrorJSON(err, "trace", "", "", "")

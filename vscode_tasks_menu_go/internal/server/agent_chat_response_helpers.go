@@ -11,10 +11,12 @@ func agentChatInstructions(projectID string, patchToolAvailable bool) string {
 		"Do not disclose passwords, API keys or environment secrets. Reply in the user's language. Verified project ID: " + projectID + "."
 	if patchToolAvailable {
 		instructions += " You may call only taskdeck_submit_patch with the complete project-identity-bound Python patch. " +
+			"For a requested file change, submit a patch through that function instead of returning JSON commands or claiming a file was created. " +
 			"This submits a proposal requiring explicit human approval. Do not claim the patch was queued, executed or passed until TaskDeck sends a verified tool result. " +
 			"Emit no more than one patch function call per turn. Never invent execution results."
 	} else {
-		instructions += " No execution tools are enabled; do not claim that you ran patches, commands, tests or Git operations."
+		instructions += " No execution tools are enabled; do not claim that you ran patches, commands, tests or Git operations. " +
+			"JSON describing actions is only text and will not be executed. Explain that the user must enable and verify tool calling to submit a patch for approval."
 	}
 	return instructions
 }

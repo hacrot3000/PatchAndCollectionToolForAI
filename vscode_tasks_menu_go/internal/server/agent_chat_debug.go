@@ -58,9 +58,9 @@ type agentDebugEvent struct {
 	ContextMode       string    `json:"context_mode,omitempty"`
 	Reasoning         string    `json:"reasoning,omitempty"`
 	HistoryItems      int       `json:"history_items,omitempty"`
-	ToolCount         int       `json:"tool_count,omitempty"`
+	ToolCount         int       `json:"tool_count"`
 	Streaming         bool      `json:"streaming"`
-	APIKeyPresent     bool      `json:"api_key_present"`
+	APIKeyPresent     *bool     `json:"api_key_present,omitempty"`
 }
 type agentDebugPayload struct {
 	Request, Response, SSE        []byte
@@ -185,6 +185,9 @@ func (d *agentDebugStore) pruneLocked(o *agentDebugOwner, now time.Time) {
 	}
 }
 func (r *agentDebugRecorder) RecordProviderDiagnostic(ev agentchat.DiagnosticEvent) {
+	if ev.At.IsZero() {
+		ev.At = time.Now().UTC()
+	}
 	r.store.mu.Lock()
 	defer r.store.mu.Unlock()
 	o := r.store.owner(r.owner)
@@ -202,7 +205,11 @@ func (r *agentDebugRecorder) RecordProviderDiagnostic(ev agentchat.DiagnosticEve
 	if trace == nil {
 		return
 	}
-	event := agentDebugEvent{TraceID: r.traceID, At: ev.At, Level: ev.Level, Stage: ev.Stage, Event: ev.Event, Code: ev.Code, Endpoint: sanitizeAgentEndpoint(ev.Endpoint), APIType: ev.APIType, ProviderID: ev.ProviderID, ModelID: ev.ModelID, HTTPStatus: ev.HTTPStatus, ContentType: safeHeaderValue(ev.ContentType), RetryAfter: safeHeaderValue(ev.RetryAfter), ProviderRequestID: safeHeaderValue(ev.ProviderRequestID), DurationMS: ev.Duration.Milliseconds(), RequestBytes: ev.RequestBytes, ResponseBytes: ev.ResponseBytes, RequestSHA256: ev.RequestSHA256, ResponseSHA256: ev.ResponseSHA256, Redacted: true, Truncated: ev.Truncated, ContextMode: ev.ContextMode, Reasoning: ev.Reasoning, HistoryItems: ev.HistoryItems, ToolCount: ev.ToolCount, Streaming: ev.Streaming, APIKeyPresent: ev.APIKeyPresent}
+	event := agentDebugEvent{TraceID: r.traceID, At: ev.At, Level: ev.Level, Stage: ev.Stage, Event: ev.Event, Code: ev.Code, Endpoint: sanitizeAgentEndpoint(ev.Endpoint), APIType: ev.APIType, ProviderID: ev.ProviderID, ModelID: ev.ModelID, HTTPStatus: ev.HTTPStatus, ContentType: safeHeaderValue(ev.ContentType), RetryAfter: safeHeaderValue(ev.RetryAfter), ProviderRequestID: safeHeaderValue(ev.ProviderRequestID), DurationMS: ev.Duration.Milliseconds(), RequestBytes: ev.RequestBytes, ResponseBytes: ev.ResponseBytes, RequestSHA256: ev.RequestSHA256, ResponseSHA256: ev.ResponseSHA256, Redacted: true, Truncated: ev.Truncated, ContextMode: ev.ContextMode, Reasoning: ev.Reasoning, HistoryItems: ev.HistoryItems, ToolCount: ev.ToolCount, Streaming: ev.Streaming}
+	if ev.Event == "request.built" {
+		present := ev.APIKeyPresent
+		event.APIKeyPresent = &present
+	}
 	if event.RequestSHA256 == "" && len(ev.RequestBody) > 0 {
 		event.RequestSHA256 = agentchat.BodyDigest(ev.RequestBody)
 	}

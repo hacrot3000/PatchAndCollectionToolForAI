@@ -256,6 +256,10 @@ func TestAgentCapabilityProbeRequiresConsentAndPersistsEvidence(t *testing.T) {
 	if id == "" {
 		t.Fatal("missing session")
 	}
+	before := invokeAI(t, s.agentChatSessionItemAPI, http.MethodGet, "/api/agent/sessions/"+id, nil)
+	if before.Code != 200 || !strings.Contains(before.Body.String(), `"patch_tool_status":"unverified"`) {
+		t.Fatalf("unverified patch status missing: %d %s", before.Code, before.Body)
+	}
 	noConsent := agentProviderRequest(t, s.agentChatProviderProbeAPI, http.MethodPost, "/api/agent/providers/probe",
 		map[string]any{"provider_id": "custom-r2d", "model_id": "composer-2.5"})
 	if noConsent.Code != 403 {
@@ -294,6 +298,10 @@ func TestAgentCapabilityProbeRequiresConsentAndPersistsEvidence(t *testing.T) {
 	}
 	if calls != 1 {
 		t.Fatalf("probe performed %d provider calls", calls)
+	}
+	after := invokeAI(t, s.agentChatSessionItemAPI, http.MethodGet, "/api/agent/sessions/"+id, nil)
+	if after.Code != 200 || !strings.Contains(after.Body.String(), `"patch_tool_status":"enabled"`) {
+		t.Fatalf("verified patch status missing: %d %s", after.Code, after.Body)
 	}
 	// The verified probe now enables the real Patch tool for this exact config.
 	s.AgentChatCall = func(ctx context.Context, p agentchat.ProviderConfig, key string, payload []byte) (agentchat.ResponsesResult, error) {
