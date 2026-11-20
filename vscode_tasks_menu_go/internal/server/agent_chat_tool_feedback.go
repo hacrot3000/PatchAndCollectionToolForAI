@@ -266,7 +266,7 @@ func (s *Server) agentDeliverToolResult(ctx context.Context, store *agentchat.St
 	x.AppendEvent("feedback_acknowledged", x.Status, call.CallID, "")
 	// A verified native Patch result can legitimately lead the model to
 	// inspect more code. Continue read-only Collection calls automatically.
-	result, err = s.agentChatRunCollection(continuationCtx, store, &x, result, p, model, string(secret), identity, toolAvailable)
+	result, statelessCollection, err := s.agentChatRunCollection(continuationCtx, store, &x, result, p, model, string(secret), identity, toolAvailable)
 	if err != nil {
 		x.Status = "failed"
 		x.AppendEvent("collect_failed", "failed", "", "")
@@ -274,6 +274,12 @@ func (s *Server) agentDeliverToolResult(ctx context.Context, store *agentchat.St
 		return agentDeliverResult{}, agentContinueError{502, "Collection continuation after Patch result failed; inspect the Agent journal"}
 	}
 	appendAgentProviderResult(&x, result, toolAvailable)
+	if statelessCollection {
+		// The last Collection response was not persisted provider-side.
+		// Preserve local audit history without an unusable stateful reference.
+		x.PreviousResponseID = ""
+		x.ConversationID = ""
+	}
 	appendAgentTextPatchProposal(&x, result, identity)
 	x, err = store.Save(x, x.Revision)
 	if err != nil {
