@@ -1089,7 +1089,6 @@ async function sendAgentMessage(){
   agentAbort=null;agentBusy=false;markAgentSessionBusy(sessionID,false);
  }
 }
-function currentStagedAttachments(){return agentActive?agentAttachments:agentPendingAttachments;}
 function safeAttachmentMetadata(value){return String(value??'').replace(/[\r\n\0]/g,' ').trim();}
 function attachmentByteLength(text){return new TextEncoder().encode(text).length;}
 function normalizeStagedAttachments(items){
