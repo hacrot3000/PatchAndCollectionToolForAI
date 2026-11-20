@@ -368,7 +368,7 @@ func (s *Server) agentChatMessageAPI(w http.ResponseWriter, r *http.Request, id 
 	if !patchToolAvailable && agentNeedsWorkspaceTools(msg) {
 		patchToolAvailable = s.agentChatEnsureTools(r.Context(), owner, p, model, string(secret))
 	}
-	instructions := agentChatInstructions(session.ProjectID, patchToolAvailable, identity.Key)
+	instructions := agentChatInstructionsWithAutomation(session, patchToolAvailable, identity.Key)
 	limit := 4096
 	if model.MaxOutputTokens > 0 && model.MaxOutputTokens < limit {
 		limit = model.MaxOutputTokens
