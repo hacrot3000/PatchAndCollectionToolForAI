@@ -80,7 +80,7 @@ func agentCollectionPath(root, relative string) (string, string, error) {
 	if relative == "" {
 		relative = "."
 	}
-	if filepath.IsAbs(relative) || filepath.VolumeName(relative) != "" || strings.Contains(relative, "\") {
+	if filepath.IsAbs(relative) || filepath.VolumeName(relative) != "" || strings.Contains(relative, "\\") {
 		return "", "", errors.New("absolute, Windows or backslash paths not allowed")
 	}
 	relative = filepath.Clean(filepath.FromSlash(relative))
@@ -145,7 +145,7 @@ func agentCollectionRead(root, rel string) (string, error) {
 		return "", err
 	}
 	defer f.Close()
-	data, err := io.ReadAll(io.LimitReader(f, 128<<10+1))
+	data, err := io.ReadAll(io.LimitReader(f, (128<<10)+1))
 	if err != nil {
 		return "", err
 	}
@@ -153,8 +153,7 @@ func agentCollectionRead(root, rel string) (string, error) {
 		return "", errors.New("binary or oversized file cannot be included inline")
 	}
 	if len(data) > 12000 {
-		return string(data[:12000]) + "
-[TRUNCATED: request a narrower source file or search]", nil
+		return string(data[:12000]) + "\n[TRUNCATED: request a narrower source file or search]", nil
 	}
 	return string(data), nil
 }
@@ -287,8 +286,7 @@ func executeAgentCollection(root string, identity patchtool.ProjectIdentity, arg
 				} else if !item.IsDir() && len(action.Query) > 0 && len(action.Query) <= 120 {
 					content, readErr := agentCollectionRead(root, rel)
 					if readErr == nil {
-						for idx, line := range strings.Split(content, "
-") {
+						for idx, line := range strings.Split(content, "\n") {
 							if strings.Contains(line, action.Query) {
 								if len(line) > 200 {
 									line = line[:200]
