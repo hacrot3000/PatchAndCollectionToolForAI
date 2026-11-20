@@ -860,6 +860,7 @@ function agentStopProgressPoll(sessionID){
 }
 function displayAgentSession(session){
  if(!session){
+  if(agentLiveRow.parentElement)agentLiveRow.remove();
   if(agentRenderedSessionID!==null){
    transcript.replaceChildren();
    agentRenderedSessionID=null;agentRenderedHistory=[];agentRenderedNodes=[];
@@ -872,13 +873,14 @@ function displayAgentSession(session){
  }
  const switched=agentRenderedSessionID!==session.id;
  if(switched){
+  if(agentLiveRow.parentElement)agentLiveRow.remove();
   transcript.replaceChildren();
   agentRenderedSessionID=session.id;
   agentRenderedHistory=[];agentRenderedNodes=[];
   agentRenderedToolVersions.clear();
  }
  agentCurrentSession=session;
- const history=Array.isArray(session.history)?session.history:[];
+ const history=agentChronologicalHistory(session);
  const records=new Map((session.tool_calls||[]).map(call=>[call.call_id,call]));
  const outputs=new Map(),callNames=new Map();
  for(const item of history){
@@ -890,6 +892,14 @@ function displayAgentSession(session){
  while(prefix<common&&agentHistoryItemEqual(history[prefix],agentRenderedHistory[prefix]))prefix++;
  // Source compaction or a changed history item invalidates only its tail.
  // Polling the same canonical transcript does not touch any existing nodes.
+ // A submitted message is painted optimistically while the provider request
+ // runs. Replace that exact pending node when the journal confirms the user
+ // message; do not leave a duplicate or rebuild unrelated transcript rows.
+ const live=agentLiveTurns.get(session.id);
+ if(live?.optimisticNode&&agentTurnIsPersisted(session,live)){
+  live.optimisticNode.remove();
+  live.optimisticNode=null;live.acknowledged=true;
+ }
  const changed=switched||prefix<history.length||prefix<agentRenderedHistory.length;
  if(changed){
   const nearBottom=switched||transcript.scrollHeight-transcript.scrollTop-transcript.clientHeight<64;
@@ -922,6 +932,7 @@ function displayAgentSession(session){
   agentRenderedNodes[i]=updated;
   agentRenderedToolVersions.set(item.call_id,version);
  }
+ agentUpdateLiveRow(session);
  const last=(session.tool_calls||[]).slice(-1)[0];
  let stateNote='Session '+session.id.slice(0,8)+' · '+session.status+' · revision '+session.revision;
  if(last&&session.status==='waiting_tool'){
@@ -931,7 +942,10 @@ function displayAgentSession(session){
   else if(last.status==='unknown')stateNote='Native Patch result unknown · inspect History';
  }
  const nextStatus=stateNote+(session.auto_feedback?' · auto-send ON':'');
- if(status.textContent!==nextStatus)status.textContent=nextStatus;
+ // The in-conversation activity row is the only busy status. Keep this
+ // footer for terminal metadata, not a second competing progress display.
+ const footer=agentLivePhase(session)?'':nextStatus;
+ if(status.textContent!==footer)status.textContent=footer;
  const nextFeedback=session.auto_feedback?'Auto-send: ON':'Auto-send results';
  if(autoFeedback.textContent!==nextFeedback)autoFeedback.textContent=nextFeedback;
 }
