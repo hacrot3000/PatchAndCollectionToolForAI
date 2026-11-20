@@ -170,6 +170,17 @@ const transcript=agentEl('div','agentchat-transcript');
 // Keep inspection expansion and the execution viewer independent of transcript
 // replacements triggered by native status polling.
 const agentOpenReviewDetails=new Set();
+// Session views are append-only in ordinary operation. Only switching sessions
+// or an actual history-prefix edit invalidates already rendered rows.
+let agentRenderedSessionID=null;
+let agentRenderedHistory=[];
+let agentRenderedNodes=[];
+let agentRenderedToolVersions=new Map();
+let agentCurrentSession=null;
+let agentToolNoticeKey='';
+const agentTabNodes=new Map();
+const agentSessionListNodes=new Map();
+let agentPatchSyncInFlight=new Set();
 let agentExecutionTarget=null,agentExecutionText='';
 const agentExecutionPanel=agentEl('section','agentchat-execution-panel');
 const agentExecutionHeader=agentEl('div','agentchat-execution-header');
@@ -503,33 +514,95 @@ function renderAgentTool(session,item){
  if(actions.childElementCount)box.append(actions);
  return box;
 }
+function agentHistoryItemEqual(a,b){
+ return a?.type===b?.type && a?.content===b?.content &&
+  a?.call_id===b?.call_id && a?.name===b?.name && a?.arguments===b?.arguments;
+}
+function agentHistoryRow(session,item,callNames){
+ if(item.type==='user'){
+  const feedback=String(item.content||'').startsWith('TaskDeck native Patch Tool result for your prior text-only proposal');
+  return agentEl('div','agentchat-bubble '+(feedback?'tool':'user'),userMessageText(item.content));
+ }
+ if(item.type==='assistant')return agentEl('div','agentchat-bubble assistant',item.content);
+ if(item.type==='function_call')return renderAgentTool(session,item);
+ if(item.type==='function_call_output'){
+  const isCollection=callNames.get(item.call_id)==='taskdeck_collect_workspace';
+  return agentEl('div','agentchat-info',isCollection?'Collection result delivered to AI':'Verified native Patch result delivered to AI');
+ }
+ return null;
+}
+function agentToolRenderVersion(item,records,outputs){
+ if(item.type!=='function_call')return '';
+ if(item.name==='taskdeck_collect_workspace'){
+  const output=outputs.get(item.call_id);
+  return 'collect:'+String(output?.content||'');
+ }
+ return 'patch:'+JSON.stringify(records.get(item.call_id)||null);
+}
 function displayAgentSession(session){
- // Polling must not close expanded Patch code, jump the reading position, or
- // destroy the independent console viewer.
- const wasNearBottom=transcript.scrollHeight-transcript.scrollTop-transcript.clientHeight<64;
- const oldScroll=transcript.scrollTop;
- transcript.replaceChildren();
  if(!session){
+  if(agentRenderedSessionID!==null){
+   transcript.replaceChildren();
+   agentRenderedSessionID=null;agentRenderedHistory=[];agentRenderedNodes=[];
+   agentRenderedToolVersions.clear();
+  }
+  agentCurrentSession=null;
   toolNotice.hidden=true;
-  transcript.append(agentEl('p','','Create or select a session to begin.'));
+  if(!transcript.children.length)transcript.append(agentEl('p','','Create or select a session to begin.'));
   return;
  }
- for(const item of (session.history||[])){
-  if(item.type==='user'){
-   const toolFeedback=String(item.content||'').startsWith('TaskDeck native Patch Tool result for your prior text-only proposal');
-   transcript.append(agentEl('div','agentchat-bubble '+(toolFeedback?'tool':'user'),userMessageText(item.content)));
-  }
-  if(item.type==='assistant')transcript.append(agentEl('div','agentchat-bubble assistant',item.content));
-  if(item.type==='function_call')transcript.append(renderAgentTool(session,item));
-  if(item.type==='function_call_output'){
-   const call=(session.history||[]).find(x=>x.type==='function_call'&&x.call_id===item.call_id);
-   const isCollection=call?.name==='taskdeck_collect_workspace';
-   transcript.append(agentEl('div','agentchat-info',isCollection?'Collection result delivered to AI':'Verified native Patch result delivered to AI'));
-  }
+ const switched=agentRenderedSessionID!==session.id;
+ if(switched){
+  transcript.replaceChildren();
+  agentRenderedSessionID=session.id;
+  agentRenderedHistory=[];agentRenderedNodes=[];
+  agentRenderedToolVersions.clear();
  }
- if(wasNearBottom)transcript.scrollTop=transcript.scrollHeight;
- else transcript.scrollTop=oldScroll;
- renderAgentTabs();
+ agentCurrentSession=session;
+ const history=Array.isArray(session.history)?session.history:[];
+ const records=new Map((session.tool_calls||[]).map(call=>[call.call_id,call]));
+ const outputs=new Map(),callNames=new Map();
+ for(const item of history){
+  if(item.type==='function_call')callNames.set(item.call_id,item.name);
+  else if(item.type==='function_call_output')outputs.set(item.call_id,item);
+ }
+ let prefix=0;
+ const common=Math.min(history.length,agentRenderedHistory.length);
+ while(prefix<common&&agentHistoryItemEqual(history[prefix],agentRenderedHistory[prefix]))prefix++;
+ // Source compaction or a changed history item invalidates only its tail.
+ // Polling the same canonical transcript does not touch any existing nodes.
+ const changed=switched||prefix<history.length||prefix<agentRenderedHistory.length;
+ if(changed){
+  const nearBottom=switched||transcript.scrollHeight-transcript.scrollTop-transcript.clientHeight<64;
+  const previousScroll=transcript.scrollTop;
+  for(let i=agentRenderedHistory.length-1;i>=prefix;i--){
+   agentRenderedNodes[i]?.remove();
+  }
+  agentRenderedHistory.length=prefix;agentRenderedNodes.length=prefix;
+  const added=[];
+  for(let i=prefix;i<history.length;i++){
+   const item=history[i];
+   const node=agentHistoryRow(session,item,callNames);
+   agentRenderedHistory.push(item);agentRenderedNodes.push(node);
+   if(node)added.push(node);
+   if(item.type==='function_call')agentRenderedToolVersions.set(item.call_id,agentToolRenderVersion(item,records,outputs));
+  }
+  if(added.length)transcript.append(...added);
+  if(nearBottom)transcript.scrollTop=transcript.scrollHeight;
+  else transcript.scrollTop=previousScroll;
+ }
+ // A new native status, receipt or Collection observation affects its own
+ // tool card only, never the surrounding messages or open console viewer.
+ for(let i=0;i<history.length;i++){
+  const item=history[i];
+  if(item.type!=='function_call'||!agentRenderedNodes[i])continue;
+  const version=agentToolRenderVersion(item,records,outputs);
+  if(agentRenderedToolVersions.get(item.call_id)===version)continue;
+  const updated=renderAgentTool(session,item);
+  agentRenderedNodes[i].replaceWith(updated);
+  agentRenderedNodes[i]=updated;
+  agentRenderedToolVersions.set(item.call_id,version);
+ }
  const last=(session.tool_calls||[]).slice(-1)[0];
  let stateNote='Session '+session.id.slice(0,8)+' · '+session.status+' · revision '+session.revision;
  if(last&&session.status==='waiting_tool'){
@@ -538,8 +611,10 @@ function displayAgentSession(session){
   else if(last.status==='running')stateNote='Patch Tool running · monitoring native status';
   else if(last.status==='unknown')stateNote='Native Patch result unknown · inspect History';
  }
- status.textContent=stateNote+(session.auto_feedback?' · auto-send ON':'');
- autoFeedback.textContent=session.auto_feedback?'Auto-send: ON':'Auto-send results';
+ const nextStatus=stateNote+(session.auto_feedback?' · auto-send ON':'');
+ if(status.textContent!==nextStatus)status.textContent=nextStatus;
+ const nextFeedback=session.auto_feedback?'Auto-send: ON':'Auto-send results';
+ if(autoFeedback.textContent!==nextFeedback)autoFeedback.textContent=nextFeedback;
 }
 async function loadAgentSessions(){
  const response=await agentApp.jsonFetch('/api/agent/sessions');
