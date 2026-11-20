@@ -995,7 +995,7 @@ async function toggleAgentAutomation(option){
  status.textContent=(option==='patch'?'Automatic native Patch approval':
   option==='collection'?'Read-only Collection':'Automatic provider feedback')+
   (enabled?' enabled for this conversation.':' disabled for this conversation.')+
-  (option==='feedback'&&enabled?' The grant lasts 30 minutes.':'');
+  (option==='feedback'&&enabled?' Enabled until you turn it off.':'');
 }
 async function toggleAutoFeedback(){return toggleAgentAutomation('feedback');}
 function openTaskManifestPreview(){planOverlay.classList.add('visible');}
