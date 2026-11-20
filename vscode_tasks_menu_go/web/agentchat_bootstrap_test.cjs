@@ -24,6 +24,8 @@ class FakeElement {
     this.offsetWidth = 40;
     this.listeners = {};
     this.appendCount = 0;
+    this.replaceCount = 0;
+    this.removeCount = 0;
     const classes = new Set();
     this.classList = {
       add: (...names) => names.forEach(name => classes.add(name)),
@@ -45,7 +47,21 @@ class FakeElement {
       this.children.push(node);
     }
   }
-  replaceChildren(...nodes) { this.children = []; this.append(...nodes); }
+  replaceChildren(...nodes) { this.replaceCount++; for (const child of this.children) child.parentElement=null; this.children = []; this.append(...nodes); }
+  remove() {
+    const p=this.parentElement;
+    if (!p) return;
+    const idx=p.children.indexOf(this);
+    if(idx>=0){p.children.splice(idx,1);p.removeCount++;}
+    this.parentElement=null;
+  }
+  replaceWith(node) {
+    const p=this.parentElement;
+    assert.ok(p,'Cannot replace a detached element');
+    const idx=p.children.indexOf(this);
+    assert.ok(idx>=0,'Cannot find element in parent');
+    p.children[idx]=node;node.parentElement=p;this.parentElement=null;p.replaceCount++;
+  }
   setAttribute(name, value) { this.attributes[name] = String(value); }
   addEventListener(type, listener) { (this.listeners[type] ||= []).push(listener); }
   querySelector(selector) { return selector === 'button' ? this.children.find(child => child.tagName === 'button') || null : null; }
