@@ -77,6 +77,7 @@ type ToolCallRecord struct {
 	CallID                string     `json:"call_id"`
 	ModelTurnID           string     `json:"model_turn_id,omitempty"`
 	Name                  string     `json:"name"`
+	TextFallback          bool       `json:"text_fallback,omitempty"` // locally synthesized review item, not a provider tool call
 	Status                string     `json:"status"`
 	ArgumentsSHA256       string     `json:"arguments_sha256,omitempty"`
 	QueuePath             string     `json:"queue_path,omitempty"`
