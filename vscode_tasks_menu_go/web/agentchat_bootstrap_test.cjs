@@ -156,6 +156,74 @@ const debugButtons = (() => {const scan = node => [ ...(node.tagName==='button'?
 assert.equal(debugButtons.length,1,'AI Debug must expose exactly one action');
 assert.equal(debugButtons[0].textContent,'Copy log','one action must be Copy log');
 const find = (node, predicate) => predicate(node) ? node : node.children.map(child => find(child, predicate)).find(Boolean);
+// Formatter regression: both sent and received text use the same safe parser,
+// retain each fenced code block's language and provide a small Copy icon.
+const richSource = [
+ '**Đã làm** và \x60inline.php\x60',
+ '',
+ '> **TaskDeck** \x60/home/duongtc/project\x60',
+ '',
+ '- First item',
+ '- Second item',
+ '',
+ '\x60\x60\x60php',
+ '<?php',
+ 'echo "Xin chào, thế giới!\\n";',
+ 'phpinfo();',
+ '\x60\x60\x60',
+ '',
+ '\x60\x60\x60python',
+ 'print("ok")',
+ '\x60\x60\x60',
+ '',
+ '| File | Status |',
+ '| --- | --- |',
+ '| helloworld.php | PASS |',
+ '',
+ '[Documentation](https://example.com/doc) [unsafe](javascript:alert(1))',
+ '<img src=x onerror=alert(1)>'
+].join('\n');
+const renderRich=role=>context.TaskMenuAgentChatFormat.renderMessage(role,richSource);
+for(const role of ['user','assistant']){
+ const node=renderRich(role);
+ assert.equal(node.className,'agentchat-bubble '+role);
+ assert.ok(find(node,x=>x.tagName==='strong'),'Markdown bold should render as an element');
+ assert.ok(find(node,x=>x.tagName==='blockquote'),'Markdown quote should render');
+ assert.ok(find(node,x=>x.tagName==='ul'),'Markdown list should render');
+ assert.ok(find(node,x=>x.tagName==='table'),'Markdown table should render');
+ assert.ok(find(node,x=>x.tagName==='code'&&x.className==='agentchat-inline-code'&&x.textContent==='inline.php'),'Inline code should render');
+ const codeBlocks=[];
+ const walk=n=>{if(n.className==='agentchat-code-block')codeBlocks.push(n);n.children.forEach(walk);};
+ walk(node);
+ assert.equal(codeBlocks.length,2,'multiple independent code blocks must not merge');
+ assert.deepEqual(codeBlocks.map(b=>b.children[0].children[0].textContent),['php','python']);
+ assert.ok(find(codeBlocks[0],x=>x.className==='agentchat-syntax-keyword'&&x.textContent==='echo'),
+   'PHP keywords should receive syntax color');
+ assert.ok(find(codeBlocks[1],x=>x.className==='agentchat-syntax-function'&&x.textContent==='print'),
+   'Python functions should receive syntax color');
+ assert.ok(find(node,x=>x.tagName==='a'&&x.href==='https://example.com/doc'),'Safe links should render');
+ assert.equal(Boolean(find(node,x=>x.tagName==='a'&&String(x.href).startsWith('javascript:'))),false,'Unsafe links must remain inert text');
+ assert.equal(Boolean(find(node,x=>x.tagName==='img')),false,'Raw HTML must never become live markup');
+ const copyButton=codeBlocks[0].children[0].children[1];
+ assert.equal(copyButton.tagName,'button');
+ assert.equal(copyButton.attributes['aria-label'],'Copy code block');
+ const copied=[];
+ context.navigator={clipboard:{writeText:async text=>{copied.push(text);}}};
+ copyButton.onclick();
+ await Promise.resolve();
+ await Promise.resolve();
+ assert.equal(copied[0],'<?php\necho "Xin chào, thế giới!\\n";\nphpinfo();',
+   'Copy must use the exact original code, without Markdown fences or language labels');
+ assert.equal(copyButton.textContent,'✓','Copy should acknowledge clipboard success');
+}
+const inlineSingleLine=context.TaskMenuAgentChatFormat.renderMessage('assistant',
+ '\x60\x60\x60php echo "Xin chào"; \x60\x60\x60');
+assert.ok(find(inlineSingleLine,x=>x.className==='agentchat-code-language'&&x.textContent==='php'),
+ 'Flattened single-line fenced code should still be highlighted');
+assert.equal(context.TaskMenuAgentChatFormat.languageOf('','<?php echo "ok";'),'php',
+ 'Unlabelled PHP code blocks should infer PHP');
+console.log('PASS: safe Markdown, syntax-highlighted PHP/Python, per-block Copy, quotes, lists, tables and unsafe HTML/links');
+
 const sessionsButton = find(windowBox, node => node.textContent === 'History ▾');
 const sessionsList = find(windowBox, node => node.id === 'agentchat-saved-sessions');
 assert.ok(sessionsButton && sessionsList, 'Saved conversations menu is present');
