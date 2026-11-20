@@ -98,9 +98,10 @@ func BuildChatCompletionsRequest(responsesBody []byte) ([]byte, error) {
 		request["max_tokens"] = in.MaxTokens
 	}
 	if in.Reasoning.Effort != "" {
-		// Keep the OpenAI-compatible adapter conservative. Reasoning parameter
-		// names differ across vendors, so do not invent a generic wire field.
-		return nil, errors.New("reasoning effort is not supported by generic Chat Completions")
+		// Standard Chat Completions reasoning_effort extension. The server
+		// only populates this for an explicitly configured model that
+		// advertises the chosen effort; nonparticipating models omit it.
+		request["reasoning_effort"] = in.Reasoning.Effort
 	}
 	if len(in.Tools) > 0 {
 		out := make([]map[string]any, 0, len(in.Tools))
