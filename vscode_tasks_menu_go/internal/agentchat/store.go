@@ -138,6 +138,9 @@ type Session struct {
 	Events            []SessionEvent   `json:"events,omitempty"`
 	EventSeq          uint64           `json:"event_seq,omitempty"`
 	AutoFeedback      bool             `json:"auto_feedback,omitempty"`
+	AutoPatch         bool             `json:"auto_patch,omitempty"`
+	// Nil preserves automatic read-only Collection for existing sessions.
+	AutoCollection    *bool            `json:"auto_collection,omitempty"`
 	AutoFeedbackUntil *time.Time       `json:"auto_feedback_until,omitempty"`
 	Status            string           `json:"status"`
 	History           []HistoryItem    `json:"history"`
@@ -497,6 +500,28 @@ func (s *Store) Save(x Session, expectedRevision uint64) (Session, error) {
 	}
 	return saved, nil
 }
+// Delete is owner/project scoped and revision-fenced. Never delete a journal
+// with an unresolved native Patch or live provider turn: those outcomes must
+// remain recoverable until they reach a verified final state.
+func (s *Store) Delete(id, owner string, expectedRevision uint64) error {
+	return s.withLock(func() error {
+		x, err := s.readLocked(id)
+		if err != nil { return err }
+		if x.Owner != owner || !s.matchesProject(x) { return ErrNotFound }
+		if x.Revision != expectedRevision { return ErrStaleRevision }
+		if x.Status == "requesting_ai" || x.Status == "waiting_tool" || x.Status == "tool_queuing" {
+			return errors.New("conversation contains an active or unresolved operation")
+		}
+		for _, call := range x.ToolCalls {
+			switch call.Status {
+			case "pending", "queuing", "queued", "dispatching", "running", "unknown":
+				return errors.New("conversation contains an unresolved Patch call")
+			}
+		}
+		return os.Remove(s.file(id))
+	})
+}
+
 func (s *Store) List(owner string) ([]Session, error) {
 	var result []Session
 	err := s.withLock(func() error {
