@@ -347,7 +347,10 @@ func (s *Server) agentChatMessageAPI(w http.ResponseWriter, r *http.Request, id 
 	// have verified tool-calling evidence from a user-triggered probe.
 	// The first consented turn performs a harmless, project-data-free tool
 	// schema probe when a configured model has not yet been verified.
-	patchToolAvailable := s.agentChatEnsureTools(r.Context(), owner, p, model, string(secret))
+	patchToolAvailable := model.ToolCalling && s.agentToolCapabilityVerified(owner, p, model)
+	if !patchToolAvailable && agentNeedsWorkspaceTools(msg) {
+		patchToolAvailable = s.agentChatEnsureTools(r.Context(), owner, p, model, string(secret))
+	}
 	instructions := agentChatInstructions(session.ProjectID, patchToolAvailable)
 	limit := 4096
 	if model.MaxOutputTokens > 0 && model.MaxOutputTokens < limit {
