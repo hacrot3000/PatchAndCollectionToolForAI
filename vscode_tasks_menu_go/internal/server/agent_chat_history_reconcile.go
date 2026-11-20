@@ -98,11 +98,11 @@ func (s *Server) agentFinalResultFromHistory(call agentchat.ToolCallRecord) (str
   for _,item:=range report.Results {
    if item.Name!=name || strings.ToUpper(item.Kind)!="PATCH" { continue }
    status:=strings.ToUpper(item.Status)
-   if !executed && status!="PREFLIGHT_FAIL" {continue}
+   if executed==0 && status!="PREFLIGHT_FAIL" {continue}
    if call.SelectedIndex<1 && status!="PREFLIGHT_FAIL" {continue}
    if status!="PASS" && status!="FAIL" && status!="INCOMPLETE" && status!="PREFLIGHT_FAIL" { continue }
    if foundRun!="" || (call.RunID!="" && call.RunID!=report.RunID) { return "","","",false }
-   if !executed && (item.RC==nil || *item.RC!=2) {continue}
+   if executed==0 && (item.RC==nil || *item.RC!=2) {continue}
    foundRun=report.RunID
    diag:=item.DiagnosisKind
    if diag=="" {diag=item.Diagnosis.Kind}
