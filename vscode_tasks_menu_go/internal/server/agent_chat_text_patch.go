@@ -5,6 +5,7 @@ import (
     "encoding/hex"
     "encoding/json"
     "errors"
+    "fmt"
     "io"
     "strings"
     "unicode/utf8"
@@ -95,19 +96,53 @@ func appendAgentTextPatchProposal(x *agentchat.Session, result agentchat.Respons
     return true
 }
 
-// Strip server-created review-only function_call records from requests sent
-// back to the provider; the provider did not actually emit those call IDs.
-// This keeps Chat Completions and stateless Responses transcripts well-formed.
+// Only the provider-visible copy of historic observations can be compacted.
+// The canonical session retains full verified results for UI, audit and future
+// targeted re-reads. Keep function_call / function_call_output pairs intact,
+// including call_id, while replacing old *read-only output* with an explicit
+// archive notice when stateless replay would exceed a bounded context budget.
 func agentModelVisibleHistory(x agentchat.Session) []agentchat.HistoryItem {
     synthetic := map[string]bool{}
+    collectionCall := map[string]bool{}
     for _, call := range x.ToolCalls {
         if call.TextFallback { synthetic[call.CallID] = true }
     }
-    if len(synthetic) == 0 { return x.History }
-    out := make([]agentchat.HistoryItem, 0, len(x.History))
     for _, item := range x.History {
-        if (item.Type == "function_call" || item.Type == "function_call_output") && synthetic[item.CallID] { continue }
+        if item.Type == "function_call" && item.Name == "taskdeck_collect_workspace" {
+            collectionCall[item.CallID] = true
+        }
+    }
+    out := make([]agentchat.HistoryItem, 0, len(x.History))
+    size := 0
+    for _, item := range x.History {
+        if (item.Type == "function_call" || item.Type == "function_call_output") && synthetic[item.CallID] {continue}
         out = append(out, item)
+        size += len(item.Content) + len(item.Arguments)
+    }
+    if x.ArchivedHistoryItems>0 {
+        checkpoint:=agentchat.HistoryItem{Type:"user",Content:fmt.Sprintf(
+            "[TASKDECK STORAGE CHECKPOINT — NOT A NEW USER MESSAGE] %d earlier Collection/narration history items were durably archived in %d private segment(s). The original user task remains active; no completion is implied. Exact older evidence must be re-read with scoped Collection requests if required. Do not invent findings from archives.",
+            x.ArchivedHistoryItems,x.HistoryArchiveParts)}
+        if len(out)>0 {
+            out=append(out[:1],append([]agentchat.HistoryItem{checkpoint},out[1:]...)...)
+        } else {out=append(out,checkpoint)}
+        size+=len(checkpoint.Content)
+    }
+    const modelHistoryBudget = 384 << 10
+    const recentUnmodifiedItems = 10
+    if size <= modelHistoryBudget {return out}
+    for i := 0; i < len(out)-recentUnmodifiedItems && size > modelHistoryBudget; i++ {
+        item := &out[i]
+        if item.Type != "function_call_output" || !collectionCall[item.CallID] || len(item.Content) < 1024 {continue}
+        digest := sha256.Sum256([]byte(item.Content))
+        archive, _ := json.Marshal(map[string]any{
+            "archived_read_only_observation": true,
+            "original_bytes": len(item.Content),
+            "sha256": hex.EncodeToString(digest[:]),
+            "note": "Full verified Collection observation is preserved in TaskDeck session history. For exact file contents, request a scoped read with start_line/max_lines; do not assume archived contents.",
+        })
+        size -= len(item.Content) - len(archive)
+        item.Content = string(archive)
     }
     return out
 }
