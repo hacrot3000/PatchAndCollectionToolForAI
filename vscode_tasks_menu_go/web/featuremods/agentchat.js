@@ -189,6 +189,7 @@ mountAgentDock();
 const settingsOverlay=agentEl('div','agentchat-overlay agentchat-settings-overlay'),settingsBox=agentEl('section','agentchat-settings-box');
 settingsBox.setAttribute('role','dialog');settingsBox.setAttribute('aria-modal','true');settingsBox.setAttribute('aria-label','Agent provider settings');
 const settingsTitle=agentEl('h2','','Agent provider settings');
+const blockedIPNotice=agentEl('div','agentchat-info');blockedIPNotice.hidden=true;
 const settingsInfo=agentEl('p','','Configure an HTTPS Responses or Chat Completions provider. For a trusted 100.64.0.0/10 endpoint, explicitly add exact addresses to trusted_shared_ips in the provider JSON. This weakens network isolation; trust the endpoint and network first. API keys remain server-side.');
 const settingsPreset=agentButton('Load sample provider',()=>{providerEditor.value=JSON.stringify(agentSample,null,2);});
 const probeProvider=agentButton('Probe capabilities',()=>probeAgentProvider().catch(showAgentError));
@@ -203,7 +204,7 @@ const saveProvider=agentButton('Save provider',()=>saveAgentProvider().catch(sho
 const testProvider=agentButton('Test connection (uses API)',()=>testAgentProvider().catch(showAgentError));
 const closeSettings=agentButton('Close',()=>settingsOverlay.classList.remove('visible'));
 settingsActions.append(settingsPreset,saveProvider,testProvider,probeProvider,deleteProvider,closeSettings);
-settingsBox.append(settingsTitle,settingsInfo,settingsPicker,settingsAPIType,providerEditor,keyLabel,apiKey,settingsStatus,settingsActions);
+settingsBox.append(settingsTitle,blockedIPNotice,settingsInfo,settingsPicker,settingsAPIType,providerEditor,keyLabel,apiKey,settingsStatus,settingsActions);
 settingsOverlay.append(settingsBox);document.body.append(settingsOverlay);
 
 // F08.1 preview is planning-only: it validates Markdown and renders a DAG,
@@ -310,6 +311,7 @@ modelSelect.addEventListener('change',()=>{
  }else{effortSelect.value='';}
 });
 settingsPicker.addEventListener('change',()=>{
+ blockedIPNotice.hidden=true;blockedIPNotice.replaceChildren();
  const p=agentProviders.find(x=>x.id===settingsPicker.value);
  const current=p?normalizeProvider(p):agentSample;
  providerEditor.value=JSON.stringify(current,null,2);
@@ -344,11 +346,38 @@ async function testAgentProvider(){
  if(!p){settingsStatus.textContent='Save this provider first.';return;}
  const model=p.models?.[0]?.id;
  if(!model){settingsStatus.textContent='No model configured.';return;}
+ blockedIPNotice.hidden=true;blockedIPNotice.replaceChildren();
  settingsStatus.textContent='Testing Responses API...';
- const result=await agentApp.jsonFetch('/api/agent/providers/test',{method:'POST',headers:{'Content-Type':'application/json'},
-  body:JSON.stringify({provider_id:p.id,model_id:model,confirm_external:true})});
+ let result;
+ try{
+  result=await agentApp.jsonFetch('/api/agent/providers/test',{method:'POST',headers:{'Content-Type':'application/json'},
+   body:JSON.stringify({provider_id:p.id,model_id:model,confirm_external:true})});
+ }catch(error){
+  let detail;try{detail=JSON.parse(String(error?.message||error))?.error;}catch{}
+  if(detail?.code==='PRIVATE_IP_BLOCKED'&&detail.blocked_shared_ip){
+   const ip=String(detail.blocked_shared_ip);
+   const allow=agentButton('Allow this IP',()=>allowAgentProviderIP(p.id,p.base_url,ip).catch(showAgentError));
+   blockedIPNotice.replaceChildren(agentEl('span','','DNS returned blocked shared-network IP: '+ip+' for '+p.base_url+' '),allow);
+   blockedIPNotice.hidden=false;
+  }
+  throw error;
+ }
  settingsStatus.textContent='Basic Responses text probe: '+(result.ok?'PASS':'FAILED')+
   ' · Trace '+String(result.trace_id||'unavailable')+' · This does not verify tool calling or stateful chaining; use Probe capabilities.';
+}
+async function allowAgentProviderIP(providerID,endpoint,ip){
+ const saved=agentProviders.find(p=>p.id===providerID);
+ const edited=normalizeProvider(JSON.parse(providerEditor.value));
+ if(!saved||saved.base_url!==endpoint||edited.id!==providerID||edited.base_url!==endpoint||settingsPicker.value!==providerID)throw new Error('Provider or endpoint changed; select it and run Test connection again.');
+ if(!window.confirm('Allow '+ip+' for '+endpoint+'? TaskDeck may send your API key and project context to this address. This weakens SSRF protection; continue only if you trust the endpoint and network.'))return;
+ const provider=normalizeProvider(saved);
+ provider.trusted_shared_ips=[...new Set([...(provider.trusted_shared_ips||[]),ip])];
+ const data=await agentApp.jsonFetch('/api/agent/providers',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({provider})});
+ const index=agentProviders.findIndex(p=>p.id===providerID);if(index>=0)agentProviders[index]=data.provider;
+ edited.trusted_shared_ips=[...new Set([...(edited.trusted_shared_ips||[]),ip])];
+ providerEditor.value=JSON.stringify(edited,null,2);
+ blockedIPNotice.hidden=true;blockedIPNotice.replaceChildren();
+ settingsStatus.textContent='Allowed '+ip+' for this provider. Run Test connection again; existing capability probes must be repeated.';
 }
 async function probeAgentProvider(){
  const parsed=normalizeProvider(JSON.parse(providerEditor.value));
@@ -926,11 +955,16 @@ dockResizer.addEventListener('keydown',event=>{
  else return;
  event.preventDefault();if(agentDock.position==='right')agentDock.rightWidth=clampDockSize(next,'right');else agentDock.bottomHeight=clampDockSize(next,'bottom');applyAgentDock();saveAgentDock();
 });
-moreButton.addEventListener('click',event=>{event.stopPropagation();toggleAgentMore();});
-moreMenu.addEventListener('click',event=>event.stopPropagation());
+moreMenu.addEventListener('click',event=>{
+ event.stopPropagation();
+ if(event.target.closest('button')){moreMenu.classList.remove('open');moreButton.setAttribute('aria-expanded','false');}
+});
 for(const overlay of [settingsOverlay,planOverlay])overlay.addEventListener('pointerdown',event=>event.stopPropagation());
 document.addEventListener?.('pointerdown',event=>{
  if(sessionList.classList.contains('open')&&!sessionMenu.contains(event.target))toggleAgentSessions(false);
+ if(moreMenu.classList.contains('open')&&!moreMenu.contains(event.target)&&!moreButton.contains(event.target)){
+  moreMenu.classList.remove('open');moreButton.setAttribute('aria-expanded','false');
+ }
  if(!agentDock.expanded||!agentDock.autoHide)return;
  if(root.contains(event.target)||agentStrip.contains(event.target)||moreMenu.contains(event.target)||settingsOverlay.contains(event.target)||planOverlay.contains(event.target)||dockResizer.contains(event.target))return;
  agentDock.expanded=false;applyAgentDock();saveAgentDock();

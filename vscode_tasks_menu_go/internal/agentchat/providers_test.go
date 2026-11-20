@@ -1,6 +1,7 @@
 package agentchat
 
 import (
+	"fmt"
 	"net"
 	"os"
 	"path/filepath"
@@ -14,6 +15,7 @@ func TestProviderTrustedSharedIPsAreExactAndRestricted(t *testing.T) {
 	if providerIPAllowed(shared, p) {
 		t.Fatal("shared address allowed without explicit trust")
 	}
+
 	p.TrustedSharedIPs = []string{"100.64.0.19"}
 	if err := ValidateProvider(p); err != nil {
 		t.Fatal(err)
@@ -31,6 +33,19 @@ func TestProviderTrustedSharedIPsAreExactAndRestricted(t *testing.T) {
 		p.TrustedSharedIPs = invalid
 		if ValidateProvider(p) == nil {
 			t.Errorf("accepted invalid trusted addresses: %v", invalid)
+		}
+	}
+}
+
+func TestBlockedProviderDNSReportsOnlyTrustableSharedIP(t *testing.T) {
+	p := sampleProvider()
+	for _, tc := range []struct{ address, want string }{{"100.64.0.19", "100.64.0.19"}, {"192.168.1.1", ""}, {"127.0.0.1", ""}} {
+		err := validateProviderDNS([]net.IPAddr{{IP: net.ParseIP(tc.address)}}, p)
+		if err == nil {
+			t.Fatalf("expected %s to be blocked", tc.address)
+		}
+		if got := blockedSharedIP(fmt.Errorf("transport: %w", err)); got != tc.want {
+			t.Errorf("%s: got %q, want %q", tc.address, got, tc.want)
 		}
 	}
 }

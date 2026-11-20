@@ -22,6 +22,7 @@ class FakeElement {
     this.dataset = {};
     this.clientWidth = 0;
     this.offsetWidth = 40;
+    this.listeners = {};
     const classes = new Set();
     this.classList = {
       add: (...names) => names.forEach(name => classes.add(name)),
@@ -42,8 +43,16 @@ class FakeElement {
       this.children.push(node);
     }
   }
+  replaceChildren(...nodes) { this.children = []; this.append(...nodes); }
   setAttribute(name, value) { this.attributes[name] = String(value); }
-  addEventListener() {}
+  addEventListener(type, listener) { (this.listeners[type] ||= []).push(listener); }
+  querySelector(selector) { return selector === 'button' ? this.children.find(child => child.tagName === 'button') || null : null; }
+  focus() {}
+  click() {
+    const event = { target: this, stopPropagation() {} };
+    this.onclick?.(event);
+    for (const listener of this.listeners.click || []) listener(event);
+  }
 }
 const section = new FakeElement('section');
 const tabs = new FakeElement('div');
@@ -91,6 +100,14 @@ assert.equal(sessionsList.classList.contains('open'), false, 'Saved conversation
 assert.equal(sessionsButton.attributes['aria-expanded'], 'false');
 const collectLabels = node => [node.textContent, ...node.children.flatMap(collectLabels)];
 const labels = collectLabels(heading);
+const moreButton = heading.children.find(child => child.textContent === '⋯');
+const moreMenu = heading.children.find(child => child.className === 'agentchat-more-menu');
+moreButton.click();
+assert.equal(moreMenu.classList.contains('open'), true, 'One click opens More actions');
+assert.equal(moreButton.attributes['aria-expanded'], 'true');
+moreButton.click();
+assert.equal(moreMenu.classList.contains('open'), false, 'Second click closes More actions');
+assert.equal(moreButton.attributes['aria-expanded'], 'false');
 for (const label of ['AI Agent Chat', '🐞', 'Bottom', 'Auto Hide', '⋯', 'Hide', '+ New session', 'Preview context',
   'Rename', 'Archive', 'Providers / API keys', 'Refresh', '+ Text file', 'Auto-send results']) {
   assert.ok(labels.includes(label), 'Agent Chat control missing at runtime: ' + label);
@@ -106,3 +123,24 @@ assert.ok(section.classList.contains('agent-dock-bottom'), 'Bottom dock layout a
 context.TaskMenuAgentChat.setAutoHide(true);
 assert.equal(context.TaskMenuAgentChat.autoHide, true);
 console.log('PASS: Agent Chat bootstraps and dock position/auto-hide state transitions work');
+
+(async () => {
+  let saved;
+  context.window.confirm = () => true;
+  context.TaskMenuApp.jsonFetch = async (url, options) => {
+    assert.equal(url, '/api/agent/providers');
+    saved = JSON.parse(options.body);
+    return { provider: saved.provider };
+  };
+  vm.runInNewContext(`
+    agentProviders=[{id:'p',name:'Provider',api_type:'responses',base_url:'https://example.com/v1',models:[]}];
+    settingsPicker.value='p';
+    providerEditor.value=JSON.stringify({...agentProviders[0], name:'Unsaved edit'});
+  `, context);
+  await vm.runInNewContext("allowAgentProviderIP('p','https://example.com/v1','100.64.0.19')", context);
+  assert.deepEqual(saved.provider.trusted_shared_ips, ['100.64.0.19']);
+  assert.equal(saved.provider.name, 'Provider', 'Allowing an IP does not persist unrelated unsaved edits');
+  assert.equal(vm.runInNewContext('JSON.parse(providerEditor.value).name', context), 'Unsaved edit');
+  assert.equal(vm.runInNewContext('JSON.parse(providerEditor.value).trusted_shared_ips[0]', context), '100.64.0.19');
+  console.log('PASS: Allow this IP saves only the trusted address and preserves editor drafts');
+})().catch(error => { console.error(error); process.exitCode = 1; });

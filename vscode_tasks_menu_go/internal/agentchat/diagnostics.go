@@ -74,6 +74,7 @@ type ProviderError struct {
 	Retryable         bool
 	Ambiguous         bool
 	TraceID           string
+	BlockedSharedIP   string
 }
 
 func (e *ProviderError) Error() string {

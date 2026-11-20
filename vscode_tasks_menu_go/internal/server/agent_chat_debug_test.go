@@ -14,6 +14,15 @@ import (
 	"bletonfc/vscode_tasks_menu/internal/identity"
 )
 
+func TestAgentDebugErrorIncludesBlockedSharedIP(t *testing.T) {
+	err := &agentchat.ProviderError{Code: "PRIVATE_IP_BLOCKED", Stage: "provider_http", BlockedSharedIP: "100.64.0.19"}
+	data := debugErrorJSON(err, "trace", "", "", "")
+	detail, ok := data["error"].(map[string]any)
+	if !ok || detail["blocked_shared_ip"] != "100.64.0.19" {
+		t.Fatalf("blocked address missing from error: %#v", data)
+	}
+}
+
 func TestAgentDebugRoutesUseSettingsPermissions(t *testing.T) {
 	cases := []struct {
 		method, path string

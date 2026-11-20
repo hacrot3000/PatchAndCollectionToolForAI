@@ -8,6 +8,8 @@ Provider schema supports `responses` and `chat_completions`; metadata is owner-s
 
 For a trusted endpoint resolved by a VPN or local DNS to a shared-network address, a provider may explicitly set `"trusted_shared_ips": ["100.64.0.19"]` to allow that exact address. This is a deliberate SSRF protection exception: confirm the address and endpoint are trusted before allowing credentials or project context to be sent. Only exact canonical IPv4 addresses in `100.64.0.0/10` are accepted; loopback, other private ranges and unlisted DNS answers remain blocked. Each connection rechecks DNS, TLS verification remains enabled, and changing this list invalidates capability probes. Shared-server users need project-admin permission to save a provider with this exception. Remove the list to restore the default public-IP-only policy.
 
+When Test connection encounters a blocked shared-network IP, Agent provider settings displays the address and offers **Allow this IP**. The button requires confirmation and saves only the IP exception on the selected saved provider; it does not send another provider request. Retry Test connection after saving. Other blocked address ranges cannot be allowed this way.
+
 ## F02.1.2/F02.2.1 — lifecycle và settings
 
 1. Xác định semantics: xóa metadata và xóa local credential là hai hành vi hiển thị rõ; xóa local không thể tuyên bố đã revoke key phía nhà cung cấp. Quyết định chính sách session đang dùng provider, rollback và retention trước khi code; đang chạy không được âm thầm đổi endpoint/key giữa turn.

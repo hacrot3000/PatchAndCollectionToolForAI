@@ -520,7 +520,7 @@ func debugErrorJSON(err error, traceID, fallbackCode, fallbackStage, fallbackMes
 		if pe.TraceID != "" {
 			traceID = pe.TraceID
 		}
-		return map[string]any{"error": map[string]any{"code": pe.Code, "stage": pe.Stage, "message": pe.Message, "provider_error_type": pe.ProviderErrorType, "provider_error_code": pe.ProviderErrorCode, "provider_message": pe.ProviderMessage, "trace_id": traceID, "http_status": pe.HTTPStatus, "retry_after": pe.RetryAfter, "retryable": pe.Retryable, "ambiguous": pe.Ambiguous}}
+		return map[string]any{"error": map[string]any{"code": pe.Code, "stage": pe.Stage, "message": pe.Message, "provider_error_type": pe.ProviderErrorType, "provider_error_code": pe.ProviderErrorCode, "provider_message": pe.ProviderMessage, "trace_id": traceID, "http_status": pe.HTTPStatus, "retry_after": pe.RetryAfter, "retryable": pe.Retryable, "ambiguous": pe.Ambiguous, "blocked_shared_ip": pe.BlockedSharedIP}}
 	}
 	code, stage, message := fallbackCode, fallbackStage, fallbackMessage
 	if errors.Is(err, context.Canceled) {

@@ -246,7 +246,7 @@ func DoResponsesStream(ctx context.Context, p ProviderConfig, key string, body [
 	if err != nil {
 		code, message, ambiguous := classifyProviderTransportError(ctx, err)
 		RecordProviderDiagnostic(ctx, DiagnosticEvent{Level: "error", Stage: "provider_http", Event: "http.error", Code: code, SafeMessage: message, Endpoint: endpoint, APIType: p.APIType, ProviderID: p.ID, RequestBytes: len(body), RequestSHA256: BodyDigest(body), Duration: time.Since(started)})
-		return ResponsesResult{}, &ProviderError{Code: code, Stage: "provider_http", Message: message, Retryable: ambiguous, Ambiguous: ambiguous}
+		return ResponsesResult{}, &ProviderError{Code: code, Stage: "provider_http", Message: message, Retryable: ambiguous, Ambiguous: ambiguous, BlockedSharedIP: blockedSharedIP(err)}
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != 200 {

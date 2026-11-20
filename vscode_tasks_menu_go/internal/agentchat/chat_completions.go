@@ -235,7 +235,7 @@ func doChatCompletionsWithClient(ctx context.Context, p ProviderConfig, key stri
 	if err != nil {
 		code, message, ambiguous := classifyProviderTransportError(ctx, err)
 		RecordProviderDiagnostic(ctx, DiagnosticEvent{Level: "error", Stage: "provider_http", Event: "http.error", Code: code, SafeMessage: message, Endpoint: endpoint, APIType: p.APIType, ProviderID: p.ID, RequestBody: body, RequestBytes: len(body), Duration: time.Since(started)})
-		return ResponsesResult{}, &ProviderError{Code: code, Stage: "provider_http", Message: message, Retryable: ambiguous, Ambiguous: ambiguous}
+		return ResponsesResult{}, &ProviderError{Code: code, Stage: "provider_http", Message: message, Retryable: ambiguous, Ambiguous: ambiguous, BlockedSharedIP: blockedSharedIP(err)}
 	}
 	defer resp.Body.Close()
 	raw, readErr := io.ReadAll(io.LimitReader(resp.Body, maxRequestBytes+1))

@@ -82,16 +82,30 @@ func providerIPAllowed(ip net.IP, p ProviderConfig) bool {
 	}
 	return false
 }
+
+type blockedProviderIPError struct{ IP net.IP }
+
+func (e *blockedProviderIPError) Error() string { return "provider DNS includes private/reserved IP" }
+
 func validateProviderDNS(ips []net.IPAddr, p ProviderConfig) error {
 	if len(ips) == 0 {
 		return errors.New("provider DNS returned no addresses")
 	}
 	for _, entry := range ips {
 		if !providerIPAllowed(entry.IP, p) {
-			return errors.New("provider DNS includes private/reserved IP")
+			return &blockedProviderIPError{IP: append(net.IP(nil), entry.IP...)}
 		}
 	}
 	return nil
+}
+
+// Only shared-network IPv4 addresses can be offered for explicit trust.
+func blockedSharedIP(err error) string {
+	var blocked *blockedProviderIPError
+	if errors.As(err, &blocked) && blocked.IP.To4() != nil && sharedProviderNetwork.Contains(blocked.IP) {
+		return blocked.IP.String()
+	}
+	return ""
 }
 func ValidateProvider(p ProviderConfig) error {
 	if !providerIDPattern.MatchString(p.ID) || len(p.Name) == 0 || len(p.Name) > 128 {
@@ -527,7 +541,7 @@ func DoResponses(ctx context.Context, p ProviderConfig, key string, body []byte)
 		code, message, ambiguous := classifyProviderTransportError(ctx, err)
 		diagnostic := DiagnosticEvent{Level: "error", Stage: "provider_http", Event: "http.error", Code: code, SafeMessage: message, Endpoint: endpoint, APIType: p.APIType, ProviderID: p.ID, RequestBytes: len(body), RequestSHA256: BodyDigest(body), Duration: time.Since(started)}
 		RecordProviderDiagnostic(ctx, diagnostic)
-		return ResponsesResult{}, &ProviderError{Code: code, Stage: "provider_http", Message: message, Retryable: code == "CONNECT_FAILED" || code == "REQUEST_TIMEOUT", Ambiguous: ambiguous}
+		return ResponsesResult{}, &ProviderError{Code: code, Stage: "provider_http", Message: message, Retryable: code == "CONNECT_FAILED" || code == "REQUEST_TIMEOUT", Ambiguous: ambiguous, BlockedSharedIP: blockedSharedIP(err)}
 	}
 	defer resp.Body.Close()
 	raw, readErr := io.ReadAll(io.LimitReader(resp.Body, maxRequestBytes+1))
