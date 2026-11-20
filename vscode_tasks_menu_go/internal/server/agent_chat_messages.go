@@ -79,7 +79,8 @@ func (s *Server) agentChatObservedCall(ctx context.Context, owner, action, sessi
 				HTTPStatus: providerErr.HTTPStatus,
 				SafeMessage: "Provider error type=" + scrubAIContext(providerErr.ProviderErrorType, 100) +
 					" code=" + scrubAIContext(providerErr.ProviderErrorCode, 100) +
-					" detail=" + scrubAIContext(agentchat.SafeProviderText(providerErr.Message), 400),
+					" detail=" + scrubAIContext(agentchat.SafeProviderText(providerErr.Message), 300) +
+					" provider_message=" + scrubAIContext(agentchat.SafeProviderText(providerErr.ProviderMessage), 300),
 			})
 		} else {
 			recorder.RecordProviderDiagnostic(agentchat.DiagnosticEvent{
