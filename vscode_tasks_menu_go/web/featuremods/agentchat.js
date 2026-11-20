@@ -1,5 +1,5 @@
 // TaskDeck Agent Chat — independent of suggestion-only Smart Terminal AI.
-// Execution is deliberately disabled until the native Tool Gateway is ready.
+// Native Patch execution remains explicit-approval gated; text-only models may propose reviewable Patch JSON.
 const agentApp=globalThis.TaskMenuApp;
 if(!agentApp)throw new Error('TaskMenuApp unavailable for Agent Chat');
 const agentCSS=document.createElement('style');
@@ -182,7 +182,7 @@ for(const button of [newChat,preview,rename,archive,planButton,settingsButton,re
 heading.append(title,toolbarActions,dockPositionButton,autoHideButton,debugButton,moreButton,close,moreMenu);
 actionLine.append(status,cancel,send);composer.append(attachList,prompt,actionLine);
 main.append(tabbar,modelBar,toolNotice,transcript,composer);layout.append(main);
-const footer=agentEl('div','agentchat-info','Responses API • AI Pack on first turn • native Patch execution requires explicit approval per tool call. Results are verified from native protocol before AI feedback.');
+const footer=agentEl('div','agentchat-info','AI Pack on first turn • read-only Collection inspection • tool or text-only Patch proposals require explicit native approval; verified results return to AI.');
 windowBox.append(heading,viewTabs,layout,debugPanel,footer);root.append(windowBox);
 const agentToolbarItems=[newChat,preview,rename,archive,planButton,settingsButton,refresh,attachButton,autoFeedback];
 mountAgentDock();
@@ -430,7 +430,7 @@ function renderAgentTool(session,item){
  const box=agentEl('div','agentchat-bubble tool');
  const record=(session.tool_calls||[]).find(c=>c.call_id===item.call_id);
  const state=record?.status||'blocked';
- box.append(agentEl('strong','',String(item.name||'Unknown tool')+' · '+state.toUpperCase()));
+ box.append(agentEl('strong','',(record?.text_fallback?'Text-only Patch proposal':String(item.name||'Unknown tool'))+' · '+state.toUpperCase()));
  if(item.name!=='taskdeck_submit_patch'){
   box.append(agentEl('p','agentchat-tool-summary','Unrecognized function; execution blocked.'));
   return box;
@@ -477,7 +477,7 @@ function displayAgentSession(session){
  transcript.replaceChildren();
  if(!session){toolNotice.hidden=true;transcript.append(agentEl('p','','Create or select a session to begin.'));return;}
  for(const item of (session.history||[])){
-  if(item.type==='user')transcript.append(agentEl('div','agentchat-bubble user',userMessageText(item.content)));
+  if(item.type==='user')transcript.append(agentEl('div',String(item.content||'').startsWith('TaskDeck native Patch Tool result for your prior text-only proposal')?'agentchat-bubble tool':'agentchat-bubble user',userMessageText(item.content)));
   if(item.type==='assistant')transcript.append(agentEl('div','agentchat-bubble assistant',item.content));
   if(item.type==='function_call')transcript.append(renderAgentTool(session,item));
   if(item.type==='function_call_output')transcript.append(agentEl('div','agentchat-bubble tool','Native Patch result sent to AI: '+String(item.call_id||'')));
@@ -548,10 +548,10 @@ async function selectAgentSession(id){
  toolNotice.replaceChildren();
  const toolStatus=data.patch_tool_status;
  if(toolStatus==='enabled'){
-  toolNotice.textContent='Patch tool available: proposed changes require your approval; text or JSON alone does not create files.';
+  toolNotice.textContent='Native Patch available: proposals require explicit approval; read-only Collection results continue automatically.';
  }else{
   const reasons={model_disabled:'Tool calling is disabled for this model.',unverified:'Tool calling has not been verified for this provider and model.',unavailable:'Provider or capability information is unavailable.'};
-  toolNotice.append(agentEl('span','',(reasons[toolStatus]||'Patch tool status is unavailable.')+' AI responses are text only and cannot create files. '));
+  toolNotice.append(agentEl('span','',(reasons[toolStatus]||'Patch tool status is unavailable.')+' Text-only Patch JSON proposals can still be reviewed and executed through native Patch approval. '));
   toolNotice.append(agentButton('Provider settings',()=>openAgentSettings().catch(showAgentError)));
  }
  toolNotice.hidden=false;
