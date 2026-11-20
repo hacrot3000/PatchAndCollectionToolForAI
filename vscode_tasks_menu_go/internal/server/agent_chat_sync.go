@@ -166,6 +166,11 @@ func (s *Server) agentChatExecutionAPI(w http.ResponseWriter, r *http.Request, i
 		"patch_session_id": record.PatchSessionID, "run_id": record.RunID,
 		"queue_path": record.QueuePath, "execution_started": false,
 	}
+	if (record.Status == "done" || record.Status == "error" || record.Status == "unknown") && record.Result != "" {
+		// Durable, already-bounded and sanitized result. This stays readable
+		// even after the native Patch PTY has exited or been removed.
+		view["verified_result"] = scrubAIContext(record.Result, 4000)
+	}
 	// Reuse the authoritative reconciliation read to describe item evidence.
 	if s.Sessions != nil && record.PatchSessionID != "" && record.Status != "unknown" {
 		if provider, ok := s.Sessions.(session.ProtocolStateProvider); ok {
