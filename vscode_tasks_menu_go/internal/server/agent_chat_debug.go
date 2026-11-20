@@ -522,6 +522,25 @@ func (r *agentDebugRecorder) finish(code, message string) {
 	r.RecordProviderDiagnostic(agentchat.DiagnosticEvent{Level: map[bool]string{true: "error", false: "info"}[code != ""], Stage: "agent", Event: "request.finished", Code: code, SafeMessage: message})
 }
 func debugErrorJSON(err error, traceID, fallbackCode, fallbackStage, fallbackMessage string) map[string]any {
+	var collectionProvider *agentCollectionProviderError
+	if errors.As(err, &collectionProvider) && collectionProvider.TraceID != "" {
+		// Report the failing continuation call, not the initial provider turn.
+		traceID = collectionProvider.TraceID
+	}
+	var local *agentCollectionLocalError
+	if errors.As(err, &local) {
+		code := "COLLECTION_CONTEXT_FAILED"
+		switch local.Stage {
+		case "request_build": code = "COLLECTION_REQUEST_BUILD_FAILED"
+		case "journal_write": code = "COLLECTION_JOURNAL_WRITE_FAILED"
+		case "cancelled_before_provider_request": code = "COLLECTION_CANCELLED"
+		}
+		return map[string]any{"error": map[string]any{
+			"code": code, "stage": local.Stage, "round": local.Round,
+			"message": "Read-only Collection continuation failed locally: " + scrubAIContext(local.Cause.Error(), 260),
+			"trace_id": traceID, "retryable": false, "ambiguous": false,
+		}}
+	}
 	var pe *agentchat.ProviderError
 	if errors.As(err, &pe) {
 		if pe.TraceID != "" {
