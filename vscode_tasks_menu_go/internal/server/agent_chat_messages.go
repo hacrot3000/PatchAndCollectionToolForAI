@@ -396,14 +396,20 @@ func (s *Server) agentChatMessageAPI(w http.ResponseWriter, r *http.Request, id 
 		http.Error(w, "cannot persist user message", 409)
 		return
 	}
+	// A model may inspect several files before proposing one Patch. The whole
+	// turn has a bounded multi-call budget, while each provider call has its
+	// OWN 60-second deadline. Reusing one 60-second deadline across all rounds
+	// previously caused COLLECTION_CONTINUATION_FAILED after a slow first call.
 	turnCtx := s.agentServerContext()
-	ctx, cancel := context.WithTimeout(turnCtx, 60*time.Second)
+	ctx, cancel := context.WithTimeout(turnCtx, 7*60*time.Second)
 	defer cancel()
-	// Register the provider request so an explicit cancel endpoint can stop it.
-	// A browser disconnect alone is not treated as server-side cancellation.
+	// Keep cancellation registered through every read-only Collection round.
+	// Unregister only when this turn actually finishes or fails.
 	releaseRequest := registerAgentRequest(agentRequestKey(s.Workspace, owner, id), cancel)
-	result, callErr, traceID := s.agentChatCallForOwner(ctx, owner, id, p, string(secret), payload)
-	releaseRequest()
+	defer releaseRequest()
+	providerCtx, providerCancel := context.WithTimeout(ctx, 60*time.Second)
+	result, callErr, traceID := s.agentChatCallForOwner(providerCtx, owner, id, p, string(secret), payload)
+	providerCancel()
 	if callErr != nil {
 		if errors.Is(ctx.Err(), context.Canceled) {
 			// The turn was explicitly cancelled: keep the user's message, but never
@@ -444,12 +450,29 @@ func (s *Server) agentChatMessageAPI(w http.ResponseWriter, r *http.Request, id 
 	result, callErr = s.agentChatRunCollection(ctx, store, &session, result, p, model, string(secret), identity, patchToolAvailable)
 	if callErr != nil {
 		session.Status = "failed"
-		session.AppendEvent("collect_failed", "failed", "", "")
+		stage := "collection_continuation"
+		if errors.Is(ctx.Err(), context.Canceled) {
+			session.Status = "cancelled"
+			stage = "collection_cancelled"
+		}
+		session.AppendEvent("collect_failed", session.Status, "", stage)
 		if _, saveErr := store.Save(session, session.Revision); saveErr != nil {
 			http.Error(w, "Collection continuation failed; inspect the persisted Agent session", 409)
 			return
 		}
-		writeAgentStructuredError(w, 502, callErr, traceID, "COLLECTION_CONTINUATION_FAILED", "tool_execution", "Agent Collection inspection could not finish; no patch was executed")
+		// The nested provider call carries its own trace ID and classified
+		// HTTP error. Do not misreport a provider timeout as tool execution.
+		code, httpStatus := "COLLECTION_CONTINUATION_FAILED", http.StatusBadGateway
+		var providerErr *agentchat.ProviderError
+		if errors.As(callErr, &providerErr) {
+			code = "COLLECTION_PROVIDER_FAILED"
+			if providerErr.HTTPStatus == 429 { httpStatus = http.StatusTooManyRequests }
+		} else if errors.Is(callErr, context.DeadlineExceeded) {
+			code, httpStatus = "COLLECTION_PROVIDER_TIMEOUT", http.StatusGatewayTimeout
+		} else if errors.Is(ctx.Err(), context.Canceled) {
+			code, httpStatus = "COLLECTION_CANCELLED", http.StatusConflict
+		}
+		writeAgentStructuredError(w, httpStatus, callErr, traceID, code, stage, "Collection read result was saved, but continuation could not finish; no Patch was executed. Inspect the provider trace for the underlying error.")
 		return
 	}
 	appendAgentProviderResult(&session, result, patchToolAvailable)
