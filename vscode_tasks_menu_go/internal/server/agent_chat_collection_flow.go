@@ -134,6 +134,13 @@ func (s *Server) agentChatRunCollection(
 		if !typed && !fallback {
 			return result, clearProviderRefs, nil
 		}
+		if x.AutoCollection != nil && !*x.AutoCollection {
+			// Explicit opt-out: do not access workspace contents, even for a
+			// read-only model request. Finish with an actionable message.
+			return agentchat.ResponsesResult{ResponseID:result.ResponseID,
+				ConversationID:result.ConversationID,
+				Text:"Automatic Collection is disabled for this conversation. Enable Auto Collection in the Automation menu and send the request again. No Collection or Patch was executed."},clearProviderRefs,nil
+		}
 
 		observed := ""
 		if validationErr != nil {
