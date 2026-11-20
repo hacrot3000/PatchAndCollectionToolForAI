@@ -644,6 +644,14 @@ function displayAgentSession(session){
  const nextFeedback=session.auto_feedback?'Auto-send: ON':'Auto-send results';
  if(autoFeedback.textContent!==nextFeedback)autoFeedback.textContent=nextFeedback;
 }
+function agentConversationUnresolved(sess){
+ if(sess&&typeof sess.unresolved==='boolean')return sess.unresolved;
+ if(['requesting_ai','tool_queuing'].includes(sess?.status))return true;
+ if(Array.isArray(sess?.tool_calls)){
+  return sess.tool_calls.some(call=>['pending','queuing','queued','dispatching','running','unknown'].includes(call.status));
+ }
+ return ['waiting_tool','tool_unknown'].includes(sess?.status);
+}
 function updateAgentSessionRows(){
  const wanted=new Set();
  for(const sess of agentSessions){
@@ -661,7 +669,7 @@ function updateAgentSessionRows(){
   if(button.textContent!==label)button.textContent=label;
   const remove=button.parentElement?.children?.[1];
   if(remove){
-   remove.disabled=['requesting_ai','waiting_tool','tool_queuing','tool_unknown'].includes(sess.status);
+   remove.disabled=agentConversationUnresolved(sess);
    remove.title=remove.disabled?'Resolve the running/pending Patch before deleting':'Permanently delete this conversation';
   }
   const cls='agentchat-session'+(sess.id===agentActive?' selected':'');
@@ -772,6 +780,7 @@ async function selectAgentSession(id){
   summary.status=sess.status;
   summary.title=sess.title;summary.archived=sess.archived;
   summary.auto_patch=sess.auto_patch;summary.auto_collection=sess.auto_collection;summary.auto_feedback=sess.auto_feedback;
+  summary.unresolved=agentConversationUnresolved(sess);
   updateAgentSessionRows();
  }
  openAgentTab(id);
@@ -976,7 +985,7 @@ function renderAgentAttachments(){
 }
 function renderAgentAutomationControls(session){
  const exists=Boolean(session);
- rename.disabled=!exists;archive.disabled=!exists;deleteChat.disabled=!exists;
+ rename.disabled=!exists;archive.disabled=!exists;deleteChat.disabled=!exists||agentConversationUnresolved(session);
  autoPatch.disabled=!exists;autoCollection.disabled=!exists;autoFeedback.disabled=!exists;
  autoPatch.textContent='Auto apply Patch: '+(session?.auto_patch?'ON':'OFF');
  autoPatch.setAttribute('aria-pressed',String(Boolean(session?.auto_patch)));
