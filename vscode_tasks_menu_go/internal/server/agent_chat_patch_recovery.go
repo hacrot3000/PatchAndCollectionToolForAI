@@ -4,12 +4,15 @@ import (
  "encoding/json"
  "errors"
  "io"
+ "path/filepath"
+ "strings"
  "net/http"
  "time"
 
  "bletonfc/vscode_tasks_menu/internal/agentchat"
  "bletonfc/vscode_tasks_menu/internal/identity"
  "bletonfc/vscode_tasks_menu/internal/patchtool"
+ "bletonfc/vscode_tasks_menu/internal/session"
 )
 
 // Patch recovery is deliberately NOT part of provider retry. "send_existing"
@@ -28,11 +31,14 @@ func (s *Server) agentChatPatchRecoveryAPI(w http.ResponseWriter,r *http.Request
  if d.Decode(&req)!=nil {http.Error(w,"invalid Patch recovery request",400);return}
  var extra any
  if err:=d.Decode(&extra);!errors.Is(err,io.EOF){http.Error(w,"exactly one request object required",400);return}
- if req.Action!="send_existing"&&req.Action!="rerun_patch"{http.Error(w,"invalid Patch recovery action",400);return}
- if req.Action=="send_existing"&&!req.ConfirmExternal{http.Error(w,"consent required to send verified native Patch result to AI",403);return}
- if req.Action=="rerun_patch"{
+ if req.Action!="send_existing"&&req.Action!="rerun_patch"&&req.Action!="rerun_and_send"{http.Error(w,"invalid Patch recovery action",400);return}
+ if (req.Action=="send_existing"||req.Action=="rerun_and_send")&&!req.ConfirmExternal{http.Error(w,"consent required to send verified native Patch result to AI",403);return}
+ if req.Action=="rerun_patch"||req.Action=="rerun_and_send"{
   if !req.ConfirmExecution{http.Error(w,"explicit approval to prepare another Patch run required",403);return}
   if !s.requireSharedActionPermission(w,r,identity.PermissionPatchRun,"agent.retry_patch",sessionID){return}
+ }
+ if req.Action=="rerun_and_send" && s.Config.SharedServerEnabled {
+  http.Error(w,"one-click native Patch reapply is only available in local Agent sessions",409);return
  }
  owner:=aiPlanOwner(r)
  release,ok:=lockAgentTurn(s.Workspace,owner,sessionID)
@@ -59,6 +65,13 @@ func (s *Server) agentChatPatchRecoveryAPI(w http.ResponseWriter,r *http.Request
  if call.Status=="running"||call.Status=="dispatching"||call.Status=="unknown"{
   view:=agentToolReconcileView{Record:call}
   s.agentReconcilePatchRecord(&view)
+  // Legacy native terminals may have multiple failed History records for
+  // the same immutable package. Only a user-initiated recovery may choose
+  // the latest matching timestamped record; background sync stays strict.
+  if view.Record.Status!="done" && view.Record.Status!="error" && !s.agentNativePatchActive(call) {
+   st,res,run,ok:=s.agentLatestResultFromHistory(call)
+   if ok {view.Record.Status=st;view.Record.Result=res;view.Record.RunID=run;view.Changed=true}
+  }
   if view.Changed{
    x.ToolCalls[idx]=view.Record
    call=view.Record
@@ -112,7 +125,7 @@ func (s *Server) agentChatPatchRecoveryAPI(w http.ResponseWriter,r *http.Request
  previous:=agentchat.ToolAttemptRecord{
   Status:call.Status,Result:call.Result,QueuePath:call.QueuePath,
   PackageSHA256:call.PackageSHA256,PackageSize:call.PackageSize,
-  PatchSessionID:call.PatchSessionID,PromptID:call.PromptID,
+  PatchSessionID:call.PatchSessionID,NativeStartedAt:call.NativeStartedAt,PromptID:call.PromptID,
   SelectedIndex:call.SelectedIndex,RunID:call.RunID,
  }
  call.Attempts=append(call.Attempts,previous)
@@ -122,6 +135,9 @@ func (s *Server) agentChatPatchRecoveryAPI(w http.ResponseWriter,r *http.Request
  call.PackageSHA256=""
  call.PackageSize=0
  call.PatchSessionID=""
+ call.NativeStartedAt=nil
+ call.AutoRunOnce=req.Action=="rerun_and_send"
+ call.SendAfterRetry=req.Action=="rerun_and_send"
  call.PromptID=""
  call.SelectedIndex=0
  call.RunID=""
@@ -130,17 +146,41 @@ func (s *Server) agentChatPatchRecoveryAPI(w http.ResponseWriter,r *http.Request
  call.WorkspaceStatusSHA256=""
  call.GitIsRepo=false
  call.ApprovalExpiresAt=nil
- call.ManualRetryOnly=true
+ call.ManualRetryOnly=req.Action!="rerun_and_send"
  x.ToolCalls[idx]=call
  x.Status="waiting_tool"
- x.AppendEvent("patch_retry_ready","waiting_tool",callID,"manual_approval_required")
+ if req.Action=="rerun_and_send" {
+  x.AppendEvent("patch_retry_ready","waiting_tool",callID,"single_explicit_reapply_and_send")
+ } else {
+  x.AppendEvent("patch_retry_ready","waiting_tool",callID,"manual_approval_required")
+ }
  x,err=store.Save(x,x.Revision)
  if err!=nil{http.Error(w,"cannot persist fresh manual Patch approval",409);return}
  s.recordAgentDebugEvent(owner,sessionID,callID,"tool","patch.retry_ready","","Old failed run archived; manual review and approval required before any new native execution")
  w.Header().Set("Cache-Control","no-store")
  writeJSON(w,200,map[string]any{
-  "session":x,"recovery":"fresh_review_required","old_run_id":previous.RunID,
-  "patch_reexecuted":false,"note":"Review and approve the pending Patch; its old failed run is preserved.",
+  "session":x,"recovery":map[bool]string{true:"reapply_and_send_accepted",false:"fresh_review_required"}[req.Action=="rerun_and_send"],"old_run_id":previous.RunID,
+  "patch_reexecuted":false,"note":map[bool]string{true:"Re-apply approved once. Native Patch will run and its final result will be sent to AI. Old failure preserved.",false:"Review and approve the pending Patch; its old failed run is preserved."}[req.Action=="rerun_and_send"],
   "expires_at":time.Now().UTC().Add(agentApprovalTTL),
  })
+}
+
+// agentNativePatchActive is a read-only guard: an old History result must
+// never replace an active native run when its final outcome is still unknown.
+func (s *Server) agentNativePatchActive(call agentchat.ToolCallRecord) bool {
+ if s.Sessions==nil || call.PatchSessionID=="" {return false}
+ if _,exists:=s.Sessions.Metadata(call.PatchSessionID);!exists{return false}
+ provider,ok:=s.Sessions.(session.ProtocolStateProvider)
+ if !ok{return true}
+ state,err:=provider.ProtocolState(call.PatchSessionID)
+ if err!=nil{return true}
+ if strings.Contains(string(state.LastEvent),`"run_finished"`){return false}
+ for _,item:=range state.Items {
+  if item.Name!=filepath.Base(call.QueuePath) || !strings.EqualFold(item.Kind,"PATCH"){continue}
+  switch strings.ToUpper(item.Status) {
+  case "RUNNING","QUEUED","PENDING":return true
+  case "PASS","FAIL","PREFLIGHT_FAIL","INCOMPLETE":return false
+  }
+ }
+ return state.CommandsEnabled
 }

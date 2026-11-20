@@ -152,7 +152,7 @@ func (s *Server) agentChatToolDecisionAPI(w http.ResponseWriter, r *http.Request
 	// A background auto-approval is authorized only by an owner-controlled
 	// session flag and only for a local (non-shared) workspace. A model cannot
 	// set this flag by proposing a Patch.
-	if request.Automatic && (!x.AutoPatch || x.Owner != "local" || s.Config.SharedServerEnabled) {
+	if request.Automatic && (x.Owner != "local" || s.Config.SharedServerEnabled || !agentAutoApprovalAuthorized(x,callID)) {
 		http.Error(w,"automatic Patch approval is not authorized for this session",403)
 		return
 	}
@@ -354,6 +354,8 @@ func (s *Server) agentChatToolDecisionAPI(w http.ResponseWriter, r *http.Request
 			} else {
 				x.ToolCalls[idx].Status = "dispatching"
 				x.ToolCalls[idx].PatchSessionID = patchID
+				started:=time.Now().UTC()
+				x.ToolCalls[idx].NativeStartedAt=&started
 				if !persistStatus() {
 					return
 				}

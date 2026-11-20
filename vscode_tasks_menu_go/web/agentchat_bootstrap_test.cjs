@@ -897,16 +897,22 @@ console.log('PASS: Agent Chat bootstraps and dock position/auto-hide state trans
       queue_path:'patchs/PATCH_CLEAR_TEXT_Vietnamese-diacritics-and-phpinfo-output.zip',
       patch_session_id:'native-old'}]};
   const oldPatchCard=vm.runInNewContext('renderAgentTool('+JSON.stringify(stuckPatch)+','+JSON.stringify(stuckPatch.history[0])+')',context);
-  assert.ok(find(oldPatchCard,node=>node.tagName==='button'&&node.textContent==='Recover old result → send to AI'),
-    'stuck running Patch must offer old-result recovery instead of automatic re-execution; got '+JSON.stringify(oldPatchCard.children.map(x=>({tag:x.tagName,txt:x.textContent,children:x.children.map(y=>({tag:y.tagName,txt:y.textContent,children:y.children.map(z=>({tag:z.tagName,txt:z.textContent}))}))}))));
-  assert.equal(Boolean(find(oldPatchCard,node=>node.tagName==='button'&&node.textContent==='Retry run Patch · new approval')),false,
-    'uncertain RUNNING Patch cannot have a rerun action');
-  const failedPatch={...stuckPatch,tool_calls:[{...stuckPatch.tool_calls[0],
-    status:'error',result:'{"status":"PREFLIGHT_FAIL","rc":2}'}]};
-  const failedPatchCard=vm.runInNewContext('renderAgentTool('+JSON.stringify(failedPatch)+','+JSON.stringify(failedPatch.history[0])+')',context);
-  assert.ok(find(failedPatchCard,node=>node.tagName==='button'&&node.textContent==='Retry run Patch · new approval'),
-    'verified failed Patch must offer a separate manually approved retry');
-  console.log('PASS: bounded/unlimited retry UI, single retry countdown and safe old-Patch recovery actions');
+  assert.ok(find(oldPatchCard,node=>node.tagName==='button'&&node.textContent==='Get the last result and send to AI'),
+     'stuck Patch must offer a read-only History recovery choice');
+   assert.ok(find(oldPatchCard,node=>node.tagName==='button'&&node.textContent==='Re-apply Patch then send to AI'),
+     'stuck Patch must present an explicit reapply action; backend verifies the old terminal is final');
+   const failedPatch={...stuckPatch,tool_calls:[{...stuckPatch.tool_calls[0],
+     status:'error',result:'{"status":"PREFLIGHT_FAIL","rc":2}'}]};
+   const failedPatchCard=vm.runInNewContext('renderAgentTool('+JSON.stringify(failedPatch)+','+JSON.stringify(failedPatch.history[0])+')',context);
+   assert.ok(find(failedPatchCard,node=>node.tagName==='button'&&node.textContent==='Re-apply Patch then send to AI'),
+     'verified failed Patch must offer reapply and send');
+   assert.ok(find(failedPatchCard,node=>node.tagName==='button'&&node.textContent==='Get the last result and send to AI'),
+     'failed Patch result can be sent without another execution');
+   const passedPatch={...stuckPatch,tool_calls:[{...stuckPatch.tool_calls[0],status:'done',result:'{"status":"PASS"}'}]};
+   const passedPatchCard=vm.runInNewContext('renderAgentTool('+JSON.stringify(passedPatch)+','+JSON.stringify(passedPatch.history[0])+')',context);
+   assert.equal(Boolean(find(passedPatchCard,node=>node.tagName==='button'&&node.textContent==='Re-apply Patch then send to AI')),false,
+     'successful Patch must not show reapply');
+   console.log('PASS: bounded/unlimited retry UI, single retry countdown and safe old-Patch recovery actions');
 
 
 

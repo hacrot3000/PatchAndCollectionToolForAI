@@ -8,6 +8,7 @@ import (
  "os"
  "path/filepath"
  "strings"
+ "time"
 
  "bletonfc/vscode_tasks_menu/internal/agentchat"
  "bletonfc/vscode_tasks_menu/internal/patchtool"
@@ -47,6 +48,15 @@ func (s *Server) agentVerifyFinalPackage(record agentchat.ToolCallRecord) error 
 // selected/executed package AND the approved immutable ZIP bytes. This is a
 // read-only recovery path; never start or repeat any Patch action.
 func (s *Server) agentFinalResultFromHistory(call agentchat.ToolCallRecord) (string,string,string,bool) {
+ return s.agentHistoryResultFromHistory(call,false)
+}
+
+// agentLatestResultFromHistory is only used for an explicit user choice.
+func (s *Server) agentLatestResultFromHistory(call agentchat.ToolCallRecord) (string,string,string,bool) {
+ return s.agentHistoryResultFromHistory(call,true)
+}
+
+func (s *Server) agentHistoryResultFromHistory(call agentchat.ToolCallRecord,latest bool) (string,string,string,bool) {
  if (call.Status!="running" && call.Status!="unknown" && call.Status!="dispatching") || s.agentVerifyFinalPackage(call)!=nil {
   return "","","",false
  }
@@ -71,7 +81,8 @@ func (s *Server) agentFinalResultFromHistory(call agentchat.ToolCallRecord) (str
   Diagnosis struct {Kind string `json:"kind"`;Message string `json:"message"`} `json:"diagnosis"`
   OutputTail string `json:"output_tail"`
  }
- var foundStatus,foundResult,foundRun string
+ type match struct{status,result,run string; finished time.Time}
+ matches:=make([]match,0,2)
  for _,entry:=range entries {
   if entry.IsDir() || entry.Type()&os.ModeSymlink!=0 || !strings.HasSuffix(entry.Name(),".json") { continue }
   fi,err:=entry.Info()
@@ -82,6 +93,7 @@ func (s *Server) agentFinalResultFromHistory(call agentchat.ToolCallRecord) (str
    Format string `json:"format"`
    FormatVersion int `json:"format_version"`
    RunID string `json:"run_id"`
+   FinishedAt string `json:"finished_at"`
    ProjectIdentity patchtool.ProjectIdentity `json:"project_identity"`
    Selected []string `json:"selected"`
    ExecutionOrder []string `json:"execution_order"`
@@ -91,19 +103,27 @@ func (s *Server) agentFinalResultFromHistory(call agentchat.ToolCallRecord) (str
     report.FormatVersion!=2 || report.RunID=="" || len(report.RunID)>128 ||
     report.ProjectIdentity!=identity || len(report.Results)==0 || len(report.Results)>256 ||
     len(report.Selected)>256 || len(report.ExecutionOrder)>256 { continue }
+  if call.RunID!="" && call.RunID!=report.RunID {continue}
+  finished,stampErr:=time.Parse(time.RFC3339Nano,report.FinishedAt)
+  if call.NativeStartedAt!=nil {
+   if stampErr!=nil && call.RunID=="" {continue}
+   if stampErr==nil && finished.Before(call.NativeStartedAt.Add(-5*time.Second)){continue}
+  }
   selected,executed:=0,0
   for _,n:=range report.Selected { if n==name { selected++ } }
   for _,n:=range report.ExecutionOrder { if n==name { executed++ } }
   if selected!=1 || executed>1 {continue}
+  count:=0
+  var accepted match
   for _,item:=range report.Results {
    if item.Name!=name || strings.ToUpper(item.Kind)!="PATCH" { continue }
    status:=strings.ToUpper(item.Status)
    if executed==0 && status!="PREFLIGHT_FAIL" {continue}
    if call.SelectedIndex<1 && status!="PREFLIGHT_FAIL" {continue}
    if status!="PASS" && status!="FAIL" && status!="INCOMPLETE" && status!="PREFLIGHT_FAIL" { continue }
-   if foundRun!="" || (call.RunID!="" && call.RunID!=report.RunID) { return "","","",false }
    if executed==0 && (item.RC==nil || *item.RC!=2) {continue}
-   foundRun=report.RunID
+   count++
+   if count!=1{break}
    diag:=item.DiagnosisKind
    if diag=="" {diag=item.Diagnosis.Kind}
    reason:=item.FailureReason
@@ -120,10 +140,24 @@ func (s *Server) agentFinalResultFromHistory(call agentchat.ToolCallRecord) (str
    if item.RC!=nil { evidence["rc"]=*item.RC }
    b,err:=json.Marshal(evidence)
    if err!=nil { return "","","",false }
-   foundResult=string(b)
-   foundStatus="error"
-   if status=="PASS" { foundStatus="done" }
+   accepted=match{status:"error",result:string(b),run:report.RunID,finished:finished}
+   if status=="PASS" {accepted.status="done"}
   }
+  if count==1{matches=append(matches,accepted)}
  }
- return foundStatus,foundResult,foundRun,foundRun!=""
+ if len(matches)==0{return "","","",false}
+ if len(matches)==1{a:=matches[0];return a.status,a.result,a.run,true}
+ if !latest{return "","","",false}
+ // Missing/equal timestamps remain ambiguous: never infer chronology from
+ // directory ordering or filename and never execute a package here.
+ newest:=-1
+ for i,a:=range matches {
+  if a.finished.IsZero(){return "","","",false}
+  if newest<0 || a.finished.After(matches[newest].finished){newest=i}
+ }
+ for i,a:=range matches {
+  if i!=newest && a.finished.Equal(matches[newest].finished){return "","","",false}
+ }
+ a:=matches[newest]
+ return a.status,a.result,a.run,true
 }
