@@ -242,6 +242,44 @@ assert.equal(context.TaskMenuAgentChat.autoHide, true);
 console.log('PASS: Agent Chat bootstraps and dock position/auto-hide state transitions work');
 
 (async () => {
+  // Regression: the old double-escaped surrogate regex incorrectly treated
+  // normal PHP source with digits/uppercase as invalid UTF-8.
+  const phpSource = '<?php\nfunction HelloWorld2026() {\n  echo "Hello, Việt Nam! 🎉";\n  return 123;\n}\n';
+  for (const sourceText of [
+    '<?php echo "Hello World";',
+    'const VERSION_2026 = 42;\nconsole.log(VERSION_2026);',
+    '{"id":123,"enabled":true}',
+    'Xin chào Việt Nam — Cảm ơn!',
+    'Emoji 😀 👨‍👩‍👧‍👦 🎉',
+    phpSource,
+    'ASCII 0123456789 ABCDEFGHIJKLMNOPQRSTUVWXYZ',
+  ]) {
+    context.utf8Candidate = sourceText;
+    assert.equal(vm.runInNewContext('isValidUTF8Text(utf8Candidate)', context), true,
+      'valid UTF-8-compatible editor content was rejected: ' + JSON.stringify(sourceText));
+  }
+  for (const invalidText of ['bad\0NUL', '\uD800', '\uDC00', 'ABC\uD800X', '\uDC00XYZ']) {
+    context.utf8Candidate = invalidText;
+    assert.equal(vm.runInNewContext('isValidUTF8Text(utf8Candidate)', context), false,
+      'malformed buffer must not be silently altered: '+JSON.stringify(invalidText));
+  }
+  context.utf8EditorView = {
+    closed:false,dirty:true,file:{path:'src/helloworld.php'},
+    cm:{state:{doc:{toString:()=>phpSource},selection:{main:{from:0,to:0},ranges:[]}}},
+  };
+  const editorSource = vm.runInNewContext('editorSourceContext(utf8EditorView)',context);
+  assert.equal(editorSource.text,phpSource,'Attach file must use the exact current editor buffer');
+  assert.equal(editorSource.source.path,'src/helloworld.php');
+  assert.equal(editorSource.source.dirty,true);
+  assert.equal(editorSource.source.content_source,'unsaved_editor_buffer');
+  const phpAttach = await context.TaskMenuAgentChat.stageContext(editorSource,{open:false});
+  assert.equal(phpAttach.ok,true,'valid PHP editor buffer must stage: '+phpAttach.error);
+  const attachedPHP=vm.runInNewContext('agentPendingAttachments[0].text',context);
+  assert.ok(attachedPHP.includes(phpSource),'staging changed the attached source text');
+  assert.ok(attachedPHP.includes('FILE_PATH: src/helloworld.php'));
+  assert.ok(attachedPHP.includes('UNSAVED_CHANGES: true'));
+  vm.runInNewContext('agentPendingAttachments.splice(0)',context);
+  console.log('PASS: Attach file to Chat accepts PHP/digits/Unicode/emoji, preserves dirty buffer and rejects malformed UTF-16');
   const staged = await context.TaskMenuAgentChat.stageContext({
     kind: 'file_selection', name: 'hello.php', mime: 'text/x-php',
     text: 'line one\nline two',
