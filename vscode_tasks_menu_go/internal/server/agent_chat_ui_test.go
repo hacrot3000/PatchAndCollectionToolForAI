@@ -33,7 +33,12 @@ func TestAgentChatUIHasNoExecutionAndWiresProviderSessions(t *testing.T) {
 		"/execution",
 		"/pack-preview",
 		"+ Text file",
-		"/auto-feedback",
+		"/automation",
+		"Delete conversation",
+		"Auto apply Patch",
+		"Auto Collection",
+		"function deleteAgentSession(",
+		"function makeAgentHeaderGroup(",
 		"agentPatchSyncInFlight",
 		"agentHistoryItemEqual",
 		"agentRenderedNodes",
@@ -73,6 +78,9 @@ func TestAgentChatUIHasNoExecutionAndWiresProviderSessions(t *testing.T) {
 		if strings.Contains(js, unsafe) {
 			t.Errorf("Agent Chat must not execute commands or insert HTML through %q", unsafe)
 		}
+	}
+	if strings.Contains(js,"if(!window.confirm('Send this request") {
+		t.Error("redundant external-provider Send confirmation modal remains")
 	}
 	if !strings.Contains(content[files[1]], "import '/featuremods/agentchat.js';") {
 		t.Error("Agent Chat JS not loaded into web frontend")
