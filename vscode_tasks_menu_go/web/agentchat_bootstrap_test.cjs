@@ -7,6 +7,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 
+const formatterSource = fs.readFileSync(path.join(__dirname, 'featuremods/agentchatformat.js'), 'utf8');
 const source = fs.readFileSync(path.join(__dirname, 'featuremods/agentchat.js'), 'utf8');
 // Module imports execute in strict mode. A sloppy vm.runInNewContext can
 // accept duplicate function declarations that Firefox rejects at parse time.
@@ -134,6 +135,8 @@ const context = {
   setInterval() { return 0; },
   clearInterval() {},
 };
+assert.doesNotThrow(() => vm.runInNewContext(formatterSource, context, {filename:'agentchatformat.js', timeout:2000}),
+  'Chat Markdown formatter must bootstrap before Agent Chat');
 assert.doesNotThrow(
   () => vm.runInNewContext(source, context, { filename: 'agentchat.js', timeout: 2000 }),
   'Agent Chat must load without referencing lexical variables before initialization'
