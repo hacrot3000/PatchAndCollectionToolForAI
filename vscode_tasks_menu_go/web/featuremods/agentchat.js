@@ -448,63 +448,97 @@ function userMessageText(value){
 function renderAgentTool(session,item){
  const box=agentEl('div','agentchat-bubble tool');
  const record=(session.tool_calls||[]).find(c=>c.call_id===item.call_id);
- const state=record?.status||'blocked';
- box.append(agentEl('strong','',(record?.text_fallback?'Text-only Patch proposal':String(item.name||'Unknown tool'))+' · '+state.toUpperCase()));
- if(item.name!=='taskdeck_submit_patch'){
-  box.append(agentEl('p','agentchat-tool-summary','Unrecognized function; execution blocked.'));
+ const detailKey=(suffix)=>session.id+':'+item.call_id+':'+suffix;
+ const detail=(caption,body,suffix)=>{
+  const d=agentEl('details');const key=detailKey(suffix);
+  d.dataset.agentDetailKey=key;
+  d.open=agentOpenReviewDetails.has(key);
+  d.addEventListener('toggle',()=>{
+   if(d.isConnected===false)return;
+   if(d.open)agentOpenReviewDetails.add(key);else agentOpenReviewDetails.delete(key);
+  });
+  d.append(agentEl('summary','',caption),agentEl('pre','agentchat-tool-code',body));
+  return d;
+ };
+ if(item.name==='taskdeck_collect_workspace'){
+  const output=(session.history||[]).find(x=>x.type==='function_call_output'&&x.call_id===item.call_id);
+  box.append(agentEl('span','',output?'Collection · inspected':'Collection · inspecting'));
+  box.append(detail('Inspect read-only Collection request',String(item.arguments||''),'collection-request'));
+  if(output)box.append(detail('Observed workspace result',String(output.content||''),'collection-result'));
   return box;
  }
+ if(item.name!=='taskdeck_submit_patch'){
+  box.append(agentEl('span','','Unsupported tool request · not executed'));
+  return box;
+ }
+ const state=record?.status||'blocked';
+ box.append(agentEl('strong','',(record?.text_fallback?'Text-only Patch proposal':'Patch proposal')+' · '+state.toUpperCase()));
  let args=null;
  try{args=JSON.parse(item.arguments||'');}catch{}
  if(!record||!args||typeof args.patch_python!=='string'){
-  box.append(agentEl('p','agentchat-tool-summary','Malformed/unapproved model tool call. Nothing is executable.'));
+  box.append(agentEl('p','agentchat-tool-summary','No valid approved Patch proposal is available.'));
   return box;
  }
- const details=agentEl('details');
- details.append(agentEl('summary','','Review Python patch · '+String(args.name||'unnamed')));
- details.append(agentEl('pre','agentchat-tool-code',args.patch_python));
- box.append(details);
+ box.append(detail('Review Python patch · '+String(args.name||'unnamed'),args.patch_python,'patch-code'));
  if(record.queue_path)box.append(agentEl('p','agentchat-tool-summary','Native queue: '+record.queue_path));
  if(record.patch_session_id)box.append(agentEl('p','agentchat-tool-summary','Patch Session: '+record.patch_session_id));
- if(record.result){
-  const result=agentEl('pre','agentchat-tool-code',record.result);
-  const summary=agentEl('details');summary.append(agentEl('summary','','Verified tool result / diagnostic'));summary.append(result);box.append(summary);
- }
+ if(record.result)box.append(detail('Verified native result / diagnosis',record.result,'patch-result'));
  const actions=agentEl('div','agentchat-tool-actions');
  if(state==='pending'){
   const approve=agentButton('Approve & run in Patch Tool',()=>agentToolDecision(session,item.call_id,'approve').catch(showAgentError));
   approve.disabled=Boolean(agentApp.sharedMode&&!agentApp.hasPermission?.('patch.run'));
-  const reject=agentButton('Reject patch',()=>agentToolDecision(session,item.call_id,'reject').catch(showAgentError));
-  actions.append(approve,reject);
+  actions.append(approve,agentButton('Reject patch',()=>agentToolDecision(session,item.call_id,'reject').catch(showAgentError)));
  }
- if(state==='running'||state==='dispatching'||state==='queued'){
+ if(['running','dispatching','queued'].includes(state)){
   const refresh=agentButton('Check native Patch status',()=>syncAgentPatch(session.id).catch(showAgentError));
   refresh.disabled=Boolean(agentApp.sharedMode&&!agentApp.hasPermission?.('patch.view'));
   const consoleButton=agentButton('View console',()=>showAgentExecution(session.id,item.call_id).catch(showAgentError));
-  consoleButton.disabled=refresh.disabled;
-  actions.append(refresh,consoleButton);
+  consoleButton.disabled=refresh.disabled;actions.append(refresh,consoleButton);
  }
- if((state==='done'||state==='error'||state==='rejected')&&!record.feedback_sent){
-  const next=agentButton('Send verified result to AI',()=>continueAgentTool(session,item.call_id).catch(showAgentError));
-  actions.append(next);
+ if(['done','error','rejected'].includes(state)){
+  actions.append(agentButton('View native result',()=>showAgentExecution(session.id,item.call_id).catch(showAgentError)));
+  if(!record.feedback_sent)actions.append(agentButton('Send verified result to AI',()=>continueAgentTool(session,item.call_id).catch(showAgentError)));
  }
- if(state==='unknown')actions.append(agentEl('p','agentchat-tool-summary','Execution state unknown. Inspect the linked native Patch session; never re-submit blindly.'));
+ if(state==='unknown')actions.append(agentEl('p','agentchat-tool-summary','Result unverified. Inspect native Patch History before retrying.'));
  if(actions.childElementCount)box.append(actions);
  return box;
 }
 function displayAgentSession(session){
+ // Polling must not close expanded Patch code, jump the reading position, or
+ // destroy the independent console viewer.
+ const wasNearBottom=transcript.scrollHeight-transcript.scrollTop-transcript.clientHeight<64;
+ const oldScroll=transcript.scrollTop;
  transcript.replaceChildren();
- if(!session){toolNotice.hidden=true;transcript.append(agentEl('p','','Create or select a session to begin.'));return;}
+ if(!session){
+  toolNotice.hidden=true;
+  transcript.append(agentEl('p','','Create or select a session to begin.'));
+  return;
+ }
  for(const item of (session.history||[])){
-  if(item.type==='user')transcript.append(agentEl('div',String(item.content||'').startsWith('TaskDeck native Patch Tool result for your prior text-only proposal')?'agentchat-bubble tool':'agentchat-bubble user',userMessageText(item.content)));
+  if(item.type==='user'){
+   const toolFeedback=String(item.content||'').startsWith('TaskDeck native Patch Tool result for your prior text-only proposal');
+   transcript.append(agentEl('div','agentchat-bubble '+(toolFeedback?'tool':'user'),userMessageText(item.content)));
+  }
   if(item.type==='assistant')transcript.append(agentEl('div','agentchat-bubble assistant',item.content));
   if(item.type==='function_call')transcript.append(renderAgentTool(session,item));
-  if(item.type==='function_call_output')transcript.append(agentEl('div','agentchat-bubble tool','Native Patch result sent to AI: '+String(item.call_id||'')));
+  if(item.type==='function_call_output'){
+   const call=(session.history||[]).find(x=>x.type==='function_call'&&x.call_id===item.call_id);
+   const isCollection=call?.name==='taskdeck_collect_workspace';
+   transcript.append(agentEl('div','agentchat-info',isCollection?'Collection result delivered to AI':'Verified native Patch result delivered to AI'));
+  }
  }
- transcript.scrollTop=transcript.scrollHeight;
+ if(wasNearBottom)transcript.scrollTop=transcript.scrollHeight;
+ else transcript.scrollTop=oldScroll;
  renderAgentTabs();
- status.textContent='Session '+session.id.slice(0,8)+' · '+session.status+' · revision '+session.revision+
-  (session.auto_feedback?' · auto-send ON':'');
+ const last=(session.tool_calls||[]).slice(-1)[0];
+ let stateNote='Session '+session.id.slice(0,8)+' · '+session.status+' · revision '+session.revision;
+ if(last&&session.status==='waiting_tool'){
+  if(last.status==='done')stateNote='Patch PASS · '+(last.feedback_sent?'result sent to AI':'result ready to send to AI');
+  else if(last.status==='error')stateNote='Patch failed · inspect verified result';
+  else if(last.status==='running')stateNote='Patch Tool running · monitoring native status';
+  else if(last.status==='unknown')stateNote='Native Patch result unknown · inspect History';
+ }
+ status.textContent=stateNote+(session.auto_feedback?' · auto-send ON':'');
  autoFeedback.textContent=session.auto_feedback?'Auto-send: ON':'Auto-send results';
 }
 async function loadAgentSessions(){
@@ -557,6 +591,7 @@ async function selectAgentSession(id){
  // are per-session too; never let a response race copy one session's state to
  // another tab.
  if(previousID&&previousID!==id){
+  agentExecutionPanel.classList.remove('visible');agentExecutionTarget=null;
   agentDrafts.set(previousID,prompt.value);
   agentAttachmentDrafts.set(previousID,agentAttachments.map(a=>({...a})));
  }
@@ -618,31 +653,38 @@ async function agentToolDecision(session,callID,action){
 }
 async function showAgentExecution(sessionID,callID){
  const data=await agentApp.jsonFetch('/api/agent/sessions/'+encodeURIComponent(sessionID)+'/tools/'+encodeURIComponent(callID)+'/execution');
+ if(agentActive!==sessionID)return;
  const exec=data.execution||{};
  const lines=[];
  lines.push('Status: '+String(exec.status||'unknown')+(exec.native_status?' (native '+exec.native_status+')':''));
  if(exec.run_id||exec.native_run_id)lines.push('Run: '+String(exec.native_run_id||exec.run_id));
  if(exec.feedback_status)lines.push('Result delivery: '+String(exec.feedback_status));
- for(const c of (exec.commands||[]))lines.push('  ['+String(c.index)+'] '+String(c.stage||'')+' '+String(c.status||'')+(c.rc!==undefined?' rc='+c.rc:''));
+ for(const command of (exec.commands||[]))
+  lines.push('  ['+String(command.index)+'] '+String(command.stage||'')+' '+String(command.status||'')+(command.rc!==undefined?' rc='+command.rc:''));
  if((exec.artifacts||[]).length)lines.push('Artifacts: '+exec.artifacts.map(a=>String(a.kind)+(a.primary?'*':'')).join(', '));
  if(exec.stdout_tail)lines.push('--- output tail ---\n'+String(exec.stdout_tail));
- const text=lines.join('\n');
- const dialog=agentEl('div','agentchat-bubble tool');
- dialog.append(agentEl('strong','','Native execution evidence (copy is opt-in)'));
- dialog.append(agentEl('pre','agentchat-tool-code',text));
- const copy=agentButton('Copy evidence',()=>{
-  if(navigator.clipboard) navigator.clipboard.writeText(text).catch(()=>{});
- });
- dialog.append(copy);
- transcript.append(dialog);
- transcript.scrollTop=transcript.scrollHeight;
+ if(exec.verified_result)lines.push('--- verified native result ---\n'+String(exec.verified_result));
+ agentExecutionTarget={sessionID,callID};
+ agentExecutionText=lines.join('\n');
+ agentExecutionContent.textContent=agentExecutionText;
+ agentExecutionPanel.classList.add('visible');
 }
 async function syncAgentPatch(id){
- if(agentSessionBusy(id))return;
+ if(agentSessionBusy(id)){
+  status.textContent='Agent is busy; native Patch status can be checked when the current request finishes.';
+  return null;
+ }
  const result=await agentApp.jsonFetch('/api/agent/sessions/'+encodeURIComponent(id)+'/sync',{
   method:'POST',headers:{'Content-Type':'application/json'},body:'{}',
  });
- await selectAgentSession(id);
+ if(agentActive===id){
+  await selectAgentSession(id);
+  const last=(result.tool_calls||[]).slice(-1)[0];
+  if(last?.status==='done')status.textContent='Native Patch PASS · '+(last.feedback_sent?'result sent to AI':'click Send verified result to AI, or enable Auto-send results');
+  else if(last?.status==='error')status.textContent='Native Patch finished with errors · review its result';
+  else if(last?.status==='running')status.textContent='Native Patch still running or awaiting final verifiable evidence';
+  else if(last?.status==='unknown')status.textContent='Native Patch evidence unavailable · inspect Patch History';
+ }
  return result;
 }
 async function continueAgentTool(session,callID){
