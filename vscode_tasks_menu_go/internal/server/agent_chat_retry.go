@@ -48,12 +48,13 @@ func agentRetryModeForSession(s *Server,owner,id string) agentchat.RetryMode{
  default:return agentchat.RetryOff
  }
 }
-func agentRetryTurnContext(parent context.Context,mode agentchat.RetryMode)(context.Context,context.CancelFunc){
- switch mode{
- case agentchat.RetryLimited:return context.WithTimeout(parent,30*time.Minute)
- case agentchat.RetryUnlimited:return context.WithCancel(parent)
- default:return context.WithTimeout(parent,7*time.Minute)
- }
+// Retry mode limits network reattempts, not the number or total duration of
+// successful Collection observations. A long-running user task remains active
+// until the user stops it, the server shuts down, the model finishes or a
+// non-retryable provider/storage error occurs. Each provider request still has
+// its independent 60-second timeout in agentChatProviderWithRetry.
+func agentRetryTurnContext(parent context.Context,_ agentchat.RetryMode)(context.Context,context.CancelFunc){
+ return context.WithCancel(parent)
 }
 // Permanent 4xx model/auth errors and invalid local request payloads must not
 // be repeated forever. For transient failure, the user's explicit setting
