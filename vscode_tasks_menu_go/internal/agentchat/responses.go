@@ -223,7 +223,7 @@ func BuildResponsesRequest(c RequestConfig) ([]byte, error) {
 		req["tools"] = append(tools, map[string]any{
 			"type":        "function",
 			"name":        "taskdeck_submit_patch",
-			"description": "Submit a Python Patch Tool package. TaskDeck validates the project identity and requires explicit user approval before any execution. Never claim that submission means execution.",
+			"description": "Submit a Python Patch Tool package. TaskDeck validates the project identity and executes only via Native Patch Tool with either a user-enabled per-conversation Auto apply grant or explicit per-Patch approval. Never claim that submission means execution.",
 			"strict":      true,
 			"parameters": map[string]any{
 				"type": "object",
