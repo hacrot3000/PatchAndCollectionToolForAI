@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 
@@ -32,6 +33,8 @@ type agentCollectionAction struct {
 	MaxEntries int      `json:"max_entries,omitempty"`
 	MaxResults int      `json:"max_results,omitempty"`
 	MaxMatches int      `json:"max_matches,omitempty"`
+	StartLine  int      `json:"start_line,omitempty"`
+	MaxLines   int      `json:"max_lines,omitempty"`
 }
 type agentCollectionArguments struct {
 	ID      string                     `json:"id,omitempty"`
@@ -65,6 +68,10 @@ func parseAgentCollectionArguments(raw string, identity patchtool.ProjectIdentit
 		return args, errors.New("Collection requires 1-6 actions")
 	}
 	for _, action := range args.Actions {
+		if action.StartLine < 0 || action.MaxLines < 0 || action.MaxLines > 200 ||
+			(action.Type != "read" && (action.StartLine != 0 || action.MaxLines != 0)) {
+			return args, errors.New("start_line/max_lines are supported only for read; start_line >= 1 and max_lines 1..200")
+		}
 		switch action.Type {
 		case "ls", "tree", "pack", "read", "find", "search":
 		default:
@@ -153,9 +160,120 @@ func agentCollectionRead(root, rel string) (string, error) {
 		return "", errors.New("binary or oversized file cannot be included inline")
 	}
 	if len(data) > 12000 {
-		return string(data[:12000]) + "\n[TRUNCATED: request a narrower source file or search]", nil
+		return agentCollectionUTF8Prefix(string(data), 12000) + "\n[TRUNCATED: read one source file with start_line/max_lines or narrow search]", nil
 	}
 	return string(data), nil
+}
+
+
+// Keep partial read responses valid UTF-8. The legacy read helper deliberately
+// stays bounded; for large source files the explicit read action additionally
+// supports start_line/max_lines so the model can page without repeated errors.
+func agentCollectionUTF8Prefix(source string, maximum int) string {
+ if maximum <= 0 { return "" }
+ if len(source) <= maximum { return source }
+ for maximum > 0 && !utf8.ValidString(source[:maximum]) { maximum-- }
+ return source[:maximum]
+}
+
+func agentCollectionReadPage(root, rel string, startLine, maxLines int) (map[string]string, error) {
+ path, _, err := agentCollectionPath(root, rel)
+ if err != nil {return nil,err}
+ fi,err:=os.Lstat(path)
+ if err!=nil{return nil,err}
+ if !fi.Mode().IsRegular(){return nil,errors.New("not a regular file")}
+ if fi.Size()>128<<10{return nil,errors.New("file is larger than the 128 KiB inline inspection limit")}
+ f,err:=os.Open(path);if err!=nil{return nil,err};defer f.Close()
+ data,err:=io.ReadAll(io.LimitReader(f,(128<<10)+1))
+ if err!=nil{return nil,err}
+ if len(data)>128<<10 || !utf8.Valid(data) || strings.IndexByte(string(data),0)>=0 {
+  return nil,errors.New("binary or oversized file cannot be included inline")
+ }
+ lines:=strings.Split(string(data),"\n")
+ if len(lines)>0 && lines[len(lines)-1]=="" {lines=lines[:len(lines)-1]}
+ total:=len(lines)
+ if startLine<=0 {startLine=1}
+ if maxLines<=0 {maxLines=200}
+ if startLine>total {return map[string]string{"content":"","start_line":strconv.Itoa(startLine),"total_lines":strconv.Itoa(total),"truncated":"false"},nil}
+ var builder strings.Builder
+ end:=startLine-1
+ partialLongLine:=false
+ for end<total && end<startLine-1+maxLines {
+  line:=lines[end]
+  if end+1<total || strings.HasSuffix(string(data),"\n"){line+="\n"}
+  if builder.Len()+len(line)>12000 {
+   if builder.Len()==0 {builder.WriteString(agentCollectionUTF8Prefix(line,12000));partialLongLine=true}
+   break
+  }
+  builder.WriteString(line)
+  end++
+ }
+ out:=map[string]string{"content":builder.String(),"start_line":strconv.Itoa(startLine),
+  "total_lines":strconv.Itoa(total),"truncated":strconv.FormatBool(end<total||partialLongLine)}
+ if end<total {
+  // If one oversized line could not fit, re-requesting the same start_line
+  // cannot advance. Report the limitation explicitly rather than claiming
+  // a usable continuation cursor.
+  if partialLongLine {out["error"]="line exceeds the 12 KiB inline page budget; use narrower search"} else {out["next_line"]=strconv.Itoa(end+1)}
+ }
+ return out,nil
+}
+
+// Oversized batches must preserve structured, truthful partial observations,
+// rather than discarding all successful reads with one generic error. Shrink
+// large data values progressively, then large listings, and annotate losses.
+// Never release another byte of protected data; the path reader above is still
+// the only source of file bytes.
+func agentCollectionBoundResponse(identity patchtool.ProjectIdentity, id string, results []map[string]any) string {
+ envelope:=map[string]any{"id":id,"project":identity,"results":results}
+ body,_:=json.Marshal(envelope)
+ if len(body)<=agentCollectionMaxOutput {return string(body)}
+ envelope["response_truncated"]=true
+ envelope["continuation_hint"]="Results exceeded the read-only response limit. Read one specific file at a time with start_line/max_lines (1..200), or narrow tree/search max_results; continue the original task."
+ for round:=0;round<14;round++{
+  changed:=false
+  for _,out:=range results {
+   if files,ok:=out["files"].([]map[string]string);ok {
+    for _,file:=range files {
+     value:=file["content"]
+     if len(value)>192 {
+      cap:=len(value)/2
+      if cap<192 {cap=192}
+      prefix:=agentCollectionUTF8Prefix(value,cap)
+      if len(prefix)<len(value) {
+       file["content"]=prefix
+       file["content_truncated"]="true"
+       // A shortened read may no longer reach its original next_line.
+       // Expose a conservative overlapping cursor so nothing is skipped.
+       start,_:=strconv.Atoi(file["start_line"]);if start<1{start=1}
+       resume:=strconv.Itoa(start+strings.Count(prefix,"\n"))
+       file["continuation_start_line"]=resume
+       if file["start_line"]!="" {file["next_line"]=resume}
+       out["output_truncated"]=true
+       changed=true
+      }
+     }
+    }
+   }
+   for _,field:=range []string{"entries","matches"} {
+    if items,ok:=out[field].([]string);ok && len(items)>1 {
+     n:=(len(items)+1)/2
+     out[field]=items[:n]
+     out["truncated"]=true
+     out["output_truncated"]=true
+     changed=true
+    }
+   }
+  }
+  body,_=json.Marshal(envelope)
+  if len(body)<=agentCollectionMaxOutput {return string(body)}
+  if !changed {break}
+ }
+ body,_=json.Marshal(map[string]any{"id":id,"project":identity,
+  "error":map[string]any{"code":"COLLECTION_RESULT_BUDGET_EXCEEDED",
+  "message":"Even compacted read-only data cannot fit; request one file or narrower paths",
+  "retry_allowed":true}})
+ return string(body)
 }
 
 func agentCollectionWalk(root, scope string, visit func(string, os.DirEntry) bool) error {
@@ -241,14 +359,13 @@ func executeAgentCollection(root string, identity patchtool.ProjectIdentity, arg
 			}
 			files := make([]map[string]string, 0, len(paths))
 			for _, path := range paths {
-				value, err := agentCollectionRead(root, path)
-				entry := map[string]string{"path": path}
-				if err != nil {
-					entry["error"] = err.Error()
-				} else {
-					entry["content"] = value
-				}
-				files = append(files, entry)
+				var entry map[string]string
+				var err error
+				if action.Type=="read" {entry,err=agentCollectionReadPage(root,path,action.StartLine,action.MaxLines)} else {var value string;value,err=agentCollectionRead(root,path);entry=map[string]string{"content":value}}
+				if entry==nil {entry=map[string]string{}}
+				entry["path"]=path
+				if err!=nil {entry["error"]=err.Error();delete(entry,"content")}
+				files=append(files,entry)
 			}
 			out["files"] = files
 		case "tree", "find", "search":
@@ -310,14 +427,7 @@ func executeAgentCollection(root string, identity patchtool.ProjectIdentity, arg
 		}
 		results = append(results, out)
 	}
-	response := map[string]any{"id": args.ID, "project": identity, "results": results}
-	body, _ := json.Marshal(response)
-	if len(body) > agentCollectionMaxOutput {
-		// The model gets a truthful bounded error, never a sliced JSON fragment.
-		body, _ = json.Marshal(map[string]any{"id": args.ID, "project": identity,
-			"error": "Collection result too large; repeat with fewer actions or narrower paths"})
-	}
-	return string(body)
+	return agentCollectionBoundResponse(identity,args.ID,results)
 }
 
 // A provider without function calling sometimes prints an AI Collection JSON

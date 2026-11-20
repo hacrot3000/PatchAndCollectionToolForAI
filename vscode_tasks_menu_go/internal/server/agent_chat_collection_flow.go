@@ -13,6 +13,12 @@ import (
 	"bletonfc/vscode_tasks_menu/internal/patchtool"
 )
 
+// Collection has no arbitrary count limit. All reads are still bounded
+// individually, cancellation remains available and repeated identical
+// observations are stopped to avoid a non-progressing provider loop.
+// Successful observations are durably journaled before each continuation.
+const agentCollectionMaxIdenticalObservations = 3
+
 // Every Collection request is read-only; local formatting/persistence
 // failures can be diagnosed safely without claiming ambiguous Patch execution.
 type agentCollectionLocalError struct {
@@ -119,9 +125,11 @@ func (s *Server) agentChatRunCollection(
 	// later verified adoption. Only the text-JSON fallback guarantees the
 	// response was not stored and requires discarding provider references.
 	clearProviderRefs := provider.APIType == "chat_completions"
-	// Unlimited Collection rounds: continue until the model stops requesting reads,
-	// the user cancels, or a real provider/storage error occurs.
+	lastReadSignature, repeatedRead := "", 0
 	for round := 0; ; round++ {
+		if err := ctx.Err(); err != nil {
+			return result, clearProviderRefs, &agentCollectionLocalError{Stage:"cancelled_before_collection",Round:round+1,Cause:err}
+		}
 		var args agentCollectionArguments
 		typed, fallback := false, false
 		var validationErr error
@@ -158,6 +166,29 @@ func (s *Server) agentChatRunCollection(
 			observed = string(data)
 		} else {
 			observed = executeAgentCollection(s.Workspace, identity, args)
+		}
+		// A model repeating the same read of identical content is not making
+		// progress. Warn on the second repeat, and checkpoint instead of burning
+		// further provider requests if the model does not change its approach.
+		if validationErr == nil {
+			rawArgs, _ := json.Marshal(args)
+			signature := string(rawArgs) + "\x00" + observed
+			if signature == lastReadSignature { repeatedRead++ } else { lastReadSignature, repeatedRead = signature, 1 }
+			if repeatedRead >= agentCollectionMaxIdenticalObservations {
+				return agentchat.ResponsesResult{ResponseID:result.ResponseID,ConversationID:result.ConversationID,
+					Text:"TaskDeck paused a non-progressing Collection loop after three identical read requests and identical observations. The original task is NOT complete. Inspected evidence is saved in session history; continue with a different file, read start_line/max_lines, or propose a Patch. No file changes were made in this Collection loop."},clearProviderRefs,nil
+			}
+			if repeatedRead == 2 {
+				// Preserve the JSON tool-result contract while telling the model
+				// why it must adjust its inspection plan.
+				var envelope map[string]any
+				if json.Unmarshal([]byte(observed), &envelope) == nil {
+					envelope["read_progress_warning"] = "Repeated identical Collection request and unchanged result; choose another path, page using start_line/max_lines, or submit a Patch. Do not request the same evidence again."
+					if updated, err := json.Marshal(envelope); err == nil {
+						observed = string(updated)
+					}
+				}
+			}
 		}
 		var next agentchat.HistoryItem
 		if typed {

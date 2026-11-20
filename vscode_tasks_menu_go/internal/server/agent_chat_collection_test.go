@@ -166,3 +166,60 @@ func TestAgentChatNativeCollectionFeedsModel(t *testing.T) {
 		t.Fatalf("native Collection flow failed (%d calls): %d %s", count, w.Code, w.Body)
 	}
 }
+
+func TestAgentCollectionOversizeBatchKeepsPaginableResults(t *testing.T) {
+	root := t.TempDir()
+	identity := patchtool.ProjectIdentity{Key:"test-workspace",ID:"00000000-0000-0000-0000-000000000001"}
+	for _, name := range []string{"AGENT.md","FEATURE_CHECKLIST.md","TASK_EXECUTION_STATUS.md"} {
+		if err := os.WriteFile(filepath.Join(root,name), []byte(strings.Repeat("Lập kế hoạch và kiểm thử Unicode.\n",450)),0600);err!=nil {t.Fatal(err)}
+	}
+	args:=agentCollectionArguments{ID:"large-plan",Project:identity,Actions:[]agentCollectionAction{{
+		Type:"pack",Paths:[]string{"AGENT.md","FEATURE_CHECKLIST.md","TASK_EXECUTION_STATUS.md"},
+	}}}
+	result:=executeAgentCollection(root,identity,args)
+	if len(result)>agentCollectionMaxOutput {t.Fatalf("unbounded observation %d",len(result))}
+	var envelope struct {
+		Error json.RawMessage `json:"error"`
+		ResponseTruncated bool `json:"response_truncated"`
+		ContinuationHint string `json:"continuation_hint"`
+		Results []struct {
+			Files []struct {
+				Path string `json:"path"`
+				Content string `json:"content"`
+				Truncated string `json:"content_truncated"`
+			} `json:"files"`
+		} `json:"results"`
+	}
+	if err:=json.Unmarshal([]byte(result),&envelope);err!=nil {t.Fatalf("invalid JSON after compaction: %v",err)}
+	if len(envelope.Error)!=0 || !envelope.ResponseTruncated || len(envelope.Results)!=1 || len(envelope.Results[0].Files)!=3 {
+		t.Fatalf("source result was discarded on overflow: %s",result)
+	}
+	if !strings.Contains(envelope.ContinuationHint,"start_line/max_lines") {t.Fatal("missing pagination guidance")}
+	for _,file:=range envelope.Results[0].Files {
+		if file.Path=="" || !strings.Contains(file.Content,"Lập kế hoạch") || file.Truncated!="true" {
+			t.Fatalf("missing partial Unicode evidence or clipping marker: %+v",file)
+		}
+	}
+	pageArgs:=agentCollectionArguments{ID:"page",Project:identity,Actions:[]agentCollectionAction{{
+		Type:"read",Path:"FEATURE_CHECKLIST.md",StartLine:101,MaxLines:3,
+	}}}
+	paged:=executeAgentCollection(root,identity,pageArgs)
+	var one struct {
+		Results []struct {
+			Files []map[string]string `json:"files"`
+		} `json:"results"`
+	}
+	if err:=json.Unmarshal([]byte(paged),&one);err!=nil {t.Fatal(err)}
+	file:=one.Results[0].Files[0]
+	if file["start_line"]!="101" || file["next_line"]!="104" || file["total_lines"]!="450" ||
+		file["truncated"]!="true" || strings.Count(file["content"],"Lập kế hoạch")!=3 {
+		t.Fatalf("line-paged read omitted or misplaced lines: %+v",file)
+	}
+	for _,invalid :=range []string{
+		`{"actions":[{"type":"read","path":"AGENT.md","start_line":-1}]}`,
+		`{"actions":[{"type":"read","path":"AGENT.md","max_lines":201}]}`,
+		`{"actions":[{"type":"tree","path":".","start_line":2}]}`,
+	} {
+		if _,err:=parseAgentCollectionArguments(invalid,identity);err==nil {t.Fatalf("invalid paging was accepted: %s",invalid)}
+	}
+}
