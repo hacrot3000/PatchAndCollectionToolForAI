@@ -251,47 +251,75 @@ func agentPatchResultFromProtocol(state session.ProtocolState, expect agentPatch
 	return "", "", "", false
 }
 
+// Native batch/resource preflight can fail before queue-selection acknowledgement.
+// Match ONLY a final PREFLIGHT_FAIL for this exact immutable package in this
+// native session. This cannot establish PASS or authorize a new execution.
+func (s *Server) agentVerifiedPreflight(record agentchat.ToolCallRecord, state session.ProtocolState) (string, string, string, bool) {
+ if s.agentVerifyFinalPackage(record)!=nil { return "","","",false }
+ name:=filepath.Base(record.QueuePath)
+ matching:=0
+ for _,item:=range state.Items {
+  if item.Name!=name || strings.ToUpper(item.Kind)!="PATCH" { continue }
+  matching++
+  if record.SelectedIndex>0 && record.SelectedIndex!=item.Index {return "","","",false}
+  if strings.ToUpper(item.Status)!="PREFLIGHT_FAIL" || strings.TrimSpace(item.RunID)=="" {continue}
+  if record.RunID!="" && record.RunID!=item.RunID {return "","","",false}
+  if strings.TrimSpace(item.DiagnosisKind)=="" && strings.TrimSpace(item.FailureReason)=="" {return "","","",false}
+  status,result,runID,ok:=agentPatchResultFromProtocol(state,agentPatchExpectation{
+   Name:name,ItemIndex:item.Index,
+  })
+  if matching!=1||!ok||status!="error"||runID!=item.RunID {return "","","",false}
+  return status,result,runID,true
+ }
+ return "","","",false
+}
+
 // Callers may present status but MUST NOT invent success when the process
 // terminates without a final per-item protocol state.
 func (s *Server) agentReconcilePatchRecord(x *agentToolReconcileView) {
- if x==nil || x.Record.Status!="running" || x.Record.PatchSessionID=="" { return }
- // Only native per-item machine evidence or exact approved archive + History
- // can prove a result. Never convert a queue receipt or terminal exit to PASS.
+ if x==nil || x.Record.PatchSessionID=="" {return}
+ switch x.Record.Status {
+ case "running","dispatching","unknown":
+ default: return
+ }
  var status,result,runID string
- complete:=false
- missingSession:=false
+ complete,missingSession:=false,false
  if s.Sessions!=nil {
   if _,ok:=s.Sessions.Metadata(x.Record.PatchSessionID); !ok {
    missingSession=true
   } else if provider,ok:=s.Sessions.(session.ProtocolStateProvider); ok {
    if state,err:=provider.ProtocolState(x.Record.PatchSessionID); err==nil {
-    expect:=agentPatchExpectation{
-     Name:filepath.Base(x.Record.QueuePath),
-     PromptID:x.Record.PromptID,
-     ItemIndex:x.Record.SelectedIndex,
+    // A previously selected item can finish with PASS or FAIL; a failed
+    // batch preflight before selection can ONLY produce PREFLIGHT_FAIL.
+    if x.Record.Status=="running" && x.Record.SelectedIndex>0 {
+     status,result,runID,complete=agentPatchResultFromProtocol(state,agentPatchExpectation{
+      Name:filepath.Base(x.Record.QueuePath),PromptID:x.Record.PromptID,ItemIndex:x.Record.SelectedIndex,
+     })
     }
-    status,result,runID,complete=agentPatchResultFromProtocol(state,expect)
+    if !complete {
+     status,result,runID,complete=s.agentVerifiedPreflight(x.Record,state)
+    }
    }
   }
  }
+ if !complete {status,result,runID,complete=s.agentFinalResultFromHistory(x.Record)}
  if !complete {
-  status,result,runID,complete=s.agentFinalResultFromHistory(x.Record)
- }
- if !complete {
-  if missingSession {
+  if missingSession && x.Record.Status!="unknown" {
    x.Record.Status="unknown"
-   x.Record.Result="Native session has expired and no uniquely matching approved Patch history was found. Check Patch History; do not rerun automatically."
+   x.Record.Result="Native session expired without unique project-bound final evidence. Check Patch History; never rerun automatically."
    x.Changed=true
   }
   return
  }
  if err:=s.agentVerifyFinalPackage(x.Record); err!=nil {
-  x.Record.Status="unknown"
-  x.Record.Result="Final native Patch evidence exists but neither queue nor archive matches the approved SHA-256. Inspect the existing run; never resubmit automatically."
-  x.Changed=true
+  if x.Record.Status!="unknown" {
+   x.Record.Status="unknown"
+   x.Record.Result="Native Patch evidence could not be matched to approved queue/archive SHA-256. Inspect existing run; do not retry automatically."
+   x.Changed=true
+  }
   return
  }
- if x.Record.RunID!="" && runID!=x.Record.RunID { return }
+ if x.Record.RunID!="" && runID!=x.Record.RunID {return}
  x.Record.Status=status
  x.Record.Result=result
  x.Record.RunID=runID
