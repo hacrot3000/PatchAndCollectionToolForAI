@@ -179,7 +179,15 @@ func (s *Server) agentChatRunCollection(
 					Text:"TaskDeck paused a non-progressing Collection loop after three identical read requests and identical observations. The original task is NOT complete. Inspected evidence is saved in session history; continue with a different file, read start_line/max_lines, or propose a Patch. No file changes were made in this Collection loop."},clearProviderRefs,nil
 			}
 			if repeatedRead == 2 {
-				observed = strings.TrimSuffix(observed, "\n") + "\n[TaskDeck: duplicate read with unchanged output; change path or use start_line/max_lines. Do not request the same pages again.]"
+				// Preserve the JSON tool-result contract while telling the model
+				// why it must adjust its inspection plan.
+				var envelope map[string]any
+				if json.Unmarshal([]byte(observed), &envelope) == nil {
+					envelope["read_progress_warning"] = "Repeated identical Collection request and unchanged result; choose another path, page using start_line/max_lines, or submit a Patch. Do not request the same evidence again."
+					if updated, err := json.Marshal(envelope); err == nil {
+						observed = string(updated)
+					}
+				}
 			}
 		}
 		var next agentchat.HistoryItem
