@@ -109,7 +109,6 @@ func (s *Server) agentChatSessionsAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	providerID, modelID := req.ProviderID, req.ModelID
-	providerAPIType := ""
 	if providerID != "" {
 		registry, err := s.agentChatProviders()
 		if err != nil {
@@ -121,7 +120,6 @@ func (s *Server) agentChatSessionsAPI(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "provider not configured", 400)
 			return
 		}
-		providerAPIType = p.APIType
 		if modelID == "" {
 			modelID = p.Models[0].ID
 		}
