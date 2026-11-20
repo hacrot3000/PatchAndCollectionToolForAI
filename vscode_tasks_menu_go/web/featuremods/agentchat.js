@@ -214,7 +214,11 @@ const archive=agentButton('Archive',()=>archiveAgentSession().catch(showAgentErr
 const deleteChat=agentButton('Delete conversation',()=>deleteAgentSession(agentActive).catch(showAgentError));
 const autoPatch=agentButton('Auto apply Patch: OFF',()=>toggleAgentAutomation('patch').catch(showAgentError));
 const autoCollection=agentButton('Auto Collection: ON',()=>toggleAgentAutomation('collection').catch(showAgentError));
+autoPatch.title='When enabled, proposed Python Patches run automatically via native validation, workspace drift checks and the Patch Tool. Turning OFF does not cancel work already queued.';
+autoCollection.title='Read-only workspace inspection. When disabled, Agent requests that require Collection stop before accessing files.';
+autoFeedback.title='Send verified native Patch results to the selected provider until turned off. Each result is sent at most once.';
 rename.disabled=true;archive.disabled=true;deleteChat.disabled=true;
+autoPatch.disabled=true;autoCollection.disabled=true;autoFeedback.disabled=true;
 function makeAgentHeaderGroup(label,items){
  const group=agentEl('details','agentchat-header-group');
  const summary=agentEl('summary','',label+' ▾');
@@ -973,6 +977,7 @@ function renderAgentAttachments(){
 function renderAgentAutomationControls(session){
  const exists=Boolean(session);
  rename.disabled=!exists;archive.disabled=!exists;deleteChat.disabled=!exists;
+ autoPatch.disabled=!exists;autoCollection.disabled=!exists;autoFeedback.disabled=!exists;
  autoPatch.textContent='Auto apply Patch: '+(session?.auto_patch?'ON':'OFF');
  autoPatch.setAttribute('aria-pressed',String(Boolean(session?.auto_patch)));
  autoCollection.textContent='Auto Collection: '+(session?.auto_collection===false?'OFF':'ON');
