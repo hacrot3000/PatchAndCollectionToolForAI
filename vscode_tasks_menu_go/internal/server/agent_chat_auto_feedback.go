@@ -103,7 +103,7 @@ func agentAutoPatchCandidate(x agentchat.Session) (string, bool) {
 		return "",false
 	}
 	for _,call:=range x.ToolCalls {
-		if call.Status == "pending" && !call.FeedbackSent {
+		if call.Status == "pending" && !call.FeedbackSent && !call.ManualRetryOnly {
 			return call.CallID,true
 		}
 		switch call.Status {
