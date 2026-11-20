@@ -241,13 +241,11 @@ func (s *Server) agentDeliverToolResult(ctx context.Context, store *agentchat.St
 	// The Patch feedback may trigger several read-only Collection turns.
 	// Keep one cancelable multi-call scope alive across the whole sequence;
 	// the provider's individual request deadline remains 60 seconds.
-	continuationCtx, continuationCancel := context.WithTimeout(ctx, 7*60*time.Second)
+	continuationCtx, continuationCancel := agentRetryTurnContext(ctx, x.RetryMode)
 	defer continuationCancel()
 	releaseRequest := registerAgentRequest(agentRequestKey(s.Workspace, owner, x.ID), continuationCancel)
 	defer releaseRequest()
-	callCtx, callCancel := context.WithTimeout(continuationCtx, 60*time.Second)
-	result, err, _ := s.agentChatCallForOwner(callCtx, owner, x.ID, p, string(secret), payload)
-	callCancel()
+	result, err, _ := s.agentChatCallForOwner(continuationCtx, owner, x.ID, p, string(secret), payload)
 	if err != nil {
 		if errors.Is(callCtx.Err(), context.Canceled) {
 			s.recordAgentDebugEvent(owner, x.ID, call.CallID, "feedback", "feedback.unknown", "FEEDBACK_DELIVERY_UNKNOWN", "Provider acknowledgement was not confirmed; result will not be resent")
