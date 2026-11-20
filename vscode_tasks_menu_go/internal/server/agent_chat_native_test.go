@@ -132,8 +132,10 @@ func TestAgentToolContinuationExactCallIDAndOnceOnly(t *testing.T) {
 		if !strings.Contains(output["output"].(string), `"PASS"`) {
 			t.Fatal("missing verified native status")
 		}
-		if len(req["tools"].([]any)) != 1 {
-			t.Fatal("patch tool contract not refreshed")
+		tools := req["tools"].([]any)
+		if len(tools) != 2 || tools[0].(map[string]any)["name"] != "taskdeck_collect_workspace" ||
+			tools[1].(map[string]any)["name"] != "taskdeck_submit_patch" {
+			t.Fatal("Collection/Patch tool contract not refreshed")
 		}
 		return agentchat.ResponsesResult{ResponseID: "resp_after_tool", Text: "Patch verified as PASS"}, nil
 	}
