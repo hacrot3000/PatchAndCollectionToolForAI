@@ -384,7 +384,7 @@ function openEditorContextMenu(view,x,y,selectionSnapshot=null){
   const snapshotRanges=selectionSnapshot?.ranges?.length?selectionSnapshot.ranges:[selectionSnapshot?.main];
   if(browserSelection&&view.cm?.contentDOM?.contains(window.getSelection()?.anchorNode)&&!snapshotRanges.some(range=>range&&range.from!==range.to)){
     const browserContext=globalThis.TaskMenuEditor?.getTextSelectionContext?.({view});
-    if(browserContext)chatActions.push({label:'Attach selected text to Chat',run:async options=>{
+    if(browserContext)chatActions.push({label:'Add selection to chat',run:async options=>{
       const sessionID=options?.session_id??targetSessionID;
       const staged=await globalThis.TaskMenuAgentChat?.stageContext?.(browserContext,{open:true,...(sessionID?{session_id:sessionID}:{})});
       if(!staged?.ok)throw new Error(staged?.error||'Could not attach the selected text to Chat.');return staged;
