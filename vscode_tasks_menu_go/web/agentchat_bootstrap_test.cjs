@@ -814,7 +814,7 @@ console.log('PASS: Agent Chat bootstraps and dock position/auto-hide state trans
     tool_calls:[],retry_mode:'limited'};
   context.retryBase=retryBase;
   vm.runInNewContext("agentActive='retry-progress';displayAgentSession(retryBase);renderAgentAutomationControls(retryBase);",context);
-  const retryControl=find(windowBox,node=>node.tagName==='button'&&node.textContent==='AI retry: 5 attempts (10s)');
+  const retryControl=find(windowBox,node=>node.tagName==='button'&&node.textContent==='AI retry: 5 retries (10s)');
   assert.ok(retryControl,'retry policy control must be available for the selected conversation');
   const retryWaiting={...retryBase,retry_runtime:{
     mode:'limited',attempt:2,phase:'waiting',last_code:'HTTP_503',
