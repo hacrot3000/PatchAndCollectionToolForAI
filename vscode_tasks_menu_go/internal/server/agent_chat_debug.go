@@ -130,7 +130,9 @@ func randomAgentTraceID() string {
 func (d *agentDebugStore) owner(owner string) *agentDebugOwner {
 	o := d.owners[owner]
 	if o == nil {
-		o = &agentDebugOwner{}
+		// Safe metadata capture is always on. Operators must not need to
+		// enable it *before* a failure, and it never stores prompt bodies.
+		o = &agentDebugOwner{State: agentDebugState{Enabled: true}}
 		d.owners[owner] = o
 	}
 	return o
@@ -142,12 +144,10 @@ func (s *Server) startAgentDebug(owner, action, sessionID string, p agentchat.Pr
 	recorder := &agentDebugRecorder{store: store, owner: owner, traceID: id}
 	store.mu.Lock()
 	o := store.owner(owner)
-	if o.State.Enabled {
-		trace := &agentDebugTrace{ID: id, CreatedAt: now, UpdatedAt: now, Action: action, SessionID: sessionID, ProviderID: p.ID, ModelID: modelID, Events: make([]agentDebugEvent, 0, 8)}
-		o.Traces = append(o.Traces, trace)
-		store.pruneLocked(o, now)
-		store.addLocked(o, trace, agentDebugEvent{At: now, Level: "info", Stage: "agent", Event: action + ".started", ProviderID: p.ID, ModelID: modelID, Redacted: true})
-	}
+	trace := &agentDebugTrace{ID: id, CreatedAt: now, UpdatedAt: now, Action: action, SessionID: sessionID, ProviderID: p.ID, ModelID: modelID, Events: make([]agentDebugEvent, 0, 8)}
+	o.Traces = append(o.Traces, trace)
+	store.pruneLocked(o, now)
+	store.addLocked(o, trace, agentDebugEvent{At: now, Level: "info", Stage: "agent", Event: action + ".started", ProviderID: p.ID, ModelID: modelID, Redacted: true})
 	store.mu.Unlock()
 	return recorder, id
 }
@@ -156,16 +156,23 @@ func (s *Server) recordAgentDebugEvent(owner, sessionID, callID, stage, event, c
 	store.mu.Lock()
 	defer store.mu.Unlock()
 	o := store.owner(owner)
-	if !o.State.Enabled {
-		return
-	}
+	// Even a failure before provider egress needs a reportable trace.
+	// Bind to the most recent session trace when possible, otherwise add a
+	// dedicated local trace rather than silently losing the error.
+	var trace *agentDebugTrace
 	for i := len(o.Traces) - 1; i >= 0; i-- {
-		trace := o.Traces[i]
-		if trace.SessionID == sessionID {
-			store.addLocked(o, trace, agentDebugEvent{At: time.Now().UTC(), Level: map[bool]string{true: "error", false: "info"}[code != ""], Stage: stage, Event: event, Code: code, SafeMessage: message, ToolCallID: callID, Redacted: true})
-			return
+		if o.Traces[i].SessionID == sessionID {
+			trace = o.Traces[i]
+			break
 		}
 	}
+	if trace == nil {
+		now := time.Now().UTC()
+		trace = &agentDebugTrace{ID: randomAgentTraceID(), CreatedAt: now, UpdatedAt: now, Action: "local_agent_event", SessionID: sessionID}
+		o.Traces = append(o.Traces, trace)
+		store.pruneLocked(o, now)
+	}
+	store.addLocked(o, trace, agentDebugEvent{At: time.Now().UTC(), Level: map[bool]string{true: "error", false: "info"}[code != ""], Stage: stage, Event: event, Code: code, SafeMessage: scrubAIContext(agentchat.SafeProviderText(message), 900), ToolCallID: callID, Redacted: true})
 }
 func (d *agentDebugStore) pruneLocked(o *agentDebugOwner, now time.Time) {
 	if !now.Before(o.State.RawUntil) {
@@ -192,9 +199,6 @@ func (r *agentDebugRecorder) RecordProviderDiagnostic(ev agentchat.DiagnosticEve
 	defer r.store.mu.Unlock()
 	o := r.store.owner(r.owner)
 	r.store.pruneLocked(o, time.Now())
-	if !o.State.Enabled {
-		return
-	}
 	var trace *agentDebugTrace
 	for _, candidate := range o.Traces {
 		if candidate.ID == r.traceID {
@@ -358,7 +362,9 @@ func (s *Server) agentChatDebugStateAPI(w http.ResponseWriter, r *http.Request) 
 	}
 	store.mu.Lock()
 	o := store.owner(owner)
-	o.State.Enabled = req.Enabled
+	// Preserve the legacy POST contract while keeping privacy-safe diagnostic
+	// metadata capture permanently enabled. Raw payloads remain opt-in.
+	o.State.Enabled = true
 	if !req.Enabled || req.DisableRaw {
 		o.State.RawUntil = time.Time{}
 		for _, t := range o.Traces {
