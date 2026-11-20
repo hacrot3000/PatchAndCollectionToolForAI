@@ -646,16 +646,19 @@ function updateAgentSessionRows(){
   const label=(sess.archived?'[archived] ':'')+(sess.title||sess.model_id)+' · '+sess.status;
   let button=agentSessionListNodes.get(sess.id);
   if(!button){
+   const row=agentEl('div','agentchat-session-row');
    button=agentButton(label,()=>{toggleAgentSessions(false);selectAgentSession(sess.id).catch(showAgentError);});
    button.title=sess.id;agentSessionListNodes.set(sess.id,button);
-   sessionList.append(button);
+   const remove=agentButton('Delete',()=>deleteAgentSession(sess.id).catch(showAgentError));
+   remove.className='delete';remove.title='Permanently delete this conversation';
+   row.append(button,remove);sessionList.append(row);
   }
   if(button.textContent!==label)button.textContent=label;
   const cls='agentchat-session'+(sess.id===agentActive?' selected':'');
   if(button.className!==cls)button.className=cls;
  }
  for(const [id,node] of agentSessionListNodes){
-  if(!wanted.has(id)){node.remove();agentSessionListNodes.delete(id);}
+  if(!wanted.has(id)){node.parentElement?.remove();agentSessionListNodes.delete(id);}
  }
  if(!agentSessions.length){
   if(!sessionList.children.length)sessionList.append(agentEl('p','agentchat-info','No saved chat sessions.'));
@@ -732,7 +735,7 @@ async function selectAgentSession(id){
   toolNotice.replaceChildren();
   const toolStatus=data.patch_tool_status;
   if(toolStatus==='enabled'){
-   toolNotice.textContent='Native Patch available: proposals require explicit approval; read-only Collection results continue automatically.';
+   toolNotice.textContent='Native Patch available · '+(sess.auto_patch?'automatic approval enabled for this conversation.':'manual approval.') ;
   }else{
    const reasons={model_disabled:'Tool calling is disabled for this model.',unverified:'Tool calling has not been verified for this provider and model.',unavailable:'Provider or capability information is unavailable.'};
    toolNotice.append(agentEl('span','',(reasons[toolStatus]||'Patch tool status is unavailable.')+' Text-only Patch JSON proposals can still be reviewed and executed through native Patch approval. '));
@@ -751,12 +754,14 @@ async function selectAgentSession(id){
   modeSelect.value=sess.mode;
   effortSelect.value=sess.reasoning_effort||'';
  }
+ renderAgentAutomationControls(sess);
  send.disabled=agentSessionBusy(id)||(sess.status==='requesting_ai');
  cancel.disabled=!agentSessionBusy(id)&&sess.status!=='requesting_ai';
  const summary=agentSessions.find(x=>x.id===id);
  if(summary){
   summary.status=sess.status;
   summary.title=sess.title;summary.archived=sess.archived;
+  summary.auto_patch=sess.auto_patch;summary.auto_collection=sess.auto_collection;summary.auto_feedback=sess.auto_feedback;
   updateAgentSessionRows();
  }
  openAgentTab(id);
@@ -896,7 +901,8 @@ async function sendAgentMessage(){
  const msg=prompt.value.trim();
  const attachments=(agentAttachments||[]).map(a=>({...a}));
  if(!msg)throw new Error('Enter a message.');
- if(!window.confirm('Send this request, its text attachments'+(attachments.length?' ('+attachments.length+')':'')+' and, on the first turn, the TaskDeck AI Pack to the selected external provider? This chat may propose patch execution, which requires a separate approval.'))return;
+ // Sending the message is the user's explicit action and provider sharing
+ // authorization. No redundant modal is shown on every send.
  const s=await selectAgentSession(sessionID);
  if(!s||agentActive!==sessionID)return;
  agentBusy=true;markAgentSessionBusy(sessionID,true);
@@ -920,8 +926,8 @@ async function sendAgentMessage(){
   if(agentActive===sessionID){prompt.value='';agentAttachments=[];renderAgentAttachments();}
   if(agentActive===sessionID)await selectAgentSession(sessionID);
   if(agentActive===sessionID){
-   status.textContent=response.status==='waiting_tool'?'AI requested a patch; review/approve explicitly.':
-    'Response received. No commands executed.';
+   status.textContent=response.status==='waiting_tool'?(s.auto_patch?'AI proposed a Patch · automatic native approval enabled.':'AI proposed a Patch · review and approve to run.'):
+    'Response received.';
   }
  }catch(error){
   agentDrafts.set(sessionID,msg);
@@ -956,25 +962,42 @@ function pickAgentAttachment(){
 }
 function renderAgentAttachments(){
  if(!agentAttachments.length){attachList.textContent='';return;}
- attachList.textContent='Attachments (sent to the provider with consent): '+agentAttachments.map(a=>a.name).join(', ');
+ attachList.textContent='Attachments sent with request: '+agentAttachments.map(a=>a.name).join(', ');
 }
-async function toggleAutoFeedback(){
- if(!agentActive)return;
+function renderAgentAutomationControls(session){
+ const exists=Boolean(session);
+ rename.disabled=!exists;archive.disabled=!exists;deleteChat.disabled=!exists;
+ autoPatch.textContent='Auto apply Patch: '+(session?.auto_patch?'ON':'OFF');
+ autoPatch.setAttribute('aria-pressed',String(Boolean(session?.auto_patch)));
+ autoCollection.textContent='Auto Collection: '+(session?.auto_collection===false?'OFF':'ON');
+ autoCollection.setAttribute('aria-pressed',String(session?.auto_collection!==false));
+ const feedbackActive=Boolean(session?.auto_feedback)&&
+  (!session?.auto_feedback_until || Date.parse(session.auto_feedback_until)>Date.now());
+ autoFeedback.textContent='Auto-send results: '+(feedbackActive?'ON':'OFF');
+ autoFeedback.setAttribute('aria-pressed',String(feedbackActive));
+}
+async function toggleAgentAutomation(option){
+ if(!agentActive)throw new Error('Select a conversation first.');
  const session=await selectAgentSession(agentActive);
- const enable=!session.auto_feedback;
- if(enable){
-  if(!window.confirm('Automatically send each VERIFIED native Patch result to the external provider for the next 30 minutes?\n\nThis never approves or runs a patch: you must still approve every proposal. You can turn this off at any time.'))return;
- }
- const body={enabled:enable,expected_revision:session.revision};
- if(enable)body.confirm_external=true;
- const result=await agentApp.jsonFetch('/api/agent/sessions/'+encodeURIComponent(session.id)+'/auto-feedback',{
-  method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body),
+ if(!session||agentSessionBusy(session.id))throw new Error('Conversation is busy.');
+ const current=option==='patch'?Boolean(session.auto_patch):
+  option==='collection'?session.auto_collection!==false:
+  Boolean(session.auto_feedback) && (!session.auto_feedback_until || Date.parse(session.auto_feedback_until)>Date.now());
+ const enabled=!current;
+ const result=await agentApp.jsonFetch('/api/agent/sessions/'+encodeURIComponent(session.id)+'/automation',{
+  method:'POST',headers:{'Content-Type':'application/json'},
+  body:JSON.stringify({option,enabled,expected_revision:session.revision,
+   confirm_execution:option==='patch'&&enabled,
+   confirm_external:option==='feedback'&&enabled}),
  });
- await selectAgentSession(session.id);
- status.textContent=result.auto_feedback
-  ?'Auto-send enabled until '+new Date(result.auto_feedback_until).toLocaleTimeString()+'. Patch execution still requires approval.'
-  :'Auto-send disabled.';
+ const latest=await selectAgentSession(session.id);
+ renderAgentAutomationControls(latest||result.session);
+ status.textContent=(option==='patch'?'Automatic native Patch approval':
+  option==='collection'?'Read-only Collection':'Automatic provider feedback')+
+  (enabled?' enabled for this conversation.':' disabled for this conversation.')+
+  (option==='feedback'&&enabled?' The grant lasts 30 minutes.':'');
 }
+async function toggleAutoFeedback(){return toggleAgentAutomation('feedback');}
 function openTaskManifestPreview(){planOverlay.classList.add('visible');}
 function downloadTaskManifest(){
  if(!lastValidatedManifest||!lastValidatedManifest.valid)return;
@@ -1041,6 +1064,32 @@ async function cancelAgentTurn(){
   status.textContent='Cancel request failed: '+String(error?.message||error);
   throw error;
  }
+}
+async function deleteAgentSession(id){
+ if(!id)return;
+ const data=await agentApp.jsonFetch('/api/agent/sessions/'+encodeURIComponent(id));
+ const sess=data.session;
+ if(!sess)throw new Error('Conversation not found.');
+ if(!window.confirm('Permanently delete conversation "'+(sess.title||sess.model_id||id.slice(0,8))+'"? This deletes its local chat history and cannot be undone. Running Patch executions cannot be deleted.'))return;
+ await agentApp.jsonFetch('/api/agent/sessions/'+encodeURIComponent(id),{
+  method:'DELETE',headers:{'Content-Type':'application/json'},
+  body:JSON.stringify({expected_revision:sess.revision}),
+ });
+ agentTabs=agentTabs.filter(x=>x!==id);
+ agentDrafts.delete(id);agentAttachmentDrafts.delete(id);agentRequestIDs.delete(id);
+ for(const key of [...agentOpenReviewDetails])if(key.startsWith(id+':'))agentOpenReviewDetails.delete(key);
+ if(agentActive===id){
+  agentActive=null;agentCurrentSession=null;
+  agentExecutionPanel.classList.remove('visible');agentExecutionTarget=null;
+  agentRenderedSessionID=null;agentRenderedHistory=[];agentRenderedNodes=[];agentRenderedToolVersions.clear();
+  prompt.value='';agentAttachments=[];renderAgentAttachments();
+ }
+ await loadAgentSessions();
+ if(agentActive)await selectAgentSession(agentActive);
+ else if(agentTabs.length)await selectAgentSession(agentTabs[agentTabs.length-1]);
+ else if(agentSessions.length)await selectAgentSession(agentSessions[0].id);
+ else {displayAgentSession(null);renderAgentAutomationControls(null);}
+ status.textContent='Conversation deleted.';
 }
 async function renameAgentSession(){
  if(!agentActive)return;
