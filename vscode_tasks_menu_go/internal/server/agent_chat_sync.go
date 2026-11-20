@@ -43,13 +43,14 @@ func (s *Server) agentChatSyncAPI(w http.ResponseWriter, r *http.Request, id str
 	}
 	changed := false
 	for i, record := range x.ToolCalls {
-		if record.Status != "running" || record.PatchSessionID == "" {
+		if (record.Status != "running" && record.Status != "unknown" && record.Status != "dispatching") || record.PatchSessionID == "" {
 			continue
 		}
 		view := agentToolReconcileView{Record: record}
 		s.agentReconcilePatchRecord(&view)
 		if view.Changed {
 			x.ToolCalls[i] = view.Record
+			if view.Record.Status=="done" || view.Record.Status=="error" {x.Status="waiting_tool"}
 			x.AppendEvent("tool_final", view.Record.Status, record.CallID, "")
 			changed = true
 		}
@@ -107,6 +108,7 @@ func (s *Server) agentReconcilePendingOnStartup(ctx context.Context) {
 			s.agentReconcilePatchRecord(&view)
 			if view.Changed {
 				sess.ToolCalls[j] = view.Record
+				if view.Record.Status=="done" || view.Record.Status=="error" {sess.Status="waiting_tool"}
 				changed = true
 			}
 		}
