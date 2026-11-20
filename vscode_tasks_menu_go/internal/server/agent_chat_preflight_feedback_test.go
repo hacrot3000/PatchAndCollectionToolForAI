@@ -213,7 +213,7 @@ func TestAgentCollectionReadFailureIsReturnedToAIWithoutASecondApproval(t *testi
   for _,item:=range req.Input {
    if item["type"]=="function_call_output" && item["call_id"]=="collect-file-missing" {
     if strings.Contains(item["output"].(string),"not-created.php") &&
-     strings.Contains(item["output"].(string),`\"error\"`) {found=true}
+     strings.Contains(item["output"].(string),`"error"`) {found=true}
    }
   }
   if !found {
