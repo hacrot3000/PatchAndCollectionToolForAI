@@ -4,7 +4,7 @@
 
 ## Hiện trạng
 
-`internal/agentchat/providers.go` chỉ hỗ trợ Responses, xác thực HTTPS và public DNS tại kết nối, từ chối proxy/redirect, timeout; metadata owner-scoped file JSON riêng. `internal/server/agent_chat_providers.go` có GET/PUT và test text đơn giản; key ở `ConnectionSecrets`, `agentProviderSecretID` gắn workspace/owner/provider. PUT ghi key trước metadata nên cần xét lỗi nửa chừng. `web/featuremods/agentchat.js` sửa JSON, nhập key write-only; chưa có xóa hay probe nâng cao. `ModelConfig.ToolCalling` hiện là khai báo, không phải bằng chứng đã probe.
+Provider schema supports `responses` and `chat_completions`; metadata is owner-scoped, keys use encrypted `ConnectionSecrets`, and provider API type participates in capability fingerprinting. HTTPS/public-IP DNS pinning, no proxy/redirect, bounded response, write-only key API and local credential deletion are present. Capability probes are stored separately from declared model capabilities; only verified tool support enables the Patch function. The Chat adapter is stateless and does not forward reasoning fields without a vendor-specific contract.
 
 ## F02.1.2/F02.2.1 — lifecycle và settings
 
@@ -21,12 +21,12 @@
 
 ## F02.3.2/F02.3.3 — adapter
 
-Trích transport dùng chung từ `DoResponses` để streaming giữ nguyên DNS pin, TLS, cấm redirect/proxy, giới hạn bytes/time và cancellation; parser incremental có giới hạn frame/total, tập hợp function arguments theo event rồi chỉ persist kết quả hoàn chỉnh. Phân loại timeout/429/4xx/5xx không lộ secret; backoff chỉ cho probe/read an toàn, không tự retry turn không rõ kết quả. Test fragmented UTF-8/SSE, event lặp, EOF thiếu completion, cancel, tool-call ID. Chỉ xây Chat Completions/Messages khi được duyệt riêng; adapter phải ánh xạ canonical history và không giả định hỗ trợ tool/stateful.
+Responses SSE và Chat Completions có parser/adapter riêng, đều dùng chung transport hardening (DNS public-IP pin, no proxy/redirect, TLS/timeout/body bounds). Chat adapter ánh xạ canonical messages/tool IDs/tool results về Chat Completions, parser chặn finish reason không hỗ trợ và ghép tool arguments theo index/call ID; Chat mode stateless, không giả lập `previous_response_id`/Conversations. Tool vẫn đi cùng gateway/approval hiện hành. Không có adapter Anthropic Messages trong scope.
 
 ## Trạng thái sau đợt hardening
 
-Đã có: `DELETE /api/agent/providers` (metadata và tùy chọn xóa credential cục bộ, nêu rõ không phải revoke phía vendor, báo partial failure), `POST /api/agent/providers/probe` lưu evidence theo fingerprint endpoint/model/API type/config/bump version, `tool_calling: verified` là điều kiện duy nhất để bật `taskdeck_submit_patch`. Probe lỗi/timeout/429 = `inconclusive`; streaming = `unsupported` vì adapter chưa có. Đã có thêm streaming SSE adapter (`internal/agentchat/stream.go`) với giới hạn event/tổng byte, yêu cầu completion, giới hạn tool-call fragments; chỉ dùng khi probe `streaming: verified` và provider bật `stream`. Chưa có: Chat Completions/Messages, model discovery, pricing/token accounting.
+Trạng thái hiện tại: `DELETE /api/agent/providers` xóa metadata và tùy chọn credential cục bộ (không tuyên bố revoke ở vendor); probe evidence gắn endpoint/model/API type/config fingerprint. Chat Completions adapter (`internal/agentchat/chat_completions.go`) + SSE (`chat_completions_stream.go`) đã thêm, tool capability vẫn phải probe verified và đi qua cùng approval gateway. Stateful refs không được gửi trong Chat mode; generic reasoning options bị tắt vì khác nhau theo vendor. Anthropic Messages vẫn deferred; model discovery/pricing/token accounting vẫn thiếu. Không có provider live smoke.
 
-## P0 — Declared tool capability không phải verified capability
+## P0 — Capability evidence boundary
 
-`agentChatMessageAPI` hiện lấy `model.ToolCalling` từ cấu hình người dùng và đưa trực tiếp vào `EnablePatchTool`; **không đợi probe**. Vì vậy phần F02.2.2 là việc **chưa hoàn tất**, không phải bảo đảm sẵn có. Phải probe với function vô hại, consent rõ, fingerprint endpoint/model; lỗi timeout/429/5xx là inconclusive chứ không phải unsupported. Basic `/api/agent/providers/test` chỉ chứng minh text Responses, không chứng minh tool calling, Conversations, `previous_response_id` hay streaming. Chặn auto-execution khi capability chưa verified. [Source audit](09-source-audit.md).
+The code gates `taskdeck_submit_patch` on verified probe evidence for the selected provider/model fingerprint; a declared `ModelConfig.ToolCalling` flag alone does not enable the tool. Chat Completions is stateless and does not claim previous-response/Conversations support. Mock tests cover adapter/capability mapping; no real external provider was used, so provider-live compatibility remains **NOT VERIFIED**. Scrubbing and preview are best-effort, not a guarantee. [Source audit](09-source-audit.md).

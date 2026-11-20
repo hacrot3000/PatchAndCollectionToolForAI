@@ -1,10 +1,10 @@
-# F08 — Planner tương lai, chưa triển khai
+# F08 — Task planning và execution scheduler
 
-Điều hướng: [kế hoạch chung](README.md). Áp dụng F08, F08.1, F08.1.1, F08.2, F08.2.1–F08.2.2. Đây là ghi chú kiến trúc, không phải quyền triển khai planner/scheduler trong phạm vi hiện tại.
+Điều hướng: [kế hoạch chung](README.md). F08.1 đã được triển khai ở mức parse/validate/preview; F08.2, F08.2.1–F08.2.2 vẫn là tương lai/không được triển khai theo yêu cầu hiện tại.
 
-## F08.1 — manifest sau khi được duyệt
+## F08.1 — Markdown/canonical JSON manifest: IMPLEMENTED (planning-only)
 
-Chỉ bắt đầu sau khi có yêu cầu riêng và F03/F05/F06/F07 đạt gate tương ứng. Dự kiến parse Markdown thành `TaskManifest` versioned, mỗi task có ID ổn định, mục tiêu, source refs, dependency IDs, quyền/tài nguyên, acceptance và giới hạn; coi Markdown/LLM output là không tin cậy. Validate schema/size/count, duplicate, ID lạ, cycle, dependency không tồn tại; reject thay vì tự sửa đồ thị. Cần test đồ thị vòng, disconnected, input quá lớn và content độc hại. Chốt schema/hành vi trước code.
+Package `internal/taskmanifest` parses bounded Markdown and strict versioned canonical JSON into a deterministic manifest. It validates project binding, IDs, duplicate IDs, unknown/self/duplicate dependencies, cycles, acceptance warnings, count/input limits, and reports roots/blocked/topological preview. `POST /api/agent/task-manifests/validate` derives the active project ID server-side, checks permission, performs no provider call, writes no file/task and invokes no executor. The Agent Chat UI accepts Markdown or canonical JSON, renders issues/graph preview, and permits download of valid canonical JSON. `planning_only:true` and `execution_enabled:false` are part of the response contract. No user Markdown is treated as shell/Patch instructions.
 
 ## F08.2 — scheduler sau khi được duyệt
 

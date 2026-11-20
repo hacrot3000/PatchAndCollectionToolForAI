@@ -19,7 +19,7 @@
 6. Every execution emits `QUEUE`, `RUNNING`, `DONE`, `ERROR` or `CANCELLED` along with timing, command/script subitems, console view/copy actions and persistent artifact references. Collect bounded logs/diffs/results to return as `function_call_output` with the *same* `call_id`.
 7. Remote execution reuses the existing TaskDeck E2EE dispatcher and server-enforced permissions. Remote hosts never need an AI key; sending context to an external model is a separate security/consent boundary from TaskDeck E2EE.
 8. Enforce per-session and global limits for model calls, run iterations, wall time, tokens/cost, log bytes, payload bytes and workspace writes. Stop and surface a recoverable error on timeout or ambiguous completion; do not blindly replay a side-effecting tool call.
-9. **Future only**: plan.md → validated Task Manifest → dependency DAG → scheduler with configurable concurrency → isolated Agent Sessions/worktrees → controlled integration. Do **not** implement planner/task splitting yet.
+9. **Planning implemented, execution future only**: F08.1 Markdown/canonical JSON → validated Task Manifest and read-only preview is implemented. F08.2 dependency DAG execution/scheduler, worktrees and controlled integration remain deferred; do **not** implement task execution/splitting.
 
 ## 2. Existing codebase / do-not-regress map (verified on 2026-11-19)
 
@@ -85,19 +85,19 @@ These are **design targets**, not promises that routes already exist.
 - [x] F01.3 Align exact native Patch Tool schema and remote execution protocol with this proposal. — [Tài liệu triển khai](taskdeck_ai_agent/01-architecture.md)
   - [x] F01.3.1 Pin proven parser/queue/execution APIs with source-line references; no duplicate parser. — [Tài liệu triển khai](taskdeck_ai_agent/01-architecture.md)
 
-### F02 — Model/provider settings & credentials [DONE except F02.3.3 (Chat Completions/Messages, explicitly later)] — [Tài liệu triển khai](taskdeck_ai_agent/02-providers.md)
-- [x] F02.1 Versioned provider/model config (custom HTTPS, provider ID, `apiType`, capabilities, reasoning support) — Responses-only schema v1. — [Tài liệu triển khai](taskdeck_ai_agent/02-providers.md)
+### F02 — Model/provider settings & credentials [DONE in source for Responses + Chat Completions; Anthropic Messages deferred] — [Tài liệu triển khai](taskdeck_ai_agent/02-providers.md)
+- [x] F02.1 Versioned provider/model config (custom HTTPS, provider ID, `apiType`, capabilities, reasoning support) — schema v1 supports Responses and Chat Completions. — [Tài liệu triển khai](taskdeck_ai_agent/02-providers.md)
   - [x] F02.1.1 Validate public HTTPS URL, DNS/public IP at connect, model ID, token bounds and unsupported settings; tested without live egress. — [Tài liệu triển khai](taskdeck_ai_agent/02-providers.md)
   - [x] F02.1.2 Separate secrets from exportable model JSON; explicit credential lifecycle. — [Tài liệu triển khai](taskdeck_ai_agent/02-providers.md)
-- [x] F02.2 Native settings UI and basic Responses text connection test (stream/tools/statefulness not yet probed). — [Tài liệu triển khai](taskdeck_ai_agent/02-providers.md)
+- [x] F02.2 Native provider/API-type settings and basic connection test; capabilities require separate probes. — [Tài liệu triển khai](taskdeck_ai_agent/02-providers.md)
   - [x] F02.2.1 Add/list/edit/remove providers, model reasoning, default selection; no plaintext key response. — [Tài liệu triển khai](taskdeck_ai_agent/02-providers.md)
   - [x] F02.2.2 Probe text/stream/tool calling/stateful modes; never assume capability from declaration alone. — [Tài liệu triển khai](taskdeck_ai_agent/02-providers.md)
-- [ ] F02.3 Provider adapters. — [Tài liệu triển khai](taskdeck_ai_agent/02-providers.md)
+- [x] F02.3 Provider adapters (Responses + Chat Completions). — [Tài liệu triển khai](taskdeck_ai_agent/02-providers.md)
   - [x] F02.3.1 Responses request/response format and default reasoning-effort parameter for configured model. — [Tài liệu triển khai](taskdeck_ai_agent/02-providers.md)
   - [x] F02.3.2 Streaming SSE, cancellation, errors, rate limits and tool-call output parsing. — [Tài liệu triển khai](taskdeck_ai_agent/02-providers.md)
-  - [ ] F02.3.3 Optional Chat Completions/Messages adapters (later). — [Tài liệu triển khai](taskdeck_ai_agent/02-providers.md)
+  - [x] F02.3.3 Chat Completions adapter implemented; Anthropic Messages intentionally deferred. — [Tài liệu triển khai](taskdeck_ai_agent/02-providers.md)
 
-### F03 — Durable sessions & context [DONE in scope: retention/delete policy and tokenizer budget remain product decisions] — [Tài liệu triển khai](taskdeck_ai_agent/03-sessions-context.md)
+### F03 — Durable sessions & context [DONE in code/tests; retention and tokenizer-cost policy remain product decisions] — [Tài liệu triển khai](taskdeck_ai_agent/03-sessions-context.md)
 - [x] F03.1 Independent multi-session store scoped by owner, workspace, project UUID and execution target. — [Tài liệu triển khai](taskdeck_ai_agent/03-sessions-context.md)
   - [x] F03.1.1 Atomic write/revision/size bound and session recovery after process restart (owner-bound private Go journal + tests). — [Tài liệu triển khai](taskdeck_ai_agent/03-sessions-context.md)
   - [x] F03.1.2 Session list/create/rename/archive/cancel APIs + UI tabs. — [Tài liệu triển khai](taskdeck_ai_agent/03-sessions-context.md)
@@ -109,24 +109,24 @@ These are **design targets**, not promises that routes already exist.
   - [x] F03.3.2 Conversations API ID mode; explicit compatibility tests; fallback to canonical history. — [Tài liệu triển khai](taskdeck_ai_agent/03-sessions-context.md)
   - [x] F03.3.3 Canonical tool-call/results replay, context budget and compaction preserving commitments. — [Tài liệu triển khai](taskdeck_ai_agent/03-sessions-context.md)
 
-### F04 — Agent conversation & UI [DONE in scope: browser GUI acceptance still unverified] — [Tài liệu triển khai](taskdeck_ai_agent/04-conversation-ui.md)
-- [x] F04.1 Streaming backend turn coordinator, per-session state machine and quotas. — [Tài liệu triển khai](taskdeck_ai_agent/04-conversation-ui.md)
+### F04 — Agent conversation & UI [IN PROGRESS: source features/tests present; pause/resume, token/cost quotas and interactive browser acceptance remain open] — [Tài liệu triển khai](taskdeck_ai_agent/04-conversation-ui.md)
+- [ ] F04.1 Turn coordinator, per-session state machine and bounded request admission. (Concurrency/rate bounds implemented; token/cost quotas and durable pause/resume remain open.) — [Tài liệu triển khai](taskdeck_ai_agent/04-conversation-ui.md)
   - [x] F04.1.1 Append user+assistant messages transactionally; handle retry/timeouts/recovery. — [Tài liệu triển khai](taskdeck_ai_agent/04-conversation-ui.md)
-  - [x] F04.1.2 Stop/cancel/pause/resume and bounded loop iteration. — [Tài liệu triển khai](taskdeck_ai_agent/04-conversation-ui.md)
+  - [ ] F04.1.2 Explicit cancel is implemented and tested; pause/resume semantics/API are not implemented. — [Tài liệu triển khai](taskdeck_ai_agent/04-conversation-ui.md)
 - [x] F04.2 TaskDeck native Chat GUI. — [Tài liệu triển khai](taskdeck_ai_agent/04-conversation-ui.md)
   - [x] F04.2.1 Multi-tab session list, model/reasoning selector, prompt attachments and history. — [Tài liệu triển khai](taskdeck_ai_agent/04-conversation-ui.md)
   - [x] F04.2.2 Live status, per-command task subrows, console view/copy and AI final response. — [Tài liệu triển khai](taskdeck_ai_agent/04-conversation-ui.md)
   - [x] F04.2.3 Recover UI after refresh/reconnect; no duplicate sends or actions. — [Tài liệu triển khai](taskdeck_ai_agent/04-conversation-ui.md)
 
-### F05 — Tool Gateway and Patch Tool feedback loop [DONE in source; live Python run + final ZIP-SHA proof unverified] — [Tài liệu triển khai](taskdeck_ai_agent/05-patch-feedback.md)
+### F05 — Tool Gateway and Patch Tool feedback loop [DONE in source/mock tests; live Python Patch run remains NOT VERIFIED] — [Tài liệu triển khai](taskdeck_ai_agent/05-patch-feedback.md)
 - [x] F05.1 Function tool schema `taskdeck_submit_patch` with strict JSON name/patch_python; human approval required; no arbitrary shell tool. — [Tài liệu triển khai](taskdeck_ai_agent/05-patch-feedback.md)
-  - [x] F05.1.1 Enforce native patch schema / both project identity headers / one-time approval / exact selection (DONE in code); source drift / expected Git HEAD verification remains TODO. — [Tài liệu triển khai](taskdeck_ai_agent/05-patch-feedback.md)
+  - [x] F05.1.1 Enforce native patch schema / both project identity headers / one-time approval / exact selection; server-derived HEAD/branch/dirty and arguments digest are rechecked before side effects. Native/manual writer arbitration remains limited. — [Tài liệu triển khai](taskdeck_ai_agent/05-patch-feedback.md)
   - [x] F05.1.2 Persist per-call idempotency ledger before queueing and once-only AI result output; shared cross-process transaction/locking remains F06. — [Tài liệu triển khai](taskdeck_ai_agent/05-patch-feedback.md)
 - [x] F05.2 Wire approved patches to existing Patch Paste queue and native Patch Session / prompt_response handlers; real runtime acceptance remains unverified. — [Tài liệu triển khai](taskdeck_ai_agent/05-patch-feedback.md)
   - [x] F05.2.1 Persist link from originating AI call_id to queued package SHA and native Patch Session ID (PATCH only; COLLECT future). — [Tài liệu triển khai](taskdeck_ai_agent/05-patch-feedback.md)
-  - [x] F05.2.2 Collect native per-item status/RC/elapsed, command summary and bounded output tail (DONE in code); full console/diff/artifact-link UI remains TODO. — [Tài liệu triển khai](taskdeck_ai_agent/05-patch-feedback.md)
+  - [x] F05.2.2 Collect native per-item status/RC/elapsed, bounded output, execution evidence and opaque artifact references; full artifact-file download/patch diff remains not implemented. — [Tài liệu triển khai](taskdeck_ai_agent/05-patch-feedback.md)
 - [x] F05.3 Fully automatic AI feedback loop across long-running jobs/restarts (manual-confirmed continuation implemented, unattended recovery still pending). — [Tài liệu triển khai](taskdeck_ai_agent/05-patch-feedback.md)
-  - [x] F05.3.1 Send evidence-backed `function_call_output` using exact call_id in a once-only opt-in continuation endpoint; further automatic scheduling pending. — [Tài liệu triển khai](taskdeck_ai_agent/05-patch-feedback.md)
+  - [x] F05.3.1 Send evidence-backed `function_call_output` using exact call_id, manually or via bounded local opt-in scheduler after background native reconciliation. — [Tài liệu triển khai](taskdeck_ai_agent/05-patch-feedback.md)
   - [x] F05.3.2 Persist QUEUING/UNKNOWN transitions before side effects; no automatic patch resubmission; manual recovery of ambiguous runs remains pending. — [Tài liệu triển khai](taskdeck_ai_agent/05-patch-feedback.md)
 
 ### F06 — Parallel sessions & remote [F06.1 DONE; F06.2 BLOCKED: no typed remote Patch action exists] — [Tài liệu triển khai](taskdeck_ai_agent/06-parallel-remote.md)
@@ -137,18 +137,18 @@ These are **design targets**, not promises that routes already exist.
   - [ ] F06.2.1 Validate remote scope per action, never forward API keys. — [Tài liệu triển khai](taskdeck_ai_agent/06-parallel-remote.md)
   - [ ] F06.2.2 Recover state after remote or GUI disconnection. — [Tài liệu triển khai](taskdeck_ai_agent/06-parallel-remote.md)
 
-### F07 — Security/validation/operability [IN PROGRESS: F07.2.2 remote E2EE Patch blocked + independent audit pending] — [Tài liệu triển khai](taskdeck_ai_agent/07-acceptance.md)
+### F07 — Security/validation/operability [IN PROGRESS: targeted mocks/CI pass; live Patch, interactive browser acceptance and independent audit pending; remote Patch out of scope] — [Tài liệu triển khai](taskdeck_ai_agent/07-acceptance.md)
 - [x] F07.1 Auth, owner/project isolation and approvals for every new route and tool. — [Tài liệu triển khai](taskdeck_ai_agent/07-acceptance.md)
   - [x] F07.1.1 Fail closed on unknown capability or untrusted patch metadata; never accept AI's `approved` flag. — [Tài liệu triển khai](taskdeck_ai_agent/07-acceptance.md)
   - [x] F07.1.2 Provider egress/SSRF/redirect policy, local/private-IP safeguards and TLS code; independent security audit remains pending. — [Tài liệu triển khai](taskdeck_ai_agent/07-acceptance.md)
 - [ ] F07.2 Tests and documentation. — [Tài liệu triển khai](taskdeck_ai_agent/07-acceptance.md)
   - [x] F07.2.1 Unit tests for initial Responses request/parse, chaining, tool-call mapping, owner isolation and persistence; additional provider formats remain F02.3.3. — [Tài liệu triển khai](taskdeck_ai_agent/07-acceptance.md)
-  - [ ] F07.2.2 Integration tests for native Patch run/retry/cancel, concurrent sessions and remote E2EE. (Native run/retry/cancel/sync + concurrent approvals done with a fake Session Service; remote E2EE has no Patch operation to test.) — [Tài liệu triển khai](taskdeck_ai_agent/07-acceptance.md)
-  - [x] F07.2.3 CI/GUI smoke acceptance with zero regressions to suggestion-only Smart Terminal. — [Tài liệu triển khai](taskdeck_ai_agent/07-acceptance.md)
+  - [ ] F07.2.2 Local native Patch bridge/retry/cancel, background reconciliation and concurrent approval tests pass with fake Session Service; real Python run is NOT VERIFIED; remote E2EE Patch is out of scope/no typed action exists. — [Tài liệu triển khai](taskdeck_ai_agent/07-acceptance.md)
+  - [ ] F07.2.3 Automated CI/static UI bootstrap + Smart Terminal regression tests pass; interactive browser GUI smoke remains NOT VERIFIED. — [Tài liệu triển khai](taskdeck_ai_agent/07-acceptance.md)
 
-### F08 — Future task planner (NOT IMPLEMENTING NOW — intentionally deferred, no code) — [Tài liệu triển khai](taskdeck_ai_agent/08-future-planner.md)
-- [ ] F08.1 Markdown → validated Task Manifest (dependencies, acceptance criteria, resources, task IDs). — [Tài liệu triển khai](taskdeck_ai_agent/08-future-planner.md)
-  - [ ] F08.1.1 Schema validation, dependency cycle detection, bounded number of tasks. — [Tài liệu triển khai](taskdeck_ai_agent/08-future-planner.md)
+### F08 — Planning scope: F08.1 implemented as preview/validation; F08.2 execution scheduler deferred — [Tài liệu triển khai](taskdeck_ai_agent/08-future-planner.md)
+- [x] F08.1 Markdown/canonical JSON → validated Task Manifest and read-only preview (no execution). — [Tài liệu triển khai](taskdeck_ai_agent/08-future-planner.md)
+  - [x] F08.1.1 Schema validation, dependency cycle detection, bounded number of tasks. — [Tài liệu triển khai](taskdeck_ai_agent/08-future-planner.md)
 - [ ] F08.2 Dependency DAG Scheduler and configurable concurrency. — [Tài liệu triển khai](taskdeck_ai_agent/08-future-planner.md)
   - [ ] F08.2.1 Worktree/task isolation and controlled merge strategy. — [Tài liệu triển khai](taskdeck_ai_agent/08-future-planner.md)
   - [ ] F08.2.2 Integration reports, retry/resume, explicit approval for branch mutation. — [Tài liệu triển khai](taskdeck_ai_agent/08-future-planner.md)
@@ -159,12 +159,12 @@ These are **design targets**, not promises that routes already exist.
 |---|---|---|
 | M0 handoff | This document with verified code map and statuses | DONE (source) |
 | M1 protocol core | Stateful/stateless request building, parse response, tests | DONE (code + CI) |
-| M2 session API + provider settings | Persisted sessions, BYOK secrets, capability testing | IN PROGRESS (BYOK and basic probe done; advanced capability tests/revoke pending) |
-| M3 chat GUI | Real messages with streaming, cancel and recovery | IN PROGRESS (synchronous chat + GUI done; streaming/recovery pending) |
-| M4 Patch loop | Real queue run + tool results + idempotency + approvals | IN PROGRESS (native code and mocked test PASS; no real runtime/live end-to-end or unattended feedback) |
-| M5 remote & multi-session | E2EE live tests, lock safety, session isolation | TODO |
+| M2 session API + provider settings | Persisted sessions, BYOK secrets, capability testing | DONE in code/tests (Responses + Chat Completions; live providers not verified) |
+| M3 chat GUI | Real messages with streaming, cancel and recovery | DONE in source/automated tests (browser GUI acceptance remains NOT VERIFIED) |
+| M4 Patch loop | Real queue run + tool results + idempotency + approvals | IN PROGRESS (background reconciliation + fake-native tests; real Python runtime/final live SHA evidence NOT VERIFIED) |
+| M5 remote & multi-session | E2EE live tests, lock safety, session isolation | BLOCKED for remote Patch (no typed operation); local admission/lease tests PASS |
 | M6 release acceptance | Regression suite, real provider smoke, security review | TODO |
-| M7 planner | Future; intentionally deferred | DEFERRED |
+| M7 planner | F08.1 planning/validation only; F08.2 execution remains deferred | F08.1 DONE in code/tests; F08.2 DEFERRED |
 
 ## 6. Acceptance matrix
 
@@ -218,14 +218,13 @@ Committed source:
 
 **CI evidence:** [Run 44477297240](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/44477297240) — PASS on commit `ccfac9b`; Go race tests/core, server Agent tests including a fake native Session Service that checks exact item selection through TaskDeck's actual handler chain, and JavaScript syntax check. No production endpoint credentials or live Python Patch runtime were executed in these tests.
 
-**Important outstanding work:** A fake-protocol integration test now exercises actual native /api/sessions + prompt-response handler linkage and confirms only the approved queued package is selected; it is **not** a live Python Patch run. GUI-only polling is not an unattended server-side agent loop; after closing the browser no automatic model continuation occurs. A finished job requires the user to reopen the session and explicitly submit the verified result to AI. Real native Patch run, remote E2EE, workspace write leases/Git HEAD check, process restart reconciliation, streaming, provider fallback, artifact console previews, full regression testing, error recovery and security hardening remain open. **Code implemented ≠ live integration verified.** Do not mark unattended auto-run or end-to-end autonomous Agent as DONE.
+**Historical outstanding-work snapshot (superseded by hardening below):** at that point feedback required GUI polling and final native run/SHA evidence was not correlated. Current code adds a local opt-in server scheduler, background native-state reconciliation and final queue SHA/size verification; these have fake-native tests but are **not** live Python Patch/provider/browser evidence. Remote E2EE Patch remains out of scope/no typed operation. **Code implemented ≠ live integration verified.**
 
-### Documentation re-audit — “New deck AI document” (2026-11-19)
+### Historical documentation re-audit — “New deck AI document” (2026-11-19 baseline; current state superseded below)
 
 - Reviewed commit: `b2f2234a` and all 9 Markdown files under `docs/taskdeck_ai_agent/`. Structure F01–F08 and relative links are valid; **feature is NOT release ready**.
 - P0: CI selector originally skipped 10/25 Agent Server tests; PR paths were incomplete. Fixed at [7d6c6bed](https://github.com/hacrot3000/PatchAndCollectionToolForAI/commit/7d6c6bedaccb7436ce3fa730551f7a30368e6fa9) and [CI 44479964926](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/44479964926) PASS for the corrected test selection. Still not live Python/browser/provider evidence.
-- P0 still OPEN: tool advertised from declared, not verified capability; synthetic `httptest.NewRecorder` internal dispatch does not rerun router middleware; final native protocol evidence matches name/kind without exact approved SHA/run binding; HEAD/dirty and cross-process writer fencing are absent.
-- P1: `FeedbackSent` is set **before** provider HTTP request (outgoing attempt only; no provider ACK), browser abort does not prove native cancellation, no unattended server coordinator.
+- Historical findings at that baseline: declared tool capability, missing final SHA/run correlation, source drift and feedback-attempt ambiguity. Current source below contains probe gating, Git snapshot, package SHA verification, explicit feedback state and background local continuation. Remaining boundary: internal handler invocation does not implicitly re-run router middleware; each handler's explicit permission/lease checks and the unshared native/manual workspace lease remain audited risks, not a security-review pass.
 - Detailed findings and source/state matrix: [Source audit](taskdeck_ai_agent/09-source-audit.md). Keep F05/F06/F07 checkboxes blocked until the specific acceptance evidence exists; do not label mock CI as live-ready.
 
 ### Implementation continuation — P0 hardening (2026-11-19, source + unit/integration mock only)
@@ -267,14 +266,46 @@ Verification actually run (Go 1.20.14, Linux):
 
 **Not verified / still blocked:** no live provider call, no live Python Patch run, no browser GUI acceptance and no remote E2EE Patch operation (none exists). Running the whole `go test ./internal/server` package still reports **13 pre-existing failures verified on clean HEAD `c25d48be`** (foreground-lock/UI contract strings, grouped menus, restricted-role integration test, real-WSS app ping, terminal path detection, restart detection) plus one unrelated environment timeout earlier; they are outside Agent Chat scope and were not modified. The native Patch Panel does not take the Agent workspace lease, so Agent-vs-manual exclusion relies on the Git/dirty snapshot guard, and external writers remain out of scope. Cross-process flock semantics on NFS/SMB are not guaranteed.
 
+### Implementation continuation — audit fixes, Chat Completions and F08.1 (2026-11-19)
+
+**A1–A5 audit fixes:**
+- Provider turns now use the daemon lifecycle context, not the HTTP request context. Browser disconnect no longer cancels a started provider call; explicit Cancel still cancels the registered request, and daemon shutdown cancels all active turns. See `agent_chat_turn_context.go`, `server.go`.
+- Auto-feedback scheduler polls the native Session Service itself for `running` linked Patch calls, reads `ProtocolState`, adopts only a final result matching native session, queue item name/index, call ledger and `run_id`, and verifies the persisted queue ZIP SHA256/size again before feedback. Missing native session or missing/changed digest becomes `UNKNOWN`; no requeue/retry. GUI `/sync` is no longer needed for the local opt-in scheduler.
+- UI session switching now stores the outgoing draft before awaiting fetch, uses a generation counter to discard stale responses, keeps draft/attachments/request ID per session, preserves them on failure, and guards response/status updates against changing the active tab.
+- Message body limit is 512 KiB to cover the full decoded 16 KiB message + 64 KiB attachments with JSON escaping overhead. Raw request UTF-8 is checked before JSON decoding. Idempotency digest includes exact validated attachment name/MIME/text content; same key with changed attachment → 409.
+- Backpressure now holds one waiter position for the full wait, uses a condition notification (no sleep loop), honors cancellation/deadlines, rejects waiter 9 and releases slots once.
+
+**C — Chat Completions adapter:**
+- Provider schema now accepts `responses` and `chat_completions`, preserving existing Responses config. Dedicated `chat_completions.go` maps the existing canonical Responses request/history to Chat Completions messages/functions and parses result into the existing canonical `ResponsesResult`; all tool calls still go through the same approval/Gateway.
+- Dedicated `chat_completions_stream.go` parses SSE text/tool fragments under byte/event bounds; finish reason and `[DONE]` are required. Streaming is enabled only after verified probe. Chat Completions context is stateless only; previous-response/Conversations probes are `unsupported`, and reasoning options are not guessed for generic providers.
+- Tests cover canonical multi-turn/tool result mapping, fragmented tool arguments, finish/error handling, timeout/cancel boundaries, shared hardened transport path and API type/capability behavior. Anthropic Messages remains deferred.
+
+**D — F08.1 planning-only Task Manifest:**
+- New `internal/taskmanifest` parses bounded Markdown and strict canonical JSON (≤1 MiB, ≤100 tasks), validates stable IDs, duplicate/self/unknown dependencies, acceptance warnings, schema/project identity and cycles, and returns roots/blocked/topological preview/diagnostics.
+- `POST /api/agent/task-manifests/validate` is owner/permission checked, derives project identity on server, performs no provider call, no file write, no task creation and no execution. UI supports Markdown/canonical JSON input, validation preview and download of valid canonical JSON. No F08.2 scheduler/Run All/auto-merge was added.
+
+**Verification on merged HEAD `8d75b299` (Go 1.20.14/Linux):**
+- `go test -race -count=1 ./internal/agentchat` PASS
+- `go test -race -count=1 ./internal/taskmanifest` PASS
+- `go test -race ./internal/server -run '^TestAgent' -count=1 -timeout 900s` PASS
+- `go test ./internal/patchtool -count=1` PASS
+- `go vet ./internal/agentchat ./internal/server ./internal/taskmanifest` clean
+- `node --check web/featuremods/agentchat.js` PASS
+- `node web/agentchat_bootstrap_test.cjs` PASS
+- `node test_ai_smart_terminal.cjs` PASS (4/4)
+- `go build ./cmd/vscode_tasks_menu ./internal/...` PASS
+- `go test ./internal/server -count=1` on baseline `bba5eea6` failed 22 unrelated auth/editor/English UI/foreground/grouped-menu/Patch-panel/terminal/restart/restricted-role tests; the same 22 names fail in a clean worktree at that exact commit. The diagnostics commit `8d75b299` changes Agent Chat/provider diagnostics only; targeted `^TestAgent` passes afterward.
+
+**Still NOT VERIFIED / blocked:** real benign Python Patch runtime end-to-end, real external provider smoke, interactive browser GUI acceptance, independent security review. Remote Patch remains out of scope and blocked: no typed E2EE Patch operation. No credentials or remote execution were used. `origin/main` was fetched and merged without force; current `HEAD` equals `origin/main` (`bba5eea6`).
+
 ## 8. Remaining source-change boundaries and handoff
 
-1. Keep `internal/agentchat` Responses and the existing native Patch handlers; do not create a second shell/Python parser or merge Smart Terminal advisory and Agent execution.
-2. Audit auth/owner/origin/CSRF/lease at each **internal** native handler side effect; a recorder call is not equivalent to a full authenticated HTTP middleware path.
-3. Bind native result to run ID/package SHA plus server-derived Git HEAD/dirty; add cross-process claim, crash/UNKNOWN reconciliation, then isolated local live Python acceptance.
-4. Add per-endpoint capability probes (tool/stateful/stream), context consent/preview, separate provider ACK from local feedback attempt, server-side continuation and stateful event recovery.
-5. Re-run **all** Agent tests with the corrected `'^TestAgent'` selector and keep CI/native-live/provider-live/remote-live evidence separate.
-6. Keep F08 planner deferred and update checklist with commits/verified evidence instead of inferring DONE from source presence.
+1. Preserve the separate Smart Terminal advisory and Agent execution surfaces; do not create another Patch parser/executor.
+2. Remaining P0 review: internal handler invocation bypasses router middleware re-entry. Verify the caller's auth/origin/browser lease and each callee's explicit permission/mutation-lease checks; consider a typed service boundary before changing any route. No independent security audit has been completed.
+3. Final evidence now binds queue SHA/size + native session + item index + run ID and revalidates Git snapshot; remaining local live test and shared lease with manual/native writers are still open. Do not claim remote support.
+4. Provider probes, request/attachment idempotency, daemon-owned turns, durable event cursor and local bounded auto-feedback are implemented/tested. Provider ACK is still unknowable after transport ambiguity; never resend `unknown`.
+5. Current targeted verification: `go test -race ./internal/agentchat`, `go test -race ./internal/taskmanifest`, `go test -race ./internal/server -run '^TestAgent'`, patchtool, vet and JS regressions. Keep these separate from live provider/native/browser/remote acceptance. Full server package has 22 baseline failures verified at `bba5eea6` in a clean worktree.
+6. F08.1 is planning-only and implemented. Keep F08.2 scheduler/worktrees/merge deferred; keep Anthropic Messages deferred.
 
 ## 9. Commands for verification
 
@@ -294,3 +325,11 @@ Run platform/remote smoke tests as available. External API requests incur cost: 
 - Agent Chat has a persistent collapsed strip, per-workspace dock preference, separate right width/bottom height, Auto Hide/Pin state, outside-click/Esc collapse, and a responsive title More menu that moves existing action nodes (no duplicate handlers). Hide does not call cancel; reopening reloads authoritative session state.
 - DOM bootstrap test exercises mount, toolbar presence, duplicate-control guard, and Right→Bottom plus Auto Hide state changes. JavaScript syntax and focused Go UI contract tests pass.
 - **Not verified:** real browser Playwright smoke, keyboard/focus navigation end-to-end, light/dark and mobile visual acceptance, editor/terminal resize behavior, and full cross-browser regression. Do not claim GUI acceptance from the DOM bootstrap test.
+
+### Debug continuation — provider diagnostics and capture (unit/mock evidence; GUI acceptance pending)
+
+- Added typed provider error codes/stages for HTTP status, basic network failure classes, response parsing, invalid stream content type and incomplete SSE; non-2xx JSON extracts bounded provider type/code/message, Retry-After and HTTP status. Provider credentials and auth headers are not included. Message failures return structured JSON with trace IDs while retaining the existing no-retry/ambiguous semantics.
+- Added an owner-scoped, in-memory server trace ring (64 traces/owner, 256 events/trace, 30-minute retention) with settings-read/write gates, no-store endpoints, redacted Safe payload metadata and explicit RAW consent/grant (30-minute TTL, 256 KiB/body, 2 MiB/owner). Raw buffers are never written to session journals or application logs; they are cleared on disable/expiry/clear. Raw GET requires settings-write permission in addition to an active owner grant.
+- Instrumented Responses and Chat Completions JSON/SSE transport at actual serialized request/response/frame boundaries. Trace records safe endpoint, provider/model, HTTP status, selected safe headers, provider request ID, timing, size/hash, context mode, history/tool counts, parse/error stage, and native approval/queue/final/feedback lifecycle summaries. Tool lifecycle events carry call IDs but no patch source or output bodies in safe events.
+- Agent Chat title now has a direct AI Debug capture toggle and an AI Debug view with Timeline, Console, HTTP, Payload, Tools and Configuration filters; raw payload viewing has a separate confirmation. Export is sanitized by default. Browser bootstrap, focused server/API ownership/RAW-boundary tests and provider error/sink tests are the available evidence.
+- **Not verified / remaining:** full configuration/preflight error tracing before provider-call entry, detailed DNS/TLS/TTFB timings, all UI filtering/search/follow-tail interactions, browser/keyboard/mobile smoke, live provider tests and full server suite. On baseline `bba5eea6`, `go test ./internal/server -count=1` completed with 22 failures; the exact same 22 named tests failed in a clean detached worktree at that commit. The subsequent `8d75b299` commit changes Agent Chat diagnostics/UI only; focused `^TestAgent` tests pass after it. No claim of full-package PASS. Do not mark the feature release-ready.

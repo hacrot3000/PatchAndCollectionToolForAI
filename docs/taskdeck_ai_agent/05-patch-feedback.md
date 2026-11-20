@@ -29,9 +29,9 @@ Gateway, approval, queue paste, native session selection, sync và explicit cont
 
 ## Trạng thái sau đợt hardening (source + mock tests)
 
-Đã có trong mã: snapshot HEAD/branch/dirty digest tại proposal, verify lại trước queue và trước selection; approval TTL 10 phút + bind `arguments_sha256`; lease workspace cho Agent; journal `flock`; result yêu cầu name + approved index + `run_id`; `FeedbackStatus` thay cho niềm tin `FeedbackSent`; startup reconcile read-only; `GET .../tools/{call_id}/execution` cho console.
+Đã có trong mã: provider turns dùng daemon lifecycle context thay HTTP request context; scheduler tự đọc native protocol state cho local opt-in auto-feedback khi GUI đóng; nếu native session mất hoặc package SHA/size không còn khớp thì ghi UNKNOWN; final result gắn queue SHA/size + native session + call + index + run ID; auto feedback dưới session lock và consent 30 phút. Có test giả native cho RUNNING→PASS/FAIL, missing session, restart/reconcile và đồng thời; chưa có real Python runtime.
 
-Vẫn chưa: ZIP SHA trong evidence cuối, native owner ID trong evidence cuối, dùng chung lease với Patch Panel thủ công, fault-injection đa process/restart, và toàn bộ nghiệm thu live. Các gate dưới đây vẫn phải giữ BLOCKED cho unattended.
+Còn thiếu: dùng chung lease với Patch Panel thủ công và independent security audit. Các gate live vẫn NOT VERIFIED; không tuyên bố production run.
 
 ## Release blockers đã xác minh qua source (P0)
 
