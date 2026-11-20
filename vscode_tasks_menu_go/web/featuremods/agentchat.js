@@ -1318,10 +1318,11 @@ async function sendAgentMessage(){
    request={id:'ui-'+sessionID+'-'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2,8),fingerprint:requestFingerprint};
    agentRequestIDs.set(sessionID,request);
   }
+  const requestID=request.id;
   const response=await agentApp.jsonFetch('/api/agent/sessions/'+encodeURIComponent(sessionID)+'/messages',{
    method:'POST',headers:{'Content-Type':'application/json'},
    body:JSON.stringify({message:msg,confirm_external:true,expected_revision:s.revision,
-    request_id:request.id,attachments:wireAttachments}),
+    request_id:requestID,attachments:wireAttachments}),
    signal:agentAbort.signal
   });
   agentRequestIDs.delete(sessionID);
@@ -1341,6 +1342,7 @@ async function sendAgentMessage(){
  }catch(error){
   turn.error=String(error?.message||error).slice(0,450);
   if(turn.optimisticNode)turn.optimisticNode.textContent=msg+'\n(Not confirmed sent)';
+  agentAttachmentDrafts.set(sessionID,attachments);
   if(agentActive===sessionID){
    if(!prompt.value.trim())prompt.value=msg;
    agentDrafts.set(sessionID,prompt.value);
