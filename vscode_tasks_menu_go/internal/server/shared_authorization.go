@@ -187,6 +187,12 @@ func sharedRoutePermissions(r *http.Request) []string {
 		if r.Method == http.MethodDelete && !strings.Contains(strings.TrimPrefix(path, "/api/agent/sessions/"), "/") {
 			return []string{identity.PermissionSettingsWrite}
 		}
+		if r.Method == http.MethodPost && strings.HasSuffix(path, "/retry") {
+			return []string{identity.PermissionSettingsWrite, identity.PermissionFilesRead}
+		}
+		if r.Method == http.MethodPost && strings.HasSuffix(path, "/recover") && strings.Contains(path, "/tools/") {
+			return []string{identity.PermissionSettingsRead, identity.PermissionPatchView, identity.PermissionFilesRead}
+		}
 		if r.Method == http.MethodPost && strings.HasSuffix(path, "/automation") {
 			return []string{identity.PermissionSettingsWrite, identity.PermissionFilesRead}
 		}
