@@ -421,10 +421,10 @@ function renderAgentConfigMenu(){
  const fallback=provider?.api_type==='chat_completions';
  const specs=[
   ['Provider',agentProviders.map(p=>[p.id,p.name||p.id]),providerSelect.value,(v)=>{
-   providerSelect.value=v;updateAgentModels();
+   providerSelect.value=v;updateAgentModels(undefined,'');
   }],
   ['Model',(provider?.models||[]).map(m=>[m.id,m.name||m.id]),modelSelect.value,(v)=>{
-   modelSelect.value=v;updateAgentEfforts();
+   modelSelect.value=v;updateAgentEfforts('');
   }],
   ['Effort',[['','Model default'+(model?.default_reasoning_effort?' ('+model.default_reasoning_effort+')':'')],...(model?.reasoning_efforts||[]).map(e=>[e,e])],effortSelect.value,(v)=>{
    effortSelect.value=v;renderAgentConfigMenu();
@@ -481,8 +481,8 @@ function updateAgentModels(preferredModel,preferredEffort){
  newChat.disabled=!hasAgent||agentBusy;
  attachButton.disabled=false;
 }
-providerSelect.addEventListener('change',()=>updateAgentModels());
-modelSelect.addEventListener('change',()=>updateAgentEfforts());
+providerSelect.addEventListener('change',()=>updateAgentModels(undefined,''));
+modelSelect.addEventListener('change',()=>updateAgentEfforts(''));
 settingsPicker.addEventListener('change',()=>{
  blockedIPNotice.hidden=true;blockedIPNotice.replaceChildren();
  const p=agentProviders.find(x=>x.id===settingsPicker.value);
