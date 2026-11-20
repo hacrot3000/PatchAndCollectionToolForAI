@@ -84,9 +84,16 @@ func TestAgentNativeResultsOnlyAcceptMatchingFinalProtocolItem(t *testing.T) {
 		t.Fatalf("missing observed RC: %s", result)
 	}
 	state.Items[1].Status = "PASS"
-	status, _, _, ok = agentPatchResultFromProtocol(state, expect)
+	zero := 0
+	state.Items[1].RC = &zero
+	state.Items[1].OutputTail = "Fixed helloworld.php: testcli1() -> testcli().\n--- testphp.sh output (rc=1) ---\nXin chào, thế giới!\nPHP Warning: proc_open() expects parameter 1 to be string, array given in lib.php on line 16\nWARNING: testphp.sh exited with rc=1"
+	status, result, _, ok = agentPatchResultFromProtocol(state, expect)
 	if !ok || status != "done" {
 		t.Fatal("PASS not reported as done")
+	}
+	if !strings.Contains(result, `"rc":0`) || !strings.Contains(result, "testphp.sh exited with rc=1") ||
+		!strings.Contains(result, "proc_open()") || !strings.Contains(result, "test_verification") {
+		t.Fatalf("Patch PASS concealed the failed nested shell script: %s", result)
 	}
 	// A different approved index must never inherit this PASS.
 	if _, _, _, ok := agentPatchResultFromProtocol(state, agentPatchExpectation{Name: "approved.zip", ItemIndex: 1}); ok {
@@ -185,4 +192,19 @@ func TestAgentToolContinuationSharedPermissions(t *testing.T) {
 	if len(perms) != 3 || perms[0] != identity.PermissionSettingsRead || perms[1] != identity.PermissionPatchView || perms[2] != identity.PermissionFilesRead {
 		t.Fatalf("model result egress missing permissions: %+v", perms)
 	}
+}
+
+func TestAgentPatchLogExcerptIncludesEndOfConsoleAndRedactsSecrets(t *testing.T) {
+ input := strings.Repeat("prefix line\n", 1000) +
+  "Authorization: Bearer fake-password\n" +
+  "--- testphp.sh output (rc=1) ---\n" +
+  "PHP Warning: proc_open() expects string\n" +
+  "WARNING: testphp.sh exited with rc=1"
+ got := agentPatchLogExcerpt(input, 600)
+ if !strings.Contains(got, "WARNING: testphp.sh exited with rc=1") ||
+  !strings.Contains(got, "proc_open()") ||
+  !strings.Contains(got, "[EARLIER LOG TRUNCATED") {
+  t.Fatalf("missing recent evidence from bounded Patch tail: %q", got)
+ }
+ if strings.Contains(got, "fake-password") {t.Fatalf("credential leaked in excerpt: %q", got)}
 }
