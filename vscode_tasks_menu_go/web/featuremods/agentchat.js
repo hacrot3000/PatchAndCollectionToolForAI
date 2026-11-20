@@ -288,14 +288,29 @@ autoPatch.disabled=true;autoCollection.disabled=true;autoFeedback.disabled=true;
 function makeAgentHeaderGroup(label,items){
  const group=agentEl('details','agentchat-header-group');
  const summary=agentEl('summary','',label+' ▾');
+ summary.setAttribute('aria-expanded','false');
  const panel=agentEl('div','agentchat-header-menu');
  panel.append(...items);group.append(summary,panel);
- group.addEventListener('toggle',()=>{
-  if(group.open){
-   for(const other of agentHeaderGroups)if(other!==group)other.open=false;
+ // Control native details explicitly so click/keyboard activation has the
+ // same behavior in Firefox, dock overflow menus, and the DOM regression test.
+ summary.onclick=event=>{
+  event?.preventDefault?.();
+  const opening=!group.open;
+  for(const other of agentHeaderGroups){
+   if(other!==group){
+    other.open=false;
+    other.children[0].setAttribute('aria-expanded','false');
+   }
+  }
+  group.open=opening;
+  summary.setAttribute('aria-expanded',String(opening));
+ };
+ panel.addEventListener('click',event=>{
+  if(event.target.closest('button')){
+   group.open=false;
+   summary.setAttribute('aria-expanded','false');
   }
  });
- panel.addEventListener('click',event=>{if(event.target.closest('button'))group.open=false;});
  return group;
 }
 const conversationGroup=makeAgentHeaderGroup('Conversation',[newChat,rename,archive,deleteChat,refresh]);
@@ -1575,7 +1590,10 @@ moreMenu.addEventListener('click',event=>{
 for(const overlay of [settingsOverlay,planOverlay])overlay.addEventListener('pointerdown',event=>event.stopPropagation());
 document.addEventListener?.('pointerdown',event=>{
  for(const group of agentHeaderGroups){
-  if(group.open&&!group.contains(event.target))group.open=false;
+  if(group.open&&!group.contains(event.target)){
+   group.open=false;
+   group.children[0].setAttribute('aria-expanded','false');
+  }
  }
  if(sessionList.classList.contains('open')&&!sessionMenu.contains(event.target))toggleAgentSessions(false);
  if(agentConfigMenu.classList.contains('open')&&!agentConfigMenu.contains(event.target))toggleAgentConfigMenu(false);
@@ -1654,7 +1672,10 @@ settingsOverlay.addEventListener('click',e=>{if(e.target===settingsOverlay)setti
 window.addEventListener('keydown',e=>{
  if(e.key!=='Escape')return;
  if(agentHeaderGroups.some(group=>group.open)){
-  e.preventDefault();for(const group of agentHeaderGroups)group.open=false;
+  e.preventDefault();for(const group of agentHeaderGroups){
+   group.open=false;
+   group.children[0].setAttribute('aria-expanded','false');
+  }
  }
  else if(agentConfigMenu.classList.contains('open')){e.preventDefault();toggleAgentConfigMenu(false);agentConfigButton.focus();}
  else if(sessionList.classList.contains('open')){e.preventDefault();toggleAgentSessions(false);sessionMenuButton.focus();}
