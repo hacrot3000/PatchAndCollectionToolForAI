@@ -735,7 +735,30 @@ console.log('PASS: Agent Chat bootstraps and dock position/auto-hide state trans
   assert.equal(transcript.children.filter(x=>x.className==='agentchat-live-status').length,0);
   console.log('PASS: verified Patch feedback Sending→Thinking→reply without duplicate or stale statuses');
 
-
+  // An AI Pack preview is an ephemeral local inspection card; dismissing it
+  // must remove only that card, never delete messages or send an API request.
+  vm.runInNewContext("agentActive='preview-session';",context);
+  const beforePreviewRows=transcript.children.slice();
+  let packPreviewRequests=0;
+  context.TaskMenuApp.jsonFetch=async url=>{
+    assert.equal(url,'/api/agent/sessions/preview-session/pack-preview');
+    packPreviewRequests++;
+    return {fingerprint:'preview-hash',pack_bytes:123,redaction:'best_effort',
+      preview:'AI Pack source preview; never sent',note:'Preview only.'};
+  };
+  await vm.runInNewContext('previewAgentContext()',context);
+  const previewCard=transcript.children.at(-1);
+  assert.equal(previewCard.className,'agentchat-bubble tool','preview card added to transcript');
+  assert.equal(previewCard.children[0].children[0].textContent,'AI Pack preview · no request sent');
+  const dismissPreview=previewCard.children[0].children[1];
+  assert.equal(dismissPreview.tagName,'button','preview header includes a close button');
+  assert.equal(dismissPreview.attributes['aria-label'],'Close AI Pack preview');
+  dismissPreview.onclick();
+  assert.equal(previewCard.parentElement,null,'dismissed AI Pack preview is removed');
+  assert.deepEqual(transcript.children,beforePreviewRows,'closing preview retains all other chat content');
+  assert.equal(packPreviewRequests,1,'closing preview does not call provider or request an AI Pack');
+  vm.runInNewContext("agentActive='natural-flow';",context);
+  console.log('PASS: AI Pack preview can be dismissed without removing chat history or sending a request');
 
   // One click copies the WHOLE multi-trace/session report, not a selected tab
   // or only the currently visible subset. Prefetch is complete before click
