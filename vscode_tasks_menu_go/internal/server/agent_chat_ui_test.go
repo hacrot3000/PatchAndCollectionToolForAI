@@ -61,10 +61,8 @@ func TestAgentChatUIHasNoExecutionAndWiresProviderSessions(t *testing.T) {
 		"API key",
 		"settingsOverlay",
 		"AI Debug",
-		"/api/agent/debug/state",
-		"/api/agent/debug/traces",
-		"/api/agent/debug/clear",
-		"Enable RAW…",
+		"/api/agent/debug/report",
+		"Copy log",
 		"RAW ACTIVE",
 	} {
 		if !strings.Contains(js, needle) {
