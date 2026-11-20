@@ -102,8 +102,14 @@ func appendAgentTextPatchProposal(x *agentchat.Session, result agentchat.Respons
 // archive notice when stateless replay would exceed a bounded context budget.
 func agentModelVisibleHistory(x agentchat.Session) []agentchat.HistoryItem {
     synthetic := map[string]bool{}
+    collectionCall := map[string]bool{}
     for _, call := range x.ToolCalls {
         if call.TextFallback { synthetic[call.CallID] = true }
+    }
+    for _, item := range x.History {
+        if item.Type == "function_call" && item.Name == "taskdeck_collect_workspace" {
+            collectionCall[item.CallID] = true
+        }
     }
     out := make([]agentchat.HistoryItem, 0, len(x.History))
     size := 0
@@ -117,7 +123,7 @@ func agentModelVisibleHistory(x agentchat.Session) []agentchat.HistoryItem {
     if size <= modelHistoryBudget {return out}
     for i := 0; i < len(out)-recentUnmodifiedItems && size > modelHistoryBudget; i++ {
         item := &out[i]
-        if item.Type != "function_call_output" || len(item.Content) < 1024 {continue}
+        if item.Type != "function_call_output" || !collectionCall[item.CallID] || len(item.Content) < 1024 {continue}
         digest := sha256.Sum256([]byte(item.Content))
         archive, _ := json.Marshal(map[string]any{
             "archived_read_only_observation": true,
