@@ -80,11 +80,19 @@ func agentReasoningEffort(sessionEffort string, model agentchat.ModelConfig) str
 	return model.DefaultReasoningEffort
 }
 
-// Generic Chat Completions has no portable reasoning parameter; vendor-specific
-// reasoning options are not guessed or forwarded.
+// The configured model's advertised efforts opt into the standard
+// Chat Completions reasoning_effort field, as well as Responses reasoning.
+// A model without advertised values sends no reasoning override at all.
 func agentProviderReasoningEffort(p agentchat.ProviderConfig, sessionEffort string, model agentchat.ModelConfig) string {
-	if p.APIType == "chat_completions" {
+	_ = p
+	if len(model.ReasoningEfforts) == 0 {
 		return ""
 	}
-	return agentReasoningEffort(sessionEffort, model)
+	effort := agentReasoningEffort(sessionEffort, model)
+	for _, advertised := range model.ReasoningEfforts {
+		if effort == advertised {
+			return effort
+		}
+	}
+	return ""
 }
