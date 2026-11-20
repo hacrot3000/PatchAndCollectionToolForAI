@@ -214,8 +214,7 @@ func agentCollectionReadPage(root, rel string, startLine, maxLines int) (map[str
   // If one oversized line could not fit, re-requesting the same start_line
   // cannot advance. Report the limitation explicitly rather than claiming
   // a usable continuation cursor.
-  if partialLongLine {out["error"]="line exceeds the 12 KiB inline page budget; use narrower search"}
-  else {out["next_line"]=strconv.Itoa(end+1)}
+  if partialLongLine {out["error"]="line exceeds the 12 KiB inline page budget; use narrower search"} else {out["next_line"]=strconv.Itoa(end+1)}
  }
  return out,nil
 }
@@ -359,8 +358,7 @@ func executeAgentCollection(root string, identity patchtool.ProjectIdentity, arg
 			for _, path := range paths {
 				var entry map[string]string
 				var err error
-				if action.Type=="read" {entry,err=agentCollectionReadPage(root,path,action.StartLine,action.MaxLines)}
-				else {var value string;value,err=agentCollectionRead(root,path);entry=map[string]string{"content":value}}
+				if action.Type=="read" {entry,err=agentCollectionReadPage(root,path,action.StartLine,action.MaxLines)} else {var value string;value,err=agentCollectionRead(root,path);entry=map[string]string{"content":value}}
 				if entry==nil {entry=map[string]string{}}
 				entry["path"]=path
 				if err!=nil {entry["error"]=err.Error();delete(entry,"content")}
