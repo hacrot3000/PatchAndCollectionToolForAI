@@ -512,12 +512,31 @@ console.log('PASS: safe Markdown, syntax-highlighted PHP/Python, per-block Copy,
   assert.equal((quoted.text.match(/SOURCE_TYPE:/g)||[]).length,1,
     'Re-normalization must never duplicate the existing metadata wrapper');
   assert.equal(quoted.source.dirty,true);
+  // Closed by default: only the count button exists; no cards or previews
+  // should be constructed during staging, syncing or background updates.
+  const toggle=vm.runInNewContext('attachToggle',context);
+  assert.equal(toggle.hidden,false);
+  assert.equal(toggle.textContent,'Attachments (1) ▸');
+  assert.equal(toggle.attributes['aria-expanded'],'false');
+  assert.equal(vm.runInNewContext('attachList.children.length',context),0);
+  const lazyBefore=vm.runInNewContext('attachList.appendCount',context);
+  vm.runInNewContext('renderAgentAttachments();renderAgentAttachments()',context);
+  assert.equal(vm.runInNewContext('attachList.appendCount',context),lazyBefore,
+    'Closed attachment popup must do no per-item rendering');
+  toggle.onclick();
+  assert.equal(vm.runInNewContext("attachPopup.classList.contains('open')",context),true);
+  assert.equal(toggle.attributes['aria-expanded'],'true');
   const quoteCard=vm.runInNewContext('attachList.children[0]',context);
   assert.equal(quoteCard.children.length,3,'Compact chips have only label, source and actions');
   assert.equal(quoteCard.children[0].children[0].textContent,'main.go');
   assert.equal(quoteCard.children[1].textContent,'src/app/main.go');
   assert.equal(Boolean(find(quoteCard,n=>n.className==='agentchat-attachment-preview')),false);
-  const info=quoteCard.children[2].children[0],remove=quoteCard.children[2].children[1];
+  const view=quoteCard.children[2].children[0],info=quoteCard.children[2].children[1],
+    remove=quoteCard.children[2].children[2];
+  assert.equal(view.textContent,'View');
+  assert.equal(view.attributes['aria-pressed'],'true');
+  assert.match(vm.runInNewContext('attachPreview.textContent',context),/QUOTE 2 · L3:C1-L3:C6\ngamma/);
+  assert.match(vm.runInNewContext('attachPreview.textContent',context),/FILE_PATH: src\/app\/main.go/);
   assert.equal(info.textContent,'ⓘ');
   assert.match(info.title,/Quote 1: L1:C1/);
   assert.match(info.title,/Quote 2: L3:C1/);
@@ -534,11 +553,26 @@ console.log('PASS: safe Markdown, syntax-highlighted PHP/Python, per-block Copy,
   const terminalCard=vm.runInNewContext('attachList.children[2]',context);
   assert.equal(terminalCard.children[0].children[0].textContent,'Terminal A');
   assert.equal(terminalCard.children[1].textContent,'Terminal ID: A');
-  assert.match(terminalCard.children[2].children[0].title,/READY/);
+  terminalCard.children[2].children[0].onclick();
+  assert.match(vm.runInNewContext('attachPreview.textContent',context),/TERMINAL_ID: A/);
+  assert.match(vm.runInNewContext('attachPreview.textContent',context),/READY/);
+  assert.equal(terminalCard.children[2].children[0].attributes['aria-pressed'],'true');
+  assert.match(terminalCard.children[2].children[1].title,/READY/);
+  vm.runInNewContext('closeAgentAttachmentsPopup()',context);
+  assert.equal(vm.runInNewContext("attachPopup.classList.contains('open')",context),false);
+  assert.equal(vm.runInNewContext('attachList.children.length',context),0,
+    'Closing the popup removes all per-item DOM nodes');
+  assert.equal(vm.runInNewContext('attachPreview.textContent',context),'',
+    'Full attachment content is not retained in the hidden preview');
+  toggle.onclick();
+  assert.equal(vm.runInNewContext('attachList.children.length',context),3);
   remove.onclick();
   assert.equal(vm.runInNewContext('agentPendingAttachments.length',context),2);
   vm.runInNewContext('agentPendingAttachments.splice(0);renderAgentAttachments()',context);
-  console.log('PASS: compact chips, info tooltip and multi-range file quotes');
+  assert.equal(toggle.hidden,true,'Empty attachments hide the compact trigger');
+  assert.equal(vm.runInNewContext("attachPopup.classList.contains('open')",context),false);
+  assert.equal(vm.runInNewContext('attachList.children.length',context),0);
+  console.log('PASS: lazy hidden attachments, per-item popup preview, removal and multi-range quotes');
 
   let saved;
   context.window.confirm = () => true;
@@ -568,8 +602,12 @@ console.log('PASS: safe Markdown, syntax-highlighted PHP/Python, per-block Copy,
   assert.equal(vm.runInNewContext('agentAttachments.length',context),0,'Session B does not inherit session A attachments');
   await vm.runInNewContext("selectAgentSession('session-1')",context);
   assert.equal(vm.runInNewContext('agentAttachments.length',context),1,'Returning to session A restores its attachment');
-  const cards=vm.runInNewContext('attachList.children.length',context);
-  assert.equal(cards,1,'Attachment chip is rendered in the composer');
+  assert.equal(vm.runInNewContext('attachToggle.textContent',context),'Attachments (1) ▸');
+  assert.equal(vm.runInNewContext('attachList.children.length',context),0,
+    'Session switch must leave attachment preview unmounted until explicitly opened');
+  vm.runInNewContext('toggleAgentAttachmentsPopup(true)',context);
+  assert.equal(vm.runInNewContext('attachList.children.length',context),1);
+  vm.runInNewContext('closeAgentAttachmentsPopup()',context);
   vm.runInNewContext("agentAttachments.splice(0);agentActive=null",context);
   vm.runInNewContext(`
     agentProviders=[{id:'p',name:'Provider',api_type:'responses',base_url:'https://example.com/v1',models:[]}];
