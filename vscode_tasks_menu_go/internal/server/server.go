@@ -200,6 +200,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/broadcast", s.broadcastStateAPI)
 	mux.HandleFunc("/api/terminal-history", s.terminalHistory)
 	mux.HandleFunc("/api/agent/debug/state", s.agentChatDebugStateAPI)
+	mux.HandleFunc("/api/agent/debug/report", s.agentChatDebugReportAPI)
 	mux.HandleFunc("/api/agent/debug/traces", s.agentChatDebugTracesAPI)
 	mux.HandleFunc("/api/agent/debug/traces/", s.agentChatDebugTraceAPI)
 	mux.HandleFunc("/api/agent/debug/clear", s.agentChatDebugClearAPI)
