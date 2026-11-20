@@ -156,13 +156,14 @@ func (s *Server) reconcileAgentSession(ctx context.Context, store *agentchat.Sto
 		if ctx.Err() != nil {
 			return
 		}
-		if record.Status != "running" {
+		if record.Status != "running" && record.Status != "unknown" && record.Status != "dispatching" {
 			continue
 		}
 		view := agentToolReconcileView{Record: record}
 		s.agentReconcilePatchRecord(&view)
 		if view.Changed {
 			x.ToolCalls[i] = view.Record
+			if view.Record.Status=="done" || view.Record.Status=="error" {x.Status="waiting_tool"}
 			x.AppendEvent("tool_final", view.Record.Status, record.CallID, "background_reconcile")
 			changed = true
 		}
