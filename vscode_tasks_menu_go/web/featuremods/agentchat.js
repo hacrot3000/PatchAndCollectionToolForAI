@@ -714,28 +714,149 @@ function renderAgentTool(session,item){
 }
 function agentHistoryItemEqual(a,b){
  return a?.type===b?.type && a?.content===b?.content &&
-  a?.call_id===b?.call_id && a?.name===b?.name && a?.arguments===b?.arguments;
+  a?.call_id===b?.call_id && a?.name===b?.name && a?.arguments===b?.arguments &&
+  a?.seq===b?.seq && a?.kind===b?.kind && a?.status===b?.status && a?.detail===b?.detail;
+}
+function agentToolIO(label,content){
+ const details=agentEl('details','agentchat-io-details');
+ details.append(agentEl('summary','',label),agentEl('pre','',content));
+ return details;
 }
 function agentHistoryRow(session,item,callNames){
- if(item.type==='user'){
-  const feedback=String(item.content||'').startsWith('TaskDeck native Patch Tool result for your prior text-only proposal');
-  return agentEl('div','agentchat-bubble '+(feedback?'tool':'user'),userMessageText(item.content));
+ if(item.type==='activity_event'){
+  const name=item.kind==='collect_failed'?'Collection failed':
+   item.kind==='turn_failed'?'AI request failed':
+   item.kind==='turn_cancelled'?'AI request cancelled':
+   item.kind==='feedback_unknown'?'Patch result delivery unconfirmed':'Operation failed';
+  const note=item.detail?' · '+item.detail:'';
+  return agentEl('div','agentchat-activity error','⚠ '+name+note);
  }
- if(item.type==='assistant')return agentEl('div','agentchat-bubble assistant',item.content);
+ if(item.type==='user'){
+  const source=String(item.content||'');
+  if(source.startsWith('TaskDeck local read-only Collection tool returned this VERIFIED observation')){
+   return agentToolIO('Collection result sent to AI · view contents',source);
+  }
+  if(source.startsWith('TaskDeck native Patch Tool result for your prior text-only proposal')){
+   return agentToolIO('Sending native Patch result to AI · view contents',source);
+  }
+  return agentEl('div','agentchat-bubble user',userMessageText(source));
+ }
+ if(item.type==='assistant'){
+  const raw=String(item.content||'');
+  const trimmed=raw.trim();
+  // A text-only model may emit a JSON tool envelope; it is a tool request,
+  // not a human-facing prose answer. Keep the exact payload accessible.
+  if(trimmed.startsWith('{')&&trimmed.endsWith('}')){
+   try{
+    const parsed=JSON.parse(trimmed);
+    if(Array.isArray(parsed.actions)&&parsed.project)return agentToolIO('AI requested Collection · view request',raw);
+    if(parsed.type==='taskdeck_patch_proposal')return agentToolIO('AI proposed Patch · view request',raw);
+   }catch{}
+  }
+  return agentEl('div','agentchat-bubble assistant',raw);
+ }
  if(item.type==='function_call')return renderAgentTool(session,item);
  if(item.type==='function_call_output'){
   const isCollection=callNames.get(item.call_id)==='taskdeck_collect_workspace';
-  return agentEl('div','agentchat-info',isCollection?'Collection result delivered to AI':'Verified native Patch result delivered to AI');
+  return agentToolIO(isCollection?'Collection result sent to AI · view contents':'Native Patch result sent to AI · view contents',String(item.content||''));
  }
  return null;
 }
-function agentToolRenderVersion(item,records,outputs){
- if(item.type!=='function_call')return '';
- if(item.name==='taskdeck_collect_workspace'){
-  const output=outputs.get(item.call_id);
-  return 'collect:'+String(output?.content||'');
+// UI activity is not added to provider-facing history. Only terminal/error
+// transitions become durable timeline entries; ephemeral busy phases use one
+// live row, so they never pile up in the conversation.
+function agentChronologicalHistory(session){
+ const history=Array.isArray(session?.history)?session.history:[];
+ const failures=(session?.events||[]).filter(e=>
+  ['turn_failed','collect_failed','turn_cancelled','feedback_unknown'].includes(e.kind));
+ if(!failures.length)return history;
+ const ordered=failures.map(event=>({
+  ...event,type:'activity_event',
+  history_index:Number.isInteger(event.history_index)&&event.history_index>0?
+    Math.min(event.history_index,history.length):history.length,
+ }));
+ const result=[];
+ for(let i=0;i<=history.length;i++){
+  for(const event of ordered){if(event.history_index===i)result.push(event);}
+  if(i<history.length)result.push(history[i]);
  }
- return 'patch:'+JSON.stringify(records.get(item.call_id)||null);
+ return result;
+}
+function agentTurnIsPersisted(session,turn){
+ if(!turn)return false;
+ const history=session?.history||[];
+ return history.slice(turn.baseHistoryLength).some(item=>item.type==='user'&&
+  userMessageText(item.content)===turn.message);
+}
+function agentLivePhase(session){
+ if(!session)return null;
+ const turn=agentLiveTurns.get(session.id);
+ const lastCall=(session.tool_calls||[]).slice(-1)[0];
+ const events=session.events||[];
+ const newer=turn?events.filter(e=>Number(e.seq||0)>turn.baseEventSeq):events;
+ const lastEvent=newer.length?newer[newer.length-1]:null;
+ if(turn?.error)return {message:'Request failed · '+turn.error,error:true};
+ if(session.status==='failed')return null; // durable failure row in history
+ if(session.status==='cancelled')return null;
+ if(session.status==='requesting_ai'){
+  if(turn?.phase==='sending'&&!newer.some(e=>e.kind==='turn_started'||e.kind==='feedback_prepared'))return {message:'Sending request…'};
+  if(lastEvent?.kind==='collect_observed')return {message:'Sending Collection result to AI…'};
+  if(lastEvent?.kind==='feedback_prepared')return {message:'Sending native Patch result to AI…'};
+  if(lastCall?.feedback_status==='sending'||lastCall?.feedback_status==='prepared')return {message:'Sending native Patch result to AI…'};
+  return {message:'Thinking…'};
+ }
+ if(turn?.phase==='sending'&&!turn.acknowledged)return {message:'Sending request…'};
+ if(['queued','dispatching','running'].includes(lastCall?.status))return {message:'Running native Patch…'};
+ if(session.status==='waiting_tool'&&lastCall?.status==='pending'&&session.auto_patch)return {message:'Submitting Patch to native tool…'};
+ if(session.status==='waiting_tool'&&['done','error','rejected'].includes(lastCall?.status)&&
+    session.auto_feedback&&!lastCall.feedback_sent)return {message:'Sending verified Patch result to AI…'};
+ return null;
+}
+function agentUpdateLiveRow(session){
+ const id=session?.id;
+ if(!session||agentActive!==id){
+  if(agentLiveRow.parentElement)agentLiveRow.remove();
+  return;
+ }
+ const turn=agentLiveTurns.get(id);
+ if(turn?.optimisticNode&&!agentTurnIsPersisted(session,turn)){
+  // Move nothing on a no-op poll. A pending user message is always above the
+  // single ephemeral status row and is never also rendered from history.
+  if(!turn.optimisticNode.parentElement)transcript.append(turn.optimisticNode);
+ }else if(turn?.optimisticNode){
+  turn.optimisticNode.remove();turn.optimisticNode=null;
+  turn.acknowledged=true;
+ }
+ const phase=agentLivePhase(session);
+ if(!phase){
+  if(agentLiveRow.parentElement)agentLiveRow.remove();
+  return;
+ }
+ agentLiveRow.className='agentchat-live-status'+(phase.error?' error':'');
+ agentLiveSpinner.hidden=Boolean(phase.error);
+ if(agentLiveText.textContent!==phase.message)agentLiveText.textContent=phase.message;
+ if(transcript.children[transcript.children.length-1]!==agentLiveRow){
+  if(agentLiveRow.parentElement)agentLiveRow.remove();
+  transcript.append(agentLiveRow);
+ }
+}
+function agentStartProgressPoll(sessionID){
+ if(agentProgressTimers.has(sessionID))return;
+ const tick=async()=>{
+  agentProgressTimers.delete(sessionID);
+  if(!agentSessionBusy(sessionID)||agentActive!==sessionID)return;
+  try{await selectAgentSession(sessionID);}
+  catch(error){ // Keep the current live row; network polling errors are not new user turns.
+   if(agentActive===sessionID)status.textContent='Live status unavailable · '+String(error?.message||error);
+  }
+  if(agentSessionBusy(sessionID)&&agentActive===sessionID)agentStartProgressPoll(sessionID);
+ };
+ agentProgressTimers.set(sessionID,setTimeout(tick,1200));
+}
+function agentStopProgressPoll(sessionID){
+ const timer=agentProgressTimers.get(sessionID);
+ if(timer!==undefined)clearTimeout(timer);
+ agentProgressTimers.delete(sessionID);
 }
 function displayAgentSession(session){
  if(!session){
