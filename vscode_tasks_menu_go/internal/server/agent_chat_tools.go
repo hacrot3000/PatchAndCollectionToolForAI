@@ -106,6 +106,7 @@ func (s *Server) agentChatToolDecisionAPI(w http.ResponseWriter, r *http.Request
 		Action           string `json:"action"`
 		ExpectedRevision uint64 `json:"expected_revision"`
 		ConfirmExecution bool   `json:"confirm_execution"`
+		Automatic        bool   `json:"automatic,omitempty"`
 	}
 	dec := json.NewDecoder(r.Body)
 	dec.DisallowUnknownFields()
@@ -145,6 +146,13 @@ func (s *Server) agentChatToolDecisionAPI(w http.ResponseWriter, r *http.Request
 	}
 	if err != nil {
 		http.Error(w, "agent journal unavailable", 500)
+		return
+	}
+	// A background auto-approval is authorized only by an owner-controlled
+	// session flag and only for a local (non-shared) workspace. A model cannot
+	// set this flag by proposing a Patch.
+	if request.Automatic && (!x.AutoPatch || x.Owner != "local" || s.Config.SharedServerEnabled) {
+		http.Error(w,"automatic Patch approval is not authorized for this session",403)
 		return
 	}
 	if x.Workspace != s.Workspace || x.Revision != request.ExpectedRevision || x.Status != "waiting_tool" {
@@ -252,6 +260,9 @@ func (s *Server) agentChatToolDecisionAPI(w http.ResponseWriter, r *http.Request
 	if err != nil {
 		http.Error(w, "cannot record tool idempotency marker", 409)
 		return
+	}
+	if request.Automatic {
+		x.AppendEvent("tool_auto_approved", "tool_queuing", callID, "session_setting")
 	}
 	s.recordAgentDebugEvent(owner, sessionID, callID, "tool", "tool.queuing", "", "Approval recorded before native queue handoff")
 	// Re-check immediately before creating a queue package. If the worktree
