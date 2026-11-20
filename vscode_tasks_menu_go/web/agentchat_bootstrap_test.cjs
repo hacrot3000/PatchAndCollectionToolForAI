@@ -64,6 +64,8 @@ class FakeElement {
     p.children[idx]=node;node.parentElement=p;this.parentElement=null;p.replaceCount++;
   }
   setAttribute(name, value) { this.attributes[name] = String(value); }
+  getAttribute(name) { return this.attributes[name] ?? null; }
+  dispatchEvent(event) { for (const listener of this.listeners[event.type] || []) listener(event); }
   addEventListener(type, listener) { (this.listeners[type] ||= []).push(listener); }
   querySelector(selector) { return selector === 'button' ? this.children.find(child => child.tagName === 'button') || null : null; }
   focus() {}
@@ -134,6 +136,49 @@ assert.equal(sessionsButton.attributes['aria-expanded'], 'true');
 sessionsButton.onclick();
 assert.equal(sessionsList.classList.contains('open'), false, 'Saved conversations close on second click');
 assert.equal(sessionsButton.attributes['aria-expanded'], 'false');
+// Compact flyout lives beside Saved conversations and the nested menu must
+// reflect the *selected* model's efforts, including Chat Completions.
+const setupButton=find(viewTabs,node=>node.tagName==='button'&&node.textContent==='AI setup ▾');
+assert.ok(setupButton,'AI setup flyout must exist');
+assert.equal(setupButton.parentElement.parentElement,viewTabs,'AI setup must share Saved conversations row');
+const setupContainer=setupButton.parentElement, configPanel=setupContainer.children[1];
+const setupGroup=name=>configPanel.children.find(node=>node.className==='agentchat-config-category'&&node.children[0].textContent.startsWith(name+' ·'));
+const setupChoice=(name,value)=>find(setupGroup(name).children[1],node=>node.tagName==='button'&&node.dataset?.value===value);
+vm.runInNewContext([
+ "agentProviders=[{id:'custom-r2d',name:'Custom Endpoint',api_type:'chat_completions',has_api_key:true,models:[",
+ "{id:'composer-2.5',name:'composer-2.5',reasoning_efforts:['low','medium','high'],default_reasoning_effort:'medium'},",
+ "{id:'gpt-6.1-sol',name:'gpt-6.1-sol',reasoning_efforts:['low','medium','high','xhigh','max'],default_reasoning_effort:'xhigh'}",
+ "]}];providerSelect.value='custom-r2d';modeSelect.value='stateless';updateAgentModels();"
+].join('\n'),context);
+setupButton.onclick();
+assert.equal(setupContainer.classList.contains('open'),true);
+for(const name of ['Provider','Model','Effort','Context'])assert.ok(setupGroup(name),'missing '+name+' category');
+assert.ok(setupChoice('Provider','custom-r2d'),'provider absent');
+assert.ok(setupChoice('Model','composer-2.5')&&setupChoice('Model','gpt-6.1-sol'),'model absent');
+for(const effort of ['low','medium','high'])assert.ok(setupChoice('Effort',effort),'composer effort absent: '+effort);
+assert.equal(setupChoice('Effort','xhigh'),undefined,'unsupported composer effort must be hidden');
+assert.equal(vm.runInNewContext('effortSelect.value',context),'medium');
+const modelGroup=setupGroup('Model');
+modelGroup.children[0].onclick();
+assert.equal(modelGroup.getAttribute('aria-expanded'),'true','nested category must open by click and hover');
+setupChoice('Model','gpt-6.1-sol').onclick();
+assert.equal(vm.runInNewContext('modelSelect.value',context),'gpt-6.1-sol');
+assert.equal(vm.runInNewContext('effortSelect.value',context),'xhigh');
+for(const effort of ['low','medium','high','xhigh','max'])assert.ok(setupChoice('Effort',effort),'gpt-6.1-sol effort absent: '+effort);
+setupButton.onclick();
+setupChoice('Effort','max').onclick();
+assert.equal(vm.runInNewContext('effortSelect.value',context),'max');
+setupButton.onclick();
+assert.ok(setupChoice('Context','conversation').textContent.includes('local history'),
+ 'Chat Completions must explain canonical replay rather than claim provider-side state');
+setupChoice('Context','conversation').onclick();
+assert.equal(vm.runInNewContext('modeSelect.value',context),'conversation');
+setupButton.onclick();
+setupChoice('Context','previous_response').onclick();
+assert.equal(vm.runInNewContext('modeSelect.value',context),'previous_response');
+setupButton.onclick();
+setupChoice('Context','conversation').onclick();
+assert.equal(vm.runInNewContext('modeSelect.value',context),'conversation');
 // The saved conversation selector must include a separate scoped Delete action
 // without forcing the user to open the conversation first.
 vm.runInNewContext('agentSessions=[{id:"deleted-view-only",title:"Old conversation",model_id:"m",status:"completed",archived:false}];updateAgentSessionRows()', context);
@@ -290,6 +335,20 @@ console.log('PASS: Agent Chat bootstraps and dock position/auto-hide state trans
   assert.equal(vm.runInNewContext('JSON.parse(providerEditor.value).name', context), 'Unsaved edit');
   assert.equal(vm.runInNewContext('JSON.parse(providerEditor.value).trusted_shared_ips[0]', context), '100.64.0.19');
   console.log('PASS: Allow this IP saves only the trusted address and preserves editor drafts');
+
+  let capturedSetup=null;
+  context.TaskMenuApp.jsonFetch=async(url,options)=>{
+    if(url!=='/api/agent/sessions'||options?.method!=='POST')throw Error('Unexpected setup API call');
+    capturedSetup=JSON.parse(options.body);
+    throw Error('STOP_AFTER_CAPTURE');
+  };
+  await assert.rejects(vm.runInNewContext('createSession()',context),/STOP_AFTER_CAPTURE/);
+  assert.equal(capturedSetup.provider_id,'custom-r2d');
+  assert.equal(capturedSetup.model_id,'gpt-6.1-sol');
+  assert.equal(capturedSetup.reasoning_effort,'max');
+  assert.equal(capturedSetup.mode,'conversation');
+  console.log('PASS: flyout provider/model/effort/context options and new-session request');
+
 
   // Native status polling replaces transcript DOM. The expanded code review
   // and independent console window must remain open across that refresh.
