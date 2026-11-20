@@ -308,11 +308,13 @@ const archive=agentButton('Archive',()=>archiveAgentSession().catch(showAgentErr
 const deleteChat=agentButton('Delete conversation',()=>deleteAgentSession(agentActive).catch(showAgentError));
 const autoPatch=agentButton('Auto apply Patch: OFF',()=>toggleAgentAutomation('patch').catch(showAgentError));
 const autoCollection=agentButton('Auto Collection: ON',()=>toggleAgentAutomation('collection').catch(showAgentError));
+const aiRetry=agentButton('AI retry: OFF',()=>toggleAgentRetry().catch(showAgentError));
+aiRetry.title='OFF → 5 retries, 10 seconds apart → unlimited retries, 10 seconds apart → OFF. Stop request cancels an active retry. Transient provider errors can produce duplicate inference; Native Patch is never automatically rerun.';
 autoPatch.title='When enabled, proposed Python Patches run automatically via native validation, workspace drift checks and the Patch Tool. Turning OFF does not cancel work already queued.';
 autoCollection.title='Read-only workspace inspection. When disabled, Agent requests that require Collection stop before accessing files.';
 autoFeedback.title='Send verified native Patch results to the selected provider until turned off. Each result is sent at most once.';
 rename.disabled=true;archive.disabled=true;deleteChat.disabled=true;
-autoPatch.disabled=true;autoCollection.disabled=true;autoFeedback.disabled=true;
+autoPatch.disabled=true;autoCollection.disabled=true;autoFeedback.disabled=true;aiRetry.disabled=true;
 function makeAgentHeaderGroup(label,items){
  const group=agentEl('details','agentchat-header-group');
  const summary=agentEl('summary','',label+' ▾');
@@ -342,7 +344,7 @@ function makeAgentHeaderGroup(label,items){
  return group;
 }
 const conversationGroup=makeAgentHeaderGroup('Conversation',[newChat,rename,archive,deleteChat,refresh]);
-const automationGroup=makeAgentHeaderGroup('Automation',[autoPatch,autoCollection,autoFeedback]);
+const automationGroup=makeAgentHeaderGroup('Automation',[autoPatch,autoCollection,autoFeedback,aiRetry]);
 const toolsGroup=makeAgentHeaderGroup('Tools',[attachButton,preview,planButton]);
 const layoutGroup=makeAgentHeaderGroup('Layout',[dockPositionButton,autoHideButton]);
 const agentHeaderGroups=[conversationGroup,automationGroup,toolsGroup,layoutGroup];
@@ -799,6 +801,17 @@ function agentLivePhase(session){
  const events=session.events||[];
  const newer=turn?events.filter(e=>Number(e.seq||0)>turn.baseEventSeq):events;
  const lastEvent=newer.length?newer[newer.length-1]:null;
+ const retry=session.retry_runtime;
+ if(retry?.phase==='waiting'){
+  const remaining=Math.max(0,Math.ceil((Date.parse(retry.next_at||'')-Date.now())/1000));
+  const max=retry.mode==='unlimited'?'∞':'5';
+  return {message:'AI retry '+retry.attempt+'/'+max+' · '+(retry.last_code||'transient failure')+
+   ' · trying again in '+remaining+'s · Stop request to cancel'};
+ }
+ if(retry?.phase==='sending'&&retry.attempt>1){
+  return {message:'Retrying AI request · attempt '+retry.attempt+
+   (retry.mode==='unlimited'?' (unlimited)':' / 6 total attempts')+'…'};
+ }
  if(turn?.error){
   const persistedError=(session.events||[]).some(e=>Number(e.seq||0)>turn.baseEventSeq&&
    ['turn_failed','collect_failed','turn_cancelled','feedback_unknown'].includes(e.kind));
@@ -1074,6 +1087,7 @@ async function selectAgentSession(id){
  const data=await agentApp.jsonFetch('/api/agent/sessions/'+encodeURIComponent(id));
  if(generation!==agentSelectGeneration)return null;
  const sess=data.session;
+ sess.retry_runtime=data.retry_runtime||null;
  if(switched||agentToolNoticeKey!==data.patch_tool_status+':'+(sess.auto_patch?'auto':'manual')){
   toolNotice.replaceChildren();
   const toolStatus=data.patch_tool_status;
@@ -1558,6 +1572,12 @@ function renderAgentAutomationControls(session){
  const exists=Boolean(session);
  rename.disabled=!exists;archive.disabled=!exists;deleteChat.disabled=!exists||agentConversationUnresolved(session);
  autoPatch.disabled=!exists;autoCollection.disabled=!exists;autoFeedback.disabled=!exists;
+ aiRetry.disabled=!exists;
+ const retryMode=session?.retry_mode||'off';
+ aiRetry.textContent=retryMode==='unlimited'?'AI retry: UNLIMITED (10s)':
+  retryMode==='limited'?'AI retry: 5 attempts (10s)':'AI retry: OFF';
+ aiRetry.setAttribute('aria-label','Change AI retry mode. Current: '+retryMode);
+ aiRetry.setAttribute('aria-pressed',String(retryMode!=='off'));
  autoPatch.textContent='Auto apply Patch: '+(session?.auto_patch?'ON':'OFF');
  autoPatch.setAttribute('aria-pressed',String(Boolean(session?.auto_patch)));
  autoCollection.textContent='Auto Collection: '+(session?.auto_collection===false?'OFF':'ON');
@@ -1587,6 +1607,25 @@ async function toggleAgentAutomation(option){
   option==='collection'?'Read-only Collection':'Automatic provider feedback')+
   (enabled?' enabled for this conversation.':' disabled for this conversation.')+
   (option==='feedback'&&enabled?' Enabled until you turn it off.':'');
+}
+async function toggleAgentRetry(){
+ if(!agentActive)throw new Error('Select a conversation first.');
+ const session=await selectAgentSession(agentActive);
+ if(!session||agentSessionBusy(session.id)||session.status==='requesting_ai')
+  throw new Error('Conversation is busy. Press Stop to end the active retry first.');
+ const current=session.retry_mode||'off';
+ const mode=current==='off'?'limited':current==='limited'?'unlimited':'off';
+ if(mode!=='off'&&!window.confirm(
+  'Enable '+(mode==='limited'?'up to 5 provider retries':'unlimited provider retries')+
+  ' with 10 seconds between failures? Transient provider requests may have been processed upstream and repeated inference may be billed. Native Patch is never automatically rerun. Use Stop request to cancel.'))
+  return;
+ const result=await agentApp.jsonFetch('/api/agent/sessions/'+encodeURIComponent(session.id)+'/retry',{
+  method:'POST',headers:{'Content-Type':'application/json'},
+  body:JSON.stringify({mode,expected_revision:session.revision,confirm_external:mode!=='off'}),
+ });
+ const latest=await selectAgentSession(session.id);
+ renderAgentAutomationControls(latest||result.session);
+ status.textContent='AI provider retry: '+(mode==='off'?'OFF':mode==='limited'?'up to 5 retries every 10s':'unlimited every 10s until Stop')+'.';
 }
 async function toggleAutoFeedback(){return toggleAgentAutomation('feedback');}
 function openTaskManifestPreview(){planOverlay.classList.add('visible');}
