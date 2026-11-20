@@ -81,6 +81,7 @@ const find = (node, predicate) => predicate(node) ? node : node.children.map(chi
 const sessionsButton = find(windowBox, node => node.textContent === 'Saved conversations ▾');
 const sessionsList = find(windowBox, node => node.id === 'agentchat-saved-sessions');
 assert.ok(sessionsButton && sessionsList, 'Saved conversations menu is present');
+assert.equal(sessionsButton.parentElement.parentElement, viewTabs, 'Saved conversations shares the conversation/debug tab row');
 assert.equal(sessionsList.classList.contains('open'), false, 'Saved conversations start closed');
 sessionsButton.onclick();
 assert.equal(sessionsList.classList.contains('open'), true, 'Saved conversations open on click');

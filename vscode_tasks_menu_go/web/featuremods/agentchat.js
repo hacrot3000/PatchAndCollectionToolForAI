@@ -14,7 +14,7 @@ agentCSS.textContent=[
 '.agentchat-more-menu{position:absolute;right:6px;top:calc(100% + 4px);z-index:20;display:none;min-width:190px;max-width:min(300px,90vw);max-height:70vh;overflow:auto;padding:5px;background:#192330;border:1px solid #55657a;border-radius:7px;box-shadow:0 8px 28px #0009}',
 '.agentchat-more-menu.open{display:flex;flex-direction:column;align-items:stretch;gap:4px}',
 '.agentchat-more-menu button{text-align:left}',
-'.agentchat-view-tabs{display:flex;flex:none;gap:4px;padding:4px 7px;border-bottom:1px solid #35445c}',
+'.agentchat-view-tabs{position:relative;z-index:3;display:flex;flex:none;align-items:center;gap:4px;padding:4px 7px;border-bottom:1px solid #35445c}',
 '.agentchat-view-tabs button[aria-selected="true"]{background:#344b66;border-color:#7db6e6}',
 '.agentchat-debug-panel{display:none;flex:1;min-width:0;min-height:0;flex-direction:column;overflow:hidden}',
 '.agentchat-debug-panel.visible{display:flex}',
@@ -47,8 +47,8 @@ agentCSS.textContent=[
 '.agentchat-window button{font-size:12px;padding:7px 10px;border-radius:5px;cursor:pointer}',
 '.agentchat-window button:disabled{opacity:.48;cursor:not-allowed}',
 '.agentchat-layout{display:flex;flex:1;min-height:0}',
-'.agentchat-sessions{position:relative;flex:none;padding:5px 8px;border-bottom:1px solid #35445c}',
-'.agentchat-list{display:none;position:absolute;z-index:6;top:100%;left:8px;width:min(320px,calc(100% - 16px));max-height:min(50vh,400px);overflow:auto;padding:8px;flex-direction:column;gap:5px;background:#192330;border:1px solid #55657a;border-radius:7px;box-shadow:0 8px 28px #0009}',
+'.agentchat-sessions{flex:none;margin-left:auto}',
+'.agentchat-list{display:none;position:absolute;z-index:6;top:100%;right:7px;width:min(320px,calc(100% - 14px));max-height:min(50vh,400px);overflow:auto;padding:8px;flex-direction:column;gap:5px;background:#192330;border:1px solid #55657a;border-radius:7px;box-shadow:0 8px 28px #0009}',
 '.agentchat-list.open{display:flex}',
 '.agentchat-session{display:flex;align-items:center;gap:7px;text-align:left;width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
 '.agentchat-session.selected{border-color:#60a8e6;background:#263f59}',
@@ -146,6 +146,7 @@ sessionMenuButton.setAttribute('aria-controls','agentchat-saved-sessions');
 sessionList.id='agentchat-saved-sessions';
 sessionList.setAttribute('aria-label','Saved conversations');
 sessionMenu.append(sessionMenuButton,sessionList);
+viewTabs.append(sessionMenu);
 const main=agentEl('div','agentchat-main'),modelBar=agentEl('div','agentchat-modelbar');
 // Open tabs are UI-only: the server remains the source of truth for every
 // session. Each tab keeps its own composer draft.
@@ -179,7 +180,7 @@ rename.disabled=true;archive.disabled=true;
 for(const button of [newChat,preview,rename,archive,planButton,settingsButton,refresh,attachButton,autoFeedback])toolbarActions.append(button);
 heading.append(title,toolbarActions,dockPositionButton,autoHideButton,debugButton,moreButton,close,moreMenu);
 actionLine.append(status,cancel,send);composer.append(attachList,prompt,actionLine);
-main.append(sessionMenu,tabbar,modelBar,transcript,composer);layout.append(main);
+main.append(tabbar,modelBar,transcript,composer);layout.append(main);
 const footer=agentEl('div','agentchat-info','Responses API • AI Pack on first turn • native Patch execution requires explicit approval per tool call. Results are verified from native protocol before AI feedback.');
 windowBox.append(heading,viewTabs,layout,debugPanel,footer);root.append(windowBox);
 const agentToolbarItems=[newChat,preview,rename,archive,planButton,settingsButton,refresh,attachButton,autoFeedback];
