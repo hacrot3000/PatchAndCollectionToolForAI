@@ -155,8 +155,18 @@ func (s *Server) agentChatToolDecisionAPI(w http.ResponseWriter, r *http.Request
 		http.Error(w,"automatic Patch approval is not authorized for this session",403)
 		return
 	}
-	if x.Workspace != s.Workspace || x.Revision != request.ExpectedRevision || x.Status != "waiting_tool" {
-		http.Error(w, "Agent session revision/status mismatch", 409)
+	if x.Workspace != s.Workspace || x.Status != "waiting_tool" {
+		http.Error(w, "Agent session no longer awaits Patch approval; refresh the conversation to view the native status", 409)
+		return
+	}
+	// Do not reject an explicit decision solely because background status
+	// polling or an Automation toggle bumped the journal revision. The exact
+	// call ID, immutable argument hash, project identity, original workspace
+	// snapshot and pending state are verified below under this turn lock.
+	// Automatic approvals remain strict so the scheduler cannot act on stale
+	// preferences or queue a second package.
+	if request.Automatic && x.Revision != request.ExpectedRevision {
+		http.Error(w,"automatic approval revision changed; retry on the next scheduler pass",409)
 		return
 	}
 	identity, err := patchtool.EnsureProjectIdentity(s.Workspace)
@@ -356,14 +366,33 @@ func (s *Server) agentChatToolDecisionAPI(w http.ResponseWriter, r *http.Request
 					status = "unknown"
 					note = "Approved patch package changed before selection; inspect existing native session."
 				} else if promptID, index, err := s.agentSelectNativePatch(r.Context(), r, patchID, receipt.Name); err != nil {
-					x.ToolCalls[idx].Status = "unknown"
-					x.ToolCalls[idx].Result = "Native Patch selection is ambiguous; inspect linked Patch session; no automatic retry."
-					x.Status = "tool_unknown"
-					if !persistStatus() {
-						return
+					// A batch resource preflight can fail before the native
+					// queue selection prompt. Recover an exact, verified
+					// PREFLIGHT_FAIL from this session without converting it
+					// into an ambiguous execution. Feed the failure to AI.
+					proven := false
+					if provider, ok := s.Sessions.(session.ProtocolStateProvider); ok {
+						if native, e := provider.ProtocolState(patchID); e == nil {
+							if finalStatus, evidence, runID, valid := s.agentVerifiedPreflight(x.ToolCalls[idx], native); valid {
+								x.ToolCalls[idx].Status = finalStatus
+								x.ToolCalls[idx].Result = evidence
+								x.ToolCalls[idx].RunID = runID
+								x.Status = "waiting_tool"
+								x.AppendEvent("tool_final", "waiting_tool", callID, "preflight_failed_before_selection")
+								status = finalStatus
+								note = "Native Patch preflight failed before source changes; verified failure is ready for AI feedback."
+								proven = true
+							}
+						}
 					}
-					status = "unknown"
-					note = "Native Patch selection was not confirmed; inspect existing session, do not requeue automatically."
+					if !proven {
+						x.ToolCalls[idx].Status = "unknown"
+						x.ToolCalls[idx].Result = "Native Patch selection is ambiguous; inspect linked Patch session; no automatic retry."
+						x.Status = "tool_unknown"
+						status = "unknown"
+						note = "Native Patch selection was not confirmed; inspect existing session, do not requeue automatically."
+					}
+					if !persistStatus() {return}
 				} else {
 					x.ToolCalls[idx].Status = "running"
 					x.AppendEvent("tool_running", "waiting_tool", callID, "")
