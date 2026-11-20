@@ -143,13 +143,17 @@ moreButton.click();
 assert.equal(moreMenu.classList.contains('open'), false, 'Second click closes More actions');
 assert.equal(moreButton.attributes['aria-expanded'], 'false');
 for (const label of ['AI Agent Chat', 'Bottom', 'Auto Hide', '⋯', 'Hide', '+ New session', 'Preview context',
-  'Rename', 'Archive', 'Providers / API keys', 'Refresh', '+ Text file', 'Auto-send results']) {
+  'Rename', 'Archive', 'Delete conversation', 'Refresh', '+ Text file', 'Auto-send results',
+  'Auto apply Patch: OFF', 'Auto Collection: ON', 'Conversation ▾', 'Automation ▾', 'Tools ▾', 'Layout ▾']) {
   assert.ok(labels.includes(label), 'Agent Chat control missing at runtime: ' + label);
 }
 for (const label of ['Bottom', 'Auto Hide', '⋯', 'Hide', '+ New session', 'Preview context',
-  'Rename', 'Archive', 'Providers / API keys', 'Refresh', '+ Text file', 'Auto-send results']) {
+  'Rename', 'Archive', 'Delete conversation', 'Refresh', '+ Text file', 'Auto-send results',
+  'Auto apply Patch: OFF', 'Auto Collection: ON']) {
   assert.equal(labels.filter(value => value === label).length, 1, 'Control duplicated: ' + label);
 }
+assert.ok(!labels.includes('Providers / API keys'),'Provider/API keys must not appear in Agent Chat header');
+assert.equal(heading.children.filter(child=>child.className==='agentchat-toolbar-actions').length,1);
 assert.equal(context.TaskMenuAgentChat.dockPosition, 'right');
 context.TaskMenuAgentChat.setDockPosition('bottom');
 assert.equal(context.TaskMenuAgentChat.dockPosition, 'bottom');
