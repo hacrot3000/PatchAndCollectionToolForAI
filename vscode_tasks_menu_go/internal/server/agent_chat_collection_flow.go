@@ -116,6 +116,11 @@ func (s *Server) agentChatRunCollection(
 	// the fallback request was not stored by the provider.
 	forceStateless := provider.APIType == "chat_completions" ||
 		(x.Mode == agentchat.Conversation && !s.agentConversationCapabilityVerified(x.Owner, provider, model))
+	// A stateless fallback caused by missing conversation capability may still
+	// yield a usable conversation ID that the existing session records for
+	// later verified adoption. Only the text-JSON fallback guarantees the
+	// response was not stored and requires discarding provider references.
+	clearProviderRefs := provider.APIType == "chat_completions"
 	for round := 0; round < agentCollectionMaxRounds; round++ {
 		var args agentCollectionArguments
 		typed, fallback := false, false
@@ -127,7 +132,7 @@ func (s *Server) agentChatRunCollection(
 			args, fallback = agentCollectionTextFallback(result.Text, identity)
 		}
 		if !typed && !fallback {
-			return result, forceStateless, nil
+			return result, clearProviderRefs, nil
 		}
 
 		observed := ""
@@ -169,6 +174,7 @@ func (s *Server) agentChatRunCollection(
 		}
 		if fallback {
 			forceStateless = true
+			clearProviderRefs = true
 		}
 		mode := x.Mode
 		if mode == agentchat.Conversation && !s.agentConversationCapabilityVerified(x.Owner, provider, model) {
@@ -179,7 +185,7 @@ func (s *Server) agentChatRunCollection(
 			// Retain canonical local history, but don't manufacture provider
 			// state references for requests sent with store:false.
 			x.PreviousResponseID = ""
-			x.ConversationID = ""
+			if clearProviderRefs { x.ConversationID = "" }
 		} else if mode == agentchat.PreviousResponse {
 			x.PreviousResponseID = result.ResponseID
 		} else if mode == agentchat.Conversation {
@@ -199,17 +205,17 @@ func (s *Server) agentChatRunCollection(
 			EnablePatchTool: toolAvailable, EnableCollectionTool: toolAvailable,
 		})
 		if err != nil {
-			return result, forceStateless, &agentCollectionLocalError{Stage: "request_build", Round: round+1, Cause: err}
+			return result, clearProviderRefs, &agentCollectionLocalError{Stage: "request_build", Round: round+1, Cause: err}
 		}
 		x.History = append(x.History, next)
 		x.Status = "requesting_ai"
 		x.AppendEvent("collect_observed", "requesting_ai", next.CallID, "")
 		*x, err = store.Save(*x, x.Revision)
 		if err != nil {
-			return result, forceStateless, &agentCollectionLocalError{Stage: "journal_write", Round: round+1, Cause: err}
+			return result, clearProviderRefs, &agentCollectionLocalError{Stage: "journal_write", Round: round+1, Cause: err}
 		}
 		if ctx.Err() != nil {
-			return result, forceStateless, &agentCollectionLocalError{Stage: "cancelled_before_provider_request", Round: round+1, Cause: ctx.Err()}
+			return result, clearProviderRefs, &agentCollectionLocalError{Stage: "cancelled_before_provider_request", Round: round+1, Cause: ctx.Err()}
 		}
 		// A slow inspection round must not exhaust the next provider request.
 		// The parent is the cancelable, multi-round turn context; each call
@@ -222,7 +228,7 @@ func (s *Server) agentChatRunCollection(
 		if callErr != nil {
 			s.recordAgentDebugEvent(x.Owner, x.ID, next.CallID, "collection", "collection.continuation_failed",
 				"COLLECTION_PROVIDER_FAILED", fmt.Sprintf("Collection round %d provider continuation failed; see trace %s", round+1, traceID))
-			return result, forceStateless, &agentCollectionProviderError{Round: round+1, TraceID: traceID, Cause: callErr}
+			return result, clearProviderRefs, &agentCollectionProviderError{Round: round+1, TraceID: traceID, Cause: callErr}
 		}
 	}
 	// A model that keeps returning read requests must not make an infinite
@@ -231,6 +237,6 @@ func (s *Server) agentChatRunCollection(
 		ResponseID: result.ResponseID, ConversationID: result.ConversationID,
 		Text: "TaskDeck reached the 6-round read-only Collection limit before completing this task. No additional file changes were made. Ask the Agent to continue with a narrower inspection or submit a Patch proposal.",
 		InputTokens: result.InputTokens, OutputTokens: result.OutputTokens,
-	}, forceStateless, nil
+	}, clearProviderRefs, nil
 }
 
