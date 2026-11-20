@@ -57,7 +57,7 @@ func (s *Server) agentChatSessionsAPI(w http.ResponseWriter, r *http.Request) {
 				"id": item.ID, "project_id": item.ProjectID, "model_id": item.ModelID,
 				"provider_id": item.ProviderID, "mode": item.Mode, "status": item.Status,
 				"title": item.Title, "archived": item.Archived, "target": item.Target,
-				"reasoning_effort": item.ReasoningEffort,
+				"reasoning_effort": item.ReasoningEffort, "retry_mode": item.RetryMode,
 				"revision":         item.Revision, "updated_at": item.UpdatedAt,
 				"unresolved": agentchat.HasUnresolvedWork(item),
 			})
@@ -236,6 +236,10 @@ func (s *Server) agentChatSessionItemAPI(w http.ResponseWriter, r *http.Request)
 		s.agentChatEventsAPI(w, r, segments[0])
 		return
 	}
+	if len(segments) == 2 && segments[0] != "" && segments[1] == "retry" {
+		s.agentChatRetryAPI(w, r, segments[0])
+		return
+	}
 	if len(segments) == 2 && segments[0] != "" && segments[1] == "automation" {
 		s.agentChatAutomationAPI(w, r, segments[0])
 		return
@@ -286,7 +290,9 @@ func (s *Server) agentChatSessionItemAPI(w http.ResponseWriter, r *http.Request)
 	}
 	// The API currently exposes a transcript only to its authenticated owner.
 	w.Header().Set("Cache-Control", "no-store")
-	writeJSON(w, http.StatusOK, map[string]any{"session": item, "execution_enabled": false, "patch_tool_status": s.agentPatchToolStatus(aiPlanOwner(r), item.ProviderID, item.ModelID)})
+	writeJSON(w, http.StatusOK, map[string]any{"session": item, "execution_enabled": false,
+		"retry_runtime": agentRetrySnapshot(s.Workspace,aiPlanOwner(r),id),
+		"patch_tool_status": s.agentPatchToolStatus(aiPlanOwner(r), item.ProviderID, item.ModelID)})
 }
 
 // agentChatSessionMetadataAPI renames or archives a session. These are the
