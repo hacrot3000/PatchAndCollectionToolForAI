@@ -254,57 +254,48 @@ func agentPatchResultFromProtocol(state session.ProtocolState, expect agentPatch
 // Callers may present status but MUST NOT invent success when the process
 // terminates without a final per-item protocol state.
 func (s *Server) agentReconcilePatchRecord(x *agentToolReconcileView) {
-	if x == nil || x.Record.Status != "running" || x.Record.PatchSessionID == "" || s.Sessions == nil {
-		return
-	}
-	if _, exists := s.Sessions.Metadata(x.Record.PatchSessionID); !exists {
-		x.Record.Status = "unknown"
-		x.Record.Result = "Linked native Patch session is no longer available; execution outcome is unknown. Do not re-submit automatically."
-		x.Changed = true
-		return
-	}
-	provider, ok := s.Sessions.(session.ProtocolStateProvider)
-	if !ok {
-		return
-	}
-	state, err := provider.ProtocolState(x.Record.PatchSessionID)
-	if err != nil {
-		return
-	}
-	expect := agentPatchExpectation{
-		Name:      filepath.Base(x.Record.QueuePath),
-		PromptID:  x.Record.PromptID,
-		ItemIndex: x.Record.SelectedIndex,
-	}
-	status, result, runID, complete := agentPatchResultFromProtocol(state, expect)
-	if !complete {
-		return
-	}
-	// The final native status is attributable only while the exact approved ZIP
-	// remains present with its durable size/SHA receipt. Missing or changed
-	// package evidence is UNKNOWN, never a provider-visible success.
-	if x.Record.PackageSHA256 == "" || x.Record.PackageSize <= 0 {
-		x.Record.Status = "unknown"
-		x.Record.Result = "Final native status exists but the approved package digest receipt is unavailable. Do not re-submit automatically."
-		x.Changed = true
-		return
-	}
-	receipt := patchUploadResult{Name: filepath.Base(x.Record.QueuePath), QueuePath: x.Record.QueuePath, Size: x.Record.PackageSize, SHA256: x.Record.PackageSHA256}
-	if err := s.agentVerifyQueuedPackage(receipt); err != nil {
-		x.Record.Status = "unknown"
-		x.Record.Result = "Final native status could not be bound to the approved package digest. Inspect the existing execution; do not re-submit automatically."
-		x.Changed = true
-		return
-	}
-	// A run ID that was already bound must remain identical; otherwise the
-	// observed item belongs to a different execution.
-	if x.Record.RunID != "" && runID != x.Record.RunID {
-		return
-	}
-	x.Record.Status = status
-	x.Record.Result = result
-	x.Record.RunID = runID
-	x.Changed = true
+ if x==nil || x.Record.Status!="running" || x.Record.PatchSessionID=="" { return }
+ // Only native per-item machine evidence or exact approved archive + History
+ // can prove a result. Never convert a queue receipt or terminal exit to PASS.
+ var status,result,runID string
+ complete:=false
+ missingSession:=false
+ if s.Sessions!=nil {
+  if _,ok:=s.Sessions.Metadata(x.Record.PatchSessionID); !ok {
+   missingSession=true
+  } else if provider,ok:=s.Sessions.(session.ProtocolStateProvider); ok {
+   if state,err:=provider.ProtocolState(x.Record.PatchSessionID); err==nil {
+    expect:=agentPatchExpectation{
+     Name:filepath.Base(x.Record.QueuePath),
+     PromptID:x.Record.PromptID,
+     ItemIndex:x.Record.SelectedIndex,
+    }
+    status,result,runID,complete=agentPatchResultFromProtocol(state,expect)
+   }
+  }
+ }
+ if !complete {
+  status,result,runID,complete=s.agentFinalResultFromHistory(x.Record)
+ }
+ if !complete {
+  if missingSession {
+   x.Record.Status="unknown"
+   x.Record.Result="Native session has expired and no uniquely matching approved Patch history was found. Check Patch History; do not rerun automatically."
+   x.Changed=true
+  }
+  return
+ }
+ if err:=s.agentVerifyFinalPackage(x.Record); err!=nil {
+  x.Record.Status="unknown"
+  x.Record.Result="Final native Patch evidence exists but neither queue nor archive matches the approved SHA-256. Inspect the existing run; never resubmit automatically."
+  x.Changed=true
+  return
+ }
+ if x.Record.RunID!="" && runID!=x.Record.RunID { return }
+ x.Record.Status=status
+ x.Record.Result=result
+ x.Record.RunID=runID
+ x.Changed=true
 }
 
 type agentToolReconcileView struct {
