@@ -34,7 +34,7 @@ func (s *Server) agentChatCall(ctx context.Context, p agentchat.ProviderConfig, 
 // stream that ends without completion is an error; callers never replay a
 // turn that may already have had side effects.
 func (s *Server) agentChatCallForOwner(ctx context.Context, owner, sessionID string, p agentchat.ProviderConfig, key string, payload []byte) (agentchat.ResponsesResult, error, string) {
-	return s.agentChatObservedCall(ctx, owner, "provider_request", sessionID, p, key, payload)
+	return s.agentChatProviderWithRetry(ctx, owner, sessionID, p, key, payload)
 }
 
 func (s *Server) agentChatObservedCall(ctx context.Context, owner, action, sessionID string, p agentchat.ProviderConfig, key string, payload []byte) (agentchat.ResponsesResult, error, string) {
@@ -418,15 +418,13 @@ func (s *Server) agentChatMessageAPI(w http.ResponseWriter, r *http.Request, id 
 	// OWN 60-second deadline. Reusing one 60-second deadline across all rounds
 	// previously caused COLLECTION_CONTINUATION_FAILED after a slow first call.
 	turnCtx := s.agentServerContext()
-	ctx, cancel := context.WithTimeout(turnCtx, 7*60*time.Second)
+	ctx, cancel := agentRetryTurnContext(turnCtx, session.RetryMode)
 	defer cancel()
 	// Keep cancellation registered through every read-only Collection round.
 	// Unregister only when this turn actually finishes or fails.
 	releaseRequest := registerAgentRequest(agentRequestKey(s.Workspace, owner, id), cancel)
 	defer releaseRequest()
-	providerCtx, providerCancel := context.WithTimeout(ctx, 60*time.Second)
-	result, callErr, traceID := s.agentChatCallForOwner(providerCtx, owner, id, p, string(secret), payload)
-	providerCancel()
+	result, callErr, traceID := s.agentChatCallForOwner(ctx, owner, id, p, string(secret), payload)
 	if callErr != nil {
 		if errors.Is(ctx.Err(), context.Canceled) {
 			// The turn was explicitly cancelled: keep the user's message, but never
