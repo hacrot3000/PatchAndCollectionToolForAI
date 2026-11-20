@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -99,13 +100,10 @@ func (s *Server) agentChatRunCollection(
 	for round := 0; round < agentCollectionMaxRounds; round++ {
 		var args agentCollectionArguments
 		typed, fallback := false, false
+		var validationErr error
 		if len(result.Calls) == 1 && result.Calls[0].Name == "taskdeck_collect_workspace" && toolAvailable {
 			typed = true
-			var err error
-			args, err = parseAgentCollectionArguments(result.Calls[0].Arguments, identity)
-			if err != nil {
-				return result, forceStateless, fmt.Errorf("invalid structured Collection request: %w", err)
-			}
+			args, validationErr = parseAgentCollectionArguments(result.Calls[0].Arguments, identity)
 		} else if len(result.Calls) == 0 {
 			args, fallback = agentCollectionTextFallback(result.Text, identity)
 		}
@@ -113,7 +111,23 @@ func (s *Server) agentChatRunCollection(
 			return result, forceStateless, nil
 		}
 
-		observed := executeAgentCollection(s.Workspace, identity, args)
+		observed := ""
+		if validationErr != nil {
+			// Function tool calls are untrusted model output. A malformed or
+			// unsupported READ request must become a bounded tool error that
+			// the model can repair, not fail the entire user turn.
+			reason := scrubAIContext(validationErr.Error(), 256)
+			data, _ := json.Marshal(map[string]any{
+				"error": map[string]any{
+					"code": "INVALID_COLLECTION_REQUEST", "message": reason,
+					"allowed_actions": []string{"ls","tree","find","search","read","pack"},
+					"retry_allowed": true,
+				},
+			})
+			observed = string(data)
+		} else {
+			observed = executeAgentCollection(s.Workspace, identity, args)
+		}
 		var next agentchat.HistoryItem
 		if typed {
 			if result.Text != "" {
