@@ -13,10 +13,10 @@ import (
 	"bletonfc/vscode_tasks_menu/internal/patchtool"
 )
 
-// Larger bounded per-turn read budget: source-level line paging prevents
-// multi-file overflow, while a no-progress fence prevents endless identical
-// reads. The persisted journal remains the resume checkpoint if time expires.
-const agentCollectionMaxRounds = 48
+// Collection has no arbitrary count limit. All reads are still bounded
+// individually, cancellation remains available and repeated identical
+// observations are stopped to avoid a non-progressing provider loop.
+// Successful observations are durably journaled before each continuation.
 const agentCollectionMaxIdenticalObservations = 3
 
 // Every Collection request is read-only; local formatting/persistence
@@ -126,7 +126,10 @@ func (s *Server) agentChatRunCollection(
 	// response was not stored and requires discarding provider references.
 	clearProviderRefs := provider.APIType == "chat_completions"
 	lastReadSignature, repeatedRead := "", 0
-	for round := 0; round < agentCollectionMaxRounds; round++ {
+	for round := 0; ; round++ {
+		if err := ctx.Err(); err != nil {
+			return result, clearProviderRefs, &agentCollectionLocalError{Stage:"cancelled_before_collection",Round:round+1,Cause:err}
+		}
 		var args agentCollectionArguments
 		typed, fallback := false, false
 		var validationErr error
@@ -256,13 +259,5 @@ func (s *Server) agentChatRunCollection(
 			return result, clearProviderRefs, &agentCollectionProviderError{Round: round+1, TraceID: traceID, Cause: callErr}
 		}
 	}
-	// The bounded processing window exhausted. Keep all observations as a
-	// durable checkpoint and clearly mark the task incomplete. Human approval
-	// and the native Patch gateway remain mandatory for edits.
-	return agentchat.ResponsesResult{
-		ResponseID:result.ResponseID,ConversationID:result.ConversationID,
-		Text:"TaskDeck checkpoint: the per-turn read-only Collection budget was reached after 48 observations. The original task is NOT complete. Collected results were saved; resume from the last verified observation, read narrower source ranges, or submit the next Patch proposal. No extra Patch was automatically authorized.",
-		InputTokens:result.InputTokens,OutputTokens:result.OutputTokens,
-	},clearProviderRefs,nil
 }
 
