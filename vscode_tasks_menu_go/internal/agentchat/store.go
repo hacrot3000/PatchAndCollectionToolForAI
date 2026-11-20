@@ -86,6 +86,9 @@ type ToolCallRecord struct {
 	PackageSHA256         string     `json:"package_sha256,omitempty"`
 	PackageSize           int64      `json:"package_size,omitempty"`
 	PatchSessionID        string     `json:"patch_session_id,omitempty"`
+	NativeStartedAt       *time.Time `json:"native_started_at,omitempty"`
+	AutoRunOnce           bool       `json:"auto_run_once,omitempty"`
+	SendAfterRetry        bool       `json:"send_after_retry,omitempty"`
 	PromptID              string     `json:"prompt_id,omitempty"`
 	SelectedIndex         int        `json:"selected_index,omitempty"`
 	RunID                 string     `json:"run_id,omitempty"`
@@ -117,6 +120,7 @@ type ToolAttemptRecord struct {
 	PackageSHA256 string `json:"package_sha256,omitempty"`
 	PackageSize int64 `json:"package_size,omitempty"`
 	PatchSessionID string `json:"patch_session_id,omitempty"`
+	NativeStartedAt *time.Time `json:"native_started_at,omitempty"`
 	PromptID string `json:"prompt_id,omitempty"`
 	SelectedIndex int `json:"selected_index,omitempty"`
 	RunID string `json:"run_id,omitempty"`
