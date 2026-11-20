@@ -102,7 +102,35 @@ type ToolCallRecord struct {
 	// FeedbackStatus distinguishes delivery evidence:
 	// "" | "prepared" | "sending" | "acknowledged" | "failed" | "unknown".
 	FeedbackStatus string `json:"feedback_status,omitempty"`
+	// Previous manual executions are preserved when a user explicitly chooses
+	// a fresh Patch retry. Never discard the old native run/receipt evidence.
+	Attempts []ToolAttemptRecord `json:"attempts,omitempty"`
+	ManualRetryOnly bool `json:"manual_retry_only,omitempty"`
 }
+
+// ToolAttemptRecord retains earlier execution attempts for audit. This is
+// separate from the active, exact SHA-256 native Patch receipt.
+type ToolAttemptRecord struct {
+	Status string `json:"status"`
+	Result string `json:"result,omitempty"`
+	QueuePath string `json:"queue_path,omitempty"`
+	PackageSHA256 string `json:"package_sha256,omitempty"`
+	PackageSize int64 `json:"package_size,omitempty"`
+	PatchSessionID string `json:"patch_session_id,omitempty"`
+	PromptID string `json:"prompt_id,omitempty"`
+	SelectedIndex int `json:"selected_index,omitempty"`
+	RunID string `json:"run_id,omitempty"`
+}
+
+// RetryMode is an explicit user preference: off, limited (five retries),
+// or unlimited (until Stop/cancellation). No retry is implicit.
+type RetryMode string
+
+const (
+	RetryOff RetryMode = "off"
+	RetryLimited RetryMode = "limited"
+	RetryUnlimited RetryMode = "unlimited"
+)
 
 // Session is persisted locally even when the provider offers server-side
 // context. It never contains API keys. All mutations require owner/identity
@@ -121,6 +149,7 @@ type Session struct {
 	// ReasoningEffort is the per-session selection. Empty means "use the model
 	// default". It must be one of the model's advertised efforts.
 	ReasoningEffort string `json:"reasoning_effort,omitempty"`
+	RetryMode RetryMode `json:"retry_mode,omitempty"`
 	Title           string `json:"title,omitempty"`
 	Archived        bool   `json:"archived,omitempty"`
 	Target          string `json:"target,omitempty"` // "" or "local"; remote targets are not enabled
@@ -253,6 +282,14 @@ func (s *Store) withLock(fn func() error) error {
 	return fn()
 }
 func validateSession(x Session) error {
+	if x.RetryMode != "" && x.RetryMode != RetryOff &&
+		x.RetryMode != RetryLimited && x.RetryMode != RetryUnlimited {
+		return ErrInvalidSession
+	}
+	for _, call := range x.ToolCalls {
+		if len(call.Attempts) > 8 { return ErrInvalidSession }
+	}
+
 	if !validID(x.ID) || x.Owner == "" || len(x.Owner) > 256 || x.Workspace == "" || x.ProjectID == "" || x.ProviderID == "" || x.ModelID == "" {
 		return ErrInvalidSession
 	}
