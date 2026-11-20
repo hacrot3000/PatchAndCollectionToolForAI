@@ -63,7 +63,7 @@ func TestAgentChatUIHasNoExecutionAndWiresProviderSessions(t *testing.T) {
 		"AI Debug",
 		"/api/agent/debug/report",
 		"Copy log",
-		"RAW ACTIVE",
+		"Automatic safe capture",
 	} {
 		if !strings.Contains(js, needle) {
 			t.Errorf("Agent Chat UI lacks %q", needle)
