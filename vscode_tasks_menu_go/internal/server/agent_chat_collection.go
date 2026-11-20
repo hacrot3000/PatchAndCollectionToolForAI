@@ -243,9 +243,12 @@ func agentCollectionBoundResponse(identity patchtool.ProjectIdentity, id string,
       if len(prefix)<len(value) {
        file["content"]=prefix
        file["content_truncated"]="true"
-       // Re-read the line where the truncated output ends to avoid gaps.
+       // A shortened read may no longer reach its original next_line.
+       // Expose a conservative overlapping cursor so nothing is skipped.
        start,_:=strconv.Atoi(file["start_line"]);if start<1{start=1}
-       file["continuation_start_line"]=strconv.Itoa(start+strings.Count(prefix,"\n"))
+       resume:=strconv.Itoa(start+strings.Count(prefix,"\n"))
+       file["continuation_start_line"]=resume
+       if file["start_line"]!="" {file["next_line"]=resume}
        out["output_truncated"]=true
        changed=true
       }
