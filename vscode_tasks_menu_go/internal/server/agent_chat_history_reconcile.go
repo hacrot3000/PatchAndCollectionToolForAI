@@ -1,0 +1,117 @@
+package server
+
+import (
+ "crypto/sha256"
+ "encoding/hex"
+ "encoding/json"
+ "errors"
+ "os"
+ "path/filepath"
+ "strings"
+
+ "bletonfc/vscode_tasks_menu/internal/agentchat"
+ "bletonfc/vscode_tasks_menu/internal/patchtool"
+)
+
+// The native runner moves successful packages from patchs/ to patchs/patched/.
+// Dispatch MUST validate the queue copy, but completion may validate either
+// exact location. A ZIP alone never proves that a patch passed.
+func (s *Server) agentVerifyFinalPackage(record agentchat.ToolCallRecord) error {
+ name := filepath.Base(record.QueuePath)
+ if record.QueuePath != "patchs/"+name || name == "." || name == "" ||
+    record.PackageSize <= 0 || record.PackageSize > 2<<20 || len(record.PackageSHA256) != 64 {
+  return errors.New("invalid approved package receipt")
+ }
+ receipt := patchUploadResult{Name:name,QueuePath:record.QueuePath,Size:record.PackageSize,SHA256:record.PackageSHA256}
+ if s.agentVerifyQueuedPackage(receipt) == nil { return nil }
+ root := s.Workspace
+ for _, dir := range []string{"patchs","patched"} {
+  root = filepath.Join(root,dir)
+  fi,err:=os.Lstat(root)
+  if err!=nil || !fi.IsDir() || fi.Mode()&os.ModeSymlink!=0 { return errors.New("missing or unsafe native Patch archive") }
+ }
+ path:=filepath.Join(root,name)
+ fi,err:=os.Lstat(path)
+ if err!=nil || !fi.Mode().IsRegular() || fi.Mode()&os.ModeSymlink!=0 || fi.Size()!=record.PackageSize {
+  return errors.New("approved Patch archive missing or changed")
+ }
+ data,err:=os.ReadFile(path)
+ if err!=nil || int64(len(data))!=record.PackageSize { return errors.New("could not read archived Patch") }
+ digest:=sha256.Sum256(data)
+ if hex.EncodeToString(digest[:])!=record.PackageSHA256 { return errors.New("archived Patch SHA-256 mismatch") }
+ return nil
+}
+
+// Adopt a finished, project-bound native History record when the original
+// terminal's in-memory ProtocolState has expired. Require exactly one matching
+// selected/executed package AND the approved immutable ZIP bytes. This is a
+// read-only recovery path; never start or repeat any Patch action.
+func (s *Server) agentFinalResultFromHistory(call agentchat.ToolCallRecord) (string,string,string,bool) {
+ if call.Status!="running" || call.SelectedIndex<1 || s.agentVerifyFinalPackage(call)!=nil {
+  return "","","",false
+ }
+ identity,err:=patchtool.ReadProjectIdentity(s.Workspace)
+ if err!=nil { return "","","",false }
+ path:=s.Workspace
+ for _,part:=range []string{"artifacts","patch_tool","history"} {
+  path=filepath.Join(path,part)
+  fi,err:=os.Lstat(path)
+  if err!=nil || !fi.IsDir() || fi.Mode()&os.ModeSymlink!=0 { return "","","",false }
+ }
+ entries,err:=os.ReadDir(path)
+ if err!=nil || len(entries)>500 { return "","","",false }
+ name:=filepath.Base(call.QueuePath)
+ type row struct {
+  Name string `json:"name"`
+  Kind string `json:"kind"`
+  Status string `json:"status"`
+  RC *int `json:"rc"`
+  FailureReason string `json:"failure_reason"`
+  DiagnosisKind string `json:"diagnosis_kind"`
+ }
+ var foundStatus,foundResult,foundRun string
+ for _,entry:=range entries {
+  if entry.IsDir() || entry.Type()&os.ModeSymlink!=0 || !strings.HasSuffix(entry.Name(),".json") { continue }
+  fi,err:=entry.Info()
+  if err!=nil || !fi.Mode().IsRegular() || fi.Size()==0 || fi.Size()>1<<20 { continue }
+  raw,err:=os.ReadFile(filepath.Join(path,entry.Name()))
+  if err!=nil { continue }
+  var report struct {
+   Format string `json:"format"`
+   FormatVersion int `json:"format_version"`
+   RunID string `json:"run_id"`
+   ProjectIdentity patchtool.ProjectIdentity `json:"project_identity"`
+   Selected []string `json:"selected"`
+   ExecutionOrder []string `json:"execution_order"`
+   Results []row `json:"results"`
+  }
+  if json.Unmarshal(raw,&report)!=nil || report.Format!="python-patch-tool-last-run" ||
+    report.FormatVersion!=2 || report.RunID=="" || len(report.RunID)>128 ||
+    report.ProjectIdentity!=identity || len(report.Results)==0 || len(report.Results)>256 ||
+    len(report.Selected)>256 || len(report.ExecutionOrder)>256 { continue }
+  selected,executed:=0,0
+  for _,n:=range report.Selected { if n==name { selected++ } }
+  for _,n:=range report.ExecutionOrder { if n==name { executed++ } }
+  if selected!=1 || executed!=1 { continue }
+  for _,item:=range report.Results {
+   if item.Name!=name || strings.ToUpper(item.Kind)!="PATCH" { continue }
+   status:=strings.ToUpper(item.Status)
+   if status!="PASS" && status!="FAIL" && status!="INCOMPLETE" && status!="PREFLIGHT_FAIL" { continue }
+   if foundRun!="" || (call.RunID!="" && call.RunID!=report.RunID) { return "","","",false }
+   foundRun=report.RunID
+   evidence:=map[string]any{
+    "status":status,"name":name,"run_id":report.RunID,
+    "source":"native_patch_history","item_index":call.SelectedIndex,
+    "diagnosis_kind":item.DiagnosisKind,
+    "failure_reason":scrubAIContext(item.FailureReason,400),
+   }
+   if item.RC!=nil { evidence["rc"]=*item.RC }
+   b,err:=json.Marshal(evidence)
+   if err!=nil { return "","","",false }
+   foundResult=string(b)
+   foundStatus="error"
+   if status=="PASS" { foundStatus="done" }
+  }
+ }
+ return foundStatus,foundResult,foundRun,foundRun!=""
+}
