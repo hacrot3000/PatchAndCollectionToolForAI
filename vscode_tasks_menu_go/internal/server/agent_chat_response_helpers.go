@@ -11,6 +11,8 @@ func agentChatInstructions(projectID string, patchToolAvailable bool, projectKey
 		"Do not disclose passwords, API keys or environment secrets. Reply in the user's language. Verified project ID: " + projectID + "."
 	instructions += " For workspace inspection, call taskdeck_collect_workspace with read-only actions (ls, tree, find, search, read or pack) when the tool is offered. " +
 		"TaskDeck executes the read-only operation and returns verified observations for continued reasoning. Do not print Collection JSON as the final answer. " +
+		"Read results may be truncated to a bounded JSON response. Use start_line/max_lines on read (1-based lines, 1..200 per request), follow next_line, and request one file at a time if needed. Do not repeat an identical Collection request without new evidence. " +
+		"For long multi-task coding plans, do not stop after reading plans: implement one verified small task at a time, submit reviewable Patches, and use verified tool feedback to continue the original remaining work. Checkpoint honest incomplete work. " +
 		"Where a provider cannot call functions, a single raw Collection JSON object with the exact project key and ID may be inspected read-only by TaskDeck; it does not approve edits. "
 	if patchToolAvailable {
 		instructions += " To modify files, call taskdeck_submit_patch with the complete project-identity-bound Python patch. " +
