@@ -757,8 +757,21 @@ console.log('PASS: Agent Chat bootstraps and dock position/auto-hide state trans
   assert.equal(previewCard.parentElement,null,'dismissed AI Pack preview is removed');
   assert.deepEqual(transcript.children,beforePreviewRows,'closing preview retains all other chat content');
   assert.equal(packPreviewRequests,1,'closing preview does not call provider or request an AI Pack');
+  // A slow preview response for a previous conversation must never be shown
+  // in the newly selected conversation.
+  let finishStalePreview;
+  context.TaskMenuApp.jsonFetch=async url=>{
+    assert.equal(url,'/api/agent/sessions/preview-session/pack-preview');
+    return new Promise(resolve=>{finishStalePreview=resolve;});
+  };
+  const stalePreview=vm.runInNewContext('previewAgentContext()',context);
+  vm.runInNewContext("agentActive='other-session';",context);
+  finishStalePreview({preview:'private data from old conversation',pack_bytes:10});
+  await stalePreview;
+  assert.deepEqual(transcript.children,beforePreviewRows,
+    'stale AI Pack preview must not be appended to another conversation');
   vm.runInNewContext("agentActive='natural-flow';",context);
-  console.log('PASS: AI Pack preview can be dismissed without removing chat history or sending a request');
+  console.log('PASS: AI Pack preview dismiss/stale-response isolation without chat mutation or provider request');
 
   // One click copies the WHOLE multi-trace/session report, not a selected tab
   // or only the currently visible subset. Prefetch is complete before click
