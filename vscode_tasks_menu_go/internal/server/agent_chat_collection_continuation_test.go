@@ -196,7 +196,7 @@ func TestAgentCollectionLocalFailuresHaveConcreteErrorStage(t *testing.T) {
 	}
 }
 
-func TestAgentCollectionContinuesBeyondSixReadsToPatchProposal(t *testing.T){
+func TestAgentCollectionContinuesWithoutRoundLimitToPatchProposal(t *testing.T){
 	s,id:=newAgentConversationFixture(t,"stateless")
 	identity,err:=patchtool.ReadProjectIdentity(s.Workspace);if err!=nil{t.Fatal(err)}
 	original:="<?php echo 'Initial';\n"
@@ -206,7 +206,7 @@ func TestAgentCollectionContinuesBeyondSixReadsToPatchProposal(t *testing.T){
 	count:=0
 	s.AgentChatCall=func(_ context.Context,_ agentchat.ProviderConfig,_ string,payload []byte)(agentchat.ResponsesResult,error){
 		count++
-		if count<=9 {
+		if count<=55 {
 			if count>1 {
 				var req struct{Input []map[string]any `json:"input"`}
 				if err:=json.Unmarshal(payload,&req);err!=nil{t.Fatal(err)}
@@ -223,9 +223,9 @@ func TestAgentCollectionContinuesBeyondSixReadsToPatchProposal(t *testing.T){
 				Arguments:fmt.Sprintf(`{"actions":[{"type":"read","path":"main.php","start_line":%d,"max_lines":1}]}`,count),
 			}}},nil
 		}
-		if count==10{
+		if count==56{
 			return agentchat.ResponsesResult{ResponseID:"patch-after-inspection",Calls:[]agentchat.FunctionCall{{
-				CallID:"patch-10",Name:"taskdeck_submit_patch",Arguments:string(raw),
+				CallID:"patch-56",Name:"taskdeck_submit_patch",Arguments:string(raw),
 			}}},nil
 		}
 		t.Fatalf("unexpected extra provider call %d",count)
@@ -233,15 +233,15 @@ func TestAgentCollectionContinuesBeyondSixReadsToPatchProposal(t *testing.T){
 	}
 	w:=invokeAI(t,s.agentChatSessionItemAPI,"POST","/api/agent/sessions/"+id+"/messages",
 		map[string]any{"message":"Inspect enough source pages and propose one patch","confirm_external":true,"expected_revision":1})
-	if w.Code!=200||count!=10||!strings.Contains(w.Body.String(),"waiting_tool"){
-		t.Fatalf("agent stopped before a Patch after six Collection turns: status %d calls %d: %s",w.Code,count,w.Body)
+	if w.Code!=200||count!=56||!strings.Contains(w.Body.String(),"waiting_tool"){
+		t.Fatalf("agent stopped before a Patch after fifty-five Collection turns: status %d calls %d: %s",w.Code,count,w.Body)
 	}
 	store,err:=s.agentChatStore();if err!=nil{t.Fatal(err)}
 	saved,err:=store.Get(id,"local");if err!=nil{t.Fatal(err)}
 	observations:=0
 	for _,row:=range saved.History{if row.Type=="function_call_output"{observations++}}
-	if observations!=9 || len(saved.ToolCalls)!=1 || saved.ToolCalls[0].Status!="pending"{
-		t.Fatalf("lost persistent read history or unapproved Patch after 9 Collection rounds: %+v",saved)
+	if observations!=55 || len(saved.ToolCalls)!=1 || saved.ToolCalls[0].Status!="pending"{
+		t.Fatalf("lost persistent read history or unapproved Patch after 55 Collection rounds: %+v",saved)
 	}
 	value,err:=os.ReadFile(filepath.Join(s.Workspace,"main.php"))
 	if err!=nil||string(value)!=original{t.Fatal("Collection bypassed approval and modified project")}
