@@ -171,3 +171,34 @@ func TestDoChatCompletionsUsesChatEndpointBearerAndCanonicalParser(t *testing.T)
 		t.Fatalf("bad result: %+v", result)
 	}
 }
+
+
+func TestChatCompletionsForwardsConfiguredReasoningEffort(t *testing.T){
+	for _,effort:=range []string{"low","medium","high","xhigh","max"} {
+		canonical,err:=BuildResponsesRequest(RequestConfig{
+			Model:"gpt-6.1-sol",Instructions:"taskdeck instructions",Mode:Stateless,
+			Next:[]HistoryItem{{Type:"user",Content:"make a plan"}},
+			ReasoningEffort:effort,
+		})
+		if err!=nil{t.Fatal(err)}
+		body,err:=BuildChatCompletionsRequest(canonical)
+		if err!=nil{t.Fatal(err)}
+		var payload map[string]any
+		if err:=json.Unmarshal(body,&payload);err!=nil{t.Fatal(err)}
+		if payload["reasoning_effort"]!=effort {
+			t.Fatalf("%s absent from Chat Completions request: %s",effort,body)
+		}
+	}
+	canonical,err:=BuildResponsesRequest(RequestConfig{
+		Model:"ordinary-model",Instructions:"policy",Mode:Stateless,
+		Next:[]HistoryItem{{Type:"user",Content:"hi"}},
+	})
+	if err!=nil{t.Fatal(err)}
+	body,err:=BuildChatCompletionsRequest(canonical)
+	if err!=nil{t.Fatal(err)}
+	var payload map[string]any
+	if err:=json.Unmarshal(body,&payload);err!=nil{t.Fatal(err)}
+	if _,present:=payload["reasoning_effort"];present {
+		t.Fatalf("unconfigured model should not receive reasoning override: %s",body)
+	}
+}
