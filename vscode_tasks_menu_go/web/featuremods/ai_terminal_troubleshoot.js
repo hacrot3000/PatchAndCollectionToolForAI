@@ -27,9 +27,10 @@ style.textContent=[
 '.ai-terminal-card code{white-space:pre-wrap;overflow-wrap:anywhere;font:12px monospace}',
 '.ai-terminal-card p{font-size:12px}',
 '.ai-terminal-danger{color:#ffc1aa}.ai-terminal-status{color:#e6cf95}',
-'.ai-terminal-menu{position:fixed;display:none;z-index:19100;background:#192331;border:1px solid #627890;border-radius:6px;padding:5px;box-shadow:0 8px 25px #0008}',
+'.ai-terminal-menu{position:fixed;display:none;z-index:19100;width:min(265px,90vw);max-height:70vh;overflow-y:auto;background:#192331;border:1px solid #627890;border-radius:6px;padding:5px;box-shadow:0 8px 25px #0008}',
 '.ai-terminal-menu.visible{display:block}',
-'.ai-terminal-menu button{padding:8px 14px;background:transparent;border:0;color:#f2f7fc;cursor:pointer}',
+'.ai-terminal-menu button{display:block;box-sizing:border-box;width:100%;text-align:left;white-space:normal;margin:0;padding:7px 10px;background:transparent;border:0;border-radius:4px;color:#f2f7fc;cursor:pointer}',
+'.ai-terminal-menu button:hover,.ai-terminal-menu button:focus-visible{background:#31435b;outline:none}',
 '.ai-terminal-prompt{position:fixed;bottom:14px;right:15px;z-index:17500;width:min(440px,92vw);border:1px solid #71899f;border-radius:7px;background:#192331;color:#f1f6ff;padding:11px;box-shadow:0 10px 30px #0008}',
 '.ai-terminal-prompt strong{display:block;margin-bottom:5px}',
 'html[data-taskmenu-theme="light"] .ai-terminal-wizard{background:#fff;color:#203044}',
@@ -57,15 +58,32 @@ raw.hidden=true;raw.style.whiteSpace='pre-wrap';raw.style.wordBreak='break-word'
 dialog.append(heading,target,notice,questionLabel,question,contextLabel,context,controls,status,summary,choices,raw);
 backdrop.append(dialog);document.body.append(backdrop);
 const ctxmenu=el('div','ai-terminal-menu');
-const askSelection=el('button','','Ask AI about selection'),copySelection=el('button','','Copy selection');
-ctxmenu.append(askSelection,copySelection);document.body.append(ctxmenu);
+ctxmenu.setAttribute('role','menu');
+const askSelection=el('button','','Ask AI about selection'),
+ copySelection=el('button','','Copy selection'),
+ addSelection=el('button','','Add selection to chat');
+for(const button of [askSelection,copySelection,addSelection]){
+ button.type='button';button.setAttribute('role','menuitem');
+}
+ctxmenu.append(askSelection,copySelection,addSelection);document.body.append(ctxmenu);
+ctxmenu.addEventListener('keydown',event=>{
+ const buttons=[askSelection,copySelection,addSelection].filter(b=>!b.disabled);
+ const idx=buttons.indexOf(document.activeElement);
+ if(event.key==='Escape'){event.preventDefault();hideMenu();}
+ else if(['ArrowDown','ArrowUp','Home','End'].includes(event.key)){
+  event.preventDefault();
+  const next=event.key==='Home'?0:event.key==='End'?buttons.length-1:
+   (idx+(event.key==='ArrowDown'?1:-1)+buttons.length)%buttons.length;
+  buttons[next]?.focus();
+ }
+});
 const selectionCache=new WeakMap(),selectionObserved=new WeakSet();
 function observeSelection(view){
  if(!view?.term||selectionObserved.has(view))return;
  selectionObserved.add(view);
  try{view.term.onSelectionChange?.(()=>{
-  const text=String(view.term.getSelection?.()||'').trim();
-  if(text)selectionCache.set(view,{text,at:Date.now()});
+  const text=String(view.term.getSelection?.()||'');
+  if(text.trim())selectionCache.set(view,{text,at:Date.now()});
  });}catch{}
 }
 for(const v of app.views.values())observeSelection(v);
@@ -394,18 +412,34 @@ const docContext=e=>{
  if(!element?.closest?.('.xterm-screen'))return;
  const view=[...app.views.values()].find(v=>v.term?.element?.contains?.(element));
  if(!view)return;
- const live=String(view.term?.getSelection?.()||'').trim();
+ const live=String(view.term?.getSelection?.()||'');
  const previous=selectionCache.get(view);
  // xterm may clear the highlight during right-button mousedown. Recover it
  // only in the brief context-menu window, not across unrelated commands.
- const selection=live||((previous&&Date.now()-previous.at<1200)?previous.text:'');
- if(!selection)return; // Preserve native menu when nothing was selected.
+ const selection=live.trim()?live:((previous&&Date.now()-previous.at<1200)?previous.text:'');
+ if(!selection.trim())return; // Preserve native menu when nothing was selected.
  e.preventDefault();e.stopPropagation();hideMenu();
- ctxmenu.style.left=Math.max(5,Math.min(e.clientX,window.innerWidth-255))+'px';
- ctxmenu.style.top=Math.max(5,Math.min(e.clientY,window.innerHeight-45))+'px';
+ // The selected text and terminal identity are frozen on context-menu open.
+ // Switching terminals or selecting something else cannot change this action.
+ const chat=globalThis.TaskMenuTerminalChatContext;
+ let snapshot=null;
+ try{snapshot=chat?.captureSelectionContext?.(view)||null;}catch{}
+ addSelection.disabled=!chat?.attachSelection||!snapshot;
  ctxmenu.classList.add('visible');
+ ctxmenu.style.left=Math.max(5,Math.min(e.clientX,window.innerWidth-(ctxmenu.offsetWidth||270)-5))+'px';
+ ctxmenu.style.top=Math.max(5,Math.min(e.clientY,window.innerHeight-(ctxmenu.offsetHeight||105)-5))+'px';
  askSelection.onclick=()=>{if(open(view,selection))hideMenu();};
- copySelection.onclick=()=>{hideMenu();void Promise.resolve(globalThis.navigator?.clipboard?.writeText?.(selection)).catch(app.showError);};
+ copySelection.onclick=()=>{
+  hideMenu();
+  if(!globalThis.navigator?.clipboard?.writeText){app.showError?.(new Error('Clipboard API is unavailable'));return;}
+  void globalThis.navigator.clipboard.writeText(selection).catch(error=>app.showError?.(error));
+ };
+ addSelection.onclick=()=>{
+  hideMenu();
+  if(!snapshot||!chat?.attachSelection)return;
+  void Promise.resolve(chat.attachSelection(view,selection,snapshot.position,snapshot.metadata))
+   .catch(error=>app.showError?.(error));
+ };
 };
 document.addEventListener('contextmenu',docContext,true);
 document.addEventListener('pointerdown',e=>{if(!ctxmenu.contains(e.target))hideMenu();},true);
