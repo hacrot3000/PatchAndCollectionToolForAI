@@ -1,8 +1,12 @@
 package server
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"time"
 
 	"bletonfc/vscode_tasks_menu/internal/agentchat"
@@ -73,6 +77,9 @@ func (s *Server) runAgentAutoFeedback(ctx context.Context) {
 		if sess.Owner != "local" {
 			continue
 		}
+		// An explicit local per-conversation Auto Patch grant is sufficient to
+		// invoke the SAME native approval gateway; there is no second executor.
+		s.autoPatchOne(ctx, store, sess.ID)
 		// Reconcile running native jobs in the background. GUI polling is not
 		// required for final-state adoption or automatic feedback.
 		s.reconcileAgentSession(ctx, store, sess.ID)
@@ -84,6 +91,49 @@ func (s *Server) runAgentAutoFeedback(ctx context.Context) {
 			continue
 		}
 		s.autoFeedbackOne(ctx, store, sess.ID)
+	}
+}
+
+// Auto Patch performs a single exact-call approval under the existing native
+// workspace lease, identity validation, revision fence and idempotency marker.
+// No automatic retry is attempted after an ambiguous queue/dispatch result.
+func agentAutoPatchCandidate(x agentchat.Session) (string, bool) {
+	if x.Owner != "local" || !x.AutoPatch || x.Archived || x.Status != "waiting_tool" {
+		return "",false
+	}
+	for _,call:=range x.ToolCalls {
+		if call.Status == "pending" && !call.FeedbackSent {
+			return call.CallID,true
+		}
+		switch call.Status {
+		case "queuing","queued","dispatching","running","unknown":
+			return "",false
+		}
+	}
+	return "",false
+}
+func (s *Server) autoPatchOne(ctx context.Context, store *agentchat.Store, id string) {
+	if s.Config.SharedServerEnabled || ctx.Err()!=nil {return}
+	// Do not hold the turn lock: the existing approval handler acquires it,
+	// then records the QUEUING marker before the native file-side effect.
+	x,err:=store.Get(id,"local")
+	if err!=nil || x.Workspace!=s.Workspace {return}
+	callID,ok:=agentAutoPatchCandidate(x)
+	if !ok {return}
+	body,err:=json.Marshal(map[string]any{
+		"action":"approve","automatic":true,
+		"confirm_execution":true,"expected_revision":x.Revision,
+	})
+	if err!=nil {return}
+	req:=httptest.NewRequest(http.MethodPost,
+		"/api/agent/sessions/"+id+"/tools/"+callID+"/decision",
+		bytes.NewReader(body)).WithContext(ctx)
+	req.Header.Set("Content-Type","application/json")
+	w:=httptest.NewRecorder()
+	s.agentChatToolDecisionAPI(w,req,id,callID)
+	if w.Code!=http.StatusOK {
+		s.recordAgentDebugEvent("local",id,callID,"tool","tool.auto_patch_blocked",
+			"AUTO_PATCH_FAILED","Auto Patch was refused or became stale; no automatic retry")
 	}
 }
 
