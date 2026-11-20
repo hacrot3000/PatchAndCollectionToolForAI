@@ -26,6 +26,7 @@ assert.equal((source.match(/function currentStagedAttachments\s*\(/g) || []).len
   'Attachment session staging helper must have exactly one implementation');
 
 class FakeElement {
+  get childElementCount() { return this.children.length; }
   constructor(tag) {
     this.tagName = tag;
     this.children = [];
