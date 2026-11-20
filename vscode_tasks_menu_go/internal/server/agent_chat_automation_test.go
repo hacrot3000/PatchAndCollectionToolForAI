@@ -188,3 +188,24 @@ func TestAgentPersistentAutoSendDeliversOnceWithoutExpiration(t *testing.T) {
 	s.runAgentAutoFeedback(context.Background())
 	if count!=1 {t.Fatal("persistent Auto-send retried acknowledged result")}
 }
+
+func TestAgentDeleteAfterFinalPatchWithoutSendingAIResult(t *testing.T){
+	s,id,_:=agentPendingCallFixture(t,true)
+	store,err:=s.agentChatStore()
+	if err!=nil {t.Fatal(err)}
+	x,err:=store.Get(id,"local")
+	if err!=nil {t.Fatal(err)}
+	x.ToolCalls[0].Status="done"
+	x.ToolCalls[0].Result=`{"status":"PASS","rc":0}`
+	if x.Status!="waiting_tool" {t.Fatalf("fixture status unexpected: %s",x.Status)}
+	x,err=store.Save(x,x.Revision)
+	if err!=nil {t.Fatal(err)}
+	if agentchat.HasUnresolvedWork(x){t.Fatal("verified final native work is not unresolved")}
+	list:=invokeAI(t,s.agentChatSessionsAPI,http.MethodGet,"/api/agent/sessions",nil)
+	if list.Code!=200||!strings.Contains(list.Body.String(),`"unresolved":false`){
+		t.Fatalf("conversation list did not expose final-state deletability: %d %s",list.Code,list.Body)
+	}
+	r:=invokeAI(t,s.agentChatSessionItemAPI,http.MethodDelete,"/api/agent/sessions/"+id,
+		map[string]any{"expected_revision":x.Revision})
+	if r.Code!=200 {t.Fatalf("finished Patch conversation should be removable: %d %s",r.Code,r.Body)}
+}
