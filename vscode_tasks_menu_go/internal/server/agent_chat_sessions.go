@@ -261,7 +261,7 @@ func (s *Server) agentChatSessionItemAPI(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	if r.Method == http.MethodDelete {
+	if r.Method == http.MethodDelete && len(segments) == 1 && segments[0] != "" {
 		s.agentChatDeleteSessionAPI(w, r, segments[0])
 		return
 	}
