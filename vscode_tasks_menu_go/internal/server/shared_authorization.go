@@ -237,6 +237,11 @@ func sharedRoutePermissions(r *http.Request) []string {
 			return []string{identity.PermissionSettingsWrite}
 		}
 		return nil
+	case "/api/agent/debug/report":
+		if r.Method == http.MethodGet {
+			return []string{identity.PermissionSettingsRead}
+		}
+		return nil
 	case "/api/agent/debug/traces":
 		if r.Method == http.MethodGet {
 			return []string{identity.PermissionSettingsRead}
