@@ -1,11 +1,48 @@
 package agentchat
 
 import (
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
+
+func TestProviderTrustedSharedIPsAreExactAndRestricted(t *testing.T) {
+	p := sampleProvider()
+	shared := net.ParseIP("100.64.0.19")
+	if providerIPAllowed(shared, p) {
+		t.Fatal("shared address allowed without explicit trust")
+	}
+	p.TrustedSharedIPs = []string{"100.64.0.19"}
+	if err := ValidateProvider(p); err != nil {
+		t.Fatal(err)
+	}
+	if !providerIPAllowed(shared, p) || providerIPAllowed(net.ParseIP("100.64.0.20"), p) || providerIPAllowed(net.ParseIP("127.0.0.1"), p) || providerIPAllowed(net.ParseIP("192.168.1.1"), p) {
+		t.Fatal("allowlist did not enforce exact shared address")
+	}
+	if err := validateProviderDNS([]net.IPAddr{{IP: shared}, {IP: net.ParseIP("8.8.8.8")}}, p); err != nil {
+		t.Fatalf("trusted and public DNS answers refused: %v", err)
+	}
+	if err := validateProviderDNS([]net.IPAddr{{IP: shared}, {IP: net.ParseIP("100.64.0.20")}}, p); err == nil {
+		t.Fatal("mixed DNS answers containing an untrusted address were accepted")
+	}
+	for _, invalid := range [][]string{{"127.0.0.1"}, {"192.168.1.1"}, {"100.64.0.0/10"}, {"::ffff:100.64.0.19"}, {"100.64.0.19", "100.64.0.19"}} {
+		p.TrustedSharedIPs = invalid
+		if ValidateProvider(p) == nil {
+			t.Errorf("accepted invalid trusted addresses: %v", invalid)
+		}
+	}
+}
+
+func TestProviderTrustChangeInvalidatesCapability(t *testing.T) {
+	p := sampleProvider()
+	before := CapabilityFingerprint(p, p.Models[0])
+	p.TrustedSharedIPs = []string{"100.64.0.19"}
+	if CapabilityFingerprint(p, p.Models[0]) == before {
+		t.Fatal("trust change must invalidate capability evidence")
+	}
+}
 
 func sampleProvider() ProviderConfig {
 	return ProviderConfig{ID: "custom-r2d", Name: "Custom Endpoint", APIType: "responses", BaseURL: "https://api.r2d.dev/v1",

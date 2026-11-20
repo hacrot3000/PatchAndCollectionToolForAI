@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"bletonfc/vscode_tasks_menu/internal/agentchat"
+	"bletonfc/vscode_tasks_menu/internal/identity"
 	"bletonfc/vscode_tasks_menu/internal/secretstore"
 )
 
@@ -164,6 +165,9 @@ func (s *Server) agentChatProvidersAPI(w http.ResponseWriter, r *http.Request) {
 	}
 	if err = agentchat.ValidateProvider(req.Provider); err != nil {
 		http.Error(w, err.Error(), 400)
+		return
+	}
+	if len(req.Provider.TrustedSharedIPs) > 0 && !s.requireSharedActionPermission(w, r, identity.PermissionProjectAdmin, "agent.provider.trusted_shared_ips", req.Provider.ID) {
 		return
 	}
 	if req.APIKey != "" {

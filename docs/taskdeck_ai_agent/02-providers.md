@@ -6,6 +6,8 @@
 
 Provider schema supports `responses` and `chat_completions`; metadata is owner-scoped, keys use encrypted `ConnectionSecrets`, and provider API type participates in capability fingerprinting. HTTPS/public-IP DNS pinning, no proxy/redirect, bounded response, write-only key API and local credential deletion are present. Capability probes are stored separately from declared model capabilities; only verified tool support enables the Patch function. The Chat adapter is stateless and does not forward reasoning fields without a vendor-specific contract.
 
+For a trusted endpoint resolved by a VPN or local DNS to a shared-network address, a provider may explicitly set `"trusted_shared_ips": ["100.64.0.19"]` to allow that exact address. This is a deliberate SSRF protection exception: confirm the address and endpoint are trusted before allowing credentials or project context to be sent. Only exact canonical IPv4 addresses in `100.64.0.0/10` are accepted; loopback, other private ranges and unlisted DNS answers remain blocked. Each connection rechecks DNS, TLS verification remains enabled, and changing this list invalidates capability probes. Shared-server users need project-admin permission to save a provider with this exception. Remove the list to restore the default public-IP-only policy.
+
 ## F02.1.2/F02.2.1 — lifecycle và settings
 
 1. Xác định semantics: xóa metadata và xóa local credential là hai hành vi hiển thị rõ; xóa local không thể tuyên bố đã revoke key phía nhà cung cấp. Quyết định chính sách session đang dùng provider, rollback và retention trước khi code; đang chạy không được âm thầm đổi endpoint/key giữa turn.

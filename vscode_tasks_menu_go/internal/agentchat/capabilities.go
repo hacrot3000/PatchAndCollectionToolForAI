@@ -70,7 +70,11 @@ func capabilityBaseFields(p ProviderConfig) string {
 	if p.Stream {
 		stream = "on"
 	}
-	return p.ID + "\x00" + p.APIType + "\x00" + strings.TrimRight(p.BaseURL, "/") + "\x00" + stream
+	base := p.ID + "\x00" + p.APIType + "\x00" + strings.TrimRight(p.BaseURL, "/") + "\x00" + stream
+	if len(p.TrustedSharedIPs) > 0 {
+		base += "\x00trusted-shared-ips\x00" + strings.Join(p.TrustedSharedIPs, ",")
+	}
+	return base
 }
 
 // CapabilityStore keeps probe evidence in the same private directory as

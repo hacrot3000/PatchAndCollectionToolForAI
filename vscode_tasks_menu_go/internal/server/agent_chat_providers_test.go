@@ -98,7 +98,39 @@ func TestAgentChatProviderSharedServerPermissions(t *testing.T) {
 		if len(perms) != 1 || perms[0] != tc.permission {
 			t.Fatalf("%s %s incorrect: %+v", tc.method, tc.path, perms)
 		}
+
 	}
+}
+
+func TestAgentChatProviderTrustedSharedIPsRequireProjectAdmin(t *testing.T) {
+	s := newAIServerForTest(t)
+	s.Config.SharedServerEnabled = true
+	p := agentProviderFixture()
+	p.TrustedSharedIPs = []string{"100.64.0.19"}
+	body, err := json.Marshal(map[string]any{"provider": p})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name  string
+		admin bool
+		want  int
+	}{
+		{"settings writer", false, http.StatusForbidden}, {"project admin", true, http.StatusOK},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			principal := identity.Principal{UserID: identity.ID("owner"), Permissions: map[string]bool{identity.PermissionSettingsWrite: true, identity.PermissionProjectAdmin: tc.admin}}
+			r := httptest.NewRequest(http.MethodPut, "/api/agent/providers", bytes.NewReader(body))
+			r.Header.Set("Content-Type", "application/json")
+			r = r.WithContext(context.WithValue(r.Context(), sharedPrincipalContextKey{}, principal))
+			w := httptest.NewRecorder()
+			s.agentChatProvidersAPI(w, r)
+			if w.Code != tc.want {
+				t.Fatalf("got %d, want %d: %s", w.Code, tc.want, w.Body)
+			}
+		})
+	}
+
 }
 
 func TestAgentChatProviderDeleteRevokesLocalKeyExplicitly(t *testing.T) {

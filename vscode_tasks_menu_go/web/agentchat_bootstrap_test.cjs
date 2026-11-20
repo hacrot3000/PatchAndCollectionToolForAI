@@ -77,6 +77,17 @@ assert.equal(windowBox.attributes.role, 'region', 'Main Agent Chat remains non-m
 assert.equal(windowBox.attributes['aria-modal'], undefined, 'Main Agent Chat must not create a modal backdrop');
 assert.ok(viewTabs.children.some(child => child.textContent === 'AI Debug'), 'AI Debug view tab missing');
 assert.equal(debugPanel.className, 'agentchat-debug-panel');
+const find = (node, predicate) => predicate(node) ? node : node.children.map(child => find(child, predicate)).find(Boolean);
+const sessionsButton = find(windowBox, node => node.textContent === 'Saved conversations ▾');
+const sessionsList = find(windowBox, node => node.id === 'agentchat-saved-sessions');
+assert.ok(sessionsButton && sessionsList, 'Saved conversations menu is present');
+assert.equal(sessionsList.classList.contains('open'), false, 'Saved conversations start closed');
+sessionsButton.onclick();
+assert.equal(sessionsList.classList.contains('open'), true, 'Saved conversations open on click');
+assert.equal(sessionsButton.attributes['aria-expanded'], 'true');
+sessionsButton.onclick();
+assert.equal(sessionsList.classList.contains('open'), false, 'Saved conversations close on second click');
+assert.equal(sessionsButton.attributes['aria-expanded'], 'false');
 const collectLabels = node => [node.textContent, ...node.children.flatMap(collectLabels)];
 const labels = collectLabels(heading);
 for (const label of ['AI Agent Chat', '🐞', 'Bottom', 'Auto Hide', '⋯', 'Hide', '+ New session', 'Preview context',

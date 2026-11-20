@@ -47,7 +47,9 @@ agentCSS.textContent=[
 '.agentchat-window button{font-size:12px;padding:7px 10px;border-radius:5px;cursor:pointer}',
 '.agentchat-window button:disabled{opacity:.48;cursor:not-allowed}',
 '.agentchat-layout{display:flex;flex:1;min-height:0}',
-'.agentchat-list{width:190px;min-width:140px;overflow:auto;border-right:1px solid #35445c;padding:8px;display:flex;flex-direction:column;gap:5px}',
+'.agentchat-sessions{position:relative;flex:none;padding:5px 8px;border-bottom:1px solid #35445c}',
+'.agentchat-list{display:none;position:absolute;z-index:6;top:100%;left:8px;width:min(320px,calc(100% - 16px));max-height:min(50vh,400px);overflow:auto;padding:8px;flex-direction:column;gap:5px;background:#192330;border:1px solid #55657a;border-radius:7px;box-shadow:0 8px 28px #0009}',
+'.agentchat-list.open{display:flex}',
 '.agentchat-session{display:flex;align-items:center;gap:7px;text-align:left;width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
 '.agentchat-session.selected{border-color:#60a8e6;background:#263f59}',
 '.agentchat-main{display:flex;flex:1;min-width:0;min-height:0;flex-direction:column}',
@@ -82,7 +84,7 @@ agentCSS.textContent=[
 'html[data-taskmenu-theme="light"] .agentchat-bubble.tool{background:#fff0d8;color:#523815}',
 '.agentchat-dock-floating>.agentchat-dock-resizer{display:none}',
 '.agentchat-composer-actions{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:11px;flex-wrap:wrap}',
-'@media(max-width:700px){.agentchat-list{width:100px;min-width:80px}.agentchat-modelbar select{max-width:120px}.task-agent-dock-section.agent-dock-right:not(.agent-dock-floating){grid-template-columns:minmax(0,1fr) 6px minmax(290px,55vw)}}'
+'@media(max-width:700px){.agentchat-modelbar select{max-width:120px}.task-agent-dock-section.agent-dock-right:not(.agent-dock-floating){grid-template-columns:minmax(0,1fr) 6px minmax(290px,55vw)}}'
 ].join('\n');document.head.append(agentCSS);
 function agentEl(tag,cls,text){
  const node=document.createElement(tag);
@@ -137,6 +139,13 @@ const dockResizer=agentEl('div','agentchat-dock-resizer');dockResizer.tabIndex=0
 const agentStrip=agentButton('✦ AI Agent Chat',()=>openAgentPanel().catch(showAgentError));
 agentStrip.className='agentchat-strip';agentStrip.setAttribute('aria-label','Open Agent Chat');
 const layout=agentEl('div','agentchat-layout'),sessionList=agentEl('div','agentchat-list');
+const sessionMenu=agentEl('div','agentchat-sessions');
+const sessionMenuButton=agentButton('Saved conversations ▾',()=>toggleAgentSessions());
+sessionMenuButton.setAttribute('aria-expanded','false');
+sessionMenuButton.setAttribute('aria-controls','agentchat-saved-sessions');
+sessionList.id='agentchat-saved-sessions';
+sessionList.setAttribute('aria-label','Saved conversations');
+sessionMenu.append(sessionMenuButton,sessionList);
 const main=agentEl('div','agentchat-main'),modelBar=agentEl('div','agentchat-modelbar');
 // Open tabs are UI-only: the server remains the source of truth for every
 // session. Each tab keeps its own composer draft.
@@ -170,7 +179,7 @@ rename.disabled=true;archive.disabled=true;
 for(const button of [newChat,preview,rename,archive,planButton,settingsButton,refresh,attachButton,autoFeedback])toolbarActions.append(button);
 heading.append(title,toolbarActions,dockPositionButton,autoHideButton,debugButton,moreButton,close,moreMenu);
 actionLine.append(status,cancel,send);composer.append(attachList,prompt,actionLine);
-main.append(tabbar,modelBar,transcript,composer);layout.append(sessionList,main);
+main.append(sessionMenu,tabbar,modelBar,transcript,composer);layout.append(main);
 const footer=agentEl('div','agentchat-info','Responses API • AI Pack on first turn • native Patch execution requires explicit approval per tool call. Results are verified from native protocol before AI feedback.');
 windowBox.append(heading,viewTabs,layout,debugPanel,footer);root.append(windowBox);
 const agentToolbarItems=[newChat,preview,rename,archive,planButton,settingsButton,refresh,attachButton,autoFeedback];
@@ -179,7 +188,7 @@ mountAgentDock();
 const settingsOverlay=agentEl('div','agentchat-overlay agentchat-settings-overlay'),settingsBox=agentEl('section','agentchat-settings-box');
 settingsBox.setAttribute('role','dialog');settingsBox.setAttribute('aria-modal','true');settingsBox.setAttribute('aria-label','Agent provider settings');
 const settingsTitle=agentEl('h2','','Agent provider settings');
-const settingsInfo=agentEl('p','','Configure a public HTTPS Responses or Chat Completions provider. Chat Completions uses stateless canonical history; streaming/reasoning options are shown only when supported. API keys remain server-side.');
+const settingsInfo=agentEl('p','','Configure an HTTPS Responses or Chat Completions provider. For a trusted 100.64.0.0/10 endpoint, explicitly add exact addresses to trusted_shared_ips in the provider JSON. This weakens network isolation; trust the endpoint and network first. API keys remain server-side.');
 const settingsPreset=agentButton('Load sample provider',()=>{providerEditor.value=JSON.stringify(agentSample,null,2);});
 const probeProvider=agentButton('Probe capabilities',()=>probeAgentProvider().catch(showAgentError));
 const deleteProvider=agentButton('Remove provider',()=>deleteAgentProvider().catch(showAgentError));
@@ -246,6 +255,7 @@ function normalizeProvider(raw){
   id:String(data.id||'').trim(),name:String(data.name||'').trim(),
   api_type:String(data.api_type||data.apiType||'responses'),
   base_url:String(data.base_url||data.baseUrl||ms[0]?.url||data.url||'').trim(),
+  ...(data.trusted_shared_ips!==undefined?{trusted_shared_ips:data.trusted_shared_ips}:{}),
   stream:Boolean(data.stream),
   models:ms.map(m=>({
    id:String(m.id||''),name:String(m.name||m.id||''),
@@ -315,6 +325,10 @@ settingsAPIType.addEventListener('change',()=>{
 async function saveAgentProvider(){
  const parsed=normalizeProvider(JSON.parse(providerEditor.value));
  parsed.api_type=settingsAPIType.value||parsed.api_type;
+ const previous=agentProviders.find(p=>p.id===parsed.id);
+ if(parsed.trusted_shared_ips?.length&&(parsed.base_url!==previous?.base_url||JSON.stringify(parsed.trusted_shared_ips)!==JSON.stringify(previous?.trusted_shared_ips||[]))){
+  if(!window.confirm('Trust these exact shared-network IP addresses for '+parsed.base_url+'? This allows TaskDeck to send your API key and project context to them and weakens SSRF protection. Continue only if you trust the network and endpoint.'))return;
+ }
  const body={provider:parsed};if(apiKey.value)body.api_key=apiKey.value;
  const data=await agentApp.jsonFetch('/api/agent/providers',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
  apiKey.value='';
@@ -437,7 +451,7 @@ async function loadAgentSessions(){
  sessionList.replaceChildren();
  for(const sess of agentSessions){
   const label=(sess.archived?'[archived] ':'')+(sess.title||sess.model_id)+' · '+sess.status;
-  const item=agentButton(label,()=>selectAgentSession(sess.id).catch(showAgentError));
+  const item=agentButton(label,()=>{toggleAgentSessions(false);selectAgentSession(sess.id).catch(showAgentError);});
   item.className='agentchat-session'+(sess.id===agentActive?' selected':'');
   item.title=sess.id;
   sessionList.append(item);
@@ -870,6 +884,10 @@ function toggleAgentMore(force){
  moreMenu.classList.toggle('open',open);moreButton.setAttribute('aria-expanded',String(open));
  if(open)moreMenu.querySelector('button')?.focus();else moreButton.focus();
 }
+function toggleAgentSessions(force){
+ const open=force===undefined?!sessionList.classList.contains('open'):Boolean(force);
+ sessionList.classList.toggle('open',open);sessionMenuButton.setAttribute('aria-expanded',String(open));
+}
 function setAgentDockPosition(position){
  if(position!=='right'&&position!=='bottom')return;
  agentDock.position=position;
@@ -911,6 +929,7 @@ moreButton.addEventListener('click',event=>{event.stopPropagation();toggleAgentM
 moreMenu.addEventListener('click',event=>event.stopPropagation());
 for(const overlay of [settingsOverlay,planOverlay])overlay.addEventListener('pointerdown',event=>event.stopPropagation());
 document.addEventListener?.('pointerdown',event=>{
+ if(sessionList.classList.contains('open')&&!sessionMenu.contains(event.target))toggleAgentSessions(false);
  if(!agentDock.expanded||!agentDock.autoHide)return;
  if(root.contains(event.target)||agentStrip.contains(event.target)||moreMenu.contains(event.target)||settingsOverlay.contains(event.target)||planOverlay.contains(event.target)||dockResizer.contains(event.target))return;
  agentDock.expanded=false;applyAgentDock();saveAgentDock();
@@ -992,7 +1011,8 @@ root.addEventListener('click',e=>e.stopPropagation());
 settingsOverlay.addEventListener('click',e=>{if(e.target===settingsOverlay)settingsOverlay.classList.remove('visible');});
 window.addEventListener('keydown',e=>{
  if(e.key!=='Escape')return;
- if(moreMenu.classList.contains('open')){e.preventDefault();toggleAgentMore(false);}
+ if(sessionList.classList.contains('open')){e.preventDefault();toggleAgentSessions(false);sessionMenuButton.focus();}
+ else if(moreMenu.classList.contains('open')){e.preventDefault();toggleAgentMore(false);}
  else if(planOverlay.classList.contains('visible'))planOverlay.classList.remove('visible');
  else if(settingsOverlay.classList.contains('visible'))settingsOverlay.classList.remove('visible');
  else if(agentDock.expanded&&agentDock.autoHide){e.preventDefault();closeAgentPanel();}

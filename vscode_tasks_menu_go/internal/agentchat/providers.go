@@ -36,6 +36,8 @@ type ProviderConfig struct {
 	Name    string `json:"name"`
 	APIType string `json:"api_type"`
 	BaseURL string `json:"base_url"`
+	// TrustedSharedIPs are exact CGNAT addresses explicitly trusted for this provider.
+	TrustedSharedIPs []string `json:"trusted_shared_ips,omitempty"`
 	// Stream opts into the SSE adapter. It is only usable when a streaming
 	// capability probe verified this exact endpoint/model configuration.
 	Stream bool          `json:"stream,omitempty"`
@@ -44,6 +46,7 @@ type ProviderConfig struct {
 
 var providerIDPattern = regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9_-]{0,63}$`)
 var modelIDPattern = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._:/~-]{0,127}$`)
+var sharedProviderNetwork = &net.IPNet{IP: net.IPv4(100, 64, 0, 0).To4(), Mask: net.CIDRMask(10, 32)}
 var blockedIPNetworks = func() []*net.IPNet {
 	cidrs := []string{"0.0.0.0/8", "100.64.0.0/10", "192.0.0.0/24", "198.18.0.0/15", "240.0.0.0/4", "2001:db8::/32", "2001::/32"}
 	out := make([]*net.IPNet, 0, len(cidrs))
@@ -65,12 +68,48 @@ func publicIP(ip net.IP) bool {
 	}
 	return true
 }
+func providerIPAllowed(ip net.IP, p ProviderConfig) bool {
+	if publicIP(ip) {
+		return true
+	}
+	if ip == nil || !sharedProviderNetwork.Contains(ip) {
+		return false
+	}
+	for _, trusted := range p.TrustedSharedIPs {
+		if ip.Equal(net.ParseIP(trusted)) {
+			return true
+		}
+	}
+	return false
+}
+func validateProviderDNS(ips []net.IPAddr, p ProviderConfig) error {
+	if len(ips) == 0 {
+		return errors.New("provider DNS returned no addresses")
+	}
+	for _, entry := range ips {
+		if !providerIPAllowed(entry.IP, p) {
+			return errors.New("provider DNS includes private/reserved IP")
+		}
+	}
+	return nil
+}
 func ValidateProvider(p ProviderConfig) error {
 	if !providerIDPattern.MatchString(p.ID) || len(p.Name) == 0 || len(p.Name) > 128 {
 		return errors.New("invalid provider ID/name")
 	}
 	if p.APIType != "responses" && p.APIType != "chat_completions" {
 		return errors.New("unsupported Agent Chat API type")
+	}
+	if len(p.TrustedSharedIPs) > 8 {
+		return errors.New("at most 8 trusted shared IPs are permitted")
+	}
+	seenIPs := map[string]bool{}
+	for _, value := range p.TrustedSharedIPs {
+		ip := net.ParseIP(value)
+		if ip == nil || ip.To4() == nil || !sharedProviderNetwork.Contains(ip) || value != ip.String() || seenIPs[value] {
+			return errors.New("trusted_shared_ips must contain unique, canonical IPv4 addresses in 100.64.0.0/10")
+		}
+		seenIPs[value] = true
 	}
 	u, err := url.Parse(p.BaseURL)
 	if err != nil || u.Scheme != "https" || u.Host == "" || u.Opaque != "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || u.RawFragment != "" {
@@ -400,12 +439,9 @@ func (s *ProviderStore) Delete(owner, id string) error {
 	return os.Rename(temp.Name(), path)
 }
 
-// DoResponses validates the endpoint then pins each DNS resolution to a public
-// address at connection time (DNS rebinding defense). Proxy/redirect disabled.
-// newProviderClient builds the hardened HTTP client shared by JSON and
-// streaming Responses calls: no proxy, no redirect, public-IP DNS pinning on
-// every connection and bounded handshakes.
-func newProviderClient() *http.Client {
+// newProviderClient pins DNS results to public IPs or explicitly trusted
+// shared-network addresses for this provider. Redirects and proxies are disabled.
+func newProviderClient(p ProviderConfig) *http.Client {
 	dialer := &net.Dialer{Timeout: 8 * time.Second}
 	resolver := net.DefaultResolver
 	transport := &http.Transport{
@@ -419,7 +455,7 @@ func newProviderClient() *http.Client {
 				return nil, err
 			}
 			if ip := net.ParseIP(host); ip != nil {
-				if !publicIP(ip) {
+				if !providerIPAllowed(ip, p) {
 					return nil, errors.New("private or reserved provider IP refused")
 				}
 				return dialer.DialContext(ctx, network, net.JoinHostPort(host, port))
@@ -428,14 +464,9 @@ func newProviderClient() *http.Client {
 			if err != nil {
 				return nil, errors.New("provider DNS lookup failed")
 			}
-			// Fail closed on mixed public/private DNS answers.
-			if len(ips) == 0 {
-				return nil, errors.New("provider DNS returned no addresses")
-			}
-			for _, entry := range ips {
-				if !publicIP(entry.IP) {
-					return nil, errors.New("provider DNS includes private/reserved IP")
-				}
+			// Refuse the entire answer if any address is not allowed.
+			if err := validateProviderDNS(ips, p); err != nil {
+				return nil, err
 			}
 			var lastErr error
 			for _, entry := range ips {
@@ -483,7 +514,7 @@ func DoResponses(ctx context.Context, p ProviderConfig, key string, body []byte)
 	if err != nil {
 		return ResponsesResult{}, classifyProviderPreflightError(err)
 	}
-	client := newProviderClient()
+	client := newProviderClient(p)
 	defer client.CloseIdleConnections()
 	req, err := newProviderRequest(ctx, endpoint, key, body)
 	if err != nil {

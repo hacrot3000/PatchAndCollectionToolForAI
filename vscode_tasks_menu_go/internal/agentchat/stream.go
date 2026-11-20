@@ -233,7 +233,7 @@ func DoResponsesStream(ctx context.Context, p ProviderConfig, key string, body [
 	if err != nil {
 		return ResponsesResult{}, err
 	}
-	client := newProviderClient()
+	client := newProviderClient(p)
 	defer client.CloseIdleConnections()
 	req, err := newProviderRequest(ctx, endpoint, key, body)
 	if err != nil {

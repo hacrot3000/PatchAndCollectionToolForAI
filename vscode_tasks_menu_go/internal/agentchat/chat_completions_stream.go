@@ -176,7 +176,7 @@ func DoChatCompletionsStream(ctx context.Context, p ProviderConfig, key string, 
 	if err != nil || len(body) > maxRequestBytes {
 		return ResponsesResult{}, errors.New("Chat Completions stream request exceeds limit")
 	}
-	client := newProviderClient()
+	client := newProviderClient(p)
 	defer client.CloseIdleConnections()
 	req, err := newProviderRequest(ctx, endpoint, key, body)
 	if err != nil {
