@@ -156,6 +156,7 @@ const debugButtons = (() => {const scan = node => [ ...(node.tagName==='button'?
 assert.equal(debugButtons.length,1,'AI Debug must expose exactly one action');
 assert.equal(debugButtons[0].textContent,'Copy log','one action must be Copy log');
 const find = (node, predicate) => predicate(node) ? node : node.children.map(child => find(child, predicate)).find(Boolean);
+const nodeText = node => String(node.textContent||'')+(node.children||[]).map(nodeText).join('');
 const sessionsButton = find(windowBox, node => node.textContent === 'History ▾');
 const sessionsList = find(windowBox, node => node.id === 'agentchat-saved-sessions');
 assert.ok(sessionsButton && sessionsList, 'Saved conversations menu is present');
@@ -623,7 +624,7 @@ console.log('PASS: safe Markdown, syntax-highlighted PHP/Python, per-block Copy,
   // status row is also moved to the bottom to remain after that new message.
   assert.equal(transcript.appendCount,baselineAppend+2,'new assistant row plus relocated single live status are the only appends');
   assert.equal(transcript.children[0],originalUser,'old user message must remain the same element');
-  const assistantCreated=transcript.children.find(node=>node.textContent==='helloworld.php created');
+  const assistantCreated=transcript.children.find(node=>node.className==='agentchat-bubble assistant'&&nodeText(node)==='helloworld.php created');
   assert.ok(assistantCreated,'new assistant message must be present exactly once');
   const patchDone={...extended,revision:201,tool_calls:[
     {...patchSession.tool_calls[0],status:'done',result:'{"status":"PASS"}'}
@@ -644,7 +645,7 @@ console.log('PASS: safe Markdown, syntax-highlighted PHP/Python, per-block Copy,
   const removalBeforeEdit=transcript.removeCount;
   vm.runInNewContext('displayAgentSession('+JSON.stringify(edited)+')',context);
   assert.equal(transcript.children[0],originalUser,'changing last answer must not redraw earlier history');
-  assert.equal(transcript.children.at(-1).textContent,'helloworld.php verified');
+  assert.equal(nodeText(transcript.children.at(-1)),'helloworld.php verified');
   assert.equal(transcript.removeCount,removalBeforeEdit+1,'only the changed assistant tail should be removed on this update');
 
   // The tab and conversation list should preserve keyed DOM nodes as their
@@ -709,7 +710,7 @@ console.log('PASS: safe Markdown, syntax-highlighted PHP/Python, per-block Copy,
   };
   const sending=vm.runInNewContext('sendAgentMessage()',context);
   assert.equal(postedMessages.length,1,'message POST must be issued');
-  assert.equal(transcript.children[0].textContent,'Create helloworld.php','user bubble appears before network completes');
+  assert.equal(nodeText(transcript.children[0]),'Create helloworld.php','user bubble appears before network completes');
   assert.equal(transcript.children[0].className,'agentchat-bubble user optimistic');
   const liveLine=transcript.children.at(-1);
   assert.equal(liveLine.className,'agentchat-live-status','live status should follow the sent bubble');
@@ -747,7 +748,7 @@ console.log('PASS: safe Markdown, syntax-highlighted PHP/Python, per-block Copy,
     'completed response removes the spinner instead of archiving a stale status');
   assert.equal(transcript.children.filter(x=>x.className.includes('bubble user')).length,1,
     'successful request must have exactly one user message');
-  assert.equal(transcript.children.at(-1).textContent,'Created helloworld.php.','assistant reply is appended after tool IO');
+  assert.equal(nodeText(transcript.children.at(-1)),'Created helloworld.php.','assistant reply is appended after tool IO');
   assert.equal(vm.runInNewContext('agentLiveTurns.size',context),0);
   const lastBubble=transcript.children.at(-1);
   context.flowSession={...context.flowSession,status:'failed',revision:5,event_seq:4,
@@ -801,7 +802,7 @@ console.log('PASS: safe Markdown, syntax-highlighted PHP/Python, per-block Copy,
     history:[...context.flowSession.history,{type:'assistant',content:'Patch verified and applied.'}]};
   resolveFeedback({status:'ready'});
   await continuing;
-  assert.equal(transcript.children.at(-1).textContent,'Patch verified and applied.');
+  assert.equal(nodeText(transcript.children.at(-1)),'Patch verified and applied.');
   assert.ok(transcript.children.some(x=>x.className==='agentchat-io-details'&&x.children[0].textContent.includes('Native Patch result sent')),
     'native Patch response must stay in user-visible history');
   assert.equal(transcript.children.filter(x=>x.className==='agentchat-live-status').length,0);
