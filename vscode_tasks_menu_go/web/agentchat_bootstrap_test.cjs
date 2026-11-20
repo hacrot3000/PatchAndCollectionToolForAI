@@ -336,6 +336,15 @@ console.log('PASS: Agent Chat bootstraps and dock position/auto-hide state trans
   assert.equal(vm.runInNewContext('JSON.parse(providerEditor.value).trusted_shared_ips[0]', context), '100.64.0.19');
   console.log('PASS: Allow this IP saves only the trusted address and preserves editor drafts');
 
+  // The provider-settings test above intentionally replaces agentProviders
+  // with a minimal fixture. Restore the new-conversation selection before
+  // asserting its outgoing create-session payload.
+  vm.runInNewContext([
+    "agentProviders=[{id:'custom-r2d',name:'Custom Endpoint',api_type:'chat_completions',has_api_key:true,models:[",
+    "{id:'composer-2.5',name:'composer-2.5',reasoning_efforts:['low','medium','high'],default_reasoning_effort:'medium'},",
+    "{id:'gpt-6.1-sol',name:'gpt-6.1-sol',reasoning_efforts:['low','medium','high','xhigh','max'],default_reasoning_effort:'xhigh'}",
+    "]}];providerSelect.value='custom-r2d';updateAgentModels('gpt-6.1-sol','max');modeSelect.value='conversation';"
+  ].join('\n'),context);
   let capturedSetup=null;
   context.TaskMenuApp.jsonFetch=async(url,options)=>{
     if(url!=='/api/agent/sessions'||options?.method!=='POST')throw Error('Unexpected setup API call');
