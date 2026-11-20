@@ -52,7 +52,7 @@ agentCSS.textContent=[
 '.agentchat-list.open{display:flex}',
 '.agentchat-session{display:flex;align-items:center;gap:7px;text-align:left;width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
 '.agentchat-session.selected{border-color:#60a8e6;background:#263f59}',
-'.agentchat-main{display:flex;flex:1;min-width:0;min-height:0;flex-direction:column}',
+'.agentchat-main{position:relative;display:flex;flex:1;min-width:0;min-height:0;flex-direction:column}',
 '.agentchat-tab{padding:5px 9px;font-size:11px;border-radius:14px;border:1px solid #4a5f78;cursor:pointer}',
 '.agentchat-tab.active{background:#2c4a67;border-color:#7db6e6}',
 '.agentchat-tab .close{padding:0 4px;border:0;background:transparent;color:#cfe3f5}',
@@ -62,11 +62,17 @@ agentCSS.textContent=[
 '.agentchat-transcript{flex:1;overflow:auto;min-height:0;display:flex;flex-direction:column;gap:9px;padding:12px}',
 '.agentchat-bubble{white-space:pre-wrap;overflow-wrap:anywhere;font-size:12px;line-height:1.55;padding:9px;border:1px solid #384b61;border-radius:8px;max-width:94%}',
 '.agentchat-bubble.user{align-self:flex-end;background:#203b56}',
-'.agentchat-bubble.assistant{align-self:flex-start;background:#222c3a}',
-'.agentchat-bubble.tool{align-self:flex-start;background:#443522;border-color:#97744a}',
+'.agentchat-bubble.assistant{align-self:flex-start;background:transparent;border-color:transparent;padding:4px 0}',
+'.agentchat-bubble.tool{align-self:flex-start;background:#1d2936;border-color:#394b60}',
 '.agentchat-tool-actions{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:8px}',
 '.agentchat-tool-code{font:11px/1.5 ui-monospace,monospace;white-space:pre-wrap;overflow-wrap:anywhere;max-height:280px;overflow:auto;border:1px solid #5f6675;padding:8px;border-radius:6px}',
 '.agentchat-tool-summary{font-size:11px;color:#c5dbed;line-height:1.4;white-space:pre-wrap;overflow-wrap:anywhere}',
+'.agentchat-execution-panel{display:none;position:absolute;z-index:12;left:8px;right:8px;top:8px;bottom:8px;flex-direction:column;min-height:0;background:#141f2d;border:1px solid #62758d;border-radius:8px;box-shadow:0 8px 28px #0009}',
+'.agentchat-execution-panel.visible{display:flex}',
+'.agentchat-execution-header{display:flex;gap:6px;align-items:center;flex-wrap:wrap;padding:8px;border-bottom:1px solid #35445c}',
+'.agentchat-execution-header strong{flex:1;min-width:90px}',
+'.agentchat-execution-content{flex:1;min-height:0;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;padding:10px;margin:0;font:11px/1.5 ui-monospace,monospace}',
+'html[data-taskmenu-theme="light"] .agentchat-execution-panel{background:#fff;color:#17283a}',
 
 '.agentchat-composer{padding:9px;border-top:1px solid #35445c;display:flex;flex-direction:column;gap:6px}',
 '.agentchat-composer textarea{width:100%;min-height:66px;max-height:160px;resize:vertical}',
@@ -80,8 +86,8 @@ agentCSS.textContent=[
 'html[data-taskmenu-theme="light"] .agentchat-window,html[data-taskmenu-theme="light"] .agentchat-settings-box{background:#fff;color:#17283a}',
 'html[data-taskmenu-theme="light"] .agentchat-window textarea,html[data-taskmenu-theme="light"] .agentchat-window input,html[data-taskmenu-theme="light"] .agentchat-window select,html[data-taskmenu-theme="light"] .agentchat-settings-box textarea,html[data-taskmenu-theme="light"] .agentchat-settings-box input{background:#f7faff;color:#17283a;border-color:#b6c6d7}',
 'html[data-taskmenu-theme="light"] .agentchat-bubble.user{background:#d9edfc}',
-'html[data-taskmenu-theme="light"] .agentchat-bubble.assistant{background:#eef3f8}',
-'html[data-taskmenu-theme="light"] .agentchat-bubble.tool{background:#fff0d8;color:#523815}',
+'html[data-taskmenu-theme="light"] .agentchat-bubble.assistant{background:transparent;border-color:transparent}',
+'html[data-taskmenu-theme="light"] .agentchat-bubble.tool{background:#f4f7fa;color:#17283a;border-color:#d4dce6}',
 '.agentchat-dock-floating>.agentchat-dock-resizer{display:none}',
 '.agentchat-composer-actions{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:11px;flex-wrap:wrap}',
 '@media(max-width:700px){.agentchat-modelbar select{max-width:120px}.task-agent-dock-section.agent-dock-right:not(.agent-dock-floating){grid-template-columns:minmax(0,1fr) 6px minmax(290px,55vw)}}'
@@ -161,6 +167,19 @@ for(const mode of [['stateless','Stateless'],['previous_response','Response chai
 }
 modelBar.append(agentEl('span','','Provider'),providerSelect,agentEl('span','','Model'),modelSelect,modeSelect,agentEl('span','','Effort'),effortSelect);
 const transcript=agentEl('div','agentchat-transcript');
+// Keep inspection expansion and the execution viewer independent of transcript
+// replacements triggered by native status polling.
+const agentOpenReviewDetails=new Set();
+let agentExecutionTarget=null,agentExecutionText='';
+const agentExecutionPanel=agentEl('section','agentchat-execution-panel');
+const agentExecutionHeader=agentEl('div','agentchat-execution-header');
+const agentExecutionHeading=agentEl('strong','','Native Patch console / execution evidence');
+const agentExecutionRefresh=agentButton('Refresh console',()=>{if(agentExecutionTarget)showAgentExecution(agentExecutionTarget.sessionID,agentExecutionTarget.callID).catch(showAgentError);});
+const agentExecutionCopy=agentButton('Copy',()=>{if(navigator.clipboard)navigator.clipboard.writeText(agentExecutionText).catch(showAgentError);});
+const agentExecutionClose=agentButton('Close',()=>{agentExecutionPanel.classList.remove('visible');agentExecutionTarget=null;});
+agentExecutionHeader.append(agentExecutionHeading,agentExecutionRefresh,agentExecutionCopy,agentExecutionClose);
+const agentExecutionContent=agentEl('pre','agentchat-execution-content','');
+agentExecutionPanel.append(agentExecutionHeader,agentExecutionContent);
 const composer=agentEl('div','agentchat-composer'),prompt=agentEl('textarea');
 // Text-only attachment staging. Binary files are rejected server-side; the UI
 // never reads local paths or embeds base64.
@@ -181,7 +200,7 @@ rename.disabled=true;archive.disabled=true;
 for(const button of [newChat,preview,rename,archive,planButton,settingsButton,refresh,attachButton,autoFeedback])toolbarActions.append(button);
 heading.append(title,toolbarActions,dockPositionButton,autoHideButton,debugButton,moreButton,close,moreMenu);
 actionLine.append(status,cancel,send);composer.append(attachList,prompt,actionLine);
-main.append(tabbar,modelBar,toolNotice,transcript,composer);layout.append(main);
+main.append(tabbar,modelBar,toolNotice,transcript,agentExecutionPanel,composer);layout.append(main);
 const footer=agentEl('div','agentchat-info','AI Pack on first turn • read-only Collection inspection • tool or text-only Patch proposals require explicit native approval; verified results return to AI.');
 windowBox.append(heading,viewTabs,layout,debugPanel,footer);root.append(windowBox);
 const agentToolbarItems=[newChat,preview,rename,archive,planButton,settingsButton,refresh,attachButton,autoFeedback];
