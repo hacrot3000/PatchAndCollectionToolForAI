@@ -240,6 +240,10 @@ func (s *Server) agentChatSessionItemAPI(w http.ResponseWriter, r *http.Request)
 		s.agentChatEventsAPI(w, r, segments[0])
 		return
 	}
+	if len(segments) == 2 && segments[0] != "" && segments[1] == "automation" {
+		s.agentChatAutomationAPI(w, r, segments[0])
+		return
+	}
 	if len(segments) == 2 && segments[0] != "" && segments[1] == "auto-feedback" {
 		s.agentChatAutoFeedbackAPI(w, r, segments[0])
 		return
@@ -257,6 +261,10 @@ func (s *Server) agentChatSessionItemAPI(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	if r.Method == http.MethodDelete {
+		s.agentChatDeleteSessionAPI(w, r, segments[0])
+		return
+	}
 	if r.Method != http.MethodGet {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
