@@ -135,12 +135,16 @@ agentCSS.textContent=[
 
 '.agentchat-composer{padding:9px;border-top:1px solid #35445c;display:flex;flex-direction:column;gap:6px}',
 '.agentchat-attachment-list{display:flex;flex-direction:column;gap:5px;max-height:150px;overflow:auto}',
-'.agentchat-attachment-card{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:2px 8px;padding:6px 8px;border:1px solid #465365;border-radius:6px;font-size:11px}',
+'.agentchat-attachment-card{display:grid;grid-template-columns:minmax(0,1fr) auto;grid-template-rows:auto auto;gap:2px 8px;padding:6px 8px;border:1px solid #465365;border-radius:6px;font-size:11px}',
 '.agentchat-attachment-title{display:flex;gap:6px;min-width:0;font-weight:650}',
 '.agentchat-attachment-title span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
-'.agentchat-attachment-path,.agentchat-attachment-meta{grid-column:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;opacity:.68;font:10px ui-monospace,monospace}',
-'.agentchat-attachment-preview{grid-column:1/3;max-height:42px;overflow:hidden;white-space:pre-wrap;overflow-wrap:anywhere;opacity:.8;font:10px/1.35 ui-monospace,monospace}',
-'.agentchat-attachment-remove{grid-column:2;grid-row:1/4;padding:2px 6px!important}',
+'.agentchat-attachment-path{grid-column:1;grid-row:2;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;opacity:.72;font:10px ui-monospace,monospace}',
+'.agentchat-attachment-actions{grid-column:2;grid-row:1/3;display:flex;gap:4px;align-items:center;justify-content:flex-end}',
+'.agentchat-attachment-info{position:relative;display:inline-flex;align-items:center;justify-content:center;min-width:21px;height:22px;padding:0 4px!important;border-radius:50%;font-size:11px;cursor:help}',
+'.agentchat-attachment-tooltip{display:none;position:absolute;bottom:calc(100% + 6px);right:0;z-index:30;width:min(330px,70vw);max-height:220px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;text-align:left;font:11px/1.45 ui-monospace,monospace;background:#101a28;border:1px solid #70849d;border-radius:6px;color:#edf3ff;padding:8px;box-shadow:0 6px 20px #0009;pointer-events:none}',
+'.agentchat-attachment-info:hover .agentchat-attachment-tooltip,.agentchat-attachment-info:focus-visible .agentchat-attachment-tooltip{display:block}',
+'.agentchat-attachment-remove{padding:2px 5px!important;min-width:22px;height:22px}',
+'html[data-taskmenu-theme="light"] .agentchat-attachment-tooltip{background:#fff;color:#17283a;border-color:#b1c4d9;box-shadow:0 6px 20px #0002}',
 '.agentchat-attach-context-menu{position:fixed;z-index:17200;display:none;min-width:190px;padding:5px;background:#192330;color:#e6eef9;border:1px solid #55657a;border-radius:7px;box-shadow:0 8px 28px #0009}',
 '.agentchat-attach-context-menu.open{display:block}.agentchat-attach-context-menu button{width:100%;text-align:left}',
 'html[data-taskmenu-theme="light"] .agentchat-attach-context-menu{background:#fff;color:#17283a}',
@@ -1497,22 +1501,39 @@ function normalizeStagedAttachments(items){
 function currentStagedAttachments(){return agentActive?agentAttachments:agentPendingAttachments;}
 function renderAgentAttachments(){
  const items=currentStagedAttachments();attachList.replaceChildren();
- if(!items.length)return;
  items.forEach((item,index)=>{
   const card=agentEl('div','agentchat-attachment-card');
-  const title=agentEl('div','agentchat-attachment-title',(item.kind==='file_selection'||item.kind==='terminal_selection'?'▤':'📄'));
-  title.append(agentEl('span','',item.name));
-  const remove=agentButton('Remove',()=>{
+  const terminal=item.kind==='terminal_console'||item.kind==='terminal_selection';
+  const label=terminal?(item.source?.terminal_title||item.name):item.name;
+  const title=agentEl('div','agentchat-attachment-title',terminal?'▤':'📄');
+  title.append(agentEl('span','',label));
+  const origin=terminal?'Terminal ID: '+(item.source?.terminal_id||'unknown'):(item.source?.path||item.name);
+  const path=agentEl('div','agentchat-attachment-path',origin);
+  path.title=origin;
+  const actions=agentEl('div','agentchat-attachment-actions');
+  const details=agentButton('ⓘ',()=>{});
+  details.className='agentchat-attachment-info';
+  details.setAttribute('aria-label','Attachment details: '+label);
+  const ranges=Array.isArray(item.source?.ranges)&&item.source.ranges.length?
+   item.source.ranges.map((r,i)=>'Quote '+(i+1)+': L'+r.start_line+':C'+(r.start_column||1)+'–L'+r.end_line+':C'+(r.end_column||1)).join('\n'):
+   (item.source?.start_line!==undefined?'Lines '+item.source.start_line+'–'+item.source.end_line:'');
+  const summary=['Name: '+item.name,'Source: '+origin,item.source?.cwd?'CWD: '+item.source.cwd:'',
+   item.bytes+' bytes'+(item.source?.dirty?' · unsaved buffer':''),ranges,'Preview:',item.preview||''].filter(Boolean).join('\n');
+  details.title=summary;
+  const tip=agentEl('span','agentchat-attachment-tooltip',summary);
+  tip.setAttribute('role','tooltip');details.append(tip);
+  const remove=agentButton('×',()=>{
    items.splice(index,1);
    if(agentActive)agentAttachmentDrafts.set(agentActive,agentAttachments.map(a=>({...a})));
    if(agentActive)agentRequestIDs.delete(agentActive);
    else agentPendingAttachments.splice(0,agentPendingAttachments.length,...items.map(a=>({...a})));
    renderAgentAttachments();
-  });remove.className='agentchat-attachment-remove';
-  const path=agentEl('div','agentchat-attachment-path',item.source?.path||item.source?.terminal_title||item.name);
-  const range=item.source?.start_line!==undefined?' · L'+item.source.start_line+'–'+item.source.end_line:'';
-  const meta=agentEl('div','agentchat-attachment-meta',item.bytes+' bytes'+range+(item.source?.dirty?' · unsaved buffer':''));
-  card.append(title,remove,path,meta,agentEl('pre','agentchat-attachment-preview',item.preview||''));attachList.append(card);
+  });
+  remove.className='agentchat-attachment-remove';
+  remove.title='Remove attachment';
+  remove.setAttribute('aria-label','Remove attachment: '+label);
+  actions.append(details,remove);
+  card.append(title,path,actions);attachList.append(card);
  });
 }
 async function stageContext(context,options={}){
