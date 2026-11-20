@@ -663,9 +663,13 @@ function renderAgentTool(session,item){
  if(record.result)box.append(detail('Verified native result / diagnosis',record.result,'patch-result'));
  const actions=agentEl('div','agentchat-tool-actions');
  if(state==='pending'){
-  const approve=agentButton('Approve & run in Patch Tool',()=>agentToolDecision(agentCurrentSession||session,item.call_id,'approve').catch(showAgentError));
-  approve.disabled=Boolean(agentApp.sharedMode&&!agentApp.hasPermission?.('patch.run'));
-  actions.append(approve,agentButton('Reject patch',()=>agentToolDecision(agentCurrentSession||session,item.call_id,'reject').catch(showAgentError)));
+  if(session.auto_patch){
+   box.append(agentEl('p','agentchat-tool-summary','Auto apply is ON · Native Patch Tool will handle this proposal. No per-Patch approval needed.'));
+  }else{
+   const approve=agentButton('Approve & run in Patch Tool',()=>agentToolDecision(agentCurrentSession||session,item.call_id,'approve').catch(showAgentError));
+   approve.disabled=Boolean(agentApp.sharedMode&&!agentApp.hasPermission?.('patch.run'));
+   actions.append(approve,agentButton('Reject patch',()=>agentToolDecision(agentCurrentSession||session,item.call_id,'reject').catch(showAgentError)));
+  }
  }
  if(['running','dispatching','queued'].includes(state)){
   const refresh=agentButton('Check native Patch status',()=>syncAgentPatch(session.id).catch(showAgentError));
@@ -675,7 +679,10 @@ function renderAgentTool(session,item){
  }
  if(['done','error','rejected'].includes(state)){
   actions.append(agentButton('View native result',()=>showAgentExecution(session.id,item.call_id).catch(showAgentError)));
-  if(!record.feedback_sent)actions.append(agentButton('Send verified result to AI',()=>continueAgentTool(agentCurrentSession||session,item.call_id).catch(showAgentError)));
+  if(!record.feedback_sent){
+   if(session.auto_feedback)box.append(agentEl('p','agentchat-tool-summary','Auto-send result is ON · forwarding verified '+(state==='error'?'failure':'result')+' to AI.'));
+   else actions.append(agentButton('Send verified result to AI',()=>continueAgentTool(agentCurrentSession||session,item.call_id).catch(showAgentError)));
+  }
  }
  if(state==='unknown')actions.append(agentEl('p','agentchat-tool-summary','Result unverified. Inspect native Patch History before retrying.'));
  if(actions.childElementCount)box.append(actions);
@@ -941,6 +948,20 @@ async function selectAgentSession(id){
 }
 async function agentToolDecision(session,callID,action){
  if(agentBusy)return;
+ // A background Auto Patch, status reconciliation, or Automation setting can
+ // change the session revision while its UI card remains on screen. Always
+ // act on the current canonical record and never rerun a completed call.
+ session=await selectAgentSession(session.id);
+ if(!session)return;
+ const record=(session.tool_calls||[]).find(call=>call.call_id===callID);
+ if(!record||record.status!=='pending'){
+  status.textContent='Patch has already advanced to '+(record?.status||'another state')+' · no repeat approval was sent.';
+  return;
+ }
+ if(action==='approve' && session.auto_patch){
+  status.textContent='Auto apply Patch is ON · Native Patch Tool is managing this proposal.';
+  return;
+ }
  const review=(session.history||[]).find(item=>item.type==='function_call'&&item.call_id===callID);
  if(!review)throw new Error('Missing original tool call');
  if(action==='approve'){
@@ -1029,10 +1050,12 @@ function scheduleAgentMonitor(sess){
  clearTimeout(agentMonitorTimer);agentMonitorTimer=0;
  if(!root.classList.contains('visible')||!sess)return;
  if(agentApp.sharedMode&&!agentApp.hasPermission?.('patch.view'))return;
- const pending=(sess.tool_calls||[]).some(call=>['running','dispatching','queued'].includes(call.status));
+ const pending=(sess.tool_calls||[]).some(call=>['running','dispatching','queued','unknown'].includes(call.status));
+ const awaitingAutoPatch=sess.auto_patch&&sess.status==='waiting_tool'&&
+  (sess.tool_calls||[]).some(call=>call.status==='pending');
  const awaitingFeedback=sess.auto_feedback&&sess.status==='waiting_tool'&&
-  (sess.tool_calls||[]).some(call=>['done','error'].includes(call.status)&&!call.feedback_sent);
- if(!pending&&!awaitingFeedback)return;
+  (sess.tool_calls||[]).some(call=>['done','error','rejected'].includes(call.status)&&!call.feedback_sent);
+ if(!pending&&!awaitingFeedback&&!awaitingAutoPatch)return;
  const id=sess.id;
  agentMonitorTimer=setTimeout(async()=>{
   if(agentActive!==id||!root.classList.contains('visible'))return;
