@@ -33,6 +33,8 @@ func TestMarkdownPreviewRendererIsVendoredAndDoesNotUseHTMLInjection(t *testing.
 		"document.createElement('pre')",
 		"textContent=codeLines.join",
 		"TaskMenuMarkdownPreview",
+		"TaskMenuAgentChat",
+		"getSelection",
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("markdownpreview.js missing %q", want)
@@ -58,7 +60,7 @@ func TestMarkdownEditorPreviewUsesCurrentBuffer(t *testing.T) {
 		"['md','markdown','mdown','mkd','mkdn'].includes",
 		"function openEditorMarkdownPreview(view)",
 		"view.cm.state.doc.toString()",
-		"preview.open({kind:'markdown',path:view.file.path,content,size:new Blob([content]).size})",
+		"preview.open({kind:'markdown',path:view.file.path,content,size:new Blob([content]).size,dirty:Boolean(view.dirty)",
 		"markdownPreview.textContent='Preview'",
 		"markdownPreview.hidden=!editorIsMarkdown(file.path)",
 		"save,autoSave,reload,markdownPreview,structuredSelect,find",
