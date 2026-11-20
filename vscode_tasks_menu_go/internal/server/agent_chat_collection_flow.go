@@ -13,7 +13,7 @@ import (
 	"bletonfc/vscode_tasks_menu/internal/patchtool"
 )
 
-const agentCollectionMaxRounds = 6
+const agentCollectionMaxRounds = 1000
 
 // Every Collection request is read-only; local formatting/persistence
 // failures can be diagnosed safely without claiming ambiguous Patch execution.
@@ -240,7 +240,7 @@ func (s *Server) agentChatRunCollection(
 	// provider loop or be presented as having finished the requested edit.
 	return agentchat.ResponsesResult{
 		ResponseID: result.ResponseID, ConversationID: result.ConversationID,
-		Text: "TaskDeck reached the 6-round read-only Collection limit before completing this task. No additional file changes were made. Ask the Agent to continue with a narrower inspection or submit a Patch proposal.",
+		Text: "TaskDeck reached the 1000-round read-only Collection limit before completing this task. No additional file changes were made. Ask the Agent to continue with a narrower inspection or submit a Patch proposal.",
 		InputTokens: result.InputTokens, OutputTokens: result.OutputTokens,
 	}, clearProviderRefs, nil
 }
