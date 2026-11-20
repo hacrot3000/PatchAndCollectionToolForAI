@@ -170,6 +170,13 @@ vm.runInNewContext([
 setupButton.onclick();
 assert.equal(setupContainer.classList.contains('open'),true);
 for(const name of ['Provider','Model','Effort','Context'])assert.ok(setupGroup(name),'missing '+name+' category');
+// Clicking options must never dismiss AI setup or its current submenu.
+const providerGroup=setupGroup('Provider');
+providerGroup.children[0].onclick();
+assert.equal(providerGroup.getAttribute('aria-expanded'),'true','Provider must expand on click');
+setupChoice('Provider','custom-r2d').onclick();
+assert.equal(setupContainer.classList.contains('open'),true,'selecting Provider must keep AI setup open');
+assert.equal(providerGroup.getAttribute('aria-expanded'),'true','selecting Provider must leave choices visible');
 assert.ok(setupChoice('Provider','custom-r2d'),'provider absent');
 assert.ok(setupChoice('Model','composer-2.5')&&setupChoice('Model','gpt-6.1-sol'),'model absent');
 for(const effort of ['low','medium','high'])assert.ok(setupChoice('Effort',effort),'composer effort absent: '+effort);
@@ -177,25 +184,43 @@ assert.equal(setupChoice('Effort','xhigh'),undefined,'unsupported composer effor
 assert.equal(vm.runInNewContext('effortSelect.value',context),'medium');
 const modelGroup=setupGroup('Model');
 modelGroup.children[0].onclick();
-assert.equal(modelGroup.getAttribute('aria-expanded'),'true','nested category must open by click and hover');
+assert.equal(modelGroup.getAttribute('aria-expanded'),'true','nested category opens only on click');
+assert.equal(providerGroup.getAttribute('aria-expanded'),'false','opening Model closes Provider choices');
 setupChoice('Model','gpt-6.1-sol').onclick();
+assert.equal(modelGroup.getAttribute('aria-expanded'),'true','selecting Model keeps its choices expanded');
+assert.equal(setupContainer.classList.contains('open'),true,'selecting Model does not close AI setup');
 assert.equal(vm.runInNewContext('modelSelect.value',context),'gpt-6.1-sol');
 assert.equal(vm.runInNewContext('effortSelect.value',context),'xhigh');
 for(const effort of ['low','medium','high','xhigh','max'])assert.ok(setupChoice('Effort',effort),'gpt-6.1-sol effort absent: '+effort);
-setupButton.onclick();
+const effortGroup=setupGroup('Effort');
+effortGroup.children[0].onclick();
+assert.equal(modelGroup.getAttribute('aria-expanded'),'false','Model remains closed when navigating to Effort');
 setupChoice('Effort','max').onclick();
+assert.equal(effortGroup.getAttribute('aria-expanded'),'true','Effort remains open after selection');
+assert.equal(setupContainer.classList.contains('open'),true);
 assert.equal(vm.runInNewContext('effortSelect.value',context),'max');
-setupButton.onclick();
+const contextGroup=setupGroup('Context');
+contextGroup.children[0].onclick();
+assert.equal(effortGroup.getAttribute('aria-expanded'),'false','only clicked category expands');
 assert.ok(setupChoice('Context','conversation').textContent.includes('local history'),
  'Chat Completions must explain canonical replay rather than claim provider-side state');
 setupChoice('Context','conversation').onclick();
 assert.equal(vm.runInNewContext('modeSelect.value',context),'conversation');
-setupButton.onclick();
+assert.equal(contextGroup.getAttribute('aria-expanded'),'true','Context remains expanded after selection');
 setupChoice('Context','previous_response').onclick();
 assert.equal(vm.runInNewContext('modeSelect.value',context),'previous_response');
-setupButton.onclick();
 setupChoice('Context','conversation').onclick();
 assert.equal(vm.runInNewContext('modeSelect.value',context),'conversation');
+assert.equal(setupContainer.classList.contains('open'),true,'choices stay visible until user closes AI setup');
+const css=vm.runInNewContext('agentCSS.textContent',context);
+assert.ok(css.includes('.agentchat-config-category[aria-expanded="true"]>.agentchat-config-category-values'),
+ 'only explicitly expanded config categories should display submenus');
+assert.ok(!css.includes('.agentchat-config-category:hover>.agentchat-config-category-values'),
+ 'hover traversal must never switch config submenus');
+assert.ok(css.includes('.agentchat-config-category-values{display:none;position:static;'),
+ 'config choices must expand inline, not below unrelated categories');
+setupButton.onclick();
+assert.equal(setupContainer.classList.contains('open'),false,'AI setup closes by explicit toggle');
 // The saved conversation selector must include a separate scoped Delete action
 // without forcing the user to open the conversation first.
 vm.runInNewContext('agentSessions=[{id:"deleted-view-only",title:"Old conversation",model_id:"m",status:"completed",archived:false}];updateAgentSessionRows()', context);
@@ -210,6 +235,28 @@ const labels = collectLabels(heading);
 const moreButton = heading.children.find(child => child.textContent === '⋯');
 const moreMenu = heading.children.find(child => child.className === 'agentchat-more-menu');
 const toolbarActions = heading.children.find(child => child.className === 'agentchat-toolbar-actions');
+const groups=toolbarActions.children;
+const conversationGroup=groups.find(node=>node.className==='agentchat-header-group'&&node.children[0].textContent==='Conversation ▾');
+const automationGroup=groups.find(node=>node.className==='agentchat-header-group'&&node.children[0].textContent==='Automation ▾');
+assert.ok(conversationGroup&&automationGroup,'header groups must be rendered');
+conversationGroup.children[0].onclick({preventDefault(){}});
+assert.equal(conversationGroup.open,true,'clicking Conversation must open its dropdown');
+assert.equal(conversationGroup.children[0].attributes['aria-expanded'],'true');
+assert.ok(conversationGroup.children[1].children.some(node=>node.textContent==='+ New session'),
+ 'Conversation dropdown has actionable entries');
+automationGroup.children[0].onclick({preventDefault(){}});
+assert.equal(automationGroup.open,true,'clicking Automation must open its dropdown');
+assert.equal(conversationGroup.open,false,'only one header dropdown opens at a time');
+assert.ok(automationGroup.children[1].children.some(node=>node.textContent.startsWith('Auto apply Patch')),
+ 'Automation dropdown has actual settings');
+automationGroup.children[0].onclick({preventDefault(){}});
+assert.equal(automationGroup.open,false,'second click closes header dropdown');
+assert.ok(css.includes('.agentchat-toolbar-actions{display:flex;align-items:center;gap:4px;min-width:0;overflow:visible}'),
+ 'header dropdown must not be clipped by the toolbar flex container');
+assert.ok(css.includes('.agentchat-more-menu.open:has(.agentchat-header-group[open]){overflow:visible'),
+ 'overflow toolbar dropdown must not be clipped by More menu');
+assert.ok(css.includes('.agentchat-header-menu{position:absolute;')&&css.includes('right:0;display:none'),
+ 'header submenu must open toward the interior of the dock');
 section.clientWidth = 1000; section.clientHeight = 700; heading.clientWidth = 800;
 resizeObserver.callback();
 const countAfterResize = toolbarActions.appendCount;
