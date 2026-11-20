@@ -247,7 +247,7 @@ func (s *Server) agentDeliverToolResult(ctx context.Context, store *agentchat.St
 	defer releaseRequest()
 	result, err, _ := s.agentChatCallForOwner(continuationCtx, owner, x.ID, p, string(secret), payload)
 	if err != nil {
-		if errors.Is(callCtx.Err(), context.Canceled) {
+		if errors.Is(continuationCtx.Err(), context.Canceled) {
 			s.recordAgentDebugEvent(owner, x.ID, call.CallID, "feedback", "feedback.unknown", "FEEDBACK_DELIVERY_UNKNOWN", "Provider acknowledgement was not confirmed; result will not be resent")
 			x.Status = "cancelled"
 			x.ToolCalls[idx].FeedbackStatus = "unknown"
