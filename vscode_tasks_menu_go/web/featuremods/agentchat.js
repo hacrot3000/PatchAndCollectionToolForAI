@@ -1108,7 +1108,7 @@ function rebalanceAgentToolbar(){
  if(!space)return;
  for(const button of agentToolbarItems)toolbarActions.append(button);
  moreMenu.classList.remove('open');moreButton.setAttribute('aria-expanded','false');
- const always=dockPositionButton.offsetWidth+autoHideButton.offsetWidth+debugButton.offsetWidth+moreButton.offsetWidth+close.offsetWidth+title.offsetWidth+24;
+ const always=dockPositionButton.offsetWidth+autoHideButton.offsetWidth+moreButton.offsetWidth+close.offsetWidth+title.offsetWidth+24;
  while(toolbarActions.scrollWidth>Math.max(0,space-always)&&toolbarActions.children.length>1){
   const button=toolbarActions.lastElementChild;moreMenu.prepend(button);
  }
