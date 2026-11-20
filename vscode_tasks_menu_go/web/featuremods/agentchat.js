@@ -1016,6 +1016,7 @@ function displayAgentSession(session){
   return;
  }
  const switched=agentRenderedSessionID!==session.id;
+ if(switched)closeAgentAttachmentsPopup();
  const followLatest=switched||agentAtLatest();
  if(switched){
   if(agentLiveRow.parentElement)agentLiveRow.remove();
@@ -1556,10 +1557,51 @@ function normalizeStagedAttachments(items){
  });
 }
 function currentStagedAttachments(){return agentActive?agentAttachments:agentPendingAttachments;}
-let agentAttachmentTooltip=null;
-function renderAgentAttachments(){
+let agentAttachmentTooltip=null,agentAttachmentPreviewIndex=0,agentAttachmentViewButtons=[];
+function closeAgentAttachmentsPopup(){
+ const wasOpen=attachPopup.classList.contains('open');
+ attachPopup.classList.remove('open');
+ attachToggle.setAttribute('aria-expanded','false');
  agentAttachmentTooltip?.remove?.();agentAttachmentTooltip=null;
- const items=currentStagedAttachments();attachList.replaceChildren();
+ attachList.replaceChildren();agentAttachmentViewButtons=[];
+ attachPreview.textContent='';attachPreviewHeading.textContent='Select an attachment to view';
+ if(wasOpen&&!attachToggle.hidden)attachToggle.focus();
+}
+function toggleAgentAttachmentsPopup(open=!attachPopup.classList.contains('open')){
+ if(!open||!currentStagedAttachments().length){closeAgentAttachmentsPopup();return;}
+ if(attachPopup.classList.contains('open'))return;
+ agentAttachmentPreviewIndex=0;
+ attachPopup.classList.add('open');
+ attachToggle.setAttribute('aria-expanded','true');
+ renderAgentAttachments();
+ attachClose.focus();
+}
+function showAgentAttachmentPreview(index){
+ const item=currentStagedAttachments()[index];
+ if(!item){attachPreviewHeading.textContent='Select an attachment to view';attachPreview.textContent='';return;}
+ agentAttachmentPreviewIndex=index;
+ attachPreviewHeading.textContent=item.name+' · '+(index+1)+'/'+currentStagedAttachments().length;
+ // Show exactly the staged evidence sent to the provider, not a shortened
+ // preview or a live re-read of the file/terminal. Never parse as HTML.
+ attachPreview.textContent=item.text;
+ attachPreview.scrollTop=0;
+ for(let i=0;i<agentAttachmentViewButtons.length;i++){
+  agentAttachmentViewButtons[i].setAttribute('aria-pressed',String(i===index));
+ }
+}
+function renderAgentAttachments(){
+ const items=currentStagedAttachments();
+ attachToggle.hidden=!items.length;
+ attachToggle.textContent='Attachments ('+items.length+') '+(attachPopup.classList.contains('open')?'▾':'▸');
+ attachToggle.setAttribute('aria-label','View '+items.length+' staged attachment'+(items.length===1?'':'s'));
+ if(!attachPopup.classList.contains('open')){
+  // Closed is genuinely lazy: no per-item cards, tooltips or previews exist.
+  return;
+ }
+ if(!items.length){closeAgentAttachmentsPopup();return;}
+ agentAttachmentTooltip?.remove?.();agentAttachmentTooltip=null;
+ attachHeading.textContent='Staged attachments ('+items.length+')';
+ attachList.replaceChildren();agentAttachmentViewButtons=[];
  items.forEach((item,index)=>{
   const card=agentEl('div','agentchat-attachment-card');
   const terminal=item.kind==='terminal_console'||item.kind==='terminal_selection';
@@ -1601,6 +1643,11 @@ function renderAgentAttachments(){
   details.addEventListener('mouseleave',hideDetails);
   details.addEventListener('focus',showDetails);
   details.addEventListener('blur',hideDetails);
+  const inspect=agentButton('View',()=>showAgentAttachmentPreview(index));
+  inspect.className='agentchat-attachment-view';
+  inspect.setAttribute('aria-label','View attachment: '+label);
+  inspect.setAttribute('aria-pressed','false');
+  agentAttachmentViewButtons.push(inspect);
   const remove=agentButton('×',()=>{
    items.splice(index,1);
    if(agentActive)agentAttachmentDrafts.set(agentActive,agentAttachments.map(a=>({...a})));
@@ -1611,9 +1658,10 @@ function renderAgentAttachments(){
   remove.className='agentchat-attachment-remove';
   remove.title='Remove attachment';
   remove.setAttribute('aria-label','Remove attachment: '+label);
-  actions.append(details,remove);
+  actions.append(inspect,details,remove);
   card.append(title,path,actions);attachList.append(card);
  });
+ showAgentAttachmentPreview(Math.min(agentAttachmentPreviewIndex,items.length-1));
 }
 // Quote excerpts are immutable snapshots. Separate selections from the
 // same local file occupy one attachment and retain every individual line range.
@@ -2208,12 +2256,13 @@ async function openAgentPanel(options={}){
  if(agentDebugView==='debug')await loadAgentDebugReport();
  return true;
 }
-function closeAgentPanel(){agentDock.expanded=false;toggleAgentMore(false);applyAgentDock();saveAgentDock();}
+function closeAgentPanel(){closeAgentAttachmentsPopup();agentDock.expanded=false;toggleAgentMore(false);applyAgentDock();saveAgentDock();}
 root.addEventListener('click',e=>e.stopPropagation());
 settingsOverlay.addEventListener('click',e=>{if(e.target===settingsOverlay)settingsOverlay.classList.remove('visible');});
 window.addEventListener('keydown',e=>{
  if(e.key!=='Escape')return;
- if(agentHeaderGroups.some(group=>group.open)){
+ if(attachPopup.classList.contains('open')){e.preventDefault();closeAgentAttachmentsPopup();}
+ else if(agentHeaderGroups.some(group=>group.open)){
   e.preventDefault();for(const group of agentHeaderGroups){
    group.open=false;
    group.children[0].setAttribute('aria-expanded','false');
