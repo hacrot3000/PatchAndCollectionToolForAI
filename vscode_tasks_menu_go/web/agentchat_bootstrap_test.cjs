@@ -591,6 +591,80 @@ console.log('PASS: Agent Chat bootstraps and dock position/auto-hide state trans
   assert.equal(transcript.children[0],originalUser,'changed revision without new content may not repaint');
   console.log('PASS: append-only transcript, single-card status updates and revision-gated polling');
 
+  // A user message appears synchronously, before any HTTP request resolves.
+  // Server acknowledgements replace the optimistic node, not duplicate it.
+  vm.runInNewContext("agentActive='natural-flow';agentLiveTurns.clear();agentRequestIDs.clear();",context);
+  const baseFlow={
+    id:'natural-flow',status:'ready',revision:1,event_seq:0,history:[],events:[],tool_calls:[],
+    provider_id:'custom-r2d',model_id:'composer-2.5',mode:'stateless'
+  };
+  context.flowSession=baseFlow;
+  vm.runInNewContext("displayAgentSession(flowSession);prompt.value='Create helloworld.php';",context);
+  let resolveFlow;
+  const postedMessages=[];
+  context.TaskMenuApp.jsonFetch=async(url,opts)=>{
+    if(url==='/api/agent/sessions/natural-flow/messages'){
+      postedMessages.push(JSON.parse(opts.body));
+      return new Promise(resolve=>{resolveFlow=resolve;});
+    }
+    if(url==='/api/agent/sessions/natural-flow')return {session:context.flowSession,patch_tool_status:'enabled'};
+    throw new Error('Unexpected natural-flow HTTP request: '+url);
+  };
+  const sending=vm.runInNewContext('sendAgentMessage()',context);
+  assert.equal(postedMessages.length,1,'message POST must be issued');
+  assert.equal(transcript.children[0].textContent,'Create helloworld.php','user bubble appears before network completes');
+  assert.equal(transcript.children[0].className,'agentchat-bubble user optimistic');
+  const liveLine=transcript.children.at(-1);
+  assert.equal(liveLine.className,'agentchat-live-status','live status should follow the sent bubble');
+  assert.equal(liveLine.children[1].textContent,'Sending request…');
+  assert.equal(vm.runInNewContext('prompt.value',context),'','composer clears on sending');
+  const initialBubble=transcript.children[0];
+  context.flowSession={...baseFlow,status:'requesting_ai',revision:2,event_seq:1,
+    history:[{type:'user',content:'Create helloworld.php'}],
+    events:[{seq:1,kind:'turn_started',status:'requesting_ai',history_index:1}]};
+  vm.runInNewContext('displayAgentSession(flowSession)',context);
+  assert.equal(transcript.children.filter(x=>x.className.includes('bubble user')).length,1,
+    'persisted user message should replace optimistic message, not duplicate it');
+  assert.notEqual(transcript.children[0],initialBubble,'the optimistic node must be reconciled');
+  assert.equal(transcript.children.at(-1),liveLine,'status is one stable node across all phases');
+  assert.equal(liveLine.children[1].textContent,'Thinking…');
+  context.flowSession={...context.flowSession,revision:3,event_seq:2,
+    history:[{type:'user',content:'Create helloworld.php'},
+      {type:'function_call',call_id:'collect-1',name:'taskdeck_collect_workspace',arguments:'{"actions":[{"type":"ls","path":"."}]}'},
+      {type:'function_call_output',call_id:'collect-1',content:'{"results":[{"entries":["hello.php"]}]}'}
+    ],
+    events:[...context.flowSession.events,{seq:2,kind:'collect_observed',status:'requesting_ai',history_index:3}]
+  };
+  vm.runInNewContext('displayAgentSession(flowSession)',context);
+  assert.equal(liveLine.children[1].textContent,'Sending Collection result to AI…');
+  assert.equal(transcript.children.filter(x=>x===liveLine).length,1,'changing phase must not accumulate spinner nodes');
+  assert.ok(transcript.children.some(node=>node.className==='agentchat-io-details'&&node.children[0].textContent.includes('Collection result sent')),
+    'verified Collection response should be accessible in chronological history');
+  context.flowSession={...context.flowSession,status:'ready',revision:4,event_seq:3,
+    history:[...context.flowSession.history,{type:'assistant',content:'Created helloworld.php.'}],
+    events:[...context.flowSession.events,{seq:3,kind:'turn_finished',status:'ready',history_index:4}]
+  };
+  resolveFlow({status:'ready'});
+  await sending;
+  assert.equal(transcript.children.filter(x=>x.className==='agentchat-live-status').length,0,
+    'completed response removes the spinner instead of archiving a stale status');
+  assert.equal(transcript.children.filter(x=>x.className.includes('bubble user')).length,1,
+    'successful request must have exactly one user message');
+  assert.equal(transcript.children.at(-1).textContent,'Created helloworld.php.','assistant reply is appended after tool IO');
+  assert.equal(vm.runInNewContext('agentLiveTurns.size',context),0);
+  const lastBubble=transcript.children.at(-1);
+  context.flowSession={...context.flowSession,status:'failed',revision:5,event_seq:4,
+    events:[...context.flowSession.events,{seq:4,kind:'collect_failed',status:'failed',
+      detail:'collection_continuation',history_index:4}]};
+  vm.runInNewContext('displayAgentSession(flowSession)',context);
+  assert.equal(transcript.children.at(-1).className,'agentchat-activity error');
+  assert.equal(transcript.children.at(-2),lastBubble,'durable failure must append, not repaint prior AI response');
+  vm.runInNewContext('displayAgentSession(flowSession)',context);
+  assert.equal(transcript.children.filter(x=>x.className==='agentchat-activity error').length,1,
+    'journal polling must not repeat the same failure event');
+  console.log('PASS: optimistic user send, Sending→Thinking→Collection progress, tool history and durable failure');
+
+
   // One click copies the WHOLE multi-trace/session report, not a selected tab
   // or only the currently visible subset. Prefetch is complete before click
   // so Firefox retains its transient clipboard activation.
