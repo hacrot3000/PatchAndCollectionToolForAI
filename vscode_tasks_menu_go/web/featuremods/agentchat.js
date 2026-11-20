@@ -841,7 +841,8 @@ function agentUpdateLiveRow(session){
  agentLiveSpinner.hidden=Boolean(phase.error);
  if(agentLiveText.textContent!==phase.message)agentLiveText.textContent=phase.message;
  if(transcript.children[transcript.children.length-1]!==agentLiveRow){
-  if(agentLiveRow.parentElement)agentLiveRow.remove();
+  // append(existingNode) moves it without recreating it. This preserves its
+  // animation/state and does not count as removing a history entry.
   transcript.append(agentLiveRow);
  }
 }
