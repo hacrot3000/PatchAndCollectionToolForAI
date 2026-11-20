@@ -124,3 +124,67 @@ func TestAgentDeleteConversationDoesNotRemoveRunningNativeWork(t *testing.T) {
   t.Fatalf("deleted conversation remains available: %v",err)
  }
 }
+
+func TestAgentAutoCollectionOffBlocksReadWithoutCallingProviderAgain(t *testing.T) {
+	s,id:=newAgentConversationFixture(t,"stateless")
+	store,err:=s.agentChatStore()
+	if err!=nil {t.Fatal(err)}
+	x,err:=store.Get(id,"local")
+	if err!=nil {t.Fatal(err)}
+	disabled:=invokeAI(t,s.agentChatSessionItemAPI,http.MethodPost,
+		"/api/agent/sessions/"+id+"/automation",
+		map[string]any{"option":"collection","enabled":false,"expected_revision":x.Revision})
+	if disabled.Code!=200 {t.Fatalf("disable Collection failed: %d %s",disabled.Code,disabled.Body)}
+	x,err=store.Get(id,"local")
+	if err!=nil {t.Fatal(err)}
+	count:=0
+	s.AgentChatCall=func(_ context.Context,_ agentchat.ProviderConfig,_ string,_ []byte)(agentchat.ResponsesResult,error){
+		count++
+		if count>1 {t.Fatal("Collection continued despite automation OFF")}
+		return agentchat.ResponsesResult{ResponseID:"read-disabled",Calls:[]agentchat.FunctionCall{{
+			CallID:"collect-off",Name:"taskdeck_collect_workspace",
+			Arguments:`{"actions":[{"type":"ls","path":"."}]}`,
+		}}},nil
+	}
+	resp:=invokeAI(t,s.agentChatSessionItemAPI,http.MethodPost,
+		"/api/agent/sessions/"+id+"/messages",
+		map[string]any{"message":"inspect the project files","confirm_external":true,"expected_revision":x.Revision})
+	if resp.Code!=200 || count!=1 || !strings.Contains(resp.Body.String(),"Automatic Collection is disabled") {
+		t.Fatalf("read-only opt-out not enforced: %d %s calls=%d",resp.Code,resp.Body,count)
+	}
+	y,err:=store.Get(id,"local")
+	if err!=nil||y.Status!="completed"||len(y.ToolCalls)!=0 {
+		t.Fatalf("disabled Collection caused tool execution: %+v %v",y,err)
+	}
+}
+
+func TestAgentPersistentAutoSendDeliversOnceWithoutExpiration(t *testing.T) {
+	s,id,_:=agentPendingCallFixture(t,true)
+	store,err:=s.agentChatStore()
+	if err!=nil {t.Fatal(err)}
+	x,err:=store.Get(id,"local")
+	if err!=nil {t.Fatal(err)}
+	enabled:=invokeAI(t,s.agentChatSessionItemAPI,http.MethodPost,
+		"/api/agent/sessions/"+id+"/automation",
+		map[string]any{"option":"feedback","enabled":true,
+			"confirm_external":true,"expected_revision":x.Revision})
+	if enabled.Code!=200 {t.Fatalf("enable persistent feedback failed: %d %s",enabled.Code,enabled.Body)}
+	x,err=store.Get(id,"local")
+	if err!=nil {t.Fatal(err)}
+	x.ToolCalls[0].Status="done"
+	x.ToolCalls[0].Result=`{"status":"PASS","rc":0}`
+	x,err=store.Save(x,x.Revision)
+	if err!=nil {t.Fatal(err)}
+	count:=0
+	s.AgentChatCall=func(_ context.Context,_ agentchat.ProviderConfig,_ string,_ []byte)(agentchat.ResponsesResult,error) {
+		count++
+		return agentchat.ResponsesResult{ResponseID:"feedback",Text:"Acknowledged native Patch PASS."},nil
+	}
+	s.runAgentAutoFeedback(context.Background())
+	y,err:=store.Get(id,"local")
+	if err!=nil||count!=1||!y.ToolCalls[0].FeedbackSent {
+		t.Fatalf("persistent Auto-send failed: %+v %d %v",y.ToolCalls,count,err)
+	}
+	s.runAgentAutoFeedback(context.Background())
+	if count!=1 {t.Fatal("persistent Auto-send retried acknowledged result")}
+}
