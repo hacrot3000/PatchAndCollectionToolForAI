@@ -182,6 +182,8 @@ type Session struct {
 	AutoFeedbackUntil *time.Time       `json:"auto_feedback_until,omitempty"`
 	Status            string           `json:"status"`
 	History           []HistoryItem    `json:"history"`
+	HistoryArchiveParts uint64 `json:"history_archive_parts,omitempty"`
+	ArchivedHistoryItems uint64 `json:"archived_history_items,omitempty"`
 	ToolCalls         []ToolCallRecord `json:"tool_calls,omitempty"`
 	Revision          uint64           `json:"revision"`
 	CreatedAt         time.Time        `json:"created_at"`
@@ -485,8 +487,11 @@ func (s *Store) Get(id, owner string) (Session, error) {
 func (s *Store) Save(x Session, expectedRevision uint64) (Session, error) {
 	var saved Session
 	err := s.withLock(func() error {
-		if err := validateSession(x); err != nil {
-			return err
+		// A long-running Collection session can temporarily exceed the active
+		// history budget. Archive old completed reads before validating it.
+		// Other fields are still validated after the archival transformation.
+		if len(x.History) <= maxItems {
+			if err := validateSession(x); err != nil {return err}
 		}
 		if !s.matchesProject(x) {
 			return ErrInvalidSession
@@ -502,10 +507,13 @@ func (s *Store) Save(x Session, expectedRevision uint64) (Session, error) {
 			if existing.Revision != expectedRevision {
 				return ErrStaleRevision
 			}
-			if existing.Owner != x.Owner || existing.Workspace != x.Workspace || existing.ProjectID != x.ProjectID || existing.ProviderID != x.ProviderID || existing.ModelID != x.ModelID || existing.Mode != x.Mode || !existing.CreatedAt.Equal(x.CreatedAt) {
+			if existing.Owner != x.Owner || existing.Workspace != x.Workspace || existing.ProjectID != x.ProjectID || existing.ProviderID != x.ProviderID || existing.ModelID != x.ModelID || existing.Mode != x.Mode || !existing.CreatedAt.Equal(x.CreatedAt) ||
+				x.HistoryArchiveParts!=existing.HistoryArchiveParts || x.ArchivedHistoryItems!=existing.ArchivedHistoryItems {
 				return ErrInvalidSession
 			}
 		}
+		if err:=s.archiveCollectionHistory(&x);err!=nil{return err}
+		if err:=validateSession(x);err!=nil{return err}
 		x.Revision = expectedRevision + 1
 		x.UpdatedAt = time.Now().UTC()
 		raw, e := json.Marshal(x)
@@ -574,7 +582,11 @@ func (s *Store) Delete(id, owner string, expectedRevision uint64) error {
 		if HasUnresolvedWork(x) {
 			return errors.New("conversation contains an active or unresolved Patch operation")
 		}
-		return os.Remove(s.file(id))
+		if err:=os.Remove(s.file(id));err!=nil{return err}
+		for _,part:=range s.historyArchiveSequences(x){
+			if err:=os.Remove(s.historyArchivePath(id,part));err!=nil&&!os.IsNotExist(err){return err}
+		}
+		return nil
 	})
 }
 
