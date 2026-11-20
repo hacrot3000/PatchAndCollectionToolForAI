@@ -56,6 +56,7 @@ class FakeElement {
       },
     };
   }
+  get lastElementChild() { return this.children.at(-1) || null; }
   append(...nodes) {
     this.appendCount += nodes.length;
     for (const node of nodes) {
