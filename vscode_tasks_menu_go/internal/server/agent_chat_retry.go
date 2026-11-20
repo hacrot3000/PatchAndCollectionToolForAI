@@ -73,6 +73,14 @@ func agentProviderRetryable(err error)bool{
  return errors.Is(err,context.DeadlineExceeded) ||
   errors.Is(err,io.EOF) || errors.Is(err,io.ErrUnexpectedEOF)
 }
+func agentRetryFailureDetail(err error)string{
+ var pe *agentchat.ProviderError
+ if errors.As(err,&pe){
+  if pe.ProviderErrorCode!=""{return pe.Code+":"+pe.ProviderErrorCode}
+  if pe.Code!=""{return pe.Code}
+ }
+ return agentRetryCode(err)
+}
 func agentRetryCode(err error)string{
  var pe *agentchat.ProviderError
  if errors.As(err,&pe) && pe.Code!=""{return pe.Code}

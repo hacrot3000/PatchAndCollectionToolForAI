@@ -52,6 +52,7 @@ jobs:
         working-directory: vscode_tasks_menu_go
         run: |
           go test -race -count=1 ./internal/agentchat
+          go test -count=1 ./internal/server -run '^TestAgent'
           go test -race -count=1 ./internal/taskmanifest
           go vet ./internal/agentchat ./internal/taskmanifest
           go vet ./internal/server
@@ -61,4 +62,3 @@ jobs:
           node web/terminalchatcontext_test.cjs
           node web/agentchat_bootstrap_test.cjs
           node test_ai_smart_terminal.cjs
-          go test -count=1 ./internal/server -run '^TestAgent'

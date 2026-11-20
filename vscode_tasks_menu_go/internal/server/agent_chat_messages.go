@@ -442,7 +442,7 @@ func (s *Server) agentChatMessageAPI(w http.ResponseWriter, r *http.Request, id 
 		// user turn and neither is retried automatically. A timeout may still have
 		// reached the provider, so the durable status is failed (not "safe to retry").
 		session.Status = "failed"
-		session.AppendEvent("turn_failed", "failed", "", "timeout_or_transport")
+		session.AppendEvent("turn_failed", "failed", "", agentRetryFailureDetail(callErr))
 		if errors.Is(callErr, context.DeadlineExceeded) {
 			if _, saveErr := store.Save(session, session.Revision); saveErr != nil {
 				http.Error(w, "provider timed out and session state could not be saved", 409)
