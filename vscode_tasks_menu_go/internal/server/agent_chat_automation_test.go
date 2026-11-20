@@ -45,7 +45,7 @@ func TestAgentAutomationOptionsPerConversation(t *testing.T) {
  })
  if enabledFeedback.Code!=200 {t.Fatalf("Auto feedback opt-in failed: %d %s",enabledFeedback.Code,enabledFeedback.Body)}
  x,err=store.Get(id,"local")
- if err!=nil||!x.AutoFeedback||x.AutoFeedbackUntil==nil {t.Fatalf("Auto feedback not saved: %+v %v",x,err)}
+ if err!=nil||!x.AutoFeedback||!x.AutoFeedbackPersistent||x.AutoFeedbackUntil!=nil {t.Fatalf("Persistent Auto feedback not saved: %+v %v",x,err)}
  otherID:=createAgentSessionWithSameFixture(t,s)
  other,err:=store.Get(otherID,"local")
  if err!=nil {t.Fatal(err)}
