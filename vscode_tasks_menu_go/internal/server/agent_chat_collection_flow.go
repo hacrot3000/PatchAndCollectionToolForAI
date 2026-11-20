@@ -15,6 +15,25 @@ import (
 
 const agentCollectionMaxRounds = 6
 
+// Every Collection request is read-only; local formatting/persistence
+// failures can be diagnosed safely without claiming ambiguous Patch execution.
+type agentCollectionLocalError struct {
+	Stage string
+	Round int
+	Cause error
+}
+func (e *agentCollectionLocalError) Error() string { return fmt.Sprintf("Collection round %d %s: %v", e.Round, e.Stage, e.Cause) }
+func (e *agentCollectionLocalError) Unwrap() error { return e.Cause }
+
+type agentCollectionProviderError struct {
+	Round int
+	TraceID string
+	Cause error
+}
+func (e *agentCollectionProviderError) Error() string { return fmt.Sprintf("Collection round %d provider continuation: %v", e.Round, e.Cause) }
+func (e *agentCollectionProviderError) Unwrap() error { return e.Cause }
+
+
 // Requests that need workspace access may establish the harmless tool
 // capability probe on first use. Ordinary conversation should not silently
 // consume an extra provider request or promote an unverified tool declaration.
@@ -180,17 +199,17 @@ func (s *Server) agentChatRunCollection(
 			EnablePatchTool: toolAvailable, EnableCollectionTool: toolAvailable,
 		})
 		if err != nil {
-			return result, forceStateless, fmt.Errorf("cannot format Collection continuation: %w", err)
+			return result, forceStateless, &agentCollectionLocalError{Stage: "request_build", Round: round+1, Cause: err}
 		}
 		x.History = append(x.History, next)
 		x.Status = "requesting_ai"
 		x.AppendEvent("collect_observed", "requesting_ai", next.CallID, "")
 		*x, err = store.Save(*x, x.Revision)
 		if err != nil {
-			return result, forceStateless, fmt.Errorf("cannot persist Collection observation: %w", err)
+			return result, forceStateless, &agentCollectionLocalError{Stage: "journal_write", Round: round+1, Cause: err}
 		}
 		if ctx.Err() != nil {
-			return result, forceStateless, ctx.Err()
+			return result, forceStateless, &agentCollectionLocalError{Stage: "cancelled_before_provider_request", Round: round+1, Cause: ctx.Err()}
 		}
 		// A slow inspection round must not exhaust the next provider request.
 		// The parent is the cancelable, multi-round turn context; each call
@@ -203,7 +222,7 @@ func (s *Server) agentChatRunCollection(
 		if callErr != nil {
 			s.recordAgentDebugEvent(x.Owner, x.ID, next.CallID, "collection", "collection.continuation_failed",
 				"COLLECTION_PROVIDER_FAILED", fmt.Sprintf("Collection round %d provider continuation failed; see trace %s", round+1, traceID))
-			return result, forceStateless, fmt.Errorf("Collection continuation round %d: %w", round+1, callErr)
+			return result, forceStateless, &agentCollectionProviderError{Round: round+1, TraceID: traceID, Cause: callErr}
 		}
 	}
 	// A model that keeps returning read requests must not make an infinite
