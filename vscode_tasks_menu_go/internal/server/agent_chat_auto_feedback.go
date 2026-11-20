@@ -28,7 +28,8 @@ func agentAutoFeedbackCandidate(x agentchat.Session) (int, bool) {
 	if !x.AutoFeedback || x.Archived {
 		return 0, false
 	}
-	if x.AutoFeedbackUntil == nil || time.Now().UTC().After(*x.AutoFeedbackUntil) {
+	if !x.AutoFeedbackPersistent &&
+		(x.AutoFeedbackUntil == nil || time.Now().UTC().After(*x.AutoFeedbackUntil)) {
 		return 0, false
 	}
 	if x.Status != "waiting_tool" {
@@ -187,7 +188,8 @@ func (s *Server) autoFeedbackOne(ctx context.Context, store *agentchat.Store, id
 		return
 	}
 	// Consent must still be valid at the moment of egress.
-	if x.AutoFeedbackUntil == nil || time.Now().UTC().After(*x.AutoFeedbackUntil) {
+	if !x.AutoFeedbackPersistent &&
+		(x.AutoFeedbackUntil == nil || time.Now().UTC().After(*x.AutoFeedbackUntil)) {
 		return
 	}
 	if _, err = s.agentDeliverToolResult(ctx, store, x, idx, true); err != nil {
