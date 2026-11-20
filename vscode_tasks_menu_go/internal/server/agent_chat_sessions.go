@@ -161,10 +161,9 @@ func (s *Server) agentChatSessionsAPI(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "remote execution target is not supported for Agent Chat", 400)
 		return
 	}
-	if providerAPIType == "chat_completions" && req.Mode != agentchat.Stateless {
-		http.Error(w, "Chat Completions supports stateless canonical history only", 400)
-		return
-	}
+	// Chat Completions cannot send server-side Responses references, but the
+	// user may choose either context preference. The transport replays local
+	// canonical history when that provider lacks a compatible stateful API.
 	item, err := agentchat.NewSession(owner, s.Workspace, identity.ID, providerID, modelID, req.Mode)
 	if err != nil {
 		http.Error(w, "invalid session mode or identity", http.StatusBadRequest)
@@ -173,10 +172,8 @@ func (s *Server) agentChatSessionsAPI(w http.ResponseWriter, r *http.Request) {
 	// A reasoning effort must be advertised by the chosen model; an unknown
 	// value would otherwise be silently forwarded to the provider.
 	if effort := strings.TrimSpace(req.ReasoningEffort); effort != "" {
-		if providerAPIType == "chat_completions" {
-			http.Error(w, "generic Chat Completions does not support portable reasoning options", 400)
-			return
-		}
+		// A configured model's explicit reasoning_efforts is the opt-in for
+		// sending Chat Completions' reasoning_effort extension as well.
 		registry, err := s.agentChatProviders()
 		if err != nil {
 			http.Error(w, "provider store unavailable", 500)
