@@ -89,12 +89,13 @@ func (s *Server) agentChatRunCollection(
 	first agentchat.ResponsesResult, provider agentchat.ProviderConfig,
 	model agentchat.ModelConfig, key string, identity patchtool.ProjectIdentity,
 	toolAvailable bool,
-) (agentchat.ResponsesResult, error) {
+) (agentchat.ResponsesResult, bool, error) {
 	result := first
 	// A text-JSON fallback is a full-history stateless exchange. Never reuse
 	// its response ID as a previous_response_id on a later Collection round:
 	// the fallback request was not stored by the provider.
-	forceStateless := provider.APIType == "chat_completions"
+	forceStateless := provider.APIType == "chat_completions" ||
+		(x.Mode == agentchat.Conversation && !s.agentConversationCapabilityVerified(x.Owner, provider, model))
 	for round := 0; round < agentCollectionMaxRounds; round++ {
 		var args agentCollectionArguments
 		typed, fallback := false, false
@@ -103,13 +104,13 @@ func (s *Server) agentChatRunCollection(
 			var err error
 			args, err = parseAgentCollectionArguments(result.Calls[0].Arguments, identity)
 			if err != nil {
-				return result, fmt.Errorf("invalid structured Collection request: %w", err)
+				return result, forceStateless, fmt.Errorf("invalid structured Collection request: %w", err)
 			}
 		} else if len(result.Calls) == 0 {
 			args, fallback = agentCollectionTextFallback(result.Text, identity)
 		}
 		if !typed && !fallback {
-			return result, nil
+			return result, forceStateless, nil
 		}
 
 		observed := executeAgentCollection(s.Workspace, identity, args)
@@ -165,17 +166,17 @@ func (s *Server) agentChatRunCollection(
 			EnablePatchTool: toolAvailable, EnableCollectionTool: toolAvailable,
 		})
 		if err != nil {
-			return result, fmt.Errorf("cannot format Collection continuation: %w", err)
+			return result, forceStateless, fmt.Errorf("cannot format Collection continuation: %w", err)
 		}
 		x.History = append(x.History, next)
 		x.Status = "requesting_ai"
 		x.AppendEvent("collect_observed", "requesting_ai", next.CallID, "")
 		*x, err = store.Save(*x, x.Revision)
 		if err != nil {
-			return result, fmt.Errorf("cannot persist Collection observation: %w", err)
+			return result, forceStateless, fmt.Errorf("cannot persist Collection observation: %w", err)
 		}
 		if ctx.Err() != nil {
-			return result, ctx.Err()
+			return result, forceStateless, ctx.Err()
 		}
 		// A slow inspection round must not exhaust the next provider request.
 		// The parent is the cancelable, multi-round turn context; each call
@@ -188,7 +189,7 @@ func (s *Server) agentChatRunCollection(
 		if callErr != nil {
 			s.recordAgentDebugEvent(x.Owner, x.ID, next.CallID, "collection", "collection.continuation_failed",
 				"COLLECTION_PROVIDER_FAILED", fmt.Sprintf("Collection round %d provider continuation failed; see trace %s", round+1, traceID))
-			return result, fmt.Errorf("Collection continuation round %d: %w", round+1, callErr)
+			return result, forceStateless, fmt.Errorf("Collection continuation round %d: %w", round+1, callErr)
 		}
 	}
 	// A model that keeps returning read requests must not make an infinite
@@ -197,6 +198,6 @@ func (s *Server) agentChatRunCollection(
 		ResponseID: result.ResponseID, ConversationID: result.ConversationID,
 		Text: "TaskDeck reached the 6-round read-only Collection limit before completing this task. No additional file changes were made. Ask the Agent to continue with a narrower inspection or submit a Patch proposal.",
 		InputTokens: result.InputTokens, OutputTokens: result.OutputTokens,
-	}, nil
+	}, forceStateless, nil
 }
 
