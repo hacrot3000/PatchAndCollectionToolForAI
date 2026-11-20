@@ -2,6 +2,8 @@
 // Native Patch execution remains explicit-approval gated; text-only models may propose reviewable Patch JSON.
 const agentApp=globalThis.TaskMenuApp;
 if(!agentApp)throw new Error('TaskMenuApp unavailable for Agent Chat');
+const agentRich=globalThis.TaskMenuAgentChatFormat;
+if(!agentRich?.renderMessage)throw new Error('Agent Chat Markdown formatter unavailable');
 const agentCSS=document.createElement('style');
 agentCSS.textContent=[
 '.agentchat-overlay{display:none;min-width:0;min-height:0;overflow:hidden;background:#141c27;color:#e6eef9;border:1px solid #55657a}',
@@ -696,7 +698,7 @@ function renderAgentTool(session,item){
    if(d.isConnected===false)return;
    if(d.open)agentOpenReviewDetails.add(key);else agentOpenReviewDetails.delete(key);
   });
-  d.append(agentEl('summary','',caption),agentEl('pre','agentchat-tool-code',body));
+  d.append(agentEl('summary','',caption),agentRich.renderCode(body,suffix==='patch-code'?'python':suffix==='patch-result'?'json':'text',showAgentError));
   return d;
  };
  if(item.name==='taskdeck_collect_workspace'){
@@ -778,7 +780,7 @@ function agentHistoryItemEqual(a,b){
 }
 function agentToolIO(label,content){
  const details=agentEl('details','agentchat-io-details');
- details.append(agentEl('summary','',label),agentEl('pre','',content));
+ details.append(agentEl('summary','',label),agentRich.renderCode(content,'',showAgentError));
  return details;
 }
 function agentHistoryRow(session,item,callNames){
@@ -798,7 +800,7 @@ function agentHistoryRow(session,item,callNames){
   if(source.startsWith('TaskDeck native Patch Tool result for your prior text-only proposal')){
    return agentToolIO('Sending native Patch result to AI · view contents',source);
   }
-  return agentEl('div','agentchat-bubble user',userMessageText(source));
+  return agentRich.renderMessage('user',userMessageText(source),showAgentError);
  }
  if(item.type==='assistant'){
   const raw=String(item.content||'');
@@ -812,7 +814,7 @@ function agentHistoryRow(session,item,callNames){
     if(parsed.type==='taskdeck_patch_proposal')return agentToolIO('AI proposed Patch · view request',raw);
    }catch{}
   }
-  return agentEl('div','agentchat-bubble assistant',raw);
+  return agentRich.renderMessage('assistant',raw,showAgentError);
  }
  if(item.type==='function_call')return renderAgentTool(session,item);
  if(item.type==='function_call_output'){
@@ -1392,7 +1394,7 @@ async function sendAgentMessage(){
   message:msg,phase:'sending',error:'',
   baseHistoryLength:agentCurrentSession?.history?.length||0,
   baseEventSeq:agentCurrentSession?.event_seq||0,
-  optimisticNode:agentEl('div','agentchat-bubble user optimistic',msg),
+  optimisticNode:agentRich.renderMessage('user optimistic',msg,showAgentError),
   acknowledged:false,
  };
  agentLiveTurns.set(sessionID,turn);
