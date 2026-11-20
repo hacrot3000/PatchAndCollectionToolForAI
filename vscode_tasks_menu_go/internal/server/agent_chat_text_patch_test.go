@@ -59,6 +59,42 @@ func TestAgentTextPatchOnlyExactProjectBoundJSONIsReviewable(t *testing.T) {
     }
 }
 
+func TestAgentUnverifiedToolProbeFailureStillAcceptsTextPatch(t *testing.T) {
+    s, id := agentUnverifiedToolFixture(t)
+    identity, err := patchtool.ReadProjectIdentity(s.Workspace)
+    if err != nil { t.Fatal(err) }
+    proposal := agentTextOnlyHelloProposal(t, identity)
+    probeCalls, answerCalls := 0, 0
+    s.AgentChatCall = func(_ context.Context, _ agentchat.ProviderConfig, _ string, body []byte) (agentchat.ResponsesResult, error) {
+        var req map[string]any
+        if err := json.Unmarshal(body,&req); err != nil { t.Fatal(err) }
+        if tools, offered := req["tools"]; offered {
+            if len(tools.([]any)) != 1 { t.Fatal("unexpected live tool definitions") }
+            probeCalls++
+            return agentchat.ResponsesResult{},fmt.Errorf("model did not accept the function schema")
+        }
+        answerCalls++
+        if !strings.Contains(req["instructions"].(string),agentTextPatchProposalType) {
+            t.Fatal("unverified model did not receive the approved text-only fallback protocol")
+        }
+        return agentchat.ResponsesResult{ResponseID:"text-after-failed-probe",Text:proposal},nil
+    }
+    w:=invokeAI(t,s.agentChatSessionItemAPI,"POST","/api/agent/sessions/"+id+"/messages",
+        map[string]any{"message":"tạo file helloworld.php trên thư mục gốc",
+            "confirm_external":true,"expected_revision":1})
+    if w.Code!=200 || !strings.Contains(w.Body.String(),"waiting_tool") || probeCalls!=1 || answerCalls!=1 {
+        t.Fatalf("unverified tool model failed over to text: probes=%d answers=%d HTTP=%d %s",
+            probeCalls,answerCalls,w.Code,w.Body)
+    }
+    store,err:=s.agentChatStore()
+    if err!=nil { t.Fatal(err) }
+    saved,err:=store.Get(id,"local")
+    if err!=nil { t.Fatal(err) }
+    if len(saved.ToolCalls)!=1 || !saved.ToolCalls[0].TextFallback {
+        t.Fatal("unverified model did not stage reviewable Patch")
+    }
+}
+
 func TestAgentTextOnlyCollectionThenPatchNativeApprovalAndFeedback(t *testing.T) {
     s, id, identity := agentTextOnlyFixture(t)
     proposal := agentTextOnlyHelloProposal(t, identity)
