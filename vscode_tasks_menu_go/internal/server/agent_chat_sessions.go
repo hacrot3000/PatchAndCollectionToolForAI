@@ -224,6 +224,10 @@ func (s *Server) agentChatSessionItemAPI(w http.ResponseWriter, r *http.Request)
 		s.agentChatToolDecisionAPI(w, r, segments[0], segments[2])
 		return
 	}
+	if len(segments) == 4 && segments[0] != "" && segments[1] == "tools" && segments[2] != "" && segments[3] == "recover" {
+		s.agentChatPatchRecoveryAPI(w, r, segments[0], segments[2])
+		return
+	}
 	if len(segments) == 4 && segments[0] != "" && segments[1] == "tools" && segments[2] != "" && segments[3] == "continue" {
 		s.agentChatToolContinueAPI(w, r, segments[0], segments[2])
 		return
