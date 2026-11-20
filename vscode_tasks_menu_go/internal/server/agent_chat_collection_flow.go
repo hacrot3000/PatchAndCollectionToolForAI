@@ -13,7 +13,11 @@ import (
 	"bletonfc/vscode_tasks_menu/internal/patchtool"
 )
 
-const agentCollectionMaxRounds = 6
+// Larger bounded per-turn read budget: source-level line paging prevents
+// multi-file overflow, while a no-progress fence prevents endless identical
+// reads. The persisted journal remains the resume checkpoint if time expires.
+const agentCollectionMaxRounds = 48
+const agentCollectionMaxIdenticalObservations = 3
 
 // Every Collection request is read-only; local formatting/persistence
 // failures can be diagnosed safely without claiming ambiguous Patch execution.
@@ -121,6 +125,7 @@ func (s *Server) agentChatRunCollection(
 	// later verified adoption. Only the text-JSON fallback guarantees the
 	// response was not stored and requires discarding provider references.
 	clearProviderRefs := provider.APIType == "chat_completions"
+	lastReadSignature, repeatedRead := "", 0
 	for round := 0; round < agentCollectionMaxRounds; round++ {
 		var args agentCollectionArguments
 		typed, fallback := false, false
@@ -158,6 +163,21 @@ func (s *Server) agentChatRunCollection(
 			observed = string(data)
 		} else {
 			observed = executeAgentCollection(s.Workspace, identity, args)
+		}
+		// A model repeating the same read of identical content is not making
+		// progress. Warn on the second repeat, and checkpoint instead of burning
+		// further provider requests if the model does not change its approach.
+		if validationErr == nil {
+			rawArgs, _ := json.Marshal(args)
+			signature := string(rawArgs) + "\x00" + observed
+			if signature == lastReadSignature { repeatedRead++ } else { lastReadSignature, repeatedRead = signature, 1 }
+			if repeatedRead >= agentCollectionMaxIdenticalObservations {
+				return agentchat.ResponsesResult{ResponseID:result.ResponseID,ConversationID:result.ConversationID,
+					Text:"TaskDeck paused a non-progressing Collection loop after three identical read requests and identical observations. The original task is NOT complete. Inspected evidence is saved in session history; continue with a different file, read start_line/max_lines, or propose a Patch. No file changes were made in this Collection loop."},clearProviderRefs,nil
+			}
+			if repeatedRead == 2 {
+				observed = strings.TrimSuffix(observed, "\n") + "\n[TaskDeck: duplicate read with unchanged output; change path or use start_line/max_lines. Do not request the same pages again.]"
+			}
 		}
 		var next agentchat.HistoryItem
 		if typed {
@@ -236,12 +256,13 @@ func (s *Server) agentChatRunCollection(
 			return result, clearProviderRefs, &agentCollectionProviderError{Round: round+1, TraceID: traceID, Cause: callErr}
 		}
 	}
-	// A model that keeps returning read requests must not make an infinite
-	// provider loop or be presented as having finished the requested edit.
+	// The bounded processing window exhausted. Keep all observations as a
+	// durable checkpoint and clearly mark the task incomplete. Human approval
+	// and the native Patch gateway remain mandatory for edits.
 	return agentchat.ResponsesResult{
-		ResponseID: result.ResponseID, ConversationID: result.ConversationID,
-		Text: "TaskDeck reached the 6-round read-only Collection limit before completing this task. No additional file changes were made. Ask the Agent to continue with a narrower inspection or submit a Patch proposal.",
-		InputTokens: result.InputTokens, OutputTokens: result.OutputTokens,
-	}, clearProviderRefs, nil
+		ResponseID:result.ResponseID,ConversationID:result.ConversationID,
+		Text:"TaskDeck checkpoint: the per-turn read-only Collection budget was reached after 48 observations. The original task is NOT complete. Collected results were saved; resume from the last verified observation, read narrower source ranges, or submit the next Patch proposal. No extra Patch was automatically authorized.",
+		InputTokens:result.InputTokens,OutputTokens:result.OutputTokens,
+	},clearProviderRefs,nil
 }
 
