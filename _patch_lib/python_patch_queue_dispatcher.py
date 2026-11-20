@@ -7774,6 +7774,12 @@ def execute_items(
                 # File-list UI is additive evidence. Report failure must never
                 # turn an already successful patch into an execution failure.
                 print(f"[PTV v{VERSION} WARNING] PATCH change report failed: {type(exc).__name__}: {exc}", file=sys.stderr)
+        # PASS means the Patch payload exited successfully; an independently
+        # invoked test script may still exit nonzero while the payload catches
+        # that failure. Preserve bounded console evidence on PASS as well as
+        # FAIL, so the AI can distinguish applying a change from testing it.
+        if item.kind == "PATCH" and console_log:
+            detail["output_tail"] = _bounded_failure_output_tail(console_log, max_bytes=8192)
         _LAST_EXECUTION_DETAILS.append(detail)
         _emit_detail_artifacts(root, item, detail, index=index + 1, total=len(chosen))
         finished_payload: dict[str, object] = {
@@ -7817,6 +7823,14 @@ def execute_items(
             finished_payload["failure_reason"] = failure_reason
             if diagnosis_kind:
                 finished_payload["diagnosis_kind"] = diagnosis_kind
+            if output_tail:
+                finished_payload["output_tail"] = output_tail
+        if item.kind == "PATCH" and failure_status == "PASS":
+            # Do not silently drop subprocess stderr or verification command
+            # return codes simply because the wrapping Patch returned rc=0.
+            # The full authoritative output stays in batch.log; protocol
+            # carries a bounded tail that is sanitized again before AI egress.
+            output_tail = _bounded_failure_output_tail(detail.get("output_tail"), max_bytes=3200)
             if output_tail:
                 finished_payload["output_tail"] = output_tail
         if isinstance(patch_result, dict):
