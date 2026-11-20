@@ -868,6 +868,14 @@ function agentToolRenderVersion(item,records,outputs){
  }
  return 'patch:'+JSON.stringify(records.get(item.call_id)||null);
 }
+function agentToolRenderVersion(item,records,outputs){
+ if(item.type!=='function_call')return '';
+ if(item.name==='taskdeck_collect_workspace'){
+  const output=outputs.get(item.call_id);
+  return 'collect:'+String(output?.content||'');
+ }
+ return 'patch:'+JSON.stringify(records.get(item.call_id)||null);
+}
 function displayAgentSession(session){
  if(!session){
   if(agentLiveRow.parentElement)agentLiveRow.remove();
