@@ -1,0 +1,16 @@
+# Only ship Go sources and the Python Patch add-on into the build context.
+**
+!vscode_tasks_menu_go/
+!vscode_tasks_menu_go/**
+!python_patch_entry.py
+!run_python_patches.sh
+!_patch_lib/
+!_patch_lib/**
+!deploy/
+!deploy/docker/
+!deploy/docker/**
+vscode_tasks_menu_go/.build/
+vscode_tasks_menu_go/**/.build/
+**/__pycache__/
+**/*.pyc
+**/.git/

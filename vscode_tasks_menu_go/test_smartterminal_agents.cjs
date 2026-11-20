@@ -1,0 +1,14 @@
+const assert=require('node:assert/strict');
+const p=require('./web/featuremods/smartterminal_agent_protocol.js');
+const marker='TDIDX_aA1928374655';
+const a=p.create(marker);
+assert.equal(a.feed('shell echo printf "\\n'+marker+'_BEGIN\\n"\r\n').completed,false);
+assert.equal(a.feed('\r\n'+marker+'_BE').completed,false);
+const result=a.feed('GIN\r\nls\r\ngit\r\n'+marker+'_END\r\n\x1b]133;D;0\x07$ ');
+assert.equal(result.completed,true);
+assert.deepEqual(p.parse('command',result.body),['ls','git']);
+assert.ok(result.tail.includes('133;D'));
+assert.deepEqual(p.parse('history',' 33  git status\n 34  ls -la\n 35  token=abcdef'),['git status','ls -la']);
+assert.throws(()=>p.create('unsafe;\ncmd'));
+assert.equal(p.create(marker,20).feed('x'.repeat(21)).completed,true);
+console.log('Smart terminal agent protocol PASS');

@@ -1,0 +1,527 @@
+# TaskDeck Patch Add-on Integration Plan
+
+Status: **IN PROGRESS**
+
+> **Correction 2026-09-25:** the previous Phase 2 completion/closeout was incorrect. The
+> structured protocol and native renderers existed, but every built-in Patch action still created
+> an ordinary terminal session/tab through `app.attachSession(...)` and the global
+> `syncSessions()` loop. That is Phase 1/1.5 scaffolding, not a completed native-UI cutover.
+> The 2026-09-24 Phase 2H.7 PASS and Phase 2I closeout are therefore invalidated as product/UI
+> acceptance results. Their implementation history is retained below for provenance.
+
+`TASKDECK_PATCH_HANDOFF.md` is the concise recovery entrypoint; this file is the detailed roadmap/checkpoint ledger.
+Both must agree on current phase state. Every implementation checkpoint for this work must update them so development can resume safely after an interruption.
+
+## Goals
+
+1. Keep Python Patch Tool as the existing Python engine. Do **not** rewrite its business logic in Go.
+2. Make Patch Tool a first-class TaskDeck add-on/feature instead of a project-local VS Code task.
+3. Install TaskDeck and the Patch Tool runtime together as one versioned global release.
+4. Keep all project-specific Patch Tool data in the project:
+   - `patchs/`
+   - `artifacts/patch_tool/`
+   - `artifacts/ptv_to_ai/`
+   - project-local Patch Tool configuration such as `.python_patch_tool.json`
+5. Preserve terminal usage with `taskdeck patch ...`.
+6. Add a dedicated Patch panel to TaskDeck.
+7. Introduce a versioned machine protocol so the web UI can become fully native without duplicating Patch Tool policy/business logic in Go.
+8. Keep legacy `tools/run_python_patches.sh` compatibility during migration.
+
+## Architectural boundary
+
+### Global application/runtime
+
+Target layout:
+
+```text
+~/.local/bin/taskdeck
+    -> ~/.local/lib/taskdeck/current/taskdeck
+
+~/.local/lib/taskdeck/
+├── current -> releases/<revision>/
+└── releases/
+    └── <revision>/
+        ├── taskdeck
+        └── patchtool/
+            ├── python_patch_entry.py
+            ├── run_python_patches.sh
+            └── _patch_lib/
+```
+
+TaskDeck binary and Patch Tool runtime must come from the same release revision.
+
+### Per-project data
+
+```text
+<project>/
+├── .vscode/
+│   ├── tasks.json
+│   └── vscode_tasks_menu.ini
+├── patchs/
+├── artifacts/
+│   ├── patch_tool/
+│   └── ptv_to_ai/
+└── .python_patch_tool.json
+```
+
+No Patch Tool runtime is required under `<project>/tools` after migration.
+
+## Runtime principles
+
+- Python remains authoritative for queue discovery, dependency/failure policy, validation, execution, rollback, COLLECT, history, recovery and artifact semantics.
+- Go/TaskDeck is the process supervisor, web renderer, user-input frontend and artifact viewer.
+- Terminal frontend remains supported permanently.
+- Web frontend must not infer Patch Tool policy from console text.
+- Structured machine data must use a separate channel from stdout/stderr.
+
+## Protocol direction
+
+Planned Protocol v1:
+
+- human channel: stdin/stdout/stderr, unchanged;
+- machine event channel: JSONL events from Python to TaskDeck;
+- machine command channel: JSONL commands/responses from TaskDeck to Python;
+- protocol is additive: terminal mode works without machine channels.
+
+Initial event families:
+
+```text
+hello
+queue_snapshot
+prompt
+item_started
+progress
+artifact
+item_finished
+run_finished
+error
+```
+
+TaskDeck must not parse internal `history/*.json` schemas as its long-term API; Python exposes stable protocol/bridge views.
+
+## Phases
+
+### Phase 0 — Recovery plan and invariants
+Status: **DONE**
+
+- [x] Create this roadmap.
+- [x] Record target architecture and non-regression invariants.
+
+### Phase 1A — Canonical Python entrypoint
+Status: **DONE**
+
+- [x] Add `python_patch_entry.py` as the canonical router.
+- [x] Make POSIX and PowerShell launchers thin compatibility wrappers.
+- [x] Preserve zero-arg, report/run/resume/plan, collect, automation and direct runner semantics.
+- [x] Add routing-contract tests and CI syntax/compile checks.
+
+### Phase 1B — TaskDeck CLI integration
+Status: **DONE**
+
+- [x] Add `taskdeck patch [args...]`.
+- [x] Resolve bundled Patch Tool runtime first, with project-entry/legacy-launcher fallback during migration.
+- [x] Pass the current TaskDeck workspace as `--project-root`.
+- [x] Preserve interactive terminal behavior by inheriting stdin/stdout/stderr and child exit code.
+
+### Phase 1C — Versioned global release layout
+Status: **DONE**
+
+- [x] Installer creates `~/.local/lib/taskdeck/releases/<revision>/taskdeck`.
+- [x] Installer places the Patch Tool runtime beside it under `patchtool/`.
+- [x] Installer atomically switches `~/.local/lib/taskdeck/current`.
+- [x] Installer keeps `~/.local/bin/taskdeck` as the stable symlink entrypoint.
+- [x] Self-update installs/switches versioned releases and daemon handoff resolves the stable global symlink.
+- [x] Installer never removes old release directories, so in-flight processes keep their runtime.
+
+### Phase 1D — Dedicated Patch panel
+Status: **DONE**
+
+- [x] Add Patch icon/view to the TaskDeck Activity Bar.
+- [x] Backend launches Patch Tool without a `.vscode/tasks.json` entry through bounded built-in session modes.
+- [x] Phase 1 panel exposes Queue/Resume/History/Plan and renders the launched process through the existing PTY/session view.
+- [x] Hide only the definite zero-argument legacy `tools/run_python_patches.sh` duplicate; parameterized/special tasks remain visible.
+
+### Phase 1E — Legacy project runtime migration
+Status: **DONE**
+
+- [x] Detect project-local Patch Tool runtime under `tools/`.
+- [x] Compare SHA-256 of candidate managed files against the bundled runtime from the active TaskDeck release.
+- [x] Any modified, symlinked or unknown file inside the legacy runtime blocks cleanup.
+- [x] Cleanup flow checks and skips the PatchAndCollectionToolForAI source repository before runtime inspection.
+- [x] Migration primitive replaces verified legacy launchers with tiny `taskdeck patch` compatibility shims and removes only revalidated runtime payload.
+- [x] Interactive `--cleanup-legacy` and normal global-startup cleanup can migrate only a verified-safe runtime; unsafe runtime is retained.
+
+### Phase 1.5 — Protocol v1
+Status: **DONE**
+
+- [x] Add optional POSIX event FD/pipe to Python entrypoint via `TASKDECK_PATCH_EVENT_FD`; no FD keeps the historical `execv` path.
+- [x] Define optional POSIX command FD contract via `TASKDECK_PATCH_COMMAND_FD`; it requires a separate event FD.
+- [x] Session manager has disabled-by-default FD4 command plumbing with bounded/versioned envelope validation.
+- [x] Broker carries command capability/wire/internal writes with old-broker fallback.
+- [x] TaskDeck retains the active Python prompt, exposes only a bounded prompt-response API, and enables commands for built-in Patch sessions.
+- [x] Define versioned JSONL envelope and initial `hello/run_started/run_finished/error` lifecycle events.
+- [x] Emit Python-owned `queue_snapshot` with stable item/warning/count fields before dispatcher-backed runs.
+- [x] Emit Python-owned item_started/item_finished events only around actual payload execution.
+- [x] Emit Python-owned artifact events only for verified user-facing files under project artifacts/.
+- [x] Emit bounded Python-owned COLLECT progress events from the existing progress supervisor while terminal UI remains authoritative.
+- [x] Child Python processes emit into an internal pipe; the entrypoint relays them onto the TaskDeck event channel with one global sequence.
+- [x] Add protocol envelope/lifecycle/version tests.
+- [x] Session manager supports an opt-in FD 3 event pipe and bounded protocol state while PTY remains unchanged.
+- [x] TaskDeck retains up to 4096 item lifecycle entries and Patch panel shows native running/completed status with polling stopped when hidden.
+- [x] TaskDeck retains up to 256 validated artifact entries and Patch panel exposes native Download/Open actions from structured artifact events.
+- [x] TaskDeck retains the latest validated progress event and Patch panel renders native phase/status/elapsed/output/detail without parsing console text.
+- [x] Broker advertises `patch_protocol_events`, carries the opt-in flag and exposes protocol state; old brokers fall back to PTY-only.
+- [x] Patch panel polls bounded protocol state and renders a native queue summary while PTY remains the authoritative interactive surface.
+- [x] Patch panel renders Python-owned queue_selection prompts and submits only bounded select/cancel responses; PTY remains available as fallback.
+
+### Phase 2 — Native Patch web UI
+Status: **IN PROGRESS**
+
+#### Real Phase 2 acceptance criteria
+
+Phase 2 is complete only when all of these are true in the actual TaskDeck UI:
+
+- [ ] Clicking Patch Queue/Resume/History/Plan/Health does **not** create an ordinary terminal tab.
+- [ ] Python may keep a backing PTY/session for compatibility, but it stays headless/hidden from normal terminal tabs.
+- [ ] A terminal tab is materialized only after an explicit **Open terminal evidence/fallback** user action.
+- [ ] Native Patch content owns the primary workspace view instead of behaving as a thin sidebar over a hidden task tab.
+- [ ] Queue selection, Running/progress/artifacts, Resume, History, Plan and Health remain in the native Patch view through normal navigation.
+- [ ] Resume → History remains native and does not hand off to the terminal.
+- [ ] Browser reload/session synchronization does not auto-materialize hidden Patch backing sessions as terminal tabs.
+- [ ] A regression gate tests the user-visible cutover behavior above, not merely protocol/rendering parity.
+
+#### Actual Phase 2 implementation
+
+- [x] **Phase 2A — Headless Patch backing sessions.** Keep the PTY/protocol engine but exclude built-in Patch sessions from normal terminal-tab synchronization; materialize evidence on demand only.
+- [x] **Phase 2B — Native Patch workspace view.** Promote Patch from the narrow Phase-1 menu/sidebar shell to a dedicated native workspace surface.
+- [x] **Phase 2C — Native navigation/lifecycle.** Keep Queue → Running → Resume/History/Plan/Health transitions inside the native Patch surface, including Resume → History.
+- [x] **Phase 2D — Explicit fallback only.** Protocol loss/timeouts show an actionable fallback state without automatically opening a terminal tab.
+- [ ] **Phase 2E — Product acceptance regression + smoke gate.** Verify no implicit Patch terminal tabs and rerun functional parity checks.
+  - [x] Phase 2E.1 automated product-level regression gate: headless sync, full native workspace, native Resume → History, and explicit-only terminal materialization.
+  - [ ] Phase 2E.2 installed-runtime browser smoke after self-update: visually confirm Queue/Resume/History/Plan/Health do not create terminal tabs and explicit evidence does.
+- [ ] **Phase 2F — Cutover closeout.** Update user docs and mark the integration complete only after Phase 2E passes.
+
+#### Existing protocol/control scaffolding (historically labeled Phase 2A–2H)
+
+The checked items below are retained as implementation history. They prove that Python-owned
+structured controls/renderers exist, but **do not by themselves satisfy the real Phase 2 UI
+acceptance criteria above**.
+
+- [x] Native Queue and Failed views.
+  - [x] Phase 2A.1 Python-owned stable Queue/Failed protocol projection.
+  - [x] Phase 2A.2 Web Queue/Failed views from queue_snapshot.
+- [x] Native Inspect / Preview / Validate.
+  - [x] Phase 2B.1 Python-owned item_action/action_result protocol contract over the active Queue prompt.
+  - [x] Phase 2B.2 TaskDeck backend endpoint/state for bounded native item actions.
+    - [x] Phase 2B.2a session action_result state and stale-prompt write gate.
+    - [x] Phase 2B.2b narrow public item-action endpoint.
+  - [x] Phase 2B.3 Patch panel Inspect/Preview/Validate controls and result viewer.
+- [x] Native Run selection and confirmation prompts.
+  - [x] Phase 2C.1 audit confirms the existing native queue_selection select/cancel response is the normal-run confirmation boundary; there is no second terminal confirmation after selection.
+  - [x] Existing non-interactive selection remains separately gated by non_interactive_confirmed and PATCH-only queue rules.
+- [x] Native Running/progress view with console as secondary evidence.
+  - [x] Phase 2D.1 Queue execution switches to native lifecycle/progress/artifact view; PTY is retained and explicitly available as secondary evidence.
+
+#### Phase 2C.1 interaction audit
+
+- **Normal Queue run:** native already. The Python-owned `queue_selection` prompt + `select/cancel` response is the explicit run-selection/confirmation boundary. After a valid selection, Python performs planner/resource/preflight/transaction safety gates and reaches `execute_items()` without another stdin/key confirmation.
+- **Configured non-interactive run:** intentionally not a web prompt. It executes only when project config has `non_interactive_confirmed=true`, and automatic selection remains PATCH-only; otherwise Python falls back to the normal prompt.
+- **Queue item delete:** terminal-only mutation/confirmation today; classify as Queue management rather than Run confirmation. Native support must preserve Python-owned delete safety semantics.
+- **Smart Resume choices / failed-row multi-select / collect_failed / delete_failed:** terminal-only today and belong to the dedicated Native Resume/recovery phase.
+- **History/report pagination and menus:** terminal-only today and belong to Native History/report browser.
+
+- [x] Native Resume/recovery.
+  - [x] Phase 2E.1 Python-owned Resume snapshot/action contract + TaskDeck retained state; terminal Resume remains authoritative.
+  - [x] Phase 2E.2 narrow Resume action endpoint and protocol prompt execution.
+    - [x] Phase 2E.2a Python opt-in resume_action prompt/command path.
+    - [x] Phase 2E.2b TaskDeck endpoint, final-write gate and built-in Resume opt-in.
+  - [x] Phase 2E.3 native Resume/recovery web controls.
+- [x] Native History/report browser.
+  - [x] Phase 2F.1 Python-owned bounded History list/report projection + additive history_snapshot event.
+  - [x] Phase 2F.2 native History detail command/state/endpoint.
+  - [x] Phase 2F.3 native History/report web browser.
+- [x] Native artifact actions.
+- [x] Native Queue/History management parity.
+  - [x] Phase 2G.1a Python-owned prompt-bound Queue delete command, mutation result and refreshed snapshot/prompt.
+  - [x] Phase 2G.1b TaskDeck Queue delete state/gate/endpoint.
+  - [x] Phase 2G.1c Queue delete web control.
+  - [x] Phase 2G.2 History Pin/Unpin/Delete/Export native management.
+    - [x] Phase 2G.2a Python-owned prompt-bound management commands/results and refreshed History prompt.
+    - [x] Phase 2G.2b TaskDeck management state/gate/endpoint.
+    - [x] Phase 2G.2c History management web controls.
+- [x] Native views are primary and PTY is retained as explicit secondary evidence/fallback after final parity proof.
+  - [x] Phase 2H.1 native/terminal feature-parity audit and cutover gate definition.
+  - [x] Phase 2H.2 Queue execution-order parity: native PATCH priority 0-9 plus select-all/none convenience without changing Python ordering policy.
+    - [x] Phase 2H.2a Python queue_selection priority contract and canonical ordering.
+    - [x] Phase 2H.2b TaskDeck prompt-response priority validation/gate.
+    - [x] Phase 2H.2c Web priority 0-9 + select-all/none controls.
+  - [x] Phase 2H.3 Queue discovery parity: Python-owned filter/search fields and native filtering for large queues.
+    - [x] Phase 2H.3a bounded Python-owned queue search projection.
+    - [x] Phase 2H.3b native Queue/Failed search UI.
+  - [x] Phase 2H.4 Native Plan projection/view; Plan no longer requires the PTY as its primary renderer.
+    - [x] Phase 2H.4a Python-owned bounded Plan projection.
+    - [x] Phase 2H.4b TaskDeck Plan protocol state.
+    - [x] Phase 2H.4c native Plan web view + PTY fallback.
+  - [x] Phase 2H.5 Native Tool Health view/action.
+    - [x] Phase 2H.5a1 runtime-directory Health audit compatibility for TaskDeck bundled patchtool/.
+    - [x] Phase 2H.5a2 Python health route + bounded health_snapshot.
+    - [x] Phase 2H.5b TaskDeck Health protocol state.
+    - [x] Phase 2H.5c native Health primary view + PTY fallback.
+  - [x] Phase 2H.6 Advanced History parity: support ZIP creation and explicit cleanup; report subset filters may remain pure presentation over projected rows.
+    - [x] Phase 2H.6a Python-owned History item support-ZIP command/result contract using the existing terminal bundle helper.
+    - [x] Phase 2H.6b TaskDeck support-ZIP result state, prompt-bound endpoint and final-write gate.
+    - [x] Phase 2H.6c native History Support ZIP item control.
+    - [x] Phase 2H.6d explicit History cleanup contract/state/UI.
+  - [ ] Phase 2H.7 historical parity regression gate — **INVALIDATED 2026-09-25** because it explicitly accepted `app.attachSession(...)` and therefore did not test native UI cutover.
+
+## Historical Phase 2I — Integration closeout and user-facing cutover
+Status: **INVALIDATED 2026-09-25**
+
+- [x] Document global TaskDeck + bundled Patch Tool as the recommended installation path.
+- [x] Document the native Patch panel as the primary web workflow and `taskdeck patch ...` as the first-class CLI workflow.
+- [x] Document that project data stays project-local while verified legacy `tools/run_python_patches.sh` launchers may become compatibility shims.
+- [x] Keep PTY/terminal and direct CLI compatibility; no runtime/protocol behavior changes in this closeout.
+- [ ] Close this integration roadmap only after the corrected real Phase 2 acceptance gate passes.
+
+## Phase 2H.1 — Native cutover parity audit
+
+The main Queue/Failed, Inspect/Preview/Validate, normal Run, Running/progress/artifacts,
+Smart Resume, History/report detail and Queue/History delete-management paths are now native.
+The terminal remains an explicit fallback/evidence surface and must continue to work.
+
+| Surface | Current web state | Cutover requirement |
+| --- | --- | --- |
+| Queue/Failed list + select/cancel | Native | PASS |
+| PATCH priority 0-9 execution order | Terminal only | **MUST native** — changes execution ordering semantics |
+| Select all PATCH / clear selection | Manual checkbox only | Native convenience together with priority |
+| Queue filter by name/id/summary/target | Terminal only | **MUST native** for large queues; Python must own searchable projection |
+| Inspect / Preview / Validate | Native | PASS |
+| Queue Delete | Native | PASS |
+| Tool Health / self-audit | Terminal only | **SHOULD native** before cutover |
+| Plan / resource/static-conflict/preview plan | PTY primary | **MUST native** before cutover |
+| Running lifecycle / COLLECT progress / artifacts | Native, PTY evidence available | PASS |
+| Smart Resume/recovery | Native | PASS |
+| History list/detail/files/source diff | Native | PASS |
+| History Pin/Unpin/Delete/Export | Native | PASS |
+| History support ZIP creation | Terminal only | **MUST native** because it is a recovery/support artifact workflow |
+| History explicit cleanup | Terminal only; automatic retention cleanup still exists | **SHOULD native** |
+| History PASS/problem/changed subsets | Terminal presentation shortcut | MAY be web-only filtering over projected rows |
+| Direct CLI/automation/advanced utility commands | Terminal/CLI | Intentionally remain terminal; not a web cutover blocker |
+
+Cutover rule: TaskDeck must not stop activating or retaining PTY fallback merely because the
+main happy path is native. Default PTY dependence changes only after every **MUST native** row
+above has a structured Python-owned contract, TaskDeck validation/gate and web regression test.
+
+
+## Phase 2H.7 — Final native cutover parity audit (2026-09-24)
+
+Audited runtime: `64dbe8e8` plus all earlier Phase 2 checkpoints. This checkpoint changes
+documentation/tests only; it does not change Patch Tool execution, protocol semantics or PTY behavior.
+
+### Cutover result: PASS
+
+Every **MUST native** item from Phase 2H.1 now has all three required layers:
+Python-owned semantics/projection, TaskDeck validation/gating, and native web regression coverage.
+The PTY remains fully available as explicit evidence/fallback and the terminal/CLI workflow remains supported.
+
+| Terminal / operator surface | Native state after 2H.6 | Final classification |
+| --- | --- | --- |
+| Queue + Failed list, PATCH/COLLECT select/cancel | Native Python-owned snapshot/prompt | PASS |
+| PATCH priority 0-9 execution ordering | Native metadata; canonical ordering remains Python-owned | PASS |
+| Select all PATCH / clear selection | Native | PASS |
+| Queue search by name/id/summary/target | Native using Python-projected search text only | PASS |
+| Inspect / Preview / Validate | Native prompt-bound item actions | PASS |
+| Queue Delete | Native, destructive confirmation + refreshed Python snapshot/prompt | PASS |
+| Queue Health shortcut / Tool self-audit | Native Health primary view | PASS |
+| Queue History jump | Native History primary view | PASS |
+| Plan: policies/resources/conflicts/previews | Native read-only Plan primary view | PASS |
+| Running lifecycle / COLLECT progress / artifacts | Native Running view; PTY retained as evidence | PASS |
+| Smart Resume: all/failed/remaining/collect_failed/delete_failed/history | Native Python-owned Resume contract/UI | PASS |
+| History list/detail/item status/artifacts | Native | PASS |
+| History Run summary + Aggregate log | Native projected files with safe Open/Download | PASS |
+| History source diff | Native projected item artifact with safe Open/Download | PASS |
+| History Pin / Unpin / Delete / Export | Native capability-driven management | PASS |
+| History support ZIP | Native item capability + correlated support result | PASS |
+| History explicit cleanup | Native Python-owned cleanup plan/counts + explicit confirmation | PASS |
+| History PASS/problem/changed subset shortcuts | No dedicated buttons required; presentation-only over already projected rows | NON-BLOCKING |
+| Direct CLI automation / recipes / advanced flags | Intentionally remain CLI/terminal | NON-BLOCKING |
+| Runner utilities such as help/version/paths/health-search/direct package invocation | Intentionally remain CLI/terminal | NON-BLOCKING |
+
+### Direct CLI surfaces intentionally retained
+
+The following are not interactive web parity requirements and remain supported from
+`taskdeck patch ...` / legacy compatibility launchers:
+
+- dispatcher policy/automation flags such as `--failure-policy`, `--transaction-policy`,
+  `--resume-mode`, `--patch`, `--all`, `--select`, `-y`, `--zip-failed`,
+  `--keep-failed-zip`, `--move`, and `--no-validation`;
+- reproducibility recipe options `--recipe` and `--export-recipe`;
+- direct report automation options `--run-id`, `--list`, `--pin`, `--unpin`,
+  `--delete`, `--export`, `--cleanup`, and `--support-item`;
+- direct COLLECT/runner utility routes such as `collect`, `paths`, `health-search`,
+  help/version, and direct package invocation.
+
+These are explicit CLI/automation interfaces rather than missing web interactions, so they
+do not block native-primary TaskDeck use.
+
+### PTY cutover state
+
+No additional activation cutover is required. The current Patch panel already calls
+`attachSession(meta, false)` for Queue, Resume, History, Plan and Health, and native Running
+keeps an explicit **Open terminal evidence** action. Therefore the PTY is already secondary
+by default for the native operator flows while remaining available for fallback, diagnostics
+and terminal-only CLI work.
+
+The regression gate added with this audit protects that native-primary + explicit-PTY-fallback
+contract from accidental rollback.
+
+## Non-regression gates
+
+Every phase must preserve:
+
+- existing terminal Patch Tool workflow;
+- PATCH/COLLECT queue semantics;
+- failed/unresolved state;
+- History and report behavior;
+- Smart Resume/recovery;
+- fail handoff and AI-facing artifacts;
+- search coverage/incomplete semantics;
+- database SELECT safety boundary;
+- Git-safe behavior;
+- current project data paths;
+- Linux CI for supported Go versions;
+- existing Python Patch Tool semantic/self-tests relevant to changed surfaces.
+
+## Progress log
+
+| Step | Status | Commit | Notes |
+| --- | --- | --- | --- |
+| Phase 0 roadmap | DONE | 0ac231f2 | Architecture/recovery plan created before runtime changes. |
+| Phase 1A canonical entrypoint | DONE | 0e871ed1 | Routing moved from shell/PowerShell to one Python entrypoint; wrappers remain compatible. |
+| Phase 1A CI path correction | DONE | 14adf537 | Fix CI working-directory path for the new Python routing contract; no runtime behavior change. |
+| Phase 1B TaskDeck CLI | DONE | 02b72b94 | Added shared Patch runtime resolver and `taskdeck patch`; bundled runtime wins, legacy project launcher remains a migration fallback. |
+| Phase 1C.1 versioned installer | DONE | 2e909a70 | Installer stages TaskDeck + Patch runtime as one immutable release and atomically switches `current` and the PATH symlink. |
+| Phase 1C.1 shell interpolation correction | DONE | 02a80f37 | Removed accidental literal backslashes before Bash `${...}` expansions introduced by commit orchestration; no design change. |
+| Phase 1C.2a self-update release primitives | DONE | 0e2fc6a0 | Added versioned release stage/install helpers, atomic symlink switching, Patch runtime source staging, and old-release preservation tests; main self-update flow not switched yet. |
+| Phase 1C.2a support-file mode test correction | DONE | 52af3a60 | Test now distinguishes executable launchers from non-executable Python test/support files; runtime behavior unchanged. |
+| Phase 1C.2b self-update wiring | DONE | 23ce9d21 | Self-update now requires a complete versioned TaskDeck + Patch release, installs it atomically, and hands the daemon off through the stable global entrypoint. |
+| Phase 1D.1 built-in Patch session backend | DONE | bc8e5b4a | Added bounded `kind:patch` session modes backed by the shared runtime resolver; Patch sessions use reserved task id -1 and do not depend on tasks.json. |
+| Phase 1D.2 Patch Activity Bar panel | DONE | 0d32d411 | Added Patch icon/panel with Queue/Resume/History/Plan actions; sessions use the existing TaskDeck PTY renderer. |
+| Phase 1D.3 legacy task de-dup | DONE | ae49e6ca | Task list hides only a zero-argument, exact legacy tools/run_python_patches.sh duplicate; customized/parameterized tasks remain visible. |
+| Phase 1E.1 migration safety plan | DONE | e9506386 | Added fail-closed SHA-256 comparison of legacy tools runtime against the active bundled release; modified/symlinked/unknown files block cleanup. |
+| Phase 1E.2a guarded migration apply | DONE | 6a7cbf1c | Revalidates hashes immediately before cleanup, installs compatibility launchers first, removes only verified runtime files, and keeps unrelated tools files. |
+| Phase 1E.2a migrated-shim recognition | DONE | 00072c0d | Planner treats TaskDeck-generated compatibility launchers as already migrated instead of locally modified legacy runtime. |
+| Phase 1E.2b cleanup wiring | DONE | 19f19167 | Wired verified Patch runtime migration into interactive/global legacy cleanup, kept unsafe runtimes, and skipped the source repository. |
+| Phase 1.5A protocol event channel | DONE | 150f26b8 | Added opt-in protocol v1 JSONL event FD with lifecycle events; no-protocol terminal path remains execv-compatible. |
+| Phase 1.5B Python queue snapshot | DONE | 840ee91d | Protocol bridge calls authoritative dispatcher queue discovery directly and emits stable queue_snapshot data before terminal execution. |
+| Phase 1.5C.1a session protocol state | DONE | 3ae480a1 | Added opt-in FD 3 transport in the session manager and bounded latest-event/queue-snapshot state without changing PTY output. |
+| Phase 1.5C.1b broker protocol capability | DONE | 5fd3a3d6 | Added capability-gated broker wire/API for protocol events with old-broker PTY-only fallback. |
+| Phase 1.5C.1c public Patch protocol API | DONE | 07b11200 | Built-in Patch sessions now request protocol events and TaskDeck exposes optional per-session protocol state with legacy fallback. |
+| Phase 1.5C.2 native queue summary | DONE | e24e619e | Patch panel renders bounded Python-owned queue_snapshot data, falls back to PTY-only, and never parses terminal text. |
+| Phase 1.5D.1 command channel contract | DONE | 70eb2dc7 | Added bounded versioned JSONL CommandReader and optional command FD pass-through contract; TaskDeck does not enable it yet. |
+| Phase 1.5D.2a session command pipe | DONE | 1a6aa5f9 | Added opt-in FD4 command pipe, bounded envelope validation and session write primitive; Patch sessions still leave it disabled. |
+| Phase 1.5D.2b broker command plumbing | DONE | 74279462 | Added capability-gated command flag and internal broker command endpoint; built-in Patch sessions remain command-disabled. |
+| Phase 1.5E.1 child event relay | DONE | 6b7ab13b | Child protocol events now use an internal pipe and are re-sequenced by the entrypoint before reaching TaskDeck. |
+| Phase 1.5E.1 protocol test discovery correction | DONE | 13c2848a | Moved unittest.main() after ProtocolContractTests so CI executes the complete protocol contract suite instead of routing tests only. |
+| Phase 1.5E.1 lifecycle test scope correction | DONE | 7c146ccf | Updated the lifecycle-only protocol test to use a non-queue route; queue_snapshot behavior remains covered by its dedicated test. |
+| Phase 1.5E.2 queue selection prompt contract | DONE | c81046a2 | Added Python-owned queue_selection prompt/prompt_response handling with strict prompt-id/index/COLLECT validation and terminal fallback on protocol failure. |
+| Phase 1.5E.3 public prompt response backend | DONE | 3b047a68 | Stores active prompt state, enables built-in command channels, exposes only bounded prompt responses, and rejects stale/double responses before FD4 writes. |
+| Phase 1.5E.3 test import correction | DONE | 6d571371 | Added the missing os import required by the public prompt-response contract test; no runtime behavior change. |
+| Phase 1.5E.4 native queue selection UI | DONE | 3160762d | Patch panel renders queue_selection directly from Python prompt data and submits bounded select/cancel responses, with PTY fallback preserved. |
+| Phase 1.5F.1 item lifecycle events | DONE | dff4ab05 | Dispatcher emits item_started/item_finished only for actual PATCH/COLLECT payload execution; preflight/blocked/duplicate skips are not misreported as started. |
+| Phase 1.5F.2 native item lifecycle state | DONE | 87efcaff | TaskDeck retains bounded item lifecycle state and Patch panel displays running/completed item status while PTY remains available. |
+| Phase 1.5F.2 UI contract test correction | DONE | 8b087ceb | Updated the stale fixed-40-iteration assertion to the new bounded lifecycle polling contract; no runtime behavior change. |
+| Phase 1.5F.3a Python artifact events | DONE | 858f2293 | Emits fail handoff, AI sync and COLLECT result artifacts only after validating a real non-link file under project artifacts/; internal/history files are not exposed. |
+| Phase 1.5F.3b native artifact state/actions | DONE | 033af150 | TaskDeck retains a bounded validated artifact list; Patch panel offers existing safe download plus text-editor open actions without parsing terminal/history output. |
+| Phase 1.5G.1 Python COLLECT progress events | DONE | e5a55760 | COLLECT progress supervisor emits bounded phase/status/elapsed/output/detail events over the inherited protocol FD; Go never parses console text. |
+| Phase 1.5G.2 native progress state/UI | DONE | 851611a4 | TaskDeck validates and retains only the latest bounded progress event; Patch panel renders native progress while PTY remains unchanged. |
+| Phase 2A.1 Queue/Failed protocol projection | DONE | 44ea3cce | Python dispatcher projects new/failed grouping and bounded failure summaries from the same unresolved policy used by the terminal selector; Go does not read history schemas. |
+| Phase 2A.2 native Queue/Failed web views | DONE | dd41c7b0 | Patch panel separates Queue/Failed strictly by Python snapshot group and renders bounded failure summaries; legacy snapshots remain Queue-only without inferred failure policy. |
+| Phase 2B.1 native item action protocol | DONE | c9fe4dfb | Active queue prompts accept bounded inspect/preview/validate item_action commands, execute the existing read-only Python runner path, emit correlated action_result events, then continue waiting for selection. |
+| Phase 2B.2a action result state/gate | DONE | 01e0936f | Session state validates/retains latest action_result, clears it on a new prompt/run, and binds item_action to the still-active prompt at the final FD4 write gate. |
+| Phase 2B.2b narrow item-action endpoint | DONE | 3bb89fe6 | Public API accepts only prompt-bound inspect/preview/validate + index, validates PATCH-only prompt items, generates action_id server-side and never exposes raw protocol command writes. |
+| Phase 2B.3 native item action UI | DONE | 39f59d45 | Queue/Failed PATCH rows expose only Python-advertised Inspect/Preview/Validate actions; result polling is correlated by action_id and rendered from structured action_result state. |
+| Phase 2C.1 normal-run interaction audit | DONE | 6d7accbf | Verified queue_selection select/cancel is the only interactive normal-run confirmation boundary; added a regression contract preventing a second terminal-input gate before execute_items. Resume/delete/history interactions are explicitly deferred to their owning phases. |
+| Phase 2D.1 native Running primary view | DONE | 12a9dcdc | Queue PTY is attached without activation; after native selection the Patch panel prioritizes lifecycle/progress/artifacts, with explicit terminal-evidence fallback and post-finish return to Queue. |
+| Phase 2E.1 Resume projection/contract | DONE | 195ebd3a | Python emits a stable resume_snapshot from the exact Smart Resume boundary, shares action definitions with terminal Resume, defines resume_action contract, and TaskDeck retains the snapshot without changing terminal interaction. |
+| Phase 2E.2a native Resume Python command path | DONE | fee4eafa | Python handles prompt-bound resume_action only when TASKDECK_PATCH_NATIVE_RESUME=1 and both protocol channels exist; malformed/unavailable native input falls back to the historical terminal Resume path. |
+| Phase 2E.2a test fixture correction | DONE | 9f8883bb | Resume protocol tests now use an existing temp project and explicit recovery-row binding mocks; runtime behavior is unchanged. |
+| Phase 2E.2b TaskDeck Resume endpoint/gate | DONE | 36d9cb75 | Built-in Resume explicitly opts into native mode; public API accepts only active-prompt advertised Resume actions, and session final-write gate consumes the prompt to reject stale/double submissions. |
+| Phase 2E.3 native Smart Resume UI | DONE | 2c36121d | Patch panel renders Python-owned Resume snapshot/options/failed-item capabilities, submits only through /resume-action, confirms destructive delete, and preserves PTY fallback/history handoff. |
+| Phase 2E.3 UI contract test correction | DONE | 1b3811df | Updated the legacy Running-view PTY activation assertion for native Resume; runtime behavior is unchanged. |
+| Phase 2F.1 History/report projection | DONE | 235847fb | Python exposes bounded meaningful-run summaries and one-run report detail views with verified project-relative files; report route emits history_snapshot additively and Go never sees raw history JSON. |
+| Phase 2F.1 read-only pin loader correction | DONE | ff3d78aa | History projections no longer materialize artifacts/patch_tool merely to read PINNED_RUNS; Pin/Unpin writes keep the existing mutating path. |
+| Phase 2F.2a native History Python command path | DONE | 3fa7e4e5 | Opt-in History sessions emit a read-only history_action prompt, accept only advertised prompt-bound history_detail run_ids, emit history_report, and leave terminal report behavior unchanged. |
+
+| Phase 2F.2b1 TaskDeck History protocol state/gate | DONE | 6fb41938 | TaskDeck retains history_snapshot/history_report and final FD4 writes require the active History prompt; history_detail stays reusable and does not consume that read-only prompt. |
+| Phase 2F.2b2 narrow History endpoint | DONE | 4b774b08 | Built-in History alone opts into TASKDECK_PATCH_NATIVE_HISTORY; /history-detail accepts only active-prompt advertised run_ids and writes through the final prompt-bound FD4 gate. |
+
+| Phase 2F.3 native History/report web browser | DONE | b2846665 | History is now a native primary Patch panel view; run selection uses only /history-detail, projected files/artifacts reuse safe Download/Open actions, and PTY remains explicit fallback/evidence. |
+| Phase 2F.3 UI contract correction | DONE | 12337bc0 | Updated stale export expectations and scoped Queue/Failed anti-inference assertions so History may display Python-projected policy fields without permitting web-side policy decisions. |
+
+| Phase 2F.3 Queue/Failed assertion correction | DONE | 709dec39 | Narrowed the remaining file-global Queue anti-inference assertion so History may display Python-projected failure_policy without allowing Queue-side policy inference. |
+| Phase 2G.1a Python Queue delete command | DONE | 52497bd8 | Active Queue prompt advertises delete; Python reuses _delete_indexes(), emits queue_mutation_result, refreshes queue_snapshot and issues a new prompt after index-changing deletion. |
+| Phase 2G.1b TaskDeck Queue delete state/gate | DONE | 1441835c | TaskDeck validates latest queue_mutation_result, exposes a narrow prompt/capability/index-bound /queue-delete endpoint, and rechecks prompt_id at the final FD4 write. |
+| Phase 2G.1c native Queue delete UI | DONE | 07eab1fd | Queue/Failed rows expose confirmed Delete only when Python advertises it; UI correlates mutation_id and redraws only after Python emits refreshed snapshot/prompt. |
+| Phase 2G.2a Python History management | DONE | 468156a4 | Native History prompt advertises per-run Pin/Unpin/Delete/Export; Python reuses existing terminal helpers, emits correlated bounded results, refreshes snapshot/prompt after mutations, and verifies export artifact paths. |
+| Phase 2G.2b TaskDeck History management gate | DONE | d6c8a3f7 | TaskDeck validates correlated History management results/artifacts, exposes a narrow prompt/run/capability-bound endpoint, requires explicit delete confirmation, and rechecks prompt_id at final FD4 write. |
+| Phase 2G.2c native History management UI | DONE | 9197dc42 | History rows render only Python-advertised Pin/Unpin/Delete/Export controls, correlate management_id, wait for refreshed Python snapshot/prompt after mutations, confirm delete and surface verified export artifacts. |
+| Phase 2H.1 native cutover parity audit | DONE | d213bac9 | Recorded the remaining terminal-only parity gaps and a fail-closed cutover rule; no runtime behavior changed. |
+| Phase 2H.2a Python Queue priority contract | DONE | fc3f5d8a | queue_selection optionally accepts bounded PATCH priorities 0-9 and routes final selection through the exact terminal _ordered_selection helper; COLLECT and unselected priority rows fail closed. |
+| Phase 2H.2b TaskDeck Queue priority gate | DONE | 600dd341 | Narrow prompt-response accepts priorities only when the active Python prompt advertises a safe 0-9 capability; selected-index/PATCH-only/duplicate/range checks run before the existing prompt-bound FD4 gate. |
+| Phase 2H.2c native Queue priority UI | DONE | e75a2444 | Queue PATCH rows expose capability-driven priority 0-9 plus Select all PATCH/Clear selection; the browser submits priority metadata only and Python remains the sole execution-order authority. |
+| Phase 2H.2c UI export-contract correction | DONE | 4a13cb85 | Updated the stale TaskMenuPatchPanel export assertion for the new priority helpers; runtime behavior unchanged. |
+| Phase 2H.3a Python queue search projection | DONE | 21c5af26 | Queue snapshot now carries bounded casefold-normalized name/id/summary/target search text produced in Python; terminal kind/detail search remains unchanged and no ZIP/manifest internals are exposed to web. |
+| Phase 2H.3b native Queue/Failed search UI | DONE | 07921b90 | Queue/Failed filtering uses only Python-projected search.text; the same query hides nonmatching native selection rows without browser ZIP/manifest inspection or execution-policy inference. |
+| Phase 2H.3b Go test offset correction | DONE | cc54692f | Fixed the search contract test to use Go's two-argument strings.Index API; runtime behavior unchanged. |
+| Phase 2H.3b select-all contract correction | DONE | 01227e3d | Updated the stale Select-all assertion for search-aware visible PATCH selection; runtime behavior unchanged. |
+| Phase 2H.4a Python native Plan projection | DONE | 7623e69b | Plan emits a bounded structured snapshot for ordered items, policy, static conflicts, resource gates and structured preview summaries while preserving historical read-only terminal output. |
+| Phase 2H.4b TaskDeck Plan protocol state | DONE | 98b56539 | TaskDeck validates Plan policy/items/conflicts/resources/previews into typed bounded state and drops unknown raw planner fields before exposing session state. |
+| Phase 2H.4c native Plan primary view | DONE | c28758aa | Patch panel renders only validated plan_snapshot state as the primary Plan view; PTY is attached without activation and remains an explicit evidence/fallback surface. |
+| Phase 2H.4c export-contract correction | DONE | 7219ae94 | Updated the stale TaskMenuPatchPanel export assertion for the new Plan renderer helpers; runtime behavior unchanged. |
+| Phase 2H.5a1 bundled runtime Health audit | DONE | 8fc4cab9 | Health can audit a runtime directory directly, so TaskDeck's versioned patchtool/ bundle uses the same checksum/schema policy as historical <project>/tools; audit_tool(project_root) remains compatible. |
+| Phase 2H.5a2 Python Health projection | DONE | ce534dc8 | Added read-only health route over the active runtime, bounded health_snapshot projection and terminal printing from the same single audit report. |
+| Phase 2H.5a2 source-fixture test correction | DONE | 4fcddd1e | Replaced the invalid full-repository Health PASS assumption with focused runtime-path compatibility checks; runtime behavior unchanged. |
+| Phase 2H.5b TaskDeck Health protocol state | DONE | 36de76b7 | TaskDeck validates bounded typed health_snapshot checks/summary/messages, rejects inconsistent counters, and retains an independent typed Health state. |
+| Phase 2H.5c native Health primary view | DONE | c0c2779b | Patch panel renders typed Health status/version/summary/checks/messages as the primary read-only view; Health PTY is attached inactive and remains explicit fallback/evidence. |
+| Phase 2H.5c PTY contract test correction | DONE | a7063eda | Updated five stale PTY-inactive mode assertions to include native Health; runtime behavior unchanged. |
+| Phase 2H.6a Python History support ZIP | DONE | b0a3a736 | Native History advertises item-level support capability, accepts prompt/run/index-bound history_support, reuses _create_report_support_bundle(), and emits only a verified project-relative support artifact. |
+| Phase 2H.6a Python test fixture correction | DONE | 96858f1c | History support protocol tests now initialize the canonical _patch_lib import path before importing the dispatcher; runtime behavior unchanged. |
+| Phase 2H.6b TaskDeck History support gate/state | DONE | 37d216a7 | TaskDeck validates/retains history_support_result, exposes a narrow prompt/run/current-report/item-bound endpoint, and rechecks prompt_id at the final FD4 write without consuming the History prompt. |
+| Phase 2H.6c native History Support UI | DONE | ea288f4a | History report items show Support only from Python-advertised prompt+item capabilities; support_id/prompt/run/index correlation gates result display and verified ZIP download while the prompt remains reusable. |
+| Phase 2H.6c reusable-prompt test scope correction | DONE | 24165f45 | Scoped the Support prompt-reuse assertion to submitHistorySupport only; unrelated History management reset logic is no longer falsely matched. |
+| Phase 2H.6d1 Python History cleanup contract | DONE | c1eb7b78 | Refactored terminal/native cleanup onto one Python plan, advertises top-level cleanup policy/counts, accepts no run list, requires explicit confirmation, and emits correlated cleanup result + refreshed History state. |
+| Phase 2H.6d1 History support fixture correction | DONE | cc440b98 | Updated the item-support projection fixture to mock the newly additive cleanup summary; runtime cleanup behavior is unchanged. |
+| Phase 2H.6d2 TaskDeck History cleanup gate/state | DONE | c445aa26 | TaskDeck validates/retains correlated cleanup results, exposes only prompt_id+confirmed, generates cleanup_id server-side and rechecks the active prompt at final FD4 write; no run/candidate list is accepted. |
+| Phase 2H.6d3 native History Cleanup UI | DONE | 64dbe8e8 | History shows cleanup only from Python-advertised capability/policy/counts, requires explicit confirmation, sends no run/candidate list, correlates cleanup_id+prompt_id and redraws only from refreshed Python snapshot/prompt. |
+| Phase 2H.7 final native cutover parity audit | INVALIDATED | ff72e1f1 | Protocol/control parity evidence only. The gate incorrectly accepted normal terminal-tab attachment and did not prove product-level native cutover. |
+| Phase 2I integration closeout | INVALIDATED | 74a4aa8f | Premature closeout based on the invalid Phase 2H.7 UI acceptance assumption. |
+| Corrected Phase 2A headless backing session | DONE | 355676a3 | Built-in Patch task_id=-1 sessions remain in the broker/session manager but normal sync no longer creates terminal tabs; explicit terminal evidence materializes the tab on demand. |
+| Corrected Phase 2A UI-test fixture update | DONE | bc978abe | Updated stale PTY-attachment assertions for async explicit evidence materialization; runtime behavior unchanged. |
+| Corrected Phase 2B native workspace surface | DONE | 634b1a2f | Patch activates an external native workspace, spans the work area instead of the 310px sidebar, hides the underlying terminal workspace, and restores the previous view on close. |
+| Corrected Phase 2C native Resume→History navigation | DONE | e0b41a4a | Native Resume history selection exits the Resume Python route without entering _history_browser(); TaskDeck opens a dedicated native History session instead. |
+| Corrected Phase 2D explicit-only terminal fallback | DONE | e0b41a4a | Removed remaining automatic terminal materialization; protocol loss/timeouts stay in native UI and only explicit evidence buttons create a terminal tab. |
+| Corrected Phase 2B return-view fix | DONE | eec38265 | Native workspace now reads the actual exported app.active state instead of nonexistent app.activeSessionId before restoring the previous view. |
+| Corrected Phase 2E.1 automated product acceptance gate | DONE | eec38265 | Dedicated regression gate rejects implicit terminal tabs, enforces headless reload sync/full workspace/native Resume→History, and allows materialization only in the explicit evidence path. |
+| Phase 2E.1b fail-closed runtime session invariant | DONE | 89d3a458 | Patch start rejects/stops any backend session that loses reserved headless task_id=-1 and rejects an unexpectedly materialized terminal view. CI run 36086689002 PASS. |
+| Phase 2E.1c explicit fallback copy | DONE | 15711d4d | Removed stale “Continue in PTY/terminal” wording; native failures/timeouts now advertise terminal fallback as an explicit optional action only. CI run 36087008801 PASS. |
+| Phase 2 recovery-document guard | DONE | 572368a1 / 3dbf06fb | Repository-level guard validates handoff/roadmap/README state in CI without entering self-update `go test`; docs changes trigger the workflow. |
+| Self-update repo-doc test fix | DONE | 5b9a37e2 / afbb82be / 19c2ebc3 | Removed the invalid Go test dependency on root docs, moved the doc guard to repository CI, added a module non-regression check, and added a CI lane that runs `go test ./...` from the exact docs-free self-update staged source. Run 36087734095 PASS on Go 1.19/1.23. |
+| Phase 2E.2 smoke defect: pre-capability broker loses Patch protocol | FIXED, NEEDS INSTALLED SMOKE | 0ef148e8 / 973af90b / f22cf21e / 114a9222 | Legacy broker can survive self-update with protocol_version=1 but no Patch protocol capabilities. CompatibilityService preserves broker-owned terminals while routing only unsupported Patch protocol sessions to a local Manager; FD3 Health fallback integration test and staged-source CI run 36088980153 PASS on Go 1.19/1.23. Bootstrap taskData=null noise fixed separately. |
+| Phase 2E.2 UX correction: native tab + file actions + selectable legacy UI | IMPLEMENTED, NEEDS INSTALLED SMOKE | ae9acfcf / b917de9f / 94715c30 / 459c5f06 / 30d1b069 | Native Patch is a real switchable workspace tab; Open reveals editor; Copy path copies absolute workspace path; Settings can select Native UI or Terminal (legacy). Legacy mode disables protocol/native Python flags. CI 36090834860 PASS on Go 1.19/1.23. |
+| Phase 2E.2 smoke defect: grouped-menu bootstrap before task data | FIXED, NEEDS INSTALLED SMOKE | 945f9514 | Settings/header menus now defer workspace-scoped initialization until `taskmenu:tasks`; direct `app.taskData.workspace` access removed from featuremods. CI 36091412442 PASS on Go 1.19/1.23. |
+| Phase 2E.2 UX defects: queue clarity + COLLECT liveness + tab persistence | FIXED, NEEDS INSTALLED SMOKE | 890cddfe / 58e83be6 / 1184e152 / b3bd40e0 / f6303342 | Suppress duplicate actionable Queue rows while queue prompt is active; preserve Patch tab when switching views; Running view shows elapsed/protocol activity and typed COLLECT phase/output; nested FD3 COLLECT progress relay integration test added. CI 36092673478 PASS on Go 1.19/1.23. |
+| Phase 2E.2 UX: warnings/delete + paired artifact variants + parallel COLLECT | IMPLEMENTED, NEEDS INSTALLED SMOKE | 1c3ec879 / 8d7c0819 / 21eef976 / d16ee44d / f9b4737b | Warnings render one per line; selector rows expose prompt-bound Delete; ZIP/TXT variants share one logical result row with format-specific actions; Python advertises independent-process fan-out (max 16) while retaining one-COLLECT-per-invocation; TaskDeck launches/polls one headless worker per selected COLLECT and renders each worker's typed progress/artifacts. CI 36095759264 PASS on Go 1.19/1.23. |
+| Phase 2E.2 UX: reopen Queue while active runs continue | IMPLEMENTED, NEEDS INSTALLED SMOKE | e2b67fe9 / 0e7e38c0 / a2251226 / 1beb18a0 | Running view exposes Back to Queue / Add more without stopping execution; foreground sessions move into Active runs and keep typed polling/artifacts; fresh Queue/Refresh Queue discovers new requests; while any run is active, PATCH and already-running items are locked while extra COLLECT remains selectable; a single additional COLLECT can launch as an independent prompt-bound worker. CI 36096780483 PASS Go 1.19/1.23. |
+| Phase 2E.2 UX correction: paired artifacts render as one visual row | FIXED, NEEDS INSTALLED SMOKE | 41e2eb39 / 9c91cc84 / 2377149e | Previous grouping still produced one nested TXT row plus one nested ZIP row. Live Artifacts and History now pair exact stems and render one row with combined path plus separate TXT/ZIP Download/Copy actions and a single Open TXT action. CI 36104471672 PASS Go 1.19/1.23. |
+| Phase 2E.2 UX correction: History Terminal real browser | FIXED, NEEDS INSTALLED SMOKE | 3f25556a / 1134bdb2 / e934b3cd | Native History remains structured `report`; explicit History Terminal now starts a separate legacy session using bounded Python `history` command → `_history_browser()`, rather than materializing the native History PTY. CI 36105569250 PASS Go 1.19/1.23. |
+| Phase 2E.2 UX correction: Active runs live-session pruning | FIXED, NEEDS INSTALLED SMOKE | 27cfd572 | Active runs now revalidates TaskDeck session metadata and keeps only `status=running`; foreground runs already finished are not re-added after Back to Queue; background exited/stopped sessions are pruned; safe Remove from Active refuses live sessions; total active+new parallel COLLECT workers cannot exceed advertised max. CI 36107744970 PASS Go 1.19/1.23. |
+| Phase 2E.2 UX correction: foreground run visual priority | FIXED, NEEDS INSTALLED SMOKE | 96faca77 | Foreground Current run / Latest completed status and artifacts render before Other active runs; background renderer no longer hides foreground UI; Other active runs sorted newest-first. CI 36108438961 PASS Go 1.19/1.23. |
+| Self-update TLS identity stability | FIXED, NEEDS INSTALLED SMOKE | 3b408e26 | Self-update replacement daemon reuses the currently serving valid auto self-signed certificate; volatile wildcard-interface SAN changes no longer force certificate rotation/retrust. Explicit stable SAN changes still apply on normal startup. CI 36111251392 PASS Go 1.19/1.23. |
+
+## Next action
+
+Phase 2A–2D and the automated Phase 2E.1 product gate are implemented. **Do not close Phase 2 yet.**
+Next is Phase 2E.2 installed-runtime browser smoke after TaskDeck self-update to **`3b408e26` or a later descendant**: verify the actual UI
+does not create a terminal tab for Queue/Resume/History/Plan/Health, while explicit terminal
+evidence still materializes one. Only after that passes may Phase 2F closeout be marked DONE.

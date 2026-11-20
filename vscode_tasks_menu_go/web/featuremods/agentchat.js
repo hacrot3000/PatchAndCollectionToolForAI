@@ -1,0 +1,2287 @@
+// TaskDeck Agent Chat — independent of suggestion-only Smart Terminal AI.
+// Native Patch execution remains explicit-approval gated; text-only models may propose reviewable Patch JSON.
+const agentApp=globalThis.TaskMenuApp;
+if(!agentApp)throw new Error('TaskMenuApp unavailable for Agent Chat');
+const agentRich=globalThis.TaskMenuAgentChatFormat;
+if(!agentRich?.renderMessage)throw new Error('Agent Chat Markdown formatter unavailable');
+const agentCSS=document.createElement('style');
+agentCSS.textContent=[
+'.agentchat-overlay{display:none;min-width:0;min-height:0;overflow:hidden;background:#141c27;color:#e6eef9;border:1px solid #55657a}',
+'.agentchat-overlay.visible{display:flex}',
+'.agentchat-window{display:flex;flex:1;min-width:0;min-height:0;flex-direction:column;overflow:hidden}',
+'.agentchat-toolbar{position:relative;z-index:20;min-height:44px;padding:5px 7px;display:flex;align-items:center;gap:5px;border-bottom:1px solid #35445c;flex-wrap:nowrap}',
+'.agentchat-toolbar strong{font-size:13px;white-space:nowrap}',
+'.agentchat-header-group{position:relative;display:inline-flex;flex:none;align-items:center}',
+'.agentchat-header-group>summary{list-style:none;cursor:pointer;white-space:nowrap;border:1px solid #55657a;border-radius:6px;padding:5px 7px;font-size:12px}',
+'.agentchat-header-group>summary::-webkit-details-marker{display:none}',
+'.agentchat-header-group[open]>summary{background:#273b52}',
+'.agentchat-header-menu{position:absolute;z-index:30;top:100%;left:auto;right:0;display:none;flex-direction:column;gap:3px;min-width:210px;padding:7px;background:#192330;border:1px solid #657589;border-radius:7px;box-shadow:0 8px 24px #0008}',
+'.agentchat-header-menu button{text-align:left;white-space:nowrap;width:100%}',
+'.agentchat-retry-submenu{display:flex;flex-direction:column;gap:2px}',
+'.agentchat-retry-submenu>button{width:100%;text-align:left}',
+'.agentchat-retry-options{display:none;flex-direction:column;gap:2px;margin:0 2px 4px 10px;padding-left:7px;border-left:1px solid #64788e}',
+'.agentchat-retry-submenu.open>.agentchat-retry-options{display:flex}',
+'.agentchat-retry-options button{width:100%;padding:6px 10px;text-align:left}',
+'.agentchat-retry-options button[aria-checked="true"]{background:#344b66;border-color:#7db6e6}',
+'html[data-taskmenu-theme="light"] .agentchat-retry-options button[aria-checked="true"]{background:#e3effc;color:#17283a}',
+'.agentchat-session-row{display:flex;align-items:center;gap:4px}',
+'.agentchat-session-row>.agentchat-session{flex:1;min-width:0}',
+'.agentchat-session-row>.delete{flex:none;color:#ecb2b2}',
+'.agentchat-header-group:focus-within .agentchat-header-menu{outline:0}',
+'.agentchat-toolbar-actions{overflow:visible}',
+'.agentchat-more-menu .agentchat-header-menu{left:auto;right:0}',
+'.agentchat-header-group[open]>.agentchat-header-menu{display:flex}',
+'.agentchat-header-menu{max-height:min(65vh,320px);overflow-y:auto}',
+'.agentchat-toolbar-actions{display:flex;align-items:center;gap:4px;min-width:0;overflow:visible}',
+'.agentchat-toolbar button{white-space:nowrap;padding:5px 7px}',
+'.agentchat-more-menu{position:absolute;right:6px;top:calc(100% + 4px);z-index:20;display:none;min-width:190px;max-width:min(300px,90vw);max-height:70vh;overflow:auto;padding:5px;background:#192330;border:1px solid #55657a;border-radius:7px;box-shadow:0 8px 28px #0009}',
+'.agentchat-more-menu.open{display:flex;flex-direction:column;align-items:stretch;gap:4px}',
+'.agentchat-more-menu.open:has(.agentchat-header-group[open]){overflow:visible;max-height:none}',
+'.agentchat-more-menu button{text-align:left}',
+'.agentchat-view-tabs{position:relative;z-index:3;display:flex;flex:none;align-items:center;gap:4px;padding:4px 7px;border-bottom:1px solid #35445c}',
+'.agentchat-view-tabs button[aria-selected="true"]{background:#344b66;border-color:#7db6e6}',
+'.agentchat-debug-panel{display:none;flex:1;min-width:0;min-height:0;flex-direction:column;overflow:hidden}',
+'.agentchat-debug-panel.visible{display:flex}',
+'.agentchat-debug-toolbar,.agentchat-debug-tabs{display:flex;flex:none;align-items:center;gap:5px;overflow:auto;padding:6px;border-bottom:1px solid #35445c}',
+'.agentchat-debug-toolbar select{min-width:120px;max-width:240px}',
+'.agentchat-debug-output{flex:1;min-width:0;min-height:0;overflow:auto;margin:0;padding:10px;white-space:pre-wrap;overflow-wrap:anywhere;font:11px/1.5 ui-monospace,monospace}',
+'.task-agent-dock-section{display:grid;grid-template-columns:minmax(0,1fr) 0 0;grid-template-rows:minmax(0,1fr);position:relative;overflow:hidden}',
+'.task-agent-dock-section.agent-dock-right{grid-template-columns:minmax(0,1fr) 6px var(--agent-dock-size,420px)}',
+'.task-agent-dock-section.agent-dock-bottom{grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr) 6px var(--agent-dock-size,320px)}',
+'.task-agent-content{display:flex;min-width:0;min-height:0;flex-direction:column;overflow:hidden}',
+'.task-agent-content>#tabs{flex:none}.task-agent-content>#panes{flex:1;min-height:0}',
+'.task-agent-dock-section>.agentchat-overlay{grid-column:3;grid-row:1}',
+'.task-agent-dock-section.agent-dock-bottom>.agentchat-overlay{grid-column:1;grid-row:3}',
+'.agentchat-dock-resizer{display:none;touch-action:none;z-index:2;background:transparent}',
+'.agent-dock-right>.agentchat-dock-resizer{display:block;grid-column:2;grid-row:1;cursor:col-resize}',
+'.agent-dock-bottom>.agentchat-dock-resizer{display:block;grid-column:1;grid-row:2;cursor:row-resize}',
+'.agentchat-strip{display:none;position:absolute;z-index:10;align-items:center;justify-content:center;background:#192330;border:1px solid #55657a;color:inherit;cursor:pointer}',
+'.agent-dock-collapsed.agent-dock-right>.agentchat-strip{display:flex;right:0;top:0;bottom:0;width:34px;writing-mode:vertical-rl}',
+'.agent-dock-collapsed.agent-dock-bottom>.agentchat-strip{display:flex;left:0;right:0;bottom:0;height:34px}',
+'.agent-dock-collapsed.agent-dock-right{grid-template-columns:minmax(0,1fr) 34px!important}',
+'.agent-dock-collapsed.agent-dock-bottom{grid-template-rows:minmax(0,1fr) 34px!important}',
+'.agent-dock-collapsed>.agentchat-dock-resizer{display:none}',
+'.agent-dock-floating.agent-dock-right{grid-template-columns:minmax(0,1fr)!important}',
+'.agent-dock-floating.agent-dock-bottom,.agent-dock-responsive.agent-dock-bottom{grid-template-rows:minmax(0,1fr)!important}',
+'.agent-dock-responsive.agent-dock-right{grid-template-columns:minmax(0,1fr)!important}',
+'.agent-dock-floating>.agentchat-overlay,.agent-dock-responsive>.agentchat-overlay{position:absolute;z-index:8;box-shadow:0 8px 28px #0009}',
+'.agent-dock-floating.agent-dock-right>.agentchat-overlay,.agent-dock-responsive.agent-dock-right>.agentchat-overlay{right:0;top:0;bottom:0;width:min(var(--agent-dock-size,420px),90%)}',
+'.agent-dock-floating.agent-dock-bottom>.agentchat-overlay,.agent-dock-responsive.agent-dock-bottom>.agentchat-overlay{left:0;right:0;bottom:0;height:min(var(--agent-dock-size,320px),80%)}',
+'.agent-dock-responsive>.agentchat-dock-resizer{display:none}',
+'.agentchat-window button{font-size:12px;padding:7px 10px;border-radius:5px;cursor:pointer}',
+'.agentchat-window button:disabled{opacity:.48;cursor:not-allowed}',
+'.agentchat-layout{display:flex;flex:1;min-height:0}',
+'.agentchat-sessions{flex:none;margin-left:auto}',
+'.agentchat-list{display:none;position:absolute;z-index:6;top:100%;right:7px;width:min(320px,calc(100% - 14px));max-height:min(50vh,400px);overflow:auto;padding:8px;flex-direction:column;gap:5px;background:#192330;border:1px solid #55657a;border-radius:7px;box-shadow:0 8px 28px #0009}',
+'.agentchat-list.open{display:flex}',
+'.agentchat-config-menu{position:relative;flex:none}',
+'.agentchat-config-menu>button[aria-expanded="true"]{background:#273b52;border-color:#7db6e6}',
+'.agentchat-config-panel{display:none;position:absolute;z-index:31;right:0;top:100%;width:245px;max-width:calc(100vw - 18px);max-height:min(68vh,420px);overflow-y:auto;overscroll-behavior:contain;padding:5px;background:#192330;border:1px solid #60748b;border-radius:7px;box-shadow:0 8px 24px #0008}',
+'.agentchat-config-menu.open>.agentchat-config-panel{display:flex;flex-direction:column;gap:3px}',
+'.agentchat-config-category{position:relative;min-width:0}',
+'.agentchat-config-category>button{display:flex;width:100%;justify-content:space-between;align-items:center;text-align:left;gap:8px;border:0;background:transparent;box-shadow:none;border-radius:3px;padding:7px 8px}',
+'.agentchat-config-category[aria-expanded="true"]>button{background:#273b52}',
+'.agentchat-config-category-values{display:none;position:static;width:auto;max-height:min(35vh,250px);overflow-y:auto;overscroll-behavior:contain;margin:0 0 4px 8px;padding:3px 0 3px 7px;border-left:1px solid #60748b;background:transparent}',
+'.agentchat-config-category[aria-expanded="true"]>.agentchat-config-category-values{display:flex;flex-direction:column;gap:1px}',
+'.agentchat-config-category-values button{width:100%;text-align:left;white-space:normal;overflow-wrap:anywhere;border:0;border-radius:3px;background:transparent;box-shadow:none;padding:6px 8px}',
+'.agentchat-config-category-values button:hover,.agentchat-config-category-values button:focus-visible{background:#273b52}',
+'.agentchat-config-category-values button[aria-checked="true"]{background:#344c66;color:#f2f7ff;font-weight:600}',
+'.task-agent-dock-section.agent-dock-bottom .agentchat-header-menu{max-height:min(45vh,220px)}',
+'.agentchat-config-note{font-size:11px;line-height:1.4;padding:5px;color:#b6cce2}',
+'@media(max-width:700px){.agentchat-config-panel{width:min(245px,calc(100vw - 18px))}}',
+'html[data-taskmenu-theme="light"] .agentchat-config-panel{background:#fff;color:#17283a;border-color:#bac8d8}',
+'html[data-taskmenu-theme="light"] .agentchat-config-category-values{border-color:#bac8d8}',
+'html[data-taskmenu-theme="light"] .agentchat-config-category-values button:hover,html[data-taskmenu-theme="light"] .agentchat-config-category[aria-expanded="true"]>button{background:#e8f0fa}',
+
+'.agentchat-session{display:flex;align-items:center;gap:7px;text-align:left;width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
+'.agentchat-session.selected{border-color:#60a8e6;background:#263f59}',
+'.agentchat-main{position:relative;display:flex;flex:1;min-width:0;min-height:0;flex-direction:column}',
+'.agentchat-tab{padding:5px 9px;font-size:11px;border-radius:14px;border:1px solid #4a5f78;cursor:pointer}',
+'.agentchat-tab.active{background:#2c4a67;border-color:#7db6e6}',
+'.agentchat-tab .close{padding:0 4px;border:0;background:transparent;color:#cfe3f5}',
+'.agentchat-modelbar{padding:8px;display:flex;align-items:center;gap:7px;border-bottom:1px solid #35445c;flex-wrap:wrap}',
+'.agentchat-modelbar select,.agentchat-window textarea,.agentchat-window input{box-sizing:border-box;padding:7px;color:inherit;background:#0f1723;border:1px solid #55667b;border-radius:5px;font:12px ui-monospace,monospace}',
+'.agentchat-modelbar select{min-width:110px;max-width:260px}',
+'.agentchat-transcript{flex:1;overflow:auto;min-height:0;display:flex;flex-direction:column;gap:9px;padding:12px}',
+'.agentchat-bubble{white-space:pre-wrap;overflow-wrap:anywhere;font-size:12px;line-height:1.55;padding:9px;border:1px solid #384b61;border-radius:8px;max-width:94%}',
+'.agentchat-bubble.user{align-self:flex-end;background:#203b56}',
+'.agentchat-bubble.assistant{align-self:flex-start;background:transparent;border-color:transparent;padding:4px 0}',
+'.agentchat-bubble.tool{align-self:flex-start;background:#1d2936;border-color:#394b60}',
+'.agentchat-preview-header{display:flex;align-items:center;gap:10px}',
+'.agentchat-preview-header strong{flex:1;min-width:0}',
+'.agentchat-preview-close{flex:none;border:0!important;background:transparent!important;padding:2px 7px!important;color:inherit;opacity:.75;font-size:17px!important;line-height:1}',
+'.agentchat-preview-close:hover,.agentchat-preview-close:focus-visible{opacity:1;background:#344b66!important}',
+'.agentchat-bubble.optimistic{opacity:.86}',
+'.agentchat-live-status{display:flex;align-items:center;gap:8px;align-self:flex-start;max-width:95%;padding:5px 7px;color:#b7ccdf;font-size:12px;line-height:1.5}',
+'.agentchat-live-status.error{color:#ffb1ae}',
+'.agentchat-live-spinner{width:14px;height:14px;flex:none;border-radius:50%;border:2px solid currentColor;border-right-color:transparent;animation:agentchat-spin .8s linear infinite}',
+'@keyframes agentchat-spin{to{transform:rotate(360deg)}}',
+'@media(prefers-reduced-motion:reduce){.agentchat-live-spinner{animation:none}}',
+'.agentchat-activity{display:flex;align-items:flex-start;gap:7px;align-self:flex-start;padding:4px 8px;font-size:11px;line-height:1.5;color:#b9cadc;border-left:2px solid #506881;max-width:95%;overflow-wrap:anywhere}',
+'.agentchat-activity.error{color:#eab5a9;border-color:#b76d65}',
+'.agentchat-io-details{align-self:flex-start;width:min(100%,610px);font-size:11px;color:#b8cce0}',
+'.agentchat-io-details summary{cursor:pointer;padding:4px 8px}',
+'.agentchat-io-details pre{padding:8px;border:1px solid #40516a;border-radius:5px;max-height:250px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;font:11px/1.4 ui-monospace,monospace}',
+
+'.agentchat-tool-actions{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:8px}',
+'.agentchat-tool-code{font:11px/1.5 ui-monospace,monospace;white-space:pre-wrap;overflow-wrap:anywhere;max-height:280px;overflow:auto;border:1px solid #5f6675;padding:8px;border-radius:6px}',
+'.agentchat-tool-summary{font-size:11px;color:#c5dbed;line-height:1.4;white-space:pre-wrap;overflow-wrap:anywhere}',
+'.agentchat-execution-panel{display:none;position:absolute;z-index:12;left:8px;right:8px;top:8px;bottom:8px;flex-direction:column;min-height:0;background:#141f2d;border:1px solid #62758d;border-radius:8px;box-shadow:0 8px 28px #0009}',
+'.agentchat-execution-panel.visible{display:flex}',
+'.agentchat-execution-header{display:flex;gap:6px;align-items:center;flex-wrap:wrap;padding:8px;border-bottom:1px solid #35445c}',
+'.agentchat-execution-header strong{flex:1;min-width:90px}',
+'.agentchat-execution-content{flex:1;min-height:0;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;padding:10px;margin:0;font:11px/1.5 ui-monospace,monospace}',
+'html[data-taskmenu-theme="light"] .agentchat-execution-panel{background:#fff;color:#17283a}',
+
+'.agentchat-composer{padding:9px;border-top:1px solid #35445c;display:flex;flex-direction:column;gap:6px}',
+'.agentchat-attachments-trigger{align-self:flex-start;padding:4px 8px!important;font-size:11px!important;border:1px solid #506986;background:#1c3044;color:#d7eaff}',
+'.agentchat-attachments-trigger[aria-expanded="true"]{background:#304d6a}',
+'.agentchat-attachments-overlay{display:none;position:absolute;inset:0;z-index:18;padding:10px;box-sizing:border-box;align-items:center;justify-content:center;background:#0009}',
+'.agentchat-attachments-overlay.open{display:flex}',
+'.agentchat-attachments-popup{width:min(640px,100%);max-height:100%;min-height:0;display:flex;flex-direction:column;gap:8px;box-sizing:border-box;padding:10px;background:#182638;color:#e6eef9;border:1px solid #8297ac;border-radius:9px;box-shadow:0 10px 35px #000b}',
+'.agentchat-attachments-heading{display:flex;align-items:center;gap:8px}',
+'.agentchat-attachments-heading strong{flex:1;min-width:0;font-size:13px}',
+'.agentchat-attachments-close{flex:none}',
+'.agentchat-attachment-list{display:flex;flex-direction:column;gap:5px;min-height:0;max-height:min(30vh,200px);overflow-y:auto;overscroll-behavior:contain}',
+'.agentchat-attachment-view[aria-pressed="true"]{background:#345779;border-color:#7bb8e9}',
+'.agentchat-attachment-preview-heading{font-size:11px;font-weight:650;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
+'.agentchat-attachment-preview-full{display:block;min-height:45px;max-height:min(38vh,310px);overflow:auto;overscroll-behavior:contain;margin:0;padding:9px;border:1px solid #4b6178;border-radius:6px;background:#101b29;color:inherit;font:11px/1.5 ui-monospace,monospace;white-space:pre;tab-size:4}',
+'html[data-taskmenu-theme="light"] .agentchat-attachments-trigger{background:#e8f0fa;color:#21456a}',
+'html[data-taskmenu-theme="light"] .agentchat-attachments-popup{background:#fff;color:#17283a;border-color:#bac8d8}',
+'html[data-taskmenu-theme="light"] .agentchat-attachment-preview-full{background:#f5f8fc;border-color:#bac8d8}',
+'.agentchat-attachment-card{display:grid;grid-template-columns:minmax(0,1fr) auto;grid-template-rows:auto auto;gap:2px 8px;padding:6px 8px;border:1px solid #465365;border-radius:6px;font-size:11px}',
+'.agentchat-attachment-title{display:flex;gap:6px;min-width:0;font-weight:650}',
+'.agentchat-attachment-title span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
+'.agentchat-attachment-path{grid-column:1;grid-row:2;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;opacity:.72;font:10px ui-monospace,monospace}',
+'.agentchat-attachment-actions{grid-column:2;grid-row:1/3;display:flex;gap:4px;align-items:center;justify-content:flex-end}',
+'.agentchat-attachment-info{position:relative;display:inline-flex;align-items:center;justify-content:center;min-width:21px;height:22px;padding:0 4px!important;border-radius:50%;font-size:11px;cursor:help}',
+'.agentchat-attachment-tooltip{display:none;position:absolute;bottom:calc(100% + 6px);right:0;z-index:30;width:min(330px,70vw);max-height:220px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;text-align:left;font:11px/1.45 ui-monospace,monospace;background:#101a28;border:1px solid #70849d;border-radius:6px;color:#edf3ff;padding:8px;box-shadow:0 6px 20px #0009;pointer-events:none}',
+'.agentchat-attachment-info:hover .agentchat-attachment-tooltip,.agentchat-attachment-info:focus-visible .agentchat-attachment-tooltip{display:block}',
+'.agentchat-attachment-tooltip.visible{display:block;position:fixed;bottom:auto;right:auto}',
+'.agentchat-attachment-remove{padding:2px 5px!important;min-width:22px;height:22px}',
+'html[data-taskmenu-theme="light"] .agentchat-attachment-tooltip{background:#fff;color:#17283a;border-color:#b1c4d9;box-shadow:0 6px 20px #0002}',
+'.agentchat-attach-context-menu{position:fixed;z-index:17200;display:none;min-width:190px;padding:5px;background:#192330;color:#e6eef9;border:1px solid #55657a;border-radius:7px;box-shadow:0 8px 28px #0009}',
+'.agentchat-attach-context-menu.open{display:block}.agentchat-attach-context-menu button{width:100%;text-align:left}',
+'html[data-taskmenu-theme="light"] .agentchat-attach-context-menu{background:#fff;color:#17283a}',
+'.agentchat-composer textarea{width:100%;min-height:66px;max-height:160px;resize:vertical}',
+'.agentchat-info{font-size:11px;color:#b6cce2;line-height:1.5;padding:4px 8px}',
+'.agentchat-settings-overlay{position:fixed;inset:0;z-index:17110;display:none;align-items:center;justify-content:center;background:#000a;padding:15px}',
+'.agentchat-settings-overlay.visible{display:flex}',
+'.agentchat-settings-box{width:min(730px,97vw);max-height:90vh;overflow:auto;background:#141c27;color:#e6eef9;border:1px solid #55657a;border-radius:12px;padding:16px;display:flex;flex-direction:column;gap:10px}',
+'.agentchat-settings-box textarea{width:100%;min-height:250px;resize:vertical;background:#0f1723;border:1px solid #55667b;color:inherit;font:12px/1.5 ui-monospace,monospace;padding:8px;box-sizing:border-box}',
+'.agentchat-settings-box input{width:100%;padding:8px;box-sizing:border-box}',
+'.agentchat-settings-box .actions{display:flex;gap:8px;justify-content:flex-end}',
+'html[data-taskmenu-theme="light"] .agentchat-window,html[data-taskmenu-theme="light"] .agentchat-settings-box{background:#fff;color:#17283a}',
+'html[data-taskmenu-theme="light"] .agentchat-header-menu{background:#fff;color:#17283a;border-color:#bac8d8}',
+'html[data-taskmenu-theme="light"] .agentchat-window textarea,html[data-taskmenu-theme="light"] .agentchat-window input,html[data-taskmenu-theme="light"] .agentchat-window select,html[data-taskmenu-theme="light"] .agentchat-settings-box textarea,html[data-taskmenu-theme="light"] .agentchat-settings-box input{background:#f7faff;color:#17283a;border-color:#b6c6d7}',
+'html[data-taskmenu-theme="light"] .agentchat-bubble.user{background:#d9edfc}',
+'html[data-taskmenu-theme="light"] .agentchat-bubble.assistant{background:transparent;border-color:transparent}',
+'html[data-taskmenu-theme="light"] .agentchat-bubble.tool{background:#f4f7fa;color:#17283a;border-color:#d4dce6}',
+'.agentchat-dock-floating>.agentchat-dock-resizer{display:none}',
+'.agentchat-composer-actions{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:11px;flex-wrap:wrap}',
+'@media(max-width:700px){.agentchat-modelbar select{max-width:120px}.task-agent-dock-section.agent-dock-right:not(.agent-dock-floating){grid-template-columns:minmax(0,1fr) 6px minmax(290px,55vw)}}'
+].join('\n');document.head.append(agentCSS);
+function agentEl(tag,cls,text){
+ const node=document.createElement(tag);
+ if(cls)node.className=cls;
+ if(text!==undefined)node.textContent=text;
+ return node;
+}
+function agentButton(text,fn){const b=agentEl('button','',text);b.type='button';b.onclick=fn;return b;}
+function agentOption(value,label){const op=agentEl('option','',label);op.value=value;return op;}
+const attachContextMenu=agentEl('div','agentchat-attach-context-menu');
+attachContextMenu.setAttribute('role','menu');document.body.append(attachContextMenu);
+
+const root=agentEl('div','agentchat-overlay'),windowBox=agentEl('section','agentchat-window');
+windowBox.setAttribute('role','region');windowBox.setAttribute('aria-label','TaskDeck Agent Chat');
+const heading=agentEl('div','agentchat-toolbar'),title=agentEl('strong','','AI Agent Chat');
+const newChat=agentButton('+ New session',()=>createSession().catch(showAgentError));
+const settingsButton=agentButton('Providers / API keys',()=>openAgentSettings().catch(showAgentError));
+const planButton=agentButton('Planning only',()=>openTaskManifestPreview());
+const refresh=agentButton('Refresh',()=>loadAgentState().catch(showAgentError));
+const close=agentButton('Hide',()=>closeAgentPanel());
+const dockPositionButton=agentButton('Bottom',()=>setAgentDockPosition(agentDock.position==='right'?'bottom':'right'));
+dockPositionButton.title='Move Agent Chat between right and bottom';dockPositionButton.setAttribute('aria-label','Move Agent Chat to bottom');
+const autoHideButton=agentButton('Auto Hide',()=>setAgentDockAutoHide(!agentDock.autoHide));
+autoHideButton.title='Toggle Agent Chat auto hide';autoHideButton.setAttribute('aria-label','Enable Agent Chat auto hide');
+const moreButton=agentButton('⋯',()=>toggleAgentMore());moreButton.title='More Agent Chat actions';moreButton.setAttribute('aria-label','More Agent Chat actions');moreButton.setAttribute('aria-haspopup','menu');moreButton.setAttribute('aria-expanded','false');moreButton.hidden=true;
+const toolbarActions=agentEl('div','agentchat-toolbar-actions'),moreMenu=agentEl('div','agentchat-more-menu');
+let agentDebugView='chat',agentDebugLog='',agentDebugFetchInFlight=null;
+const agentDebugClientErrors=[];
+const viewTabs=agentEl('div','agentchat-view-tabs');
+const chatViewButton=agentButton('Conversation',()=>setAgentDebugView('chat'));
+const debugViewButton=agentButton('AI Debug',()=>setAgentDebugView('debug'));
+chatViewButton.setAttribute('aria-selected','true');debugViewButton.setAttribute('aria-selected','false');
+viewTabs.append(chatViewButton,debugViewButton);
+const debugPanel=agentEl('div','agentchat-debug-panel');
+const debugToolbar=agentEl('div','agentchat-debug-toolbar');
+const debugStateLabel=agentEl('span','agentchat-info','Safe AI diagnostic metadata is collected automatically.');
+const debugCopy=agentButton('Copy log',()=>copyAgentDebug().catch(showAgentError));
+debugCopy.disabled=true; // enabled after the report is loaded; clipboard write stays inside the click
+debugToolbar.append(debugStateLabel,debugCopy);
+const debugOutput=agentEl('pre','agentchat-debug-output','Opening AI Debug will load one complete safe diagnostic report.');
+debugPanel.append(debugToolbar,debugOutput);
+const agentDock={position:'right',autoHide:false,expanded:false,rightWidth:420,bottomHeight:320,observer:null};
+const dockResizer=agentEl('div','agentchat-dock-resizer');dockResizer.tabIndex=0;dockResizer.setAttribute('role','separator');
+const agentStrip=agentButton('✦ AI Agent Chat',()=>openAgentPanel().catch(showAgentError));
+agentStrip.className='agentchat-strip';agentStrip.setAttribute('aria-label','Open Agent Chat');
+const layout=agentEl('div','agentchat-layout'),sessionList=agentEl('div','agentchat-list');
+const sessionMenu=agentEl('div','agentchat-sessions');
+const sessionMenuButton=agentButton('History ▾',()=>toggleAgentSessions());
+sessionMenuButton.setAttribute('aria-expanded','false');
+sessionMenuButton.setAttribute('aria-controls','agentchat-saved-sessions');
+sessionList.id='agentchat-saved-sessions';
+sessionList.setAttribute('aria-label','Saved conversations');
+sessionMenu.append(sessionMenuButton,sessionList);
+viewTabs.append(sessionMenu);
+// Keep the native select elements as a canonical, testable selection model.
+// The space-consuming inline row is replaced by the adjacent nested menu.
+const agentConfigMenu=agentEl('div','agentchat-config-menu');
+const agentConfigButton=agentButton('AI setup ▾',()=>toggleAgentConfigMenu());
+agentConfigButton.setAttribute('aria-haspopup','menu');
+agentConfigButton.setAttribute('aria-expanded','false');
+agentConfigButton.setAttribute('aria-label','Provider Model Effort and Context options for a new conversation');
+const agentConfigPanel=agentEl('div','agentchat-config-panel');
+const agentConfigNote=agentEl('div','agentchat-config-note','Selections apply when creating a new conversation. Existing conversations retain their original configuration.');
+const agentConfigCategories=new Map();
+for(const name of ['Provider','Model','Effort','Context']){
+ const category=agentEl('div','agentchat-config-category');
+ const categoryButton=agentButton(name+' ▸',()=>{
+  const next=category.getAttribute('aria-expanded')!=='true';
+  for(const other of agentConfigCategories.values())other.row.setAttribute('aria-expanded','false');
+  category.setAttribute('aria-expanded',String(next));
+ });
+ categoryButton.setAttribute('aria-haspopup','menu');
+ category.setAttribute('aria-expanded','false');
+ const values=agentEl('div','agentchat-config-category-values');
+ category.append(categoryButton,values);
+ agentConfigPanel.append(category);
+ agentConfigCategories.set(name,{row:category,button:categoryButton,values});
+}
+agentConfigPanel.append(agentConfigNote);
+agentConfigMenu.append(agentConfigButton,agentConfigPanel);
+viewTabs.append(agentConfigMenu);
+const main=agentEl('div','agentchat-main'),modelBar=agentEl('div','agentchat-modelbar');
+const toolNotice=agentEl('div','agentchat-info');toolNotice.hidden=true;
+// Open tabs are UI-only: the server remains the source of truth for every
+// session. Each tab keeps its own composer draft.
+const tabbar=agentEl('div','agentchat-modelbar');
+let agentTabs=[];const agentDrafts=new Map();const agentAttachmentDrafts=new Map();
+const agentRequestIDs=new Map();
+let agentSelectGeneration=0;
+function agentSelectedChatSession(){return agentActive||null;}
+const providerSelect=agentEl('select'),modelSelect=agentEl('select'),modeSelect=agentEl('select'),effortSelect=agentEl('select');
+for(const mode of [['stateless','Stateless'],['previous_response','Response chain'],['conversation','Conversations (fallback)']]){
+ modeSelect.append(agentOption(mode[0],mode[1]));
+}
+modeSelect.value='stateless';
+// Hidden selects keep a single source of truth for new-session creation,
+ // provider/model config, model default and immutable existing sessions.
+const transcript=agentEl('div','agentchat-transcript');
+// Keep inspection expansion and the execution viewer independent of transcript
+// replacements triggered by native status polling.
+const agentOpenReviewDetails=new Set();
+// Session views are append-only in ordinary operation. Only switching sessions
+// or an actual history-prefix edit invalidates already rendered rows.
+let agentRenderedSessionID=null;
+let agentRenderedHistory=[];
+let agentRenderedNodes=[];
+let agentRenderedToolVersions=new Map();
+let agentCurrentSession=null;
+let agentToolNoticeKey='';
+const agentTabNodes=new Map();
+const agentSessionListNodes=new Map();
+let agentPatchSyncInFlight=new Set();
+// Transient phases are one row per conversation, separate from canonical
+// history. The user's just-submitted text is visible before any network await.
+const agentLiveTurns=new Map();
+const agentLiveRow=agentEl('div','agentchat-live-status');
+const agentLiveSpinner=agentEl('span','agentchat-live-spinner');
+agentLiveSpinner.setAttribute('aria-hidden','true');
+const agentLiveText=agentEl('span','','');
+agentLiveRow.setAttribute('role','status');
+agentLiveRow.setAttribute('aria-live','polite');
+agentLiveRow.append(agentLiveSpinner,agentLiveText);
+const agentProgressTimers=new Map();
+
+let agentExecutionTarget=null,agentExecutionText='';
+const agentExecutionPanel=agentEl('section','agentchat-execution-panel');
+const agentExecutionHeader=agentEl('div','agentchat-execution-header');
+const agentExecutionHeading=agentEl('strong','','Native Patch console / execution evidence');
+const agentExecutionRefresh=agentButton('Refresh console',()=>{if(agentExecutionTarget)showAgentExecution(agentExecutionTarget.sessionID,agentExecutionTarget.callID).catch(showAgentError);});
+const agentExecutionCopy=agentButton('Copy',()=>{if(navigator.clipboard)navigator.clipboard.writeText(agentExecutionText).catch(showAgentError);});
+const agentExecutionClose=agentButton('Close',()=>{agentExecutionPanel.classList.remove('visible');agentExecutionTarget=null;});
+agentExecutionHeader.append(agentExecutionHeading,agentExecutionRefresh,agentExecutionCopy,agentExecutionClose);
+const agentExecutionContent=agentEl('pre','agentchat-execution-content','');
+agentExecutionPanel.append(agentExecutionHeader,agentExecutionContent);
+const composer=agentEl('div','agentchat-composer'),prompt=agentEl('textarea');
+// Text-only attachment staging. Binary files are rejected server-side; the UI
+// never reads local paths or embeds base64.
+const attachButton=agentButton('+ Text file',()=>{const sessionID=agentSelectedChatSession();pickAgentAttachment(sessionID).catch(showAgentError);});
+const autoFeedback=agentButton('Auto-send results',()=>toggleAutoFeedback().catch(showAgentError));
+const attachToggle=agentButton('Attachments (0) ▸',()=>toggleAgentAttachmentsPopup());
+attachToggle.className='agentchat-attachments-trigger';
+attachToggle.title='View staged attachments';
+attachToggle.setAttribute('aria-label','View staged attachments');
+attachToggle.setAttribute('aria-haspopup','dialog');
+attachToggle.setAttribute('aria-expanded','false');
+attachToggle.setAttribute('aria-controls','agentchat-staged-attachments-dialog');
+attachToggle.hidden=true;
+const attachPopup=agentEl('div','agentchat-attachments-overlay');
+const attachPanel=agentEl('section','agentchat-attachments-popup');
+attachPanel.id='agentchat-staged-attachments-dialog';
+attachPanel.setAttribute('role','dialog');
+attachPanel.setAttribute('aria-modal','true');
+attachPanel.setAttribute('aria-label','Staged attachments');
+const attachHeader=agentEl('div','agentchat-attachments-heading');
+const attachHeading=agentEl('strong','','Staged attachments');
+const attachClose=agentButton('Close',()=>closeAgentAttachmentsPopup());
+attachClose.className='agentchat-attachments-close';
+attachHeader.append(attachHeading,attachClose);
+const attachList=agentEl('div','agentchat-attachment-list');
+const attachPreviewHeading=agentEl('div','agentchat-attachment-preview-heading','Select an attachment to view');
+const attachPreview=agentEl('pre','agentchat-attachment-preview-full');
+attachPanel.append(attachHeader,attachList,attachPreviewHeading,attachPreview);
+attachPopup.append(attachPanel);
+attachPopup.addEventListener('click',event=>{
+ if(event.target===attachPopup)closeAgentAttachmentsPopup();
+});
+let agentAttachments=[];
+const agentPendingAttachments=[];
+const agentMaxAttachmentBytes=32*1024,agentMaxAttachmentTotal=64*1024,agentMaxAttachmentCount=4;
+prompt.setAttribute('placeholder','Type an AI request for this TaskDeck project…');
+prompt.addEventListener('input',()=>{if(agentActive){agentDrafts.set(agentActive,prompt.value);agentRequestIDs.delete(agentActive);}});
+const actionLine=agentEl('div','agentchat-composer-actions');
+const status=agentEl('span','', 'No session selected. Patch execution requires per-call approval.');
+const send=agentButton('Send',()=>sendAgentMessage().catch(showAgentError));
+const cancel=agentButton('Cancel request',()=>cancelAgentTurn().catch(showAgentError));
+cancel.disabled=true;
+const preview=agentButton('Preview context',()=>previewAgentContext().catch(showAgentError));
+const rename=agentButton('Rename',()=>renameAgentSession().catch(showAgentError));
+const archive=agentButton('Archive',()=>archiveAgentSession().catch(showAgentError));
+const deleteChat=agentButton('Delete conversation',()=>deleteAgentSession(agentActive).catch(showAgentError));
+const autoPatch=agentButton('Auto apply Patch: OFF',()=>toggleAgentAutomation('patch').catch(showAgentError));
+const autoCollection=agentButton('Auto Collection: ON',()=>toggleAgentAutomation('collection').catch(showAgentError));
+const retryMenu=agentEl('div','agentchat-retry-submenu');
+const aiRetry=agentButton('AI retry: OFF',()=>toggleAgentRetryMenu());
+aiRetry.title='Choose the AI provider retry policy. Retries are 10 seconds apart. Use Stop request to cancel; Native Patch is never automatically rerun.';
+aiRetry.setAttribute('aria-haspopup','menu');
+aiRetry.setAttribute('aria-expanded','false');
+aiRetry.setAttribute('aria-controls','agentchat-retry-options');
+const retryOptions=agentEl('div','agentchat-retry-options');
+retryOptions.id='agentchat-retry-options';
+retryOptions.setAttribute('role','menu');
+retryOptions.setAttribute('aria-label','AI retry policy');
+const retryOptionButtons=new Map();
+for(const [mode,label] of [['off','Off'],['limited','5 times'],['unlimited','Unlimited']]){
+ const choice=agentButton(label,()=>setAgentRetryMode(mode).catch(showAgentError));
+ choice.setAttribute('role','menuitemradio');
+ choice.setAttribute('aria-checked',String(mode==='off'));
+ choice.dataset.retryMode=mode;
+ retryOptionButtons.set(mode,choice);
+ retryOptions.append(choice);
+}
+retryMenu.append(aiRetry,retryOptions);
+autoPatch.title='When enabled, proposed Python Patches run automatically via native validation, workspace drift checks and the Patch Tool. Turning OFF does not cancel work already queued.';
+autoCollection.title='Read-only workspace inspection. When disabled, Agent requests that require Collection stop before accessing files.';
+autoFeedback.title='Send verified native Patch results to the selected provider until turned off. Each result is sent at most once.';
+rename.disabled=true;archive.disabled=true;deleteChat.disabled=true;
+autoPatch.disabled=true;autoCollection.disabled=true;autoFeedback.disabled=true;aiRetry.disabled=true;
+function makeAgentHeaderGroup(label,items){
+ const group=agentEl('details','agentchat-header-group');
+ const summary=agentEl('summary','',label+' ▾');
+ summary.setAttribute('aria-expanded','false');
+ const panel=agentEl('div','agentchat-header-menu');
+ panel.append(...items);group.append(summary,panel);
+ // Control native details explicitly so click/keyboard activation has the
+ // same behavior in Firefox, dock overflow menus, and the DOM regression test.
+ summary.onclick=event=>{
+  event?.preventDefault?.();
+  const opening=!group.open;
+  for(const other of agentHeaderGroups){
+   if(other!==group){
+    other.open=false;
+    other.children[0].setAttribute('aria-expanded','false');
+    if(other===automationGroup)toggleAgentRetryMenu(false);
+   }
+  }
+  if(!opening&&group===automationGroup)toggleAgentRetryMenu(false);
+  group.open=opening;
+  summary.setAttribute('aria-expanded',String(opening));
+ };
+ panel.addEventListener('click',event=>{
+  // Clicking the retry label only opens its inline submenu; selecting an
+  // option does not dismiss Automation before the selection can be shown.
+  if(retryMenu.contains(event.target))return;
+  if(event.target.closest('button')){
+   toggleAgentRetryMenu(false);
+   group.open=false;
+   summary.setAttribute('aria-expanded','false');
+  }
+ });
+ return group;
+}
+const conversationGroup=makeAgentHeaderGroup('Conversation',[newChat,rename,archive,deleteChat,refresh]);
+const automationGroup=makeAgentHeaderGroup('Automation',[autoPatch,autoCollection,autoFeedback,retryMenu]);
+const toolsGroup=makeAgentHeaderGroup('Tools',[attachButton,preview,planButton]);
+const layoutGroup=makeAgentHeaderGroup('Layout',[dockPositionButton,autoHideButton]);
+const agentHeaderGroups=[conversationGroup,automationGroup,toolsGroup,layoutGroup];
+for(const group of agentHeaderGroups)toolbarActions.append(group);
+heading.append(title,toolbarActions,moreButton,close,moreMenu);
+actionLine.append(status,cancel,send);composer.append(attachToggle,prompt,actionLine);
+main.append(tabbar,toolNotice,transcript,agentExecutionPanel,composer,attachPopup);layout.append(main);
+const footer=agentEl('div','agentchat-info','Agent automation is configured per conversation. Native Patch results are verified before being sent to AI.');
+windowBox.append(heading,viewTabs,layout,debugPanel,footer);root.append(windowBox);
+const agentToolbarItems=agentHeaderGroups;
+mountAgentDock();
+
+const settingsOverlay=agentEl('div','agentchat-overlay agentchat-settings-overlay'),settingsBox=agentEl('section','agentchat-settings-box');
+settingsBox.setAttribute('role','dialog');settingsBox.setAttribute('aria-modal','true');settingsBox.setAttribute('aria-label','Agent provider settings');
+const settingsTitle=agentEl('h2','','Agent provider settings');
+const blockedIPNotice=agentEl('div','agentchat-info');blockedIPNotice.hidden=true;
+const settingsInfo=agentEl('p','','Configure an HTTPS Responses or Chat Completions provider. For a trusted 100.64.0.0/10 endpoint, explicitly add exact addresses to trusted_shared_ips in the provider JSON. This weakens network isolation; trust the endpoint and network first. API keys remain server-side.');
+const settingsPreset=agentButton('Load sample provider',()=>{providerEditor.value=JSON.stringify(agentSample,null,2);});
+const probeProvider=agentButton('Probe capabilities',()=>probeAgentProvider().catch(showAgentError));
+const deleteProvider=agentButton('Remove provider',()=>deleteAgentProvider().catch(showAgentError));
+const settingsPicker=agentEl('select'),settingsModel=agentEl('select'),settingsAPIType=agentEl('select'),providerEditor=agentEl('textarea');
+settingsModel.setAttribute('aria-label','Model for connection and capability probes');
+settingsAPIType.append(agentOption('responses','Responses API'),agentOption('chat_completions','Chat Completions API'));
+const keyLabel=agentEl('label','','API key (enter only to set/change)'),apiKey=agentEl('input');
+apiKey.type='password';apiKey.autocomplete='new-password';apiKey.placeholder='Leave blank to keep existing key';
+const settingsStatus=agentEl('div','agentchat-info','');
+const settingsActions=agentEl('div','actions');
+const saveProvider=agentButton('Save provider',()=>saveAgentProvider().catch(showAgentError));
+const testProvider=agentButton('Test connection (uses API)',()=>testAgentProvider().catch(showAgentError));
+const closeSettings=agentButton('Close',()=>settingsOverlay.classList.remove('visible'));
+settingsActions.append(settingsPreset,saveProvider,testProvider,probeProvider,deleteProvider,closeSettings);
+settingsBox.append(settingsTitle,blockedIPNotice,settingsInfo,settingsPicker,settingsModel,settingsAPIType,providerEditor,keyLabel,apiKey,settingsStatus,settingsActions);
+settingsOverlay.append(settingsBox);document.body.append(settingsOverlay);
+
+// F08.1 preview is planning-only: it validates Markdown and renders a DAG,
+// but has no persistence or execution action.
+const planOverlay=agentEl('div','agentchat-overlay agentchat-settings-overlay');
+const planBox=agentEl('section','agentchat-settings-box');
+const planTitle=agentEl('h2','','Task Manifest · Planning only');
+const planNote=agentEl('p','','Parse and validate a Markdown task plan. Validation performs no provider call, file write, task creation or execution.');
+const planFormat=agentEl('select');planFormat.append(agentOption('markdown','Markdown'),agentOption('canonical_json','Canonical JSON'));
+const planInput=agentEl('textarea');planInput.placeholder='# Plan\n\n## Task A — Title\nDepends on: None\nAcceptance:\n- Criterion';
+const planOutput=agentEl('div','agentchat-info','');
+const planActions=agentEl('div','actions');
+const validatePlan=agentButton('Validate / Preview',()=>validateTaskManifest().catch(showAgentError));
+const savePlan=agentButton('Download canonical JSON',()=>downloadTaskManifest());savePlan.disabled=true;
+const closePlan=agentButton('Close',()=>planOverlay.classList.remove('visible'));
+planActions.append(validatePlan,savePlan,closePlan);planBox.append(planTitle,planNote,planFormat,planInput,planActions,planOutput);planOverlay.append(planBox);document.body.append(planOverlay);
+
+const agentSample={
+ id:'custom-r2d',name:'Custom Endpoint',api_type:'responses',base_url:'https://api.r2d.dev/v1',
+ models:[
+  {id:'composer-2.5',name:'composer-2.5',tool_calling:true,vision:true,max_input_tokens:1280000,max_output_tokens:160000,reasoning_efforts:['low','medium','high'],default_reasoning_effort:'medium'},
+  {id:'gpt-6.1-sol',name:'gpt-6.1-sol',tool_calling:true,vision:true,max_input_tokens:1280000,max_output_tokens:160000,reasoning_efforts:['low','medium','high','xhigh','max'],default_reasoning_effort:'xhigh'}
+ ]
+};
+let agentProviders=[],agentSessions=[],agentActive=null,agentBusy=false,agentAbort=null;
+// Tracks which session owns the in-flight UI request so another session can
+// still be opened/read while one provider turn is pending.
+const agentBusySessions=new Set();
+function agentSessionBusy(id){return Boolean(id&&agentBusySessions.has(id));}
+function markAgentSessionBusy(id,busy){
+ if(!id)return;
+ if(busy)agentBusySessions.add(id);else agentBusySessions.delete(id);
+ if(id===agentActive){
+  send.disabled=busy;newChat.disabled=busy;rename.disabled=busy;archive.disabled=busy;
+  cancel.disabled=!busy;updateAgentModels();
+ }
+}
+let agentMonitorTimer=0;
+function showAgentError(error){
+ let message=String(error?.message||error);
+ try{const parsed=JSON.parse(message);const detail=parsed?.error;if(detail)message='FAILED · '+String(detail.code||'UNKNOWN')+' · '+String(detail.stage||'unknown stage')+' · '+String(detail.message||'No safe provider message')+(detail.http_status?' · HTTP '+detail.http_status:'')+(detail.trace_id?' · Trace '+detail.trace_id:'')+(detail.ambiguous?' · outcome may be ambiguous':'');}catch{}
+ status.textContent='Error: '+message;
+ settingsStatus.textContent='Error: '+message;
+ agentDebugClientErrors.push({at:new Date().toISOString(),message:message.slice(0,2000),session_id:agentActive||null});
+ if(agentDebugClientErrors.length>64)agentDebugClientErrors.shift();
+ if(agentDebugView==='debug')loadAgentDebugReport().catch(()=>{});
+
+}
+function normalizeProvider(raw){
+ const data=raw?.provider||raw;
+ if(!data||Array.isArray(data)||typeof data!=='object')throw new Error('Provider must be a JSON object');
+ const ms=Array.isArray(data.models)?data.models:[];
+ return {
+  id:String(data.id||'').trim(),name:String(data.name||'').trim(),
+  api_type:String(data.api_type||data.apiType||'responses'),
+  base_url:String(data.base_url||data.baseUrl||ms[0]?.url||data.url||'').trim(),
+  ...(data.trusted_shared_ips!==undefined?{trusted_shared_ips:data.trusted_shared_ips}:{}),
+  stream:Boolean(data.stream),
+  models:ms.map(m=>({
+   id:String(m.id||''),name:String(m.name||m.id||''),
+   tool_calling:Boolean(m.tool_calling??m.toolCalling),vision:Boolean(m.vision),
+   max_input_tokens:Number(m.max_input_tokens??m.maxInputTokens??0),
+   max_output_tokens:Number(m.max_output_tokens??m.maxOutputTokens??0),
+   reasoning_efforts:m.reasoning_efforts||m.supportsReasoningEffort||[],
+   default_reasoning_effort:m.default_reasoning_effort||m.defaultReasoningEffort||''
+  }))
+ };
+}
+function toggleAgentConfigMenu(force){
+ const open=force===undefined?!agentConfigMenu.classList.contains('open'):Boolean(force);
+ agentConfigMenu.classList.toggle('open',open);
+ agentConfigButton.setAttribute('aria-expanded',String(open));
+ if(open){
+  toggleAgentSessions(false);
+  renderAgentConfigMenu();
+ }else{
+  for(const entry of agentConfigCategories.values())entry.row.setAttribute('aria-expanded','false');
+ }
+}
+function agentSelectedModel(){
+ const provider=agentProviders.find(p=>p.id===providerSelect.value);
+ return (provider?.models||[]).find(m=>m.id===modelSelect.value)||null;
+}
+function updateAgentEfforts(preferred){
+ const model=agentSelectedModel();
+ const before=preferred!==undefined?preferred:effortSelect.value;
+ const supported=Array.isArray(model?.reasoning_efforts)?model.reasoning_efforts:[];
+ effortSelect.replaceChildren(agentOption('','Model default'+(model?.default_reasoning_effort?' ('+model.default_reasoning_effort+')':'')));
+ for(const effort of supported)effortSelect.append(agentOption(effort,effort));
+ const initial=model?.default_reasoning_effort||'';
+ effortSelect.value=supported.includes(before)?before:(supported.includes(initial)?initial:'');
+ renderAgentConfigMenu();
+}
+function renderAgentConfigMenu(){
+ const provider=agentProviders.find(p=>p.id===providerSelect.value);
+ const model=agentSelectedModel();
+ const fallback=provider?.api_type==='chat_completions';
+ const specs=[
+  ['Provider',agentProviders.map(p=>[p.id,p.name||p.id]),providerSelect.value,(v)=>{
+   providerSelect.value=v;updateAgentModels(undefined,'');
+  }],
+  ['Model',(provider?.models||[]).map(m=>[m.id,m.name||m.id]),modelSelect.value,(v)=>{
+   modelSelect.value=v;updateAgentEfforts('');
+  }],
+  ['Effort',[['','Model default'+(model?.default_reasoning_effort?' ('+model.default_reasoning_effort+')':'')],...(model?.reasoning_efforts||[]).map(e=>[e,e])],effortSelect.value,(v)=>{
+   effortSelect.value=v;renderAgentConfigMenu();
+  }],
+  ['Context',[['stateless','Stateless'],['previous_response',fallback?'Response chain (local history)':'Response chain'],['conversation',fallback?'Conversations (local history)':'Conversations']],modeSelect.value||'stateless',(v)=>{
+   modeSelect.value=v;renderAgentConfigMenu();
+  }],
+ ];
+ for(const [name,choices,current,select] of specs){
+  const group=agentConfigCategories.get(name);
+  if(!group)continue;
+  group.values.replaceChildren();
+  for(const [value,label] of choices){
+   const option=agentButton((value===current?'✓ ':'')+label,()=>{
+    select(value);
+    // Keep AI setup and the selected category expanded so a user can
+    // compare choices without repeatedly navigating nested menus.
+   });
+   option.setAttribute('role','menuitemradio');
+   option.setAttribute('aria-checked',String(value===current));
+   option.dataset.value=value;
+   group.values.append(option);
+  }
+  if(!choices.length)group.values.append(agentEl('div','agentchat-config-note','No options configured'));
+  group.button.textContent=name+' · '+(choices.find(([v])=>v===current)?.[1]||'Not configured')+' ▸';
+ }
+ agentConfigNote.textContent=fallback
+  ?'Selections apply to new conversations. Chat Completions replays TaskDeck local history for Response chain and Conversations; no provider-side references are used.'
+  :'Selections apply to new conversations. Stateful provider references are used only after capability verification; otherwise TaskDeck replays local history.';
+}
+async function loadAgentProviders(){
+ const previousProvider=providerSelect.value, previousModel=modelSelect.value, previousEffort=effortSelect.value;
+ const result=await agentApp.jsonFetch('/api/agent/providers');
+ agentProviders=Array.isArray(result.providers)?result.providers:[];
+ providerSelect.replaceChildren();
+ settingsPicker.replaceChildren();
+ for(const p of agentProviders){
+  providerSelect.append(agentOption(p.id,p.name+' ('+p.id+')'));
+  settingsPicker.append(agentOption(p.id,p.name));
+ }
+ if(!agentProviders.length)providerSelect.append(agentOption('','Configure provider first'));
+ providerSelect.value=agentProviders.some(p=>p.id===previousProvider)?previousProvider:(agentProviders[0]?.id||'');
+ updateAgentModels(previousModel,previousEffort);
+ settingsPicker.value=providerSelect.value;
+ settingsPicker.dispatchEvent(new Event('change'));
+}
+function updateAgentModels(preferredModel,preferredEffort){
+ const provider=agentProviders.find(p=>p.id===providerSelect.value);
+ const oldModel=preferredModel!==undefined?preferredModel:modelSelect.value;
+ modelSelect.replaceChildren();
+ for(const m of (provider?.models||[]))modelSelect.append(agentOption(m.id,m.name||m.id));
+ modelSelect.value=(provider?.models||[]).some(m=>m.id===oldModel)?oldModel:(provider?.models?.[0]?.id||'');
+ updateAgentEfforts(preferredEffort);
+ const hasAgent=Boolean(provider?.has_api_key);
+ newChat.disabled=!hasAgent||agentBusy;
+ attachButton.disabled=false;
+}
+providerSelect.addEventListener('change',()=>updateAgentModels(undefined,''));
+modelSelect.addEventListener('change',()=>updateAgentEfforts(''));
+settingsPicker.addEventListener('change',()=>{
+ blockedIPNotice.hidden=true;blockedIPNotice.replaceChildren();
+ const p=agentProviders.find(x=>x.id===settingsPicker.value);
+ const current=p?normalizeProvider(p):agentSample;
+ settingsModel.replaceChildren();
+ for(const model of current.models||[])settingsModel.append(agentOption(model.id,model.name||model.id));
+ if(p&&providerSelect.value===p.id&&Array.from(settingsModel.options).some(model=>model.value===modelSelect.value))settingsModel.value=modelSelect.value;
+ providerEditor.value=JSON.stringify(current,null,2);
+ settingsAPIType.value=current.api_type||'responses';
+ apiKey.value='';settingsStatus.textContent=p?.has_api_key?'API key already configured (write-only).':'API key is not configured.';
+});
+settingsAPIType.addEventListener('change',()=>{
+ try{
+  const parsed=normalizeProvider(JSON.parse(providerEditor.value));
+  parsed.api_type=settingsAPIType.value;
+  providerEditor.value=JSON.stringify(parsed,null,2);
+ }catch{}
+});
+async function saveAgentProvider(){
+ const parsed=normalizeProvider(JSON.parse(providerEditor.value));
+ parsed.api_type=settingsAPIType.value||parsed.api_type;
+ const previous=agentProviders.find(p=>p.id===parsed.id);
+ if(parsed.trusted_shared_ips?.length&&(parsed.base_url!==previous?.base_url||JSON.stringify(parsed.trusted_shared_ips)!==JSON.stringify(previous?.trusted_shared_ips||[]))){
+  if(!window.confirm('Trust these exact shared-network IP addresses for '+parsed.base_url+'? This allows TaskDeck to send your API key and project context to them and weakens SSRF protection. Continue only if you trust the network and endpoint.'))return;
+ }
+ const body={provider:parsed};if(apiKey.value)body.api_key=apiKey.value;
+ const data=await agentApp.jsonFetch('/api/agent/providers',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+ apiKey.value='';
+ await loadAgentProviders();providerSelect.value=data.provider.id;updateAgentModels();settingsPicker.value=data.provider.id;
+ settingsStatus.textContent='Provider saved. Secrets were not returned by the server.';
+}
+async function testAgentProvider(){
+ const parsed=normalizeProvider(JSON.parse(providerEditor.value));
+ parsed.api_type=settingsAPIType.value||parsed.api_type;
+ if(!window.confirm('Send a short test prompt to '+parsed.base_url+' using the saved API key?'))return;
+ const p=agentProviders.find(x=>x.id===parsed.id);
+ if(!p){settingsStatus.textContent='Save this provider first.';return;}
+ const model=settingsModel.value;
+ if(!model){settingsStatus.textContent='No model configured.';return;}
+ blockedIPNotice.hidden=true;blockedIPNotice.replaceChildren();
+ settingsStatus.textContent='Testing Responses API...';
+ let result;
+ try{
+  result=await agentApp.jsonFetch('/api/agent/providers/test',{method:'POST',headers:{'Content-Type':'application/json'},
+   body:JSON.stringify({provider_id:p.id,model_id:model,confirm_external:true})});
+ }catch(error){
+  let detail;try{detail=JSON.parse(String(error?.message||error))?.error;}catch{}
+  if(detail?.code==='PRIVATE_IP_BLOCKED'&&detail.blocked_shared_ip){
+   const ip=String(detail.blocked_shared_ip);
+   const allow=agentButton('Allow this IP',()=>allowAgentProviderIP(p.id,p.base_url,ip).catch(showAgentError));
+   blockedIPNotice.replaceChildren(agentEl('span','','DNS returned blocked shared-network IP: '+ip+' for '+p.base_url+' '),allow);
+   blockedIPNotice.hidden=false;
+  }
+  throw error;
+ }
+ settingsStatus.textContent='Basic Responses text probe: '+(result.ok?'PASS':'FAILED')+
+  ' · Trace '+String(result.trace_id||'unavailable')+' · This does not verify tool calling or stateful chaining; use Probe capabilities.';
+}
+async function allowAgentProviderIP(providerID,endpoint,ip){
+ const saved=agentProviders.find(p=>p.id===providerID);
+ const edited=normalizeProvider(JSON.parse(providerEditor.value));
+ if(!saved||saved.base_url!==endpoint||edited.id!==providerID||edited.base_url!==endpoint||settingsPicker.value!==providerID)throw new Error('Provider or endpoint changed; select it and run Test connection again.');
+ if(!window.confirm('Allow '+ip+' for '+endpoint+'? TaskDeck may send your API key and project context to this address. This weakens SSRF protection; continue only if you trust the endpoint and network.'))return;
+ const provider=normalizeProvider(saved);
+ provider.trusted_shared_ips=[...new Set([...(provider.trusted_shared_ips||[]),ip])];
+ const data=await agentApp.jsonFetch('/api/agent/providers',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({provider})});
+ const index=agentProviders.findIndex(p=>p.id===providerID);if(index>=0)agentProviders[index]=data.provider;
+ edited.trusted_shared_ips=[...new Set([...(edited.trusted_shared_ips||[]),ip])];
+ providerEditor.value=JSON.stringify(edited,null,2);
+ blockedIPNotice.hidden=true;blockedIPNotice.replaceChildren();
+ settingsStatus.textContent='Allowed '+ip+' for this provider. Run Test connection again; existing capability probes must be repeated.';
+}
+async function probeAgentProvider(){
+ const parsed=normalizeProvider(JSON.parse(providerEditor.value));
+ parsed.api_type=settingsAPIType.value||parsed.api_type;
+ const p=agentProviders.find(x=>x.id===parsed.id);
+ if(!p){settingsStatus.textContent='Save this provider first.';return;}
+ const model=settingsModel.value;
+ if(!model){settingsStatus.textContent='No model configured.';return;}
+ if(!window.confirm('Run harmless capability probes against '+parsed.base_url+'? This sends no project data and can incur provider cost.'))return;
+ settingsStatus.textContent='Probing text, tool schema, response chaining'+(parsed.stream?' and streaming':'')+'...';
+ const result=await agentApp.jsonFetch('/api/agent/providers/probe',{method:'POST',headers:{'Content-Type':'application/json'},
+  body:JSON.stringify({provider_id:p.id,model_id:model,confirm_external:true,
+   capabilities:parsed.stream?['text','tool_calling','previous_response','streaming']:['text','tool_calling','previous_response']})});
+ const caps=result.capabilities||{};
+ settingsStatus.textContent='Probe evidence: '+Object.entries(caps).map(([k,v])=>k+'='+v).join(' · ')+
+  ' · Probe traces are available in AI Debug. Tool execution stays disabled unless tool_calling=verified. Refresh or reopen the session to update its status.';
+}
+async function deleteAgentProvider(){
+ const parsed=normalizeProvider(JSON.parse(providerEditor.value));
+ const p=agentProviders.find(x=>x.id===parsed.id);
+ if(!p){settingsStatus.textContent='Save this provider first.';return;}
+ if(!window.confirm('Remove provider metadata for '+p.id+'? This does not revoke the key at the provider.'))return;
+ const removeKey=window.confirm('Also delete the locally stored API key for this provider?\nCancel keeps the key.');
+ const result=await agentApp.jsonFetch('/api/agent/providers',{method:'DELETE',headers:{'Content-Type':'application/json'},
+  body:JSON.stringify({provider_id:p.id,delete_key:removeKey})});
+ await loadAgentProviders();
+ settingsStatus.textContent=(result.note||'Provider removed.')+(result.partial?' PARTIAL: retry.':'');
+}
+async function openAgentSettings(){
+ const active=agentSessions.find(session=>session.id===agentActive);
+ await loadAgentProviders();
+ if(active&&agentProviders.some(provider=>provider.id===active.provider_id)){
+  settingsPicker.value=active.provider_id;settingsPicker.dispatchEvent(new Event('change'));
+  if(Array.from(settingsModel.options).some(model=>model.value===active.model_id))settingsModel.value=active.model_id;
+ }
+ settingsOverlay.classList.add('visible');return true;
+}
+function userMessageText(value){
+ const text=String(value||'');
+ const marker='USER REQUEST:\n';
+ const idx=text.lastIndexOf(marker);
+ return idx<0?text:text.slice(idx+marker.length);
+}
+function renderAgentTool(session,item){
+ const box=agentEl('div','agentchat-bubble tool');
+ const record=(session.tool_calls||[]).find(c=>c.call_id===item.call_id);
+ const detailKey=(suffix)=>session.id+':'+item.call_id+':'+suffix;
+ const detail=(caption,body,suffix)=>{
+  const d=agentEl('details');const key=detailKey(suffix);
+  d.dataset.agentDetailKey=key;
+  d.open=agentOpenReviewDetails.has(key);
+  d.addEventListener('toggle',()=>{
+   if(d.isConnected===false)return;
+   if(d.open)agentOpenReviewDetails.add(key);else agentOpenReviewDetails.delete(key);
+  });
+  d.append(agentEl('summary','',caption),agentRich.renderCode(body,suffix==='patch-code'?'python':suffix==='patch-result'?'json':'text',showAgentError));
+  return d;
+ };
+ if(item.name==='taskdeck_collect_workspace'){
+  const output=(session.history||[]).find(x=>x.type==='function_call_output'&&x.call_id===item.call_id);
+  box.append(agentEl('span','',output?'Collection · inspected':'Collection · inspecting'));
+  box.append(detail('Inspect read-only Collection request',String(item.arguments||''),'collection-request'));
+  if(output)box.append(detail('Observed workspace result',String(output.content||''),'collection-result'));
+  return box;
+ }
+ if(item.name!=='taskdeck_submit_patch'){
+  box.append(agentEl('span','','Unsupported tool request · not executed'));
+  return box;
+ }
+ const state=record?.status||'blocked';
+ box.append(agentEl('strong','',(record?.text_fallback?'Text-only Patch proposal':'Patch proposal')+' · '+state.toUpperCase()));
+ let args=null;
+ try{args=JSON.parse(item.arguments||'');}catch{}
+ if(!record||!args||typeof args.patch_python!=='string'){
+  box.append(agentEl('p','agentchat-tool-summary','No valid approved Patch proposal is available.'));
+  return box;
+ }
+ box.append(detail('Review Python patch · '+String(args.name||'unnamed'),args.patch_python,'patch-code'));
+ if(record.queue_path)box.append(agentEl('p','agentchat-tool-summary','Native queue: '+record.queue_path));
+ if(record.patch_session_id)box.append(agentEl('p','agentchat-tool-summary','Patch Session: '+record.patch_session_id));
+ if(record.result)box.append(detail('Verified native result / diagnosis',record.result,'patch-result'));
+ if((record.attempts||[]).length){
+  const old=(record.attempts||[]).map((a,i)=>({
+   attempt:i+1,status:a.status,run_id:a.run_id,patch_session_id:a.patch_session_id,
+   package_sha256:a.package_sha256,result:a.result
+  }));
+  box.append(detail('Previous Patch attempts · '+old.length,JSON.stringify(old,null,2),'patch-attempts'));
+ }
+ const actions=agentEl('div','agentchat-tool-actions');
+ if(state==='pending'){
+  if((session.auto_patch||record.auto_run_once)&&!record.manual_retry_only){
+   box.append(agentEl('p','agentchat-tool-summary',record.auto_run_once?'Re-apply approved once · Native Patch will execute, then send its final result to AI.':'Auto apply is ON · Native Patch Tool will handle this proposal. No per-Patch approval needed.'));
+  }else{
+   const approve=agentButton('Approve & run in Patch Tool',()=>agentToolDecision(agentCurrentSession||session,item.call_id,'approve').catch(showAgentError));
+   approve.disabled=Boolean(agentApp.sharedMode&&!agentApp.hasPermission?.('patch.run'));
+   actions.append(approve,agentButton('Reject patch',()=>agentToolDecision(agentCurrentSession||session,item.call_id,'reject').catch(showAgentError)));
+  }
+ }
+ if(['running','dispatching','queued','unknown'].includes(state)){
+  const refresh=agentButton('Check native Patch status',()=>syncAgentPatch(session.id).catch(showAgentError));
+  refresh.disabled=Boolean(agentApp.sharedMode&&!agentApp.hasPermission?.('patch.view'));
+  const consoleButton=agentButton('View console',()=>showAgentExecution(session.id,item.call_id).catch(showAgentError));
+  consoleButton.disabled=refresh.disabled;actions.append(refresh,consoleButton);
+ }
+ if(['done','error','rejected'].includes(state)){
+  actions.append(agentButton('View native result',()=>showAgentExecution(session.id,item.call_id).catch(showAgentError)));
+ }
+ if(!record.feedback_sent&&['running','dispatching','queued','unknown','done','error'].includes(state)){
+  if((session.auto_feedback||record.send_after_retry)&&['done','error'].includes(state)){
+   box.append(agentEl('p','agentchat-tool-summary','Automatically forwarding the verified native result (PASS or FAIL) to AI…'));
+  }else{
+   actions.append(agentButton('Get the last result and send to AI',
+    ()=>recoverAgentPatch(agentCurrentSession||session,item.call_id,'send_existing').catch(showAgentError)));
+  }
+  if(state!=='done'){
+   const reapply=agentButton('Re-apply Patch then send to AI',
+    ()=>recoverAgentPatch(agentCurrentSession||session,item.call_id,'rerun_and_send').catch(showAgentError));
+   reapply.disabled=Boolean(agentApp.sharedMode&&!agentApp.hasPermission?.('patch.run'));
+   actions.append(reapply);
+  }
+ }
+ if(state==='rejected'&&!record.feedback_sent){
+  actions.append(agentButton('Send rejection to AI',
+   ()=>continueAgentTool(agentCurrentSession||session,item.call_id).catch(showAgentError)));
+ }
+ if(state==='unknown')actions.append(agentEl('p','agentchat-tool-summary',
+  'Old native result is not verified yet. Recovery will inspect the original run; it will not rerun an uncertain Patch.'));
+ if(actions.childElementCount)box.append(actions);
+ return box;
+}
+function agentHistoryItemEqual(a,b){
+ return a?.type===b?.type && a?.content===b?.content &&
+  a?.call_id===b?.call_id && a?.name===b?.name && a?.arguments===b?.arguments &&
+  a?.seq===b?.seq && a?.kind===b?.kind && a?.status===b?.status && a?.detail===b?.detail;
+}
+function agentToolIO(label,content){
+ const details=agentEl('details','agentchat-io-details');
+ details.append(agentEl('summary','',label),agentRich.renderCode(content,'',showAgentError));
+ return details;
+}
+function agentHistoryRow(session,item,callNames){
+ if(item.type==='activity_event'){
+  const name=item.kind==='collect_failed'?'Collection failed':
+   item.kind==='turn_failed'?'AI request failed':
+   item.kind==='turn_cancelled'?'AI request cancelled':
+   item.kind==='feedback_unknown'?'Patch result delivery unconfirmed':'Operation failed';
+  const note=item.detail?' · '+item.detail:'';
+  return agentEl('div','agentchat-activity error','⚠ '+name+note);
+ }
+ if(item.type==='user'){
+  const source=String(item.content||'');
+  if(source.startsWith('TaskDeck local read-only Collection tool returned this VERIFIED observation')){
+   return agentToolIO('Collection result sent to AI · view contents',source);
+  }
+  if(source.startsWith('TaskDeck native Patch Tool result for your prior text-only proposal')){
+   return agentToolIO('Sending native Patch result to AI · view contents',source);
+  }
+  return agentRich.renderMessage('user',userMessageText(source),showAgentError);
+ }
+ if(item.type==='assistant'){
+  const raw=String(item.content||'');
+  const trimmed=raw.trim();
+  // A text-only model may emit a JSON tool envelope; it is a tool request,
+  // not a human-facing prose answer. Keep the exact payload accessible.
+  if(trimmed.startsWith('{')&&trimmed.endsWith('}')){
+   try{
+    const parsed=JSON.parse(trimmed);
+    if(Array.isArray(parsed.actions)&&parsed.project)return agentToolIO('AI requested Collection · view request',raw);
+    if(parsed.type==='taskdeck_patch_proposal')return agentToolIO('AI proposed Patch · view request',raw);
+   }catch{}
+  }
+  return agentRich.renderMessage('assistant',raw,showAgentError);
+ }
+ if(item.type==='function_call')return renderAgentTool(session,item);
+ if(item.type==='function_call_output'){
+  const isCollection=callNames.get(item.call_id)==='taskdeck_collect_workspace';
+  return agentToolIO(isCollection?'Collection result sent to AI · view contents':'Native Patch result sent to AI · view contents',String(item.content||''));
+ }
+ return null;
+}
+// UI activity is not added to provider-facing history. Only terminal/error
+// transitions become durable timeline entries; ephemeral busy phases use one
+// live row, so they never pile up in the conversation.
+function agentChronologicalHistory(session){
+ const history=Array.isArray(session?.history)?session.history:[];
+ const failures=(session?.events||[]).filter(e=>
+  ['turn_failed','collect_failed','turn_cancelled','feedback_unknown'].includes(e.kind));
+ if(!failures.length)return history;
+ const ordered=failures.map(event=>({
+  ...event,type:'activity_event',
+  history_index:Number.isInteger(event.history_index)&&event.history_index>0?
+    Math.min(event.history_index,history.length):history.length,
+ }));
+ const result=[];
+ for(let i=0;i<=history.length;i++){
+  for(const event of ordered){if(event.history_index===i)result.push(event);}
+  if(i<history.length)result.push(history[i]);
+ }
+ return result;
+}
+function agentTurnIsPersisted(session,turn){
+ if(!turn)return false;
+ const history=session?.history||[];
+ return history.slice(turn.baseHistoryLength).some(item=>item.type==='user'&&
+  userMessageText(item.content)===turn.message);
+}
+function agentLivePhase(session){
+ if(!session)return null;
+ const turn=agentLiveTurns.get(session.id);
+ const lastCall=(session.tool_calls||[]).slice(-1)[0];
+ const events=session.events||[];
+ const newer=turn?events.filter(e=>Number(e.seq||0)>turn.baseEventSeq):events;
+ const lastEvent=newer.length?newer[newer.length-1]:null;
+ const retry=session.retry_runtime;
+ if(retry?.phase==='waiting'){
+  const remaining=Math.max(0,Math.ceil((Date.parse(retry.next_at||'')-Date.now())/1000));
+  const max=retry.mode==='unlimited'?'∞':'5';
+  return {message:'AI retry '+retry.attempt+'/'+max+' · '+(retry.last_code||'transient failure')+
+   ' · trying again in '+remaining+'s · Stop request to cancel'};
+ }
+ if(retry?.phase==='sending'&&retry.attempt>1){
+  return {message:'Retrying AI request · attempt '+retry.attempt+
+   (retry.mode==='unlimited'?' (unlimited)':' / 6 total attempts')+'…'};
+ }
+ if(turn?.error){
+  const persistedError=(session.events||[]).some(e=>Number(e.seq||0)>turn.baseEventSeq&&
+   ['turn_failed','collect_failed','turn_cancelled','feedback_unknown'].includes(e.kind));
+  if(!persistedError)return {message:'Request failed · '+turn.error,error:true};
+ }
+ if(session.status==='failed')return null; // durable failure row in history
+ if(session.status==='cancelled')return null;
+ if(session.status==='requesting_ai'){
+  if(turn?.phase==='sending'&&!newer.some(e=>e.kind==='turn_started'||e.kind==='feedback_prepared'))return {message:'Sending request…'};
+  if(lastEvent?.kind==='collect_observed')return {message:'Sending Collection result to AI…'};
+  if(lastEvent?.kind==='feedback_prepared')return {message:'Sending native Patch result to AI…'};
+  if(lastCall?.feedback_status==='sending'||lastCall?.feedback_status==='prepared')return {message:'Sending native Patch result to AI…'};
+  return {message:'Thinking…'};
+ }
+ if(turn?.phase==='feedback'&&!turn.acknowledged)return {message:'Sending native Patch result to AI…'};
+ if(turn?.phase==='sending'&&!turn.acknowledged)return {message:'Sending request…'};
+ if(['queued','dispatching','running'].includes(lastCall?.status))return {message:'Running native Patch…'};
+ if(session.status==='waiting_tool'&&lastCall?.status==='pending'&&session.auto_patch)return {message:'Submitting Patch to native tool…'};
+ if(session.status==='waiting_tool'&&['done','error','rejected'].includes(lastCall?.status)&&
+    session.auto_feedback&&!lastCall.feedback_sent)return {message:'Sending verified Patch result to AI…'};
+ return null;
+}
+function agentUpdateLiveRow(session){
+ const id=session?.id;
+ if(!session||agentActive!==id){
+  if(agentLiveRow.parentElement)agentLiveRow.remove();
+  return;
+ }
+ const turn=agentLiveTurns.get(id);
+ if(turn?.optimisticNode&&!agentTurnIsPersisted(session,turn)){
+  // Move nothing on a no-op poll. A pending user message is always above the
+  // single ephemeral status row and is never also rendered from history.
+  if(!turn.optimisticNode.parentElement)transcript.append(turn.optimisticNode);
+ }else if(turn?.optimisticNode){
+  turn.optimisticNode.remove();turn.optimisticNode=null;
+  turn.acknowledged=true;
+ }
+ const phase=agentLivePhase(session);
+ if(!phase){
+  if(agentLiveRow.parentElement)agentLiveRow.remove();
+  return;
+ }
+ agentLiveRow.className='agentchat-live-status'+(phase.error?' error':'');
+ agentLiveSpinner.hidden=Boolean(phase.error);
+ if(agentLiveText.textContent!==phase.message)agentLiveText.textContent=phase.message;
+ if(transcript.children[transcript.children.length-1]!==agentLiveRow){
+  // append(existingNode) moves it without recreating it. This preserves its
+  // animation/state and does not count as removing a history entry.
+  transcript.append(agentLiveRow);
+ }
+}
+function agentStartProgressPoll(sessionID){
+ if(agentProgressTimers.has(sessionID))return;
+ const tick=async()=>{
+  agentProgressTimers.delete(sessionID);
+  if(!agentSessionBusy(sessionID)||agentActive!==sessionID)return;
+  try{await selectAgentSession(sessionID);}
+  catch(error){ // Keep the current live row; network polling errors are not new user turns.
+   if(agentActive===sessionID)status.textContent='Live status unavailable · '+String(error?.message||error);
+  }
+  if(agentSessionBusy(sessionID)&&agentActive===sessionID)agentStartProgressPoll(sessionID);
+ };
+ agentProgressTimers.set(sessionID,setTimeout(tick,1200));
+}
+function agentStopProgressPoll(sessionID){
+ const timer=agentProgressTimers.get(sessionID);
+ if(timer!==undefined)clearTimeout(timer);
+ agentProgressTimers.delete(sessionID);
+}
+// The retained transcript compares only the changed native tool card's
+// canonical evidence. Restore this helper independently of live activity UI.
+function agentToolRenderVersion(item,records,outputs){
+ if(item.type!=='function_call')return '';
+ if(item.name==='taskdeck_collect_workspace'){
+  const output=outputs.get(item.call_id);
+  return 'collect:'+String(output?.content||'');
+ }
+ return 'patch:'+JSON.stringify(records.get(item.call_id)||null);
+}
+// Auto-follow recent activity without stealing scroll when the user reads history.
+function agentAtLatest(){
+ return transcript.scrollHeight-transcript.scrollTop-transcript.clientHeight<=64;
+}
+function agentScrollToLatest(sessionID){
+ if(agentActive!==sessionID)return;
+ transcript.scrollTop=transcript.scrollHeight;
+ if(typeof requestAnimationFrame==='function')requestAnimationFrame(()=>{
+  if(agentActive===sessionID&&agentAtLatest())transcript.scrollTop=transcript.scrollHeight;
+ });
+}
+function displayAgentSession(session){
+ if(!session){
+  closeAgentAttachmentsPopup();
+  if(agentLiveRow.parentElement)agentLiveRow.remove();
+  if(agentRenderedSessionID!==null){
+   transcript.replaceChildren();
+   agentRenderedSessionID=null;agentRenderedHistory=[];agentRenderedNodes=[];
+   agentRenderedToolVersions.clear();
+  }
+  agentCurrentSession=null;
+  toolNotice.hidden=true;
+  if(!transcript.children.length)transcript.append(agentEl('p','','Create or select a session to begin.'));
+  return;
+ }
+ const switched=agentRenderedSessionID!==session.id;
+ if(switched)closeAgentAttachmentsPopup();
+ const followLatest=switched||agentAtLatest();
+ if(switched){
+  if(agentLiveRow.parentElement)agentLiveRow.remove();
+  transcript.replaceChildren();
+  agentRenderedSessionID=session.id;
+  agentRenderedHistory=[];agentRenderedNodes=[];
+  agentRenderedToolVersions.clear();
+ }
+ agentCurrentSession=session;
+ const history=agentChronologicalHistory(session);
+ const records=new Map((session.tool_calls||[]).map(call=>[call.call_id,call]));
+ const outputs=new Map(),callNames=new Map();
+ for(const item of history){
+  if(item.type==='function_call')callNames.set(item.call_id,item.name);
+  else if(item.type==='function_call_output')outputs.set(item.call_id,item);
+ }
+ let prefix=0;
+ const common=Math.min(history.length,agentRenderedHistory.length);
+ while(prefix<common&&agentHistoryItemEqual(history[prefix],agentRenderedHistory[prefix]))prefix++;
+ // Source compaction or a changed history item invalidates only its tail.
+ // Polling the same canonical transcript does not touch any existing nodes.
+ // A submitted message is painted optimistically while the provider request
+ // runs. Replace that exact pending node when the journal confirms the user
+ // message; do not leave a duplicate or rebuild unrelated transcript rows.
+ const live=agentLiveTurns.get(session.id);
+ if(live?.optimisticNode&&agentTurnIsPersisted(session,live)){
+  live.optimisticNode.remove();
+  live.optimisticNode=null;live.acknowledged=true;
+ }
+ const changed=switched||prefix<history.length||prefix<agentRenderedHistory.length;
+ if(changed){
+  const nearBottom=followLatest;
+  const previousScroll=transcript.scrollTop;
+  for(let i=agentRenderedHistory.length-1;i>=prefix;i--){
+   agentRenderedNodes[i]?.remove();
+  }
+  agentRenderedHistory.length=prefix;agentRenderedNodes.length=prefix;
+  const added=[];
+  for(let i=prefix;i<history.length;i++){
+   const item=history[i];
+   const node=agentHistoryRow(session,item,callNames);
+   agentRenderedHistory.push(item);agentRenderedNodes.push(node);
+   if(node)added.push(node);
+   if(item.type==='function_call')agentRenderedToolVersions.set(item.call_id,agentToolRenderVersion(item,records,outputs));
+  }
+  if(added.length)transcript.append(...added);
+  if(nearBottom)transcript.scrollTop=transcript.scrollHeight;
+  else transcript.scrollTop=previousScroll;
+ }
+ // A new native status, receipt or Collection observation affects its own
+ // tool card only, never the surrounding messages or open console viewer.
+ for(let i=0;i<history.length;i++){
+  const item=history[i];
+  if(item.type!=='function_call'||!agentRenderedNodes[i])continue;
+  const version=agentToolRenderVersion(item,records,outputs);
+  if(agentRenderedToolVersions.get(item.call_id)===version)continue;
+  const updated=renderAgentTool(session,item);
+  agentRenderedNodes[i].replaceWith(updated);
+  agentRenderedNodes[i]=updated;
+  agentRenderedToolVersions.set(item.call_id,version);
+ }
+ agentUpdateLiveRow(session);
+ // The live status is appended after the history scroll decision.
+ if(followLatest)agentScrollToLatest(session.id);
+ const last=(session.tool_calls||[]).slice(-1)[0];
+ let stateNote='Session '+session.id.slice(0,8)+' · '+session.status+' · revision '+session.revision;
+ if(last&&session.status==='waiting_tool'){
+  if(last.status==='done')stateNote='Patch PASS · '+(last.feedback_sent?'result sent to AI':'result ready to send to AI');
+  else if(last.status==='error')stateNote='Patch failed · inspect verified result';
+  else if(last.status==='running')stateNote='Patch Tool running · monitoring native status';
+  else if(last.status==='unknown')stateNote='Native Patch result unknown · inspect History';
+ }
+ const nextStatus=stateNote+(session.auto_feedback?' · auto-send ON':'');
+ // The in-conversation activity row is the only busy status. Keep this
+ // footer for terminal metadata, not a second competing progress display.
+ const footer=agentLivePhase(session)?'':nextStatus;
+ if(status.textContent!==footer)status.textContent=footer;
+ const nextFeedback=session.auto_feedback?'Auto-send: ON':'Auto-send results';
+ if(autoFeedback.textContent!==nextFeedback)autoFeedback.textContent=nextFeedback;
+}
+function agentConversationUnresolved(sess){
+ if(sess&&typeof sess.unresolved==='boolean')return sess.unresolved;
+ if(['requesting_ai','tool_queuing'].includes(sess?.status))return true;
+ if(Array.isArray(sess?.tool_calls)){
+  return sess.tool_calls.some(call=>['pending','queuing','queued','dispatching','running','unknown'].includes(call.status));
+ }
+ return ['waiting_tool','tool_unknown'].includes(sess?.status);
+}
+function updateAgentSessionRows(){
+ const wanted=new Set();
+ for(const sess of agentSessions){
+  wanted.add(sess.id);
+  const label=(sess.archived?'[archived] ':'')+(sess.title||sess.model_id)+' · '+sess.status;
+  let button=agentSessionListNodes.get(sess.id);
+  if(!button){
+   const row=agentEl('div','agentchat-session-row');
+   button=agentButton(label,()=>{toggleAgentSessions(false);selectAgentSession(sess.id).catch(showAgentError);});
+   button.title=sess.id;agentSessionListNodes.set(sess.id,button);
+   const remove=agentButton('Delete',()=>deleteAgentSession(sess.id).catch(showAgentError));
+   remove.className='delete';remove.title='Permanently delete this conversation';
+   row.append(button,remove);sessionList.append(row);
+  }
+  if(button.textContent!==label)button.textContent=label;
+  const remove=button.parentElement?.children?.[1];
+  if(remove){
+   remove.disabled=agentConversationUnresolved(sess);
+   remove.title=remove.disabled?'Resolve the running/pending Patch before deleting':'Permanently delete this conversation';
+  }
+  const cls='agentchat-session'+(sess.id===agentActive?' selected':'');
+  if(button.className!==cls)button.className=cls;
+ }
+ for(const [id,node] of agentSessionListNodes){
+  if(!wanted.has(id)){node.parentElement?.remove();agentSessionListNodes.delete(id);}
+ }
+ if(!agentSessions.length){
+  if(!sessionList.children.length)sessionList.append(agentEl('p','agentchat-info','No saved chat sessions.'));
+ }else{
+  for(const child of [...sessionList.children]){
+   if(child.className==='agentchat-info')child.remove();
+  }
+ }
+}
+async function loadAgentSessions(){
+ const response=await agentApp.jsonFetch('/api/agent/sessions');
+ agentSessions=Array.isArray(response.sessions)?response.sessions:[];
+ updateAgentSessionRows();
+ renderAgentTabs();
+}
+function renderAgentTabs(){
+ const wanted=new Set(agentTabs);
+ for(const [id,node] of agentTabNodes){
+  if(!wanted.has(id)){node.remove();agentTabNodes.delete(id);}
+ }
+ if(!agentTabs.length){
+  if(!tabbar.children.length)tabbar.append(agentEl('span','agentchat-info','No open tabs'));
+  return;
+ }
+ for(const child of [...tabbar.children]){
+  if(child.className==='agentchat-info')child.remove();
+ }
+ for(const id of agentTabs){
+  const sess=agentSessions.find(s=>s.id===id);
+  const label=String(sess?.title||sess?.model_id||id.slice(0,8));
+  let tab=agentTabNodes.get(id);
+  if(!tab){
+   tab=agentEl('span','agentchat-tab');
+   const open=agentButton(label,()=>selectAgentSession(id).catch(showAgentError));
+   open.className='';
+   open.style.padding='0';open.style.border='0';open.style.background='transparent';
+   const close=agentButton('✕',()=>closeAgentTab(id));
+   close.className='close';tab.append(open,close);
+   agentTabNodes.set(id,tab);tabbar.append(tab);
+  }
+  if(tab.children[0].textContent!==label)tab.children[0].textContent=label;
+  const cls='agentchat-tab'+(id===agentActive?' active':'');
+  if(tab.className!==cls)tab.className=cls;
+ }
+}
+function openAgentTab(id){
+ if(!agentTabs.includes(id))agentTabs.push(id);
+ renderAgentTabs();
+}
+function closeAgentTab(id){
+ agentTabs=agentTabs.filter(x=>x!==id);
+ if(agentActive===id){
+  agentActive=null;
+  if(agentTabs.length)selectAgentSession(agentTabs[agentTabs.length-1]).catch(showAgentError);
+  else displayAgentSession(null);
+ }
+ renderAgentTabs();
+}
+async function selectAgentSession(id){
+ const previousID=agentActive;
+ const switched=previousID!==id;
+ // Polling must not reset a draft, attachments, model controls or the read
+ // position of the current session. These change only on a tab switch.
+ if(switched&&previousID){
+  agentExecutionPanel.classList.remove('visible');agentExecutionTarget=null;
+  agentDrafts.set(previousID,prompt.value);
+  agentAttachmentDrafts.set(previousID,agentAttachments.map(a=>({...a})));
+ }
+ const generation=++agentSelectGeneration;
+ const data=await agentApp.jsonFetch('/api/agent/sessions/'+encodeURIComponent(id));
+ if(generation!==agentSelectGeneration)return null;
+ const sess=data.session;
+ sess.retry_runtime=data.retry_runtime||null;
+ if(switched||agentToolNoticeKey!==data.patch_tool_status+':'+(sess.auto_patch?'auto':'manual')){
+  toolNotice.replaceChildren();
+  const toolStatus=data.patch_tool_status;
+  if(toolStatus==='enabled'){
+   toolNotice.textContent='Native Patch available · '+(sess.auto_patch?'automatic approval enabled for this conversation.':'manual approval.');
+  }else{
+   const reasons={model_disabled:'Tool calling is disabled for this model.',unverified:'Tool calling has not been verified for this provider and model.',unavailable:'Provider or capability information is unavailable.'};
+   toolNotice.append(agentEl('span','',(reasons[toolStatus]||'Patch tool status is unavailable.')+' Text-only Patch JSON proposals can use Native Patch. '+(sess.auto_patch?'Auto apply is enabled.':'Manual approval is enabled.')));
+   // Provider/API Key configuration belongs to TaskDeck Settings, not this panel.
+  }
+  agentToolNoticeKey=toolStatus+':'+(sess.auto_patch?'auto':'manual');
+ }
+ toolNotice.hidden=false;
+ agentActive=id;
+ if(switched){
+  prompt.value=agentDrafts.get(id)||'';
+  agentAttachments=(agentAttachmentDrafts.get(id)||[]).map(a=>({...a}));
+  renderAgentAttachments();
+  const p=agentProviders.find(p=>p.id===sess.provider_id);
+  if(p){providerSelect.value=p.id;updateAgentModels(sess.model_id,sess.reasoning_effort||'');}
+  modeSelect.value=sess.mode;
+  renderAgentConfigMenu();
+ }
+ // Transfer pending context into the selected conversation, preserving
+ // the append-only transcript and per-session editor drafts.
+ const pendingToTransfer=agentPendingAttachments.slice();
+ if(pendingToTransfer.length){
+  try{
+   const staged=normalizeStagedAttachments([...agentAttachments,...pendingToTransfer]);
+   agentAttachments=staged;agentAttachmentDrafts.set(id,staged.map(a=>({...a})));
+   agentPendingAttachments.splice(0,pendingToTransfer.length);renderAgentAttachments();
+  }catch(error){status.textContent='Pending attachments need room: '+String(error?.message||error);}
+ }
+ renderAgentAutomationControls(sess);
+ send.disabled=agentSessionBusy(id)||(sess.status==='requesting_ai');
+ cancel.disabled=!agentSessionBusy(id)&&sess.status!=='requesting_ai';
+ const summary=agentSessions.find(x=>x.id===id);
+ if(summary){
+  summary.status=sess.status;
+  summary.title=sess.title;summary.archived=sess.archived;
+  summary.auto_patch=sess.auto_patch;summary.auto_collection=sess.auto_collection;summary.auto_feedback=sess.auto_feedback;
+  summary.unresolved=agentConversationUnresolved(sess);
+  updateAgentSessionRows();
+ }
+ openAgentTab(id);
+ displayAgentSession(sess);
+ if(sess.status==='requesting_ai'&&!agentSessionBusy(id))
+  status.textContent='A model request is still running on the server. Use Cancel if you want to stop waiting.';
+ scheduleAgentMonitor(sess);
+ return sess;
+}
+async function agentToolDecision(session,callID,action){
+ if(agentBusy)return;
+ // A background Auto Patch, status reconciliation, or Automation setting can
+ // change the session revision while its UI card remains on screen. Always
+ // act on the current canonical record and never rerun a completed call.
+ session=await selectAgentSession(session.id);
+ if(!session)return;
+ const record=(session.tool_calls||[]).find(call=>call.call_id===callID);
+ if(!record||record.status!=='pending'){
+  status.textContent='Patch has already advanced to '+(record?.status||'another state')+' · no repeat approval was sent.';
+  return;
+ }
+ if(action==='approve' && session.auto_patch){
+  status.textContent='Auto apply Patch is ON · Native Patch Tool is managing this proposal.';
+  return;
+ }
+ const review=(session.history||[]).find(item=>item.type==='function_call'&&item.call_id===callID);
+ if(!review)throw new Error('Missing original tool call');
+ if(action==='approve'){
+  if(!window.confirm('Approve this exact Python patch for execution by the native TaskDeck Patch Tool? Review the code above first. Other queue items will NOT be selected.'))return;
+ }else if(!window.confirm('Reject this patch without queueing or executing it?'))return;
+ agentBusy=true;
+ try{
+  const result=await agentApp.jsonFetch('/api/agent/sessions/'+encodeURIComponent(session.id)+'/tools/'+encodeURIComponent(callID)+'/decision',{
+   method:'POST',headers:{'Content-Type':'application/json'},
+   body:JSON.stringify({action,expected_revision:session.revision,confirm_execution:action==='approve'}),
+  });
+  await selectAgentSession(session.id);
+  status.textContent=action==='approve'
+   ?('Native Patch '+result.status+' · '+(result.note||'Inspect Patch Tool for execution progress.'))
+   :'Patch was rejected; nothing executed.';
+ }finally{agentBusy=false;}
+}
+async function recoverAgentPatch(session,callID,action){
+ if(agentSessionBusy(session.id)||agentBusy)throw new Error('Conversation is busy; retry when the current request finishes.');
+ const current=await selectAgentSession(session.id);
+ if(!current)return;
+ const record=(current.tool_calls||[]).find(x=>x.call_id===callID);
+ if(!record)throw new Error('Original Patch call no longer exists.');
+ if(action==='rerun_and_send'){
+  if(!window.confirm('Re-apply this verified FAILED Patch exactly once through Native Patch Tool, then automatically send its final PASS/FAIL to AI? The old attempt remains in History. Reapplying may modify project files.'))return;
+ }else if(action==='rerun_patch'){
+  if(!window.confirm('Prepare a fresh manual Patch approval? The previous failed run stays in History.'))return;
+ }else if(!window.confirm('Get the latest matching verified native Patch History result (PASS or FAIL) and send it to AI? The Patch will NOT run again.'))return;
+ const result=await agentApp.jsonFetch('/api/agent/sessions/'+encodeURIComponent(session.id)+
+   '/tools/'+encodeURIComponent(callID)+'/recover',{
+  method:'POST',headers:{'Content-Type':'application/json'},
+  body:JSON.stringify({action,expected_revision:current.revision,
+   confirm_execution:action==='rerun_patch'||action==='rerun_and_send',
+    confirm_external:action==='send_existing'||action==='rerun_and_send'}),
+ });
+ if(agentActive===session.id)await selectAgentSession(session.id);
+ status.textContent=action==='rerun_and_send'
+  ?'One re-apply approved; Native Patch will execute, then the final result will be sent to AI.'
+  :action==='rerun_patch'
+  ?'Previous attempt preserved. Review the pending Patch and approve a new native execution.'
+  :'Latest verified native result delivered to AI without re-execution.';
+ return result;
+}
+async function showAgentExecution(sessionID,callID){
+ const data=await agentApp.jsonFetch('/api/agent/sessions/'+encodeURIComponent(sessionID)+'/tools/'+encodeURIComponent(callID)+'/execution');
+ if(agentActive!==sessionID)return;
+ const exec=data.execution||{};
+ const lines=[];
+ lines.push('Status: '+String(exec.status||'unknown')+(exec.native_status?' (native '+exec.native_status+')':''));
+ if(exec.run_id||exec.native_run_id)lines.push('Run: '+String(exec.native_run_id||exec.run_id));
+ if(exec.feedback_status)lines.push('Result delivery: '+String(exec.feedback_status));
+ for(const command of (exec.commands||[]))
+  lines.push('  ['+String(command.index)+'] '+String(command.stage||'')+' '+String(command.status||'')+(command.rc!==undefined?' rc='+command.rc:''));
+ if((exec.artifacts||[]).length)lines.push('Artifacts: '+exec.artifacts.map(a=>String(a.kind)+(a.primary?'*':'')).join(', '));
+ if(exec.stdout_tail)lines.push('--- output tail ---\n'+String(exec.stdout_tail));
+ if(exec.verified_result)lines.push('--- verified native result ---\n'+String(exec.verified_result));
+ agentExecutionTarget={sessionID,callID};
+ agentExecutionText=lines.join('\n');
+ agentExecutionContent.textContent=agentExecutionText;
+ agentExecutionPanel.classList.add('visible');
+}
+async function syncAgentPatch(id,{quiet=false}={}){
+ if(agentSessionBusy(id)){
+  if(!quiet)status.textContent='Agent is busy; native Patch status can be checked when the request finishes.';
+  return null;
+ }
+ if(agentPatchSyncInFlight.has(id))return null;
+ agentPatchSyncInFlight.add(id);
+ try{
+  const result=await agentApp.jsonFetch('/api/agent/sessions/'+encodeURIComponent(id)+'/sync',{
+   method:'POST',headers:{'Content-Type':'application/json'},body:'{}',
+  });
+  if(agentActive!==id)return result;
+  // No journal revision change means native state did not change. Keep the
+  // whole transcript/tab/console DOM untouched and avoid a second API call.
+  if(!agentCurrentSession||result.revision!==agentCurrentSession.revision){
+   await selectAgentSession(id);
+  }
+  if(!quiet){
+   const last=(result.tool_calls||[]).slice(-1)[0];
+   if(last?.status==='done')status.textContent='Native Patch PASS · '+(last.feedback_sent?'result sent to AI':'click Send verified result to AI, or enable Auto-send results');
+   else if(last?.status==='error')status.textContent='Native Patch finished with errors · review its result';
+   else if(last?.status==='running')status.textContent='Native Patch still running or awaiting final verifiable evidence';
+   else if(last?.status==='unknown')status.textContent='Native Patch evidence unavailable · inspect Patch History';
+  }
+  return result;
+ }finally{
+  agentPatchSyncInFlight.delete(id);
+ }
+}
+async function continueAgentTool(session,callID){
+ if(agentSessionBusy(session.id))return;
+ if(!window.confirm('Send the verified native Patch execution result back to the external AI provider to continue this conversation?'))return;
+ const turn={message:'',phase:'feedback',error:'',baseHistoryLength:session.history?.length||0,
+  baseEventSeq:session.event_seq||0,optimisticNode:null,acknowledged:false};
+ agentLiveTurns.set(session.id,turn);
+ if(agentActive===session.id)agentUpdateLiveRow(agentCurrentSession||session);
+ agentBusy=true;markAgentSessionBusy(session.id,true);
+ agentAbort=new AbortController();
+ agentStartProgressPoll(session.id);
+ try{
+  const result=await agentApp.jsonFetch('/api/agent/sessions/'+encodeURIComponent(session.id)+'/tools/'+encodeURIComponent(callID)+'/continue',{
+   method:'POST',headers:{'Content-Type':'application/json'},
+   body:JSON.stringify({expected_revision:session.revision,confirm_external:true}),signal:agentAbort.signal,
+  });
+  if(agentActive===session.id)await selectAgentSession(session.id);
+  agentLiveTurns.delete(session.id);
+  if(agentActive===session.id&&agentCurrentSession)agentUpdateLiveRow(agentCurrentSession);
+  return result;
+ }catch(error){
+  turn.error=String(error?.message||error).slice(0,450);
+  if(agentActive===session.id){
+   try{await selectAgentSession(session.id);}catch{}
+   if(agentCurrentSession?.id===session.id)agentUpdateLiveRow(agentCurrentSession);
+  }
+  throw error;
+ }finally{
+  agentStopProgressPoll(session.id);
+  agentAbort=null;agentBusy=false;markAgentSessionBusy(session.id,false);
+ }
+}
+// One bounded reconciliation call per polling interval. Never combine a
+// second events fetch plus /sync plus unconditional full-session fetch.
+function scheduleAgentMonitor(sess){
+ clearTimeout(agentMonitorTimer);agentMonitorTimer=0;
+ if(!root.classList.contains('visible')||!sess)return;
+ if(agentApp.sharedMode&&!agentApp.hasPermission?.('patch.view'))return;
+ const pending=(sess.tool_calls||[]).some(call=>['running','dispatching','queued','unknown'].includes(call.status));
+ const awaitingAutoPatch=sess.auto_patch&&sess.status==='waiting_tool'&&
+  (sess.tool_calls||[]).some(call=>call.status==='pending');
+ const awaitingFeedback=sess.auto_feedback&&sess.status==='waiting_tool'&&
+  (sess.tool_calls||[]).some(call=>['done','error','rejected'].includes(call.status)&&!call.feedback_sent);
+ const thinking=sess.status==='requesting_ai';
+ if(!pending&&!awaitingFeedback&&!awaitingAutoPatch&&!thinking)return;
+ const id=sess.id;
+ agentMonitorTimer=setTimeout(async()=>{
+  if(agentActive!==id||!root.classList.contains('visible'))return;
+  if(agentBusy||agentSessionBusy(id)){
+   scheduleAgentMonitor(agentCurrentSession||sess);return;
+  }
+  try{
+   if(thinking){
+    // An auto-feedback provider call may continue in another HTTP request.
+    // GET its journal while thinking; native /sync is for Patch executions.
+    await selectAgentSession(id);
+   }else{
+    const result=await syncAgentPatch(id,{quiet:true});
+    if(agentActive===id&&result&&result.revision===(agentCurrentSession?.revision)){
+     scheduleAgentMonitor(agentCurrentSession);
+    }
+   }
+  }catch(error){
+   status.textContent='Native Patch polling failed: '+String(error?.message||error);
+   agentMonitorTimer=setTimeout(()=>scheduleAgentMonitor(agentCurrentSession||sess),5000);
+  }
+ },2800);
+}
+async function createSession(){
+ if(agentBusy)return;
+ if(!providerSelect.value||!modelSelect.value)throw new Error('Configure provider, API key and model before creating a session.');
+ const result=await agentApp.jsonFetch('/api/agent/sessions',{method:'POST',headers:{'Content-Type':'application/json'},
+  body:JSON.stringify({provider_id:providerSelect.value,model_id:modelSelect.value,mode:modeSelect.value,
+   reasoning_effort:effortSelect.value})});
+ await loadAgentSessions();
+ await selectAgentSession(result.session.id);
+ prompt.focus();
+ if(agentPendingAttachments.length){const pending=agentPendingAttachments.slice();try{const merged=normalizeStagedAttachments([...agentAttachments,...pending]);agentAttachments=merged;agentAttachmentDrafts.set(result.session.id,merged.map(a=>({...a})));agentPendingAttachments.splice(0,pending.length);renderAgentAttachments();}catch(error){status.textContent='Pending attachments need room in this session: '+String(error?.message||error);}}
+}
+async function sendAgentMessage(){
+ if(!agentActive)throw new Error('Create a session first.');
+ if(agentSessionBusy(agentActive))return;
+ const sessionID=agentActive;
+ const msg=prompt.value.trim();
+ const attachments=(agentAttachments||[]).map(a=>({...a}));
+ const wireAttachments=attachments.map(({name,mime,text})=>({name,mime,text}));
+ if(!msg)throw new Error('Enter a message.');
+ const old=agentLiveTurns.get(sessionID);
+ if(old?.optimisticNode&&old.error)old.optimisticNode.remove();
+ // Render the user's message synchronously, before session preflight, provider
+ // egress, or any await. Only one ephemeral status row follows it.
+ const turn={
+  message:msg,phase:'sending',error:'',
+  baseHistoryLength:agentCurrentSession?.history?.length||0,
+  baseEventSeq:agentCurrentSession?.event_seq||0,
+  optimisticNode:agentRich.renderMessage('user optimistic',msg,showAgentError),
+  acknowledged:false,
+ };
+ agentLiveTurns.set(sessionID,turn);
+ if(agentLiveRow.parentElement)agentLiveRow.remove();
+ transcript.append(turn.optimisticNode);
+ agentUpdateLiveRow(agentCurrentSession||{id:sessionID,status:'created',history:[],events:[]});
+ // Sending is an explicit user action; show the message and sending status.
+ agentScrollToLatest(sessionID);
+ prompt.value='';
+ agentDrafts.set(sessionID,'');
+ // Sending is explicit authorization to contact the configured provider.
+ // Never block the optimistic append on a redundant confirmation dialog.
+ agentBusy=true;markAgentSessionBusy(sessionID,true);
+ agentAbort=new AbortController();
+ agentStartProgressPoll(sessionID);
+ try{
+  const s=agentCurrentSession?.id===sessionID?agentCurrentSession:await selectAgentSession(sessionID);
+  if(!s||agentActive!==sessionID)throw new Error('Conversation changed before the message could be submitted.');
+  const requestFingerprint=JSON.stringify({message:msg,attachments:wireAttachments});
+  let request=agentRequestIDs.get(sessionID);
+  if(!request||request.fingerprint!==requestFingerprint){
+   request={id:'ui-'+sessionID+'-'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2,8),fingerprint:requestFingerprint};
+   agentRequestIDs.set(sessionID,request);
+  }
+  const requestID=request.id;
+  const response=await agentApp.jsonFetch('/api/agent/sessions/'+encodeURIComponent(sessionID)+'/messages',{
+   method:'POST',headers:{'Content-Type':'application/json'},
+   body:JSON.stringify({message:msg,confirm_external:true,expected_revision:s.revision,
+    request_id:requestID,attachments:wireAttachments}),
+   signal:agentAbort.signal
+  });
+  agentRequestIDs.delete(sessionID);
+  agentAttachmentDrafts.delete(sessionID);
+  if(agentActive===sessionID){
+   if(!prompt.value)agentDrafts.delete(sessionID);
+   agentAttachments=[];
+   renderAgentAttachments();
+   await selectAgentSession(sessionID);
+  }
+  turn.acknowledged=true;
+  // Tool proposals, model messages and verified output are already persisted
+  // in canonical history. Only the transient progress line is discarded.
+  agentLiveTurns.delete(sessionID);
+  if(agentActive===sessionID&&agentCurrentSession)agentUpdateLiveRow(agentCurrentSession);
+  return response;
+ }catch(error){
+  turn.error=String(error?.message||error).slice(0,450);
+  if(turn.optimisticNode)turn.optimisticNode.textContent=msg+'\n(Not confirmed sent)';
+  agentAttachmentDrafts.set(sessionID,attachments);
+  if(agentActive===sessionID){
+   if(!prompt.value.trim())prompt.value=msg;
+   agentDrafts.set(sessionID,prompt.value);
+   agentAttachments=attachments.map(a=>({...a}));
+   renderAgentAttachments();
+   // A timeout may have persisted the user turn; reconcile with the
+   // authoritative journal instead of assuming it was not delivered.
+   try{await selectAgentSession(sessionID);}
+   catch{}
+   if(agentCurrentSession?.id===sessionID)agentUpdateLiveRow(agentCurrentSession);
+  }
+  throw error;
+ }finally{
+  agentStopProgressPoll(sessionID);
+  agentAbort=null;agentBusy=false;markAgentSessionBusy(sessionID,false);
+ }
+}
+function safeAttachmentMetadata(value){return String(value??'').replace(/[\r\n\0]/g,' ').trim();}
+function attachmentByteLength(text){return new TextEncoder().encode(text).length;}
+function normalizeStagedAttachments(items){
+ if(!Array.isArray(items))throw new Error('Attachments must be an array.');
+ if(items.length>agentMaxAttachmentCount)throw new Error('At most 4 attachments are allowed per session.');
+ let total=0;
+ return items.map(item=>{
+  if(!item||typeof item.text!=='string'||item.text.includes('\0')||!globalThis.TextEncoder)throw new Error('Attachment must contain valid UTF-8 text.');
+  const name=safeAttachmentMetadata(item.name)||'attachment.txt';
+  if(name.length>120)throw new Error('Attachment name is too long.');
+  let mime=String(item.mime||'text/plain').toLowerCase().trim();
+  if(!(mime.startsWith('text/')||mime==='application/json'))throw new Error('Only text and JSON attachments are supported.');
+  const text=typeof item.rawText==='string'?item.rawText:item.text,bytes=attachmentByteLength(text);
+  try{if(new TextDecoder('utf-8',{fatal:true}).decode(new TextEncoder().encode(text))!==text)throw new Error();}catch{throw new Error(name+' is not valid UTF-8 text.');}
+  if(bytes>agentMaxAttachmentBytes)throw new Error(name+' is '+bytes+' bytes; the per-file limit is 32 KiB. Select a smaller range.');
+  const source=item.source&&typeof item.source==='object'?{...item.source}:{};
+  const kind=['file','file_selection','terminal_console','terminal_selection'].includes(item.kind)?item.kind:(source.kind||'file');
+  const lines=['SOURCE_TYPE: '+safeAttachmentMetadata(kind)];
+  if(source.path)lines.push('FILE_PATH: '+safeAttachmentMetadata(source.path));
+  if(Array.isArray(source.ranges)&&source.ranges.length>1)source.ranges.forEach((range,index)=>lines.push('RANGE '+(index+1)+': L'+range.start_line+':C'+range.start_column+'-L'+range.end_line+':C'+range.end_column));
+  else if(source.start_line!==undefined&&source.end_line!==undefined)lines.push('RANGE: L'+source.start_line+':C'+(source.start_column||1)+'-L'+source.end_line+':C'+(source.end_column||1));
+  else if(source.source_line_unavailable)lines.push('SOURCE_LINE: unavailable (rendered preview)');
+  if(source.terminal_id)lines.push('TERMINAL_ID: '+safeAttachmentMetadata(source.terminal_id));
+  if(source.terminal_title)lines.push('TERMINAL_TITLE: '+safeAttachmentMetadata(source.terminal_title));
+  if(source.cwd)lines.push('CWD: '+safeAttachmentMetadata(source.cwd));
+  if(source.content_source)lines.push('CONTENT_SOURCE: '+safeAttachmentMetadata(source.content_source));
+  if(source.dirty!==undefined)lines.push('UNSAVED_CHANGES: '+(source.dirty?'true':'false'));
+  if(source.captured_at)lines.push('CAPTURED_AT: '+safeAttachmentMetadata(source.captured_at));
+  const wrapped=lines.join('\n')+'\n\n--- ATTACHED CONTENT (UNTRUSTED) ---\n'+text;
+  const wrappedBytes=attachmentByteLength(wrapped);
+  if(wrappedBytes>agentMaxAttachmentBytes)throw new Error(name+' plus its source metadata exceeds 32 KiB; select a smaller range.');
+  total+=wrappedBytes;if(total>agentMaxAttachmentTotal)throw new Error('Attachments including source metadata total '+total+' bytes; the combined limit is 64 KiB.');
+  return {name,mime,text:wrapped,rawText:text,kind,source,quotes:Array.isArray(item.quotes)?item.quotes.map(q=>({...q})):undefined,bytes:wrappedBytes,preview:text.slice(0,300)};
+ });
+}
+function currentStagedAttachments(){return agentActive?agentAttachments:agentPendingAttachments;}
+let agentAttachmentTooltip=null,agentAttachmentPreviewIndex=0,agentAttachmentViewButtons=[];
+function closeAgentAttachmentsPopup(){
+ const wasOpen=attachPopup.classList.contains('open');
+ attachPopup.classList.remove('open');
+ attachToggle.setAttribute('aria-expanded','false');
+ agentAttachmentTooltip?.remove?.();agentAttachmentTooltip=null;
+ attachList.replaceChildren();agentAttachmentViewButtons=[];
+ attachPreview.textContent='';attachPreviewHeading.textContent='Select an attachment to view';
+ if(wasOpen&&!attachToggle.hidden)attachToggle.focus();
+}
+function toggleAgentAttachmentsPopup(open=!attachPopup.classList.contains('open')){
+ if(!open||!currentStagedAttachments().length){closeAgentAttachmentsPopup();return;}
+ if(attachPopup.classList.contains('open'))return;
+ agentAttachmentPreviewIndex=0;
+ attachPopup.classList.add('open');
+ attachToggle.setAttribute('aria-expanded','true');
+ renderAgentAttachments();
+ attachClose.focus();
+}
+function showAgentAttachmentPreview(index){
+ const item=currentStagedAttachments()[index];
+ if(!item){attachPreviewHeading.textContent='Select an attachment to view';attachPreview.textContent='';return;}
+ agentAttachmentPreviewIndex=index;
+ attachPreviewHeading.textContent=item.name+' · '+(index+1)+'/'+currentStagedAttachments().length;
+ // Show exactly the staged evidence sent to the provider, not a shortened
+ // preview or a live re-read of the file/terminal. Never parse as HTML.
+ attachPreview.textContent=item.text;
+ attachPreview.scrollTop=0;
+ for(let i=0;i<agentAttachmentViewButtons.length;i++){
+  agentAttachmentViewButtons[i].setAttribute('aria-pressed',String(i===index));
+ }
+}
+function renderAgentAttachments(){
+ const items=currentStagedAttachments();
+ attachToggle.hidden=!items.length;
+ attachToggle.textContent='Attachments ('+items.length+') '+(attachPopup.classList.contains('open')?'▾':'▸');
+ attachToggle.setAttribute('aria-label','View '+items.length+' staged attachment'+(items.length===1?'':'s'));
+ if(!attachPopup.classList.contains('open')){
+  // Closed is genuinely lazy: no per-item cards, tooltips or previews exist.
+  return;
+ }
+ if(!items.length){closeAgentAttachmentsPopup();return;}
+ agentAttachmentTooltip?.remove?.();agentAttachmentTooltip=null;
+ attachHeading.textContent='Staged attachments ('+items.length+')';
+ attachList.replaceChildren();agentAttachmentViewButtons=[];
+ items.forEach((item,index)=>{
+  const card=agentEl('div','agentchat-attachment-card');
+  const terminal=item.kind==='terminal_console'||item.kind==='terminal_selection';
+  const label=terminal?(item.source?.terminal_title||item.name):item.name;
+  const title=agentEl('div','agentchat-attachment-title',terminal?'▤':'📄');
+  title.append(agentEl('span','',label));
+  const origin=terminal?'Terminal ID: '+(item.source?.terminal_id||'unknown'):(item.source?.path||item.name);
+  const path=agentEl('div','agentchat-attachment-path',origin);
+  path.title=origin;
+  const actions=agentEl('div','agentchat-attachment-actions');
+  const details=agentButton('ⓘ',()=>{});
+  details.className='agentchat-attachment-info';
+  details.setAttribute('aria-label','Attachment details: '+label);
+  const ranges=Array.isArray(item.source?.ranges)&&item.source.ranges.length?
+   item.source.ranges.map((r,i)=>'Quote '+(i+1)+': L'+r.start_line+':C'+(r.start_column||1)+'–L'+r.end_line+':C'+(r.end_column||1)).join('\n'):
+   (item.source?.start_line!==undefined?'Lines '+item.source.start_line+'–'+item.source.end_line:'');
+  const summary=['Name: '+item.name,'Source: '+origin,item.source?.cwd?'CWD: '+item.source.cwd:'',
+   item.bytes+' bytes'+(item.source?.dirty?' · unsaved buffer':''),ranges,'Preview:',item.preview||''].filter(Boolean).join('\n');
+  details.title=summary;
+  const tip=agentEl('span','agentchat-attachment-tooltip',summary);
+  tip.setAttribute('role','tooltip');details.append(tip);
+  const showDetails=()=>{
+   if(agentAttachmentTooltip&&agentAttachmentTooltip!==tip)agentAttachmentTooltip.remove();
+   const rect=details.getBoundingClientRect?.();
+   if(!rect)return;
+   const width=Math.min(330,Math.max(175,window.innerWidth-16));
+   document.body.append(tip);tip.classList.add('visible');
+   tip.style.width=width+'px';
+   tip.style.left=Math.max(8,Math.min(rect.right-width,window.innerWidth-width-8))+'px';
+   const height=tip.offsetHeight||115;
+   tip.style.top=(rect.top-height-7>=6?rect.top-height-7:Math.min(rect.bottom+7,window.innerHeight-height-6))+'px';
+   agentAttachmentTooltip=tip;
+  };
+  const hideDetails=()=>{
+   tip.classList.remove('visible');tip.remove();
+   if(agentAttachmentTooltip===tip)agentAttachmentTooltip=null;
+  };
+  details.addEventListener('mouseenter',showDetails);
+  details.addEventListener('mouseleave',hideDetails);
+  details.addEventListener('focus',showDetails);
+  details.addEventListener('blur',hideDetails);
+  const inspect=agentButton('View',()=>showAgentAttachmentPreview(index));
+  inspect.className='agentchat-attachment-view';
+  inspect.setAttribute('aria-label','View attachment: '+label);
+  inspect.setAttribute('aria-pressed','false');
+  agentAttachmentViewButtons.push(inspect);
+  const remove=agentButton('×',()=>{
+   items.splice(index,1);
+   if(agentActive)agentAttachmentDrafts.set(agentActive,agentAttachments.map(a=>({...a})));
+   if(agentActive)agentRequestIDs.delete(agentActive);
+   else agentPendingAttachments.splice(0,agentPendingAttachments.length,...items.map(a=>({...a})));
+   renderAgentAttachments();
+  });
+  remove.className='agentchat-attachment-remove';
+  remove.title='Remove attachment';
+  remove.setAttribute('aria-label','Remove attachment: '+label);
+  actions.append(inspect,details,remove);
+  card.append(title,path,actions);attachList.append(card);
+ });
+ showAgentAttachmentPreview(Math.min(agentAttachmentPreviewIndex,items.length-1));
+}
+// Quote excerpts are immutable snapshots. Separate selections from the
+// same local file occupy one attachment and retain every individual line range.
+function quotesForContext(context){
+ if(Array.isArray(context.quotes)&&context.quotes.length)return context.quotes.map(q=>({...q}));
+ const source=context.source||{};
+ if(source.start_line===undefined)return [];
+ return [{start_line:source.start_line,start_column:source.start_column||1,
+  end_line:source.end_line,end_column:source.end_column||1,text:context.rawText??context.text}];
+}
+function stageFileSelectionQuotes(current,item){
+ if(item.kind!=='file_selection'||!item.source?.path)return [...current,item];
+ const existingIndex=current.findIndex(old=>old.kind==='file_selection' &&
+  old.source?.path===item.source.path &&
+  Boolean(old.source?.dirty)===Boolean(item.source.dirty) &&
+  old.source?.content_source===item.source.content_source);
+ const previous=existingIndex<0?[]:quotesForContext(current[existingIndex]);
+ const incoming=quotesForContext(item);
+ const all=[...previous,...incoming];
+ if(!all.length)return [...current,item];
+ const text=all.map((q,index)=>'QUOTE '+(index+1)+' · L'+q.start_line+
+  ':C'+q.start_column+'-L'+q.end_line+':C'+q.end_column+'\n'+q.text).join('\n\n');
+ const source={...item.source,start_line:all[0].start_line,start_column:all[0].start_column,
+  end_line:all[all.length-1].end_line,end_column:all[all.length-1].end_column,
+  ranges:all.map(({start_line,start_column,end_line,end_column})=>
+   ({start_line,start_column,end_line,end_column}))};
+ const merged={...item,text,rawText:text,source,quotes:all};
+ if(existingIndex<0)return [...current,merged];
+ const next=current.slice();next[existingIndex]=merged;return next;
+}
+async function stageContext(context,options={}){
+ const targetSessionID=Object.prototype.hasOwnProperty.call(options,'session_id')?(options.session_id||null):agentSelectedChatSession();
+ try{
+  if(!context||typeof context!=='object'||typeof context.text!=='string')throw new Error('Attachment context must include text.');
+  const kind=['file','file_selection','terminal_console','terminal_selection'].includes(context.kind)?context.kind:null;
+  if(!kind)throw new Error('Unsupported attachment context kind.');
+  const item={kind,name:context.name,mime:context.mime||'text/plain',text:context.text,source:context.source||{},quotes:context.quotes};
+  const current=targetSessionID?(targetSessionID===agentActive?agentAttachments:(agentAttachmentDrafts.get(targetSessionID)||[])):agentPendingAttachments;
+  const staged=normalizeStagedAttachments(stageFileSelectionQuotes(current,item));
+  current.splice(0,current.length,...staged);
+  if(targetSessionID){agentAttachmentDrafts.set(targetSessionID,staged.map(a=>({...a})));agentRequestIDs.delete(targetSessionID);}
+  if(!targetSessionID||targetSessionID===agentActive)renderAgentAttachments();
+  if(options.open!==false){
+   if(targetSessionID&&targetSessionID!==agentActive)await selectAgentSession(targetSessionID);
+   else if(agentDock.expanded){if(!agentActive)await openAgentPanel({preserveEmpty:Boolean(agentPendingAttachments.length),preserveActive:true});}
+   else await openAgentPanel({preserveEmpty:Boolean(agentPendingAttachments.length),preserveActive:true});
+  }
+  if(options.focusComposer!==false)prompt.focus();
+  const actualSession=targetSessionID||agentActive||null;
+  return {ok:true,session_id:actualSession,pending:!actualSession,attachment_count:current.length};
+ }catch(error){return {ok:false,session_id:targetSessionID,error:String(error?.message||error)};}
+}
+// Editor documents are JavaScript strings (UTF-16), not raw UTF-8 bytes.
+// TextEncoder replaces unpaired UTF-16 surrogates with U+FFFD, therefore
+// compare a strict UTF-8 round trip to reject malformed buffers without
+// rejecting ordinary PHP/JS characters, digits, Vietnamese text or emoji.
+// In particular, never use a character-class regex with double-escaped
+// \\u sequences: it treats printable ASCII as invalid input.
+function isValidUTF8Text(text){
+ if(typeof text!=='string'||text.includes('\0')||!globalThis.TextEncoder||!globalThis.TextDecoder)return false;
+ try{
+  return new TextDecoder('utf-8',{fatal:true}).decode(new TextEncoder().encode(text))===text;
+ }catch{return false;}
+}
+function editorContextActions(view,selectionSnapshot){
+ const targetSessionID=agentSelectedChatSession();
+ const actions=[{label:'Attach file to Chat',run:async options=>{const sessionID=options?.session_id??targetSessionID;const result=await stageContext(editorSourceContext(view),{open:true,...(sessionID?{session_id:sessionID}:{})});if(!result.ok)throw new Error(result.error);return result;}}];
+ const selection=selectionSnapshot||view?.cm?.state?.selection;
+ if(((selection?.ranges?.length?selection.ranges:[selection?.main])).some(range=>range&&range.from!==range.to))actions.push({label:'Add selection to chat',run:async options=>{const sessionID=options?.session_id??targetSessionID;const result=await stageContext(editorSelectionContexts(view,selection),{open:true,...(sessionID?{session_id:sessionID}:{})});if(!result.ok)throw new Error(result.error);return result;}});
+ return actions;
+}
+function openAttachContextMenu(context,event,label='Attach selection to Chat',options={}){
+ if(!context||!event)return false;
+ const targetSessionID=Object.prototype.hasOwnProperty.call(options,'session_id')?(options.session_id||null):agentSelectedChatSession();
+ event.preventDefault?.();event.stopPropagation?.();
+ attachContextMenu.replaceChildren();
+ const button=agentButton(label,()=>{
+  const run=async()=>{attachContextMenu.classList.remove('open');const result=await stageContext(context,{open:true,...(targetSessionID?{session_id:targetSessionID}:{})});if(!result.ok)throw new Error(result.error);};
+  run().catch(showAgentError);
+ });
+ attachContextMenu.append(button);attachContextMenu.classList.add('open');
+ const margin=6,x=Math.max(margin,Math.min(event.clientX,window.innerWidth-220)),y=Math.max(margin,Math.min(event.clientY,window.innerHeight-80));
+ attachContextMenu.style.left=x+'px';attachContextMenu.style.top=y+'px';
+ return true;
+}
+document.addEventListener('pointerdown',event=>{if(attachContextMenu.classList.contains('open')&&!attachContextMenu.contains(event.target))attachContextMenu.classList.remove('open');},true);
+document.addEventListener('keydown',event=>{if(event.key==='Escape'&&attachContextMenu.classList.contains('open'))attachContextMenu.classList.remove('open');});
+async function stageProjectFile(pathValue,options={}){
+ const targetSessionID=Object.prototype.hasOwnProperty.call(options,'session_id')?(options.session_id||null):agentSelectedChatSession();
+ const path=String(pathValue||'').replace(/^\.\//,'');
+ if(!path||path.startsWith('/')||path.split('/').some(part=>part==='..'))throw new Error('Project-relative file path required.');
+ const info=await agentApp.jsonFetch('/api/project/preview?path='+encodeURIComponent(path),{cache:'no-store'});
+ if(!['text','markdown'].includes(info.kind))throw new Error('This file is binary or unsupported; only text and JSON can be attached.');
+ if(Number(info.size)>agentMaxAttachmentBytes)throw new Error('File is larger than 32 KiB; select a smaller range in the editor.');
+ let text=info.kind==='markdown'&&typeof info.content==='string'?info.content:null;
+ if(text===null){
+  const file=await agentApp.jsonFetch('/api/project/file?path='+encodeURIComponent(path),{cache:'no-store'});
+  if(file.streamed||file.large_file)throw new Error('This file is windowed/large; attach a selected range from the editor instead.');
+  if(typeof file.content!=='string')throw new Error('The file API did not return a complete text file.');
+  text=file.content;
+ }
+ if(attachmentByteLength(text)>agentMaxAttachmentBytes)throw new Error('File content exceeds 32 KiB; no file truncation is performed.');
+ if(!isValidUTF8Text(text))throw new Error('File is not valid UTF-8 text and was not attached.');
+ const result=await stageContext({kind:'file',name:info.name||path.split('/').pop(),mime:info.kind==='markdown'?'text/markdown':attachmentMime(path),text,source:{path,content_source:'project_file_snapshot',dirty:false,captured_at:new Date().toISOString()}},{open:true,...(targetSessionID?{session_id:targetSessionID}:{})});
+ if(!result.ok)throw new Error(result.error);return result;
+}
+function attachmentMime(path){
+ const ext=String(path).split('.').pop().toLowerCase();
+ if(ext==='json'||ext==='ipynb')return 'application/json';
+ return ({md:'text/markdown',markdown:'text/markdown',csv:'text/csv',tsv:'text/tab-separated-values',html:'text/html',htm:'text/html',xml:'text/xml',php:'text/x-php'})[ext]||'text/plain';
+}
+function editorSourceContext(view,selectionSnapshot=null){
+ if(!view||view.closed||view.file?.remote_workspace_id||view.file?.remote_transfer_profile_id)throw new Error('Only local project editor files can be attached.');
+ if(view.file?.streamed)throw new Error('This editor is windowed; attach a selected range from a complete text viewer instead.');
+ const doc=view.cm?.state?.doc;if(!doc)throw new Error('Editor content is unavailable.');
+ const text=doc.toString();if(attachmentByteLength(text)>agentMaxAttachmentBytes)throw new Error('Editor buffer exceeds 32 KiB; select a smaller range instead.');if(!isValidUTF8Text(text))throw new Error('Editor buffer is not valid UTF-8 text.');
+ return {kind:'file',name:String(view.file.path).split(/[\\/]/).pop(),mime:attachmentMime(view.file.path),text,source:{path:view.file.path,content_source:view.dirty?'unsaved_editor_buffer':'editor_buffer',dirty:Boolean(view.dirty),captured_at:new Date().toISOString()}};
+}
+function editorSelectionContexts(view,selectionSnapshot=null){
+ if(!view||view.closed||view.file?.streamed||view.file?.remote_workspace_id||view.file?.remote_transfer_profile_id)throw new Error('Selection is unavailable for this editor.');
+ const doc=view.cm?.state?.doc,state=view.cm?.state;if(!doc||!state)throw new Error('Editor content is unavailable.');
+ const selection=selectionSnapshot||state.selection;
+ const ranges=(selection.ranges?.length?selection.ranges:[selection.main]).filter(range=>range&&range.from!==range.to);
+ if(!ranges.length)throw new Error('Select text before attaching a selection.');
+ const ordered=ranges.map(range=>({from:range.from,to:range.to})).sort((a,b)=>a.from-b.from||a.to-b.to);
+ let total=0;const pieces=[];const metadata=[];const quotes=[];
+ for(let i=0;i<ordered.length;i++){
+  const range=ordered[i],start=doc.lineAt(range.from),end=doc.lineAt(range.to);
+  const startColumn=range.from-start.from+1,endColumn=range.to-end.from+1;
+  const selected=doc.sliceString(range.from,range.to);if(!isValidUTF8Text(selected))throw new Error('Selected range is not valid UTF-8 text.');total+=attachmentByteLength(selected);
+  if(total>agentMaxAttachmentBytes)throw new Error('Selected text exceeds 32 KiB; select a smaller range.');
+  metadata.push({start_line:start.number,start_column:startColumn,end_line:end.number,end_column:endColumn});
+  quotes.push({start_line:start.number,start_column:startColumn,end_line:end.number,end_column:endColumn,text:selected});
+  pieces.push((ordered.length>1?'RANGE '+(i+1)+' · ':'')+'L'+start.number+':C'+startColumn+'-L'+end.number+':C'+endColumn+'\n'+selected);
+ }
+ const main=metadata[0],last=metadata[metadata.length-1];
+ return {kind:'file_selection',name:String(view.file.path).split(/[\\/]/).pop(),mime:attachmentMime(view.file.path),text:pieces.join('\n\n'),quotes,source:{path:view.file.path,start_line:main.start_line,start_column:main.start_column,end_line:last.end_line,end_column:last.end_column,ranges:metadata,content_source:view.dirty?'unsaved_editor_buffer':'editor_buffer',dirty:Boolean(view.dirty),captured_at:new Date().toISOString()}};
+}
+function editorSelectionContextFromBrowserSelection(view,selection){
+ if(!view||view.closed||view.file?.streamed||!selection?.toString?.().trim())throw new Error('Select text in a complete text viewer before attaching.');
+ if(view.file?.remote_workspace_id||view.file?.remote_transfer_profile_id)throw new Error('Remote file attachment is unavailable.');
+ const doc=view.cm?.state?.doc;if(!doc)throw new Error('Editor document is unavailable.');
+ let from,to;try{from=view.cm.posAtDOM?.(selection.anchorNode,selection.anchorOffset);to=view.cm.posAtDOM?.(selection.focusNode,selection.focusOffset);}catch{return null;}
+ if(!Number.isInteger(from)||!Number.isInteger(to))throw new Error('Could not map the selected viewer text to its source document.');
+ const range={from:Math.min(from,to),to:Math.max(from,to)};
+ const start=doc.lineAt(range.from),end=doc.lineAt(range.to),text=doc.sliceString(range.from,range.to);
+ if(!text.trim()||text!==String(selection.toString()))throw new Error('Could not accurately map the selected text to source positions.');
+ const quote={start_line:start.number,start_column:range.from-start.from+1,end_line:end.number,end_column:range.to-end.from+1,text};
+ return {kind:'file_selection',name:String(view.file.path).split(/[\\/]/).pop(),mime:attachmentMime(view.file.path),text,quotes:[quote],source:{path:view.file.path,start_line:start.number,start_column:range.from-start.from+1,end_line:end.number,end_column:range.to-end.from+1,content_source:'readonly_editor_view',dirty:Boolean(view.dirty),captured_at:new Date().toISOString()}};
+}
+function pickAgentAttachment(targetSessionID=agentSelectedChatSession()){
+ const input=document.createElement('input');
+ input.type='file';input.accept='.txt,.md,.json,.log,.csv,.yaml,.yml,.ini,.sql,.py,.js,.ts,.go,.sh,.c,.h,.cpp,.java,.rb,.php,.html,.css,.xml';
+ input.onchange=async()=>{
+  const file=input.files&&input.files[0];if(!file)return;
+  if(file.size>agentMaxAttachmentBytes){showAgentError(new Error('Attachment is over 32 KiB; choose a smaller text file or attach a selection.'));return;}
+  try{
+   const bytes=await file.arrayBuffer();let text;
+   try{text=new TextDecoder('utf-8',{fatal:true}).decode(bytes);}catch{throw new Error('File is binary or not valid UTF-8 text.');}
+   if(!isValidUTF8Text(text))throw new Error('File is not valid UTF-8 text.');
+   const result=await stageContext({kind:'file',name:file.name,mime:attachmentMime(file.name),text,source:{content_source:'local_file_snapshot',dirty:false,captured_at:new Date().toISOString()}},{open:false,...(targetSessionID?{session_id:targetSessionID}:{})});
+   if(!result.ok)throw new Error(result.error);
+  }catch(error){showAgentError(error);}
+ };
+ input.click();
+}
+function renderAgentAutomationControls(session){
+ const exists=Boolean(session);
+ rename.disabled=!exists;archive.disabled=!exists;deleteChat.disabled=!exists||agentConversationUnresolved(session);
+ autoPatch.disabled=!exists;autoCollection.disabled=!exists;autoFeedback.disabled=!exists;
+ aiRetry.disabled=!exists;
+ const retryMode=session?.retry_mode||'off';
+ aiRetry.textContent=retryMode==='unlimited'?'AI retry: UNLIMITED (10s)':
+  retryMode==='limited'?'AI retry: 5 retries (10s)':'AI retry: OFF';
+ aiRetry.setAttribute('aria-label','Choose AI retry mode. Current: '+retryMode);
+ for(const [mode,button] of retryOptionButtons){
+  button.setAttribute('aria-checked',String(mode===retryMode));
+  button.disabled=!exists;
+ }
+ if(!exists)toggleAgentRetryMenu(false);
+ autoPatch.textContent='Auto apply Patch: '+(session?.auto_patch?'ON':'OFF');
+ autoPatch.setAttribute('aria-pressed',String(Boolean(session?.auto_patch)));
+ autoCollection.textContent='Auto Collection: '+(session?.auto_collection===false?'OFF':'ON');
+ autoCollection.setAttribute('aria-pressed',String(session?.auto_collection!==false));
+ const feedbackActive=Boolean(session?.auto_feedback)&&
+  (!session?.auto_feedback_until || Date.parse(session.auto_feedback_until)>Date.now());
+ autoFeedback.textContent='Auto-send results: '+(feedbackActive?'ON':'OFF');
+ autoFeedback.setAttribute('aria-pressed',String(feedbackActive));
+}
+async function toggleAgentAutomation(option){
+ if(!agentActive)throw new Error('Select a conversation first.');
+ const session=await selectAgentSession(agentActive);
+ if(!session||agentSessionBusy(session.id))throw new Error('Conversation is busy.');
+ const current=option==='patch'?Boolean(session.auto_patch):
+  option==='collection'?session.auto_collection!==false:
+  Boolean(session.auto_feedback) && (!session.auto_feedback_until || Date.parse(session.auto_feedback_until)>Date.now());
+ const enabled=!current;
+ const result=await agentApp.jsonFetch('/api/agent/sessions/'+encodeURIComponent(session.id)+'/automation',{
+  method:'POST',headers:{'Content-Type':'application/json'},
+  body:JSON.stringify({option,enabled,expected_revision:session.revision,
+   confirm_execution:option==='patch'&&enabled,
+   confirm_external:option==='feedback'&&enabled}),
+ });
+ const latest=await selectAgentSession(session.id);
+ renderAgentAutomationControls(latest||result.session);
+ status.textContent=(option==='patch'?'Automatic native Patch approval':
+  option==='collection'?'Read-only Collection':'Automatic provider feedback')+
+  (enabled?' enabled for this conversation.':' disabled for this conversation.')+
+  (option==='feedback'&&enabled?' Enabled until you turn it off.':'');
+}
+function toggleAgentRetryMenu(force){
+ const open=Boolean(agentActive)&&!aiRetry.disabled&&
+  (force===undefined?!retryMenu.classList.contains('open'):Boolean(force));
+ retryMenu.classList.toggle('open',open);
+ aiRetry.setAttribute('aria-expanded',String(open));
+}
+async function setAgentRetryMode(mode){
+ if(!['off','limited','unlimited'].includes(mode))throw new Error('Unknown AI retry mode');
+ if(!agentActive)throw new Error('Select a conversation first.');
+ const session=await selectAgentSession(agentActive);
+ if(!session||agentSessionBusy(session.id)||session.status==='requesting_ai')
+  throw new Error('Conversation is busy. Press Stop to end the active retry first.');
+ if((session.retry_mode||'off')===mode)return;
+ if(mode!=='off'&&!window.confirm(
+  'Enable '+(mode==='limited'?'up to 5 provider retries':'unlimited provider retries')+
+  ' with 10 seconds between failures? Transient provider requests may have been processed upstream and repeated inference may be billed. Native Patch is never automatically rerun. Use Stop request to cancel.'))
+  return;
+ const result=await agentApp.jsonFetch('/api/agent/sessions/'+encodeURIComponent(session.id)+'/retry',{
+  method:'POST',headers:{'Content-Type':'application/json'},
+  body:JSON.stringify({mode,expected_revision:session.revision,confirm_external:mode!=='off'}),
+ });
+ const latest=await selectAgentSession(session.id);
+ renderAgentAutomationControls(latest||result.session);
+ status.textContent='AI provider retry: '+(mode==='off'?'OFF':mode==='limited'?'up to 5 retries every 10s':'unlimited every 10s until Stop')+'.';
+}
+async function toggleAutoFeedback(){return toggleAgentAutomation('feedback');}
+function openTaskManifestPreview(){planOverlay.classList.add('visible');}
+function downloadTaskManifest(){
+ if(!lastValidatedManifest||!lastValidatedManifest.valid)return;
+ const blob=new Blob([JSON.stringify(lastValidatedManifest,null,2)],{type:'application/json'});
+ const link=document.createElement('a');
+ link.href=URL.createObjectURL(blob);link.download=(String(lastValidatedManifest.name||'task-manifest').replace(/[^a-zA-Z0-9._-]+/g,'-')+'.json');
+ link.click();setTimeout(()=>URL.revokeObjectURL(link.href),0);
+}
+let lastValidatedManifest=null;
+async function validateTaskManifest(){
+ const input=planInput.value;
+ const format=planFormat.value;
+ planOutput.replaceChildren(agentEl('p','agentchat-info','Validating locally via TaskDeck (no AI/provider call)…'));
+ const payload=format==='canonical_json'?{format,canonical_json:input}:{format,markdown:input};
+ const data=await agentApp.jsonFetch('/api/agent/task-manifests/validate',{
+  method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload),
+ });
+ const manifest=data.manifest||{};
+ lastValidatedManifest=manifest;
+ savePlan.disabled=!manifest.valid;
+ const summary=agentEl('p','agentchat-info',
+  (manifest.valid?'VALID':'INVALID')+' · '+String(manifest.tasks?.length||0)+' tasks · '+
+  String(manifest.graph?.roots?.length||0)+' roots · '+String(manifest.graph?.blocked?.length||0)+' dependency-blocked · Planning only');
+ planOutput.replaceChildren(summary);
+ const rows=agentEl('div','agentchat-info');
+ for(const task of (manifest.tasks||[])){
+  const deps=(task.dependencies||[]).length?(task.dependencies||[]).join(', '):'None';
+  const acceptance=(task.acceptance_criteria||[]).map(x=>'  • '+x).join('\n');
+  rows.append(agentEl('pre','agentchat-tool-summary',task.id+' — '+task.title+'\nDepends on: '+deps+'\n'+acceptance));
+ }
+ planOutput.append(rows);
+ const order=manifest.graph?.topological_order;
+ if(order)planOutput.append(agentEl('p','agentchat-info','Topological preview: '+order.join(' → ')));
+ for(const issue of (manifest.issues||[])){
+  planOutput.append(agentEl('p','agentchat-tool-summary',(issue.warning?'Warning':'Error')+(issue.line?' · line '+issue.line:'')+' · '+issue.code+': '+issue.message));
+ }
+}
+async function previewAgentContext(){
+ if(!agentActive)return;
+ const id=agentActive;
+ const data=await agentApp.jsonFetch('/api/agent/sessions/'+encodeURIComponent(id)+'/pack-preview');
+ // Do not attach an asynchronous preview to a different conversation.
+ if(agentActive!==id)return;
+ const box=agentEl('div','agentchat-bubble tool');
+ const header=agentEl('div','agentchat-preview-header');
+ const closePreview=agentButton('×',()=>box.remove());
+ closePreview.className='agentchat-preview-close';
+ closePreview.title='Close AI Pack preview';
+ closePreview.setAttribute('aria-label','Close AI Pack preview');
+ header.append(agentEl('strong','','AI Pack preview · no request sent'),closePreview);
+ box.append(header);
+ box.append(agentEl('p','agentchat-tool-summary',
+  'Fingerprint '+String(data.fingerprint||'?')+' · '+String(data.pack_bytes||0)+' bytes · redaction '+String(data.redaction||'best_effort')+
+  (data.oversize?' · OVERSIZE (the first send will be refused)':'')));
+ box.append(agentEl('pre','agentchat-tool-code',String(data.preview||'')));
+ transcript.append(box);transcript.scrollTop=transcript.scrollHeight;
+ status.textContent=data.note||'Preview only.';
+}
+async function cancelAgentTurn(){
+ if(!agentActive)return;
+ const id=agentActive;
+ try{
+  const result=await agentApp.jsonFetch('/api/agent/sessions/'+encodeURIComponent(id)+'/cancel',{
+   method:'POST',headers:{'Content-Type':'application/json'},body:'{}',
+  });
+  status.textContent=result.note||(result.cancelled?'Request cancelled.':'Nothing to cancel.');
+  // A server-side cancel is authoritative; the browser abort only stops the
+  // local fetch from lingering.
+  try{agentAbort?.abort();}catch{}
+  await selectAgentSession(id);
+ }catch(error){
+  status.textContent='Cancel request failed: '+String(error?.message||error);
+  throw error;
+ }
+}
+async function deleteAgentSession(id){
+ if(!id)return;
+ const data=await agentApp.jsonFetch('/api/agent/sessions/'+encodeURIComponent(id));
+ const sess=data.session;
+ if(!sess)throw new Error('Conversation not found.');
+ if(!window.confirm('Permanently delete conversation "'+(sess.title||sess.model_id||id.slice(0,8))+'"? This deletes its local chat history and cannot be undone. Running Patch executions cannot be deleted.'))return;
+ await agentApp.jsonFetch('/api/agent/sessions/'+encodeURIComponent(id),{
+  method:'DELETE',headers:{'Content-Type':'application/json'},
+  body:JSON.stringify({expected_revision:sess.revision}),
+ });
+ agentTabs=agentTabs.filter(x=>x!==id);
+ agentDrafts.delete(id);agentAttachmentDrafts.delete(id);agentRequestIDs.delete(id);
+ for(const key of [...agentOpenReviewDetails])if(key.startsWith(id+':'))agentOpenReviewDetails.delete(key);
+ if(agentActive===id){
+  agentActive=null;agentCurrentSession=null;
+  agentExecutionPanel.classList.remove('visible');agentExecutionTarget=null;
+  agentRenderedSessionID=null;agentRenderedHistory=[];agentRenderedNodes=[];agentRenderedToolVersions.clear();
+  prompt.value='';agentAttachments=[];renderAgentAttachments();
+ }
+ toggleAgentSessions(false);
+ await loadAgentSessions();
+ if(agentActive)await selectAgentSession(agentActive);
+ else if(agentTabs.length)await selectAgentSession(agentTabs[agentTabs.length-1]);
+ else if(agentSessions.length)await selectAgentSession(agentSessions[0].id);
+ else {displayAgentSession(null);renderAgentAutomationControls(null);}
+ status.textContent='Conversation deleted.';
+}
+async function renameAgentSession(){
+ if(!agentActive)return;
+ const session=await selectAgentSession(agentActive);
+ const next=window.prompt('Session title',session.title||'');
+ if(next===null)return;
+ const result=await agentApp.jsonFetch('/api/agent/sessions/'+encodeURIComponent(session.id)+'/metadata',{
+  method:'PATCH',headers:{'Content-Type':'application/json'},
+  body:JSON.stringify({title:String(next),expected_revision:session.revision}),
+ });
+ await loadAgentSessions();
+ await selectAgentSession(result.session.id);
+}
+async function archiveAgentSession(){
+ if(!agentActive)return;
+ const session=await selectAgentSession(agentActive);
+ const restore=Boolean(session.archived);
+ if(!window.confirm(restore?'Restore this archived session?':'Archive this session? Unresolved patch calls must be reconciled first.'))return;
+ const result=await agentApp.jsonFetch('/api/agent/sessions/'+encodeURIComponent(session.id)+'/metadata',{
+  method:'PATCH',headers:{'Content-Type':'application/json'},
+  body:JSON.stringify({archived:!restore,expected_revision:session.revision}),
+ });
+ await loadAgentSessions();
+ await selectAgentSession(result.session.id);
+}
+async function loadAgentState(options={}){
+ await loadAgentProviders();await loadAgentSessions();
+ if(agentActive&&agentSessions.some(s=>s.id===agentActive))await selectAgentSession(agentActive);
+ else if(agentSessions.length&&!options.preserveEmpty)await selectAgentSession(agentSessions[0].id);
+ else displayAgentSession(null);
+ renderAgentAttachments();
+}
+function agentDockKey(){
+ const workspace=String(agentApp.taskData?.workspace||'').trim()||'default';
+ return 'vscode-tasks-menu:agent-chat-dock:v1:'+workspace;
+}
+function saveAgentDock(){
+ try{localStorage.setItem(agentDockKey(),JSON.stringify({position:agentDock.position,autoHide:agentDock.autoHide,expanded:agentDock.expanded,rightWidth:agentDock.rightWidth,bottomHeight:agentDock.bottomHeight}));}catch{}
+}
+function applyAgentDock(){
+ const section=root.parentElement;
+ if(!section?.classList?.contains('task-agent-dock-section'))return;
+ section.classList.toggle('agent-dock-right',agentDock.position==='right');
+ section.classList.toggle('agent-dock-bottom',agentDock.position==='bottom');
+ section.classList.toggle('agent-dock-collapsed',!agentDock.expanded);
+ section.classList.toggle('agent-dock-floating',agentDock.autoHide&&agentDock.expanded);
+ section.classList.toggle('agent-dock-responsive',agentDock.expanded&&(agentDock.position==='right'?section.clientWidth<640:section.clientHeight<440));
+ const size=agentDock.position==='right'?agentDock.rightWidth:agentDock.bottomHeight;
+ section.style.setProperty('--agent-dock-size',size+'px');
+ root.classList.toggle('visible',agentDock.expanded);
+ agentStrip.setAttribute('aria-expanded',String(agentDock.expanded));
+ dockPositionButton.textContent=agentDock.position==='right'?'Bottom':'Right';
+ dockPositionButton.setAttribute('aria-label','Move Agent Chat to '+(agentDock.position==='right'?'bottom':'right'));
+ autoHideButton.textContent=agentDock.autoHide?'Pin':'Auto Hide';
+ autoHideButton.setAttribute('aria-label',agentDock.autoHide?'Pin Agent Chat':'Enable Agent Chat auto hide');
+ dockResizer.setAttribute('aria-orientation',agentDock.position==='right'?'vertical':'horizontal');
+ if(agentDock.position==='right')dockResizer.setAttribute('aria-label','Resize Agent Chat width');
+ else dockResizer.setAttribute('aria-label','Resize Agent Chat height');
+}
+function mountAgentDock(){
+ if(typeof document.querySelector!=='function'){document.body.append(root);return;}
+ const section=document.querySelector('main>section'),tabs=document.querySelector('#tabs'),panes=document.querySelector('#panes');
+ if(!section||!tabs||!panes){document.body.append(root);return;}
+ const content=agentEl('div','task-agent-content');
+ section.classList.add('task-agent-dock-section');
+ content.append(tabs,panes);section.append(content,dockResizer,root,agentStrip);
+ let restored=null;
+ try{restored=JSON.parse(localStorage.getItem(agentDockKey())||'null');}catch{}
+ if(restored&&typeof restored==='object'){
+  agentDock.position=restored.position==='bottom'?'bottom':'right';
+  agentDock.autoHide=Boolean(restored.autoHide);
+  agentDock.expanded=Boolean(restored.expanded);
+  agentDock.rightWidth=clampDockSize(restored.rightWidth,'right');
+  agentDock.bottomHeight=clampDockSize(restored.bottomHeight,'bottom');
+ }
+ if(agentApp.layoutProfile==='mobile')agentDock.autoHide=true;
+ if(typeof ResizeObserver==='function'){
+  let lastSize='';
+  agentDock.observer=new ResizeObserver(()=>{
+   const size=section.clientWidth+':'+section.clientHeight+':'+heading.clientWidth;
+   if(size===lastSize)return;
+   lastSize=size;
+   applyAgentDock();rebalanceAgentToolbar();
+  });
+  agentDock.observer.observe(heading);agentDock.observer.observe(section);
+ }
+ rebalanceAgentToolbar();applyAgentDock();
+}
+function clampDockSize(value,position){
+ const n=Number(value)||(position==='right'?420:320);
+ if(position==='right')return Math.round(Math.max(300,Math.min(n,Math.min(window.innerWidth*.65,Math.max(300,window.innerWidth-360)))));
+ return Math.round(Math.max(190,Math.min(n,Math.max(190,window.innerHeight*.65))));
+}
+function rebalanceAgentToolbar(){
+ if(!toolbarActions.isConnected&&root.parentElement?.classList?.contains('task-agent-dock-section')===false)return;
+ // Always restore the groups before measuring: a previous resize may have
+ // moved them into More. Do not reserve space for More unless it is needed.
+ for(const group of agentToolbarItems)toolbarActions.append(group);
+ moreMenu.classList.remove('open');
+ moreButton.setAttribute('aria-expanded','false');
+ moreButton.hidden=true;
+ const space=heading.clientWidth||0;
+ if(!space)return;
+ const available=Math.max(0,space-close.offsetWidth-title.offsetWidth-24);
+ if(toolbarActions.scrollWidth>available){
+  moreButton.hidden=false;
+  const withMore=Math.max(0,available-moreButton.offsetWidth);
+  while(toolbarActions.scrollWidth>withMore && toolbarActions.children.length){
+   const last=toolbarActions.lastElementChild||toolbarActions.children[toolbarActions.children.length-1];
+   if(!last)break;
+   moreMenu.prepend(last);
+  }
+ }
+ // Never leave an inert ellipsis on the title bar.
+ moreButton.hidden=moreMenu.children.length===0;
+}
+function toggleAgentMore(force){
+ if(!moreMenu.children.length){
+  moreMenu.classList.remove('open');
+  moreButton.hidden=true;
+  moreButton.setAttribute('aria-expanded','false');
+  return;
+ }
+ const open=force===undefined?!moreMenu.classList.contains('open'):Boolean(force);
+ moreMenu.classList.toggle('open',open);moreButton.setAttribute('aria-expanded',String(open));
+ if(open)moreMenu.querySelector('button')?.focus();else moreButton.focus();
+}
+function toggleAgentSessions(force){
+ const open=force===undefined?!sessionList.classList.contains('open'):Boolean(force);
+ if(open)toggleAgentConfigMenu(false);
+ sessionList.classList.toggle('open',open);sessionMenuButton.setAttribute('aria-expanded',String(open));
+}
+function setAgentDockPosition(position){
+ if(position!=='right'&&position!=='bottom')return;
+ agentDock.position=position;
+ applyAgentDock();saveAgentDock();
+ window.dispatchEvent(new Event('resize'));
+}
+function setAgentDockAutoHide(enabled){agentDock.autoHide=Boolean(enabled);applyAgentDock();saveAgentDock();}
+function resizeAgentDock(event){
+ if(event.button!==0)return;
+ const start=agentDock.position==='right'?event.clientX:event.clientY;
+ const initial=agentDock.position==='right'?agentDock.rightWidth:agentDock.bottomHeight;
+ dockResizer.setPointerCapture?.(event.pointerId);event.preventDefault();
+ const move=e=>{
+  const delta=agentDock.position==='right'?start-e.clientX:start-e.clientY;
+  const size=clampDockSize(initial+delta,agentDock.position);
+  if(agentDock.position==='right')agentDock.rightWidth=size;else agentDock.bottomHeight=size;
+  applyAgentDock();
+ };
+ const done=e=>{
+  dockResizer.removeEventListener('pointermove',move);dockResizer.removeEventListener('pointerup',done);dockResizer.removeEventListener('pointercancel',done);
+  try{dockResizer.releasePointerCapture?.(e.pointerId);}catch{}
+  saveAgentDock();window.dispatchEvent(new Event('resize'));
+ };
+ dockResizer.addEventListener('pointermove',move);dockResizer.addEventListener('pointerup',done);dockResizer.addEventListener('pointercancel',done);
+}
+dockResizer.addEventListener('pointerdown',resizeAgentDock);
+dockResizer.addEventListener('keydown',event=>{
+ const step=event.shiftKey?25:10;let next=agentDock.position==='right'?agentDock.rightWidth:agentDock.bottomHeight;
+ if(event.key==='Home')next=agentDock.position==='right'?300:190;
+ else if(event.key==='End')next=agentDock.position==='right'?window.innerWidth*.65:window.innerHeight*.65;
+ else if(agentDock.position==='right'&&event.key==='ArrowLeft')next-=step;
+ else if(agentDock.position==='right'&&event.key==='ArrowRight')next+=step;
+ else if(agentDock.position==='bottom'&&event.key==='ArrowUp')next-=step;
+ else if(agentDock.position==='bottom'&&event.key==='ArrowDown')next+=step;
+ else return;
+ event.preventDefault();if(agentDock.position==='right')agentDock.rightWidth=clampDockSize(next,'right');else agentDock.bottomHeight=clampDockSize(next,'bottom');applyAgentDock();saveAgentDock();
+});
+moreMenu.addEventListener('click',event=>{
+ event.stopPropagation();
+ if(retryMenu.contains(event.target))return;
+ if(event.target.closest('button')){
+  toggleAgentRetryMenu(false);
+  moreMenu.classList.remove('open');moreButton.setAttribute('aria-expanded','false');
+ }
+});
+for(const overlay of [settingsOverlay,planOverlay])overlay.addEventListener('pointerdown',event=>event.stopPropagation());
+document.addEventListener?.('pointerdown',event=>{
+ for(const group of agentHeaderGroups){
+  if(group.open&&!group.contains(event.target)){
+   group.open=false;
+   group.children[0].setAttribute('aria-expanded','false');
+   if(group===automationGroup)toggleAgentRetryMenu(false);
+  }
+ }
+ if(sessionList.classList.contains('open')&&!sessionMenu.contains(event.target))toggleAgentSessions(false);
+ if(agentConfigMenu.classList.contains('open')&&!agentConfigMenu.contains(event.target))toggleAgentConfigMenu(false);
+ if(moreMenu.classList.contains('open')&&!moreMenu.contains(event.target)&&!moreButton.contains(event.target)){
+  moreMenu.classList.remove('open');moreButton.setAttribute('aria-expanded','false');
+ }
+ if(!agentDock.expanded||!agentDock.autoHide)return;
+ if(root.contains(event.target)||agentStrip.contains(event.target)||moreMenu.contains(event.target)||settingsOverlay.contains(event.target)||planOverlay.contains(event.target)||dockResizer.contains(event.target))return;
+ agentDock.expanded=false;applyAgentDock();saveAgentDock();
+},true);
+window.addEventListener('resize',()=>{agentDock.rightWidth=clampDockSize(agentDock.rightWidth,'right');agentDock.bottomHeight=clampDockSize(agentDock.bottomHeight,'bottom');applyAgentDock();rebalanceAgentToolbar();});
+function setAgentDebugView(view){
+ agentDebugView=view==='debug'?'debug':'chat';
+ layout.style.display=agentDebugView==='chat'?'flex':'none';
+ debugPanel.classList.toggle('visible',agentDebugView==='debug');
+ chatViewButton.setAttribute('aria-selected',String(agentDebugView==='chat'));
+ debugViewButton.setAttribute('aria-selected',String(agentDebugView==='debug'));
+ if(agentDebugView==='debug')loadAgentDebugReport().catch(showAgentError);
+}
+// This is the only debug data source. It combines recent provider traces with
+// durable Agent journal entries, even if the previous debug toggle was OFF.
+async function loadAgentDebugReport(){
+ if(agentDebugFetchInFlight)return agentDebugFetchInFlight;
+ debugCopy.disabled=true;
+ agentDebugFetchInFlight=(async()=>{
+  try{
+   const data=await agentApp.jsonFetch('/api/agent/debug/report');
+   const bundle={...data,browser:{
+    session_id:agentActive||null,
+    current_conversation_status:agentCurrentSession?.status||null,
+    local_time:new Date().toString(),
+    captured_client_errors:agentDebugClientErrors.slice(),
+   }};
+   agentDebugLog=JSON.stringify(bundle,null,2);
+   const traces=Array.isArray(data.provider_traces)?data.provider_traces.length:0;
+   const sessions=Array.isArray(data.sessions)?data.sessions.length:0;
+   debugStateLabel.textContent='Automatic safe capture · '+traces+' provider trace(s) · '+sessions+' saved conversation(s)';
+  }catch(error){
+   // Even if the diagnostic endpoint itself fails, Copy log must yield a
+   // useful support artifact describing that failure and recent browser errors.
+   agentDebugLog=JSON.stringify({
+    format:'taskdeck.agent.debug.report.unavailable.v1',
+    generated_at:new Date().toISOString(),
+    report_error:String(error?.message||error),
+    browser_errors:agentDebugClientErrors.slice(),
+    session_id:agentActive||null,
+   },null,2);
+   debugStateLabel.textContent='Server log unavailable · browser diagnostic ready';
+  }
+  debugOutput.textContent=agentDebugLog;
+  debugCopy.disabled=false;
+  return agentDebugLog;
+ })();
+ try{return await agentDebugFetchInFlight;}
+ finally{agentDebugFetchInFlight=null;}
+}
+async function copyAgentDebug(){
+ // Firefox and other browsers can expire transient user activation during
+ // await fetch(). The report is prefetched upon opening AI Debug, and the
+ // clipboard operation begins synchronously inside the actual click handler.
+ if(!navigator.clipboard?.writeText)throw new Error('Clipboard API unavailable. Check browser clipboard permissions and HTTPS/localhost.');
+ if(!agentDebugLog)throw new Error('AI Debug log is still loading.');
+ const content=agentDebugLog;
+ await navigator.clipboard.writeText(content);
+ debugStateLabel.textContent='Log copied · '+content.length+' characters · safe metadata';
+}
+async function openAgentPanel(options={}){
+ agentDock.expanded=true;applyAgentDock();saveAgentDock();
+ await loadAgentState({preserveEmpty:Boolean((options.preserveEmpty||options.preserveActive)&&agentPendingAttachments.length)});
+ if(agentDebugView==='debug')await loadAgentDebugReport();
+ return true;
+}
+function closeAgentPanel(){closeAgentAttachmentsPopup();agentDock.expanded=false;toggleAgentMore(false);applyAgentDock();saveAgentDock();}
+root.addEventListener('click',e=>e.stopPropagation());
+settingsOverlay.addEventListener('click',e=>{if(e.target===settingsOverlay)settingsOverlay.classList.remove('visible');});
+window.addEventListener('keydown',e=>{
+ if(e.key!=='Escape')return;
+ if(attachPopup.classList.contains('open')){e.preventDefault();closeAgentAttachmentsPopup();}
+ else if(agentHeaderGroups.some(group=>group.open)){
+  e.preventDefault();for(const group of agentHeaderGroups){
+   group.open=false;
+   group.children[0].setAttribute('aria-expanded','false');
+  }
+ }
+ else if(agentConfigMenu.classList.contains('open')){e.preventDefault();toggleAgentConfigMenu(false);agentConfigButton.focus();}
+ else if(sessionList.classList.contains('open')){e.preventDefault();toggleAgentSessions(false);sessionMenuButton.focus();}
+ else if(moreMenu.classList.contains('open')){e.preventDefault();toggleAgentMore(false);}
+ else if(planOverlay.classList.contains('visible'))planOverlay.classList.remove('visible');
+ else if(settingsOverlay.classList.contains('visible'))settingsOverlay.classList.remove('visible');
+ else if(agentDock.expanded&&agentDock.autoHide){e.preventDefault();closeAgentPanel();}
+});
+globalThis.TaskMenuAgentChat={open:openAgentPanel,close:closeAgentPanel,settings:openAgentSettings,
+ setDockPosition:setAgentDockPosition,setAutoHide:setAgentDockAutoHide,
+ stageContext,attachProjectFile:stageProjectFile,editorActions:editorContextActions,editorSelectionContextFromBrowserSelection,openAttachContextMenu,
+ get activeSessionID(){return agentActive;},
+ get selectedSessionID(){return agentSelectedChatSession();},
+ get dockPosition(){return agentDock.position;},get autoHide(){return agentDock.autoHide;},
+ get visible(){return agentDock.expanded;}};
+if(agentDock.expanded)loadAgentState().catch(showAgentError);
+// Safe capture is automatic on the server; no UI toggle is required.

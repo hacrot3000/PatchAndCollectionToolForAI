@@ -1,0 +1,169 @@
+package server
+
+import (
+	"strings"
+	"testing"
+
+	webassets "bletonfc/vscode_tasks_menu/web"
+)
+
+func TestGitRecoveryWizardModule(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/gitrecovery.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"Git recovery wizard",
+		"TaskDeckGitRecovery",
+		"function classifyLocal(ctx)",
+		"no_upstream_push",
+		"no_upstream_pull",
+		"push_non_fast_forward",
+		"pull_diverged",
+		"dirty_worktree",
+		"conflicts",
+		"identity_missing",
+		"gpg_signing",
+		"ssh_auth",
+		"ssh_host_key",
+		"https_auth",
+		"remote_permission",
+		"network_dns",
+		"network_connect",
+		"tls",
+		"transport",
+		"protected_branch",
+		"detached_head",
+		"unrelated_histories",
+		"index_lock",
+		"dubious_ownership",
+		"repository_corrupt",
+		"file_too_large",
+		"merge_to_conflicts",
+		"function conflictState(ctx)",
+		"function conflictFileChoices(ctx)",
+		"function openConflictFile(ctx,path)",
+		"conflict_take_side",
+		"conflict_mark_resolved",
+		"conflict_resolve_all",
+		"merge_to_prepare_resolution",
+		"Use Current for selected file",
+		"Use Incoming for selected file",
+		"Mark selected file resolved",
+		"Use Current for ALL conflicts",
+		"Use Incoming for ALL conflicts",
+		"Create local resolution branch",
+		"No unmerged paths remain",
+		"item.type==='select'",
+		"function largeFilesFromContext(ctx)",
+		"function defaultLFSPattern(path)",
+		"function lfsMigrationRisk(plan,pattern)",
+		"lfsPlan?.available===true",
+		"large_file_lfs_migrate",
+		"Migrate this file to Git LFS, then retry push",
+		"Track matching files with Git LFS, then retry push",
+		"Git LFS pattern",
+		"No remote refs are modified automatically",
+		"large_file_remove_latest",
+		"large_file_prepare_recommit",
+		"Remove from latest commit, ignore, then retry push",
+		"Prepare all unpushed commits for recommit",
+		"Oversized file path",
+		"remote_missing",
+		"pathspec_missing",
+		"branch_missing",
+		"ref_lock",
+		"nothing_to_commit",
+		"rate_limited",
+		"filesystem_permission",
+		"add_remote",
+		"push_set_upstream",
+		"set_upstream",
+		"pull_rebase",
+		"pull_merge",
+		"push_force_with_lease",
+		"abort_in_progress",
+		"continue_in_progress",
+		"configure_identity",
+		"commit_no_sign",
+		"push_new_branch",
+		"set_remote_url",
+		"remove_stale_index_lock",
+		"retry_http1",
+		"Run",
+		"Copy details",
+		"Retry original",
+		"window.confirm",
+		"function copyText(value)",
+		"Git panel refreshed.",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("gitrecovery.js missing recovery behavior %q", want)
+		}
+	}
+	for _, forbidden := range []string{"innerHTML=", "eval(", "new Function("} {
+		if strings.Contains(js, forbidden) {
+			t.Fatalf("gitrecovery.js must not use unsafe dynamic rendering/execution %q", forbidden)
+		}
+	}
+}
+
+func TestGitStatusRoutesFailuresIntoRecoveryWizard(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/gitstatus.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"const gitRecovery=globalThis.TaskDeckGitRecovery",
+		"function gitFailureError(message,data={})",
+		"function openGitRecovery(",
+		"async function repairAction(",
+		"action:'repair',repair",
+		"failure_code",
+		"gitFailureCode",
+		"gitDetails=data&&typeof data==='object'?data:{}",
+		"details:failure.gitDetails",
+		"gitWizardShown",
+		"recovery:false",
+		"runRepair:",
+		"runAction:",
+		"rescan:",
+		"openFile:path=>window.dispatchEvent",
+		"taskmenu:project-file-open-request",
+		"git-conflict-recovery",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("gitstatus.js missing Git recovery integration %q", want)
+		}
+	}
+}
+
+func TestGitRecoveryLoadsBeforeGitStatus(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/next.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	recovery := strings.Index(js, "featuremods/gitrecovery.js")
+	status := strings.Index(js, "featuremods/gitstatus.js")
+	if recovery < 0 || status < 0 || recovery > status {
+		t.Fatalf("gitrecovery.js must load before gitstatus.js: recovery=%d status=%d", recovery, status)
+	}
+}
+
+func TestGitChangesConflictRecoveryUI(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/gitstatus.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"const conflictState=data.conflict_state",
+		"Merge conflicts need resolution",
+		"Resolve conflicts",
+		"change.conflicted",
+		"git-row-conflicted",
+		"Open conflicted working-tree file",
+		"git-conflict-changes",
+		"failureCode:'conflicts'",
+		"details:{conflict_state:",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("gitstatus.js missing conflict recovery UI %q", want)
+		}
+	}
+}

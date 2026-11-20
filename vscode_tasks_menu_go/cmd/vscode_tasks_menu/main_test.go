@@ -1,0 +1,774 @@
+package main
+
+import (
+	"crypto/sha256"
+	"net"
+	"os"
+	"path/filepath"
+	"strings"
+	"syscall"
+	"testing"
+
+	"bletonfc/vscode_tasks_menu/internal/config"
+ "bletonfc/vscode_tasks_menu/internal/state"
+ "time"
+)
+
+func TestCreateListenerFromInheritedFDKeepsAddress(t *testing.T) {
+	original, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil { t.Fatal(err) }
+	defer original.Close()
+	provider, ok := original.(interface{ File() (*os.File, error) })
+	if !ok { t.Skip("listener has no File method") }
+	file, err := provider.File()
+	if err != nil { t.Fatal(err) }
+	// provider.File returns an *os.File that still owns/finalizes its descriptor.
+	// Pass a separate raw duplicate to createListener, then close this wrapper
+	// before the duplicate can be reused by another test/process pipe.
+	fd, err := syscall.Dup(int(file.Fd()))
+	if err != nil { file.Close(); t.Fatal(err) }
+	if err := file.Close(); err != nil {
+		_ = syscall.Close(fd)
+		t.Fatal(err)
+	}
+	inherited, err := createListener(config.Default(), fd, "")
+	if err != nil { _ = syscall.Close(fd); t.Fatal(err) }
+	defer inherited.Close()
+	// createListener takes ownership of the duplicated raw descriptor.
+	if inherited.Addr().String() != original.Addr().String() {
+		t.Fatalf("inherited addr=%s want %s", inherited.Addr(), original.Addr())
+	}
+}
+
+func TestSelfUpdateReconnectsBrokerBeforeTerminalFallback(t *testing.T) {
+	data, err := os.ReadFile("main.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(data)
+	discover := strings.Index(src, "brokerClient.ListWithError()")
+	reconnect := strings.Index(src, "self-update reconnected broker sessions=")
+	restore := strings.Index(src, "RestoreProjectTerminalsForStartup()")
+	if discover < 0 || reconnect < 0 || restore < 0 {
+		t.Fatalf("missing self-update broker reconnect flow: discover=%d reconnect=%d restore=%d", discover, reconnect, restore)
+	}
+	if !(discover < reconnect && reconnect < restore) {
+		t.Fatal("self-update must discover/reuse broker sessions before terminal recreation fallback")
+	}
+}
+
+func TestSelfUpdateHandoffDoesNotShutdownBroker(t *testing.T) {
+	data, err := os.ReadFile("main.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(data)
+	start := strings.Index(src, "func handoffToUpdatedDaemon")
+	end := strings.Index(src[start:], "func publicURLForListener")
+	if start < 0 || end < 0 {
+		t.Fatal("handoffToUpdatedDaemon not found")
+	}
+	body := src[start : start+end]
+	if strings.Contains(body, "ShutdownBroker") || strings.Contains(body, ".Shutdown(") {
+		t.Fatal("self-update handoff must not shut down the independent session broker")
+	}
+}
+
+func TestSelfUpdateFallbackPrefersBrokerPreservingDetach(t *testing.T) {
+	data, err := os.ReadFile("main.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(data)
+	start := strings.Index(src, "func fallbackRestartAfterUpdate")
+	end := strings.Index(src[start:], "func waitForDaemon(")
+	if start < 0 || end < 0 {
+		t.Fatal("fallbackRestartAfterUpdate not found")
+	}
+	body := src[start : start+end]
+	detach := strings.Index(body, "requestDaemonDetach")
+	legacyStop := strings.Index(body, "stopExistingDaemon")
+	if detach < 0 || legacyStop < 0 || detach > legacyStop {
+		t.Fatal("self-update fallback must try broker-preserving detach before legacy daemon stop")
+	}
+}
+
+
+func TestConfigReloadSignalPreservesSessionBroker(t *testing.T) {
+	data, err := os.ReadFile("main.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(data)
+	want := "if sig == reloadConfigSignal"
+	start := strings.Index(src, want)
+	if start < 0 {
+		t.Fatalf("missing reload signal branch %q", want)
+	}
+	end := strings.Index(src[start:], "logger.Printf(\"shutdown signal=%s; freezing terminal state before broker shutdown\"")
+	if end < 0 {
+		t.Fatal("reload signal branch end not found")
+	}
+	body := src[start : start+end]
+	if strings.Contains(body, "ShutdownBroker") {
+		t.Fatal("config reload signal must preserve session broker")
+	}
+	if !strings.Contains(body, "_ = ln.Close()") {
+		t.Fatal("config reload signal must close the old web listener")
+	}
+}
+
+
+func TestReloadConfigCLIUsesBrokerPreservingRestart(t *testing.T) {
+	data, err := os.ReadFile("main.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(data)
+	for _, want := range []string{
+		`flag.Bool("reload-config"`,
+		"reloadDaemonConfig(ws, cfg, cfgPath)",
+		"func reloadDaemonConfig(ws string, cfg config.Config, cfgPath string) error",
+		"process.Signal(reloadConfigSignal)",
+		"waitForDaemonStateRelease(ws, st.PID",
+		"startDaemon(ws)",
+		"waitForDaemon(ws, 8*time.Second, st.PID)",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("reload-config flow missing %q", want)
+		}
+	}
+	load := strings.Index(src, "cfg, cfgPath, err := config.Load(ws)")
+	reload := strings.Index(src, "fatalIf(reloadDaemonConfig(ws, cfg, cfgPath))")
+	if load < 0 || reload < 0 || load > reload {
+		t.Fatal("reload-config must validate vscode_tasks_menu.ini before restarting daemon")
+	}
+	start := strings.Index(src, "func reloadDaemonConfig(ws string, cfg config.Config, cfgPath string) error")
+	end := strings.Index(src[start:], "func printDaemonStatus")
+	if start < 0 || end < 0 {
+		t.Fatal("reloadDaemonConfig function not found")
+	}
+	body := src[start : start+end]
+	if strings.Contains(body, "stopExistingDaemon(") || strings.Contains(body, "ShutdownBroker") {
+		t.Fatal("reload-config must not use the broker-destructive daemon stop path")
+	}
+}
+
+func TestReloadConfigWhenDaemonIsNotRunningIsNoop(t *testing.T) {
+	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
+	if err := reloadDaemonConfig(t.TempDir(), config.Default(), "/tmp/vscode_tasks_menu.ini"); err != nil {
+		t.Fatalf("reload without daemon: %v", err)
+	}
+}
+
+
+func TestRemoteFirewallGuidanceUsesActualBoundPort(t *testing.T) {
+	cfg := config.Default()
+	cfg.Bind = "0.0.0.0"
+	lines := remoteFirewallGuidance(cfg, "0.0.0.0:43127")
+	joined := strings.Join(lines, "\n")
+	for _, want := range []string{
+		"TCP port 43127",
+		"sudo ufw allow 43127/tcp",
+		"sudo firewall-cmd --permanent --add-port=43127/tcp",
+		"sudo firewall-cmd --reload",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("firewall guidance missing %q: %s", want, joined)
+		}
+	}
+}
+
+func TestRemoteFirewallGuidanceSkipsLocalOnlyBind(t *testing.T) {
+	for _, bind := range []string{"127.0.0.1", "localhost", "::1"} {
+		cfg := config.Default()
+		cfg.Bind = bind
+		if got := remoteFirewallGuidance(cfg, "127.0.0.1:43127"); len(got) != 0 {
+			t.Fatalf("bind=%q unexpectedly produced firewall guidance: %#v", bind, got)
+		}
+	}
+}
+
+
+func TestStatusIncludesRemoteFirewallGuidance(t *testing.T) {
+	data, err := os.ReadFile("main.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(data)
+	for _, want := range []string{
+		"printDaemonStatus(ws, cfg)",
+		"func printDaemonStatus(ws string, cfg config.Config)",
+		`fmt.Printf("running pid=%d url=%s started=%s\n", st.PID, st.URL, st.StartedAt)`,
+		"printRemoteFirewallGuidance(os.Stdout, cfg, st.Address)",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("status remote guidance missing %q", want)
+		}
+	}
+}
+
+
+func TestRemoteFirewallGuidancePrefersLiveListenerAddress(t *testing.T) {
+	localCfg := config.Default()
+	lines := remoteFirewallGuidance(localCfg, "0.0.0.0:42882")
+	joined := strings.Join(lines, "\n")
+	if !strings.Contains(joined, "TCP port 42882") {
+		t.Fatalf("live wildcard listener should produce guidance even when current config is local: %s", joined)
+	}
+
+	remoteCfg := config.Default()
+	remoteCfg.Bind = "0.0.0.0"
+	got := strings.Join(remoteFirewallGuidance(remoteCfg, "127.0.0.1:42882"), "\n")
+	for _, want := range []string{
+		"WARNING: config bind=0.0.0.0 nhưng daemon hiện listen 127.0.0.1:42882",
+		"chạy --reload-config",
+		"TCP port 42882",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("remote config/live listener mismatch missing %q: %s", want, got)
+		}
+	}
+}
+
+
+func TestEffectiveInstalledRevisionPrefersEmbeddedBinary(t *testing.T) {
+	const remote = "8bdd1ee585c304d205990592c96d45e018f7001e"
+	const older = "1234567890abcdef1234567890abcdef12345678"
+
+	if got := effectiveInstalledRevision(older, remote); got != older {
+		t.Fatalf("embedded revision must win over stale marker: got %q want %q", got, older)
+	}
+	if got := effectiveInstalledRevision(remote, older); got != remote {
+		t.Fatalf("embedded current revision must win over marker: got %q want %q", got, remote)
+	}
+	if got := effectiveInstalledRevision("dev", remote); got != remote {
+		t.Fatalf("legacy dev binary should fall back to marker: got %q want %q", got, remote)
+	}
+	if got := effectiveInstalledRevision("", remote); got != remote {
+		t.Fatalf("empty embedded revision should fall back to marker: got %q want %q", got, remote)
+	}
+}
+
+func TestSelfUpdateWarnsWhenMarkerClaimsLatestButBinaryDoesNot(t *testing.T) {
+	data, err := os.ReadFile("main.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(data)
+	for _, want := range []string{
+		"markerRevision := selfupdate.InstalledRevision(global)",
+		"installedRevision := effectiveInstalledRevision(buildRevision, markerRevision)",
+		"markerRevision == remote && installedRevision != remote",
+		"sẽ xác minh/cài lại release",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("self-update stale marker protection missing %q", want)
+		}
+	}
+}
+
+
+func TestRemoteFirewallGuidanceRecognizesIPv6WildcardListener(t *testing.T) {
+	cfg := config.Default()
+	cfg.Bind = "0.0.0.0"
+	for _, address := range []string{"0.0.0.0:42882", "[::]:42882"} {
+		lines := remoteFirewallGuidance(cfg, address)
+		joined := strings.Join(lines, "\n")
+		if !strings.Contains(joined, "TCP port 42882") {
+			t.Fatalf("wildcard listener %q should produce firewall guidance: %s", address, joined)
+		}
+	}
+}
+
+func TestRemoteWildcardHost(t *testing.T) {
+	for _, host := range []string{"0.0.0.0", "::", "[::]"} {
+		if !remoteWildcardHost(host) {
+			t.Fatalf("expected wildcard host %q", host)
+		}
+	}
+	for _, host := range []string{"127.0.0.1", "::1", "localhost", "192.168.1.20"} {
+		if remoteWildcardHost(host) {
+			t.Fatalf("unexpected wildcard host %q", host)
+		}
+	}
+}
+
+
+func TestServeForegroundValidatesEffectiveListenerBeforePublishingState(t *testing.T) {
+	data, err := os.ReadFile("main.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(data)
+	start := strings.Index(src, "func serveForeground")
+	end := strings.Index(src[start:], "func acquireDaemonLock")
+	if start < 0 || end < 0 {
+		t.Fatal("serveForeground not found")
+	}
+	body := src[start : start+end]
+	create := strings.Index(body, "createListener(cfg, handoffFD, listenAddr)")
+	validate := strings.Index(body, "cfg.ValidateListenerAddress(ln.Addr().String())")
+	stateNew := strings.Index(body, "state.New(ws, url, healthURL, ln.Addr().String())")
+	if create < 0 || validate < 0 || stateNew < 0 {
+		t.Fatalf("missing effective listener security flow create=%d validate=%d state=%d", create, validate, stateNew)
+	}
+	if !(create < validate && validate < stateNew) {
+		t.Fatal("effective listener must be auth-validated before daemon state is published")
+	}
+}
+
+
+func TestProtocolChangesURLSchemeWithoutChangingListenerPort(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	_, port, err := net.SplitHostPort(ln.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	httpsCfg := config.Default()
+	httpsURL := publicURLForListener(httpsCfg, ln)
+	if httpsURL != "https://127.0.0.1:"+port {
+		t.Fatalf("HTTPS URL=%q", httpsURL)
+	}
+	if health := healthURLForListener(httpsCfg, ln); health != "https://127.0.0.1:"+port {
+		t.Fatalf("HTTPS health URL=%q", health)
+	}
+
+	httpCfg := httpsCfg
+	httpCfg.Protocol = config.ProtocolHTTP
+	httpURL := publicURLForListener(httpCfg, ln)
+	if httpURL != "http://127.0.0.1:"+port {
+		t.Fatalf("HTTP URL=%q", httpURL)
+	}
+	if health := healthURLForListener(httpCfg, ln); health != "http://127.0.0.1:"+port {
+		t.Fatalf("HTTP health URL=%q", health)
+	}
+}
+
+
+func TestShutdownFreezesTerminalStateBeforeBrokerShutdown(t *testing.T) {
+	data, err := os.ReadFile("main.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(data)
+	start := strings.Index(src, "logger.Printf(\"shutdown signal=%s; freezing terminal state before broker shutdown\"")
+	if start < 0 {
+		t.Fatal("shutdown signal block not found")
+	}
+	end := strings.Index(src[start:], "case <-serveDone:")
+	if end < 0 {
+		t.Fatal("shutdown signal block end not found")
+	}
+	body := src[start : start+end]
+	freeze := strings.Index(body, "srv.FreezeTerminalStatePersistence()")
+	closeListener := strings.Index(body, "_ = ln.Close()")
+	shutdownBroker := strings.Index(body, "brokerClient.ShutdownBroker()")
+	if freeze < 0 || closeListener < 0 || shutdownBroker < 0 {
+		t.Fatalf("shutdown preservation flow missing freeze=%d close=%d broker=%d", freeze, closeListener, shutdownBroker)
+	}
+	if !(freeze < closeListener && closeListener < shutdownBroker) {
+		t.Fatal("shutdown must freeze terminal persistence and close web listener before stopping broker")
+	}
+}
+
+func TestGitTextconvCLIHookRunsBeforeWorkspaceResolution(t *testing.T) {
+	data, err := os.ReadFile("main.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(data)
+	flagPos := strings.Index(src, `flag.Bool("git-textconv"`)
+	hookPos := strings.Index(src, "if *gitTextconv {")
+	workspacePos := strings.Index(src, "ws, err := resolveWorkspace(*workspace)")
+	for name, pos := range map[string]int{"flag": flagPos, "hook": hookPos, "workspace": workspacePos} {
+		if pos < 0 {
+			t.Fatalf("missing git textconv CLI %s", name)
+		}
+	}
+	if !(flagPos < hookPos && hookPos < workspacePos) {
+		t.Fatal("git textconv helper must run before workspace resolution so Git temp blobs work from any cwd")
+	}
+	for _, want := range []string{
+		"gittextconv.NormalizeFile(flag.Arg(0), os.Stdout)",
+		"--git-textconv requires exactly one file path",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("git textconv CLI missing %q", want)
+		}
+	}
+}
+
+
+func TestGlobalTaskdeckIsPreferredForRestartAndHandoff(t *testing.T) {
+	data, err := os.ReadFile("main.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(data)
+	for _, want := range []string{
+		"func preferredTaskdeckExecutable()",
+		"return selfupdate.PreferredBinary(exe), nil",
+		"func handoffToUpdatedDaemon",
+		"func startDaemonWithOptions",
+		"migrationPending := !selfupdate.GlobalReleaseReady(remote) || !selfupdate.SameExecutablePath(exe, global)",
+		"selfupdate.PrepareGlobalRelease(ctx, remote, selfupdate.PrepareGlobalReleaseOptions{",
+		"RunFullValidationTests: cfg.SelfUpdateFullValidation",
+		"selfupdate.InstallGlobalRelease(prepared, remote)",
+		"Đã chuyển daemon sang TaskDeck global versioned release:",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("global TaskDeck migration flow missing %q", want)
+		}
+	}
+}
+
+func TestVersionOutputUsesTaskdeckName(t *testing.T) {
+	data, err := os.ReadFile("main.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(data)
+	if !strings.Contains(src, "taskdeck revision=%s") {
+		t.Fatal("version output must use taskdeck name")
+	}
+}
+
+
+func TestLegacyCleanupSkipsTaskdeckSourceRepository(t *testing.T) {
+	workspace := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(workspace, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	config := "[remote \"origin\"]\n\turl = git@github.com:hacrot3000/PatchAndCollectionToolForAI.git\n"
+	if err := os.WriteFile(filepath.Join(workspace, ".git", "config"), []byte(config), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(workspace, "vscode_tasks_menu_go"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(workspace, "vscode_tasks_menu_go", "go.mod"), []byte("module bletonfc/vscode_tasks_menu\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if !taskdeckSourceRepository(workspace) {
+		t.Fatal("TaskDeck source repository was not recognized")
+	}
+	if err := cleanupLegacyPatchRuntime(workspace, true); err != nil {
+		t.Fatalf("Patch runtime cleanup must skip source repository before runtime inspection: %v", err)
+	}
+}
+
+func TestLegacyCleanupFindsOnlyOldProjectArtifacts(t *testing.T) {
+	workspace := t.TempDir()
+	if err := os.WriteFile(filepath.Join(workspace, "vscode_tasks_menu"), []byte("launcher"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(workspace, "vscode_tasks_menu_go"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	found := legacyTaskdeckArtifacts(workspace)
+	if len(found) != 2 {
+		t.Fatalf("legacy artifacts=%v want 2", found)
+	}
+}
+
+func TestLegacyCleanupRunsOnlyFromGlobalInteractiveEntry(t *testing.T) {
+	data, err := os.ReadFile("main.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(data)
+	for _, want := range []string{
+		"maybeOfferLegacyCleanup(ws)",
+		"runningGlobal := selfupdate.SameExecutablePath(exe, global)",
+		"filepath.Base(exe) == \"taskdeck\"",
+		"stdinInfo.Mode()&os.ModeCharDevice",
+		"taskdeckSourceRepository(workspace)",
+		"cleanupLegacyTaskdeckArtifacts(workspace, false)",
+		"cleanupLegacyPatchRuntime(workspace, false)",
+		"patchtool.PlanLegacyMigration(workspace, exe)",
+		"patchtool.ApplyLegacyMigration(workspace, exe)",
+		"os.RemoveAll(path)",
+		"Dọn dẹp và xóa các thành phần cũ này? [y/N]:",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("legacy cleanup guard missing %q", want)
+		}
+	}
+}
+
+
+func TestDaemonGlobalMigrationDetectionIsLinuxExecutableAware(t *testing.T) {
+	data, err := os.ReadFile("main.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(data)
+	for _, want := range []string{
+		`/proc/%d/exe`,
+		"daemonNeedsGlobalMigration(oldState, global)",
+		"migrationPending = migrationPending || daemonNeedsGlobalMigration(st, global)",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("daemon migration detection missing %q", want)
+		}
+	}
+}
+
+
+func TestCleanupLegacyFlagExists(t *testing.T) {
+	data, err := os.ReadFile("main.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(data)
+	for _, want := range []string{
+		`flag.Bool("cleanup-legacy"`,
+		"cleanupLegacyTaskdeckArtifacts(ws, true)",
+		"cleanupLegacyPatchRuntime(ws, true)",
+		"Không còn thành phần TaskDeck legacy trong workspace.",
+		"Không còn Patch Tool runtime legacy cần migrate trong workspace.",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("cleanup CLI missing %q", want)
+		}
+	}
+}
+
+func TestTaskdeckSourceGuardRequiresSourceMarker(t *testing.T) {
+	workspace := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(workspace, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	config := "[remote \"origin\"]\n\turl = git@github.com:hacrot3000/PatchAndCollectionToolForAI.git\n"
+	if err := os.WriteFile(filepath.Join(workspace, ".git", "config"), []byte(config), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if taskdeckSourceRepository(workspace) {
+		t.Fatal("repo remote alone must not suppress legacy cleanup without TaskDeck source marker")
+	}
+}
+
+
+func TestTaskdeckRepositoryRemoteRecognizesSSHAndHTTPS(t *testing.T) {
+	for _, remote := range []string{
+		"git@github.com:hacrot3000/PatchAndCollectionToolForAI.git",
+		"https://github.com/hacrot3000/PatchAndCollectionToolForAI.git",
+		"ssh://git@github.com/hacrot3000/PatchAndCollectionToolForAI.git",
+	} {
+		if !taskdeckRepositoryRemote(remote) {
+			t.Fatalf("TaskDeck remote not recognized: %s", remote)
+		}
+	}
+	if taskdeckRepositoryRemote("git@github.com:hacrot3000/M3.git") {
+		t.Fatal("unrelated repository must not be treated as TaskDeck source")
+	}
+}
+
+
+func TestPatchCLIIsFirstClassSubcommand(t *testing.T) {
+	data, err := os.ReadFile("main.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(data)
+	for _, want := range []string{
+		`flag.NArg() > 0 && flag.Arg(0) == "patch"`,
+		"os.Exit(runPatchCLI(ws, flag.Args()[1:]))",
+		"patchtool.Resolve(workspace, exe)",
+		"cmd.Stdin = os.Stdin",
+		"cmd.Stdout = os.Stdout",
+		"cmd.Stderr = os.Stderr",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("taskdeck patch flow missing %q", want)
+		}
+	}
+}
+
+
+func TestSelfUpdateRequiresCompleteVersionedRelease(t *testing.T) {
+	data, err := os.ReadFile("main.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(data)
+	for _, want := range []string{
+		"releaseReady := selfupdate.GlobalReleaseReady(remote)",
+		"if !migratingToGlobal && releaseReady && installedRevision == remote",
+		"TaskDeck + Patch add-on",
+		"finalRelease, finalErr := selfupdate.GlobalReleaseDir(remote)",
+		"global TaskDeck release is not ready after installation",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("versioned release self-update flow missing %q", want)
+		}
+	}
+}
+
+
+func TestPatchLegacyCleanupIsFailClosedAndInteractive(t *testing.T) {
+	data, err := os.ReadFile("main.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(data)
+	for _, want := range []string{
+		"if !plan.Safe",
+		"Giữ nguyên Patch Tool runtime legacy vì không thể xác minh an toàn toàn bộ nội dung.",
+		"stdinInfo.Mode()&os.ModeCharDevice",
+		"Chuyển sang TaskDeck global và giữ launcher tương thích taskdeck patch? [y/N]:",
+		"patchtool.ApplyLegacyMigration(workspace, exe)",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("Patch legacy cleanup guard missing %q", want)
+		}
+	}
+}
+
+
+func TestServeForegroundUsesPatchProtocolCompatibilityService(t *testing.T) {
+	data, err := os.ReadFile("main.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(data)
+	for _, want := range []string{
+		"sessionService := broker.NewCompatibilityService(brokerClient)",
+		"defer sessionService.Close()",
+		"sessionService.NeedsPatchProtocolFallback()",
+		"Sessions: sessionService",
+		"preserving broker-owned terminals and using daemon-local Patch protocol sessions",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("serveForeground missing broker compatibility wiring %q", want)
+		}
+	}
+	if strings.Contains(src, "Sessions: brokerClient}") {
+		t.Fatal("HTTP server must not bypass the Patch protocol compatibility service")
+	}
+}
+
+
+func TestSelfUpdateTLSResolvePreservesServingCertificateIdentity(t *testing.T) {
+	t.Setenv("VSCODE_TASKS_MENU_CONFIG_DIR", t.TempDir())
+	workspace := t.TempDir()
+	cfg := config.Default()
+
+	first, err := resolveTLSForServe(workspace, cfg, "")
+	if err != nil { t.Fatal(err) }
+	before, err := os.ReadFile(first.CertPath)
+	if err != nil { t.Fatal(err) }
+
+	changed := cfg
+	changed.AdvertiseHost = "handoff-new-san.example.test"
+	reused, err := resolveTLSForServe(workspace, changed, "update-123")
+	if err != nil { t.Fatal(err) }
+	during, err := os.ReadFile(reused.CertPath)
+	if err != nil { t.Fatal(err) }
+	if reused.Created || sha256.Sum256(before) != sha256.Sum256(during) {
+		t.Fatal("self-update serve path must preserve the currently serving auto TLS identity")
+	}
+
+	rotated, err := resolveTLSForServe(workspace, changed, "")
+	if err != nil { t.Fatal(err) }
+	after, err := os.ReadFile(rotated.CertPath)
+	if err != nil { t.Fatal(err) }
+	if !rotated.Created || sha256.Sum256(before) == sha256.Sum256(after) {
+		t.Fatal("normal serve path must still apply explicit stable SAN changes")
+	}
+}
+
+
+func TestCLISelfUpdateDoesNotWaitForBrowserConfirmation(t *testing.T) {
+	data, err := os.ReadFile("main.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(data)
+	start := strings.Index(src, "func runSelfUpdate(")
+	end := strings.Index(src[start:], "\nfunc recoverPreviousSelfUpdate")
+	if start < 0 || end < 0 {
+		t.Fatal("runSelfUpdate bounds unavailable")
+	}
+	body := src[start : start+end]
+	for _, want := range []string{
+		"selfupdate.CreateRequest(ws, remote, currentURL, true)",
+		"selfupdate.BindUpdaterPID(ws, req.ID, os.Getpid())",
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("CLI self-update missing direct-confirm flow %q", want)
+		}
+	}
+	for _, stale := range []string{"WaitForDecision(", "Chờ xác nhận tại", "autoConfirm"} {
+		if strings.Contains(body, stale) {
+			t.Fatalf("CLI self-update must not depend on browser confirmation %q", stale)
+		}
+	}
+	if !strings.Contains(src, "fatalIf(runSelfUpdate(ws, cfg))") {
+		t.Fatal("CLI dispatch must call runSelfUpdate without a confirmation mode")
+	}
+}
+
+
+func TestSelfUpdateUsesConfiguredBranch(t *testing.T) {
+	data, err := os.ReadFile("main.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(data)
+	for _, want := range []string{
+		"config.ReadSelfUpdateSettings(workspace)",
+		"selfupdate.RemoteRevisionForBranch(ctx, settings.Branch)",
+		"config.NormalizeSelfUpdateBranch(cfg.SelfUpdateBranch)",
+		"selfupdate.RemoteRevisionForBranch(ctx, selfUpdateBranch)",
+		"return checkSelfUpdate(ctx, ws)",
+		"Self-update branch: %s",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("configured self-update branch wiring missing %q", want)
+		}
+	}
+}
+
+func TestSelfUpdateSharedFallbackUsesSafeSignalAndWaitsForDaemonLock(t *testing.T) {
+	data, err := os.ReadFile("main.go")
+	if err != nil { t.Fatal(err) }
+	source := string(data)
+	start := strings.Index(source, "func fallbackRestartAfterUpdate(")
+	end := strings.Index(source[start:], "func waitForDaemonLockRelease(")
+	if end >= 0 { end += start }
+	if start < 0 || end < 0 { t.Fatal("fallback boundary missing") }
+	body := source[start:end]
+	signal := strings.Index(body, "signalDaemonReloadPreservingBroker(ws, old)")
+	legacyStop := strings.Index(body, "stopExistingDaemon(ws)")
+	lockWait := strings.Index(body, "waitForDaemonLockRelease(ws, 8*time.Second)")
+	startNew := strings.Index(body, "startDaemonWithOptions(ws, old.Address, updateID)")
+	if signal < 0 || legacyStop < 0 || lockWait < 0 || startNew < 0 || !(signal < legacyStop && legacyStop < lockWait && lockWait < startNew) {
+		t.Fatal("shared fallback must use broker-preserving SIGHUP and lock barrier before spawning replacement")
+	}
+	if !strings.Contains(body, "if cfg.SharedServerEnabled {\n\t\t\treturn fmt.Errorf(") {
+		t.Fatal("shared fallback must never SIGTERM a daemon when it cannot preserve the broker")
+	}
+}
+
+// A removed server.json does not imply its daemon.lock has been released.
+func TestWaitForDaemonLockReleaseDoesNotRaceDaemonShutdown(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("XDG_RUNTIME_DIR", root)
+	ws := filepath.Join(root, "project")
+	lock, err := state.AcquireDaemonLock(ws)
+	if err != nil { t.Fatal(err) }
+	if err := waitForDaemonLockRelease(ws, 120*time.Millisecond); err == nil {
+		t.Fatal("replacement was allowed to start with the previous daemon lock held")
+	}
+	if err := lock.Close(); err != nil { t.Fatal(err) }
+	if err := waitForDaemonLockRelease(ws, time.Second); err != nil {
+		t.Fatalf("daemon lock did not become available: %v", err)
+	}
+}

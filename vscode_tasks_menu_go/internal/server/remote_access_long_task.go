@@ -1,0 +1,694 @@
+package server
+
+import (
+ "context"
+ "errors"
+ "os"
+ "os/exec"
+ "path/filepath"
+ "runtime"
+ "strconv"
+ "strings"
+ "sync"
+ "sync/atomic"
+ "time"
+ "unicode"
+ "unicode/utf8"
+
+ "bletonfc/vscode_tasks_menu/internal/remotetransport"
+)
+
+const remoteLongTaskMaxDuration=90*time.Second
+const remoteLongTaskMaxCaptureBytes=16*1024
+const remoteLongTaskMaxChunkBytes=128
+const remoteLongTaskPollWait=7*time.Second
+
+// One job per authenticated TaskDeck E2EE session. No background work is
+// transferred to PHP/Relay; all execution state, output and cancellation
+// remain on the Agent. Start/poll/cancel are staged host primitives until
+// individually permission-gated E2EE actions and native GUI land.
+type remoteLongTaskJob struct {
+ taskID int
+ started time.Time
+ cancel context.CancelFunc
+ done chan struct{}
+ // Held until the last host process has exited, including after session
+ // logout. Never released by an unauthenticated Poll/Cancel/Clear action.
+ workspaceRelease func()
+ capture *remoteLongTaskCapture
+ mu sync.Mutex
+ status string
+ // A successful cancellation request is one-shot for this host job.
+ // A duplicate or a request after completion must not re-arm the
+ // context or report a fake "cancel_requested" E2EE acknowledgement.
+ cancelRequested bool
+ // Wait has reaped the process, but the exclusive workspace lease may
+ // still be retiring. Do not accept Cancel during this transition even
+ // though Poll must continue reporting running until release completes.
+ finalizing bool
+ exitCode int
+ outputCursor int
+ workflowStep int
+ workflowTotal int
+ workflowAttempt int
+ workflowAttemptTotal int
+ workflowStepStatus string
+ workflowStepHistory string
+ workflowStepDetails []string
+ workflowParallel bool
+ workflowRunID string // Random per execution; never sent as a command token.
+}
+
+type remoteLongTaskCapture struct {
+ mu sync.Mutex
+ data []byte
+ truncated bool
+ notify chan struct{}
+ // Terminal and explicitly host-opted-in Task output can use a bounded
+ // UTF-8 rolling buffer. Ordinary Task capture keeps first-16KiB
+ // semantics for backwards compatibility unless separately enabled.
+ rolling bool
+ // The native Task GUI has a strict 16-action quota. Once an idle task
+ // overflows the rolling window, expose the latest bounded excerpt
+ // rather than spending all remaining Polls on the oldest retained log.
+ // Zero keeps the original Terminal rolling cursor semantics.
+ taskTailBytes int
+ rollingBase int // Absolute UTF-8 byte offset of data[0].
+ rollingPending []byte // Incomplete UTF-8 sequence across PTY reads.
+ finalized bool // Prevent a tardy PTY reader from mutating a final Poll.
+}
+func newRemoteLongTaskCapture()*remoteLongTaskCapture{
+ return &remoteLongTaskCapture{data:make([]byte,0,512),notify:make(chan struct{},1)}
+}
+// A remote PTY must keep yielding new output after its first 16KiB have
+// been displayed. This bounded sliding window stores only sanitized
+// UTF-8, never shell bytes or credentials in a persistent audit.
+func newRemoteTerminalCapture()*remoteLongTaskCapture{
+ c:=newRemoteLongTaskCapture()
+ c.rolling=true
+ return c
+}
+
+// Opt-in per JOB, set only on the Agent host, never by the E2EE client.
+// A first-window capture can hide late compiler errors after filling;
+// the rolling mode instead preserves the newest sanitized UTF-8 16KiB.
+// Existing signed cursor/backpressure semantics and memory bound apply.
+func newRemoteTaskOutputCapture()*remoteLongTaskCapture{
+ if os.Getenv("TASKDECK_REMOTE_TASKS_ROLLING_OUTPUT")=="1"{
+  capture:=newRemoteTerminalCapture()
+  capture.taskTailBytes=512
+  return capture
+ }
+ return newRemoteLongTaskCapture()
+}
+
+// The rolling worker's stdout/stderr writers are drained before the final
+// state is exposed. Freeze its capture, so no incomplete UTF-8 sequence or
+// tardy writer can modify already finalized authenticated Poll output.
+// Workflow progress metadata reduces the max output per signed Poll.
+// Once old output has been evicted, eight 16-byte Polls can still
+// retrieve the final 128 bytes without exhausting a 16-round session.
+func newRemoteWorkflowOutputCapture()*remoteLongTaskCapture{
+ capture:=newRemoteTaskOutputCapture()
+ if capture.rolling{capture.taskTailBytes=128}
+ return capture
+}
+
+func(c *remoteLongTaskCapture)finishTaskRollingOutput(){
+ if c!=nil&&c.rolling{c.finishRemoteTerminal(false)}
+}
+func (c *remoteLongTaskCapture)Write(p []byte)(int,error){
+ n:=len(p)
+ c.mu.Lock()
+ if !c.finalized{
+  if c.rolling{
+   c.writeTerminalRollingLocked(p)
+  }else{
+   space:=remoteLongTaskMaxCaptureBytes-len(c.data)
+   if space>0{
+    if space>len(p){space=len(p)}
+    c.data=append(c.data,p[:space]...)
+   }
+   if space<n{c.truncated=true}
+  }
+ }
+ c.mu.Unlock()
+ select{case c.notify<-struct{}{}:default:}
+ return n,nil // always drain the command's stdout/stderr
+}
+
+// Sanitize every complete UTF-8 rune incrementally; io.Copy may split a
+// rune between Write calls. Prune in bounded batches at rune boundaries.
+// Retain a monotonic absolute cursor so a deferred, authenticated E2EE
+// Seal cannot accidentally replay or skip newer output after compaction.
+func(c *remoteLongTaskCapture)writeTerminalRollingLocked(p []byte){
+ for len(p)>0{
+  count:=len(p)
+  if count>4096{count=4096}
+  block:=make([]byte,0,len(c.rollingPending)+count)
+  block=append(block,c.rollingPending...)
+  block=append(block,p[:count]...)
+  c.rollingPending=c.rollingPending[:0]
+  for len(block)>0{
+   if !utf8.FullRune(block){
+    c.rollingPending=append(c.rollingPending,block...)
+    break
+   }
+   r,width:=utf8.DecodeRune(block)
+   if (r!=utf8.RuneError||width>1)&&
+    (r=='\n'||r=='\t'||(!unicode.IsControl(r)&&
+     !unicode.In(r,unicode.Cf,unicode.Zl,unicode.Zp))){
+    c.data=append(c.data,block[:width]...)
+   }
+   block=block[width:]
+  }
+  if len(c.data)>remoteLongTaskMaxCaptureBytes{
+   cut:=len(c.data)-remoteLongTaskMaxCaptureBytes
+   for cut<len(c.data)&&!utf8.RuneStart(c.data[cut]){cut++}
+   c.rollingBase+=cut
+   copy(c.data,c.data[cut:])
+   c.data=c.data[:len(c.data)-cut]
+  }
+  p=p[count:]
+ }
+}
+
+// Once the PTY has been closed and its output reader drained (or timed
+// out), freeze the capture before exposing 'exited'. A late io.Copy
+// Write must never append data after the client saw a final state.
+func(c *remoteLongTaskCapture)finishRemoteTerminal(incomplete bool){
+ c.mu.Lock()
+ if incomplete||len(c.rollingPending)>0{c.truncated=true}
+ c.rollingPending=nil
+ c.finalized=true
+ c.mu.Unlock()
+}
+
+func sanitizeLongTaskOutput(raw []byte)string{
+ clear:=strings.ToValidUTF8(string(raw),"")
+ return strings.Map(func(r rune)rune{
+  if r=='\n'||r=='\t'{return r}
+  if unicode.IsControl(r)||unicode.In(r,unicode.Cf,unicode.Zl,unicode.Zp){return -1}
+  return r
+ },clear)
+}
+func validLongTaskStatus(status string)bool{
+ return status=="running"||status=="completed"||status=="failed"||
+  status=="cancelled"||status=="timed_out"
+}
+
+// Output chunks are each bounded, text-only, and start at a Unicode
+// boundary. Each poll consumes the next chunk; a full capture drops new
+// bytes rather than allocating unbounded memory. Nothing is logged in DB.
+func (c *remoteLongTaskCapture)next(cursor int)(string,int,bool,bool){
+ return c.nextBounded(cursor,remoteLongTaskMaxChunkBytes)
+}
+func (c *remoteLongTaskCapture)nextBounded(cursor,limit int)(string,int,bool,bool){
+ c.mu.Lock()
+ defer c.mu.Unlock()
+ if c.rolling{
+  lost:=cursor<c.rollingBase
+  if lost{cursor=c.rollingBase}
+  last:=c.rollingBase+len(c.data)
+  if lost&&c.taskTailBytes>0&&len(c.data)>c.taskTailBytes{
+   // This is ONLY applied after the reader has already lost unread
+   // data. Never discard a successfully consumed/active cursor merely
+   // to focus the tail. Keep UTF-8 rune boundaries and a monotonic
+   // absolute byte cursor, including for deferred E2EE Seal commits.
+   target:=last-c.taskTailBytes
+   if target>cursor{cursor=target}
+   for cursor<last&&!utf8.RuneStart(c.data[cursor-c.rollingBase]){
+    cursor++
+   }
+  }
+  if cursor>last{cursor=last}
+  text:=string(c.data[cursor-c.rollingBase:])
+  end:=cursor
+  for index,r:=range text{
+   width:=utf8.RuneLen(r)
+   if width<1||index+width>limit{break}
+   end=cursor+index+width
+  }
+  return text[:end-cursor],end,lost||c.truncated,end<last
+ }
+ clean:=sanitizeLongTaskOutput(c.data)
+ if cursor<0||cursor>len(clean){cursor=len(clean)}
+ end:=cursor
+ for index,r:=range clean[cursor:]{
+  width:=utf8.RuneLen(r)
+  if width<1||index+width>limit{break}
+  end=cursor+index+width
+ }
+ return clean[cursor:end],end,c.truncated,end<len(clean)
+}
+
+type remoteLongTaskSnapshot struct {
+ TaskID int
+ Status string
+ ExitCode int
+ Output string
+ Truncated bool
+ More bool // Captured output still unread in the host-owned cursor.
+ Step int
+ StepTotal int
+ Attempt int
+ AttemptTotal int
+ StepStatus string
+ StepHistory string
+ StepDetails string
+ Parallel bool
+}
+
+// The short and long Task runners share the uncached local TasksRun,
+// approved key, grant and host opt-in check. A persisted audit does not
+// extend authorization after the user, host or Portal revokes it.
+func(s *Server)remoteLongTaskHostConsent(ctx context.Context,
+ session *remoteTaskDeckSession)bool{
+ if ctx==nil||ctx.Err()!=nil||
+  os.Getenv("TASKDECK_REMOTE_TASKS_LONG")!="1"{return false}
+ return s.remoteShortTaskHostConsent(ctx,session)&&
+  os.Getenv("TASKDECK_REMOTE_TASKS_LONG")=="1"
+}
+
+// Must be entered only from TaskDeck's verified tasks.run role, live
+// uncached Portal authorization, approved native key and E2EE dispatcher.
+// It is not a generic HTTP command runner. Even then, the host re-verifies
+// the previously published Task.ID and exact .vscode/tasks.json bytes.
+func (s *Server) startRemoteLongTask(
+ ctx context.Context,session *remoteTaskDeckSession,
+ taskID,choice int,textInput string,
+)error{
+ denied:=remotetransport.ErrRemoteActionDenied
+ if s==nil||ctx==nil||ctx.Err()!=nil||session==nil||
+  runtime.GOOS=="windows"||
+  os.Getenv("TASKDECK_REMOTE_TASKS_PREVIEW")!="1"||
+  os.Getenv("TASKDECK_REMOTE_TASKS_RUN")!="1"||
+  os.Getenv("TASKDECK_REMOTE_TASKS_LONG")!="1"||
+  session.closed.Load()||session.channel==nil||!session.channel.Established()||
+  !session.taskPageReady||!session.taskIssuedIDs[taskID]{
+  return denied
+ }
+ // Match the PTY lock order (terminalMu -> longTaskMu). A terminal
+ // opened in this authenticated session must exclude task execution in
+ // both directions, including a concurrent terminal-open request.
+ session.terminalMu.Lock()
+ defer session.terminalMu.Unlock()
+ if session.terminal!=nil{return denied}
+ session.longTaskMu.Lock()
+ defer session.longTaskMu.Unlock()
+ if session.longTask!=nil{return denied} // one job, never auto-overwrite
+ releaseWorkspace,err:=reserveRemoteWorkspaceExecution(ctx,s.Workspace)
+ if err!=nil{return denied}
+ launched:=false
+ defer func(){if !launched{releaseWorkspace()}}()
+ spec,_,err:=prepareRemoteTaskExecutionInput(
+  ctx,s.Workspace,session.taskPageHash,taskID,choice,false,textInput)
+ if err!=nil||spec.TaskID!=taskID{return denied}
+ root,err:=filepath.EvalSymlinks(s.Workspace)
+ if err!=nil{return denied}
+ root,err=filepath.Abs(root)
+ if err!=nil{return denied}
+ cwd,err:=filepath.EvalSymlinks(spec.Cwd)
+ if err!=nil{return denied}
+ cwd,err=filepath.Abs(cwd)
+ if err!=nil{return denied}
+ rel,err:=filepath.Rel(root,cwd)
+ if err!=nil||filepath.IsAbs(rel)||rel==".."||
+  strings.HasPrefix(rel,".."+string(filepath.Separator)){return denied}
+ // Pin the original host-owned executable and resolved directory before
+ // audit: a symlink target may change while the audit or RBAC check runs.
+ executable,err:=remoteShortResolvedExecutable(spec.Command)
+ if err!=nil{return denied}
+ approved:=remoteParallelPrepared{
+  execution:spec,executable:executable,resolvedCwd:cwd,
+ }
+ if ctx.Err()!=nil||session.closed.Load(){return denied}
+ // The irreversible attempted audit is always BEFORE cmd.Start.
+ if err:=s.auditRemoteTaskRunAttempt(ctx,session,taskID);err!=nil{return denied}
+ // Recheck the exact approved process, executable symlink target,
+ // inherited environment and canonical working directory after audit.
+ // The later live-RBAC check can also block, so a second recheck follows.
+ if _,err:=s.revalidateRemoteShortTaskAtLaunch(
+  ctx,session,taskID,choice,textInput,approved,root);err!=nil{
+  s.auditRemoteTaskRunFinish(session,taskID,"failed",-1,0)
+  return denied
+ }
+ if !s.remoteLongTaskHostConsent(ctx,session){
+  s.auditRemoteTaskRunFinish(session,taskID,"cancelled",-1,0)
+  return denied
+ }
+ jobCtx,cancel:=context.WithTimeout(context.Background(),remoteLongTaskMaxDuration)
+ capture:=newRemoteTaskOutputCapture()
+ command:=exec.CommandContext(jobCtx,approved.executable,approved.execution.Args...)
+ // Resolve the target before the audit, but preserve host-authored argv[0]
+ // so a native task retains its original shell invocation semantics.
+ command.Args[0]=approved.execution.Command
+ command.Dir=approved.resolvedCwd
+ command.Env=approved.execution.Env
+ command.Stdout=capture
+ command.Stderr=capture
+ prepareGitJobProcess(command)
+ command.Cancel=func()error{killGitJobProcess(command);return nil}
+ command.WaitDelay=time.Second
+ if ctx.Err()!=nil||!s.remoteLongTaskHostConsent(ctx,session){
+  cancel()
+  s.auditRemoteTaskRunFinish(session,taskID,"cancelled",-1,0)
+  return denied
+ }
+ // Revalidating only after audit is insufficient: the local RBAC query
+ // above can yield to another host writer. Do not start the prepared
+ // process unless its exact executable, cwd, argv, env and source are
+ // still the same at the final process-launch boundary.
+ if _,err:=s.revalidateRemoteShortTaskAtLaunch(
+  ctx,session,taskID,choice,textInput,approved,root);err!=nil{
+  cancel()
+  s.auditRemoteTaskRunFinish(session,taskID,"failed",-1,0)
+  return denied
+ }
+ if err:=command.Start();err!=nil{
+  cancel()
+  s.auditRemoteTaskRunFinish(session,taskID,"failed",-1,0)
+  return denied
+ }
+ job:=&remoteLongTaskJob{
+  taskID:taskID,started:time.Now(),cancel:cancel,
+  done:make(chan struct{}),capture:capture,status:"running",exitCode:-1,
+  workspaceRelease:releaseWorkspace,
+ }
+ session.longTask=job
+ launched=true
+ // Monitor live TasksRun while the task is active. This host-side
+ // watcher does not need UI Polls and never contacts the PHP relay.
+ // CommandContext.Cancel already terminates the process group.
+ var revokedDuringRun atomic.Bool
+ stopWatch:=make(chan struct{})
+ watchDone:=make(chan struct{})
+ go func(){
+  defer close(watchDone)
+  ticker:=time.NewTicker(remoteLocalRevokePoll)
+  defer ticker.Stop()
+  for{
+   select{
+   case <-session.lifetimeDone:cancel();return
+   case <-session.portalGrant.Done():cancel();return
+   case <-session.channel.Done():cancel();return
+   case <-job.done:return
+   case <-stopWatch:return
+   case <-jobCtx.Done():return
+   case <-ticker.C:
+    if !s.remoteLongTaskHostConsent(jobCtx,session){
+     revokedDuringRun.Store(true)
+     cancel()
+     return
+    }
+   }
+  }
+ }()
+ go func(){
+  processErr:=command.Wait()
+  killGitJobProcess(command)
+  // A reaped process cannot accept another Cancel. Join any in-flight
+  // host role check before publishing a terminal result to E2EE Poll.
+  acceptedCancel:=job.beginFinalizing()
+  close(stopWatch)
+  <-watchDone
+  exitCode:=0
+  if processErr!=nil {
+   var exit *exec.ExitError
+   if errors.As(processErr,&exit)&&exit.ExitCode()>=0&&exit.ExitCode()<=255{
+    exitCode=exit.ExitCode()
+   }else{exitCode=-1}
+  }
+  status:="completed"
+  if errors.Is(jobCtx.Err(),context.DeadlineExceeded){
+   status="timed_out"
+  }else if revokedDuringRun.Load()||acceptedCancel||
+   jobCtx.Err()!=nil||session.closed.Load(){
+   status="cancelled"
+   if revokedDuringRun.Load(){exitCode= -1}
+  }else if !s.remoteLongTaskHostConsent(jobCtx,session){
+   // Permission may change after the last watcher tick but before Wait.
+   // The process cannot be rolled back, so deny any false success.
+   status="cancelled";exitCode= -1
+  }else if processErr!=nil{status="failed"}
+  // The process has exited; freeze the optional rolling output before
+  // publishing terminal status or accepting a final E2EE Poll.
+  job.capture.finishTaskRollingOutput()
+  // A revocation cannot prevent a host-local final audit attempt.
+  s.auditRemoteTaskRunFinish(session,taskID,status,exitCode,time.Since(job.started))
+  job.publishCompletion(status,exitCode)
+  cancel()
+ }()
+ return nil
+}
+
+// Release the canonical workspace lease BEFORE making a final status
+// observable to Poll. The previous order published completed/failed/
+// cancelled and only then released the OS lock, so a GUI could receive
+// a terminal reply yet its next authenticated Task/Git action would be
+// spuriously denied as busy. Publication, done and capture notification
+// are ordered AFTER release; a running snapshot may still be returned
+// while the host is in the final cleanup phase.
+// beginFinalizing closes the cancellation admission window BEFORE final
+// result classification/audit. Cancel arriving first may still win; once
+// this lock is released a dead process can never acknowledge new Cancel.
+// The snapshot is taken under the SAME lock as cancelRemoteLongTask:
+// if Cancel won admission immediately before process exit, retain its
+// acknowledged intent even if context cancellation is still in flight.
+func (job *remoteLongTaskJob)beginFinalizing()bool{
+ job.mu.Lock()
+ job.finalizing=true
+ acceptedCancel:=job.cancelRequested
+ job.mu.Unlock()
+ return acceptedCancel
+}
+
+func (job *remoteLongTaskJob)publishCompletion(status string,exitCode int){
+ job.beginFinalizing()
+ job.workspaceRelease()
+ job.mu.Lock()
+ job.status=status
+ job.exitCode=exitCode
+ job.mu.Unlock()
+ close(job.done)
+ select{case job.capture.notify<-struct{}{}:default:}
+}
+
+// Polling never starts a process or accepts an offset/filename from client.
+// One bounded output chunk is delivered per read, and a subsequent poll may
+// retrieve the next. A done job remains available until explicit cleanup.
+// These fields are Agent-owned, not parsed from arbitrary child stdout.
+// Job and cursor mutations share the same mutex, so no poll can see a
+// mixed step index/attempt from different attempts.
+func (job *remoteLongTaskJob) updateWorkflowStep(index,total,attempt,attemptTotal int,
+ state string,exitCode int,elapsed time.Duration){
+ job.mu.Lock()
+ job.workflowStep=index
+ job.workflowTotal=total
+ job.workflowAttempt=attempt
+ job.workflowAttemptTotal=attemptTotal
+ job.workflowStepStatus=state
+ if index>=1&&index<=total&&len(job.workflowStepHistory)==total{
+  code:=byte('?')
+  switch state{
+  case "running":code='R'
+  case "completed":code='C'
+  case "skipped":code='S'
+  case "failed":code='F'
+  case "cancelled":code='X'
+  case "timed_out":code='T'
+  }
+  if code!='?'{
+   history:=[]byte(job.workflowStepHistory)
+   history[index-1]=code
+   job.workflowStepHistory=string(history)
+   if len(job.workflowStepDetails)==total{
+    if state=="running"||state=="skipped"{
+     job.workflowStepDetails[index-1]="-"
+    }else{
+     millis:=elapsed.Milliseconds()
+     if millis<0{millis=0}
+     if millis>90000{millis=90000}
+     if exitCode< -1||exitCode>255{exitCode=-1}
+     job.workflowStepDetails[index-1]=strconv.Itoa(exitCode)+":"+
+      strconv.FormatInt(millis,10)
+    }
+   }
+  }
+ }
+ job.mu.Unlock()
+ select{case job.capture.notify<-struct{}{}:default:}
+}
+
+func (session *remoteTaskDeckSession) pollRemoteLongTask(
+ ctx context.Context,taskID int,
+)(remoteLongTaskSnapshot,error){
+ return session.pollRemoteLongTaskWithWait(ctx,taskID,remoteLongTaskPollWait)
+}
+
+// E2EE Polls must not consume output before the authenticated response
+// has been sealed; a failed seal must leave the same bytes for next Poll.
+func (session *remoteTaskDeckSession) pollRemoteLongTaskForSeal(
+ ctx context.Context,taskID int,
+)(remoteLongTaskSnapshot,func(),error){
+ return session.pollRemoteLongTaskWithWaitMode(
+  ctx,taskID,remoteLongTaskPollWait,true)
+}
+
+// A bounded wait is injected only by host-side regression tests; the E2EE
+// action always uses remoteLongTaskPollWait. A missed/coalesced capture
+// notification must not turn an already buffered chunk into a false empty
+// timeout response.
+func (session *remoteTaskDeckSession)pollRemoteLongTaskWithWait(
+ ctx context.Context,taskID int,wait time.Duration,
+)(remoteLongTaskSnapshot,error){
+ snapshot,_,err:=session.pollRemoteLongTaskWithWaitMode(
+  ctx,taskID,wait,false)
+ return snapshot,err
+}
+
+// Both normal and deadline-returned Polls must use the SAME payload
+// limit. Five-step sequential workflows carry extra signed history and
+// detail fields; reduce their output chunk to preserve the 512-byte
+// authenticated envelope. Five-step parallel joins include an extra
+// authenticated mode flag and therefore use an even smaller chunk.
+func remoteLongTaskWorkflowChunkLimit(step,total int,parallel bool)int{
+ if step==0{return remoteLongTaskMaxChunkBytes}
+ if parallel&&total==5{return 16}
+ if total==5{return 32}
+ if parallel&&total==4{return 48}
+ return 64
+}
+
+// Host Poll consumes immediately, while E2EE returns a callback which
+// advances the cursor only after successful AEAD Seal. E2EE taskPageMu
+// serializes authenticated task operations through sealing.
+func (session *remoteTaskDeckSession)pollRemoteLongTaskWithWaitMode(
+ ctx context.Context,taskID int,wait time.Duration,deferCursor bool,
+)(remoteLongTaskSnapshot,func(),error){
+ denied:=remoteLongTaskSnapshot{}
+ if session==nil||ctx==nil||ctx.Err()!=nil||session.closed.Load(){
+  return denied,nil,remotetransport.ErrRemoteActionDenied
+ }
+ session.longTaskMu.Lock()
+ job:=session.longTask
+ session.longTaskMu.Unlock()
+ if job==nil||job.taskID!=taskID{return denied,nil,remotetransport.ErrRemoteActionDenied}
+ deadlineCtx,cancel:=context.WithTimeout(ctx,wait)
+ defer cancel()
+ // Called with job.mu held. A stale deferred commit cannot overwrite
+ // a cursor already advanced by another host reader.
+ consume:=func(from,to int)func(){
+  if !deferCursor{
+   job.outputCursor=to
+   return nil
+  }
+  return func(){
+   job.mu.Lock()
+   if job.outputCursor==from{job.outputCursor=to}
+   job.mu.Unlock()
+  }
+ }
+ for{
+  // Serialize snapshot and cursor consumption. Two concurrent native GUI
+  // polls must not both send the same chunk or rewind an advanced cursor.
+  job.mu.Lock()
+  status,exit,cursor:=job.status,job.exitCode,job.outputCursor
+  state:=remoteLongTaskSnapshot{
+   TaskID:taskID,Status:status,ExitCode:exit,
+   Step:job.workflowStep,StepTotal:job.workflowTotal,
+   Attempt:job.workflowAttempt,AttemptTotal:job.workflowAttemptTotal,
+   StepStatus:job.workflowStepStatus,
+   StepHistory:job.workflowStepHistory,
+   StepDetails:strings.Join(job.workflowStepDetails,"|"),
+   Parallel:job.workflowParallel&&job.workflowStep>0,
+  }
+  if state.Step==0{state.StepHistory="";state.StepDetails=""}
+  limit:=remoteLongTaskWorkflowChunkLimit(
+   state.Step,state.StepTotal,state.Parallel)
+  chunk,next,truncated,more:=job.capture.nextBounded(cursor,limit)
+  if chunk!=""||status!="running"{
+   if ctx.Err()!=nil||session.closed.Load(){
+    job.mu.Unlock()
+    return denied,nil,remotetransport.ErrRemoteActionDenied
+   }
+   commit:=consume(cursor,next)
+   job.mu.Unlock()
+   state.Output=chunk
+   state.Truncated=truncated
+   state.More=more
+   return state,commit,nil
+  }
+  job.mu.Unlock()
+  select{
+  case <-deadlineCtx.Done():
+   if ctx.Err()!=nil||session.closed.Load(){return denied,nil,remotetransport.ErrRemoteActionDenied}
+   job.mu.Lock()
+   state=remoteLongTaskSnapshot{
+    TaskID:taskID,Status:job.status,ExitCode:job.exitCode,
+    Step:job.workflowStep,StepTotal:job.workflowTotal,
+    Attempt:job.workflowAttempt,AttemptTotal:job.workflowAttemptTotal,
+    StepStatus:job.workflowStepStatus,
+    StepHistory:job.workflowStepHistory,
+    StepDetails:strings.Join(job.workflowStepDetails,"|"),
+   Parallel:job.workflowParallel&&job.workflowStep>0,
+   }
+   if state.Step==0{state.StepHistory="";state.StepDetails=""}
+   // A notification is coalesced (one-slot channel) and can be consumed
+   // by another concurrent Poll. Recheck the capture under the same
+   // cursor lock before returning an empty 7-second timeout snapshot.
+   limit:=remoteLongTaskWorkflowChunkLimit(
+    state.Step,state.StepTotal,state.Parallel)
+   cursor:=job.outputCursor
+   chunk,next,truncated,more:=job.capture.nextBounded(cursor,limit)
+   if ctx.Err()!=nil||session.closed.Load(){
+    job.mu.Unlock()
+    return denied,nil,remotetransport.ErrRemoteActionDenied
+   }
+   commit:=consume(cursor,next)
+   job.mu.Unlock()
+   state.Output=chunk
+   state.Truncated=truncated
+   state.More=more
+   return state,commit,nil
+  case <-job.capture.notify:
+  case <-job.done:
+  }
+ }
+}
+
+func (session *remoteTaskDeckSession) cancelRemoteLongTask(taskID int)error{
+ if session==nil||session.closed.Load(){return remotetransport.ErrRemoteActionDenied}
+ session.longTaskMu.Lock()
+ defer session.longTaskMu.Unlock()
+ job:=session.longTask
+ if job==nil||job.taskID!=taskID{return remotetransport.ErrRemoteActionDenied}
+ job.mu.Lock()
+ // The waiter marks finalizing immediately after process exit and
+ // before releasing the workspace lock. An authenticated Cancel in
+ // that gap must not acknowledge cancellation of a dead process.
+ if job.status!="running"||job.finalizing||job.cancelRequested {
+  job.mu.Unlock()
+  return remotetransport.ErrRemoteActionDenied
+ }
+ job.cancelRequested=true
+ job.mu.Unlock()
+ job.cancel()
+ return nil
+}
+
+func (session *remoteTaskDeckSession) clearRemoteLongTask(taskID int)error{
+ if session==nil||session.closed.Load(){return remotetransport.ErrRemoteActionDenied}
+ session.longTaskMu.Lock()
+ defer session.longTaskMu.Unlock()
+ job:=session.longTask
+ if job==nil||job.taskID!=taskID{return remotetransport.ErrRemoteActionDenied}
+ select{
+ case <-job.done:
+  job.cancel()
+  session.longTask=nil
+  return nil
+ default:
+  return remotetransport.ErrRemoteActionDenied
+ }
+}

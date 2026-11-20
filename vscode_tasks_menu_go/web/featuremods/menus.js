@@ -1,0 +1,302 @@
+const app=globalThis.TaskMenuApp;
+if(!app)throw new Error('TaskMenuApp unavailable for grouped menus');
+
+const style=document.createElement('style');
+style.textContent=`
+.taskdeck-settings-menu>.taskmenu-menu-popover{max-height:min(78vh,750px);overflow-y:auto}
+.autocomplete-diagnostics-setting{display:flex;align-items:center;gap:8px;padding:8px 7px;font-size:11px;white-space:normal;cursor:pointer}
+.autocomplete-diagnostics-setting input{margin:0;width:16px;min-width:16px;height:16px;min-height:16px;flex:0 0 16px}
+html[data-taskmenu-layout="mobile"] .autocomplete-diagnostics-setting input{min-height:16px;width:16px;height:16px;min-width:16px}
+.autocomplete-diagnostics-setting span{min-width:0;line-height:1.4}
+.autocomplete-diagnostics-setting[hidden]{display:none!important}
+/* Security-related Settings launchers must remain hidden even when legacy
+   header CSS applies its own display declarations. Backend RBAC is still
+   the authoritative enforcement boundary. */
+#self-update-branch-settings[hidden],#config-backup-settings[hidden],
+#terminal-cwd[hidden],#env-profile[hidden],#env-profile-manage[hidden],
+#running-indicator-settings[hidden],#auth-mode-settings[hidden],#remote-access-settings[hidden],
+#tasks-json-editor[hidden],#edit-title[hidden],#self-update-check[hidden]{display:none!important}
+.taskmenu-menu{position:relative;display:inline-flex;align-items:center}.taskmenu-menu-trigger{white-space:nowrap;padding:2px 4px;border:0!important;border-radius:4px;background:transparent!important;font-size:11px}.taskmenu-menu-trigger:hover,.taskmenu-menu.open>.taskmenu-menu-trigger{background:#242a34!important}.taskmenu-menu-popover{display:none;position:absolute;top:calc(100% + 4px);right:0;z-index:1200;min-width:220px;max-width:min(440px,90vw);padding:5px;border:1px solid #3b414d;border-radius:7px;background:#171a20;box-shadow:0 10px 28px rgba(0,0,0,.35);gap:2px}.taskmenu-menu.open>.taskmenu-menu-popover{display:flex;flex-direction:column}.taskmenu-menu-popover>button{width:100%;text-align:left;border:0;background:transparent;border-radius:4px;padding:5px 7px}.taskmenu-menu-popover>button:hover:not(:disabled){background:#2b3440}.taskmenu-menu-popover>select{width:100%;text-align:left;padding:5px 7px}.taskmenu-menu-popover>.copy-console{margin-left:0;max-width:100%}.taskmenu-menu-popover>.appearance-controls{display:grid;grid-template-columns:1fr 1fr auto auto auto;gap:5px;align-items:center}.taskmenu-menu-popover .appearance-controls select,.taskmenu-menu-popover .appearance-controls button{width:auto}.taskmenu-menu-label{font-size:9px;font-weight:700;letter-spacing:.06em;opacity:.5;padding:3px 4px 1px}.self-update-branch-settings{display:flex;flex-direction:column;gap:5px;padding:4px 5px;font-size:11px}.self-update-branch-settings>.self-update-validation-setting{display:flex;align-items:center;gap:6px;white-space:normal}.self-update-branch-settings>.self-update-validation-setting input{margin:0}.self-update-branch-details{margin:0}.self-update-branch-details>summary{cursor:pointer;user-select:none}.self-update-branch-editor{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:5px 8px;align-items:center;padding-top:5px}.self-update-branch-editor>select{min-width:145px}.self-update-branch-editor>button{grid-column:2;width:100%}.self-update-branch-editor>.self-update-branch-status{grid-column:1/3;white-space:normal}.patch-ui-mode-control{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:8px;font-size:11px}.patch-ui-mode-control select{min-width:145px}.header-action-menus{display:flex;align-items:center;gap:1px;white-space:nowrap;margin-left:auto}.header-left-git,.header-action-menus .git-status-pill{margin:0;border:0!important;background:transparent!important;border-radius:4px;padding:2px 4px;font-size:10px;flex:0 0 auto}.header-left-git:hover,.header-action-menus .git-status-pill:hover{background:#242a34!important}.header-left-git.dirty,.header-action-menus .git-status-pill.dirty{color:#f0c66b}.header-left-git.clean,.header-action-menus .git-status-pill.clean{color:#83d69a}.pane-action-menus{display:flex;align-items:center;gap:1px;white-space:nowrap;margin-left:auto}.pane-action-menus .taskmenu-menu-popover{top:calc(100% + 2px)}.pane-action-menus .taskmenu-menu-trigger{padding:1px 4px;font-size:10px}.pane-action-menus .taskmenu-menu-popover button{font-size:11px;padding:4px 7px;border:0;background:transparent}.pane-action-menus .taskmenu-menu-popover .stop{color:#ffb2b7}.pane-action-menus .taskmenu-menu-popover .copy-console,.pane-action-menus .taskmenu-menu-popover .broadcast-copy-console{color:#b9dcff}.pane-action-menus .taskmenu-menu-popover .console-search-btn{color:#d9cbff}.pane-action-menus .taskmenu-menu-popover .console-save-btn{color:#bfead0}.pane-action-menus .taskmenu-menu-popover .session-clear-console{color:#ffb8bd}
+html[data-taskmenu-theme="light"] .taskmenu-menu-trigger:hover,html[data-taskmenu-theme="light"] .taskmenu-menu.open>.taskmenu-menu-trigger{background:#e8edf3!important}html[data-taskmenu-theme="light"] .taskmenu-menu-popover{background:#fff;border-color:#b9c0c8;box-shadow:0 10px 28px rgba(0,0,0,.15)}html[data-taskmenu-theme="light"] .taskmenu-menu-popover>button:hover:not(:disabled){background:#edf2f7}html[data-taskmenu-theme="light"] .pane-action-menus .taskmenu-menu-popover .copy-console,html[data-taskmenu-theme="light"] .pane-action-menus .taskmenu-menu-popover .broadcast-copy-console{color:#194b78}html[data-taskmenu-theme="light"] .pane-action-menus .taskmenu-menu-popover .console-search-btn{color:#493b78}html[data-taskmenu-theme="light"] .pane-action-menus .taskmenu-menu-popover .console-save-btn{color:#23583b}html[data-taskmenu-theme="light"] .pane-action-menus .taskmenu-menu-popover .session-clear-console{color:#7b3037}
+`;
+document.head.append(style);
+
+const openMenus=new Set();
+const headerMenusByName=new Map();
+function closeMenu(menu){menu.classList.remove('open');openMenus.delete(menu);}
+function closeAll(except=null){for(const menu of [...openMenus])if(menu!==except)closeMenu(menu);}
+function makeMenu(label,title){
+  const menu=document.createElement('div');menu.className='taskmenu-menu';
+  const trigger=document.createElement('button');trigger.className='taskmenu-menu-trigger';trigger.textContent=label+' ▾';trigger.title=title||label;
+  const pop=document.createElement('div');pop.className='taskmenu-menu-popover';
+  trigger.onclick=event=>{event.stopPropagation();const opening=!menu.classList.contains('open');closeAll(menu);menu.classList.toggle('open',opening);if(opening)openMenus.add(menu);else openMenus.delete(menu);};
+  pop.onclick=event=>event.stopPropagation();menu.append(trigger,pop);return {menu,trigger,pop};
+}
+function addSection(pop,label,nodes){
+  const available=nodes.filter(Boolean);if(!available.length)return false;
+  const head=document.createElement('div');head.className='taskmenu-menu-label';head.textContent=label;pop.append(head,...available);return true;
+}
+
+document.addEventListener('click',()=>closeAll());
+document.addEventListener('keydown',event=>{if(event.key==='Escape')closeAll();});
+
+function installHeaderMenus(){
+  const projectWorkspace=String(app.taskData?.workspace||'').trim();
+  if(!projectWorkspace)return false;
+  const header=document.querySelector('header'),workspace=document.querySelector('#workspace');if(!header||!workspace||header.querySelector('.header-action-menus'))return false;
+  const host=document.createElement('div');host.className='header-action-menus';header.append(host);
+
+  const files=makeMenu('Files','Project files');
+  const quickOpen=document.createElement('button');quickOpen.type='button';quickOpen.textContent='Quick Open…  Ctrl+P';quickOpen.onclick=()=>{closeAll();globalThis.TaskMenuQuickOpen?.open();};
+  const searchFiles=document.createElement('button');searchFiles.type='button';searchFiles.textContent='Search in Files…  Ctrl+Shift+F';searchFiles.onclick=()=>{closeAll();globalThis.TaskMenuProjectSearch?.open();};
+  const symbols=document.createElement('button');symbols.type='button';symbols.textContent='Project Symbols…';symbols.disabled=Boolean(app.sharedMode&&!app.hasPermission?.('files.read')&&!app.hasPermission?.('project.admin'));symbols.onclick=()=>{closeAll();globalThis.TaskMenuProjectSymbols?.open();};
+  const explorer=document.createElement('button');explorer.type='button';explorer.textContent='Explorer';explorer.onclick=()=>{closeAll();globalThis.TaskMenuExplorer?.open();};
+  addSection(files.pop,'OPEN',[quickOpen,searchFiles,symbols,explorer]);
+  addSection(files.pop,'FILES',[document.querySelector('#upload-workspace')]);
+  // Keep an explicit Git panel entry point even when the workspace root is
+  // not a Git repository; discovery happens inside the panel.
+  const gitRepositories=document.createElement('button');gitRepositories.type='button';gitRepositories.textContent='Git repositories…';
+  gitRepositories.disabled=Boolean(app.sharedMode&&!app.hasPermission?.('git.status')&&!app.hasPermission?.('project.admin'));
+  gitRepositories.onclick=()=>{closeAll();globalThis.TaskMenuGitFiles?.open?.();};
+  addSection(files.pop,'GIT',[gitRepositories]);
+  host.append(files.menu);
+  headerMenusByName.set('files',files.menu);
+
+  const terminal=document.querySelector('#open-terminal');
+  if(terminal){
+    terminal.classList.add('taskmenu-menu-trigger','taskmenu-direct-action');
+    terminal.textContent='Terminal';
+    terminal.title='Open a new terminal · Ctrl+Shift+`';
+    host.append(terminal);
+  }
+
+  const settings=makeMenu('Settings','Tool settings');
+  settings.menu.classList.add('taskdeck-settings-menu');
+  // Centralize shared-server menu visibility. Read access is not permission
+  // to modify workspace-wide configuration.
+  const has=permission=>!app.sharedMode||Boolean(app.hasPermission?.('project.admin')||app.hasPermission?.(permission));
+  const canConfigure=has('settings.write');
+  const canReadSettings=has('settings.read');
+  const only=(allowed,node)=>{
+    // Controls may have been created in the legacy header before the grouped
+    // menu moves them. Explicitly hide denied controls at their original
+    // location too; omitting them from the menu is not enough.
+    if(node)node.hidden=!allowed;
+    return allowed?node:null;
+  };
+  const patchUIKey='vscode-tasks-menu:patch-ui-mode:'+projectWorkspace;
+  const patchUIControl=document.createElement('label');patchUIControl.className='patch-ui-mode-control';
+  const patchUILabel=document.createElement('span');patchUILabel.textContent='Interface';
+  const patchUISelect=document.createElement('select');patchUISelect.id='patch-ui-mode';patchUISelect.title='Choose Patch Tool interface';
+  for(const [value,label] of [['native','Native UI'],['terminal','Terminal (legacy)']]){
+    const option=document.createElement('option');option.value=value;option.textContent=label;patchUISelect.append(option);
+  }
+  let patchUIMode='native';
+  try{const saved=localStorage.getItem(patchUIKey);if(saved==='terminal')patchUIMode='terminal';}catch{}
+  patchUISelect.value=patchUIMode;
+  patchUISelect.onchange=()=>{
+    patchUIMode=patchUISelect.value==='terminal'?'terminal':'native';
+    try{localStorage.setItem(patchUIKey,patchUIMode);}catch(error){console.warn('Cannot persist Patch Tool UI mode',error);}
+    window.dispatchEvent(new CustomEvent('taskmenu:patch-ui-mode',{detail:{mode:patchUIMode}}));
+    closeAll();
+  };
+  patchUIControl.append(patchUILabel,patchUISelect);
+  globalThis.TaskMenuPatchUISettings={get mode(){return patchUIMode;}};
+
+  const aiSettingsButton=document.createElement('button');aiSettingsButton.type='button';
+  aiSettingsButton.textContent='AI Assistant settings…';aiSettingsButton.disabled=!canConfigure;
+  aiSettingsButton.onclick=()=>{closeAll();globalThis.TaskMenuAI?.openSettings?.().catch(app.showError);};
+  const aiPanelButton=document.createElement('button');aiPanelButton.type='button';aiPanelButton.textContent='Open AI Smart Terminal';
+  aiPanelButton.disabled=Boolean(app.sharedMode&&(!app.hasPermission?.('terminal.view_own')||!app.hasPermission?.('settings.read')));
+  aiPanelButton.onclick=()=>{closeAll();globalThis.TaskMenuAI?.openPanel?.().catch(app.showError);};
+  const aiPlansButton=document.createElement('button');aiPlansButton.type='button';aiPlansButton.textContent='Guided AI plans (review only)…';
+  aiPlansButton.disabled=Boolean(app.sharedMode&&(!app.hasPermission?.('terminal.view_own')||!app.hasPermission?.('settings.read')));
+  aiPlansButton.onclick=()=>{closeAll();globalThis.TaskMenuAIPlans?.open?.().catch(app.showError);};
+  const agentChatButton=document.createElement('button');agentChatButton.type='button';
+  agentChatButton.textContent='Open AI Agent Chat';
+  agentChatButton.disabled=Boolean(app.sharedMode&&(!app.hasPermission?.('settings.read')||!app.hasPermission?.('files.read')));
+  agentChatButton.onclick=()=>{closeAll();globalThis.TaskMenuAgentChat?.open?.().catch(app.showError);};
+  const agentProviderButton=document.createElement('button');agentProviderButton.type='button';
+  agentProviderButton.textContent='AI Agent providers / API keys…';
+  agentProviderButton.disabled=!canConfigure;
+  agentProviderButton.onclick=()=>{closeAll();globalThis.TaskMenuAgentChat?.settings?.().catch(app.showError);};
+  addSection(settings.pop,'AI ASSISTANT',[only(canConfigure,aiSettingsButton),only(canReadSettings,aiPanelButton),only(canReadSettings,aiPlansButton),
+    only(!agentChatButton.disabled,agentChatButton),only(canConfigure,agentProviderButton)]);
+  addSection(settings.pop,'PATCH TOOL',[patchUIControl]);
+  // Browser-local diagnostic visibility, not an administrator-wide server
+  // setting. Hide the trace header control and palette entry by default.
+  const completionDebugLabel=document.createElement('label');
+  completionDebugLabel.className='autocomplete-diagnostics-setting';
+  completionDebugLabel.title='Show developer-only autocomplete trace and debug controls';
+  const completionDebugToggle=document.createElement('input');
+  completionDebugToggle.type='checkbox';completionDebugToggle.id='autocomplete-diagnostics-visible';
+  completionDebugToggle.checked=Boolean(globalThis.TaskDeckCompletionTrace?.diagnosticsVisible);
+  const completionDebugText=document.createElement('span');
+  completionDebugText.textContent='Show autocomplete diagnostics (debug / trace)';
+  completionDebugToggle.onchange=()=>{
+    globalThis.TaskDeckCompletionTrace?.setDiagnosticsVisible?.(completionDebugToggle.checked);
+  };
+  completionDebugLabel.append(completionDebugToggle,completionDebugText);
+  addSection(settings.pop,'TERMINAL',[
+    only(canConfigure,document.querySelector('#terminal-cwd')),
+    only(!app.sharedMode||has('terminal.view_own'),completionDebugLabel)
+  ]);
+  const authModeSettings=document.querySelector('#auth-mode-settings');
+  const remoteSettings=document.querySelector('#remote-access-settings');
+  if(has('project.admin')){
+    addSection(settings.pop,'SECURITY',[
+      only(true,authModeSettings),only(true,remoteSettings)
+    ]);
+  }else{
+    only(false,authModeSettings);only(false,remoteSettings);
+  }
+  addSection(settings.pop,'ENVIRONMENT',[only(canConfigure,document.querySelector('#env-profile')),only(canConfigure,document.querySelector('#env-profile-manage'))]);
+  addSection(settings.pop,'NOTIFICATIONS',[document.querySelector('#notifications-toggle')]);
+  addSection(settings.pop,'APPEARANCE',[document.querySelector('.appearance-controls'),only(canConfigure,document.querySelector('#running-indicator-settings'))]);
+  const selfUpdateBranch=document.querySelector('#self-update-branch-settings');
+  if(selfUpdateBranch)selfUpdateBranch.hidden=!canConfigure;
+  addSection(settings.pop,'UPDATE',[
+    only(canConfigure,selfUpdateBranch),
+    only(has('selfupdate.check'),document.querySelector('#self-update-check'))
+  ]);
+  addSection(settings.pop,'WORKSPACE',[
+    only(!app.sharedMode,globalThis.TaskMenuProjectLauncher?.button),
+    only(canConfigure,document.querySelector('#config-backup-settings')),
+    only(canConfigure,document.querySelector('#tasks-json-editor')),
+    document.querySelector('#reload'),
+    only(canConfigure,document.querySelector('#edit-title'))
+  ]);
+  const helpButton=document.createElement('button');helpButton.type='button';helpButton.className='taskdeck-settings-help';
+  helpButton.textContent='Help · Shortcuts and quick guide';
+  helpButton.onclick=()=>{closeAll();globalThis.TaskMenuHelp?.open?.();};
+  addSection(settings.pop,'HELP',[helpButton]);
+  host.append(settings.menu);
+  headerMenusByName.set('settings',settings.menu);
+
+  const git=document.querySelector('.git-status-pill');
+  if(git){
+    if(app.layoutProfile==='mobile'){
+      git.classList.remove('header-left-git');
+      host.append(git);
+    }else{
+      git.classList.add('header-left-git');
+      workspace.after(git);
+    }
+  }
+  return true;
+}
+
+const BROADCAST_COPY_LABEL='📋 Copy broadcast group console';
+
+function broadcastConsoleGroup(view){
+  if(app.sharedMode||!view||view.closed||!view.meta?.id)return null;
+  return globalThis.TaskMenuBroadcast?.groupForSession?.(view.meta.id)||null;
+}
+
+// Copy the same complete xterm scrollback as the single-terminal Copy console.
+// Group assignment, not the global broadcast input mode, controls membership.
+function broadcastGroupConsolePayload(view){
+  const group=broadcastConsoleGroup(view);
+  if(!group)return null;
+  const assignments=globalThis.TaskMenuBroadcast?.state?.assignments||{};
+  const members=[];
+  for(const candidate of app.views.values()){
+    if(!candidate||candidate.closed||!candidate.term||!candidate.meta?.id)continue;
+    if(assignments[candidate.meta.id]!==group.id)continue;
+    members.push(candidate);
+  }
+  if(!members.some(candidate=>candidate.meta.id===view.meta.id))return null;
+  let hasOutput=false;
+  const sections=members.map(candidate=>{
+    const content=String(app.consoleText(candidate)||'');
+    if(content)hasOutput=true;
+    const label=String(candidate.meta.label||'Terminal').replace(/[\r\n]+/g,' ').trim();
+    return '===== '+label+' ['+candidate.meta.id+'] =====\n'+content;
+  });
+  const name=String(group.name||group.id).replace(/[\r\n]+/g,' ').trim();
+  return {text:hasOutput?'Broadcast group: '+name+'\n\n'+sections.join('\n\n'):'',count:members.length};
+}
+
+function broadcastCopyFeedback(button,message){
+  clearTimeout(button.copyTimer);
+  button.textContent=message;
+  button.copyTimer=setTimeout(()=>{if(button.isConnected)button.textContent=BROADCAST_COPY_LABEL;},1500);
+}
+
+async function copyBroadcastGroupConsole(view,button){
+  const payload=broadcastGroupConsolePayload(view);
+  if(!payload){broadcastCopyFeedback(button,'No broadcast group');return;}
+  if(!payload.text){broadcastCopyFeedback(button,'Group consoles are empty');return;}
+  let copied=false;
+  if(navigator.clipboard&&window.isSecureContext){
+    try{await navigator.clipboard.writeText(payload.text);copied=true;}catch{}
+  }
+  if(!copied){
+    const area=document.createElement('textarea');
+    area.value=payload.text;area.setAttribute('readonly','');area.style.position='fixed';area.style.left='-9999px';area.style.top='0';
+    document.body.append(area);area.select();
+    try{copied=document.execCommand('copy');}finally{area.remove();}
+  }
+  if(!copied)throw new Error('Cannot copy broadcast group consoles to clipboard');
+  broadcastCopyFeedback(button,'✓ Copied '+payload.count+' consoles');
+}
+
+function updateBroadcastCopyButton(view){
+  const button=view?.pane?.querySelector('.broadcast-copy-console');
+  if(!button)return;
+  const group=broadcastConsoleGroup(view);
+  button.disabled=!group;
+  button.title=group?'Copy the console output of every terminal in broadcast group "'+group.name+'"':'Assign this terminal to a broadcast group first';
+}
+function ensureBroadcastCopyButton(view){
+  const copy=view?.pane?.querySelector('.copy-console');
+  if(!copy)return;
+  if(!view.pane.querySelector('.broadcast-copy-console')){
+    const button=document.createElement('button');
+    button.type='button';button.className='broadcast-copy-console';
+    button.textContent=BROADCAST_COPY_LABEL;
+    button.onclick=()=>copyBroadcastGroupConsole(view,button).catch(app.showError);
+    copy.after(button);
+  }
+  updateBroadcastCopyButton(view);
+}
+window.addEventListener('taskmenu:broadcast-state',()=>{
+  for(const view of app.views.values())updateBroadcastCopyButton(view);
+});
+
+function paneMenu(view,label,selectorPairs){
+  const made=makeMenu(label,label+' actions');let count=0;
+  for(const [section,selectors] of selectorPairs){const nodes=selectors.map(selector=>view.pane.querySelector(selector)).filter(Boolean);if(addSection(made.pop,section,nodes))count+=nodes.length;}
+  if(!count)return null;return made.menu;
+}
+
+function decoratePane(view){
+  const head=view?.pane?.querySelector('.pane-head');if(!head||head.querySelector('.pane-action-menus'))return;
+  ensureBroadcastCopyButton(view);
+  const host=document.createElement('div');host.className='pane-action-menus';
+  const session=paneMenu(view,'Session',[
+    ['PROCESS',['.terminal-command-palette','.session-clone','.session-force-restart','.session-restart-here-clear','.session-restart-here-keep','.terminal-rename','.session-process-tree']],
+    ['SPLIT',['.session-split-vertical','.session-split-horizontal','.session-merge-vertical','.session-merge-horizontal','.session-move-split-group','.session-swap-split','.session-unsplit']],
+    ['LIFECYCLE',['.stop','.session-terminate','.session-force-kill']]
+  ]);
+  const consoleMenu=paneMenu(view,'Console',[
+    ['CONSOLE',['.copy-console','.broadcast-copy-console','.console-search-btn','.console-search-all-btn','.console-save-btn','.session-clear-console']]
+  ]);
+  if(session)host.append(session);if(consoleMenu)host.append(consoleMenu);
+  if(host.childElementCount)head.append(host);
+}
+
+window.addEventListener('taskmenu:session',event=>{const view=event.detail?.view;if(view)setTimeout(()=>decoratePane(view),0);});
+for(const view of app.views.values())decoratePane(view);
+if(!installHeaderMenus()){
+  window.addEventListener('taskmenu:tasks',()=>installHeaderMenus(),{once:true});
+}
+
+function openHeaderMenu(name){
+  const menu=headerMenusByName.get(String(name||'').toLowerCase());
+  if(!menu)throw new Error('Header menu unavailable: '+name);
+  closeAll(menu);menu.classList.add('open');openMenus.add(menu);
+  menu.querySelector('.taskmenu-menu-trigger')?.focus();
+  return true;
+}
+globalThis.TaskMenuMenus={open:openHeaderMenu,closeAll};

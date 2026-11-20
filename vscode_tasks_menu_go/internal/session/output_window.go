@@ -1,0 +1,91 @@
+package session
+
+import (
+ "fmt"
+ "unicode/utf8"
+
+ "bletonfc/vscode_tasks_menu/internal/tasks"
+)
+
+// RemoteManagedTaskStarter is deliberately an OPTIONAL daemon-local start
+// capability, not a REST/broker command. Remote tasks cannot be redirected
+// into an older broker lacking proven byte-offset accounting.
+type RemoteManagedTaskStarter interface {
+ StartRemoteManagedProcess(tasks.Execution) (Metadata,error)
+}
+func (m *Manager) StartRemoteManagedProcess(spec tasks.Execution)(Metadata,error){
+ if m==nil||spec.SessionKind!=tasks.SessionKindTask||
+  spec.TaskID<1||spec.OwnerUserID==""||spec.ProjectID==""{
+  return Metadata{},fmt.Errorf("unapproved remote managed process")
+ }
+ return m.Start(spec)
+}
+
+// OutputWindowReader is an OPTIONAL local TaskDeck session capability.
+// Older brokers that cannot prove complete byte offsets fail closed. It
+// deliberately does not provide stdin, PTY input or a generic stream.
+type OutputWindowReader interface {
+ ReadOutputWindow(id string, offset int64, limit int) (OutputWindow,error)
+}
+type OutputWindow struct {
+ Offset int64
+ Next int64
+ Total int64
+ Data []byte
+}
+
+// Snapshot and monotonic accounting occur atomically under the same lock
+// as appendOutput. Never silently skip an evicted prefix of the scrollback,
+// even when the current request is still within the retained suffix.
+func (m *Manager) ReadOutputWindow(id string, offset int64, limit int)(OutputWindow,error){
+ if m==nil||offset<0||limit<1||limit>2048{
+  return OutputWindow{},fmt.Errorf("invalid output cursor")
+ }
+ s,ok:=m.Get(id)
+ if !ok{return OutputWindow{},fmt.Errorf("task session missing")}
+ s.mu.Lock()
+ defer s.mu.Unlock()
+ total:=s.outputTotal
+ start:=total-int64(len(s.scrollback))
+ if offset<start || offset>total {
+  return OutputWindow{},fmt.Errorf("requested output bytes were evicted or cursor is ahead")
+ }
+ index:=int(offset-start)
+ available:=len(s.scrollback)-index
+ if available>limit{available=limit}
+ if available==0{return OutputWindow{Offset:offset,Next:offset,Total:total},nil}
+ // The E2EE terminal console supports UTF-8 text, not binary downloads.
+ // A non-boundary cursor or invalid text is an explicit error, not
+ // replacement characters or guessed byte offsets.
+ if index>0 && !utf8.Valid(s.scrollback[:index]){
+  // A dropped prefix may split a codepoint; check the cursor itself.
+  if index<len(s.scrollback) && s.scrollback[index]&0xc0==0x80 {
+   return OutputWindow{},fmt.Errorf("output cursor splits UTF-8 rune")
+  }
+ }
+ if index<len(s.scrollback)&&s.scrollback[index]&0xc0==0x80{
+  return OutputWindow{},fmt.Errorf("output cursor splits UTF-8 rune")
+ }
+ part:=s.scrollback[index:index+available]
+ // A PTY read may end in the middle of a multibyte rune. Trim the
+ // requested *end*, never advance past missing output.
+ // Only a genuinely incomplete rune at the RIGHT boundary may be
+ // deferred to the next window. A malformed byte anywhere in the window
+ // (including its middle) is a hard error; never silently trim it away.
+ for i:=0;i<len(part);{
+  rune,size:=utf8.DecodeRune(part[i:])
+  if rune==utf8.RuneError&&size==1{
+   if utf8.FullRune(part[i:]){
+    return OutputWindow{},fmt.Errorf("malformed UTF-8 in terminal output")
+   }
+   part=part[:i]
+   break
+  }
+  i+=size
+ }
+ if len(part)==0{return OutputWindow{},fmt.Errorf("incomplete UTF-8 at output cursor")}
+ data:=append([]byte(nil),part...)
+ return OutputWindow{
+  Offset:offset,Next:offset+int64(len(data)),Total:total,Data:data,
+ },nil
+}

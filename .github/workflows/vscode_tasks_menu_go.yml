@@ -1,0 +1,277 @@
+name: VSCode Tasks Menu Go
+
+# Manual-only: launch through Actions > Run workflow. No push, PR, tag or schedule triggers.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test-build:
+    runs-on: ubuntu-latest
+    env:
+      GOPROXY: "off"
+      GOSUMDB: "off"
+    strategy:
+      fail-fast: false
+      matrix:
+        go-version:
+          - "1.19.x"
+          - "1.23.x"
+    defaults:
+      run:
+        working-directory: vscode_tasks_menu_go
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go ${{ matrix.go-version }}
+        uses: actions/setup-go@v6
+        with:
+          go-version: ${{ matrix.go-version }}
+          cache: false
+
+      - name: Launcher and installer syntax
+        run: |
+          bash -n ../vscode_tasks_menu
+          bash -n ../install.sh
+          bash -n ../run_python_patches.sh
+
+      - name: Go bootstrap regression (no network required)
+        working-directory: .
+        run: bash tests/test_install_go_bootstrap.sh
+
+      - name: Patch entry routing contract
+        working-directory: .
+        run: |
+          python3 test_python_patch_entry.py
+          python3 -m py_compile python_patch_entry.py
+
+      - name: Go server source syntax preflight
+        run: |
+          # Reject malformed/duplicated Go source before compiling a release candidate.
+          # Redirect formatted output: this validates syntax without rewriting tracked files.
+          find internal/server -type f -name '*.go' -print0 | while IFS= read -r -d '' file; do
+            gofmt -e "$file" >/dev/null || { echo "Invalid Go source: $file" >&2; exit 1; }
+          done
+
+      - name: JavaScript syntax
+        run: |
+          find web -type f -name '*.js' -print0 | while IFS= read -r -d '' file; do
+            node --input-type=module --check < "$file"
+          done
+
+      - name: Restricted Developer Go policy, gateway and API tests
+        run: |
+          go test ./internal/restrictedpolicy ./internal/restrictedcommand ./internal/restrictedview ./internal/restrictededit
+          go test ./internal/server -run 'TestRestricted|TestProtected' -count=1
+
+      - name: Restricted and Schedule role migration from legacy V5
+        run: |
+          go test ./internal/identity -run 'TestRoleSeedUpgradesBothHistoricalV5Databases|TestRestrictedDeveloperRoleRejectsOverridesAndPinsEffectivePermissions' -count=1
+          go test ./internal/server -run 'TestScheduleHTTPViewerCannotReadSecretsOrExecute|TestScheduleSensitiveEndpointsRequirePairedGrants|TestSchedulePublicSummaryNeverLeaksSensitiveFields' -count=1
+
+      - name: Multi-user privilege delegation and per-user resource ownership
+        run: |
+          go test ./internal/dbsession -run 'TestDatabaseSessionOwnerImmutableAndNotSerialized' -count=1
+          go test ./internal/identity -run 'TestBrowserSessionReflectsRolePermissionRevocationImmediately' -count=1
+          go test ./internal/server -run 'TestSharedTaskRunHistoryRequiresProjectPrincipal|TestSharedTaskRunLogWritesRequireOwnerOrProjectAdmin|TestDelegatedUserManagerCannotEscalateThroughAdminAPIs|TestSharedFileTransferJobsRequireHostCapabilities|TestSharedActionGateNeverTreatsMissingPrincipalAsLocalMode|TestSharedDatabaseSessionsVisibleOnlyToOwnerOrProjectAdmin|TestSharedDatabaseSessionHTTPRejectsOtherUserAndLeaksNoSessionIDs|TestSharedTransferQueueSnapshotsHideOtherUsersAndLegacyJobs|TestSharedTransferQueueActivityCountersAreProjectScoped|TestSharedTransferQueueControlRejectsForeignAndOwnerlessJobs|TestTransferJobOwnerPersistsOnlyInInternalStateFile|TestSharedTransferQueueStateMigratesOutsideServedWorkspace|TestSharedTransferQueueRejectsWorkspaceResidentIdentityPath|TestSharedTransferQueueRejectsLegacySymlink|TestSharedQueueMigrationRefusesConflictingLegacyState' -count=1
+
+      - name: Shared managed-state source isolation
+        run: |
+          go test ./internal/server -run 'TestSharedManagedProjectPathClassification|TestSharedProjectRoutesCannotReadOrArchiveManagedState|TestSharedManagedFileNotHostTransferable|TestSharedReplacePreviewExcludesManagedState|TestSharedManagedStateHistoryRejectsOldPrivateVersions|TestSharedManagedGitHistoryAndBlobReadsFailClosed|TestSharedGitConflictStagesCannotAccessManagedState|TestSharedGitTreeMetadataOmitsManagedFilesAndOIDs|TestSharedGitCommitMetadataExcludesRenamesOfManagedFiles|TestSharedGitStatusMetadataRedactsRenamedManagedPaths|TestSharedGitConflictMetadataExcludesProtectedPaths|TestSharedFilesDownloadAndSelectionHideManagedState|TestSharedFilesUploadCannotOverwriteManagedState|TestSharedProjectGitStatusRedactsManagedFiles|TestSharedBackgroundHostDownloadRejectsManagedDestinations|TestSharedTerminalPathSuggestionsHideManagedState|TestSharedGitIgnoreWizardDoesNotEnumerateManagedState' -count=1
+
+      - name: Cross-project transfer and Git view authorization
+        run: |
+          go test ./internal/server -run 'TestSharedTransferQueueControlRejectsForeignAndOwnerlessJobs|TestSharedGitHistoricalViewsRequireLogOrDiffPermission' -count=1
+
+      - name: Settings Role visibility regression
+        run: node --test tests/settings_role_visibility.test.mjs
+
+      - name: Schedule Role and privilege split UI regression
+        run: node --test tests/schedule_role_security.test.mjs
+
+      - name: Restricted Developer browser UI contracts
+        run: node --test test_restricted_ui.cjs
+
+      - name: Git output progress regression
+        run: node --test test_git_output_format.cjs
+
+      - name: Diff color contrast regression
+        run: node --test test_diff_color_contrast.cjs
+
+      - name: Escape tab shortcut regression
+        run: node --test test_tab_escape_shortcut.cjs
+
+      - name: Settings Help regression
+        run: node --test test_settings_help.cjs
+
+      - name: Self-update repeated-failure dialog regression
+        run: node --test test_selfupdate_failure_ui.cjs
+
+      - name: Task picker shortcuts and runtime regression
+        run: node --test test_task_picker.cjs
+
+      - name: Terminal focus idle-or-new shortcut regression
+        run: node --test test_terminal_focus_hotkey.cjs
+
+      - name: AI Smart Terminal regression
+        run: node --test test_ai_smart_terminal.cjs
+      - name: Inline smart terminal ranking
+        run: node --test test_smartterminal_engine.cjs
+
+      - name: Git contextual command guides
+        run: node --test test_terminal_command_guides.cjs
+
+      - name: AI terminal troubleshooting protocol and execution guards
+        run: node --test test_ai_terminal_actions.cjs test_ai_terminal_troubleshoot.cjs
+
+      - name: Smart terminal live path completion
+        run: node --test test_smartterminal_path_runtime.cjs
+
+      - name: Autocomplete diagnostic trace runtime
+        run: node --test test_smartterminal_trace.cjs
+
+      - name: Inline smart terminal agent framing
+        run: node --test test_smartterminal_agents.cjs
+
+      - name: Inline agent PTY routing and safety
+        run: node --test test_smartterminal_agent_runtime.cjs
+
+      - name: Bash prompt reserved-command fallback
+        run: node --test test_smartterminal_reserved_prompt.cjs
+
+      - name: Smart terminal keyboard focus regression
+        run: node --test test_smartterminal_keyboard.cjs
+      - name: Context-aware terminal and aliases regression
+        run: node --test test_smartterminal_path_ui.cjs
+
+      - name: Smart terminal Broadcast integration
+        run: node --test test_smartterminal_broadcast.cjs
+
+      - name: AI provider/model picker regression
+        run: node --test test_ai_model_suggestions.cjs
+
+      - name: AI request debug and privacy regression
+        run: node --test test_ai_request_debug.cjs
+
+      - name: Database ZIP export regression
+        run: node --test test_db_result_export_archives.cjs
+
+      - name: Markdown editor and Explorer preview regression
+        run: node --test test_markdown_preview_actions.cjs
+
+      - name: Editor Find repeated Enter focus regression
+        run: node --test test_editor_find_focus.cjs
+
+      - name: Git branch clone dialog regression
+        run: node --test test_git_branch_clone.cjs
+
+      - name: Git consolidated branch action wizards
+        run: node --test test_git_branch_action_wizards.cjs
+
+      - name: Git Log search and Show Diff
+        run: node --test test_git_log_ui.cjs
+
+      - name: SSH reconnect safety regression
+        run: node --test test_ssh_reconnect.cjs
+
+      - name: SSH reconnect lifecycle regression
+        run: node --test test_ssh_reconnect_runtime.cjs
+
+      - name: SSH websocket recovery regression
+        run: node --test test_ssh_websocket_recovery.cjs
+
+      - name: Pristine terminal lifecycle regression
+        run: node --test test_terminal_fresh_close.cjs
+
+      - name: TaskDeck Patch handoff state
+        working-directory: .
+        run: python3 test_taskdeck_patch_handoff_state.py
+
+      - name: Self-update staged Go tests
+        working-directory: .
+        run: |
+          stage="$(mktemp -d)"
+          trap 'rm -rf "$stage"' EXIT
+          cp -a vscode_tasks_menu_go "$stage/vscode_tasks_menu_go"
+          cp -a _patch_lib "$stage/_patch_lib"
+          for file in             vscode_tasks_menu             install.sh             python_patch_entry.py             test_python_patch_entry.py             run_python_patches.sh             run_python_patches.ps1             run_python_patches.bat; do
+            cp -a "$file" "$stage/$file"
+          done
+          (
+            cd "$stage/vscode_tasks_menu_go"
+            go test ./...
+          )
+
+      - name: Legacy self-update staged Go tests
+        working-directory: .
+        run: |
+          stage="$(mktemp -d)"
+          trap 'rm -rf "$stage"' EXIT
+          cp -a vscode_tasks_menu_go "$stage/vscode_tasks_menu_go"
+          (
+            cd "$stage/vscode_tasks_menu_go"
+            go test ./...
+          )
+
+      - name: Test
+        run: go test ./...
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Build
+        run: go build -buildvcs=false -trimpath -o /tmp/taskdeck ./cmd/vscode_tasks_menu
+
+  macos-native:
+    name: Native macOS Intel + Apple Silicon acceptance
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [macos-15-intel, macos-15]
+    env:
+      GOPROXY: "off"
+      GOSUMDB: "off"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v6
+        with:
+          go-version: "1.25.x"
+          cache: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: macOS Docker launcher safety regression
+        run: |
+          bash -n deploy/macos/taskdeck.sh
+          bash -n deploy/macos/test_launcher.sh
+          bash deploy/macos/test_launcher.sh
+      - name: Validate macOS Bash entry points
+        run: bash -n install.sh && bash -n vscode_tasks_menu
+      - name: Compile all Go packages and tests
+        working-directory: vscode_tasks_menu_go
+        run: go test -vet=off -run '^$' ./...
+      - name: Run native Darwin security and process-tree regressions
+        working-directory: vscode_tasks_menu_go
+        run: |
+          go test -vet=off -count=1 ./internal/server -run 'TestDarwinPinned'
+          go test -vet=off -count=1 ./internal/session -run 'TestDarwin'
+      - name: Build native CLI and check revision
+        working-directory: vscode_tasks_menu_go
+        run: |
+          go build -buildvcs=false -trimpath -o "$RUNNER_TEMP/taskdeck-macos" ./cmd/vscode_tasks_menu
+          "$RUNNER_TEMP/taskdeck-macos" --version
+      - name: Test global installer in isolated directories
+        run: |
+          sandbox="$(mktemp -d)"
+          trap 'rm -rf "$sandbox"' EXIT
+          export TASKDECK_INSTALL_DIR="$sandbox/bin"
+          export TASKDECK_APP_DIR="$sandbox/app"
+          export TASKDECK_INSTALL_FULL_VALIDATION=0
+          ./install.sh
+          "$sandbox/bin/taskdeck" --version
+          test -L "$sandbox/bin/taskdeck"

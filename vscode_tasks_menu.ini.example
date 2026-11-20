@@ -1,0 +1,82 @@
+# vscode_tasks_menu.ini example
+#
+# Copy file này thành <workspace>/vscode_tasks_menu.ini nếu muốn cấu hình thủ công.
+# File thật có thể chứa password và tool sẽ ép permission 0600 trên hệ POSIX.
+
+[server]
+# https (mặc định) hoặc http.
+protocol = https
+
+# Local-only:
+bind = 127.0.0.1
+# Remote/LAN:
+# bind = 0.0.0.0
+
+# 0 = chọn port tự do; hoặc đặt port cố định, ví dụ 42882.
+port = 0
+
+# Khi bind wildcard và client truy cập bằng IP/hostname cụ thể, nên đặt giá trị này.
+# Giá trị cũng được đưa vào SAN của self-signed certificate tự sinh.
+# advertise_host = 192.168.1.20
+# advertise_host = devbox.example.lan
+
+open_browser = true
+
+# Chỉ dùng với protocol=https.
+# Nếu bỏ trống cả hai, tool tự tạo và tái sử dụng self-signed certificate/key
+# trong user config directory riêng của workspace.
+# tls_cert = /absolute/path/to/server.crt
+# tls_key = /absolute/path/to/server.key
+
+[auth]
+# Legacy/local auth. Chỉ là nguồn đăng nhập khi shared_server.enabled=false.
+# Bắt buộc khi bind ra ngoài loopback trong legacy mode.
+enabled = false
+username = admin
+password = change-me
+
+[self_update]
+# Branch dùng để Check update và tải source self-update. Mặc định main.
+# Ví dụ: develop, feat/test-update, release/1.2.3
+branch = main
+# Full developer test suite before activation. Mặc định false cho end users.
+# Build + binary/release validation vẫn luôn chạy khi false.
+run_full_validation_tests = false
+
+
+[git]
+# Quét các Git repository nằm trong workspace. Mặc định bật.
+scan_enabled = true
+# Độ sâu tối đa tính từ workspace root; mặc định 8, tối đa 12.
+# Root của project không bắt buộc là repo Git; tự quét repo trong các thư mục con.
+scan_depth = 8
+# Repo mặc định dùng khi mở Git Quick Actions lần đầu.
+# "." = workspace root; repo con dùng đường dẫn tương đối.
+default_repository = .
+# Nếu true, khi active terminal nằm trong repo con thì Git panel tự chọn repo đó.
+# Mặc định false để tránh tự đổi repository ngoài ý muốn.
+auto_select_from_terminal_cwd = false
+
+[git.repositories]
+# Optional: đặt tên/khai báo cố định repo. Auto-scan vẫn có thể bổ sung repo khác.
+# M3 Client = projects/m3-client
+# M3 Server = projects/m3-server
+
+[shared_server]
+# Multi-user shared-project mode. Mặc định false để giữ nguyên behavior hiện tại.
+# Yêu cầu protocol=https và Python 3.10+ (stdlib sqlite3/hashlib.scrypt).
+# Phase 3 mới hỗ trợ login/logout; API workspace còn đóng chờ RBAC/ownership.
+enabled = false
+
+# Bắt buộc khi enabled=true. ID ổn định này dùng để scope membership/quyền theo project.
+# Không dùng port hoặc workspace path làm project identity.
+# project_id = m3-client
+
+# Optional absolute path tới identity DB dùng chung giữa nhiều TaskDeck process trên cùng host.
+# DB phải nằm ngoài workspace, kể cả khi đi qua symlink.
+# Nếu bỏ trống, shared mode dùng platform data-dir mặc định.
+# identity_db = /var/lib/taskdeck/identity.db
+
+# Sau khi cấu hình, tạo admin đầu tiên bằng nhập password ẩn:
+# ./vscode_tasks_menu --shared-admin-bootstrap admin
+# Lệnh chỉ chạy khi identity DB chưa có user; không tự chuyển password [auth].

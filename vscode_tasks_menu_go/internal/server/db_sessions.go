@@ -1,0 +1,623 @@
+package server
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+
+	"bletonfc/vscode_tasks_menu/internal/dbadapter"
+	"bletonfc/vscode_tasks_menu/internal/dbprofile"
+	"bletonfc/vscode_tasks_menu/internal/dbsession"
+	"bletonfc/vscode_tasks_menu/internal/identity"
+)
+
+const (
+	databaseOpenTimeout = 20 * time.Second
+	databaseImportTimeout = 30 * time.Minute
+	databaseImportMaxBytes int64 = 2 << 30
+)
+
+func (s *Server) databaseSessionManager() (*dbsession.Manager, error) {
+	if s.DBSessions == nil {
+		return nil, errors.New("database session manager is not configured")
+	}
+	return s.DBSessions, nil
+}
+
+// Database adapter processes are shared inside one daemon. Non-admin users
+// may only see or operate sessions explicitly bound to their project/user.
+// The ownership fields are not exposed through JSON; absent ownership fails
+// closed in shared mode, including while a new session is being initialized.
+func (s *Server) dbSessionVisibleToRequest(r *http.Request, meta dbsession.Metadata) bool {
+ if !s.Config.SharedServerEnabled{return true}
+ principal,ok:=PrincipalFromContext(r.Context())
+ if !ok{return false}
+ if principal.Allowed(identity.PermissionProjectAdmin){
+  // An ownerless session has no provable project identity. Never disclose
+  // it through a project-scoped browser login, even to project admins.
+  // Its resources remain in memory for safe daemon cleanup.
+  return meta.OwnerProjectID!=""&&meta.OwnerUserID!=""&&meta.OwnerProjectID==string(principal.ProjectID)
+ }
+ return meta.OwnerProjectID!=""&&meta.OwnerUserID!=""&&
+  meta.OwnerProjectID==string(principal.ProjectID)&&meta.OwnerUserID==string(principal.UserID)
+}
+
+func (s *Server) dbSessions(w http.ResponseWriter, r *http.Request) {
+	manager, err := s.databaseSessionManager()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusServiceUnavailable)
+		return
+	}
+
+	switch r.Method {
+	case http.MethodGet:
+        sessions:=manager.List()
+        filtered:=make([]dbsession.Metadata,0,len(sessions))
+        for _,meta:=range sessions {
+            if s.dbSessionVisibleToRequest(r,meta){filtered=append(filtered,meta)}
+        }
+		writeJSON(w, http.StatusOK, map[string]interface{}{"sessions": filtered})
+	case http.MethodPost:
+		var req struct {
+			ProfileID string `json:"profile_id"`
+		}
+		decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 16<<10))
+		decoder.DisallowUnknownFields()
+		if err := decoder.Decode(&req); err != nil {
+			http.Error(w, "invalid JSON", http.StatusBadRequest)
+			return
+		}
+		req.ProfileID = strings.TrimSpace(req.ProfileID)
+		if req.ProfileID == "" {
+			http.Error(w, "database profile id is required", http.StatusBadRequest)
+			return
+		}
+		profileStore, err := s.databaseProfileStore()
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		profile, err := profileStore.Get(req.ProfileID)
+		if errors.Is(err, dbprofile.ErrProfileNotFound) {
+			http.NotFound(w, r)
+			return
+		}
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+        // A DB read grant cannot silently reuse privileged SSH credentials.
+        if profile.Transport==dbprofile.TransportSSHTunnel {
+            if !s.requireSharedActionPermission(w,r,identity.PermissionSSHUse,"db_session.open","db_profile:"+profile.ID){return}
+        }
+		openCtx, cancel := context.WithTimeout(r.Context(), databaseOpenTimeout)
+		defer cancel()
+
+		effectiveHost, effectivePort, tunnelMeta, cleanup, err := s.prepareDatabaseTransport(openCtx, profile)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadGateway)
+			return
+		}
+		cleanupOwned := cleanup != nil
+		defer func() {
+			if cleanupOwned {
+				cleanup()
+			}
+		}()
+
+		connect := dbadapter.ConnectPayload{
+			Host:     effectiveHost,
+			Port:     effectivePort,
+			Username: profile.Username,
+			Database: profile.Database,
+			File:     profile.File,
+			ReadOnly: profile.ReadOnly,
+			Options:  profile.Options,
+		}
+		if profile.SecretRef != "" {
+			secrets, err := s.connectionSecretStore()
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			secret, err := secrets.Get(profile.SecretRef)
+			if err != nil {
+				http.Error(w, "database authentication secret is unavailable", http.StatusConflict)
+				return
+			}
+			connect.Secret = string(secret)
+			for i := range secret {
+				secret[i] = 0
+			}
+		}
+		meta, err := manager.OpenWithCleanup(
+			openCtx,
+			profile.ID,
+			profile.AdapterID,
+			dbadapter.ProcessOptions{Dir: s.Workspace},
+			connect,
+			cleanup,
+		)
+		connect.Secret = ""
+		cleanupOwned = false
+		if err != nil {
+			s.auditConnection(r, ConnectionAuditEvent{Kind: "db_session", Action: "open", ProfileID: profile.ID, Success: false})
+			http.Error(w, err.Error(), http.StatusBadGateway)
+			return
+		}
+        if s.Config.SharedServerEnabled {
+            principal,ok:=PrincipalFromContext(r.Context())
+            if !ok {
+                _=manager.CloseSession(meta.ID)
+                sharedAuthError(w,identity.ErrUnauthenticated)
+                return
+            }
+            if err:=manager.SetOwner(meta.ID,string(principal.ProjectID),string(principal.UserID));err!=nil{
+                _=manager.CloseSession(meta.ID)
+                http.Error(w,"cannot bind database session owner",http.StatusServiceUnavailable)
+                return
+            }
+        }
+		transport := string(profile.Transport)
+		if transport == "" {
+			transport = string(dbprofile.TransportDirect)
+		}
+		runtimeMeta := dbsession.TransportMetadata{Transport: transport}
+		if tunnelMeta.ID != "" {
+			runtimeMeta.TunnelID = tunnelMeta.ID
+			runtimeMeta.TunnelPID = tunnelMeta.PID
+			runtimeMeta.SSHProfileID = tunnelMeta.SSHProfileID
+			runtimeMeta.TunnelLocalHost = tunnelMeta.LocalHost
+			runtimeMeta.TunnelLocalPort = tunnelMeta.LocalPort
+			runtimeMeta.TunnelRemoteHost = tunnelMeta.RemoteHost
+			runtimeMeta.TunnelRemotePort = tunnelMeta.RemotePort
+			runtimeMeta.TunnelStartedAt = tunnelMeta.StartedAt
+		}
+		if err := manager.SetTransportMetadata(meta.ID, runtimeMeta); err != nil {
+			_ = manager.CloseSession(meta.ID)
+			s.auditConnection(r, ConnectionAuditEvent{Kind: "db_session", Action: "open", ProfileID: profile.ID, SessionID: meta.ID, Success: false})
+			http.Error(w, "cannot attach database transport metadata", http.StatusInternalServerError)
+			return
+		}
+		meta, _ = manager.Get(meta.ID)
+		s.auditConnection(r, ConnectionAuditEvent{Kind: "db_session", Action: "open", ProfileID: profile.ID, SessionID: meta.ID, Success: true})
+		writeJSON(w, http.StatusCreated, meta)
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+func (s *Server) dbSessionItem(w http.ResponseWriter, r *http.Request) {
+	tail := strings.TrimPrefix(r.URL.Path, "/api/db/sessions/")
+	parts := strings.Split(strings.Trim(tail, "/"), "/")
+	if len(parts) == 0 || parts[0] == "" {
+		http.NotFound(w, r)
+		return
+	}
+	manager, err := s.databaseSessionManager()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusServiceUnavailable)
+		return
+	}
+	id := parts[0]
+    // Authorize against the same manager instance that owns the connection,
+    // not against client-supplied profile IDs or guessable session metadata.
+    sessionMeta,sessionErr:=manager.Get(id)
+    if errors.Is(sessionErr,dbsession.ErrSessionNotFound){http.NotFound(w,r);return}
+    if sessionErr!=nil{http.Error(w,"database session unavailable",http.StatusServiceUnavailable);return}
+    if !s.dbSessionVisibleToRequest(r,sessionMeta){
+        // Avoid exposing existence or internal IDs of another user's session.
+        http.NotFound(w,r)
+        return
+    }
+
+	if len(parts) == 1 {
+		switch r.Method {
+		case http.MethodGet:
+			meta, err := manager.Get(id)
+			if errors.Is(err, dbsession.ErrSessionNotFound) {
+				http.NotFound(w, r)
+				return
+			}
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			writeJSON(w, http.StatusOK, meta)
+		case http.MethodDelete:
+			meta, _ := manager.Get(id)
+			if err := manager.CloseSession(id); err != nil {
+				s.auditConnection(r, ConnectionAuditEvent{Kind: "db_session", Action: "close", ProfileID: meta.ProfileID, SessionID: id, Success: false})
+				if errors.Is(err, dbsession.ErrSessionNotFound) {
+					http.NotFound(w, r)
+					return
+				}
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			s.auditConnection(r, ConnectionAuditEvent{Kind: "db_session", Action: "close", ProfileID: meta.ProfileID, SessionID: id, Success: true})
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		}
+		return
+	}
+
+	if len(parts) == 2 && parts[1] == "import" && r.Method == http.MethodPost {
+		s.dbSessionImportSQL(w, r, manager, id)
+		return
+	}
+	if len(parts) != 2 || parts[1] != "request" || r.Method != http.MethodPost {
+		http.NotFound(w, r)
+		return
+	}
+	var req struct {
+		Operation dbadapter.Operation `json:"operation"`
+		Payload   json.RawMessage     `json:"payload,omitempty"`
+	}
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, dbadapter.MaxMessageBytes))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&req); err != nil {
+		http.Error(w, "invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	payload, err := normalizeBrowserDBOperation(req.Operation, req.Payload)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	// Use the already ownership-checked session metadata; do not resolve a
+	// second session snapshot after authorization.
+	permission := databaseOperationPermission(sessionMeta, req.Operation, payload)
+	if !s.requireSharedActionPermission(w, r, permission, string(req.Operation), "db_session:"+id) {
+		return
+	}
+	catalog := ""
+	switch value := payload.(type) {
+	case dbadapter.ExecutePayload:
+		catalog = value.Catalog
+	case dbadapter.MutateRowsPayload:
+		catalog = value.Catalog
+	case dbadapter.ObjectActionPayload:
+		catalog = value.Catalog
+		if strings.EqualFold(value.Kind, "database") {
+			catalog = value.Name
+		}
+	}
+	if !s.requireProductionDatabaseApproval(w, r, sessionMeta, permission, catalog) {
+		return
+	}
+	requestCtx, cancel := context.WithTimeout(r.Context(), databaseOpenTimeout)
+	response, err := manager.Request(requestCtx, id, req.Operation, payload)
+	cancel()
+	if err != nil {
+		s.auditConnection(r, ConnectionAuditEvent{Kind: "db_session", Action: string(req.Operation), ProfileID: sessionMeta.ProfileID, SessionID: id, Success: false})
+		if errors.Is(err, dbsession.ErrSessionNotFound) {
+			http.NotFound(w, r)
+			return
+		}
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	s.auditConnection(r, ConnectionAuditEvent{Kind: "db_session", Action: string(req.Operation), ProfileID: sessionMeta.ProfileID, SessionID: id, Success: true})
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"operation": response.Operation,
+		"result":    response.Payload,
+	})
+}
+
+func (s *Server) dbSessionImportSQL(w http.ResponseWriter, r *http.Request, manager *dbsession.Manager, id string) {
+	if !s.requireSharedActionPermission(w, r, identity.PermissionDBWrite, "import_sql", "db_session:"+id) {
+		return
+	}
+	if !s.requireSharedActionPermission(w, r, identity.PermissionDBSchema, "import_sql", "db_session:"+id) {
+		return
+	}
+	meta, err := manager.Get(id)
+	if errors.Is(err, dbsession.ErrSessionNotFound) {
+		http.NotFound(w, r)
+		return
+	}
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	var (
+		path    string
+		catalog string
+		cleanup func()
+	)
+	contentType := strings.ToLower(strings.TrimSpace(r.Header.Get("Content-Type")))
+	if strings.HasPrefix(contentType, "multipart/form-data") {
+		r.Body = http.MaxBytesReader(w, r.Body, databaseImportMaxBytes+(1<<20))
+		if err := r.ParseMultipartForm(32 << 20); err != nil {
+			http.Error(w, "invalid or oversized SQL import upload", http.StatusBadRequest)
+			return
+		}
+		if r.MultipartForm != nil {
+			defer r.MultipartForm.RemoveAll()
+		}
+		file, header, err := r.FormFile("file")
+		if err != nil {
+			http.Error(w, "SQL import file is required", http.StatusBadRequest)
+			return
+		}
+		defer file.Close()
+		if !sqlScriptExtensionAllowed(header.Filename) {
+			http.Error(w, "SQL import file must end in .sql or .txt", http.StatusUnsupportedMediaType)
+			return
+		}
+		temp, err := os.CreateTemp("", "taskdeck-sql-import-*.sql")
+		if err != nil {
+			http.Error(w, "cannot prepare SQL import", http.StatusInternalServerError)
+			return
+		}
+		_ = temp.Chmod(0o600)
+		tempPath := temp.Name()
+		cleanup = func() { _ = os.Remove(tempPath) }
+		defer cleanup()
+		written, copyErr := io.Copy(temp, io.LimitReader(file, databaseImportMaxBytes+1))
+		closeErr := temp.Close()
+		if copyErr != nil || closeErr != nil {
+			http.Error(w, "cannot stage SQL import upload", http.StatusInternalServerError)
+			return
+		}
+		if written > databaseImportMaxBytes {
+			http.Error(w, "SQL import exceeds 2 GiB limit", http.StatusRequestEntityTooLarge)
+			return
+		}
+		path = tempPath
+		catalog = strings.TrimSpace(r.FormValue("catalog"))
+	} else {
+		var req struct {
+			HostPath string `json:"host_path"`
+			Catalog  string `json:"catalog,omitempty"`
+		}
+		decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10))
+		decoder.DisallowUnknownFields()
+		if err := decoder.Decode(&req); err != nil {
+			http.Error(w, "invalid SQL import request", http.StatusBadRequest)
+			return
+		}
+		if !sqlScriptExtensionAllowed(req.HostPath) {
+			http.Error(w, "SQL import file must end in .sql or .txt", http.StatusUnsupportedMediaType)
+			return
+		}
+		resolved, err := s.resolveProjectPath(req.HostPath, false, false)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		info, err := os.Stat(resolved)
+		if err != nil || !info.Mode().IsRegular() {
+			http.Error(w, "SQL import file is unavailable", http.StatusNotFound)
+			return
+		}
+		if info.Size() > databaseImportMaxBytes {
+			http.Error(w, "SQL import exceeds 2 GiB limit", http.StatusRequestEntityTooLarge)
+			return
+		}
+		path = resolved
+		catalog = strings.TrimSpace(req.Catalog)
+	}
+	if !s.requireProductionDatabaseApproval(w, r, meta, identity.PermissionDBSchema, catalog) {
+		return
+	}
+	requestCtx, cancel := context.WithTimeout(r.Context(), databaseImportTimeout)
+	response, err := manager.Request(requestCtx, id, dbadapter.OpImportSQL, dbadapter.ImportSQLPayload{Path: path, Catalog: catalog})
+	cancel()
+	if err != nil {
+		s.auditConnection(r, ConnectionAuditEvent{Kind: "db_session", Action: string(dbadapter.OpImportSQL), ProfileID: meta.ProfileID, SessionID: id, Success: false})
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	s.auditConnection(r, ConnectionAuditEvent{Kind: "db_session", Action: string(dbadapter.OpImportSQL), ProfileID: meta.ProfileID, SessionID: id, Success: true})
+	writeJSON(w, http.StatusOK, map[string]interface{}{"result": response.Payload})
+}
+
+func sqlScriptExtensionAllowed(name string) bool {
+	switch strings.ToLower(filepath.Ext(strings.TrimSpace(name))) {
+	case ".sql", ".txt":
+		return true
+	default:
+		return false
+	}
+}
+
+func databaseSQLLeadingKeyword(statement string) string {
+	text := strings.TrimSpace(statement)
+	for text != "" {
+		switch {
+		case strings.HasPrefix(text, "--"):
+			if index := strings.IndexByte(text, '\n'); index >= 0 { text = strings.TrimSpace(text[index+1:]); continue }
+			return ""
+		case strings.HasPrefix(text, "#"):
+			if index := strings.IndexByte(text, '\n'); index >= 0 { text = strings.TrimSpace(text[index+1:]); continue }
+			return ""
+		case strings.HasPrefix(text, "/*"):
+			if index := strings.Index(text[2:], "*/"); index >= 0 { text = strings.TrimSpace(text[index+4:]); continue }
+			return ""
+		}
+		break
+	}
+	fields := strings.Fields(text)
+	if len(fields) == 0 { return "" }
+	return strings.ToLower(strings.Trim(fields[0], "();"))
+}
+
+func databaseProfileProduction(profile dbprofile.Profile) bool {
+	for key, value := range profile.Options {
+		switch strings.ToLower(strings.TrimSpace(key)) {
+		case "environment", "env":
+			if strings.EqualFold(strings.TrimSpace(value), "production") || strings.EqualFold(strings.TrimSpace(value), "prod") {
+				return true
+			}
+		case "production":
+			switch strings.ToLower(strings.TrimSpace(value)) {
+			case "1", "true", "yes", "on":
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func (s *Server) requireProductionDatabaseApproval(w http.ResponseWriter, r *http.Request, meta dbsession.Metadata, permission string, catalog string) bool {
+	if permission != identity.PermissionDBWrite && permission != identity.PermissionDBSchema {
+		return true
+	}
+	store, err := s.databaseProfileStore()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return false
+	}
+	profile, err := store.Get(meta.ProfileID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return false
+	}
+	if !databaseProfileProduction(profile) {
+		return true
+	}
+	resourceCatalog := strings.TrimSpace(catalog)
+	if resourceCatalog == "" {
+		resourceCatalog = strings.TrimSpace(profile.Database)
+	}
+	resource := profile.ID
+	if resourceCatalog != "" {
+		resource += ":" + resourceCatalog
+	}
+	return s.requireDangerousApproval(w, r, "db.production.write", resource)
+}
+
+func databaseOperationPermission(meta dbsession.Metadata, operation dbadapter.Operation, payload interface{}) string {
+	switch operation {
+	case dbadapter.OpPing, dbadapter.OpListCatalogs, dbadapter.OpListObjects, dbadapter.OpDescribeObject, dbadapter.OpBrowseRows:
+		return identity.PermissionDBRead
+	case dbadapter.OpBegin, dbadapter.OpCommit, dbadapter.OpRollback, dbadapter.OpMutateRows:
+		return identity.PermissionDBWrite
+	case dbadapter.OpObjectAction:
+		if action, ok := payload.(dbadapter.ObjectActionPayload); ok {
+			switch strings.ToLower(strings.TrimSpace(action.Action)) {
+			case "count_rows", "inspect":
+				return identity.PermissionDBRead
+			case "create", "drop":
+				return identity.PermissionDBSchema
+			case "truncate":
+				// MySQL TRUNCATE TABLE is DDL and requires DROP privileges.
+				// SQLite DELETE-all and MongoDB clear remain data writes.
+				if strings.EqualFold(meta.AdapterKind, "mysql") {
+					return identity.PermissionDBSchema
+				}
+				return identity.PermissionDBWrite
+			default:
+				return identity.PermissionDBWrite
+			}
+		}
+		return identity.PermissionDBWrite
+	case dbadapter.OpExecute:
+		execute, ok := payload.(dbadapter.ExecutePayload)
+		if !ok { return identity.PermissionDBWrite }
+		kind := strings.ToLower(strings.TrimSpace(meta.AdapterKind))
+		if kind != "mysql" && kind != "sqlite" {
+			return identity.PermissionDBRead
+		}
+		switch databaseSQLLeadingKeyword(execute.Statement) {
+		case "select":
+			// SELECT ... INTO OUTFILE/DUMPFILE writes server-side files; FOR UPDATE
+			// and LOCK IN SHARE MODE can acquire transactional locks. Treat these
+			// conservatively as write operations for shared-server RBAC.
+			upper := strings.ToUpper(execute.Statement)
+			for _, special := range []string{" INTO OUTFILE", " INTO DUMPFILE", " FOR UPDATE", " LOCK IN SHARE MODE"} {
+				if strings.Contains(upper, special) {
+					return identity.PermissionDBWrite
+				}
+			}
+			return identity.PermissionDBRead
+		case "explain", "show", "describe", "desc":
+			return identity.PermissionDBRead
+		case "with":
+			// A WITH/CTE statement can end in UPDATE, INSERT, DELETE or SELECT.
+			// Without a full dialect-aware parser, do not grant it read permission.
+			return identity.PermissionDBWrite
+		case "create", "alter", "drop", "truncate", "rename":
+			return identity.PermissionDBSchema
+		default:
+			return identity.PermissionDBWrite
+		}
+	default:
+		return identity.PermissionDBWrite
+	}
+}
+
+func normalizeBrowserDBOperation(operation dbadapter.Operation, raw json.RawMessage) (interface{}, error) {
+	switch operation {
+	case dbadapter.OpPing, dbadapter.OpListCatalogs, dbadapter.OpBegin, dbadapter.OpCommit, dbadapter.OpRollback:
+		if len(raw) != 0 && string(raw) != "null" && string(raw) != "{}" {
+			return nil, fmt.Errorf("database operation %q does not accept a payload", operation)
+		}
+		return nil, nil
+	case dbadapter.OpListObjects:
+		var payload dbadapter.ListObjectsPayload
+		if err := decodeDBOperationPayload(raw, &payload); err != nil {
+			return nil, err
+		}
+		return payload, nil
+	case dbadapter.OpDescribeObject:
+		var payload dbadapter.DescribeObjectPayload
+		if err := decodeDBOperationPayload(raw, &payload); err != nil {
+			return nil, err
+		}
+		payload.Name = strings.TrimSpace(payload.Name)
+		if payload.Name == "" {
+			return nil, errors.New("database object name is required")
+		}
+		return payload, nil
+	case dbadapter.OpBrowseRows:
+		var payload dbadapter.BrowseRowsPayload
+		if err := decodeDBOperationPayload(raw, &payload); err != nil {
+			return nil, err
+		}
+		return dbadapter.NormalizeBrowseRowsPayload(payload)
+	case dbadapter.OpMutateRows:
+		var payload dbadapter.MutateRowsPayload
+		if err := decodeDBOperationPayload(raw, &payload); err != nil {
+			return nil, err
+		}
+		return dbadapter.NormalizeMutateRowsPayload(payload)
+	case dbadapter.OpObjectAction:
+		var payload dbadapter.ObjectActionPayload
+		if err := decodeDBOperationPayload(raw, &payload); err != nil {
+			return nil, err
+		}
+		return dbadapter.NormalizeObjectActionPayload(payload)
+	case dbadapter.OpExecute:
+		var payload dbadapter.ExecutePayload
+		if err := decodeDBOperationPayload(raw, &payload); err != nil {
+			return nil, err
+		}
+		return dbadapter.NormalizeExecutePayload(payload)
+	default:
+		return nil, fmt.Errorf("database operation %q is not exposed to the browser", operation)
+	}
+}
+
+func decodeDBOperationPayload(raw json.RawMessage, target interface{}) error {
+	if len(raw) == 0 || string(raw) == "null" {
+		raw = json.RawMessage("{}")
+	}
+	decoder := json.NewDecoder(strings.NewReader(string(raw)))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(target); err != nil {
+		return errors.New("invalid database operation payload")
+	}
+	return nil
+}

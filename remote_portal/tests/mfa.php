@@ -1,0 +1,195 @@
+<?php
+declare(strict_types=1);
+require __DIR__.'/../src/Store.php';
+use TaskDeck\RemotePortal\Store;
+use TaskDeck\RemotePortal\Totp;
+function checkMfa(bool $ok,string $desc): void {
+    if (!$ok) throw new RuntimeException('FAIL: '.$desc);
+    echo "PASS: ".$desc."\n";
+}
+function makeOtp(string $base32,int $now): string {
+    $alphabet='ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+    $raw='';$bits=0;$buf=0;
+    foreach (str_split($base32) as $c) {
+        $buf=($buf << 5)|strpos($alphabet,$c);
+        $bits+=5;
+        if ($bits>=8) {
+            $bits-=8;$raw.=chr(($buf >> $bits)&255);
+            $buf&=(1 << $bits)-1;
+        }
+    }
+    $step=intdiv($now,30);
+    $mac=hash_hmac('sha1',pack('N2',($step >> 32)&0xffffffff,$step&0xffffffff),$raw,true);
+    $offset=ord($mac[19])&15;
+    $binary=((ord($mac[$offset])&127)<<24)|(ord($mac[$offset+1])<<16)
+        |(ord($mac[$offset+2])<<8)|ord($mac[$offset+3]);
+    return str_pad((string)($binary%1000000),6,'0',STR_PAD_LEFT);
+}
+function mustFailMfa(callable $fn,string $desc): void {
+    try { $fn(); } catch(Throwable $e) {
+        echo "PASS (denied): ".$desc."\n";
+        return;
+    }
+    throw new RuntimeException('FAIL (allowed): '.$desc);
+}
+$rfc='GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ';
+checkMfa(Totp::match($rfc,'287082',59)===1,'RFC6238 59s SHA1/6d known answer');
+checkMfa(Totp::match($rfc,'081804',1111111109)===37037036,
+    'RFC6238 2005 SHA1/6d known answer');
+checkMfa(Totp::match($rfc,'050471',1111111111)===37037037,
+    'RFC6238 2005 next-time SHA1/6d known answer');
+checkMfa(Totp::match($rfc,'287082',59,1)===null,'one-time step cannot replay');
+checkMfa(Totp::match($rfc,'000000',59)===null,'wrong TOTP denied');
+checkMfa(Totp::match($rfc,'2870827',59)===null,'wrong digit count denied');
+checkMfa(str_starts_with(Totp::provisioningUri('alice',$rfc),'otpauth://totp/'),
+    'standard authenticator app provisioning URI');
+$dir=sys_get_temp_dir().'/taskdeck-mfa-'.bin2hex(random_bytes(8));
+if (!mkdir($dir,0700)) throw new RuntimeException('private test directory unavailable');
+$file=$dir.'/portal.sqlite3';
+try {
+    $db=new Store($file);
+    $db->initialize();
+    $userId=$db->createUser('mfauser','mfa-user-original-long-password!',true);
+    checkMfa(!$db->userById($userId)['mfa_enabled'],'unenrolled user starts without MFA');
+    mustFailMfa(fn()=>$db->reserveAdminMutation($userId),
+        'password-only administrator cannot reserve privileged Store mutations');
+    mustFailMfa(fn()=>$db->createUserByAdmin($userId,'preenroll',
+        'unusable-valid-length-password-2026!'),
+        'password-only administrator cannot create browser Portal accounts');
+    checkMfa($db->verifyPasswordForMfaEnrollment($userId,
+        'mfa-user-original-long-password!'),'setup re-verifies account password');
+    checkMfa(!$db->verifyPasswordForMfaEnrollment($userId,'wrong'),
+        'setup rejects wrong current password');
+    $secret=Totp::newSecret();
+    $code=makeOtp($secret,time());
+    mustFailMfa(fn()=>$db->activateTotp($userId,$secret,'00000x'),
+        'cannot activate MFA without authenticator proof');
+    $oldEpoch=(int)$db->userById($userId)['auth_epoch'];
+    $nextEpoch=$db->activateTotp($userId,$secret,$code);
+    checkMfa($nextEpoch===$oldEpoch+1 && (int)$db->userById($userId)['mfa_enabled']===1,
+        'first MFA enrollment invalidates existing PHP sessions');
+    $db->reserveAdminMutation($userId);
+    checkMfa(true,'TOTP-enrolled administrator may reserve a privileged Store mutation');
+    $createdByAdmin=$db->createUserByAdmin($userId,'postenroll',
+        'created-after-mfa-long-password-2026!');
+    checkMfa($createdByAdmin>0 && !(bool)$db->userById($createdByAdmin)['is_admin'],
+        'TOTP-enrolled admin creates ordinary account through authenticated Store API');
+    $sqlite=new PDO('sqlite:'.$file);
+    $cipher=(string)$sqlite->query('SELECT mfa_secret_enc FROM users WHERE id='.$userId)->fetchColumn();
+    checkMfa($cipher!=='' && !str_contains($cipher,$secret) &&
+        !str_contains((string)file_get_contents($file),$secret),
+        'TOTP secret is encrypted before storing in Portal SQLite');
+    $key=$dir.'/portal-mfa.key';
+    clearstatcache(true,$key);
+    checkMfa(is_file($key)&&filesize($key)===32&&(fileperms($key)&0077)===0,
+        'independent 256-bit MFA encryption key is private');
+    checkMfa($db->authenticate('mfauser','mfa-user-original-long-password!')===null,
+        'password-only authentication is denied once MFA enrolled');
+    checkMfa($db->authenticate('mfauser','wrong',$code)===null,
+        'known TOTP alone cannot authenticate without account password');
+    // Enrollment consumed current timestep. Advance it within the database
+    // test fixture to emulate the next 30s without sleeping in CI.
+    $sqlite->exec('UPDATE users SET mfa_last_step=-1 WHERE id='.$userId);
+    $logged=$db->authenticate('mfauser','mfa-user-original-long-password!',$code);
+    checkMfa($logged!==null && $logged['auth_epoch']===$nextEpoch,
+        'password plus one valid MFA code authenticates');
+    checkMfa($db->authenticate('mfauser','mfa-user-original-long-password!',$code)===null,
+        'TOTP code cannot be replayed for a second session');
+    $wrongKey=str_repeat("\x11",32);
+    $originalKey=file_get_contents($key);
+    // Crypto key loss or substitution must fail authentication, not skip MFA.
+    unlink($key);
+    mustFailMfa(fn()=>$db->authenticate('mfauser','mfa-user-original-long-password!',$code),
+        'missing Portal TOTP master key fails closed');
+    mustFailMfa(fn()=>$db->initialize(),
+        'schema init must not silently create a different MFA key after loss');
+    checkMfa(!file_exists($key),'missing MFA key remains missing until restored');
+    file_put_contents($key,$wrongKey);chmod($key,0600);
+    mustFailMfa(fn()=>$db->authenticate('mfauser','mfa-user-original-long-password!',$code),
+        'wrong 256-bit master key cannot decrypt enrolled MFA');
+    unlink($key);file_put_contents($key,$originalKey);chmod($key,0600);
+    $db->initialize();
+    checkMfa(hash_equals($originalKey,file_get_contents($key)),
+        'idempotent schema migration keeps MFA master key unchanged');
+    $q=new PDO('sqlite:'.$file);
+    $columns=array_column($q->query('PRAGMA table_info(users)')->fetchAll(PDO::FETCH_ASSOC),'name');
+    checkMfa(in_array('mfa_secret_enc',$columns,true)&&in_array('mfa_last_step',$columns,true),
+        'MFA columns exist after migration');
+    // Defense in depth: even a direct call to the SQLite Store must not
+    // reserve a signed Remote ticket for an otherwise granted account
+    // without an enrolled second factor. Only the enrolled user has one.
+    $ticketDevice=str_repeat('c',64);
+    $noMfaId=$db->createUser('nonmfaticket','separate-long-unenrolled-password!',false);
+    $sqlite->prepare('INSERT INTO devices(device_id,display_name,created_at) VALUES(?,?,?)')
+        ->execute([$ticketDevice,'MFA ticket fixture',time()]);
+    $sqlite->prepare('INSERT INTO presence(device_id,expires_at) VALUES(?,?)')
+        ->execute([$ticketDevice,time()+300]);
+    foreach ([$userId,$noMfaId] as $testUser) {
+        $sqlite->prepare('INSERT INTO user_devices(user_id,device_id,access_role)
+            VALUES(?,?,"viewer")')->execute([$testUser,$ticketDevice]);
+    }
+    mustFailMfa(fn()=>$db->reserveRemoteTicket($noMfaId,$ticketDevice),
+        'password-only granted account cannot reserve Relay ticket via direct Store access');
+    checkMfa((int)$sqlite->query('SELECT COUNT(*) FROM remote_ticket_limits')->fetchColumn()===0,
+        'refused non-MFA reservation does not consume user/device quota');
+    checkMfa($db->eligibleRemoteRole($userId,$ticketDevice)==='viewer',
+        'real TOTP enrolled account is eligible for Agent live grant check');
+    checkMfa($db->eligibleRemoteRole($noMfaId,$ticketDevice)===null,
+        'granted but unenrolled account is ineligible for live Agent grant');
+    checkMfa($db->reserveRemoteTicket($userId,$ticketDevice)==='viewer',
+        'real TOTP-enrolled account may reserve ticket through Store');
+    $ticketCount=(int)$sqlite->query('SELECT COUNT(*) FROM remote_ticket_limits')->fetchColumn();
+    // Security recovery requires explicit host-only CLI confirmation.
+    $argvPath=realpath(__DIR__.'/../bin/admin.php');
+    $pipes=[];
+    $invalid=proc_open([PHP_BINARY,$argvPath,'reset-totp','mfauser'],
+        [0=>['pipe','r'],1=>['pipe','w'],2=>['pipe','w']],$pipes,
+        null,['REMOTE_PORTAL_DB_PATH'=>$file]);
+    if (!is_resource($invalid)) throw new RuntimeException('Cannot test CLI guard');
+    fclose($pipes[0]);stream_get_contents($pipes[1]);stream_get_contents($pipes[2]);
+    fclose($pipes[1]);fclose($pipes[2]);
+    checkMfa(proc_close($invalid)!==0,'MFA reset CLI requires explicit --confirm');
+    $pipes=[];
+    $cmd=proc_open([PHP_BINARY,$argvPath,'reset-totp','mfauser','--confirm'],
+        [0=>['pipe','r'],1=>['pipe','w'],2=>['pipe','w']],$pipes,
+        null,['REMOTE_PORTAL_DB_PATH'=>$file]);
+    if (!is_resource($cmd)) throw new RuntimeException('Cannot test CLI reset');
+    fclose($pipes[0]);$result=stream_get_contents($pipes[1]);
+    $err=stream_get_contents($pipes[2]);
+    fclose($pipes[1]);fclose($pipes[2]);
+    checkMfa(proc_close($cmd)===0,'offline MFA reset succeeds with explicit operator confirmation: '.$err);
+    checkMfa(!$db->userById($userId)['mfa_enabled'],
+        'CLI recovery clears encrypted MFA factor');
+    checkMfa($db->eligibleRemoteRole($userId,$ticketDevice)===null,
+        'offline TOTP reset immediately revokes live Agent grant eligibility');
+    mustFailMfa(fn()=>$db->reserveAdminMutation($userId),
+        'offline TOTP reset immediately revokes database-level admin mutation admission');
+    mustFailMfa(fn()=>$db->createUserByAdmin($userId,'afterreset',
+        'long-password-mfa-reset-denial-2026!'),
+        'offline TOTP reset denies direct browser-style account creation');
+    mustFailMfa(fn()=>$db->grant($userId,$noMfaId,$ticketDevice,'admin'),
+        'password-only admin cannot directly grant elevated device access');
+    mustFailMfa(fn()=>$db->revoke($userId,$noMfaId,$ticketDevice),
+        'password-only admin cannot directly revoke device grant');
+    mustFailMfa(fn()=>$db->removeDevice($userId,$ticketDevice),
+        'password-only admin cannot directly unlink paired device');
+    mustFailMfa(fn()=>$db->reserveRemoteTicket($userId,$ticketDevice),
+        'offline TOTP reset immediately blocks Store ticket reservation');
+    checkMfa((int)$sqlite->query('SELECT COUNT(*) FROM remote_ticket_limits')->fetchColumn()
+        ===$ticketCount,'ticket reservation remains unchanged after MFA reset');
+    checkMfa((int)$db->userById($userId)['auth_epoch']===$nextEpoch+1,
+        'CLI MFA recovery revokes browser sessions and signed old-epoch grants');
+    $events=(int)$sqlite->query("SELECT COUNT(*) FROM audit_events
+        WHERE event_type='portal.mfa_reset_offline'")->fetchColumn();
+    checkMfa($events===1,'emergency MFA reset creates audit event');
+    checkMfa($db->authenticate('mfauser','mfa-user-original-long-password!')!==null,
+        'recovered account may password-login only for MFA enrollment when required');
+
+    echo "All Portal MFA regression tests passed.\n";
+} finally {
+    unset($db,$sqlite,$q);
+    @unlink($file);
+    @unlink($dir.'/portal-mfa.key');
+    @unlink($dir.'/portal-abuse-hmac.key');
+    @rmdir($dir);
+}

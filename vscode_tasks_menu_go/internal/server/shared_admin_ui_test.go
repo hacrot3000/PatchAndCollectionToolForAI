@@ -1,0 +1,148 @@
+package server
+
+import (
+	"context"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+
+	"bletonfc/vscode_tasks_menu/internal/config"
+	"bletonfc/vscode_tasks_menu/internal/identity"
+)
+
+func TestSharedAdminUIRequiresAdministrationCapability(t *testing.T) {
+	cfg := config.Default()
+	cfg.SharedServerEnabled = true
+	s := &Server{Config: cfg}
+	allowed := identity.Principal{Permissions: map[string]bool{identity.PermissionUsersView: true}}
+	request := httptest.NewRequest(http.MethodGet, "/admin/access", nil)
+	request = request.WithContext(context.WithValue(request.Context(), sharedPrincipalContextKey{}, allowed))
+	recorder := httptest.NewRecorder()
+	s.sharedAdminUI(recorder, request)
+	if recorder.Code != http.StatusOK || recorder.Header().Get("Content-Type") != "text/html; charset=utf-8" {
+		t.Fatalf("allowed admin UI status=%d type=%q", recorder.Code, recorder.Header().Get("Content-Type"))
+	}
+
+	denied := httptest.NewRequest(http.MethodGet, "/admin/access", nil)
+	denied = denied.WithContext(context.WithValue(denied.Context(), sharedPrincipalContextKey{}, identity.Principal{}))
+	deniedRecorder := httptest.NewRecorder()
+	s.sharedAdminUI(deniedRecorder, denied)
+	if deniedRecorder.Code != http.StatusForbidden {
+		t.Fatalf("denied admin UI status=%d", deniedRecorder.Code)
+	}
+}
+
+func TestSharedAdminUIIsAbsentInLegacyMode(t *testing.T) {
+	s := &Server{Config: config.Default()}
+	request := httptest.NewRequest(http.MethodGet, "/admin/access", nil)
+	recorder := httptest.NewRecorder()
+	s.sharedAdminUI(recorder, request)
+	if recorder.Code != http.StatusNotFound {
+		t.Fatalf("legacy admin UI status=%d", recorder.Code)
+	}
+}
+
+func TestSharedAdminUIUsersScriptUsesPermissionGatedAPIs(t *testing.T) {
+	for _, path := range []string{
+		"/api/admin/users",
+		"/api/admin/roles",
+		"/api/admin/users/access",
+		"/api/admin/permissions",
+		"/api/admin/users/permission",
+		"/api/admin/sessions",
+		"/api/admin/audit",
+	} {
+		if !strings.Contains(sharedAdminJS, path) {
+			t.Fatalf("admin UI script missing %s", path)
+		}
+	}
+	if strings.Contains(sharedAdminJS, "innerHTML") {
+		t.Fatal("admin UI should build user-controlled content with DOM text nodes")
+	}
+	if strings.Contains(sharedAdminJS, "npm") {
+		t.Fatal("admin UI unexpectedly references npm")
+	}
+}
+
+func TestSharedAdminUIIncludesRoleAdministrationView(t *testing.T) {
+	if !strings.Contains(sharedAdminHTML, `data-view="roles"`) {
+		t.Fatal("admin UI missing Roles navigation")
+	}
+	for _, fragment := range []string{"renderRoles", "Create custom role", "Save permissions", "System roles are read-only"} {
+		if !strings.Contains(sharedAdminJS, fragment) {
+			t.Fatalf("admin role UI missing %q", fragment)
+		}
+	}
+}
+
+
+func TestSharedAdminAuditTimelineUIContract(t *testing.T) {
+	for _, want := range []string{
+		"Audit timeline",
+		"Username or user ID",
+		"Action (exact, e.g. git.push)",
+		"Resource type",
+		"Resource ID",
+		"Any result",
+		"Load older",
+		"next_before",
+		"function auditCategory(action)",
+		"function auditEventNode(event)",
+		"function auditDetailsText(details)",
+		"query.set('before',before)",
+		"query.set(key,value)",
+		"event.username||event.user_id||'system'",
+	} {
+		if !strings.Contains(sharedAdminJS, want) {
+			t.Fatalf("admin audit timeline JS missing %q", want)
+		}
+	}
+	for _, want := range []string{
+		".audit-timeline",
+		".audit-event",
+		".audit-event-category",
+		".audit-event-resource",
+		".audit-load-more",
+	} {
+		if !strings.Contains(sharedAdminCSS, want) {
+			t.Fatalf("admin audit timeline CSS missing %q", want)
+		}
+	}
+}
+
+func TestRestrictedDeveloperRoleLocksDetailedPermissionEditor(t *testing.T) {
+ for _,want:=range []string{
+  "system:restricted-developer",
+  "const roleIsRestricted=",
+  "Locked by Restricted Developer role",
+  "!roleIsRestricted&&has('users.manage')",
+  "Assign existing users to the built-in Restricted Developer role below",
+ } {
+  if !strings.Contains(sharedAdminJS,want) {
+   t.Fatalf("role-bound detailed permission editor must be locked; missing %q",want)
+  }
+ }
+}
+
+func TestRestrictedRoleMembershipSelectionUsesExistingServerAuthoritativeAccessEndpoint(t *testing.T) {
+ for _,want:=range []string{
+  "Restricted Developer · Members",
+  "Assign Restricted Developer",
+  "Choose user for Restricted Developer role",
+  "has('users.manage')&&has('users.view')",
+  "user.id!==currentUser.user_id",
+  "role_id:protectedRole.id,enabled:Boolean(user.member_enabled)",
+  "api('/api/admin/users/access',{method:'PATCH'",
+  "Existing individual permission overrides will be cleared",
+  "roleIsRestricted?[]:",
+  "!roleIsRestricted&&has('users.manage')",
+ } {
+  if !strings.Contains(sharedAdminJS,want) {
+   t.Fatalf("restricted role selector/control missing %q",want)
+  }
+ }
+ if strings.Contains(sharedAdminJS,"innerHTML") {
+  t.Fatal("restricted user names must not be injected as HTML")
+ }
+}

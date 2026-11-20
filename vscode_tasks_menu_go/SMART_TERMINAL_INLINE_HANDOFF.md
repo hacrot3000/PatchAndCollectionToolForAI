@@ -1,0 +1,208 @@
+# Inline Smart Terminal — implementation handoff
+
+Updated: 2026-10-14. Target branch: `main`.
+
+## Contract
+- Browser xterm.js is the interactive terminal; do not replace the PTY, SSH transport or remove ordinary Bash/Readline editing.
+- Ghost completion (faint suffix) and a floating, mouse/keyboard-selectable list above the actual cursor. Tab accepts, arrows cycle; suggestion sources rank: this terminal's recent commands, project's other active terminal commands, shell history from the relevant OS, available OS commands; safe static shell verbs as final fallback.
+- Match command prefix, word/boundary, substring, and common command-next-argument positions. Deduplicate by full command; never execute suggestions without explicit user action.
+- Reserved top-level lines `\\ai <question>`, `\\do reload command`, `\\do reload history`, `\\help [topic]` must be intercepted *before* WS/PTY forwarding. Keep normal commands, password input, TUI applications, bracketed paste, and Ctrl-C functional; never silently execute AI text as shell commands.
+- `\\ai`: use existing provider settings, consent/verification, request quota and external-provider boundaries; response displayed locally in differentiated console area. Model can only advise.
+- `\\do`: manually refresh OS command/history sources; SSH uses the current shell only when safe (verified idle shell), not an untrusted remote bootstrap. No third-party library/npm, no runtime source downloads.
+- `\\help [topic]`: open the local TaskDeck Help dialog or jump to a matching group/search query; never forward literal Help input to the shell. The Help page is arranged into feature groups with global search and also opens from Settings or the Command Palette.
+- Security: disabled for read-only/non-controller sessions; never query other users' private command history. Handle ANSI and control sequences as untrusted; bound buffer and query sizes. Never push secrets, private history or raw terminal output to AI without per-request consent.
+
+## Progress
+- [x] Code survey: `internal/server/ui.go` owns xterm's `onData` -> `view.ws.send`; `web/featuremods/shellintegration.js` captures OSC 133 commands; `shellhistory.js` persists per-session history; `aiassistant.js` provides explicit provider approval.
+- [x] Implement and unit test independent ranked completion engine (`smartterminal_engine.js`, `test_smartterminal_engine.cjs`; Node execution pending CI).
+- [x] Implement first-stage keyboard/ghost/menu UI and wire bounded interception at xterm input boundary. Runtime UX/browser smoke still pending.
+- [x] Implement fixed Bash OS command/history reload via active local/SSH PTY. End-to-end SSH smoke still pending.
+- [x] Implement `\\ai` and `\\do` dispatch, output differentiation and error handling. Browser integration tests pending. `\\ai` direct verified-target/provider advisory requests implemented; `\\do` dispatch pending.
+- [ ] Run Go tests, Node tests, JS syntax and manual xterm/SSH lifecycle smoke tests.
+
+## Risk notes
+- xterm output is not synonymous with Readline input. Only offer completion on a confirmed prompt with an end-of-line cursor and never rewrite arbitrary TUI/password content.
+- SSH disconnections and shared-server read-only tabs must not inject commands. Buffered reserved input must never be sent to the server on error/fallback.
+- Browser-only command history may not include an unflushed remote Bash history; explicit reload may be required.
+
+## 2026-10-14 engine checkpoint
+Strict source ordering, recency, prefix/word/substring match, contextual verbs, deduplication and basic secret/control character filtering. This engine makes suggestions only; it cannot execute.
+
+## 2026-10-14 UI checkpoint
+Completion is limited to confirmed OSC 133 prompt, end-of-line, running writable terminal. Overlay is outside the PTY buffer, using xterm cursor coordinates; no suggestion is ever auto-executed. `Tab` inserts only an explicitly chosen suggestion. Reserved commands are still pending agent implementation.
+
+## 2026-10-14 reserved-input checkpoint
+`smartterminal_agents.js` now captures reserved line prefixes before WebSocket forwarding. Plain Bash escapes that do not match are released to the PTY; multiline reserved paste is rejected. `\\ai` requires verified target, configured provider and explicit per-call confirmation. AI output is rendered as sanitized colored console text and can never execute directly. `\\do` is still safe-blocked, awaiting fixed loader implementation. Any UI/PTY race conditions require browser smoke testing.
+
+## 2026-10-14 reload protocol checkpoint
+Added a pure, bounded UTF-8/text framing and sanitization parser for fixed command inventory and shell-history refresh. It strips echoed prompt commands by requiring entire framed marker lines, handles chunk splits and limits response bytes. Wiring to the PTY loader is next.
+
+## Parser fix checkpoint
+CRLF is normalized across chunks to avoid failing to detect a complete end marker on Linux/SSH PTYs.
+
+## PTY index loader checkpoint
+Fixed Bash scripts for `\\do reload command/history` run on the active verified PTY (including SSH), never sending literal `\\do` lines. Bounded framed output is captured before xterm rendering and indexed. First-prompt auto-load caches OS command names per target in sessionStorage; history remains memory-only. Non-Bash shells are not supported in this first stage.
+
+## CI checkpoint
+Added the inline ranking and framed capture Node tests to the Go matrix workflow. Corrected a stale SSH WebSocket regression expectation (the code resets reconnection backoff after a successful socket open; second disconnect retries in 600ms, not 1200ms). Browser/SSH runtime tests are still separate from pure unit coverage.
+
+## 2026-10-14 lifecycle checkpoint
+Synchronous synthetic `\\ai`/`\\do` Enter bypasses OSC fallback tracking to prevent local-only commands from being misreported as shell execution. SSH/WebSocket disconnection now cancels active capture and outbound AI request; no replay on reconnection. Corrected the second stale reconnect test assertion: a newly scheduled retry increases attempt counter to one.
+
+## 2026-10-14 prompt/paste/UI checkpoint
+Completion now reads only characters preceding the actual xterm cursor (including a typed trailing space), resets selection when the query changes, and supports wheel navigation over the popup. Old WebSocket close events no longer cancel a new socket's agent operation; cancelled AI calls cannot inject an extra newline after reconnection.
+
+## Cross-tab history checkpoint
+In addition to live command lists on each open terminal, recent `command-finished` events are retained in bounded browser-memory project history, allowing suggestions from tabs closed in the same TaskDeck browser session. No cross-user permanent command-history store is added.
+
+## CI output-filter contract checkpoint
+Updated `TestCoreOutputFilterKeepsRawOutputEvent` to assert the two-stage filtering chain: preset display filters run first, agent capture filtering next, while `taskmenu:output` still dispatches original unmodified raw WS data. Previous test checked one obsolete exact source line.
+
+## 2026-10-14 prefix/race guard
+The reserved prefix handler now tracks ordinary keystrokes synchronously, so a delayed SSH shell echo cannot cause a backslash typed mid-line to be mistaken for a new `\\ai`/`\\do` command. First-prompt auto index does not start while the user is typing or buffering a reserved command. Bash prompt events reset the tracking line.
+
+## PTY agent routing regression checkpoint
+Added simulated browser/PTY Node tests for literal `\\do` rejection, fixed metadata script output interception, newest-first OS history, Bash backslash fallback, multiline paste fail-closed, and disabled AI provider safety. CI runs these with zero external packages.
+
+## 2026-10-14 · Fix: irrelevant suggestions for `ls`
+- Root cause: `relevance()` accepted any two-character substring, so `ls` matched the suffix of `ga tools`. The old sort then ranked source/group first, putting unrelated recent commands ahead of real prefix matches.
+- Correction: one/two-character queries must match a command or argument token boundary; longer infix queries remain possible but low priority. Rank match quality before source priority; keep recency within a source/relevance tier. Regression test covers `ga tools`, independent `ls` token, word-middle/word-end matches, and source recency.
+- Validation: Node unit regression and CI pending. No npm or new third-party source.
+
+## 2026-10-14 · Fix: Tab navigates to browser Back
+- Root cause: xterm `attachCustomKeyEventHandler` returning `false` prevents xterm handling but does **not** call `event.preventDefault()`. The browser then performs its native Tab focus traversal, sending focus to its Back button.
+- Correction: call `preventDefault()` and `stopPropagation()` before handling suggestion Tab, Up/Down and Escape; focus the same xterm afterward. When the prompt goes stale during Tab, close the menu without forwarding a completion or transferring focus.
+- Regression: keyboard-event harness validates arrow selection, Tab acceptance, default prevention, unchanged focus, and the stale-prompt fallback; CI run follows.
+
+### Keyboard regression test committed
+- `test_smartterminal_keyboard.cjs` executes the production smart-terminal module in a simulated DOM/xterm instance. Verifies Down→Down→Tab inserts the selected completion and calls `preventDefault` to prevent browser Back focus, plus stale-prompt, Escape, and inactive-menu cases.
+- The workflow runs the test without npm; monitor CI for confirmation.
+
+### Harness correction
+The xterm mock exposes the real xterm.js `term.buffer.active` shape, allowing the test to exercise the command-line cursor reader instead of exiting at the no-buffer guard.
+
+## 2026-10-14 · Broadcast compatibility phase 1
+**Root cause:** autocomplete accepts with direct `view.ws.send` while Broadcast only listens on xterm `term.onData`. Other terminals miss the inserted suffix, then execute a different line when Enter broadcasts.
+- Introduced `TaskMenuBroadcast.forwardCompletion(view, data)`, routed through exactly the existing serialized `inputQueues`, preserving send-order with subsequent Enter.
+- Rejected broadcast confirmation returns false to caller, allowing autocomplete to keep both source and targets unchanged.
+- Full-line replacement requires a separate warning in Broadcast All/Group, because other terminals can have different line buffers.
+- Fixed an additional safety gap: reserved `\\ai` / `\\do` keystrokes intercepted by core are now marked and suppressed by the Broadcast `onData` subscriber, instead of leaking to connected shells.
+- UI wiring and regression tests remain for next commit. Shared-server mode remains unaffected; no npm dependencies.
+
+## 2026-10-14 · Broadcast compatibility phase 2
+- Smart terminal `accept()` now calls `TaskMenuBroadcast.forwardCompletion()` for BOTH appended suffixes and full-line replacements, before sending to the source WebSocket. This keeps the recipient input queue ordered before a subsequent Enter. It does not send ghost text or selection navigation.
+- Declining the group-wide full-line replacement warning prevents local and remote completion, so they cannot diverge because of a cancelled confirmation.
+- In Broadcast None/shared-server mode the same local-only behavior is preserved.
+- The serialized input queue is shared with normal user keypress Broadcast: no second parallel input channel is introduced.
+- Pending integration regression tests and GitHub Actions verification.
+
+## 2026-10-14 · Broadcast compatibility regression test checkpoint
+- Added `test_smartterminal_broadcast.cjs` to exercise the exact production `queueBroadcast` / `forwardCompletion` / `installInputHook` functions (input queue order, group/all/none, rejected replacement, reserved agent line isolation, stopped source).
+- Extended xterm keyboard integration tests to exercise `TaskMenuBroadcast.forwardCompletion` with accepted suffix, declined confirmation, and full-line Ctrl-U replacement.
+- Registered both in existing GitHub Actions matrix. This is a mock-PTY integration check, not a claim of real SSH/Broadcast deployment validation.
+
+## Broadcast Go contract checkpoint
+Updated `TestBroadcastFeatureModule` to cover the new gated `onData` Broadcast listener and explicit completion handoff, instead of asserting the removed one-liner handler. Existing feature assertions remain intact.
+
+## 2026-10-14 CI contract follow-up
+Go `TestBroadcastFeatureModule` was still asserting the old one-line confirmation guard. Updated it to match the new shared queue guard, `if(!confirmed&&!confirmBroadcastInput(view,data))return false`, keeping confirmation semantics intact. Broadcast Node regression already PASS on Go 1.19 and 1.23 CI.
+
+## 2026-10-14 · Reserved command detection without OSC 133 (phase 1)
+- Found `canIntercept` was hard-wired to `shellIntegration.seenPrompt + commandRow`; normal Bash prompts without OSC markers therefore sent `\\help` / `\\do` directly to Bash. Bash strips the backslash and runs builtins (`help`, `do`), matching reported failures.
+- Added a narrow current-cursor Bash prompt reader (normal `user@host:/cwd$ ` and root `[user@host path]# ` styles). Reject wrapped lines, cursor mid-line, control chars, running shell state, or unreadable/unrecognized prompts. OSC 133 remains the authoritative fast path.
+- Exposed `readReservedLine` to the TaskDeck reserved-command interceptor; command completion remains guarded by OSC 133.
+- Interceptor and runtime tests follow as separate commits. No alternative syntax required.
+
+## 2026-10-14 · Reserved directive Enter-time recovery (phase 2)
+- Added `reservedAtPrompt` and `wouldInterceptEnter`, using the strict current Bash prompt reader rather than blindly matching output.
+- On an already-echoed `\\help`/`\\ai`/`\\do` line, the Enter interceptor first sends Bash Readline Ctrl-U to clear the staged text, then invokes TaskDeck's local directive. A follow-up Enter from `resume()` redraws an idle Bash prompt; `\\do` scripts are sent only after Ctrl-U in the same WebSocket stream.
+- Normal Bash commands, unknown escapes and terminals without a recognized prompt keep their ordinary PTY behavior.
+- This also provides an execution-time detection gate for shell integration to avoid counting intercepted commands as regular shell executions.
+
+## 2026-10-14 · Shell history/integration guard (phase 3)
+- Shell integration registers its `term.onData` listener before the terminal's core handler. The new `wouldInterceptEnter` hook makes it skip the pre-execution/command-history state transition for TaskDeck directives even when handling Enter first.
+- Ordinary shell Enter history and OSC preexec handling remain unchanged.
+
+## 2026-10-14 · Missing-OSC Bash prompt regression tests
+- New `test_smartterminal_reserved_prompt.cjs` loads production smartterminal + agent + parser modules into a simulated terminal with no OSC 133. Tests local user@host and remote root Bash prompts, `\\help`, `\\ai`, `\\do reload command`, `\\do reload history`, Enter-time Ctrl-U recovery and unsafe/non-shell prompt exclusions. Wired to CI without npm.
+
+## 2026-10-14 · Safe OSC-less fallback and test harness correction
+- Strict Bash prompt fallback now requires a terminal session (`kind=terminal` or legacy empty kind, `task_id=0` or `-1`) so task/script output cannot trigger AI/inventory routing.
+- The simulated xterm forwarding test now mimics the real core: when `onInput` returns false, it forwards ordinary typed bytes. An unrelated escaped Bash command (e.g. `\\hello`) is not swallowed.
+- The deterministic test harness does not retain 15-second inventory timers. These changes are tested by GitHub Actions.
+
+## 2026-10-14 · Omitted task_id in terminal metadata
+- CI exposed missing `meta.task_id` in terminal fixtures. For terminal sessions, missing `task_id` is equivalent to the default task 0; `Number(undefined)` was NaN and rejected all Bash prompts. Both OSC-less prompt guards now normalize missing `task_id` to 0, while still rejecting any positive task ID.
+
+## 2026-10-14 · Terminal backslash echo regression
+- **Root cause:** `smartterminal_agents.js` buffered the first `\\` as an ambiguous `\\ai`/`\\do`/`\\help` prefix without sending it to Bash *or* displaying it in xterm, so one backslash seemed invisible until an unrelated second key invalidated the candidate.
+- **Fix:** render candidate characters locally immediately, including the very first backslash. On valid TaskDeck directives transition to agent mode without re-echoing the buffered prefix. On a normal escaped Bash command (including two literal backslashes), erase only the temporary display and forward the original bytes to the PTY so Bash echoes them once. Backspace and Ctrl-U correctly update/clear the displayed candidate.
+- Only the terminal's candidate-input path is changed; FTP/SFTP and editors are unaffected. Regression tests are added in a follow-up commit.
+
+### Terminal backslash echo regression tests
+- Added simulated PTY assertions for one `\\` (must display instantly while PTY has no input), two `\\` characters (forward exactly two after erasing speculative UI), regular escaped Bash input, Backspace, Ctrl-U, and an agent prefix moving to the full `\\ai`/`\\help` command without double echo.
+- Runs through the existing Node test script in Go 1.19/1.23 Actions; no third-party modules.
+
+### Test assertion alignment
+- Backspace followed by a fresh `\\h`, then Ctrl-U yields three final render operations (`\\`, `h`, erase twice); the test now checks those three operations without including the earlier Backspace event.
+
+### Core WebSocket-forwarding parity in regression test
+- Unknown escaped input releases its buffered prefix and then returns `false` for subsequent ordinary keystrokes. The new assertion simulates the existing core `onData` forwarding for those later keystrokes, matching production behavior rather than treating the agent hook as a standalone PTY.
+
+## 2026-10-14 · Installed command discovery (no hardcoded Telnet)
+
+- Root cause: generic suggestions depended on first-prompt `compgen -c` capture or a previously cached list. The loader could miss the prompt, fail while OSC 133 is absent, and its one-shot index guard would not retry until another shell event. A temporary hardcoded list of networking commands masked this defect without fixing inventory.
+- Removed the hardcoded network-tool list. At an idle authorized LOCAL terminal command-name position, Smart Terminal now makes an asynchronous, 110ms-debounced `GET /api/sessions/{id}/completion-paths?kind=commands&prefix=...` request. Only current-prefix executable names are returned.
+- The backend reads PATH directories from the TaskDeck server environment, checks executable regular files (including symlink targets), suppresses duplicate names, and bounds number of PATH directories, entries examined and returned. It does not execute a shell, scan recursively or launch a command. An interactive shell may customize PATH beyond the server environment, so the existing `compgen -c` inventory remains available where shell integration is supported.
+- The browser accepts command lookup results even for a safely recognized Bash prompt without OSC 133. It rejects lookup at `telnet>`, in TUI programs, inside command arguments, shell expressions or path tokens. On Tab, it sends only the accepted suffix, never Enter.
+- Also hardened the existing automatic `compgen` path: auto scripts now require OSC-confirmed idle input, not merely a visually recognizable prompt whose unknown input would otherwise be treated as empty.
+- Ranking favors case-sensitive matches and then shorter candidate executable names before longer ones. Dynamic PATH suggestions precede cached history/OS index suggestions and are deduplicated.
+- Regression tests extended: Node ranking, browser keyboard/async path UI, verified-prompt reload behavior; Go PATH basename discovery and session API (including non-executable rejection). Full repository build/CI and real host PTY smoke were not run in this assistant session.
+
+
+## 2026-10-14 · Contextual branch and CWD regression repair
+
+Observed on the real user's repositories:
+- In Naruto/server-patching, typing bare gb (alias for git branch), git branch, gc (alias for gc-safe/checkout) or git checkout did not offer repository branch names such as testing or develop/new_SNV.
+- In the M3 project, cp ar did not suggest the existing artifacts/ directory; ll, ls and bare cp also lacked context suggestions.
+- The original parser required the beginning of an operand to exist before branch/path lookup, intentionally suppressed non-destructive git branch suggestions, and did not accept slash-bearing branch ref names.
+- Automatic Bash alias -p indexing depends on OSC 133. Without markers, alias context was missing, so gb fell back to a generic command-name query. A shared-server filesystem boundary also incorrectly insisted that a controlled terminal's live CWD be within TaskDeck's own workspace, even if that terminal was launched into a different project folder.
+
+Corrections, in small commits on main:
+1. The branch parser now handles bare git branch, git checkout, git switch, git merge and their simple shell aliases. The git branch and gb suggestions always inject --list when no safe listing/deletion option is present, so choosing an existing branch does not create a new branch. Also show common nonmutating options (-a, -vv, --list, --show-current).
+2. Branch filters support refs containing /, e.g. develop/new_SNV. The Git API reads actual local branch refs in the active session CWD; it never guesses hardcoded branch names.
+3. Bare cp, ls, ga and ll trigger immediate CWD entry suggestions; cp ar becomes cp artifacts/ when the directory exists. Preserve quoting/escaping and do not send a command automatically.
+4. A read-only, bounded Bash startup alias fallback parses simple declarations in the TaskDeck host user's .profile/.bash_profile/.bashrc/.bash_aliases when shell markers do not allow safely running alias -p. The parser refuses complex shell expressions, secrets and unsupported commands. Actual live aliases received from alias -p take priority; this is a fallback, not a claim to fully reconstruct all runtime aliases. SSH remains excluded from local CWD/file lookups.
+5. For authorized shared-server terminal CONTROL sessions, path completion is now scoped to that session's real CWD subtree rather than the unrelated TaskDeck workspace. Absolute paths, .. escapes and symlink escapes are forbidden in shared mode.
+6. Tests added/updated for alias parsing, CWD outside workspace, commandless Git/path contexts, namespaced Git branches and browser UI with the specific Naruto/M3 examples. Branch suggestion popup now allows up to 30 scrollable choices (rather than truncating before testing in the 15-branch sample); other contexts stay capped at 10.
+
+Validation performed: the entire Smart Terminal pure engine regression passed in a JavaScript execution harness; all 12 browser/path UI cases passed via a mock xterm/session/API execution harness (13 total). The real Go integration tests were authored and wired into existing CI but a full Go build, real PTY interaction and CI run were not performed in this assistant session. Avoid claiming those tests passed until a CI result is available.
+
+## 2026-10-15: Quiet automatic completion
+
+- Issue: opening and activating terminal tabs printed an automatically submitted inventory script and Bash aliases.
+- Change: automatic indexing no longer sends shell commands to PTY. It uses the read-only local alias endpoint, PATH lookup and available cached command names.
+- Alias prefetch runs only for authorized idle local terminal views, once per generation. Corrected a first-fetch generation comparison and preserved results across tab changes.
+- The existing explicit user command to refresh live shell aliases remains available.
+- Mock regression verification: 27 terminal agent cases and 13 contextual completion UI cases passed. Go CI and live terminal smoke tests have not been run in this session.
+
+## 2026-11-04: History navigation when completion popup is visible
+
+- When Up is pressed on the first selected completion (or while no row is
+  selected), the autocomplete custom-key handler returns the key to xterm
+  **without** consuming or duplicating it, so the real PTY receives the
+  terminal's ordinary Up history key.
+- Up from a lower suggestion row still moves the popup selection upward;
+  Down keeps selecting suggestions as before.
+- Ctrl+Up/Ctrl+Down always bypass the popup and send plain ANSI Up/Down
+  (`ESC [ A` / `ESC [ B`) directly to the active writable PTY, not
+  modified-arrow escape codes. Synthetic input also passes through the
+  existing serialized Broadcast completion queue; rejected broadcasts
+  do not cause a local write.
+- History browsing suppresses the popup while Readline redraws command
+  history. Typing a character or submitting the command resumes normal
+  completion. Read-only/disconnected terminal tabs never receive synthetic
+  history input.
+- Regression coverage: `test_smartterminal_keyboard.cjs`, with the
+  preexisting path-completion tests retained. Focused PR/main GitHub
+  Actions workflow: `taskdeck_terminal_history_keys.yml`.

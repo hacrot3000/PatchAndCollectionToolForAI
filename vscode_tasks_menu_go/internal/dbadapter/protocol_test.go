@@ -1,0 +1,176 @@
+package dbadapter
+
+import (
+	"encoding/json"
+	"strings"
+	"testing"
+)
+
+func TestNewRequestAndResponseRoundTrip(t *testing.T) {
+	request, err := NewRequest("req-1", OpPing, map[string]interface{}{"value": "ok"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateEnvelope(request); err != nil {
+		t.Fatal(err)
+	}
+	response, err := NewResponse(request, map[string]bool{"ok": true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response.RequestID != request.RequestID || response.Operation != OpPing || response.Type != "response" {
+		t.Fatalf("response=%+v", response)
+	}
+	if err := ValidateEnvelope(response); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestEnvelopeRejectsUnknownVersionAndOperation(t *testing.T) {
+	for _, env := range []Envelope{
+		{Protocol: ProtocolName, Version: ProtocolVersion + 1, Type: "request", RequestID: "req-1", Operation: OpPing},
+		{Protocol: ProtocolName, Version: ProtocolVersion, Type: "request", RequestID: "req-1", Operation: Operation("drop_everything")},
+	} {
+		if err := ValidateEnvelope(env); err == nil {
+			t.Fatalf("expected invalid envelope: %+v", env)
+		}
+	}
+}
+
+func TestErrorResponseCannotCarryPayload(t *testing.T) {
+	request, err := NewRequest("req-1", OpConnect, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response, err := NewErrorResponse(request, "AUTH_FAILED", "authentication failed")
+	if err != nil {
+		t.Fatal(err)
+	}
+	response.Payload = json.RawMessage("{\"unexpected\":true}")
+	if err := ValidateEnvelope(response); err == nil {
+		t.Fatal("expected response with error and payload to fail")
+	}
+}
+
+func TestExecuteResultBoundsRowsColumnsAndCells(t *testing.T) {
+	valid := ExecuteResult{
+		Columns: []Column{{Name: "id", Type: "integer"}, {Name: "name", Type: "string"}},
+		Rows: [][]interface{}{{1, "Alice"}, {2, "Bob"}},
+	}
+	if err := ValidateExecuteResult(valid); err != nil {
+		t.Fatal(err)
+	}
+
+	tooManyRows := ExecuteResult{Rows: make([][]interface{}, MaxRows+1)}
+	if err := ValidateExecuteResult(tooManyRows); err == nil || !strings.Contains(err.Error(), "rows") {
+		t.Fatalf("too many rows error=%v", err)
+	}
+
+	tooManyColumns := ExecuteResult{Columns: make([]Column, MaxColumns+1)}
+	if err := ValidateExecuteResult(tooManyColumns); err == nil || !strings.Contains(err.Error(), "columns") {
+		t.Fatalf("too many columns error=%v", err)
+	}
+
+	tooLargeCell := ExecuteResult{
+		Columns: []Column{{Name: "value"}},
+		Rows: [][]interface{}{{strings.Repeat("x", MaxCellBytes+1)}},
+	}
+	if err := ValidateExecuteResult(tooLargeCell); err == nil || !strings.Contains(err.Error(), "cell") {
+		t.Fatalf("oversized cell error=%v", err)
+	}
+}
+
+func TestExecuteResultRejectsRowWidthMismatch(t *testing.T) {
+	result := ExecuteResult{
+		Columns: []Column{{Name: "id"}, {Name: "name"}},
+		Rows:    [][]interface{}{{1}},
+	}
+	if err := ValidateExecuteResult(result); err == nil || !strings.Contains(err.Error(), "2 columns") {
+		t.Fatalf("error=%v", err)
+	}
+}
+
+func TestRequestIDsRejectControlAndPathCharacters(t *testing.T) {
+	for _, id := range []string{"", "../req", "req/1", "req\n2"} {
+		if _, err := NewRequest(id, OpPing, nil); err == nil {
+			t.Fatalf("request id %q unexpectedly accepted", id)
+		}
+	}
+}
+
+
+func TestExecuteResultValidatesEditableQueryMetadata(t *testing.T) {
+	result := ExecuteResult{
+		Columns: []Column{{Name: "id"}, {Name: "name"}},
+		Rows: [][]interface{}{{1, "Alice"}},
+		Edit: &ExecuteEditInfo{
+			Catalog:  "main",
+			Kind:     "table",
+			Name:     "users",
+			Editable: true,
+			Columns: []BrowseColumn{
+				{Name: "id", Type: "bigint", Editable: true, Identity: true},
+				{Name: "name", Type: "varchar(255)", Editable: true},
+			},
+			RowIdentities: []map[string]interface{}{{"id": 1}},
+		},
+	}
+	if err := ValidateExecuteResult(result); err != nil {
+		t.Fatal(err)
+	}
+	result.Edit.RowIdentities = nil
+	if err := ValidateExecuteResult(result); err == nil || !strings.Contains(err.Error(), "identity") {
+		t.Fatalf("editable result without row identity error=%v", err)
+	}
+	result.Edit.Editable = false
+	if err := ValidateExecuteResult(result); err != nil {
+		t.Fatalf("read-only metadata may omit row identities: %v", err)
+	}
+	result.Edit.Editable = true
+	result.Edit.RowIdentities = []map[string]interface{}{{"id": 1}, {"id": 2}}
+	if err := ValidateExecuteResult(result); err == nil || !strings.Contains(err.Error(), "identities") {
+		t.Fatalf("identity count error=%v", err)
+	}
+}
+
+
+func TestImportSQLOperationIsKnown(t *testing.T) {
+	if !KnownOperation(OpImportSQL) {
+		t.Fatal("import_sql must be a known database adapter operation")
+	}
+	request, err := NewRequest("import-1", OpImportSQL, ImportSQLPayload{
+		Path:    "/tmp/taskdeck-import.sql",
+		Catalog: "main",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if request.Operation != OpImportSQL {
+		t.Fatalf("operation=%q", request.Operation)
+	}
+}
+
+
+func TestImportSQLResponseValidation(t *testing.T) {
+	request, err := NewRequest("import-1", OpImportSQL, ImportSQLPayload{Path: "/tmp/import.sql"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ok, err := NewResponse(request, ImportSQLResult{
+		ImportedBytes: 123,
+		Message:       "SQL import completed",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateResponsePayload(ok); err != nil {
+		t.Fatal(err)
+	}
+	bad, err := NewResponse(request, ImportSQLResult{ImportedBytes: -1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateResponsePayload(bad); err == nil || !strings.Contains(err.Error(), "negative imported_bytes") {
+		t.Fatalf("validation error=%v", err)
+	}
+}

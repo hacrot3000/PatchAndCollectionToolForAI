@@ -1,0 +1,18 @@
+@xterm/xterm 6.0.0
+@xterm/addon-fit 0.11.0
+
+Vendoring policy:
+- Runtime/build does not use npm, CDN, or a package manager for these assets.
+- The reviewed JavaScript/CSS/license files are committed directly under web/vendor/ and embedded into the Go binary.
+- Future upgrades must be performed manually: obtain the exact upstream source/release, review it, replace the committed files, update this provenance record, and commit the reviewed result.
+
+Upstream projects:
+- https://github.com/xtermjs/xterm.js/tree/6.0.0
+- https://github.com/xtermjs/xterm.js/tree/6.0.0/addons/addon-fit
+
+Vendored files:
+- xterm.js
+- xterm.css
+- addon-fit.js
+- LICENSE-xterm.txt
+- LICENSE-addon-fit.txt

@@ -1,0 +1,500 @@
+# PATCH PACKAGE GUIDE — v6.20.2 authoritative AI/tool contract
+
+## Automatic PATCH command console evidence and History
+
+During **Task Run**, planned `post_patch`/`on_failure` commands are listed as nested **QUEUE** rows before execution. Each row becomes **RUNNING** at spawn with a live elapsed timer; it then becomes **DONE**, **FAIL**, **INTERRUPTED** or **SKIPPED**. Validation, diagnostic reruns and saved-profile SSH use the same command-state event channel. **View console** expands/collapses a separately refreshed log while a command runs, and **Copy console** reads the latest available output. Expansion is preserved across GUI polling.  A bounded, atomic per-run `command_states.json` journal mirrors each state transition; TaskDeck's Go session state reads this mirror on every protocol poll so **Current run status** can recover QUEUE/RUNNING/DONE even if an event is missed or the panel is reopened. The journal is a fallback, not executable input. The final command status, elapsed time and console path are retained with the run for **History**; no commands are invented for older runs.
+
+TaskDeck-owned PATCH runs persist a bounded **per-command stdout/stderr console file** and a structured command list for every executed `post_patch`, `on_failure`, trusted validation command, diagnostic rerun and `remote_ssh` invocation. The command metadata records name, argv, stage, cwd, status/exit code and an authenticated project-relative log path. The new native **Current run** and **History** panels present **View console** and **Copy console** beside each command. The log is bounded to 512 KiB per command, marked when truncated, and retained inside the same run artifacts as normal PATCH History. Retention/cleanup removes it with the old run. Preflight-invalid packages have no execution console; commands that fail to spawn during an admitted PATCH run receive a short error console for History, including failed diagnostic reruns. Older History records without command metadata remain readable. Only the TaskDeck queue/dispatcher injects the run-owned log directory; standalone Patch Tool retains ordinary terminal output. **No passwords or credentials should be placed in argv or echoed into console logs.**
+
+COLLECT supports a separate read-only `command` action (local or saved SSH profile), whose bounded console becomes part of the COLLECT result archive. See **CODE_COLLECTION_GUIDE.md** and the active COLLECT schema; it does not enable scripts/Python in COLLECT.
+
+## AI context synchronization (v6.19.2)
+
+Recommended in every newly generated PATCH manifest:
+
+```json
+"ai_context": {
+  "known_tool_version": "6.19.2",
+  "sync_token": "ptv-ai-sync-v1:<64 hex from the latest AI_SYNC_MANIFEST.json>",
+  "agent_id": "default"
+}
+```
+
+The field is optional for backward compatibility. If omitted, Patch Tool may send a one-shot `AI_TOOL_SYNC` update after the local tool changes. For old PATCH packages, `compatibility.max_tested_version` is also used as a stale-context hint. After the AI reads an update artifact it should use the exact `next_request_ai_context` object from `AI_SYNC_MANIFEST.json`.
+
+Machine-readable source of truth:
+
+```text
+tools/_patch_lib/docs/PATCH_PACKAGE_SCHEMA.json
+```
+
+AI must read that schema before generating a PATCH package. Do not invent manifest fields.
+
+## Remote SSH read-only command PATCH
+
+When the task is to inspect a remote host through an existing TaskDeck SSH profile, **ask the user for the exact unique SSH profile name** first. Do not accept a free-form host, script or command string. Use a manifest-only ZIP containing only `PATCH_TOOL_MANIFEST.json` and the top-level `remote_ssh` object with `profile_name`, one `argv` array and optional `timeout_seconds` (1–120; default 30). Both `project.key` and `project.id` are mandatory. Example: `"remote_ssh":{"profile_name":"Production SSH","argv":["pwd"],"timeout_seconds":30}`. This remote-only mode may **not** be combined with Python/OPS/source-changing payload, post/on-failure commands, resources, validation or scripts. It is not the local `post_patch.commands` facility and cannot invoke Python or a shell interpreter on SSH.
+
+The **remote whitelist** is fixed in Go: `pwd`; restricted `ls` and `tree`; bounded `find` with `-maxdepth 1..3`, `-name/-iname GLOB`, `-type f/d`, optional `-mindepth` and print; plus file-content searching via `grep` / `rg` and file reading via `cat`, `head`, `tail`, `wc`, `nl`, `sed -n NUM[,NUM]p`. Examples: `["grep","-nriF","--","error code","src"]`; `["rg","-n","-g","*.go","--","TODO","src"]`. Only explicitly enumerated read-only flags are accepted; `rg --pre`, `grep -f`, `sed -i`, `tail -f` and arbitrary commands are denied. `find -exec`/`-delete` and related executing or writing actions are forbidden for **both local and SSH**. Python, shell interpreters, scripts, pipelines and redirection remain forbidden in SSH mode. Search patterns and paths containing spaces are safely quoted in the remote shell command; they are never evaluated as shell code. SSH paths are relative to the remote login directory, not the local project. The same-user TaskDeck SSH bridge handles stored profile authentication; shared-server mode and portable standalone Python runtimes fail closed. Atomic batch transactions reject remote_ssh. See **AI_USAGE_CONTRACT.md → Remote SSH read-only command PATCH** for detailed argument limits and examples.
+
+## Running an existing project script automatically
+
+For *local* `legacy_strict` / command-only PATCHes the read-only whitelist now also includes `grep`, `rg`, `cat`, `head`, `tail`, `wc`, `nl`, and `sed` (numeric `-n …p` only). Whitelisted file arguments must be project-relative and search flags must be explicitly permitted. Unlike SSH remote, the existing project-local script interpreter lane is preserved for previously existing scripts. Neither lane permits the mutating/executing `find -exec/-delete` actions.
+
+PATCH packages can run commands automatically: a manifest-only command-only ZIP runs one `legacy_strict`-allowlisted command when `run_when_no_changes=true` and a 20–500 character `no_change_reason` are supplied. Source-changing PATCHes may run multiple `post_patch.commands` with the default broader `current` profile, or opt into `safety_profile=legacy_strict`. Script paths must remain project-local under the strict profile. Automatic commands are **not** the same as human-only `manual_execution`. For the complete allowed interpreter/extension matrix, forbidden commands, timeout, argv/cwd rules and executable examples, read **AI_USAGE_CONTRACT.md → Automatic PATCH command and project-local script execution**.
+
+**PROHIBITED:** A PATCH may not create a script file and execute that same script in the same run, including through post/on-failure commands or validation. Direct script references absent before the PATCH starts are rejected by preflight with `new_script_execution_forbidden`, and runtime rechecks before automatic commands. Use two separately completed PATCHes: A creates the script, then B runs it. Do not evade this rule with inline shell, Python payloads or opaque wrappers; this direct-path check is not an OS sandbox for arbitrary Python execution.
+
+## Runtime boundary: PATCH package vs Patch Tool internals
+
+A PATCH package describes project mutations and may contain its own payload/OPS files, but it must not depend on Patch Tool's private implementation layout.
+
+- Do **not** reference or invoke `tools/_patch_lib/python_patch_runner.py`, `python_patch_queue_dispatcher.py`, COLLECT helpers, or any other private Patch Tool module from a PATCH manifest, payload, post command, recovery command, or generated helper.
+- In TaskDeck-managed mode those private files live under the TaskDeck release, not necessarily under the project.
+- `<project>/patchs/`, project source, project config, and artifacts are project-scoped. Private runner/dispatcher/collector files are runtime-scoped.
+- If execution fails before payload start because TaskDeck/Patch Tool tried to open a missing private child under `<project>/tools/_patch_lib/`, do not "repair" the PATCH by adding that path. Preserve the failure lineage and treat it as an infrastructure/runtime-routing failure.
+
+
+## v6.20.0: Git mutation retired; manual execution added
+
+PATCH-side automatic Git add/commit/push is no longer an execution stage. It is **REMOVED_BY_REQUIREMENT** for safety. A package that requests mutation through the legacy `git` block is rejected with `git_mutation_forbidden`; do not generate such packages. Read-only Git evidence (plus the tightly guarded clean local `switch`) belongs in a COLLECT `git.operations` action; see `GIT_SAFE_OPERATIONS.md`.
+
+When an operator must run a build/vendor/profiler/service command, declare `manual_execution` instead of `post_patch.commands` if Patch Tool itself must not execute the command. Example:
+
+```json
+{
+  "manual_execution": {
+    "stop_on_failure": true,
+    "package_result": true,
+    "steps": [
+      {
+        "id": "build-server",
+        "title": "Build server",
+        "cwd": "projects/m3-server/trunk/jdqs_server",
+        "argv": ["mvn", "-DskipTests", "package"],
+        "expected_exit_codes": [0]
+      }
+    ]
+  }
+}
+```
+
+Patch Tool renders one step at a time, supplies an evidence-log capture wrapper, and waits for the human to run it in another terminal. It verifies the evidence before advancing and packages the final logs into `MANUAL_EXECUTION_RESULT_*.zip/.txt`. `payload=manual_only` is allowed when no source payload is needed. See `MANUAL_EXECUTION_WORKFLOW.md`.
+
+## Package shape
+
+Preferred archive PATCH:
+
+```text
+patch_x.zip
+├── PATCH_TOOL_MANIFEST.json
+├── exactly-one Python entrypoint.py
+└── resources/...                    # optional
+```
+
+or data-only OPS:
+
+```text
+patch_x.zip
+├── PATCH_TOOL_MANIFEST.json
+└── PATCH_TOOL_OPS.json
+```
+
+A package with both OPS and Python entrypoint, multiple Python entrypoints, unsafe archive members, or missing root manifest is rejected **before project modification**.
+
+## Clear-text PATCH (TaskDeck browser alternate input)
+
+An AI unable to create ZIPs may return **one standalone complete Python 3 program** and the operator can use **Patch Tool → Paste text → PATCH Python**. TaskDeck wraps this source as `entrypoint.py` in a ZIP with `PATCH_TOOL_MANIFEST.json` containing the active workspace's exact `project.key` and `project.id`. Alternatively upload the AI's `.py` file in TaskDeck; it passes through the same conversion. The request is queued first; the existing Python PATCH preflight and user selection remain in control. This is not a direct code execution API.
+
+The source MUST contain `# TASKDECK_PROJECT_KEY: <actual project key>` and `# TASKDECK_PROJECT_ID: <actual project UUID>` on separate lines. Missing or mismatched identities are rejected. The generated minimal manifest deliberately cannot express extra `targets`, `preflight`, `resources`, `batch`, `validation` or `manual_execution` fields; for those use the full ZIP contract. A text-only Python PATCH must therefore fail closed on source drift by verifying exact current contents before any write, keep writes within project, avoid private Tool runtime imports or Git operations, and print actionable failure messages. No ZIP is applied merely by pasting; execution uses the ordinary queue.
+
+## Compatibility
+
+Optional manifest block:
+
+```json
+{
+  "compatibility": {
+    "min_tool_version": "6.17.12",
+    "max_tool_version": "7.0.0",
+    "max_tested_version": "6.17.13"
+  }
+}
+```
+
+- `min_tool_version` / `max_tool_version` are hard execution gates.
+- `max_tested_version` is a warning boundary, not a hard block.
+- Versions are exact numeric semantic versions `X.Y.Z`.
+
+## Targets and preflight
+
+When AI knows the files a patch can modify, declare them:
+
+```json
+{
+  "targets": ["src/a.c", "include/a.h"]
+}
+```
+
+This improves failure/partial-modification diagnostics even for Python patches.
+
+For exact source assumptions, declare preflight evidence:
+
+```json
+{
+  "preflight": {
+    "files": [
+      {
+        "path": "src/a.c",
+        "sha256": "<64 hex>",
+        "anchors": ["exact source anchor"]
+      }
+    ]
+  }
+}
+```
+
+If SHA/anchor/existence does not match, Patch Tool prints:
+
+```text
+PREFLIGHT FAIL — project unchanged
+```
+
+and may prepare a `CODE_COLLECTION_REQUEST_patch_recovery_*.zip` for the next invocation.
+
+`preflight.require_clean_worktree=true` may be used only when a clean Git worktree is genuinely required by the patch.
+
+## Required package resources
+
+If a Python entrypoint requires packaged data, list it:
+
+```json
+{"resources":["resources/final/foo.c"]}
+```
+
+Missing/non-regular required resources are rejected before the payload runs.
+
+## Recovery policy
+
+Every PATCH failure generates a structured FAIL handoff and automatically discovers/bundles related current source. This is mandatory since v6.17.5. The legacy `recovery.fail_handoff` boolean remains schema-accepted for package compatibility, but `false` is deprecated and ignored with a warning.
+
+Source drift/anchor mismatch may additionally prepare a read-only `pack` COLLECT request. That secondary next-run request may still be disabled independently:
+
+```json
+{
+  "recovery": {
+    "collect_on_source_drift": false
+  }
+}
+```
+
+FAIL_HANDOFF source discovery uses structured target/preflight/rollback evidence, source paths from failure output, bounded basename lookup, and one-hop local references/same-stem companions. The ZIP includes `SOURCE_DISCOVERY.json` so AI can distinguish attached source from files omitted by safety quotas.
+
+## Metadata-driven safe rollback
+
+Automatic rollback is **opt-in and fail-closed**. It is not a replacement for SANDBOX/worktree transactions. AI may request rollback only when every mutable target is known and has an exact preflight baseline.
+
+Example:
+
+```json
+{
+  "targets": ["src/a.c", "generated/new.h"],
+  "preflight": {
+    "files": [
+      {"path": "src/a.c", "exists": true, "sha256": "<64 hex>"},
+      {"path": "generated/new.h", "exists": false}
+    ]
+  },
+  "recovery": {
+    "rollback": {
+      "targets": ["src/a.c", "generated/new.h"],
+      "on": ["payload_failure", "post_patch_failure"],
+      "max_total_bytes": 268435456
+    }
+  }
+}
+```
+
+Rules:
+
+- `recovery.rollback.targets` must exactly cover the PATCH target set resolved by preflight.
+- Every rollback target needs an explicit `preflight.files` baseline. Existing files require `exists:true` plus exact SHA-256; initially absent files require `exists:false`.
+- The runner snapshots only those declared regular-file targets, with a bounded total byte limit, after preflight PASS and before payload execution.
+- Rollback may run only for configured payload/post-patch failure handling. v6.20.0 has no PATCH Git mutation stage, so rollback never needs to undo a tool-created Git commit/push.
+- Existing files are restored from exact snapshot bytes; files that were initially absent are removed only if they became a regular file/symlink at the exact declared target path. Directories/non-file objects are never recursively removed.
+- On a Git project the pre/post worktree fingerprint verifies whether the whole project returned to baseline. If an undeclared file changed, status becomes `PARTIAL` even if declared targets were restored. Outside Git, verification is explicitly limited to declared targets.
+- Missing/ambiguous recovery metadata becomes `PREFLIGHT FAIL — project unchanged`; AI must not guess a rollback contract.
+
+`ROLLBACK: PASS` means the configured recovery scope was restored and verified according to the evidence available. `PARTIAL`/`FAIL` remains a normal PATCH failure and the generated FAIL_HANDOFF should be uploaded to AI.
+
+## Rollback path/runtime safety — v6.14.1
+
+For a rollback target declared with `exists:false`, the target's parent directory must already exist before the PATCH starts and every ancestor must be a real non-symlink directory inside the project. The tool does not invent or remove directories as part of rollback.
+
+Rollback baselines are re-checked when the pre-payload snapshot is created. If a target changes between preflight and snapshot, execution fails closed before the payload runs.
+
+On POSIX, restore pins the validated parent directory with a directory file descriptor and `O_NOFOLLOW`-style checks so an ancestor symlink swap cannot redirect the restore outside the project.
+
+On POSIX, Python PATCH payloads and post-patch commands run in isolated process groups. Timeout, SIGINT or SIGTERM terminates the managed group before rollback/return. Windows uses the platform-specific subprocess branch; PATCH authors must not assume POSIX signal/process-group semantics there.
+
+## Exact input lifecycle — v6.14.1
+
+Patch Tool snapshots the exact PATCH package selected from `patchs/` before preflight/execution and archives those exact executed bytes after PASS. If another process or the PATCH itself replaces the same queue filename while execution is in progress, the replacement is preserved in `patchs/` for a later run instead of being archived as though it had already executed.
+
+A FAIL_HANDOFF only embeds the current queue PATCH when its SHA-256 still equals the structured executed package SHA. A changed/replaced queue package is omitted from the handoff rather than misidentified.
+
+## Inspect / dry-run
+
+In the interactive selector the user can press `i` on a PATCH (line selector: `i <index>`). This runs the same package/schema/preflight checks, shows compatibility/targets/post commands/manual-execution summary, and ends with:
+
+```text
+INSPECT RESULT: PASS — project unchanged
+```
+
+No PATCH payload is executed and the package is not archived.
+
+## v6.17.6 recovery integrity
+
+Cross-run recovery binds filesystem actions to the exact replay package recorded by the failed run (`requeued_as` plus recorded patch SHA-256). Historical `patch_file` / `patch_id` remain logical predecessor declarations only; a different package later occupying the old filename is not eligible for Retry/Delete/Run-after. Exact rollback replay may bypass duplicate-history suppression only when the failed-run report proves the same queue filename and SHA-256.
+
+For a failed PATCH with no declared/effective target paths, an unchanged Git worktree fingerprint is insufficient to prove no modification because ignored files are outside that observation boundary. The partial state is therefore `unknown` and continuation safety-stops.
+
+## v6.17.5 package lint / validate
+
+Before delivering a PATCH, validate the manifest against `PATCH_PACKAGE_SCHEMA.json` and `PATCH_PACKAGE_CHECKLIST.json`. **Never invent `source_baseline`** or other legacy/custom fields. Source assumptions belong only in `preflight.files` using `path`, optional `exists`, `sha256`, and/or `anchors`.
+
+Known migration:
+
+```text
+source_baseline.files[].file   -> preflight.files[].path
+source_baseline.files[].sha256 -> preflight.files[].sha256
+```
+
+Timeout values, when present, must be integers `1..1800`. Omit `execution.timeout_seconds` to use the default; do not use `0` as an unlimited sentinel.
+
+Read-only project-aware validation:
+
+```text
+Linux:   ./tools/run_python_patches.sh validate --patch patchs/example.zip
+Windows: tools\run_python_patches.bat validate --patch patchs/example.zip
+```
+
+Validation/inspect results use one of four classes:
+
+- `READY_TO_APPLY` — package and current source preflight are ready; project unchanged.
+- `PATCH_INVALID` — package/schema/compatibility/environment contract is invalid; project unchanged.
+- `SOURCE_DRIFT` — current source SHA/existence/anchor or OPS match assumptions do not hold; project unchanged.
+- `TOOL_ERROR` — unexpected Patch Tool internal failure; project unchanged.
+
+Schema lint reports multiple independent manifest issues in one pass. Source preflight likewise aggregates declared file mismatches and includes expected/actual SHA where applicable. For data-only OPS packages, v6.17.5 simulates the sequential operation list on a private temporary mirror before execution; a missing/ambiguous source match fails before the real payload is allowed to write.
+
+## Batch metadata (v6.17.5)
+
+PATCH có thể khai báo:
+
+```json
+"batch": {
+  "depends_on": ["patch-id-before"],
+  "on_dependency_failure": "block",
+  "previous_failure": {
+    "patch_id": "failed-patch-id",
+    "patch_file": "failed_patch.zip",
+    "action": "retry_before",
+    "reason": "successor requires predecessor state"
+  }
+}
+```
+
+`depends_on` sử dụng `patch.id` hiện hữu. Tool stable-topological-sort batch theo dependency, fail closed nếu thiếu dependency hoặc cycle. `on_dependency_failure` mặc định là `block`; giá trị legacy `run_anyway` vẫn được schema đọc để tương thích nhưng runtime **ignore và vẫn BLOCKED** khi predecessor liên quan FAIL.
+
+`previous_failure` là contract phục hồi queue giữa các lần chạy. Chỉ successor **có quan hệ** với unresolved predecessor (dependency, effective-target overlap, hoặc explicit declaration) phải chỉ rõ một trong `delete`, `retry_before`, `run_after`, `block`; PATCH độc lập không bị ràng buộc. Xem `AI_USAGE_CONTRACT.md` để biết quy tắc bắt buộc dành cho AI tạo PATCH.
+
+### Batch policies
+
+`.python_patch_tool.json`:
+
+```json
+{
+  "batch": {
+    "failure_policy": "continue_independent",
+    "transaction_policy": "patch"
+  }
+}
+```
+
+`failure_policy`:
+- `continue_independent`: **mặc định từ v6.17.5**. Sau failure đã được containment chứng minh an toàn, PATCH không phụ thuộc và không overlap effective target sẽ tự chạy tiếp.
+- `fail_fast`: explicit opt-in để dừng ngay tại lỗi đầu tiên.
+- Dependency FAIL hoặc runtime effective-target overlap với PATCH FAIL/BLOCKED làm successor `BLOCKED` mặc định; Ctrl+C/rollback failure/partial-unknown vẫn safety-stop.
+
+`transaction_policy`:
+- `patch`: rollback theo contract từng PATCH như trước.
+- `batch`: atomic rollback theo effective target set của toàn batch. `manifest.targets` vẫn bắt buộc; tool mở rộng set bằng preflight/recovery/OPS targets resolve được trước execution. Dispatcher giữ project mutation lock xuyên snapshot→execution→rollback/commit; target/package snapshot có generation checks và POSIX restore dùng pinned dir-fd. Chế độ này từ chối side effects không target-bounded (`post_patch.commands`, Git add/commit/push) và verify state/SHA sau rollback.
+
+Có thể override cho một lượt chạy:
+
+```bash
+./tools/run_python_patches.sh run --failure-policy continue_independent --transaction-policy batch
+```
+
+Windows dùng cùng options qua `.bat`/`.ps1`.
+
+### v6.17.5 integrity notes
+
+- Với OPS replace/insert, `already` phải là marker/context idempotency **explicit** nếu cần. Tool không còn coi `new` xuất hiện ở nơi bất kỳ trong file là “already patched”.
+- OPS dry-run và execution chịu `execution.timeout_seconds`; write source dùng atomic replace.
+- **Historical only:** v6.17.x `git.commit=auto` dirty-target guard is retained in the historical record; v6.20.0 rejects PATCH Git mutation instead of running it.
+- ZIP/TAR package bị giới hạn số entry, kích thước giải nén, compression ratio; symlink/non-regular member, duplicate/case-fold/Unicode collision và Windows drive/ADS names bị reject.
+- Planner records the stable SHA-256 of each selected queue package. Batch snapshot and immediate pre-spawn checks must match those planned bytes; replacement/disappearance fails before payload with `package_input_changed`.
+- Batch replay snapshots record exact SHA-256 + size and are reverified before requeue; corrupted/missing replay bytes become `batch_requeue_failed`.
+- Mutation lock files reject symlink/reparse paths and POSIX uses no-follow opens; artifact runtime/report/handoff subdirectories are real-directory checked.
+- FAIL_HANDOFF source freezing is per-file isolated: a source that vanishes or changes cannot delete an already frozen sibling attachment.
+
+## v6.17.7 project identity and trusted validation profiles
+
+Optional project binding:
+
+```json
+"project": {"key": "my-project"}
+```
+
+If present, the target project must configure the same key in `.python_patch_tool.json`; otherwise preflight fails before payload.
+
+Validation profiles are named local policies:
+
+```json
+"validation": {"profiles": ["unit", "build"]}
+```
+
+The package does not define the commands. The project operator defines `validation_profiles.<name>.argv/cwd/timeout_seconds` locally. Missing/invalid profiles fail preflight. Profiles execute after payload/post-patch and before Git/archive. Batch-transaction mode rejects validation profiles because their side effects are not necessarily target-bounded.
+
+## v6.17.8 failure-only commands and managed script execution
+
+A PATCH may declare commands that run **only after a valid PATCH entered execution and then failed**:
+
+```json
+"on_failure": {
+  "commands": [
+    {
+      "name": "capture failing build state",
+      "argv": ["python3", "tools/capture_failure.py"],
+      "cwd": ".",
+      "timeout_seconds": 300
+    }
+  ]
+}
+```
+
+`on_failure.commands` uses the same command object contract as `post_patch.commands`: argv is an argument array (never a shell string), `cwd` is project-relative, and `timeout_seconds` is an integer `1..1800` when present. Commands are non-interactive: stdin is closed, so automation must pass inputs through argv/files/environment rather than `input()`/terminal prompts.
+
+Execution order on a PATCH failure is:
+
+1. detect/classify the PATCH/post-validation failure;
+2. attempt metadata-driven rollback when that failure trigger is configured;
+3. run `on_failure.commands` sequentially;
+4. recompute final project-delta evidence;
+5. publish structured failure result / FAIL_HANDOFF.
+
+The **original PATCH failure remains authoritative**. A failure-only command that exits non-zero, times out, or leaves descendants is recorded under `result.on_failure`, but does not replace the original PATCH rc. Such a failed/incomplete failure-handler is a global continuation safety-stop; unrelated PATCHes resume automatically only when the complete `on_failure` sequence PASSes and the final project state is proven unchanged. User interruption is different: Ctrl+C/SIGTERM is control flow and propagates to stop the run/batch; it is not converted into an ordinary command failure. `on_failure` is not executed for invalid package/schema/preflight rejection, nor for a user interruption before/while execution.
+
+`transaction_policy=batch` rejects `on_failure.commands`, just as it rejects target-unbounded post commands / validation profiles / Git side effects.
+
+### `post_patch.run_when_no_changes`
+
+`post_patch.commands` normally runs only when the PATCH produced a detected project delta. Set `post_patch.run_when_no_changes=true` only when the post command is intentionally required even for an idempotent/no-op PATCH. When omitted or `false`, a no-change PATCH skips `post_patch.commands`. This flag changes only whether post commands run; it does not turn patch metadata into a runtime gate and it does not override failure/rollback rules.
+
+### Patch metadata fields are descriptive, not implicit runtime gates
+
+`patch.version`, `patch.phase`, `patch.phase_under_test`, `patch.summary` and `patch.regression_scope` are package metadata used for identification, reporting, planning/search and human/AI context. They are **not** automatically enforced as source/version/regression gates. If a PATCH requires a specific source baseline or project, encode that requirement with `preflight.files`, `manifest.project.key`, dependencies, validation profiles or other documented runtime gates. AI must not assume a descriptive metadata value is validated merely because the schema accepts it.
+
+Managed payload/post/validation/failure/Git-policy execution is process-tree contained for timeout/interruption on supported platforms. On POSIX, a leader that exits while descendants remain is also detected: descendants are terminated and the command is reported failed. Windows normal-exit descendant detection still requires native verification; timeout/interrupt tree termination is covered by the packaged Windows contract. A program that deliberately returns exit code `124` is distinct from a Patch Tool timeout (`timed_out=true`). Git auto-policy accepts `git.timeout_seconds` (`1..1800`, default 300) and disables terminal credential prompts. Patch Tool internal result/lock environment variables are removed before untrusted/project commands are spawned.
+
+### v6.17.8 dispatcher / internal-error execution boundary
+
+- `inspect`, `preview`, `validate` and the COLLECT progress supervisor are launched by the dispatcher through a process-group-aware foreground runner; Ctrl+C/SIGTERM is forwarded to the child tree instead of leaving a detached helper behind.
+- If an unexpected Patch Tool exception occurs **after payload execution has begun**, it is still an execution failure: configured rollback is attempted for payload/post-validation stages, then `on_failure.commands` runs. The internal-error rc/diagnosis remains primary.
+- Internal exceptions before execution (package/schema/preflight) remain project-unchanged failures and do not run `on_failure`.
+
+
+## v6.17.10 local project config + planning consistency
+
+`.python_patch_tool.json` dùng chung một parser bounded, reject symlink/duplicate JSON keys cho các đường identity, validation, selector và batch policy. Nếu file config tồn tại nhưng malformed/unsafe thì `run`/`resume`/`plan` fail-closed rc=2; không tự đổi sang policy mặc định. Các option runtime chính:
+
+```json
+{
+  "project": {"key": "my-project"},
+  "validation_profiles": {
+    "unit": {
+      "argv": ["./tools/test.sh"], "cwd": ".", "timeout_seconds": 900,
+      "diagnostic_rerun": {"enabled": true, "safe": true, "append_args": ["--verbose"], "timeout_seconds": 300}
+    }
+  },
+  "validation": {
+    "selection": {
+      "mode": "append",
+      "fallback_profiles": [],
+      "rules": [{"name": "source", "include": ["src/**"], "exclude": ["src/generated/**"], "profiles": ["unit"]}]
+    },
+    "diagnostic_rerun": {"max_commands": 1, "on_timeout": false}
+  },
+  "automation": {
+    "zero_argument": {
+      "selection": "prompt",
+      "non_interactive_confirmed": false,
+      "initial_selection": "none",
+      "selector_ui": "auto"
+    }
+  },
+  "batch": {
+    "failure_policy": "continue_independent",
+    "transaction_policy": "patch"
+  }
+}
+```
+
+`plan` dùng đúng effective `failure_policy` / `transaction_policy` từ config hoặc CLI override. `--export-recipe` ghi đúng các policy đó; nếu `transaction=batch` không tương thích với post commands, validation profiles, on-failure commands hoặc Git side effects thì `plan` fail trước preview/export, giống execution.
+
+Persistent failure registry giữ nhiều unresolved entries. Planner xét tất cả entry liên quan; một PASS chỉ auto-resolve entry cùng logical patch **và cùng exact SHA-256**. Nếu một selected batch liên quan tới nhiều unresolved predecessor, planner yêu cầu Smart Resume xử lý trước.
+
+**v6.20.0:** legacy `git.fail_on_error` / `git.commit` / `git.push` fields do not authorize Git mutation. Any requested mutation is rejected. Use COLLECT safe Git for evidence and `manual_execution` when the human must run an external command.
+
+
+Recipe policy override rule: `run --recipe` uses the policies stored in the recipe; `--failure-policy`/`--transaction-policy` must not be combined with `--recipe`. Create a new recipe with `plan` overrides when different policies are intended.
+
+## v6.18.2 command-only / strict compatibility lane
+
+A manifest-only command package is accepted when `post_patch.run_when_no_changes=true`, `no_change_reason` is 20–500 non-whitespace characters, and exactly one command is declared. Command-only packages automatically use the `legacy_strict` safety profile. A source-changing PATCH keeps the current v6 post-patch command contract unless `post_patch.safety_profile=legacy_strict` is explicitly requested. This additive split restores historical compatibility without silently narrowing modern v6 build/test workflows.
+
+### v6.18.4 delta validation selection / diagnostic rerun
+
+`manifest.validation.profiles` remains names-only and AI must not define trusted argv. The operator may configure `validation.selection.mode=off|append|replace`, `fallback_profiles`, and bounded rules with `include`/`exclude` globs plus profile names. Rule matching uses the actual project delta after payload and post-patch commands. The structured PATCH result records changed paths, matched rules, requested/auto/final profiles.
+
+A local profile may declare `diagnostic_rerun` with `enabled`, `safe`, `name`, `append_args`, `timeout_seconds`, and `on_timeout`. Only `safe=true` reruns are eligible. Global `validation.diagnostic_rerun.max_commands` bounds reruns. Flash/OTA/deploy/push/publish/release/provision/erase-like commands are rejected. The primary validation rc/status is immutable even if the rerun passes.
+
+## Cryptographic provenance / signed PATCH trust
+
+PATCH packages may optionally declare `manifest.provenance` using the documented `ptv-patch-signature-v1` / `ed25519` contract. Verification covers canonical manifest semantics plus every regular package file and runs during preflight before payload/source mutation.
+
+Trust is operator-local only. Configure `provenance.trusted_ed25519_keys` in `.python_patch_tool.json`; set `provenance.require_signature=true` only when the project must reject every unsigned PATCH, including recognized legacy PATCHes. A present but invalid signature, an unknown signer, malformed trust data, or a required-but-missing signature fails closed.
+
+The tool verifies signatures only. Private-key generation/storage, signing services, PKI, remote key lookup/registry, COLLECT signing, and reproducible raw ZIP-byte signing are outside this contract. See `PROVENANCE_SIGNATURE_TRUST.md`.
+
+
+## Mandatory project identity — TaskDeck workspaces and AI handoffs
+
+TaskDeck now initializes `.python_patch_tool.json` on new workspaces **and migrates existing workspaces** on startup/first AI Pack/PATCH/COLLECT use without overwriting unrelated settings:
+
+```json
+{"project":{"key":"admin-go-tool","id":"<persistent UUID v4>"}}
+```
+
+`project.key` defaults to the workspace directory name; `project.id` is randomly generated **once** and retained across upgrades/restarts. Two workspaces named alike remain different because their IDs differ. A preexisting valid project key/ID is preserved; invalid config is never silently overwritten.
+
+**AI guard (mandatory):** Treat `project.key` **and** `project.id` as one inseparable target identity, using the authoritative identity in the current AI Pack prompt or new TaskDeck handoff. Every newly generated `PATCH_TOOL_MANIFEST.json` and `CODE_COLLECTION_REQUEST_*.json` must include:
+
+```json
+"project": {"key": "admin-go-tool", "id": "<UUID shown by TaskDeck>"}
+```
+
+Compare both fields **before** reading, uploading, mixing, acting on, or generating a successor from an incoming COLLECT, FAIL_HANDOFF, patch, or failure evidence. If missing, malformed, inconsistent, or different from the target, **stop and refuse**; explicitly ask the user to confirm the source key/UUID, target key/UUID, and permission to proceed. Never assume matching paths, names, or filenames imply the same project. Never silently rewrite a foreign UUID to bypass a mismatch. Existing legacy handoffs lacking an ID are unverified, not automatically trusted because the workspace now has an ID; confirm with the user and collect a fresh identity-bound artifact before continuing.
+
+Current output: `FAIL_SUMMARY.json`, `COLLECTION_MANIFEST.json` and incomplete COLLECT handoffs include `project_identity`; the ZIP also carries `PROJECT_IDENTITY.json` plus `PROJECT_IDENTITY_INSTRUCTIONS.txt`. The clear-text TXT companion includes these ZIP members. The browser Copy error log and Copy failure + handoff actions resolve the *current* workspace identity at copy time and refuse to copy if it cannot be verified. Incoming PATCH/COLLECT requests that declare key+id are checked before source modification/collection; legacy requests require AI/user confirmation.

@@ -1,0 +1,1286 @@
+package server
+
+import (
+	"strings"
+	"testing"
+
+	webassets "bletonfc/vscode_tasks_menu/web"
+)
+
+func TestFileTransferWorkspaceIsDualPaneWithHostAndLocalBrowser(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/filetransfer.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"ft-sites",
+		"dual-pane transfer",
+		"['host','Host']",
+		"['local','Local browser']",
+		"showDirectoryPicker",
+		"indexedDB.open",
+		"/api/project/tree?path=",
+		"/api/file-transfer/host-to-remote",
+		"/api/file-transfer/remote-to-host",
+		"Upload selected left item(s) to remote FTP/SFTP",
+		"Download selected remote item(s) to left",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("filetransfer.js missing dual-pane contract %q", want)
+		}
+	}
+}
+
+func TestFileTransferRemoteFileOpensInEditorAndSavesBack(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/filetransfer.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"function remoteEditorWritable()",
+		"function remoteEditorVirtualPath(view,remotePath)",
+		"function remoteEditorDocument(view,remotePath,data)",
+		"async function editRemoteFile(view,entry)",
+		"label:'Edit remote file'",
+		"/api/file-transfer/text?",
+		"remote_transfer_profile_id:String(view?.profile?.id||'')",
+		"remote_path:String(remotePath||'')",
+		"read_only:!remoteEditorWritable()",
+		"Save/Ctrl+S uploads to remote",
+		"TaskMenuEditor",
+		"openDocument(remoteEditorDocument(view,remotePath,data))",
+		"taskmenu:file-transfer-remote-edited",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("filetransfer remote editor integration missing %q", want)
+		}
+	}
+
+	editorData, err := webassets.Files.ReadFile("featuremods/editor.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	editor := string(editorData)
+	for _, want := range []string{
+		"if(view.file?.remote_transfer_profile_id)",
+		"app.fetchWithLease('/api/file-transfer/text'",
+		"profile_id:view.file.remote_transfer_profile_id",
+		"path:view.file.remote_path",
+		"expected_sha256:expectedSHA256",
+		"new URLSearchParams({profile_id:view.file.remote_transfer_profile_id,path:view.file.remote_path})",
+		"if(response.status===409)return {conflict:true};",
+		"makeSide(isRemote?'Remote (latest)':'Disk (latest)'",
+	} {
+		if !strings.Contains(editor, want) {
+			t.Fatalf("editor remote transfer save contract missing %q", want)
+		}
+	}
+}
+
+func TestFileTransferWorkspaceKeepsPerScopePathMemoryAndSorting(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/filetransfer.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"taskdeck:file-transfer:paths:v2:",
+		"Favorites",
+		"Recent",
+		"toggleFavorite",
+		"memoryScope",
+		"remote:'+profile.id",
+		"host:'+workspaceKey()",
+		"local:'+panel.localRoot.id",
+		"sort:{key:'type',direction:'asc'}",
+		"dataset.sortKey",
+		"case'size'",
+		"case'modified'",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("filetransfer.js missing path/sort contract %q", want)
+		}
+	}
+}
+
+func TestFileTransferWorkspaceRowSelectionDoesNotReplaceDoubleClickTarget(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/filetransfer.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"function selectTableEntry(panel,entry,event={},mode='click')",
+		"tr.onclick=event=>selectTableEntry(panel,entry,event)",
+		"tr.ondblclick=event=>{event.preventDefault();onDoubleClick(entry);}",
+		"tr.oncontextmenu=event=>{event.preventDefault();event.stopPropagation();selectTableEntry(panel,entry,event,'context');onContextMenu(entry,event);}",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("filetransfer.js missing stable row event contract %q", want)
+		}
+	}
+	for _, forbidden := range []string{
+		"tr.onclick=()=>{panel.selected=entry;renderTable(",
+		"tr.oncontextmenu=event=>{event.preventDefault();panel.selected=entry;renderTable(",
+		"tr.onclick=event=>{panel.selected=entry;renderTable(",
+	} {
+		if strings.Contains(js, forbidden) {
+			t.Fatalf("row selection must not rebuild the table before dblclick/contextmenu: %q", forbidden)
+		}
+	}
+}
+
+
+func TestFileTransferWorkspaceSupportsMultiSelectAndContextActions(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/filetransfer.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"selectedKeys:new Set()",
+		"event.ctrlKey||event.metaKey",
+		"event.shiftKey&&panel.selectionAnchor",
+		"selectAll.type='checkbox'",
+		"selectAllEntries(panel)",
+		"tr.oncontextmenu=event=>{event.preventDefault();event.stopPropagation();selectTableEntry(panel,entry,event,'context');onContextMenu(entry,event);}",
+		"if(!keys.has(key)){keys.clear();keys.add(key);}",
+		"Upload selected items to remote FTP/SFTP →",
+		"Download selected items to left ←",
+		"Delete '+(selected.length>1?selected.length+' selected items':'item')",
+		"Open folder",
+		"Copy selected paths",
+		"Select all",
+		"Clear selection",
+		"New remote folder",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("filetransfer.js missing multi-select/context-menu contract %q", want)
+		}
+	}
+}
+
+func TestFileTransferLeftContextMenuHasCommonFileManagerActions(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/filetransfer.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"/api/file-transfer/host-mutate",
+		"function renameHostEntry(view,entry)",
+		"function deleteHostEntries(view,entries)",
+		"function newHostFolder(view)",
+		"function renameLocalEntry(view,entry)",
+		"dir.removeEntry(entry.name,{recursive:entryType(entry)==='directory'})",
+		"getDirectoryHandle(name,{create:true})",
+		"function renameLeftEntry(view,entry)",
+		"function deleteLeftEntries(view,entries)",
+		"function newLeftFolder(view)",
+		"label:'Rename'",
+		"label:'New folder'",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("filetransfer.js missing left context action %q", want)
+		}
+	}
+}
+
+func TestFileTransferContextMenuAlwaysHasItemActions(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/filetransfer.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"function showContextMenu(items,x,y,title='')",
+		"menu.setAttribute('role','menu')",
+		"button.setAttribute('role','menuitem')",
+		"function leftContext(view,entry,event)",
+		"function remoteContext(view,entry,event)",
+		"showContextMenu(items,event.clientX,event.clientY,contextTitle(panel,entry))",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("filetransfer.js missing context menu contract %q", want)
+		}
+	}
+}
+
+
+func TestFileTransferWorkspaceHasParentRowsAndBackgroundOnlySelection(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/filetransfer.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"function canGoParentPath(value,remote=false)",
+		"tr.className='ft-parent-row'",
+		"label.textContent='..'",
+		"tr.onclick=event=>event.preventDefault();",
+		"tr.ondblclick=event=>{event.preventDefault();if(panel.navigationDisabled)return;panel.goUp?.().catch(app.showError);}",
+		"outline:none!important;box-shadow:none!important",
+		"user-select:none;-moz-user-select:none;-webkit-user-select:none",
+		".ft-table tbody tr.selected{background:#29384b}",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("filetransfer.js missing parent/selection visual contract %q", want)
+		}
+	}
+	if strings.Contains(js, "tr.onclick=event=>{event.preventDefault();panel.goUp?.().catch(app.showError);}") {
+		t.Fatal("parent row must not navigate on single click")
+	}
+}
+
+func TestFileTransferPathHistoryIsAutomaticCompactDropdown(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/filetransfer.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"const maxRecentPaths=50;",
+		"history.className='ft-path-history-select'",
+		"history.setAttribute('aria-label','Visited paths')",
+		"addGroup('Recent paths',memory.recent)",
+		"rememberPath(scope,path)",
+		"markPathLoaded(panel,path)",
+		"history.onchange=()=>{if(history.value){input.value=history.value;onLoad(history.value).catch(app.showError);}history.value='';}",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("filetransfer.js missing automatic path history contract %q", want)
+		}
+	}
+	if strings.Contains(js, "ft-favorite-select") {
+		t.Fatal("legacy wide saved-path select should not remain")
+	}
+}
+
+
+func TestFileTransferRemoteFolderCacheIsSessionScopedAndRefreshable(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/filetransfer.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"remoteCache:new Map()",
+		"function remoteCacheGet(view,path)",
+		"function remoteCacheSet(view,path,data)",
+		"function invalidateRemoteCache(view,path,recursive=false)",
+		"async function fetchRemoteDirectory(view,path,{force=false}={})",
+		"if(cached)return {...cached,fromCache:true};",
+		"onRefresh:()=>loadRemoteDirectory(view,remote.currentPath,{force:true})",
+		"cached?'Opening cached '+path+'…':'Loading '+path+'…'",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("filetransfer.js missing remote cache contract %q", want)
+		}
+	}
+}
+
+func TestFileTransferQueueTracksPerFileLifecycle(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/filetransfer.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"Transfer Queue",
+		"Queued '+counts.queued+' · Running '+counts.running+' · Conflict '+counts.conflict+' · Done '+counts.success+' · Skipped '+counts.skipped+' · Failed '+counts.failed",
+		"function enqueueTransferTasks(view,tasks)",
+		"async function processTransferQueue(view)",
+		"item.status='running'",
+		"item.status=result?.skipped?'skipped':'success'",
+		"item.status='failed'",
+		"Retry failed",
+		"Clear done",
+		"ft-queue-error",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("filetransfer.js missing transfer queue contract %q", want)
+		}
+	}
+}
+
+func TestFileTransferFolderTransfersStreamWhileScanningBothDirections(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/filetransfer.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"function runTransferScan(view,label,scanner)",
+		"activeScans",
+		"async function scanHostUploadEntry(view,parent,entry,remoteParent,state)",
+		"async function scanLocalUploadHandle(view,handle,targetPath,sourcePath,state)",
+		"enqueueHostUploadFile(view,sourcePath,targetPath,entry.size,state)",
+		"enqueueLocalUploadHandle(view,handle,sourcePath,targetPath,state)",
+		"async function scanRemoteDownloadEntry(view,remoteParent,entry,leftParent,state)",
+		"enqueueRemoteDownloadFile(view,remotePath,leftPath,entry.size,state,entry.modified)",
+		"async function streamLeftEntriesToRemote(view,entries)",
+		"async function streamRemoteEntriesToLeft(view,entries)",
+		"Upload to remote FTP/SFTP →",
+		"Download to left ←",
+		"view.toRemote.disabled=selectedEntries(view.left).length===0",
+		"view.toLeft.disabled=selectedEntries(view.remote).length===0",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("filetransfer.js missing streaming folder transfer contract %q", want)
+		}
+	}
+	for _, forbidden := range []string{
+		"const plan=await buildLeftUploadPlan",
+		"const plan=await buildRemoteDownloadPlan",
+	} {
+		if strings.Contains(js, forbidden) {
+			t.Fatalf("folder transfer must not pre-scan the entire tree before transfer: %q", forbidden)
+		}
+	}
+}
+
+func TestFileTransferQueueScalesForLargeStreamingScans(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/filetransfer.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"const maxRenderedTransferRows=2000;",
+		"function scheduleTransferQueueRender(view)",
+		"setTimeout(()=>{queue.renderTimer=0;renderTransferQueue(view);},80)",
+		"document.createDocumentFragment()",
+		"(queue.runningCount||0)===0&&queue.activeScans===0&&!hasAnyPendingTransfer(queue)",
+		"await item.run(item,item.abortController.signal)",
+		"function nextPendingTransfer(queue)",
+		"queue.items.push(item)",
+		"if(item.status==='queued')queue.pending.push(item)",
+		"pending:[],pendingHead:0",
+		"item.status=result?.skipped?'skipped':'success';item.run=null",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("filetransfer.js missing large streaming queue contract %q", want)
+		}
+	}
+	if strings.Contains(js, "queue.items.find(candidate=>candidate.status==='queued')") {
+		t.Fatal("large transfer queue must not linearly rescan all items for every dequeue")
+	}
+}
+
+
+func TestFileTransferSuggestsCompressedFolderUploadWithoutRemovingNormalPath(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/filetransfer.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"const compressedUploadScanFileThreshold=200;",
+		"const compressedUploadScanDurationMS=2500;",
+		"async function quickScanHostUploadSelection(view,entries)",
+		"async function quickScanLocalUploadSelection(view,entries)",
+		"/api/file-transfer/upload-scan",
+		"function requestCompressedUploadDecision(view,entries,scan",
+		"Upload normally",
+		"Compress + upload",
+		"async function buildLocalSelectionTarGz(view,entries,item=null,signal=null)",
+		"new CompressionStream('gzip')",
+		"async function uploadCompressedSelection(view,entries,mergePolicy='fail')",
+		"/api/file-transfer/archive-upload",
+		"/api/file-transfer/archive-extract",
+		"Archive uploaded — manual extraction required",
+		"Copy POSIX command",
+		"Copy PowerShell command",
+		"const decision=await compressedUploadDecision(view,selected);",
+		"if(decision==='archive'||decision==='archive-overwrite')",
+		"await createServerTransferJob(view,{kind:'host_upload'",
+		"kind:'local_upload_scan'",
+		"compressedUploadRootsClear(view,entries)",
+		"canAutoExtractCompressedUpload(view)",
+		"rootsExist=!compressedUploadRootsClear(view,entries)",
+		"archive-overwrite",
+		"Compress + merge/overwrite",
+		"kind:'host_archive_upload'",
+		"merge_policy:mergePolicy",
+		"auto_extract:canAutoExtractCompressedUpload(view)",
+		"handleCompressedUploadJobResults(view,snapshot?.jobs)",
+		"Cancel / remove selected",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("compressed folder upload UI missing %q", want)
+		}
+	}
+	if !strings.Contains(js, "Upload the selection normally instead?") {
+		t.Fatal("compressed upload failure must offer normal upload fallback")
+	}
+}
+
+func TestFileTransferConnectionPoolUIAndParallelWorkers(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/filetransfer.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"function remoteConnectionUsage(view)",
+		"function remoteConnectionPoolFull(view)",
+		"function transferWorkerLimit(view)",
+		"serverActiveScans",
+		"serverQueuedScans",
+		"serverActiveTransfers",
+		"Connections '+activeConnections+'/'+maxConnections",
+		"Scan queued '+queuedScans",
+		"async function runTransferQueueItem(view,item)",
+		"queue.runningCount=(queue.runningCount||0)+1",
+		"while((queue.runningCount||0)<limit)",
+		"Waiting for an FTP/SFTP connection slot",
+		"scheduleTransferPoolRetry(view)",
+		"Max connections",
+		"updateViewMaxConnections(view,connectionLimit.value)",
+		"panel.pathInput.disabled=full",
+		"panel.pathHistorySelect.disabled=full",
+		"panel.pathGo.disabled=full",
+		"panel.pathUp.disabled=full",
+		"panel.refresh.disabled=full",
+		"if(entryType(entry)==='directory'&&remoteConnectionPoolFull(view))",
+		"disabled:remoteConnectionPoolFull(view)",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("filetransfer connection-pool UI missing %q", want)
+		}
+	}
+}
+
+func TestFileTransferRemoteDeleteUsesDaemonQueue(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/filetransfer.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"async function createServerTransferJob(view,payload)",
+		"async function syncServerTransferQueue(view)",
+		"startServerTransferQueuePolling(view)",
+		"kind:'remote_delete'",
+		"Background delete scan queued on TaskDeck daemon",
+		"/api/file-transfer/jobs?profile_id=",
+		"/api/file-transfer/jobs/control",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("filetransfer.js missing daemon remote-delete queue contract %q", want)
+		}
+	}
+	start := strings.Index(js, "async function streamRemoteDeleteEntries(view,entries)")
+	if start < 0 {
+		t.Fatal("cannot find remote delete UI block")
+	}
+	end := strings.Index(js[start:], "async function deleteRemoteEntries(view,entries)")
+	if end < 0 {
+		t.Fatal("cannot isolate remote delete UI block")
+	}
+	block := js[start : start+end]
+	if strings.Contains(block, "runTransferScan(view,'Delete scan'") || strings.Contains(block, "upsertPersistentFileTransferJob") {
+		t.Fatal("remote delete must be daemon-owned instead of browser scan/journal")
+	}
+}
+
+
+func TestFileTransferQueueSupportsPauseSelectionAndKind(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/filetransfer.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"paused:false",
+		"selectedIDs:new Set()",
+		"priorityPending:[]",
+		"function pauseTransferQueue(view)",
+		"function resumeTransferQueue(view)",
+		"function resumeSelectedTransfers(view)",
+		"function removeSelectedTransfers(view)",
+		"function queueContextMenu(view,event,item=null,visible=[])",
+		"queue.paused?'Resume queue':'Pause queue'",
+		"Resume selected",
+		"Remove selected",
+		"if(queue.paused)return null;",
+		"const priority=nextQueuedFrom(queue.priorityPending,'priorityHead',queue);",
+		"queue.priorityPending.push(item)",
+		"activeScans",
+		"['','', 'Kind','Source','Target','Size','Status','Error']",
+		"kind:task.kind||'Transfer'",
+		"kind:'Upload'",
+		"kind:'Download'",
+		"kind:'Delete'",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("filetransfer.js missing pause/selection/kind queue contract %q", want)
+		}
+	}
+}
+
+func TestFileTransferRemoteFolderDeleteAutoFastWithScanFallback(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/filetransfer.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"function canUseSSHRecursiveDelete(view)",
+		"function confirmRemoteRecursiveDelete(view,entries,fastAvailable)",
+		"if(!confirmRemoteRecursiveDelete(view,selected,fastAvailable))return",
+		"const deleteMode=fastAvailable?'ssh':'scan'",
+		"attempt fast SSH rm -rf first",
+		"scan and delete files/subfolders",
+		"Verify these SFTP absolute paths refer to the SAME filesystem locations",
+		"delete_mode:'ssh_recursive'",
+		"delete_mode:'scan'",
+		"automatic SFTP scan fallback on failure",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("filetransfer.js missing remote delete method contract %q", want)
+		}
+	}
+}
+
+func TestFileTransferRemoteFileDeleteBatchesVeryLargeSelections(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/filetransfer.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"if(dirs===0&&targets.length>1000)",
+		"for(let offset=0;offset<targets.length;offset+=1000)",
+		"remote_targets:targets.slice(offset,offset+1000)",
+		"Queueing delete '+Math.min(offset+1000,targets.length)+'/'+targets.length",
+		"Background delete queued · '+targets.length+' file(s)'",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("filetransfer.js missing large remote delete batch contract %q", want)
+		}
+	}
+}
+
+func TestFileTransferQueueCanStopScansClearAllAndBatchLargeSelections(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/filetransfer.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"function assertTransferScanActive(view,generation)",
+		"pendingLocalScans:0,scanGeneration:0",
+		"async function stopTransferScans(view)",
+		"serverTransferQueueControl(view,'stop_scans')",
+		"clearPersistentLocalScansForProfile(view.profile.id)",
+		"async function clearTransferQueue(view)",
+		"serverTransferQueueControl(view,'clear_queue')",
+		"stopScan.textContent='Stop scan'",
+		"clearQueue.textContent='Clear queue'",
+		"Clear the entire transfer queue and stop all scans",
+		"async function serverTransferQueueControlBatched(view,action,itemIDs=[],extra={})",
+		"const batchSize=1000;",
+		"serverTransferQueueControlBatched(view,'remove_selected',serverIDs)",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("filetransfer.js missing stop/clear/bulk-selection contract %q", want)
+		}
+	}
+}
+
+func TestFileTransferQueuePauseDoesNotStopScanners(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/filetransfer.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	pause := strings.Index(js, "function pauseTransferQueue(view)")
+	scan := strings.Index(js, "function runTransferScan(view,label,scanner)")
+	if pause < 0 || scan < 0 {
+		t.Fatal("pause/scanner functions missing")
+	}
+	scanEnd := strings.Index(js[scan:], "function pauseTransferQueue(view)")
+	if scanEnd < 0 {
+		t.Fatal("cannot isolate runTransferScan")
+	}
+	scanBody := js[scan : scan+scanEnd]
+	if strings.Contains(scanBody, "queue.paused") {
+		t.Fatal("background scanner must continue while transfer queue is paused")
+	}
+	if !strings.Contains(js, "scheduleTransferQueueRender(view);if(!queue.paused)processTransferQueue(view);") {
+		t.Fatal("paused queue must not auto-start worker for newly scanned items")
+	}
+	if !strings.Contains(js, "scheduleTransferQueueRender(view);processTransferQueue(view);") {
+		t.Fatal("resume-selected path must be able to wake the worker while global queue is paused")
+	}
+}
+
+
+func TestFileTransferQueueIsVerticallyResizableAndPersistent(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/filetransfer.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"ft-queue-resizer",
+		"Drag to resize Transfer Queue · double-click to reset",
+		"function installQueueResizer(view)",
+		"taskdeck:file-transfer:queue-height:",
+		"height=startHeight-(event.clientY-startY)",
+		"root.style.height=height+'px'",
+		"root.style.flex='0 0 '+height+'px'",
+		"safeStorageSet(storageKey,String(height))",
+		"resizer.ondblclick=()=>{height=defaultHeight;apply();safeStorageSet(storageKey,String(height));}",
+		"installQueueResizer(view)",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("filetransfer.js missing queue resize contract %q", want)
+		}
+	}
+}
+
+
+func TestFileTransferSessionRestoresOpenProfilesAndPathsAfterReload(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/filetransfer.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"taskdeck:file-transfer:session:",
+		"function readFileTransferSession()",
+		"function persistFileTransferSession()",
+		"function restoreFileTransferSession()",
+		"active_profile_id",
+		"profile_id:id",
+		"left_path:normalizeRelativePath(view.left?.currentPath||'.')",
+		"remote_path:normalizeRemotePath(view.remote?.currentPath||view.profile?.initial_path||'.')",
+		"attachView(profile,{activate:false,session:item})",
+		"window.addEventListener('taskmenu:tasks',scheduleFileTransferSessionRestore)",
+		"const fileTransferSessionReady=new Promise(resolve=>setTimeout(()=>scheduleFileTransferSessionRestore().catch(error=>console.warn('File transfer restore failed',error)).finally(resolve),0))",
+		"await globalThis.TaskMenuTerminalRestore?.ready",
+		"restoreSession:restoreFileTransferSession",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("filetransfer.js missing reload session persistence contract %q", want)
+		}
+	}
+}
+
+func TestFileTransferSessionRestoreDoesNotStealFocusFromOtherViews(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/filetransfer.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"function attachView(profile,{activate=true,session=null}={})",
+		"if(activate)activateView(id,{force:true})",
+		"activeViewID=activeID&&views.has(activeID)?activeID:''",
+		"if(saved?.active_profile_id&&views.has(saved.active_profile_id))activateView(saved.active_profile_id)",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("filetransfer.js missing non-stealing restore contract %q", want)
+		}
+	}
+}
+
+
+func TestFileTransferRestoreCannotEraseSnapshotBeforeItReadsIt(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/filetransfer.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"let sessionPersistenceReady=false",
+		"if(restoringSession||!sessionPersistenceReady)return",
+		"restoringSession=false;sessionPersistenceReady=true",
+		"await scheduleFileTransferSessionRestore()",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("filetransfer.js missing restore snapshot guard %q", want)
+		}
+	}
+}
+
+func TestDaemonTransferQueueSurvivesBrowserReload(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/filetransfer.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"function startServerTransferQueuePolling(view)",
+		"poll();view.serverQueueTimer=setInterval(poll,700)",
+		"const serverItems=(Array.isArray(snapshot?.items)?snapshot.items:[]).map",
+		"id:'server:'+item.id",
+		"serverID:String(item.id||'')",
+		"queue.serverActiveScans=Number(snapshot?.active_scans)||0",
+		"startServerTransferQueuePolling(view)",
+		"for(const view of views.values())syncServerTransferQueue(view).catch(()=>{})",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("filetransfer.js missing daemon queue reload contract %q", want)
+		}
+	}
+}
+
+func TestHostUploadAndDownloadUseDaemonJobs(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/filetransfer.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"if(source==='host')",
+		"kind:'host_upload'",
+		"host_paths:hostPaths",
+		"Background upload queued on TaskDeck daemon",
+		"if(view.left.source==='host')",
+		"kind:'host_download'",
+		"remote_targets:remoteTargets",
+		"Background download queued on TaskDeck daemon",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("filetransfer.js missing daemon host-transfer contract %q", want)
+		}
+	}
+}
+
+
+
+func TestLocalBrowserTransferQueueRehydratesAfterReload(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/filetransfer.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"taskdeck:file-transfer:local-queue:",
+		"function persistLocalTransferQueue(view)",
+		"status:item.status==='running'?'queued':item.status",
+		"async function persistentLocalTransferRun(view,spec,item=null)",
+		"function restorePersistentLocalTransferQueue(view)",
+		"persistSpec:spec",
+		"kind:'local_upload'",
+		"kind:'local_download'",
+		"restorePersistentLocalTransferQueue(view)",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("filetransfer.js missing Local queue reload recovery contract %q", want)
+		}
+	}
+}
+
+func TestLocalBrowserScannerJournalResumesAndDeduplicatesAfterReload(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/filetransfer.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"taskdeck:file-transfer:local-scans:",
+		"function upsertPersistentLocalScan(scan)",
+		"function removePersistentLocalScan(scanID)",
+		"async function runPersistentLocalUploadScan(view,scan)",
+		"async function runPersistentLocalDownloadScan(view,scan)",
+		"async function resumePersistentLocalScans()",
+		"kind:'local_upload_scan'",
+		"kind:'local_download_scan'",
+		"const existingPersistent=new Set(queue.items.map(item=>localPersistentKey(item.persistSpec)).filter(Boolean))",
+		"if(persistentKey&&existingPersistent.has(persistentKey))continue",
+		"resumePersistentLocalScans()",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("filetransfer.js missing Local scanner reload recovery contract %q", want)
+		}
+	}
+}
+
+
+func TestFileTransferDuplicateFilesUseSharedConflictPolicyDialog(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/filetransfer.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"function requestTransferConflictDecision(conflict)",
+		"Folder collisions are reused automatically.",
+		"Overwrite destination",
+		"Skip source file",
+		"Overwrite only if size differs",
+		"Overwrite only if source Modified time is newer",
+		"Overwrite only if SHA-256 differs",
+		"This file only",
+		"This transfer only",
+		"All '+word+' in this TaskDeck session",
+		"Always for '+word+' (remember)",
+		"/api/file-transfer/hash",
+		"/api/file-transfer/hash-upload",
+		"function evaluateBrowserConflictPolicy(view,policy,conflict,sourceHash,targetHash)",
+		"effectiveDirectionConflictPolicy(view,'upload')",
+		"effectiveDirectionConflictPolicy(view,'download')",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("filetransfer.js missing duplicate conflict policy contract %q", want)
+		}
+	}
+	if strings.Contains(js, "already exists locally. Overwrite it?") {
+		t.Fatal("Local duplicate handling must use shared conflict policy dialog instead of legacy confirm")
+	}
+}
+
+func TestFileTransferDaemonConflictsRemainQueueItemsUntilResolved(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/filetransfer.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"case'conflict':return 'Conflict'",
+		"case'skipped':return 'Skipped'",
+		"status:String(item.status||'queued')",
+		"conflict:item.conflict||null",
+		"async function resolveServerConflictItems(view,items)",
+		"async function maybePromptServerConflict(view)",
+		"serverTransferQueueControl(view,'resolve_conflict'",
+		"conflict_policy:decision.policy",
+		"conflict_scope:decision.scope",
+		"Resolve conflict…",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("filetransfer.js missing daemon conflict queue contract %q", want)
+		}
+	}
+}
+
+func TestFileTransferServerConflictPromptDoesNotQueueStaleDialogs(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/filetransfer.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"const activeServerConflictViews=new Set()",
+		"if(typeof conflict?.stillCurrent==='function'&&!conflict.stillCurrent()){resolve(null);return;}",
+		"function serverConflictViewKey(view)",
+		"function liveServerConflictItem(view,serverID)",
+		"if(activeServerConflictViews.has(viewKey))return",
+		"activeServerConflictViews.add(viewKey)",
+		"stillCurrent:()=>Boolean(liveServerConflictItem(view,serverID))",
+		"if(!decision)return",
+		"activeServerConflictViews.delete(viewKey)",
+		"setTimeout(()=>maybePromptServerConflict(view),0)",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("filetransfer.js missing serialized/stale-safe server conflict prompt contract %q", want)
+		}
+	}
+	if strings.Contains(js, "activeServerConflictPrompts") {
+		t.Fatal("server conflict auto-prompt must lock per view, not independently per file")
+	}
+}
+
+func TestFileTransferConflictDefaultsSupportJobSessionAndRememberedDirection(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/filetransfer.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"taskdeck:file-transfer:conflict-default:",
+		"taskdeck:file-transfer:conflict-jobs:",
+		"function setLocalJobConflictPolicy(jobID,policy)",
+		"function effectiveLocalConflictPolicy(view,direction,item=null)",
+		"decision.scope==='job'",
+		"decision.scope==='direction_session'||decision.scope==='direction_always'",
+		"if(decision.scope==='direction_always')rememberConflictPolicy(view,direction,decision.policy)",
+		"conflict_policy:effectiveDirectionConflictPolicy(view,'upload')",
+		"conflict_policy:effectiveDirectionConflictPolicy(view,'download')",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("filetransfer.js missing conflict scope persistence contract %q", want)
+		}
+	}
+}
+
+func TestFileTransferWorkspaceUsesStructuredTransferAndMutationAPIs(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/filetransfer.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"/api/file-transfer/list",
+		"/api/file-transfer/mutate",
+		"/api/file-transfer/upload",
+		"/api/file-transfer/download-ticket",
+		"/api/file-transfer/download?ticket=",
+		"xhr.open('POST','/api/file-transfer/upload',true)",
+		"New Folder",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("filetransfer.js missing structured API contract %q", want)
+		}
+	}
+}
+
+func TestFileTransferFolderSyncUsesDryRunBeforeSyncOrMirror(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/filetransfer.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"Folder Sync / Mirror dry run",
+		"async function configureAndCompareFolders(view)",
+		"function openSyncSetupDialog(view)",
+		"async function compareFoldersDryRun(view,options={})",
+		"async function collectHostSyncTree(base,options={})",
+		"async function collectLocalSyncTree(view,base,options={})",
+		"async function collectRemoteSyncTree(view,base,options={})",
+		"async function compareSyncTrees(view,left,remote,options={})",
+		"async function syncLeftFileSHA256(view,relativePath,options={})",
+		"async function syncRemoteFileSHA256(view,relativePath,options={})",
+		"Folder Sync / Mirror — Dry run",
+		"Recursive SHA-256 comparison for matching-size files",
+		"Left only ",
+		"Remote only ",
+		"Different ",
+		"Conflict ",
+		"Type mismatch ",
+		"Run: '+syncDirectionLabel(options.direction)",
+		"Bidirectional Sync",
+		"Mirror delete is disabled.",
+		"Allow destination deletes",
+		"maxSyncPlanEntries=10000",
+		"maxSyncPlanDepth=64",
+		"kind:'host_upload'",
+		"kind:'host_download'",
+		"kind:'remote_delete'",
+		"dir.removeEntry(name,{recursive:false})",
+		"exclude:options.exclude",
+		"options.compare_mode==='checksum'",
+		"hostFileSHA256(fullPath)",
+		"remoteFileSHA256(view,joinPath(remoteBase,relativePath,true))",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("filetransfer.js missing folder sync dry-run contract %q", want)
+		}
+	}
+	compare := strings.Index(js, "async function compareFoldersDryRun(view,options={})")
+	dialog := strings.Index(js, "function openFolderSyncDryRun(view,rows,options={})")
+	if compare < 0 || dialog < 0 {
+		t.Fatal("folder sync compare/dialog missing")
+	}
+	end := compare + 3200
+	if end > len(js) {
+		end = len(js)
+	}
+	if strings.Contains(js[compare:end], "syncPlanToRemote(view,rows)") {
+		t.Fatal("dry-run compare must not start transfers before explicit dialog action")
+	}
+}
+
+func TestFileTransferSyncProfilesAndBidirectionalConflictsAreFailSafe(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/filetransfer.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"taskdeck:file-transfer:sync-profiles:",
+		"function normalizeSyncExclude(value)",
+		"function syncPathExcluded(path,patterns)",
+		"compare_mode:compareMode,direction,exclude:normalizeSyncExclude(raw.exclude||[])",
+		"allow_delete:Boolean(raw.allow_delete)",
+		"if(options.direction==='bidirectional')rows=rows.map(row=>row.status==='different'?{...row,status:'conflict'}:row);",
+		"const safeRows=rows.map(row=>row.status==='different'?{...row,status:'conflict'}:row);",
+		"if(!options.allow_delete)throw new Error('Mirror delete is disabled.",
+		"destination deletion remains disabled unless explicitly enabled",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("filetransfer.js missing fail-safe sync contract %q", want)
+		}
+	}
+}
+
+func TestFileTransferHostArchiveCanUploadAndExtractThroughSFTP(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/filetransfer.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"function transferArchiveKind(name)",
+		"async function uploadAndExtractRemoteArchive(view,entry)",
+		"/api/file-transfer/archive-upload-extract",
+		"Remote archive extraction requires an SFTP profile linked to SSH.",
+		"Upload + extract archive on remote…",
+		"String(view.profile?.protocol||'').toLowerCase()==='sftp'",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("file transfer remote archive workflow missing %q", want)
+		}
+	}
+}
+
+func TestSFTPDownloadsHaveTransientScanLifecycleAndBrowserErrors(t *testing.T) {
+	data,err:=webassets.Files.ReadFile("featuremods/filetransfer.js")
+	if err!=nil {t.Fatal(err)}
+	js:=string(data)
+	for _,want:=range []string{
+		"function visibleServerScanJobs(snapshot)",
+		"return status==='scan_queued'||status==='scanning'",
+		"detail:status==='scan_queued'?'Waiting for connection slot':'Discovering files and folders'",
+		"id:'scan:'+job.id,server:true,serverID:'',serverScan:true",
+		"'Waiting for connection slot'",
+						"serverItems.push(...visibleServerScanJobs(snapshot))",
+		"queue.pollError=message;scheduleTransferQueueRender(view)",
+		"' · Queue sync error: '+queue.pollError",
+		"const pollSequence=++queue.serverPollSequence",
+		"if(pollSequence<queue.serverAppliedPollSequence)return",
+		"queue.serverAppliedPollSequence=pollSequence",
+		"serverPollSequence:0,serverAppliedPollSequence:0,pollError:''",
+		"id:'submission:'+newFileTransferJobID()",
+		"queue.items.push(submitting);scheduleTransferQueueRender(view)",
+		"File-transfer job accepted; queue refresh will retry",
+		"async function downloadFileToBrowser(view,remotePath,expectedSize=0)",
+		"kind:'Browser download'",
+		"enqueueTransferTasks(view,[{",
+		"const ticket=await issueDownloadTicket(view,remotePath)",
+		"const response=await app.fetchWithLease(url,{cache:'no-store',signal})",
+		"item.bytesDone=downloaded",
+		"if(downloaded>maxBufferedBrowserDownload)",
+		"Remote download was incomplete: received",
+		"if(response.status===429&&response.headers.get('X-TaskDeck-Transfer-Pool-Full')==='1')",
+		"error.transferPoolBusy=true",
+		"await waitForNativeBrowserDownload(view,ticket,item,signal)",
+		"item.detail='Sent '+formatSize(blob.size)+' to browser download manager'",
+		"downloadFileToBrowser(view,joinPath(panel.currentPath,selected[0].name,true),selected[0].size)",
+	}{
+		if !strings.Contains(js,want){t.Errorf("SFTP queue and browser download feedback missing %q",want)}
+	}
+}
+
+func TestSFTPDownloadsRetainAcknowledgementAndShowLocalPermissionWait(t *testing.T) {
+	data,err:=webassets.Files.ReadFile("featuremods/filetransfer.js")
+	if err!=nil {t.Fatal(err)}
+	js:=string(data)
+	for _,want:=range []string{
+		"submitting.jobID=String(job?.id||'')",
+		"submitting.submittedAt=Date.now()",
+		"Accepted by daemon · waiting for scanner status",
+		"const acknowledged=new Set(serverJobs.map(job=>String(job?.id||'')))",
+		"if(item.jobID&&acknowledged.has(item.jobID))return false",
+		"if(item.jobID&&now-Number(item.submittedAt||now)>120000)",
+		"Submission failed or response was lost; verify server queue before retrying",
+		"const preparing={",
+		"id:'local-scan:'+newFileTransferJobID()",
+		"detail:'Checking local folder permission'",
+		"queue.items.push(preparing);scheduleTransferQueueRender(view)",
+		"preparing.detail='Scanning selected remote files'",
+		"preparing.status='failed';preparing.detail='Download scan could not start'",
+		"const needsManualRetry=queue.items.some(item=>!item.server&&item.status==='failed'&&typeof item.run!=='function')",
+		"Some transfer submissions cannot safely be retried automatically",
+	}{
+		if !strings.Contains(js,want){t.Errorf("SFTP scan acknowledgement/permissions contract missing %q",want)}
+	}
+}
+
+func TestFileTransferListScopedKeyboardShortcutsAndBlankContext(t *testing.T) {
+	data,err:=webassets.Files.ReadFile("featuremods/filetransfer.js")
+	if err!=nil {t.Fatal(err)}
+	js:=string(data)
+	for _,want:=range []string{
+		"function transferBlankContext(view,remote,event)",
+		"function transferListShortcut(view,panel,remote,event)",
+		"function installTransferListInteractions(view,panel,wrap,remote)",
+		"installTransferListInteractions(view,left,leftTable,false)",
+		"installTransferListInteractions(view,remote,remoteTable,true)",
+		"wrap.addEventListener('contextmenu',event=>{",
+		"if(event.target.closest('tr[data-selection-key]'))return",
+		"transferBlankContext(view,remote,event)",
+		"const panel=remote?view.remote:view.left",
+		"New remote folder",
+		"New folder",
+		"label:'Select all',shortcut:'Ctrl+A'",
+		"label:'Clear selection'",
+		"label:'Copy current path'",
+		"label:'Go to parent folder',shortcut:'Alt+Up'",
+		"label:'Refresh',shortcut:'F5'",
+		"function newRemoteFolder(view)",
+		"newRemoteFolder(view).catch(app.showError)",
+		"return mutateRemote(view,'mkdir',joinPath(view.remote.currentPath,clean,true),'',true)",
+		"if(view.pane.classList.contains('hidden')||activeViewID!==String(view.profile.id||''))return",
+		"if(event.defaultPrevented||event.isComposing)return",
+		"event.target.closest('input:not([type=\"checkbox\"]),textarea,select,button,[contenteditable=\"true\"],[role=\"dialog\"],[role=\"menu\"]')",
+		"document.querySelectorAll('[aria-modal=\"true\"]')",
+		"event.preventDefault()",
+		"event.stopPropagation()",
+		"if(event.repeat&&['delete','del','f2','f7','enter','n'].includes(key))return",
+		"key==='f2'&&selected.length===1",
+		"key==='delete'||key==='del'",
+		"key==='f5'",
+		"key==='f7'",
+		"key==='enter'&&selected.length===1",
+		"key==='arrowup'",
+		"key==='a'",
+		"key==='c'",
+		"key==='escape'",
+		"action=()=>remote?renameRemoteEntry(view,selected[0]):renameLeftEntry(view,selected[0])",
+		"action=()=>remote?deleteRemoteEntries(view,selected):deleteLeftEntries(view,selected)",
+		"action=()=>remote?newRemoteFolder(view):newLeftFolder(view)",
+		"action=()=>remote?loadRemoteDirectory(view,panel.currentPath,{force:true}):loadLeftDirectory(view,panel.currentPath)",
+		"wrap.focus({preventScroll:true})",
+		"tr.oncontextmenu=event=>{event.preventDefault();event.stopPropagation();",
+	}{
+		if !strings.Contains(js,want){t.Errorf("FTP/SFTP list keyboard/blank-menu contract missing %q",want)}
+	}
+	blankStart:=strings.Index(js,"function transferBlankContext(view,remote,event)")
+	blankEnd:=strings.Index(js[blankStart:],"function transferListShortcut(view,panel,remote,event)")
+	if blankStart<0||blankEnd<0 {t.Fatal("cannot isolate blank-area context menu")}
+	blank:=js[blankStart:blankStart+blankEnd]
+	for _,forbidden:=range []string{"renameRemoteEntry(","renameLeftEntry(","deleteRemoteEntries(","deleteLeftEntries(","transferRemoteEntriesToLeft(","transferLeftEntriesToRemote("} {
+		if strings.Contains(blank,forbidden){t.Errorf("blank context must not execute selection-specific action %q",forbidden)}
+	}
+	keyStart:=strings.Index(js,"function transferListShortcut(view,panel,remote,event)")
+	keyEnd:=strings.Index(js[keyStart:],"function installTransferListInteractions(view,panel,wrap,remote)")
+	if keyStart<0||keyEnd<0 {t.Fatal("cannot isolate list keyboard handler")}
+	shortcuts:=js[keyStart:keyStart+keyEnd]
+	if strings.Contains(shortcuts,"document.addEventListener('keydown'") {
+		t.Fatal("shortcut handlers must be scoped to the file list, not globally bound")
+	}
+}
+
+func TestFTPAndSFTPMultiGBTransferProgressUI(t *testing.T) {
+	data,err:=webassets.Files.ReadFile("featuremods/filetransfer.js")
+	if err!=nil {t.Fatal(err)}
+	js:=string(data)
+	for _,want:=range []string{
+		"const total=Math.max(0,Number(item.bytesTotal||item.size)||0)",
+		"item.speedBPS",
+		"formatSize(done)+' / '+formatSize(total)",
+		"Number(item.speed_bps)||0",
+		"new XMLHttpRequest()",
+		"xhr.upload.onprogress=event=>",
+		"item.bytesDone=Math.min(file.size",
+		"xhr.timeout=0",
+		"X-TaskMenu-Lease",
+		"const reader=response.body.getReader()",
+		"await writable.write(value)",
+		"item.detail='Downloading to Local browser'",
+		"async function waitForNativeBrowserDownload(view,ticket,item,signal)",
+		"/api/file-transfer/download-progress?ticket=",
+		"await app.jsonFetch(endpoint,{cache:'no-store',signal})",
+		"downloadFrame().src=url",
+		"item.detail='Sent to browser; verify the saved file in Downloads'",
+	}{
+		if !strings.Contains(js,want) {t.Errorf("multi-GB progress missing %q",want)}
+	}
+}
+
+func TestBrowserDownloadsAllowGrowingLogsWithoutSuppressingShortTransferErrors(t *testing.T) {
+	content,err:=webassets.Files.ReadFile("featuremods/filetransfer.js")
+	if err!=nil{t.Fatal(err)}
+	js:=string(content)
+	for _,want:=range []string{
+		"if(size>0&&downloaded<size)throw new Error('Remote download was incomplete:",
+		"const grew=size>0&&downloaded>size",
+		"if(grew)item.size=downloaded",
+		"if(item?.size>0&&received<item.size)throw new Error('Incomplete download:",
+		"const grew=Boolean(item?.size>0&&received>item.size)",
+		"if(grew)item.size=received",
+		"use Download to Host for verified snapshot",
+		"best-effort stream; use Host for verified snapshot",
+	}{
+		if !strings.Contains(js,want){t.Errorf("growing browser log guard missing %q",want)}
+	}
+	for _,bad:=range []string{
+		"if(size>0&&downloaded!==size)",
+		"if(item?.size>0&&received!==item.size)",
+	}{
+		if strings.Contains(js,bad){t.Errorf("browser still requires stale scanned size: %q",bad)}
+	}
+}
+
+
+func TestFileTransferFinishedScansDoNotLeaveUnremovableSyntheticRows(t *testing.T) {
+    raw,err:=webassets.Files.ReadFile("featuremods/filetransfer.js")
+    if err!=nil{t.Fatal(err)}
+    js:=string(raw)
+    from:=strings.Index(js,"function visibleServerScanJobs(snapshot){")
+    to:=strings.Index(js,"async function syncServerTransferQueue(view){")
+    if from<0||to<=from{t.Fatal("scan projection not found")}
+    projection:=js[from:to]
+    for _,want:=range []string{
+        "status==='scan_queued'||status==='scanning'",
+        "return jobs.filter(job=>",
+        "id:'scan:'+job.id",
+    } {if !strings.Contains(projection,want){t.Fatalf("missing transient scan lifecycle rule: %q",want)}}
+    for _,forbidden:=range []string{
+        "Boolean(job?.error)",
+        "job?.scan_done===true",
+        "status==='done'",
+        "status==='failed'",
+    }{if strings.Contains(projection,forbidden){t.Fatalf("finished scan would be retained: %q",forbidden)}}
+}
+
+func TestFileTransferContextMenusPrioritizeEverydayActions(t *testing.T) {
+    data,err:=webassets.Files.ReadFile("featuremods/filetransfer.js")
+    if err!=nil {t.Fatal(err)}
+    js:=string(data)
+    leftStart:=strings.Index(js,"function leftContext(view,entry,event){")
+    remoteStart:=strings.Index(js,"function remoteContext(view,entry,event){")
+    finish:=-1
+    if remoteStart>=0 {
+        if offset:=strings.Index(js[remoteStart:],"window.addEventListener('taskmenu:file-transfer-remote-edited'");offset>=0 {
+            finish=remoteStart+offset
+        }
+    }
+    if leftStart<0||remoteStart<=leftStart||finish<=remoteStart {t.Fatal("FTP context handlers not found")}
+    left,remote:=js[leftStart:remoteStart],js[remoteStart:finish]
+    verify:=func(name,body string,actions []string){
+        t.Helper()
+        last:=-1
+        for _,action:=range actions{
+            next:=strings.Index(body,action)
+            if next<0 {t.Fatalf("%s missing context action %q",name,action)}
+            if next<=last {t.Fatalf("%s context action %q appears before earlier everyday action",name,action)}
+            last=next
+        }
+        if strings.Count(body,"showContextMenu(items,event.clientX,event.clientY,contextTitle(panel,entry))")!=1 {
+            t.Fatalf("%s should open exactly one context menu",name)
+        }
+    }
+    verify("left",left,[]string{
+        "label:'Open / Edit local file'",
+        "label:'Open folder'",
+        "'Upload to remote FTP/SFTP →'",
+        "label:'Download host file to browser'",
+        "label:'Upload + extract archive on remote…'",
+        "label:'New folder'",
+        "label:'Rename'",
+        "label:'Delete '",
+        "const advanced=[]",
+        "label:'Compare selected directories'",
+        "commonSelectionMenu(panel,false",
+    })
+    verify("remote",remote,[]string{
+        "label:'Open folder'",
+        "'Download to left ←'",
+        "label:'Edit remote file'",
+        "label:'Download to browser'",
+        "label:'New remote folder'",
+        "label:'Rename'",
+        "label:'Delete '",
+        "const advanced=[]",
+        "label:'Compare selected directories'",
+        "commonSelectionMenu(panel,true",
+    })
+    for _,body:=range []string{left,remote} {
+        if !strings.Contains(body,"danger:true")||!strings.Contains(body,"shortcut:'F2'")||!strings.Contains(body,"shortcut:'F7'") {
+            t.Fatal("reorder removed destructive-operation protection or keyboard shortcuts")
+        }
+    }
+}

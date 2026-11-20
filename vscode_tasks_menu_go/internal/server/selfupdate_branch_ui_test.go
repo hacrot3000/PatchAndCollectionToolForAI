@@ -1,0 +1,72 @@
+package server
+
+import (
+	"strings"
+	"testing"
+
+	webassets "bletonfc/vscode_tasks_menu/web"
+)
+
+func TestSelfUpdateBranchSettingsUI(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/selfupdatesettings.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"/api/config/self-update",
+		"/api/config/self-update?action=branches",
+		"self-update-branch-settings",
+		"self-update-branch",
+		"Self-update branch",
+		"const branchDetails=document.createElement('details')",
+		"branchDetails.id='self-update-branch-details'",
+		"branchDetails.hidden=true",
+		"branchDetails.open=false",
+		"branchDetails.hidden=!currentFullValidation",
+		"if(!currentFullValidation)branchDetails.open=false",
+		"branchDetails.addEventListener('toggle'",
+		"if(branchDetails.open&&!branchDetails.hidden)loadBranches()",
+		"branchDetails.hidden=!validationCheckbox.checked",
+		"method:'PUT'",
+		"JSON.stringify({branch,run_full_validation_tests:runFullValidationTests})",
+		"self-update-full-validation",
+		"Run full validation tests before self-update",
+		"Current: '+currentBranch",
+		"Check GitHub branch '+currentBranch",
+		"if(a==='main')return -1",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("selfupdatesettings.js missing %q", want)
+		}
+	}
+	if strings.Contains(js, "localStorage") {
+		t.Fatal("self-update branch must be stored in project config, not localStorage")
+	}
+
+	loader, err := webassets.Files.ReadFile("featuremods/next.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(loader), "import '/featuremods/selfupdatesettings.js';") {
+		t.Fatal("next.js must load selfupdatesettings.js")
+	}
+}
+
+func TestSelfUpdateBranchControlLivesInUpdateSettingsSection(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/menus.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"const selfUpdateBranch=document.querySelector('#self-update-branch-settings')",
+		"if(selfUpdateBranch)selfUpdateBranch.hidden=!canConfigure",
+		"only(canConfigure,selfUpdateBranch)",
+		"only(has('selfupdate.check'),document.querySelector('#self-update-check'))",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("menus.js missing self-update branch setting placement %q", want)
+		}
+	}
+}

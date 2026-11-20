@@ -1,0 +1,670 @@
+package server
+
+import (
+	"strings"
+	"testing"
+
+	webassets "bletonfc/vscode_tasks_menu/web"
+)
+
+func TestGenericFileCompareFeatureLoads(t *testing.T) {
+	next, err := webassets.Files.ReadFile("featuremods/next.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(next)
+	if !strings.Contains(js, "import '/featuremods/filecompare.js';") {
+		t.Fatal("generic file compare feature is not loaded")
+	}
+}
+
+func TestFileCompareOpensAsWorkspaceTabInsteadOfModal(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/filecompare.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"const tabsHost=document.querySelector('#tabs'),panesHost=document.querySelector('#panes')",
+		"pane.className='pane file-compare-pane hidden'",
+		"tab.className='tab file-compare-tab'",
+		"tab.dataset.viewKind='file-compare'",
+		"function activateCompareTab()",
+		"app.activateExternalView(compareTabID,{force:true})",
+		"window.addEventListener('taskmenu:view-activated'",
+		"pane.classList.toggle('hidden',!active)",
+		"const wasActive=Boolean(compareTab?.classList.contains('active'))",
+		"if(!force&&compareHasDirty()",
+	} {
+		if !strings.Contains(js,want) { t.Fatalf("File Compare workspace-tab contract missing %q",want) }
+	}
+	for _,forbidden:=range []string{".file-compare-backdrop{","document.body.append(backdrop)","backdrop.classList.add('visible')"} {
+		if strings.Contains(js,forbidden) { t.Fatalf("File Compare must not use modal overlay: %q",forbidden) }
+	}
+}
+
+func TestFileCompareTabKeepsCompactNamesInOneLineWithFullHoverTitle(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/filecompare.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		".file-compare-tab{display:inline-flex;align-items:center;flex:0 0 auto;max-width:260px;min-width:0;white-space:nowrap",
+		".file-compare-tab-label{display:flex;align-items:center;flex:0 1 auto;min-width:0;max-width:220px;overflow:hidden;white-space:nowrap",
+		".file-compare-tab-filename{display:block;flex:0 1 auto;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}",
+		"function compareTabSourceName(source)",
+		"function compactCompareTabName(name,limit)",
+		"function compareTabDisplayNames(left,right)",
+		"function updateCompareTabLabel(left,right)",
+		"const [leftName,rightName]=compareTabDisplayNames(left,right)",
+		"leftSpan.className='file-compare-tab-filename'",
+		"separator.textContent='↔'",
+		"rightSpan.className='file-compare-tab-filename'",
+		"label.replaceChildren(leftSpan,separator,rightSpan)",
+		"compareTab.title=fullName(left)+' ↔ '+fullName(right)",
+		"compareTab.dataset.title=compareTab.title",
+		"updateCompareTabLabel(current.left,current.right)",
+	} {
+		if !strings.Contains(js,want) { t.Fatalf("File Compare compact tab label missing %q",want) }
+	}
+	for _, forbidden := range []string{
+		"textContent='Compare · '+shortName",
+		".file-compare-tab-label{display:block;max-width:260px",
+	} {
+		if strings.Contains(js,forbidden) { t.Fatalf("File Compare tab must not regress to wrapped/long label: %q",forbidden) }
+	}
+}
+
+func TestGenericFileCompareSupportsCoreSourcesAndViews(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/filecompare.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"function buildCompareModel(leftText,rightText)",
+		"function diffOperations(leftText,rightText)",
+		"function lcsBlock(a,b)",
+		"Side by side",
+		"Inline",
+		"Left → Right",
+		"Right → Left",
+		"function replaceLineRange(text,start,count,replacementLines)",
+		"async function copyHunk(hunk,direction)",
+		"function projectSource(pathValue",
+		"expected_sha256:sha",
+		"function editorSource(view",
+		"function savedEditorSource(view)",
+		"function clipboardSource(",
+		"async function openProjectFiles(leftPath,rightPath)",
+		"async function openEditorSaved(view)",
+		"async function openEditorClipboard(view)",
+		"async function promptProjectCompare(pathValue)",
+		"globalThis.TaskMenuFileCompare={",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("generic file compare missing %q", want)
+		}
+	}
+	if strings.Contains(js, "innerHTML") {
+		t.Fatal("file compare must not render source text through innerHTML")
+	}
+}
+
+func TestFileCompareCopiesArbitrarySelectedLinesOnly(t *testing.T) {
+	data,err:=webassets.Files.ReadFile("featuremods/filecompare.js")
+	if err!=nil { t.Fatal(err) }
+	js:=string(data)
+	for _,want:=range []string{
+		"function ensureFreshCompareModel()",
+		"model.sourceText={left:current.left.text,right:current.right.text}",
+		"ensureFreshCompareModel();",
+		"current.model.hunks[hunk.index]!==hunk",
+		"function selectedLinePatch(model,side,indexes)",
+		"const positions=[...new Set(indexes)].sort((a,b)=>a-b)",
+		"if(first.hunk<0||first.hunk!==last.hunk)",
+		"const sourceLines=positions.map(i=>model.rows[i][sourceSide].text)",
+		"const steps=positions.map(index=>",
+		"const preceding=model.rows.slice(hunk.rowStart,index).filter(item=>item[targetSide]).length",
+		"count:row[targetSide]?1:0",
+		"steps.sort((a,b)=>b.start-a.start||b.index-a.index)",
+		"function applySelectedLinePatch(text,patch)",
+		"for(const step of patch.steps)text=replaceLineRange(text,step.start,step.count,step.lines)",
+		"function updateSelectedCompareLines()",
+		"window.getSelection?.()",
+		"range.intersectsNode(code)",
+		"button.textContent=selected.side==='left'?'Copy to right →':'← Copy to left'",
+		"async function copySelectedCompareLines(selected)",
+		"setSourceBuffer(patch.side,applySelectedLinePatch(target.text,patch),{syncEditor:true,immediate:true})",
+		"body.addEventListener('mouseup'",
+	} {
+		if !strings.Contains(js,want) { t.Fatalf("partial-line diff copy missing %q",want) }
+	}
+}
+func TestFileCompareCentersHunkCopyControls(t *testing.T) {
+	data,err:=webassets.Files.ReadFile("featuremods/filecompare.js")
+	if err!=nil { t.Fatal(err) }
+	js:=string(data)
+	for _,want:=range []string{
+		".file-compare-hunk-head{position:sticky;left:0;display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr)",
+		"actions.className='file-compare-hunk-actions'",
+		"hh.append(label,actions,info)",
+		"b.textContent='Left → Right'",
+		"b.textContent='Right → Left'",
+	} {
+		if !strings.Contains(js,want) { t.Fatalf("center diff copy controls missing %q",want) }
+	}
+}
+
+func TestFileCompareUsesOneSharedHorizontalScrollbar(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/filecompare.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		".file-compare-body{flex:1;min-height:0;overflow-y:auto;overflow-x:hidden",
+		".file-compare-row{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);min-width:0}",
+		".file-compare-horizontal-scroll{flex:0 0 auto;",
+		".file-compare-horizontal-scroll[hidden]{display:none}",
+		".file-compare-code{display:block;min-width:0;padding:1px 7px;white-space:pre;overflow:hidden;",
+		".file-compare-inline-code{display:block;min-width:0;white-space:pre;overflow:hidden}",
+		"transform:translateX(var(--file-compare-shift-x,0px))",
+		"horizontalScroll.className='file-compare-horizontal-scroll'",
+		"dialog.append(head,filters,columns,editorDeck,body,horizontalScroll)",
+		"horizontalScroll.addEventListener('scroll',syncCompareHorizontalOffset)",
+		"body.addEventListener('wheel',event=>",
+		"if(horizontalScroll.hidden)return",
+		"horizontalScroll.scrollLeft+=delta",
+		"body.style.setProperty('--file-compare-shift-x',(-horizontalScroll.scrollLeft)+'px')",
+		"function compareSharedHorizontalOverflow(contentWidth,viewportWidth,paddingLeft=0,paddingRight=0)",
+		"const paddingByClass=new Map()",
+		"const css=getComputedStyle(viewport)",
+		"paddingByClass.set(kind,padding)",
+		"maxOverflow=Math.max(maxOverflow,overflow)",
+		"horizontalSize.style.width=Math.ceil(horizontalScroll.clientWidth+maxOverflow)+'px'",
+		"function scheduleCompareHorizontalMeasure()",
+		"horizontalObserver.observe(body)",
+		"if(active)scheduleCompareHorizontalMeasure()",
+		"selectedCompareLines=null;body.replaceChildren();scheduleCompareHorizontalMeasure()",
+		"function renderClippedCompareCode(code,text,tokens=[],changed=[],changeKind='')",
+		"renderClippedCompareCode(code,spec?spec.text:'',tokens,changed",
+		"renderClippedCompareCode(code,row.left.text,syntax.left[row.left.no-1]||[])",
+		"renderClippedCompareCode(code,row.right.text,syntax.right[row.right.no-1]||[],ranges.right,'added')",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("File Compare shared horizontal scrolling missing %q", want)
+		}
+	}
+	for _, forbidden := range []string{
+		"overflow-x:auto;font:11px/1.45",
+		".file-compare-inline{min-width:640px}",
+		"min-width:780px",
+		".file-compare-backdrop",
+	} {
+		if strings.Contains(js, forbidden) {
+			t.Fatalf("File Compare must not restore a per-line or whole-body horizontal scrollbar: %q", forbidden)
+		}
+	}
+}
+
+func TestFileCompareHighlightsSyntaxAndChangedSpans(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/filecompare.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"function compareLanguageID(pathValue)",
+		"TaskMenuEditor?.languageForPath?.",
+		"function compareSyntaxSource(pathValue,text)",
+		"file-compare-syntax-keyword",
+		"file-compare-syntax-comment",
+		"function compareInlineRanges(left,right)",
+		"function renderCompareCode(node,text,tokens=[],changed=[],changeKind='')",
+		"file-compare-inline-change",
+		"compareInlineRanges(row.left?.text||'',row.right?.text||'')",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("file compare syntax/intra-line highlighting missing %q", want)
+		}
+	}
+	if strings.Contains(js, ".innerHTML") {
+		t.Fatal("file compare syntax highlighting must keep source rendering textContent-only")
+	}
+}
+
+func TestFileCompareClassifiesAndFiltersChanges(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/filecompare.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"function classifyCompareRow(row)",
+		"compareCommentOnly(text,tokens)",
+		"compareIndentInsensitiveLanguages",
+		"return 'important'",
+		"return 'unimportant'",
+		"View all",
+		"View diff",
+		"View diff context",
+		"View unimportant",
+		"function compareStructuralContextRange(model,index)",
+		"const indentLanguages=new Set(['python','yaml','nim'])",
+		"const braceLanguages=new Set(",
+		"function compareVisibleIndexes(model)",
+		"showUnimportant||row.importance!=='unimportant'",
+		"No differences match the current filters",
+		"including rows hidden by filters",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("file compare classification/filter/context missing %q", want)
+		}
+	}
+	for _, want := range []string{
+		".file-compare-cell.removed.important",
+		".file-compare-cell.added.important",
+		".file-compare-cell.removed.unimportant",
+		".file-compare-inline-line.added.unimportant",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("file compare semantic color role missing %q", want)
+		}
+	}
+}
+
+func TestFileCompareSupportsArbitraryWritableSelections(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/filecompare.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"let compareSelection=null",
+		"function selectForCompare(source)",
+		"async function compareWithSelected(source",
+		"async function openSources(sources",
+		"file-compare-editor-deck",
+		"Save Left",
+		"Save Right",
+		"async function saveCompareSide(side)",
+		"source.baselineText=source.text",
+		"setSourceBuffer(targetSide,next",
+		"The destination will be marked unsaved until you press Save.",
+		"const saver=typeof source.saveText==='function'?source.saveText:source.writeText",
+		"activeSource.meta?.sha256",
+		"taskmenu:file-transfer-remote-edited",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("arbitrary writable compare missing %q", want)
+		}
+	}
+
+	editorData, err := webassets.Files.ReadFile("featuremods/editor.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	editorJS := string(editorData)
+	for _, want := range []string{
+		"function createDetachedEditor(host,text,pathValue",
+		"cmFactory.newEditor(host,String(text??''),languageOptions(pathValue))",
+		"createDetachedEditor,",
+	} {
+		if !strings.Contains(editorJS, want) {
+			t.Fatalf("detached compare editor support missing %q", want)
+		}
+	}
+}
+
+// Regression guard: async source loading and saving must not discard unsaved editor input.
+func TestFileComparePreservesDirtyBuffersAndSelectionsDuringAsyncOperations(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/filecompare.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"function compareHasSaving()",
+		"if(!source.dirty||source.saving)return false;",
+		"const savingText=source.text",
+		"await saveSource(source,savingText)",
+		"source.baselineText=savingText",
+		"source.dirty=source.text!==savingText",
+		"if(compareHasSaving()){window.alert(",
+		"const selected=compareSelection",
+		"if(opened&&compareSelection===selected)clearCompareSelection()",
+		"if(opened)clearCompareSelection()",
+		"await Promise.all([loadSource(next.left),loadSource(next.right)])",
+		"const refreshed={...original,left:{...original.left,meta:{...(original.left.meta||{})}},right:{...original.right,meta:{...(original.right.meta||{})}}}",
+		"await Promise.all([loadSource(refreshed.left),loadSource(refreshed.right)])",
+		"if(current!==original)return false",
+		"current=refreshed;current.syntax=null",
+		"current=next;compareEverEdited=false;ensureCompareTab();render();activateCompareTab()",
+		"if(source.text!==String(text??''))compareEverEdited=true",
+		"compareEverEdited=compareEverEdited||Boolean(saved.everEdited)",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("compare async edit/open regression guard missing %q", want)
+		}
+	}
+	start := strings.Index(js, "async function saveSource(source,text)")
+	end := strings.Index(js, "function cell(spec,side")
+	if start < 0 || end <= start {
+		t.Fatal("cannot isolate File Compare source-saving logic")
+	}
+	if strings.Contains(js[start:end], "source.text=text") {
+		t.Fatal("saving must not overwrite concurrent edits in the compare buffer")
+	}
+}
+
+func TestFileCompareDisablesSaveForReadOnlySources(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/filecompare.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"writable=!app.sharedMode||Boolean(app.hasPermission?.('files.write')||app.hasPermission?.('project.admin'))",
+		"if(view?.file?.read_only||view?.tabReadOnly||globalThis.TaskMenuEditor?.isTabReadOnly?.(view))return source",
+		"if(typeof handle.createWritable!=='function')delete source.writeText",
+		"const disabled=!sourceWritable(source)||!source?.dirty||Boolean(source?.saving)",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("File Compare must respect read-only sources: missing %q", want)
+		}
+	}
+}
+
+func TestFileCompareSelectionActionsAcrossExplorerTransferAndTabs(t *testing.T) {
+	files := map[string][]string{
+		"featuremods/projectfileactions.js": {
+			"Select for compare",
+			"Compare with selected file",
+			"selectProjectForCompare(pathValue)",
+			"compareProjectWithSelected(pathValue)",
+		},
+		"featuremods/explorer.js": {
+			"Compare selected files",
+			"paths.length===2&&paths.every(value=>findLoadedItem(value)?.type==='file')",
+			"compare.openProjectFiles(paths[0],paths[1])",
+		},
+		"featuremods/filetransfer.js": {
+			"function compareRemoteFileSource(view,entry)",
+			"function appendCompareSelectionActions(items,source)",
+			"Compare selected files",
+			"compareTransferSources(compareFiles.map(item=>compareLeftFileSource(view,item))",
+			"compareTransferSources(compareFiles.map(item=>compareRemoteFileSource(view,item))",
+			"writable:remoteEditorWritable()",
+		},
+		"featuremods/tabcontext.js": {
+			"Select current editor for compare",
+			"Compare selected file ↔ current editor",
+			"compare?.selectForCompare?.(currentCompareSource)",
+			"compare?.compareWithSelected?.(currentCompareSource",
+		},
+	}
+	for file, wants := range files {
+		data, err := webassets.Files.ReadFile(file)
+		if err != nil {
+			t.Fatal(err)
+		}
+		js := string(data)
+		for _, want := range wants {
+			if !strings.Contains(js, want) {
+				t.Fatalf("%s missing arbitrary compare integration %q", file, want)
+			}
+		}
+	}
+}
+
+func TestProjectAndEditorMenusExposeGenericCompare(t *testing.T) {
+	shared, err := webassets.Files.ReadFile("featuremods/projectfileactions.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"Compare with another file…",
+		"TaskMenuFileCompare",
+		"promptProjectCompare(pathValue)",
+	} {
+		if !strings.Contains(string(shared), want) {
+			t.Fatalf("shared project file actions missing compare contract %q", want)
+		}
+	}
+
+	tabContext, err := webassets.Files.ReadFile("featuremods/tabcontext.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"Compare current ↔ saved",
+		"compare?.openEditorSaved?.(view)",
+		"Compare current ↔ clipboard",
+		"compare?.openEditorClipboard?.(view)",
+	} {
+		if !strings.Contains(string(tabContext), want) {
+			t.Fatalf("editor context missing compare action %q", want)
+		}
+	}
+}
+
+func TestFileCompareSupportsGitAndRemoteSources(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/filecompare.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"function gitCommitSource(repoID,pathValue,ref",
+		"view:'file-content'",
+		"async function openGitCommitAgainstProject",
+		"async function openGitCommits",
+		"function remoteSource(profileID,pathValue",
+		"/api/file-transfer/text?",
+		"expected_sha256:sha",
+		"function browserFileHandleSource(handle",
+		"Local browser file changed after compare load",
+		"async function openLeftRemote",
+		"source_kind:source.kind",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("file compare external source support missing %q", want)
+		}
+	}
+}
+
+func TestGitFileHistoryExposesCommitCompareActions(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/gitstatus.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"gitFileCompareRef",
+		"Compare current",
+		"Use as Compare A",
+		"Compare A ↔ this",
+		"openGitCommitAgainstProject",
+		"openGitCommits",
+		"function setGitFilePath(path)",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("Git file-history compare support missing %q", want)
+		}
+	}
+}
+
+func TestFileTransferMenusExposeSelectedLocalRemoteCompare(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/filetransfer.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"function compareLeftFileSource(view,entry)",
+		"async function compareLeftRemoteFiles(view,leftEntry,remoteEntry)",
+		"Compare with selected remote file",
+		"Compare with selected left file",
+		"TaskMenuFileCompare",
+		"browserFileHandleSource",
+		"compareTransferSources([compareLeftFileSource(view,leftEntry),compareRemoteFileSource(view,remoteEntry)]",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("File Transfer compare integration missing %q", want)
+		}
+	}
+}
+
+func TestFileCompareSupportsGitThreeStateAndOpenEditorBuffer(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/filecompare.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"function gitStateSource(repoID,pathValue,state",
+		"state!=='head'&&state!=='index'",
+		"function editorForProjectPath(pathValue)",
+		"for(const view of editor.editors.values())",
+		"function workingProjectSource(pathValue",
+		"if(view)return editorSource(view",
+		"async function openGitStatePair(repoID,repoPath,workspacePath,mode)",
+		"title:'HEAD ↔ Staged'",
+		"title:'Staged ↔ Working'",
+		"title:'HEAD ↔ Working'",
+		"right:workingProjectSource(workspacePath",
+		"title:'Git commit ↔ Current'",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("Git three-state generic compare missing %q", want)
+		}
+	}
+
+	gitData, err := webassets.Files.ReadFile("featuremods/gitstatus.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	gitJS := string(gitData)
+	for _, want := range []string{
+		"function openGenericGitStateCompare(path,mode)",
+		"compare.openGitStatePair(activeRepoID,path,workspacePathForActiveRepository(path),mode)",
+		"Open full diff tab ↗",
+		"Compare current",
+		"current editor buffer when open",
+	} {
+		if !strings.Contains(gitJS, want) {
+			t.Fatalf("Git panel generic compare integration missing %q", want)
+		}
+	}
+}
+
+func TestGitFullDiffAndPreviewShareSyntaxAndLocalEditingBoundary(t *testing.T) {
+	data,err:=webassets.Files.ReadFile("featuremods/filecompare.js")
+	if err!=nil { t.Fatal(err) }
+	js:=string(data)
+	for _,want:=range []string{
+		"function classifyCompareTextRow(row,leftTokens=[],rightTokens=[],language='')",
+		"return classifyCompareTextRow(row,leftTokens,rightTokens,compareRowLanguageID(row))",
+		"function decorateGitPreviewRows(rows,path)",
+		"const leftSyntax=compareSyntaxSource(path,leftRows.join(",
+		"row.importance=classifyCompareTextRow(row,leftTokens,rightTokens,language)",
+		"row.ranges=compareInlineRanges(",
+		"function renderGitPreviewCode(node,spec,ranges=[])",
+		"renderCompareCode(node,spec?.text??'',spec?.tokens||[],ranges,",
+		"decorateGitPreviewRows,renderGitPreviewCode",
+		"Git snapshots cannot be edited or saved",
+		"Edit local file",
+		"Save local only; never auto-stage",
+		"const gitContext={repoID,repoPath,workspacePath,mode}",
+		"gitContext:current.gitContext||null",
+		"gitContext:saved.gitContext||null",
+		"gitLocalButton.textContent='Open local WORKTREE ↗'",
+		"current.gitContext.mode!=='staged'&&sourceWritable(current.right)",
+		"gitStateSource(repoID,repoPath,'head')",
+		"gitStateSource(repoID,repoPath,'index')",
+		"workingProjectSource(workspacePath",
+	} {
+		if !strings.Contains(js,want) { t.Fatalf("Git full diff safety/preview reuse missing %q",want) }
+	}
+	if strings.Contains(js,"stage_hunk")||strings.Contains(js,"action('stage'") {
+		t.Fatal("File Compare must never stage Git changes as part of a local edit or save")
+	}
+}
+
+func TestFileCompareContextBoundedToTenLinesAndEllipses(t *testing.T) {
+	data,err:=webassets.Files.ReadFile("featuremods/filecompare.js")
+	if err!=nil {t.Fatal(err)}
+	js:=string(data)
+	for _,want:=range []string{
+		"const compareContextLimit=10",
+		"function compareContextIndexes(model,changed,limit=compareContextLimit)",
+		"const indexes=new Set(changed)",
+		"const [start,end]=compareStructuralContextRange(model,index)",
+		"if(start>=0&&start<model.rows.length)indexes.add(start)",
+		"if(end>=0&&end<model.rows.length)indexes.add(end)",
+		"const from=Math.max(0,index-limit),to=Math.min(model.rows.length-1,index+limit)",
+		"if(model.rows[i].hunk<0)indexes.add(i)",
+		"return [...indexes].sort((a,b)=>a-b)",
+		"return compareContextIndexes(model,changed).filter(index=>",
+		"if(contentMode==='diff')return changed",
+		"if(contentMode==='context'&&indexes[0]>0)appendCompareGap(frag,indexes[0])",
+		"if(contentMode==='context'&&indexes[0]>0)appendCompareGap(host,indexes[0])",
+		"appendCompareGap(frag,index-previous-1)",
+		"appendCompareGap(host,index-previous-1)",
+		"appendCompareGap(frag,model.rows.length-1-indexes[indexes.length-1])",
+		"appendCompareGap(host,model.rows.length-1-indexes[indexes.length-1])",
+		"function appendCompareGap(parent,count)",
+		"gap.className='file-compare-gap'",
+		"line'+(count===1?'':'s')+' hidden",
+		"View all",
+		"View diff",
+		"View diff context",
+		"viewContextButton.title='Show changed lines with at most 10 context lines",
+	}{
+		if !strings.Contains(js,want){t.Errorf("bounded diff context missing %q",want)}
+	}
+	if strings.Contains(js,"for(let i=start;i<=end;i++)indexes.add(i)") {
+		t.Fatal("View diff context must not render the entire structural scope")
+	}
+	start:=strings.Index(js,"function compareContextIndexes(")
+	end:=strings.Index(js[start:],"function compareVisibleIndexes(")
+	if start<0||end<0 {t.Fatal("bounded context helper unavailable")}
+	helper:=js[start:start+end]
+	if strings.Contains(helper,"model.rows.map(")||strings.Contains(helper,"indexes.add(i);\n  }\n  return") {
+		t.Fatal("context helper must not expand all unchanged rows")
+	}
+}
+
+func TestFileCompareQuietDiffColorsDoNotMaskSyntaxHighlighting(t *testing.T) {
+    data, err := webassets.Files.ReadFile("featuremods/filecompare.js")
+    if err != nil { t.Fatal(err) }
+    js := string(data)
+    // Both themes must color only changed text; the line already has its own
+    // background. The same token renderer is used by Git preview and Inline.
+    for _, selector := range []string{
+        ".important .file-compare-inline-change{color:#ff9ca8}",
+        ".unimportant .file-compare-inline-change{color:#8fdaf2}",
+        "html[data-taskmenu-theme=\"light\"] .important .file-compare-inline-change{color:#aa2036}",
+        "html[data-taskmenu-theme=\"light\"] .unimportant .file-compare-inline-change{color:#126079}",
+    } {
+        if !strings.Contains(js,selector){t.Errorf("text-only diff accent missing %q",selector)}
+    }
+    for _, obsolete := range []string{
+        ".file-compare-inline-change.removed{background:",
+        ".file-compare-inline-change.added{background:",
+        ".unimportant .file-compare-inline-change{background:",
+        ".file-compare-inline-change{border-radius:",
+        ".file-compare-inline-change{box-shadow:",
+        ".file-compare-inline-change{font-weight:",
+        ".file-compare-inline-change:not([class*=",
+    } {
+        if strings.Contains(js,obsolete){t.Errorf("obsolete changed-token chip or syntax-only exclusion: %s",obsolete)}
+    }
+    for _, want := range []string{
+        ".file-compare-cell.removed.important{background:#261b24",
+        ".file-compare-cell.added.important{background:#282023",
+        ".file-compare-cell.removed.unimportant,.file-compare-cell.added.unimportant{background:#182a30",
+        ".file-compare-inline-line.removed.important{background:#261b24",
+        ".file-compare-inline-line.removed.unimportant,.file-compare-inline-line.added.unimportant{background:#182a30",
+        "if(compareRangeContains(changed,from))span.classList.add('file-compare-inline-change',changeKind)",
+        "function renderGitPreviewCode(node,spec,ranges=[])",
+    } {
+        if !strings.Contains(js,want){t.Errorf("existing diff renderer/color classification changed unexpectedly: %q",want)}
+    }
+}

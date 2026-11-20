@@ -1,0 +1,557 @@
+# Database SELECT active builder — Python Patch Tool v6.19.0
+
+`database_select` is a read-only COLLECT action for gathering database evidence. It is intentionally **not** a raw SQL runner.
+
+## Non-negotiable safety contract
+
+1. Request ZIPs never contain executable SQL text. There is no `query`, `raw_sql`, `sql`, `expression_sql`, or similar escape hatch.
+2. AI describes a SELECT as a structured AST. Patch Tool validates the AST and constructs the SQL itself.
+3. The generated statement class is always `SELECT`. The compiler rejects statement separators and SQL comment syntax in generated SQL.
+4. SQLite databases are opened with URI `mode=ro` and an SQLite authorizer denies non-read operations.
+5. MySQL authentication is only by `mysql_config_editor` login path. Password fields are rejected from local profiles.
+6. Remote MySQL uses a bounded SSH local tunnel. SSH credentials/options remain in the operator's normal SSH configuration.
+7. A MySQL account used by a profile SHOULD have SELECT-only grants. This is the independent server-side safety boundary even if the client has a bug.
+8. The local profile file is never read from the request ZIP and is a hard evidence exclusion: COLLECT/search/FAIL_HANDOFF must never package or content-search it, even when a request explicitly names the file.
+9. Timeout/row/byte limits are fail-partial: keep rows already collected, mark the action and COLLECT `INCOMPLETE`, and still publish the result ZIP.
+10. Hard connection/auth/schema/execution errors remain FAIL; they are not misreported as partial success.
+
+## Global TaskDeck database connections (single-user)
+
+For a COLLECT `database_select` action, `profile` can now be the **exact name**
+(or immutable ID) of a database connection already saved in **TaskDeck →
+DATABASES / Database Connections**, for example `"profile": "HaiTacLocal"`.
+These connections live in the current OS user's global TaskDeck profile store,
+not under `<project>/tools/`.
+
+Resolution order is deliberately fail-closed:
+
+1. If a legacy project-local `tools/db_profiles.local.json` or
+   `.python_patch_tool/db_profiles.local.json` exists, use the existing local
+   profile behavior; do not silently override it with global connections.
+2. If `PTV_DB_PROFILES_FILE` was explicitly set, honor it exactly (including a
+   missing-file error), without global fallback.
+3. Otherwise use the running TaskDeck executable
+   (`PTV_TASKDECK_EXECUTABLE` supplied by `taskdeck patch`; else `taskdeck`
+   on PATH). Find exactly one global MySQL connection with that name or ID.
+   Missing/duplicate names fail with an explicit error.
+
+The native TaskDeck bridge resolves encrypted database secrets and saved SSH
+profiles under the **same OS user account** as the running TaskDeck. The
+credentials are never copied into a per-project JSON, a request ZIP, or an
+output ZIP. Existing saved SSH tunnel settings are reused; direct MySQL
+connections must use loopback. This does not change project identity
+verification: the original COLLECT project.key/id must still match.
+
+Safety restrictions: the Python active SQL builder still permits SELECT only,
+and the native bridge independently rejects mutation/multi-statement/comment
+syntax. Modern MySQL uses **SET SESSION TRANSACTION READ ONLY** on every
+connection, regardless of whether the saved UI profile is read/write.
+The database account should ideally have SELECT-only grants.
+
+**Compatibility with pre-5.6.5 MySQL (e.g. 5.5):** these servers do not
+recognize the transaction-read-only feature and may reject connection
+initialization with `ERROR 1193 (HY000): Unknown system variable 'TRANSACTION'`.
+Only for that exact failure does the COLLECT helper retry with the same saved
+profile using its dedicated legacy compatibility switch. It keeps
+`ReadOnly=true` in the MySQL adapter, which then permits only SELECT/ping
+and rejects begin/commit, mutation, grid and object APIs; the normal COLLECT
+SQL builder's validated SELECT-only AST and the native SQL filter remain in
+force. No other TaskDeck database session changes behavior or silently
+downgrades the server-side guard. Other errors, including wrong passwords,
+**must not** trigger the retry.
+
+**Security distinction:** the legacy compatibility fallback is
+**application-enforced SELECT-only**, not a server-enforced read-only
+transaction. The saved database user may still possess write permissions.
+For defense in depth, configure a dedicated MySQL account with **SELECT-only
+database grants** whenever possible. The COLLECT result reports the
+difference as `safety.mysql_read_only_enforcement=server_transaction` versus
+`collect_sql_only`; never represent the latter as a server guarantee.
+
+For user isolation the global CLI bridge is **disabled in shared-server
+mode**; do not use it to bypass per-user DB/SSH permissions.
+
+**Saved connection has no default database (MySQL ERROR 1046):** A global
+TaskDeck MySQL profile may intentionally leave the `database` field blank,
+so a valid SELECT against `ep00_buff_columns` fails with `No database selected`.
+For global COLLECT, the Python layer now extracts unqualified source table
+names exclusively from the validated SELECT AST, including nested sources.
+The native helper queries `information_schema.TABLES` with safely hex-encoded
+table names using the same authenticated, SELECT-only connection and verifies
+that **exactly one visible database contains all unqualified source tables**.
+Only then does it pass that verified schema as the query's temporary
+`catalog` to the existing MySQL adapter. It does not change or persist the
+global profile. If a saved connection already specifies a database, it remains
+authoritative; if every table reference is fully qualified, no default database
+is required.
+
+A zero-match, ambiguous-match, cross-schema, truncated or inaccessible
+metadata result **fails closed** with an actionable error. Never infer the
+database from the TaskDeck connection label, project key, ZIP filename or
+arbitrary first result. For ambiguous cases, set the saved connection's
+`database` field or fully qualify table sources in the COLLECT request AST,
+e.g. `"from": {"table": "verified_database.ep00_buff_columns"}`.
+Result metadata records `safety.database_source` as
+`saved_connection`, `information_schema_unique` or `fully_qualified`,
+plus `safety.resolved_database` when applicable. Credentials are never
+copied to an artifact.
+
+The native adapter has a 1000-row bounded result cap. A global-profile
+collection that reaches this cap reports `PARTIAL / INCOMPLETE` instead of
+claiming a complete export. Smaller targeted metadata collections (such as the
+200-row `buff_columns` request) are unaffected. Legacy independent profiles
+retain their original streaming behavior and limits.
+
+## Local profile file (legacy compatibility)
+
+Default lookup order:
+
+```text
+<project>/tools/db_profiles.local.json
+<project>/.python_patch_tool/db_profiles.local.json
+```
+
+An operator may explicitly override the path with `PTV_DB_PROFILES_FILE`.
+
+Start from `tools/db_profiles.example.json`. The local file is operator-owned and MUST NOT be put inside a COLLECT request ZIP.
+
+### SQLite
+
+```json
+{
+  "version": 1,
+  "profiles": {
+    "game_sqlite": {
+      "engine": "sqlite",
+      "path": "data/game.sqlite"
+    }
+  }
+}
+```
+
+Relative SQLite paths are resolved from the project root. The target must be a real regular non-symlink file.
+
+### MySQL local
+
+```json
+{
+  "version": 1,
+  "profiles": {
+    "m3_mysql_local": {
+      "engine": "mysql",
+      "transport": "local",
+      "host": "127.0.0.1",
+      "port": 3306,
+      "database": "m3",
+      "auth": {
+        "type": "login_path",
+        "login_path": "m3_readonly"
+      }
+    }
+  }
+}
+```
+
+`transport=local` accepts loopback only. Remote servers must use `ssh_tunnel`.
+
+Create a login path interactively, for example:
+
+```bash
+mysql_config_editor set --login-path=m3_readonly --host=127.0.0.1 --user=<readonly-user> --password
+```
+
+Patch Tool never receives the password.
+
+### MySQL through SSH
+
+```json
+{
+  "version": 1,
+  "profiles": {
+    "m3_mysql_remote": {
+      "engine": "mysql",
+      "transport": "ssh_tunnel",
+      "database": "m3",
+      "auth": {
+        "type": "login_path",
+        "login_path": "m3_readonly"
+      },
+      "ssh": {
+        "target": "m3-local1",
+        "remote_host": "127.0.0.1",
+        "remote_port": 3306,
+        "connect_timeout_sec": 10
+      }
+    }
+  }
+}
+```
+
+`ssh.target` should normally be an alias from `~/.ssh/config`. Patch Tool uses `BatchMode=yes`, `ExitOnForwardFailure=yes`, a temporary loopback port, and tears the tunnel down after the query.
+
+## `database_select` request shape
+
+```json
+{
+  "type": "database_select",
+  "id": "active_users",
+  "profile": "m3_mysql_remote",
+
+  "select": [
+    {"expr": {"column": "u.id"}, "alias": "user_id"},
+    {"expr": {"column": "u.name"}, "alias": "user_name"}
+  ],
+
+  "from": {"table": "users", "alias": "u"},
+
+  "joins": [],
+  "group_by": [],
+  "order_by": [],
+  "distinct": false,
+  "limit": 1000,
+  "offset": 0,
+
+  "format": "csv",
+  "max_rows": 100000,
+  "max_bytes": 104857600,
+  "timeout_sec": 120,
+  "chunk_rows": 10000,
+  "must_return_rows": false
+}
+```
+
+`where`, `having`, `joins`, `group_by`, `order_by`, `distinct`, `limit`, and `offset` are optional. If `offset` is present, `limit` is required.
+
+## Expression AST
+
+Every expression object has exactly one expression kind.
+
+### Column
+
+```json
+{"column": "u.id"}
+{"column": "u.*"}
+{"column": "*"}
+```
+
+Identifiers are validated and quoted by the selected SQL dialect.
+
+### Bound value
+
+```json
+{"value": 123}
+{"value": "paid"}
+{"value": null}
+{"value": true}
+```
+
+Values never become SQL syntax. SQLite uses bound parameters. MySQL string values are emitted as UTF-8 hex data wrapped by a tool-generated conversion expression so quote/backslash/sql-mode content cannot alter statement structure.
+
+### Function / aggregate
+
+```json
+{
+  "function": {
+    "name": "COUNT",
+    "args": [{"column": "o.id"}],
+    "distinct": true
+  }
+}
+```
+
+Function names are allowlisted. Dangerous/arbitrary functions such as `SLEEP`, `BENCHMARK`, `LOAD_FILE`, or user-defined function names are not accepted merely because they form syntactically valid SELECT expressions.
+
+### Arithmetic
+
+```json
+{
+  "binary": {
+    "op": "+",
+    "left": {"column": "a.score"},
+    "right": {"column": "b.score"}
+  }
+}
+```
+
+Allowed operators: `+ - * / %`.
+
+### CASE
+
+```json
+{
+  "case": {
+    "when": [
+      {
+        "if": {
+          "compare": {
+            "left": {"column": "u.level"},
+            "op": ">=",
+            "right": {"value": 100}
+          }
+        },
+        "then": {"value": "high"}
+      }
+    ],
+    "else": {"value": "normal"}
+  }
+}
+```
+
+### Scalar subquery
+
+```json
+{
+  "subquery": {
+    "select": [
+      {"expr": {"function": {"name": "MAX", "args": [{"column": "x.score"}]}}}
+    ],
+    "from": {"table": "scores", "alias": "x"}
+  }
+}
+```
+
+### CAST
+
+```json
+{"cast": {"expr": {"column": "u.level"}, "as": "INTEGER"}}
+```
+
+Cast target types are allowlisted.
+
+## WHERE / HAVING condition AST
+
+Conditions are recursive; this is how grouped `AND` / `OR` logic is represented without raw parentheses text.
+
+### AND / OR groups
+
+```json
+{
+  "and": [
+    {
+      "compare": {
+        "left": {"column": "u.level"},
+        "op": ">=",
+        "right": {"value": 100}
+      }
+    },
+    {
+      "or": [
+        {
+          "compare": {
+            "left": {"column": "u.region"},
+            "op": "=",
+            "right": {"value": "vn"}
+          }
+        },
+        {
+          "compare": {
+            "left": {"column": "u.vip"},
+            "op": ">",
+            "right": {"value": 0}
+          }
+        }
+      ]
+    }
+  ]
+}
+```
+
+The builder emits the equivalent of:
+
+```sql
+WHERE (u.level >= ? AND (u.region = ? OR u.vip > ?))
+```
+
+### NOT
+
+```json
+{"not": {"compare": {"left": {"column": "u.status"}, "op": "=", "right": {"value": "banned"}}}}
+```
+
+### Comparisons
+
+Supported operators:
+
+```text
+= != <> < <= > >=
+LIKE NOT LIKE
+IN NOT IN
+BETWEEN NOT BETWEEN
+IS NULL IS NOT NULL
+```
+
+`IN` accepts a non-empty expression array or a subquery.
+
+### EXISTS / NOT EXISTS
+
+```json
+{
+  "exists": {
+    "not": false,
+    "query": {
+      "select": [{"expr": {"column": "o.id"}}],
+      "from": {"table": "orders", "alias": "o"},
+      "where": {
+        "compare": {
+          "left": {"column": "o.user_id"},
+          "op": "=",
+          "right": {"column": "u.id"}
+        }
+      }
+    }
+  }
+}
+```
+
+## JOIN
+
+```json
+{
+  "joins": [
+    {
+      "type": "LEFT",
+      "source": {"table": "orders", "alias": "o"},
+      "on": {
+        "and": [
+          {
+            "compare": {
+              "left": {"column": "o.user_id"},
+              "op": "=",
+              "right": {"column": "u.id"}
+            }
+          },
+          {
+            "compare": {
+              "left": {"column": "o.status"},
+              "op": "=",
+              "right": {"value": "paid"}
+            }
+          }
+        ]
+      }
+    }
+  ]
+}
+```
+
+Supported join types: `INNER`, `LEFT`, `RIGHT`, `CROSS`. `CROSS` has no `on`; all others require it.
+
+A JOIN source may also be a subquery:
+
+```json
+{
+  "source": {
+    "subquery": {
+      "select": [{"expr": {"column": "x.user_id"}}],
+      "from": {"table": "orders", "alias": "x"}
+    },
+    "alias": "q"
+  }
+}
+```
+
+## GROUP BY + HAVING
+
+```json
+{
+  "group_by": [
+    {"column": "u.id"},
+    {"column": "u.name"}
+  ],
+  "having": {
+    "compare": {
+      "left": {"function": {"name": "COUNT", "args": [{"column": "o.id"}]}},
+      "op": ">",
+      "right": {"value": 2}
+    }
+  }
+}
+```
+
+`having` is accepted only when `group_by` is present.
+
+## Window functions
+
+Window-capable allowlisted functions can use an `over` object:
+
+```json
+{
+  "expr": {
+    "function": {
+      "name": "ROW_NUMBER",
+      "args": [],
+      "over": {
+        "partition_by": [{"column": "u.team_id"}],
+        "order_by": [
+          {"expr": {"column": "u.score"}, "direction": "DESC"}
+        ],
+        "frame": {
+          "unit": "ROWS",
+          "start": "UNBOUNDED PRECEDING",
+          "end": "CURRENT ROW"
+        }
+      }
+    }
+  },
+  "alias": "rank_no"
+}
+```
+
+## Output and partial-result semantics
+
+Output format is `csv` or `jsonl`. Data is streamed to bounded chunks under:
+
+```text
+database_queries/<action>/result/result_0001.csv
+```
+
+or:
+
+```text
+database_queries/<action>/result/result_0001.jsonl
+```
+
+The same action directory includes:
+
+```text
+META.json
+BUILT_QUERY.sql
+BOUND_VALUES_META.json
+ACTIVE_QUERY_STRUCTURE.json
+```
+
+`BUILT_QUERY.sql` is a display template with `?` placeholders rather than secret/request values. `ACTIVE_QUERY_STRUCTURE.json` replaces bound values by their types.
+
+If the database is exhausted before any output limit:
+
+```text
+Execution status: COMPLETED
+Coverage status: VERIFIED
+COLLECT PASS
+```
+
+If `max_rows`, `max_bytes`, timeout, or outer COLLECT package quotas stop output early:
+
+```text
+Execution status: PARTIAL
+Coverage status: PARTIAL
+COLLECT INCOMPLETE
+```
+
+Rows/chunks already written remain in the result ZIP.
+
+## What is intentionally not supported
+
+The database lane does not support:
+
+- INSERT / UPDATE / DELETE / REPLACE;
+- CREATE / ALTER / DROP / TRUNCATE;
+- CALL / stored procedure execution;
+- raw SQL text;
+- arbitrary function names;
+- multi-statement SQL;
+- MySQL direct remote TCP profiles;
+- password fields in request/profile JSON;
+- `SHOW`, `DESCRIBE`, or `PRAGMA` actions.
+
+For schema evidence, build a SELECT against `information_schema` (MySQL) or `sqlite_master` (SQLite) through the same active builder.

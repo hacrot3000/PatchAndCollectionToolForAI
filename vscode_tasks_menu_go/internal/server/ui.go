@@ -1,0 +1,1028 @@
+package server
+
+import (
+	"net/http"
+	"strings"
+
+	webassets "bletonfc/vscode_tasks_menu/web"
+)
+
+func staticUI(w http.ResponseWriter, r *http.Request) {
+	switch r.URL.Path {
+	case "/", "/index.html":
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Header().Set("Cache-Control", "no-cache, max-age=0, must-revalidate")
+		_, _ = w.Write([]byte(indexHTML))
+	case "/app.css":
+		w.Header().Set("Content-Type", "text/css; charset=utf-8")
+		w.Header().Set("Cache-Control", "no-cache, max-age=0, must-revalidate")
+		_, _ = w.Write([]byte(appCSS))
+	case "/app.js":
+		w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
+		w.Header().Set("Cache-Control", "no-cache, max-age=0, must-revalidate")
+		_, _ = w.Write([]byte(appJS))
+	case "/features.js":
+		serveEmbeddedAsset(w, "application/javascript; charset=utf-8", "features.js")
+	case "/vendor/xterm.js":
+		serveEmbeddedAsset(w, "application/javascript; charset=utf-8", "vendor/xterm.js")
+	case "/vendor/codemirror6-all.min.js":
+		serveEmbeddedAsset(w, "application/javascript; charset=utf-8", "vendor/codemirror6-all.min.js")
+	case "/vendor/addon-fit.js":
+		serveEmbeddedAsset(w, "application/javascript; charset=utf-8", "vendor/addon-fit.js")
+	case "/vendor/xterm.css":
+		serveEmbeddedAsset(w, "text/css; charset=utf-8", "vendor/xterm.css")
+	default:
+		if strings.HasPrefix(r.URL.Path, "/featuremods/") {
+			serveEmbeddedAsset(w, "application/javascript; charset=utf-8", strings.TrimPrefix(r.URL.Path, "/"))
+			return
+		}
+		http.NotFound(w, r)
+	}
+}
+
+func serveEmbeddedAsset(w http.ResponseWriter, contentType, path string) {
+	data, err := webassets.Files.ReadFile(path)
+	if err != nil {
+		http.Error(w, "embedded asset unavailable", http.StatusInternalServerError)
+		return
+	}
+	if path == "featuremods/next.js" {
+		text := string(data)
+		text = strings.ReplaceAll(text, ".js';", ".js?v=5';")
+		data = []byte(text)
+	}
+	w.Header().Set("Content-Type", contentType)
+	if path == "features.js" || strings.HasPrefix(path, "featuremods/") {
+		w.Header().Set("Cache-Control", "no-cache, max-age=0, must-revalidate")
+	} else {
+		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+	}
+	_, _ = w.Write(data)
+}
+
+const indexHTML = `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>TaskDeck</title>
+  <link rel="stylesheet" href="/vendor/xterm.css">
+  <link rel="stylesheet" href="/app.css">
+</head>
+<body>
+  <header><strong>TaskDeck</strong><span id="workspace"></span><span id="mutation-lock" hidden></span><button id="mutation-unlock" hidden title="Stop the Patch session that owns the workspace lock, then release the lock">Unlock</button><span id="identity" hidden></span><a id="account" href="/login" hidden>Account</a><a id="shared-admin" href="/admin/access" hidden>Users & Access</a><button id="logout" hidden>Sign out</button><button id="open-terminal" title="Open an interactive shell at the project root">Open Terminal</button><button id="edit-title" title="Edit the browser page title">Edit title</button><button id="reload">Reload tasks.json</button></header>
+  <main><aside id="menu"></aside><section><div id="tabs"></div><div id="panes"></div></section></main>
+  <script src="/vendor/xterm.js"></script>
+  <script src="/vendor/addon-fit.js"></script>
+  <script src="/vendor/codemirror6-all.min.js?v=1c870b80"></script>
+  <script type="module" src="/app.js"></script>
+  <script type="module" src="/features.js?v=5"></script>
+  <script type="module" src="/featuremods/all.js?v=5"></script>
+  <script type="module" src="/featuremods/next.js?v=5"></script>
+</body>
+</html>`
+
+const appCSS = `:root{--taskmenu-header-height:30px;font-family:system-ui,sans-serif;color-scheme:dark;background:#101216;color:#e8eaed}*{box-sizing:border-box}body{margin:0}header{height:var(--taskmenu-header-height);display:flex;align-items:center;gap:7px;padding:0 8px;border-bottom:1px solid #30343b}header>strong{font-size:13px;white-space:nowrap}header #workspace{opacity:.65;flex:0 1 auto;min-width:0;max-width:min(48vw,720px);font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}#identity{font-size:11px;opacity:.8;white-space:nowrap}#mutation-lock{font-size:11px;white-space:nowrap;padding:2px 6px;border:1px solid #7a6233;border-radius:999px;background:#3b2f18;color:#f5d98a;max-width:360px;overflow:hidden;text-overflow:ellipsis}#mutation-unlock{font-size:11px;white-space:nowrap;padding:2px 6px;border-color:#8a6438;background:#3b2f18;color:#f5d98a}#account,#shared-admin{color:#d8e9ff;text-decoration:none;border:0;border-radius:4px;padding:2px 4px;white-space:nowrap;font-size:11px}#account:hover,#shared-admin:hover{background:#242a34}#logout{white-space:nowrap}button,select{background:#252a33;color:inherit;border:1px solid #3b414d;border-radius:6px;padding:7px 10px}button{cursor:pointer}button:disabled{opacity:.45;cursor:default}body>header>button{background:transparent;border:0;border-radius:4px;padding:2px 4px;font-size:11px}body>header>button:hover:not(:disabled){background:#242a34}#open-terminal{background:transparent;border:0;white-space:nowrap}#edit-title{white-space:nowrap}main{display:grid;grid-template-columns:310px 1fr;height:calc(100vh - var(--taskmenu-header-height))}aside{overflow:auto;border-right:1px solid #30343b;padding:10px}.group{margin:5px 0}.group>button,.task{width:100%;text-align:left}.children{padding-left:14px}.task{margin:2px 0;background:#171a20}.task:hover{background:#242a34}section{min-width:0;display:flex;flex-direction:column}#tabs{height:42px;border-bottom:1px solid #30343b;display:flex;align-items:end;overflow:auto;white-space:nowrap}.tab{border-radius:6px 6px 0 0;border-bottom:0;margin-left:4px}.tab.active{background:#343b48}.tab .status{opacity:.65;margin-left:6px}.tab .close{margin-left:8px}#panes{flex:1;min-height:0;position:relative}.pane{position:absolute;inset:0;display:flex;flex-direction:column}.pane.hidden{display:none}.pane-head{display:flex;gap:4px;align-items:center;min-height:24px;padding:1px 5px;border-bottom:1px solid #30343b}.pane-head .command{font-family:ui-monospace,monospace;font-size:11px;opacity:.7;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}.pane-head>button{background:transparent;border:0;border-radius:4px;padding:2px 4px;font-size:10px}.pane-head>button:hover:not(:disabled){background:#242a34}.pane-head>select{height:20px;min-height:20px;padding:1px 5px;font-size:10px;line-height:16px}.download-select{max-width:280px;min-width:140px}.download{white-space:nowrap;background:#24472f;border-color:#3b7850}.preview{white-space:nowrap;background:#243b57;border-color:#3e6790}.copy-console{margin-left:6px;white-space:nowrap}.terminal{flex:1;min-height:0;padding:4px;background:#050607}.browser-lease-lost>header,.browser-lease-lost>main{filter:blur(1px);opacity:.45;pointer-events:none}.browser-lease-overlay{position:fixed;inset:0;z-index:10000;display:grid;place-items:center;padding:20px;background:rgba(4,6,9,.72)}.browser-lease-card{width:min(520px,100%);padding:22px;border:1px solid #48515f;border-radius:12px;background:#171a20;box-shadow:0 18px 55px rgba(0,0,0,.45);text-align:center}.browser-lease-card strong{display:block;font-size:18px;margin-bottom:10px}.browser-lease-card p{margin:8px 0;line-height:1.45}.browser-lease-card .browser-lease-hint{font-size:12px;opacity:.7}.browser-lease-card button{margin-top:10px;background:#244c70;border-color:#3f79a8;padding:10px 14px}`
+
+const appJS = `const TerminalCtor=globalThis.Terminal;
+const FitAddonCtor=globalThis.FitAddon?.FitAddon;
+if(!TerminalCtor||!FitAddonCtor)throw new Error('Embedded xterm assets did not load');
+
+const defaultPageTitle='TaskDeck';
+const legacyPageTitle=['VS','Code','Tasks','Menu'].join(' ');
+const legacyCompactPageTitle=['VSCode','Tasks','Menu'].join(' ');
+const layoutProfile=(matchMedia('(pointer: coarse)').matches||matchMedia('(max-width: 900px)').matches)?'mobile':'desktop';
+document.documentElement.dataset.taskmenuLayout=layoutProfile;
+const menu=document.querySelector('#menu');
+const tabs=document.querySelector('#tabs');
+const panes=document.querySelector('#panes');
+let taskData=null;
+let active=null;
+let foregroundViewLock='';
+const views=new Map();
+const hidden=new Set();
+const outputFilters=[];
+let browserLease='';
+let browserLeaseLost=false;
+let browserLeaseHeartbeat=null;
+let currentUser=null;
+let sharedMode=false;
+let permissions=new Set();
+
+function hasPermission(permission){return !sharedMode||permissions.has(permission);}
+function hasAnyPermission(...values){return !sharedMode||values.some(value=>permissions.has(value));}
+
+async function loadCurrentUser(){
+  const r=await fetch('/api/auth/me',{cache:'no-store'});
+  if(r.status===404){sharedMode=false;return;}
+  if(!r.ok)throw new Error((await r.text())||r.statusText);
+  currentUser=await r.json();sharedMode=true;permissions=new Set(currentUser.permissions||[]);
+  const identity=document.querySelector('#identity');identity.textContent=currentUser.username+' · '+currentUser.project_key;identity.hidden=false;
+  document.querySelector('#logout').hidden=false;
+  document.querySelector('#account').hidden=false;
+  document.querySelector('#shared-admin').hidden=!hasAnyPermission('users.view','users.manage','roles.view','roles.manage','sessions.manage','audit.view');
+  document.querySelector('#open-terminal').hidden=!hasPermission('terminal.create');
+  document.querySelector('#reload').hidden=!hasPermission('tasks.view');
+}
+
+async function logout(){
+  const r=await fetch('/api/auth/logout',{method:'POST',cache:'no-store',headers:{'Content-Type':'application/json'},body:'{}'});
+  if(!r.ok&&r.status!==401)throw new Error((await r.text())||r.statusText);
+  location.assign('/login');
+}
+
+function addOutputFilter(filter){
+  if(typeof filter!=='function')throw new Error('Output filter must be a function');
+  outputFilters.push(filter);
+  return ()=>{
+    const index=outputFilters.indexOf(filter);
+    if(index>=0)outputFilters.splice(index,1);
+  };
+}
+
+function filterOutput(view,data){
+  let current=data;
+  for(const filter of [...outputFilters]){
+    if(current==null)break;
+    try{current=filter(view,current);}catch(e){console.warn('Output filter failed',e);}
+  }
+  return current;
+}
+
+function writeOutput(view,data){
+  if(data==null)return;
+  // xterm.write is buffered/asynchronous. A WebSocket event alone can reach
+  // completion observers before the echoed command and OSC 133 prompt markers
+  // are visible in the terminal buffer. The callback signals the true render
+  // boundary without exposing or executing a shell completion command.
+  const afterWrite=()=>{if(!view.closed)window.dispatchEvent(new CustomEvent('taskmenu:terminal-rendered',{detail:{view}}));};
+  if(typeof data==='string'){
+    if(data)view.term.write(data,afterWrite);
+    return;
+  }
+  if(data instanceof ArrayBuffer){
+    if(data.byteLength)view.term.write(new Uint8Array(data),afterWrite);
+    return;
+  }
+  if(ArrayBuffer.isView(data)){
+    if(data.byteLength)view.term.write(new Uint8Array(data.buffer,data.byteOffset,data.byteLength),afterWrite);
+  }
+}
+
+function showLeaseLost(message='This browser is no longer the active controller.'){
+  if(browserLeaseLost)return;
+  browserLeaseLost=true;
+  clearInterval(browserLeaseHeartbeat);
+  document.body.classList.add('browser-lease-lost');
+  for(const view of views.values()){
+    clearTimeout(view.reconnectTimer);
+    try{view.ws?.close();}catch{}
+  }
+  let overlay=document.querySelector('#browser-lease-overlay');
+  if(!overlay){
+    overlay=document.createElement('div');overlay.id='browser-lease-overlay';overlay.className='browser-lease-overlay';
+    const card=document.createElement('div');card.className='browser-lease-card';
+    const title=document.createElement('strong');title.textContent='Control moved to another browser';
+    const text=document.createElement('p');text.textContent=message;
+    const hint=document.createElement('p');hint.className='browser-lease-hint';hint.textContent='Reload this page to take control. The other browser will then be disconnected.';
+    const reload=document.createElement('button');reload.type='button';reload.textContent='Reload and take control';reload.onclick=()=>location.reload();
+    card.append(title,text,hint,reload);overlay.append(card);document.body.append(overlay);
+  }
+}
+
+async function acquireBrowserLease(){
+  const r=await fetch('/api/browser/lease',{method:'POST',cache:'no-store'});
+  if(!r.ok)throw new Error((await r.text())||r.statusText);
+  const data=await r.json();
+  browserLease=String(data?.lease||'').trim();
+  if(!browserLease)throw new Error('Server did not return a browser control lease');
+  browserLeaseLost=false;
+  document.body.classList.remove('browser-lease-lost');
+}
+
+async function checkBrowserLease(){
+  if(!browserLease||browserLeaseLost)return;
+  const r=await fetch('/api/browser/lease',{cache:'no-store',headers:{'X-TaskMenu-Lease':browserLease}});
+  if(r.ok)return;
+  if(r.status===409||r.headers.get('X-TaskMenu-Lease-Revoked')==='1'){
+    showLeaseLost((await r.text()).trim()||undefined);
+  }
+}
+
+async function fetchWithLease(url,opts={}){
+  const headers=new Headers(opts.headers||{});
+  if(browserLease)headers.set('X-TaskMenu-Lease',browserLease);
+  const response=await fetch(url,{...opts,headers});
+  if(response.status===409&&response.headers.get('X-TaskMenu-Lease-Revoked')==='1'){
+    showLeaseLost();
+  }
+  return response;
+}
+
+function mutationOwnerText(holder){
+  if(!holder)return 'another operation';
+  const who=holder.username||holder.user_id||'another user';
+  const operation=holder.operation||'workspace mutation';
+  const resource=holder.resource_id?' · '+holder.resource_id:'';
+  return who+' · '+operation+resource;
+}
+
+function renderMutationLock(status){
+  const badge=document.querySelector('#mutation-lock');
+  const unlock=document.querySelector('#mutation-unlock');
+  if(!badge)return;
+  if(!sharedMode||!status?.locked||!status.holder){
+    badge.hidden=true;badge.textContent='';badge.title='';
+    if(unlock){unlock.hidden=true;unlock.onclick=null;unlock.disabled=false;}
+    return;
+  }
+  badge.textContent='Workspace locked · '+mutationOwnerText(status.holder);
+  badge.title=status.holder.acquired_at?'Locked since '+status.holder.acquired_at:badge.textContent;
+  badge.hidden=false;
+  if(unlock){
+    const canUnlock=Boolean(hasPermission('project.admin')&&status.holder.operation==='patch.run'&&status.holder.resource_id);
+    unlock.hidden=!canUnlock;
+    unlock.disabled=false;
+    unlock.onclick=canUnlock?()=>forceReleaseMutationLock(status.holder).catch(showError):null;
+  }
+}
+
+async function forceReleaseMutationLock(holder){
+  if(!holder?.resource_id||holder.operation!=='patch.run')throw new Error('Only a Patch session lock can be released from the UI');
+  if(!hasPermission('project.admin'))throw new Error('Project admin permission is required');
+  if(!window.confirm('Stop Patch session '+holder.resource_id+' and release its workspace lock?'))return false;
+  const unlock=document.querySelector('#mutation-unlock');
+  if(unlock)unlock.disabled=true;
+  try{
+    const query=new URLSearchParams({operation:String(holder.operation),resource_id:String(holder.resource_id),confirm:'1'});
+    await jsonFetch('/api/mutation-lock?'+query.toString(),{method:'DELETE'});
+    renderMutationLock({locked:false});
+    await syncSessions();
+    return true;
+  }finally{
+    if(unlock?.isConnected)unlock.disabled=false;
+  }
+}
+
+async function refreshMutationLock(){
+  if(!sharedMode){renderMutationLock(null);return;}
+  const status=await jsonFetch('/api/mutation-lock');
+  renderMutationLock(status);
+}
+
+async function jsonFetch(url,opts={}){
+  const {taskdeckApprovalRetried=false,...fetchOptions}=opts||{};
+  const r=await fetchWithLease(url,{cache:'no-store',...fetchOptions});
+  if(!r.ok){
+    const message=(await r.text())||r.statusText;
+    if(r.status===428&&!taskdeckApprovalRetried){
+      let challenge=null;
+      try{challenge=JSON.parse(message);}catch{}
+      if(challenge?.approval_required&&challenge?.action){
+        const approvalID=await globalThis.TaskMenuApprovals?.authorize?.(challenge);
+        if(approvalID){
+          const headers=new Headers(opts?.headers||{});
+          headers.set('X-TaskDeck-Approval-ID',approvalID);
+          return jsonFetch(url,{...opts,headers,taskdeckApprovalRetried:true});
+        }
+      }
+    }
+    if(r.status===409&&r.headers.get('X-TaskMenu-Lease-Revoked')==='1'){
+      showLeaseLost(message.trim()||undefined);
+      const error=new Error('Browser control lease revoked');
+      error.browserLeaseRevoked=true;
+      throw error;
+    }
+    if(r.status===409){
+      let conflict=null;
+      try{conflict=JSON.parse(message);}catch{}
+      if(conflict?.error==='workspace mutation locked'&&conflict.holder){
+        renderMutationLock({locked:true,holder:conflict.holder});
+        const error=new Error('Workspace mutation locked · '+mutationOwnerText(conflict.holder));
+        error.mutationLocked=true;
+        throw error;
+      }
+    }
+    const error=new Error(message);
+    // Preserve HTTP response status for request diagnostics without changing
+    // the error message or exposing credentials/headers to the caller.
+    error.httpStatus=r.status;
+    error.httpStatusText=r.statusText||'';
+    // Diagnostics headers are set only by the server's AI provider adapter.
+    // Do not copy arbitrary upstream response bodies or authorization headers.
+    if(url.startsWith('/api/ai/assist')){
+      const upstream=Number(r.headers.get('X-TaskDeck-AI-Provider-Status')||0);
+      if(upstream>=100&&upstream<=599)error.providerHttpStatus=upstream;
+      const code=r.headers.get('X-TaskDeck-AI-Error-Code')||'';
+      if(/^[A-Za-z0-9_.-]{1,64}$/.test(code))error.providerErrorCode=code;
+      const ms=Number(r.headers.get('X-TaskDeck-AI-Duration-Ms')||0);
+      if(Number.isFinite(ms)&&ms>=0)error.providerDurationMs=Math.round(ms);
+    }
+    throw error;
+  }
+  if(r.status===204)return null;
+  return r.json();
+}
+
+function pageTitleStorageKey(){return 'vscode-tasks-menu:page-title:'+taskData.workspace;}
+
+function pageTitleSuffix(value){
+  let title=String(value||'').trim();
+  if(!title||title===defaultPageTitle||title===legacyPageTitle||title===legacyCompactPageTitle)return '';
+  if(title.startsWith(defaultPageTitle+' - '))title=title.slice((defaultPageTitle+' - ').length).trim();
+  return title;
+}
+
+function formattedPageTitle(value){
+  const suffix=pageTitleSuffix(value);
+  return suffix?defaultPageTitle+' - '+suffix:defaultPageTitle;
+}
+
+function restorePageTitle(){
+  let saved='';
+  try{saved=localStorage.getItem(pageTitleStorageKey())||'';}catch(e){console.warn('Cannot read saved page title',e);}
+  document.title=formattedPageTitle(saved);
+}
+
+function editPageTitle(){
+  const current=pageTitleSuffix(document.title);
+  const value=window.prompt('Page title suffix (leave blank to use TaskDeck):',current);
+  if(value===null)return;
+  const title=pageTitleSuffix(value);
+  try{
+    if(title)localStorage.setItem(pageTitleStorageKey(),title);
+    else localStorage.removeItem(pageTitleStorageKey());
+  }catch(e){throw new Error('Cannot save page title: '+e.message);}
+  document.title=formattedPageTitle(title);
+}
+
+async function loadTasks(){
+  if(!hasPermission('tasks.view')){
+    taskData={workspace:currentUser?.project_key||'',tasks:[]};
+    document.querySelector('#workspace').textContent=taskData.workspace;
+    menu.textContent='Task access is not available for this account.';
+    window.dispatchEvent(new CustomEvent('taskmenu:tasks',{detail:{taskData}}));
+    return;
+  }
+  taskData=await jsonFetch('/api/tasks');
+  document.querySelector('#workspace').textContent=taskData.workspace;
+  restorePageTitle();
+  renderMenu();
+  window.dispatchEvent(new CustomEvent('taskmenu:tasks',{detail:{taskData}}));
+}
+
+function buildTree(){
+  const root={children:new Map(),tasks:[]};
+  for(const t of taskData.tasks){
+    const group=t.group||[];
+    if(group.length===1&&group[0]==='build'){root.tasks.push(t);continue;}
+    let node=root;
+    for(const name of group){
+      if(!node.children.has(name))node.children.set(name,{children:new Map(),tasks:[]});
+      node=node.children.get(name);
+    }
+    node.tasks.push(t);
+  }
+  return root;
+}
+
+// Preserve explicitly registered UI extensions when the task tree is rebuilt.
+// Mobile workspace navigation must not disappear after Reload tasks.json.
+function renderMenu(){
+  const persistent=[...menu.children].filter(node=>node.hasAttribute('data-taskmenu-persistent'));
+  menu.replaceChildren(...persistent);
+  renderNode(buildTree(),menu,false);
+}
+function renderNode(node,host,open){
+  for(const t of node.tasks){
+    const b=document.createElement('button');
+    b.className='task';b.textContent=t.menu_label;b.title=t.detail||t.label;
+    b.disabled=!hasPermission('tasks.run');
+    if(b.disabled)b.title='You do not have permission to run tasks';
+    b.onclick=()=>startTask(t).catch(showError);host.append(b);
+  }
+  for(const [name,child] of node.children){
+    const box=document.createElement('div'),b=document.createElement('button'),kids=document.createElement('div');
+    box.className='group';kids.className='children';kids.hidden=!open;
+    b.textContent=(kids.hidden?'▸ ':'▾ ')+name;
+    b.onclick=()=>{kids.hidden=!kids.hidden;b.textContent=(kids.hidden?'▸ ':'▾ ')+name;};
+    box.append(b,kids);renderNode(child,kids,false);host.append(box);
+  }
+}
+
+async function startTask(t){
+  if(!hasPermission('tasks.run'))throw new Error('Task execution permission is required');
+  const meta=await jsonFetch('/api/sessions',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({task_id:t.id,editor:globalThis.TaskMenuEditor?.taskVariableContext?.()||null})});
+  hidden.delete(meta.id);attach(meta,true);
+}
+
+async function startTerminal(cwd=''){
+  if(!hasPermission('terminal.create'))throw new Error('Terminal creation permission is required');
+  const payload={kind:'terminal'};
+  cwd=String(cwd||'').trim();
+  if(cwd)payload.cwd=cwd;
+  const meta=await jsonFetch('/api/sessions',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+  markFreshTerminal(meta);
+  hidden.delete(meta.id);attach(meta,true);
+}
+
+// Only new local shells started by this browser are eligible for automatic
+// cleanup; pre-existing/restored/SSH/task sessions are preserved as before.
+function terminalUsageKey(id){
+  return 'taskdeck:terminal-used:'+String(taskData?.workspace||'workspace')+(sharedMode?':user:'+encodeURIComponent(currentUser?.user_id||'unknown'):'')+':'+String(id||'');
+}
+function markFreshTerminal(meta){
+  if(meta?.task_id!==0||meta?.kind!=='terminal'||String(meta?.target_type||'local')!=='local')return;
+  try{localStorage.setItem(terminalUsageKey(meta.id),'fresh');}catch{}
+}
+function terminalUsed(id){
+  try{return localStorage.getItem(terminalUsageKey(id))!=='fresh';}catch{return true;}
+}
+function markTerminalUsed(id){
+  try{if(localStorage.getItem(terminalUsageKey(id))==='fresh')localStorage.setItem(terminalUsageKey(id),'used');}catch{}
+}
+function clearTerminalUsage(id){try{localStorage.removeItem(terminalUsageKey(id));}catch{}}
+function isPristineLocalTerminal(view){
+  return Boolean(view?.meta?.kind==='terminal'&&view.meta.task_id===0&&
+    String(view.meta.target_type||'local')==='local'&&!terminalUsed(view.meta.id));
+}
+window.addEventListener('taskmenu:shell-integration',event=>{
+  if(event.detail?.type==='execution-started'||event.detail?.type==='command-finished'){
+    const view=event.detail.view;
+    if(view?.meta?.id)markTerminalUsed(view.meta.id);
+  }
+});
+
+function wsURL(id){
+  const base=(location.protocol==='https:'?'wss:':'ws:')+'//'+location.host+'/api/sessions/'+encodeURIComponent(id)+'/ws';
+  return browserLease?base+'?lease='+encodeURIComponent(browserLease):base;
+}
+
+function canControlSession(meta){
+  if(!sharedMode)return true;
+  if(hasPermission('sessions.manage'))return true;
+  if(meta?.kind==='terminal')return hasPermission('terminal.control_all')||(meta.owner_user_id===currentUser?.user_id&&hasPermission('terminal.control_own'));
+  if(meta?.kind==='patch')return hasPermission('patch.run');
+  if(meta?.kind==='task')return hasPermission('tasks.run');
+  return false;
+}
+
+function attach(meta,activate){
+  let view=views.get(meta.id);
+  if(view){updateMeta(meta);if(activate)activateView(meta.id,{force:true});return view;}
+  const canControl=canControlSession(meta);
+  const tab=document.createElement('button');tab.className='tab';tab.dataset.id=meta.id;
+  const label=document.createElement('span');label.textContent=meta.label;
+  const status=document.createElement('span');status.className='status';
+  const close=document.createElement('span');close.className='close';close.textContent='×';
+  close.onclick=e=>{e.stopPropagation();closeView(view.meta.id).catch(showError);};
+  tab.append(label,status,close);tab.onclick=()=>activateView(view.meta.id,{force:true});tabs.append(tab);
+
+  const pane=document.createElement('div');pane.className='pane hidden';pane.dataset.id=meta.id;
+  const head=document.createElement('div');head.className='pane-head';
+  const cmd=document.createElement('div');cmd.className='command';cmd.textContent=meta.command_preview;
+  const downloadSelect=document.createElement('select');downloadSelect.className='download-select';downloadSelect.hidden=true;
+  const download=document.createElement('button');download.className='download';download.textContent='Download';download.hidden=true;
+  const preview=document.createElement('button');preview.className='preview';preview.textContent='View';preview.hidden=true;
+  const markdownPreview=document.createElement('button');markdownPreview.className='preview markdown-preview';markdownPreview.textContent='Preview';markdownPreview.hidden=true;
+  const stop=document.createElement('button');stop.className='stop';stop.textContent='Stop';
+  stop.hidden=!canControl;
+  stop.onclick=async()=>{try{updateMeta(await jsonFetch('/api/sessions/'+view.meta.id+'/stop',{method:'POST'}));}catch(e){showError(e);}};
+  const copy=document.createElement('button');copy.className='copy-console';copy.textContent='📋 Copy console';copy.title='Copy the entire console output';
+  copy.onclick=()=>copyConsole(view).catch(showError);
+  head.append(cmd,downloadSelect,download,preview,markdownPreview,stop,copy);
+  const terminalHost=document.createElement('div');terminalHost.className='terminal';
+  pane.append(head,terminalHost);panes.append(pane);
+
+  const term=new TerminalCtor({convertEol:false,cursorBlink:canControl,disableStdin:!canControl,scrollback:10000,fontSize:13,theme:{background:'#050607'}});
+  const fit=new FitAddonCtor();term.loadAddon(fit);term.open(terminalHost);fit.fit();
+  view={meta,canControl,tab,status,pane,term,fit,ws:null,ro:null,closed:false,tabReadOnly:false,reconnectTimer:null,socketReconnectAttempt:0,selectionTimer:null,selectionSeq:0,selectionActive:false,resizePending:false,downloadFiles:[],downloadFilesKey:'',downloadSelect,download,preview,markdownPreview,stop,copy,copyTimer:null};
+  views.set(meta.id,view);
+  downloadSelect.onchange=()=>updateFileActionButtons(view);
+  download.onclick=()=>downloadSelectedFile(view);
+  preview.onclick=()=>previewSelectedFile(view).catch(showError);
+  markdownPreview.onclick=()=>previewSelectedMarkdown(view).catch(showError);
+  const applyResize=()=>{
+    try{fit.fit();}catch{}
+    clearTimeout(view.resizeTimer);
+    if(view.canControl)view.resizeTimer=setTimeout(()=>jsonFetch('/api/sessions/'+view.meta.id+'/resize',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({rows:term.rows,cols:term.cols})}).catch(()=>{}),60);
+  };
+  const resize=()=>{
+    if(term.hasSelection()){
+      view.resizePending=true;
+      return;
+    }
+    view.resizePending=false;
+    applyResize();
+  };
+  term.onSelectionChange(()=>{
+    const selected=term.hasSelection();
+    view.selectionActive=selected;
+    scheduleSelectionScan(view);
+    if(!selected&&view.resizePending){
+      view.resizePending=false;
+      requestAnimationFrame(applyResize);
+    }
+  });
+  term.onData(data=>{
+    // Broadcast is another term.onData subscriber: mark reserved inputs so
+    // literal \\ai/\\do commands cannot leak to other shells.
+    view.smartTerminalInputIntercepted=false;
+    if(globalThis.TaskDeckSmartTerminal?.onInput?.(view,data)===true){
+      view.smartTerminalInputIntercepted=true;
+      return;
+    }
+    // A submitted non-empty interactive line counts as usage even when a
+    // remote/older shell does not emit OSC 133 command markers.
+    if(isPristineLocalTerminal(view)){
+      const input=String(data||'');
+      if(/[\r\n]/.test(input)){
+        if(view.pendingTerminalInput||input.replace(/[\r\n]/g,'').trim())markTerminalUsed(view.meta.id);
+        view.pendingTerminalInput=false;
+      }else if(input&&!/^\x1b\[[0-9;]*[A-Za-z~]$/.test(input)&&input!=='\x7f'){
+        view.pendingTerminalInput=true;
+      }
+    }
+    if(view.canControl&&!view.tabReadOnly&&!browserLeaseLost&&view.ws&&view.ws.readyState===WebSocket.OPEN)view.ws.send(data);
+  });
+  view.ro=new ResizeObserver(resize);view.ro.observe(terminalHost);
+  connect(view,false);updateMeta(meta);if(activate)activateView(meta.id,{force:true});return view;
+}
+
+function selectedDownloadFile(view){
+  if(!view.downloadFiles.length)return null;
+  const idx=view.downloadSelect.hidden?0:Number(view.downloadSelect.value||0);
+  return view.downloadFiles[idx]||view.downloadFiles[0]||null;
+}
+
+function downloadFilesKey(files){
+  return (Array.isArray(files)?files:[]).map(file=>[file.path||'',file.name||'',file.preview_kind||''].join('\u0001')).join('\u0002');
+}
+
+function setDownloadFiles(view,files){
+  const next=Array.isArray(files)?files:[];
+  const key=downloadFilesKey(next);
+  if(key===view.downloadFilesKey)return;
+  view.downloadFilesKey=key;
+  view.downloadFiles=next;
+  const previousValue=view.downloadSelect.value;
+  view.downloadSelect.replaceChildren();
+  for(let i=0;i<view.downloadFiles.length;i++){
+    const file=view.downloadFiles[i];
+    const option=document.createElement('option');option.value=String(i);option.textContent=file.name||file.path;option.title=file.path||'';
+    view.downloadSelect.append(option);
+  }
+  if(previousValue&&Number(previousValue)<view.downloadFiles.length)view.downloadSelect.value=previousValue;
+  view.download.hidden=view.downloadFiles.length===0;
+  view.downloadSelect.hidden=view.downloadFiles.length<=1;
+  updateFileActionButtons(view);
+}
+
+function updateFileActionButtons(view){
+  const file=selectedDownloadFile(view);
+  if(!file){
+    view.download.textContent='Download';view.download.title='';
+    view.preview.hidden=true;view.preview.title='';
+    view.markdownPreview.hidden=true;view.markdownPreview.title='';
+    return;
+  }
+  view.download.textContent=view.downloadFiles.length>1?'Download ('+view.downloadFiles.length+')':'Download';
+  view.download.title=file.path?'Download '+file.path:'Download the selected file';
+  view.preview.hidden=!((file.preview_kind==='text'||file.preview_kind==='image')||file.preview_kind==='markdown');
+  view.preview.title=view.preview.hidden?'':'View '+(file.name||file.path);
+  view.markdownPreview.hidden=file.preview_kind!=='markdown';
+  view.markdownPreview.title=view.markdownPreview.hidden?'':'Preview rendered Markdown '+(file.name||file.path);
+}
+
+function downloadSelectedFile(view){
+  const file=selectedDownloadFile(view);
+  if(!file?.url)return;
+  const a=document.createElement('a');a.href=file.url;a.download=file.name||'';a.rel='noopener';document.body.append(a);a.click();a.remove();
+}
+
+async function previewSelectedFile(view){
+  const file=selectedDownloadFile(view);
+  if(!file?.path)return;
+  const info=await jsonFetch('/api/files/preview?path='+encodeURIComponent(file.path));
+  if(info.kind==='text'||info.kind==='markdown'){
+    if(!info.project_path)throw new Error('Preview server did not return a project path');
+    window.dispatchEvent(new CustomEvent('taskmenu:project-file-open-request',{detail:{path:info.project_path,source:'terminal-preview'}}));
+    return;
+  }
+  if(info.kind==='image'){
+    window.dispatchEvent(new CustomEvent('taskmenu:file-image-preview',{detail:info}));
+    return;
+  }
+  throw new Error('This file cannot be previewed');
+}
+
+async function previewSelectedMarkdown(view){
+  const file=selectedDownloadFile(view);
+  if(!file?.path||file.preview_kind!=='markdown')return;
+  const info=await jsonFetch('/api/files/preview?path='+encodeURIComponent(file.path));
+  if(info.kind!=='markdown')throw new Error('The selected file is no longer Markdown');
+  window.dispatchEvent(new CustomEvent('taskmenu:file-markdown-preview',{detail:info}));
+}
+
+function consoleText(view){
+  const buffer=view.term.buffer.active;
+  const lines=[];
+  let current='';
+  for(let i=0;i<buffer.length;i++){
+    const line=buffer.getLine(i);
+    if(!line)continue;
+    const text=line.translateToString(true);
+    if(line.isWrapped){current+=text;continue;}
+    if(i>0)lines.push(current);
+    current=text;
+  }
+  if(buffer.length)lines.push(current);
+  while(lines.length&&lines[lines.length-1]==='')lines.pop();
+  return lines.join('\n');
+}
+
+async function copyConsole(view){
+  const text=consoleText(view);
+  if(!text){showCopyFeedback(view,'Console is empty');return;}
+  let copied=false;
+  if(navigator.clipboard&&window.isSecureContext){
+    try{await navigator.clipboard.writeText(text);copied=true;}catch{}
+  }
+  if(!copied){
+    const area=document.createElement('textarea');
+    area.value=text;area.setAttribute('readonly','');area.style.position='fixed';area.style.left='-9999px';area.style.top='0';
+    document.body.append(area);area.select();
+    try{copied=document.execCommand('copy');}finally{area.remove();}
+  }
+  if(!copied)throw new Error('Cannot copy console to clipboard');
+  showCopyFeedback(view,'✓ Copied');
+}
+
+function showCopyFeedback(view,label){
+  clearTimeout(view.copyTimer);view.copy.textContent=label;
+  view.copyTimer=setTimeout(()=>{if(!view.closed)view.copy.textContent='📋 Copy console';},1200);
+}
+
+function logicalBufferLine(buffer,row){
+  if(!buffer||!Number.isFinite(row)||row<0||row>=buffer.length)return '';
+  let start=row;
+  while(start>0){
+    const line=buffer.getLine(start);
+    if(!line?.isWrapped)break;
+    start--;
+  }
+  let text='';
+  for(let i=start;i<buffer.length;i++){
+    const line=buffer.getLine(i);
+    if(!line)break;
+    text+=line.translateToString(true);
+    const next=buffer.getLine(i+1);
+    if(!next?.isWrapped)break;
+  }
+  return text;
+}
+
+function shellPromptContextLine(line){
+  const markers=['$ ','# ','% ','> ','❯ ','➜ '];
+  let best=-1,bestLen=0;
+  for(const marker of markers){
+    const index=String(line||'').lastIndexOf(marker);
+    if(index>best){best=index;bestLen=marker.length;}
+  }
+  return best>=0&&String(line).slice(best+bestLen).trim().length>0;
+}
+
+function selectionLineContext(view){
+  const position=view.term.getSelectionPosition?.();
+  const buffer=view.term.buffer?.active;
+  if(!position||!buffer||!buffer.length)return '';
+  const first=Math.max(0,Math.min(position.start.y,position.end.y));
+  const last=Math.min(buffer.length-1,Math.max(position.start.y,position.end.y));
+  const seen=new Set(),selected=[];
+  for(let row=first;row<=last&&selected.length<64;row++){
+    const line=logicalBufferLine(buffer,row);
+    if(!line||seen.has(line))continue;
+    seen.add(line);selected.push(line);
+  }
+
+  // Preserve the command that produced the selected output. Walking backward
+  // to the nearest prompt lets the server distinguish "ll child/" output from
+  // a later "ll" in the current directory without parsing the prompt path.
+  const before=[];
+  let budget=48*1024;
+  for(let row=first-1;row>=0&&before.length<256&&budget>0;row--){
+    const line=logicalBufferLine(buffer,row);
+    if(!line||seen.has(line))continue;
+    seen.add(line);
+    const clipped=line.length>4096?line.slice(0,4096):line;
+    before.push(clipped);budget-=clipped.length+1;
+    if(shellPromptContextLine(clipped))break;
+  }
+  before.reverse();
+  const context=before.concat(selected).join('\n');
+  return context.length<=65536?context:context.slice(context.length-65536);
+}
+
+function scheduleSelectionScan(view){
+  clearTimeout(view.selectionTimer);
+  view.selectionSeq++;
+  const text=view.term.getSelection();
+  if(!text.trim()){setDownloadFiles(view,[]);return;}
+  const context=selectionLineContext(view);
+  const seq=view.selectionSeq;
+  view.selectionTimer=setTimeout(()=>scanSelection(view,text,context,seq),120);
+}
+
+async function scanSelection(view,text,context,seq){
+  if(!hasPermission('files.read'))return;
+  try{
+    let cwd=String(view.meta?.cwd||'').trim();
+    try{
+      const state=await jsonFetch('/api/sessions/'+encodeURIComponent(view.meta.id)+'/cwd');
+      if(state?.local===true&&String(state.cwd||'').trim())cwd=String(state.cwd).trim();
+      else if(String(view.meta?.target_type||'').toLowerCase()==='ssh'||view.meta?.target_profile_id)cwd='';
+    }catch(error){
+      console.debug('Live terminal CWD unavailable; using session CWD fallback',error);
+    }
+    const data=await jsonFetch('/api/files/selection',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:text.slice(0,65536),context:context.slice(0,65536),cwd})});
+    if(view.closed||seq!==view.selectionSeq)return;
+    setDownloadFiles(view,data.files||[]);
+  }catch(e){
+    if(seq===view.selectionSeq)setDownloadFiles(view,[]);
+    console.warn('Selected-file detection failed',e);
+  }
+}
+
+function connect(view,replay){
+  if(view.closed||browserLeaseLost)return;
+  const ws=new WebSocket(wsURL(view.meta.id));view.ws=ws;ws.binaryType='arraybuffer';
+  ws.onopen=()=>{
+    if(view.closed||view.ws!==ws)return;
+    if(replay){
+      view.term.reset(); // Preserve previous task runs when the user chose Keep log.
+      if(view.restartLogPrefix)view.term.write(view.restartLogPrefix);
+    }
+    view.socketReconnectAttempt=0;
+    clearTimeout(view.reconnectTimer);view.reconnectTimer=null;
+    try{view.fit.fit();}catch{}
+  };
+  ws.onmessage=e=>{
+    if(view.closed||view.ws!==ws)return;
+    const data=e.data;
+    const visibleData=filterOutput(view,data);
+    writeOutput(view,globalThis.TaskDeckTerminalAgents?.filterOutput?.(view,visibleData)??visibleData);
+    window.dispatchEvent(new CustomEvent('taskmenu:output',{detail:{view,data}}));
+  };
+  ws.onclose=async()=>{
+    if(view.closed||browserLeaseLost||view.ws!==ws)return;
+    globalThis.TaskDeckTerminalAgents?.onDisconnect?.(view);
+    let sessionStillRunning=true;
+    try{
+      const meta=await jsonFetch('/api/sessions/'+encodeURIComponent(view.meta.id));
+      if(view.closed||browserLeaseLost||view.ws!==ws)return;
+      updateMeta(meta); // Emits taskmenu:session; SSH 255 is handled by the SSH retry policy.
+      sessionStillRunning=meta.status==='running';
+    }catch(error){
+      // A proxy/network outage can make BOTH the websocket and metadata fetch
+      // fail. Previously this swallowed the error and left the terminal dead.
+      // Retry only the websocket: never create or replay an SSH login here.
+      if(error?.browserLeaseRevoked||view.closed||browserLeaseLost)return;
+      console.warn('Terminal metadata unavailable; retrying existing WebSocket attachment',error);
+    }
+    if(!sessionStillRunning||view.closed||browserLeaseLost||view.ws!==ws)return;
+    const delay=Math.min(15000,600*Math.pow(2,Math.min(view.socketReconnectAttempt||0,5)));
+    view.socketReconnectAttempt=(view.socketReconnectAttempt||0)+1;
+    clearTimeout(view.reconnectTimer);
+    view.reconnectTimer=setTimeout(()=>{
+      view.reconnectTimer=null;
+      if(!view.closed&&!browserLeaseLost&&view.ws===ws)connect(view,true);
+    },delay);
+  };
+}
+
+function focusView(id){
+  const view=views.get(id);
+  if(!view||view.closed)return false;
+  setTimeout(()=>{try{view.fit.fit();view.term.focus();}catch{}},0);
+  return true;
+}
+
+function normalizeForegroundTarget(value){
+  value=String(value||'').trim();
+  if(!value)return '';
+  return value.startsWith('external:')?value:value;
+}
+function claimForegroundView(target){
+  foregroundViewLock=normalizeForegroundTarget(target);
+  return foregroundViewLock;
+}
+function releaseForegroundView(target=''){
+  const normalized=normalizeForegroundTarget(target);
+  if(!normalized||foregroundViewLock===normalized)foregroundViewLock='';
+  return foregroundViewLock;
+}
+function activationAllowed(target,force=false){
+  target=normalizeForegroundTarget(target);
+  if(!foregroundViewLock||foregroundViewLock===target)return true;
+  // Foreground protection applies only to automatic/programmatic opens.
+  // Tab handlers pass force=true, which is the single shared escape hatch for
+  // an explicit workspace-tab switch. This avoids per-feature exceptions and
+  // does not depend on fragile DOM trust/capture timing.
+  if(!force)return false;
+  foregroundViewLock='';
+  return true;
+}
+function activateView(id,{focus=true,force=false}={}){
+  id=String(id||'');
+  if(!activationAllowed(id,force))return false;
+  active=id;
+  for(const [sid,v] of views){
+    const yes=sid===id;v.tab.classList.toggle('active',yes);v.pane.classList.toggle('hidden',!yes);
+    if(yes)setTimeout(()=>{try{v.fit.fit();if(focus)v.term.focus();}catch{}},0);
+  }
+  window.dispatchEvent(new CustomEvent('taskmenu:view-activated',{detail:{kind:'terminal',id,explicit:Boolean(force)}}));
+  return true;
+}
+
+function activateExternalView(token,{force=false}={}){
+  token=String(token||'view');
+  const target='external:'+token;
+  if(!activationAllowed(target,force))return false;
+  active=target;
+  for(const [,v] of views){v.tab.classList.remove('active');v.pane.classList.add('hidden');}
+  window.dispatchEvent(new CustomEvent('taskmenu:view-activated',{detail:{kind:'external',id:token,explicit:Boolean(force)}}));
+  return true;
+}
+
+async function closeView(id){
+  const view=views.get(id);if(!view||view.closing)return;
+  view.closing=true;
+  try{
+    if(view.canControl&&isPristineLocalTerminal(view)&&view.meta.status==='running'){
+      // Stop the pristine shell, then remove its session entirely so browser
+      // reload and persistent workspace layout cannot resurrect it.
+      await jsonFetch('/api/sessions/'+encodeURIComponent(id)+'/stop',{method:'POST'});
+      let exited=false;
+      for(let attempt=0;attempt<25;attempt++){
+        const meta=await jsonFetch('/api/sessions/'+encodeURIComponent(id));
+        if(meta.status!=='running'){exited=true;break;}
+        await new Promise(resolve=>setTimeout(resolve,100));
+      }
+      if(!exited)throw new Error('Fresh terminal is still stopping; retry Close after it exits');
+      await jsonFetch('/api/sessions/'+encodeURIComponent(id),{method:'DELETE'});
+      clearTerminalUsage(id);
+    }else if(view.canControl&&view.meta.status!=='running'){
+      await jsonFetch('/api/sessions/'+encodeURIComponent(id),{method:'DELETE'});
+      clearTerminalUsage(id);
+    }
+    hidden.add(id);
+    teardownView(id);
+    globalThis.TaskMenuTerminalRestore?.persistSnapshot?.();
+  }finally{view.closing=false;}
+}
+
+async function reopenHiddenSession(id){
+  id=String(id||'').trim();
+  if(!id)return false;
+  // Never create a second shell or rerun a task; reattach only a live session.
+  const meta=await jsonFetch('/api/sessions/'+encodeURIComponent(id));
+  if(meta.status!=='running')return false;
+  hidden.delete(id);
+  attach(meta,true);
+  return true;
+}
+
+function teardownView(id){
+  const view=views.get(id);if(!view)return;
+  view.closed=true;clearTimeout(view.reconnectTimer);clearTimeout(view.resizeTimer);clearTimeout(view.selectionTimer);clearTimeout(view.copyTimer);
+  if(view.ro)view.ro.disconnect();try{if(view.ws)view.ws.close();}catch{}view.term.dispose();view.tab.remove();view.pane.remove();views.delete(id);
+  if(active===id){active=null;const next=views.keys().next();if(!next.done)activateView(next.value);}
+}
+
+function setViewReadOnly(viewOrID,enabled){
+  const view=typeof viewOrID==='string'?views.get(viewOrID):viewOrID;
+  if(!view)return false;
+  view.tabReadOnly=Boolean(enabled);
+  view.term.options.disableStdin=!view.canControl||view.tabReadOnly;
+  view.term.options.cursorBlink=view.canControl&&!view.tabReadOnly;
+  view.tab.classList.toggle('taskdeck-tab-readonly',view.tabReadOnly);
+  if(view.tabReadOnly){
+    view.pane.dataset.taskdeckReadonly='1';
+    view.pane.dataset.taskdeckReadonlyKind='terminal';
+  }else{
+    delete view.pane.dataset.taskdeckReadonly;
+    delete view.pane.dataset.taskdeckReadonlyKind;
+  }
+  view.pane.setAttribute('aria-readonly',view.tabReadOnly?'true':'false');
+  if(view.stop)view.stop.disabled=view.meta?.status!=='running';
+  return view.tabReadOnly;
+}
+
+function updateMeta(meta){
+  const view=views.get(meta.id);if(!view)return;
+  view.meta=meta;view.canControl=canControlSession(meta);view.term.options.disableStdin=!view.canControl||Boolean(view.tabReadOnly);
+  const featureOwnsRunningStatus=meta.status==='running'&&Boolean(view.status.dataset.runningIndicatorMode);
+  if(!featureOwnsRunningStatus)view.status.textContent=meta.status+(meta.exit_code!=null?' '+meta.exit_code:'');
+  view.stop.textContent=meta.task_id===0?'Close terminal':'Stop';
+  view.stop.title=meta.task_id===0?'Close the terminal and its running processes':'Stop task';
+  view.stop.hidden=!view.canControl;view.stop.disabled=meta.status!=='running';
+  window.dispatchEvent(new CustomEvent('taskmenu:session',{detail:{view,meta}}));
+}
+
+function isHeadlessPatchSession(meta){
+  // Native Patch/COLLECT backing PTYs are intentionally headless. In local
+  // (non-shared) mode older/current session metadata may not carry kind=patch,
+  // so keep the stable built-in label as a compatibility discriminator.
+  if(Number(meta?.task_id)!==-1)return false;
+  if(meta?.kind==='patch')return true;
+  return String(meta?.label||'').startsWith('Patch Tool · ');
+}
+
+function autoAttachSession(meta){
+  // SSH terminals also use task_id=-1, so never hide task_id=-1 by itself.
+  return !isHeadlessPatchSession(meta);
+}
+
+// Retarget a freshly started task session into the existing xterm view. A new
+// backend session is necessary because exited PTYs cannot be reused; keeping the
+// existing tab/pane avoids creating another workspace tab.
+function retargetTaskView(view,meta,{clearLog=false}={}){
+  const oldID=String(view?.meta?.id||'');
+  if(!oldID||!meta?.id||oldID===meta.id||view.closed||views.get(oldID)!==view)
+    throw new Error('The original task tab is no longer available for restart');
+  const duplicate=views.get(meta.id);
+  if(duplicate&&duplicate!==view)teardownView(meta.id); // Polling may have attached the new session.
+  const wasActive=active===oldID;
+  const preserved=clearLog?'':consoleText(view).slice(-(1024*1024));
+  if(clearLog){
+    view.term.clearSelection();
+    view.term.reset();
+    view.restartLogPrefix='';
+  }else{
+    const marker='\r\n──── Restart this tab · previous console log retained ────\r\n';
+    view.term.write(marker);
+    // Reconstruct the retained local history after transient socket reconnects.
+    // This is browser-local and deliberately not persisted to server storage.
+    view.restartLogPrefix=(preserved?preserved.replace(/\r?\n/g,'\r\n')+'\r\n':'')+marker;
+  }
+  clearTimeout(view.reconnectTimer);view.reconnectTimer=null;
+  if(view.ws){const previousSocket=view.ws;view.ws=null;try{previousSocket.close();}catch{}}
+  views.delete(oldID);
+  view.meta=meta;
+  view.tab.dataset.id=meta.id;
+  view.pane.dataset.id=meta.id;
+  view.pane.querySelector(':scope > .pane-head > .command').textContent=meta.command_preview||'';
+  view.tab.querySelector(':scope > span:not(.status):not(.close):not(.taskdeck-readonly-lock)').textContent=meta.label||'';
+  views.set(meta.id,view);
+  hidden.add(oldID);hidden.delete(meta.id);
+  if(wasActive)active=meta.id;
+  globalThis.TaskMenuSplit?.retargetSession?.(oldID,meta.id);
+  globalThis.TaskMenuTabContext?.retargetTerminal?.(oldID,view);
+  window.dispatchEvent(new CustomEvent('taskmenu:session-retargeted',{detail:{oldID,newID:meta.id,view,clearLog}}));
+  connect(view,false); // Do not reset retained xterm output on the new socket.
+  updateMeta(meta);
+  if(wasActive)activateView(meta.id,{force:true});
+  globalThis.TaskMenuTabOrder?.saveOrder?.();
+  globalThis.TaskMenuTerminalRestore?.persistSnapshot?.();
+  return view;
+}
+
+function materializeSession(meta,activate=true){
+  if(!meta?.id)throw new Error('Session metadata is required');
+  hidden.delete(meta.id);
+  const view=attach(meta,false);
+  if(activate)activateView(meta.id,{force:true});
+  return view;
+}
+
+async function syncSessions(){
+  if(!hasAnyPermission('tasks.view','terminal.view_own','terminal.view_all','patch.view','patch.history','sessions.manage'))return;
+  const data=await jsonFetch('/api/sessions');const seen=new Set();
+  for(const meta of data.sessions){
+    seen.add(meta.id);if(hidden.has(meta.id))continue;
+    if(views.has(meta.id))updateMeta(meta);
+    else if(autoAttachSession(meta)&&![...views.values()].some(view=>view.retargeting&&view.meta?.task_id===meta.task_id))attach(meta,false);
+  }
+  for(const id of [...views.keys()])if(!seen.has(id)&&!views.get(id)?.retargeting)teardownView(id);
+  if(!active&&views.size)activateView(views.keys().next().value);
+}
+
+function showError(e){console.error(e);if(e?.browserLeaseRevoked)return;alert('ERROR: '+e.message);}
+globalThis.TaskMenuApp={
+  get taskData(){return taskData;},
+  get active(){return active;},
+  get browserLease(){return browserLease;},
+  get browserLeaseLost(){return browserLeaseLost;},
+  get layoutProfile(){return layoutProfile;},
+  get currentUser(){return currentUser;},
+  get sharedMode(){return sharedMode;},
+	views,jsonFetch,fetchWithLease,showError,consoleText,startTask,startTerminal,activateView,focusView,activateExternalView,claimForegroundView,releaseForegroundView,get foregroundViewLock(){return foregroundViewLock;},loadTasks,syncSessions,attachSession:attach,reopenHiddenSession,materializeSession,retargetTaskView,setViewReadOnly,addOutputFilter,hasPermission,hasAnyPermission,canControlSession
+};
+document.querySelector('#open-terminal').onclick=()=>startTerminal().catch(showError);
+document.querySelector('#logout').onclick=()=>logout().catch(showError);
+document.querySelector('#edit-title').onclick=()=>{try{editPageTitle();}catch(e){showError(e);}};
+document.querySelector('#reload').onclick=()=>loadTasks().catch(showError);
+await loadCurrentUser();await acquireBrowserLease();await loadTasks();await syncSessions();await refreshMutationLock();
+setInterval(()=>{if(!browserLeaseLost)syncSessions().catch(()=>{});},1000);
+setInterval(()=>{if(!browserLeaseLost)refreshMutationLock().catch(()=>{});},2000);
+browserLeaseHeartbeat=setInterval(()=>checkBrowserLease().catch(e=>console.warn('Browser lease heartbeat failed',e)),1000);`

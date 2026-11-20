@@ -1,0 +1,1286 @@
+# TaskDeck Remote — bảng trạng thái tính năng (cập nhật 01/11/2026)
+
+**Mục tiêu hiện tại:** chuyển trọng tâm sang trusted native Remote GUI trên Linux/macOS; Files view, Git metadata/diff và host-approved Tasks qua E2EE; **không mở rộng UX tải file**. CLI vẫn còn để nghiệm thu các chức năng khác.
+**Tuyệt đối không diễn giải feature đang có thành đã được phép release LIVE.** `remote_control_available=false` là chính sách hiện tại. Các nhận định bên dưới là trạng thái code/CI, chưa phải nghiệm thu thực địa.
+
+## Đã có trong main (staging, chưa LIVE)
+
+| Lĩnh vực | Đã triển khai (experimental / staging) | Giới hạn |
+| --- | --- | --- |
+| Native Remote GUI (PR chờ CI) | Chạy native client với `--gui` sau khi xác thực Agent ghim Ed25519 + password TaskDeck | Trang Files (duyệt/xem), Git (status/log/branches/diff), Tasks (host-approved review/run/start/status/output/cancel); local-only 127.0.0.1, CSP, Origin+CSRF token, không mã PHP, 6 lượt E2EE/phiên, 5 phút; **chưa phải GUI tương đương local** |\n| Kết nối & đăng nhập | Native CLI E2EE, Agent Device ID được pin ngoài PHP, client Ed25519 key được host CLI duyệt, mật khẩu TaskDeck, TaskDeck RBAC, Portal grant và audit trên host | Cần chính sách triển khai và kiểm thử an ninh thực tế |
+| Điều hướng | `pwd`, `cd`, `ls`; định tuyến đường dẫn tương đối trong workspace | `cd` chỉ là trạng thái local, không phải remote shell |
+| Xem & tìm file | `view`, `lines`, `find` | Preview UTF-8 đầy đủ tối đa 4096 bytes, không đọc partial trong editor |
+| Xem trang dòng lớn | `view-lines <file> <start-line>` | Đã merge main PR #41 (`0a61f04e`); chỉ đọc nguồn UTF-8 <=2MiB, hash SHA-256 toàn file; mỗi trang <=4KiB |
+| Xem trang tiếp | `view-next` | Đã merge main PR #42 (`d6dc274b`), dùng NEXT_LINE đã xác thực; không tải file |
+| Tìm literal trong file lớn | `find-lines <file> :: <literal>` | Đã merge main PR #43 (`19c95c6e`); nguồn UTF-8 <=2MiB, tất cả dòng khớp phải vừa 4KiB, E2EE FilesRead |
+| Chỉnh sửa 1 dòng file lớn (staging trên main) | `edit-large-line <file> <line>` | UTF-8 <=2MiB, 1 dòng <=512B, full-file SHA-256 CAS, khóa ghi/confirm; host có 3 cờ opt-in OFF mặc định; **đã merge PR #50 (`c2e6f621`)** |\n| Chỉnh sửa file | `edit`, `edit-line`, `insert-line`, `delete-line`, `replace`, `replace-all`, `edit-range`, `move-lines` | SHA-256 CAS, phải xác nhận, FilesWrite và 2 host flags; tối đa 4096 bytes |
+| Git chỉ đọc | `git status`, `git log`, `git branches`, `git diff <file>`, `git diff --staged <file>`, `git review <file>`, `git diff --head <file>` | Output tối đa 4KiB; từ chối Git config có executable filters |
+| Git stage (experimental) | `git stage <file>` | Đã vào main trong PR #36; host mặc định OFF; GitWrite + FilesRead + FilesWrite, SHA-256 CAS, chỉ file UTF-8 <=4KiB |
+| Git unstage (experimental) | `git unstage <file>` | Đã vào main trong PR #37; host mặc định OFF; yêu cầu SHA-256 staged diff, GitWrite + FilesRead + FilesWrite và xác nhận |
+| Git commit-review | `git commit-review` | Đã vào main trong PR #38 (`f2357459`), chỉ xem toàn bộ staged diff <=4KiB, không ghi |
+| Git commit (experimental) | `git commit` | Đã vào main trong PR #39 (`4241e633`), phải host opt-in, review+HEAD/index CAS, index.lock; không tự bật LIVE |
+| Git branch-create (experimental) | `git branch-review`, `git branch-create <slug>` | Đã vào main PR #45 (`6ee632f1`), chỉ tạo `refs/heads/taskdeck/<slug>` qua HEAD/CAS, cần 2 host flags; không checkout |
+| Git branch-delete cùng HEAD (staging trên main) | `git branch-delete taskdeck/<slug>` | Chỉ xóa ref dư thừa cùng HEAD khi sạch, không phải branch đang dùng; review/CAS, host 2 flags mặc định OFF; **đã merge PR #49 (`5c9891ac`)** |\n| Git switch cùng HEAD (experimental) | `git switch taskdeck/<slug>` | Đã merge PR #47 (`79b1818b`); chỉ đổi symbolic HEAD khi target cùng commit, index/worktree sạch; 2 host flags mặc định OFF, không checkout commit khác |
+| Terminal task giới hạn | `terminal tasks`, `terminal task <ID>` | Chỉ task host đã phê duyệt; không có stdin/PTY/shell tùy ý; output tối đa 4 KiB |
+| Managed task output theo cursor (đã merge #53 vào main, staging) | `terminal task-output <handle> <byte-offset>` | Mỗi lượt chỉ tối đa 2048 byte UTF-8, có OFFSET/NEXT/TOTAL/EOF; offset cũ bị evict phải báo lỗi, không tự bỏ qua dữ liệu; broker dùng Session Manager cục bộ; Go/PHP CI PASS; chưa LIVE; không phải streaming/PTY, giới hạn 6 lượt E2EE/phiên và cần đọc trước khi dùng terminal task-status kết thúc |\n| Managed terminal task (đã merge #52 vào main, staging) | `terminal task-start <ID>`, `terminal task-status <handle>`, `terminal task-cancel <handle>` | Task host phê duyệt, 30 giây tối đa, 1 task/phiên, mã E2EE ngẫu nhiên, cleanup theo session, cờ host riêng mặc định OFF; CI Go/PHP PASS, chưa LIVE; không shell, stdin, PTY |\n| Terminal report (đã merge #51 vào main, staging) | `terminal task-report <ID>` | Exit code lấy từ metadata host, output UTF-8 <=3500B, 2 lượt xác nhận E2EE; task <=7 giây, không mở stdin/PTY; Go/PHP CI PASS; chưa LIVE |
+| Phiên thao tác | Typed E2EE application actions | 6 actions / 5 phút; thao tác sửa thường tốn 2 lượt |
+
+## Đang làm dở / chưa merge main
+
+| Hạng mục | Vị trí | Trạng thái và điều kiện hoàn thành |
+| --- | --- | --- |
+
+| Nghiệm thu bảo mật, NAT/CGNAT, host PHP thật | Chưa có kết quả nghiệm thu toàn diện | Phải thử với PHP/Relay bị chiếm quyền, Linux/macOS, sai/revoke grant, replay, audit |
+| Phát hành LIVE | Chặn | Không bật `remote_control_available` khi các gate chưa chứng minh đạt |
+
+**Lưu ý:** PR #32 (`edit-range`, `4a03a9fc`), PR #33 (`move-lines`, `3345a7ca`), PR #34 (`git review`, `b7211c32`) PR #35 (`git diff --head`, `bae2795d`) và PR #36 (`git stage`, `4bc4b352`) đã merge main sau Go/PHP CI PASS. PR #37 (`git unstage`, `2152e8cc`) đã merge. PR #38 (`git commit-review`, `f2357459`) đã merge. PR #39 (`git commit`, `4241e633`) đã merge. PR #40 (`terminal task` xác nhận, `aae6203a`) và PR #41 (`view-lines`, `0a61f04e`) đã merge. PR #42 (`view-next`, `d6dc274b`) đã merge. PR #43 (`find-lines`, `19c95c6e`) đã merge sau Go/PHP CI PASS. PR #45 (`git branch-create`, `6ee632f1`) và PR #47 (`git switch` cùng HEAD, `79b1818b`) đã merge sau Go/PHP CI PASS trên commit cuối.
+
+## Chưa hỗ trợ trong remote interactive console
+
+1. Terminal PTY/shell tương tác thực sự: stdin/stdout/stderr streaming, resize, attach/detach, process cancellation, giới hạn luồng và backpressure.
+2. Git ghi: `stage` đã merge main nhưng host OFF theo mặc định; `unstage` đã merge main (host OFF); `commit-review` đã merge main; `commit` đã merge main nhưng host OFF; amend, checkout/switch sang commit khác, branch deletion giới hạn cùng HEAD đã merge PR #49; merge/rebase chưa triển khai; chỉ tạo branch mới và switch cùng HEAD trong `taskdeck/` đã merge, host mặc định OFF; push/pull/fetch cần policy riêng. Không cho nhập command shell tự do để “giả lập Git”.
+3. Edit nguồn UTF-8 >4KiB: thao tác thay đúng một dòng có full-file SHA-CAS đã vào main (PR #50), mặc định OFF; editor nhiều dòng, sửa vùng bất kỳ và chỉnh nhiều file trong cùng transaction chưa hỗ trợ.
+4. Giao diện remote GUI/WebView đầy đủ tương đương TaskDeck local; hiện có native console giới hạn, không cung cấp arbitrary HTTP/WS proxy.
+5. Remote upload / file manager toàn diện. Một số giao thức native scoped download tồn tại ở phần khác của mã staging, nhưng **không thuộc console tương tác hiện tại** và không được mở rộng UX theo ưu tiên người dùng.
+6. Phiên dài, quản lý nhiều streams, phục hồi nối lại tiến trình sau mất mạng, cancellation an toàn cho thao tác không idempotent.
+7. Nghiệm thu bảo mật độc lập, chính sách MFA/recovery/revocation live trên hạ tầng thật và kiểm thử triển khai macOS/Linux qua shared-host PHP để cấp phép LIVE.
+
+## Nguyên tắc bảo mật bất biến
+
+- Giả định PHP có thể bị sửa đổi sau lần pairing đáng tin: PHP không thể trở thành TaskDeck principal, thay Client/Agent key đã pin, hay có mật khẩu TaskDeck.
+- Relay/PHP không giải mã được app data E2EE và không thể lách login của TaskDeck để thực thi lệnh.
+- Mọi action phải được giới hạn đúng loại, có RBAC host, grant còn hiệu lực, audit, deadline/quota/replay guard; không chuyển raw URL, shell argv hay JS từ PHP thành lệnh host.
+- File mutation dùng full preview + SHA-256 CAS + mutation lock; không tự ghi đè file đã đổi; user confirmation chỉ là bổ sung, không thay authorization của host.
+
+## Quy tắc báo cáo mỗi lượt tiếp theo
+
+Mỗi lần hoàn tất công việc phải nêu rõ: (1) code/commit/PR/nhánh và CI; (2) tính năng đã vào main vs còn PR; (3) **đang làm dở**; (4) **chưa hỗ trợ**; (5) cảnh báo release nếu còn gate NO-GO.
+
+
+## Bổ sung 01/11/2026 — Git review hai chiều (PR đang kiểm thử)
+
+- Nhánh `feature/remote-native-console-git-review-20261101`.
+- `git review <file>` xem toàn bộ (mỗi diff tối đa 4KiB) thay đổi
+  **chưa stage** và **đã stage** với tiêu đề riêng, cùng đường dẫn.
+- Dùng hai action E2EE sẵn có `git.diff` và `git.diff_staged`;
+  cả hai qua TaskDeck GitStatus + FilesRead, client key allowlist,
+  live Portal grant, host audit, không nhận arbitrary shell/git argv.
+- Hai lượt E2EE trên tổng sáu lượt; từ chối trước khi đọc nếu quota
+  chỉ còn một, nếu lỗi/thu hồi quyền tại lượt hai thì không in
+  kết quả dang dở. Escape ANSI/C0/C1/bidi khi hiển thị.
+- Chưa có lệnh Git **stage/unstage/commit**. Chưa có giao diện tải file.
+  Chưa phát hành LIVE và giữ `remote_control_available=false`.
+- `edit-range` (#32) và `move-lines` (#33) đã merge main sau
+  Go + PHP CI xanh trên PR head.
+
+
+## Bổ sung 01/11/2026 — Git HEAD diff (nhánh đang CI)
+
+- Nhánh `feature/remote-git-head-diff-20261101`.
+- `git diff --head <file>` thêm typed action `git.diff_head`, đọc
+  **tổng thay đổi HEAD → working tree** (bao gồm staged và unstaged).
+  Giới hạn 4096 bytes UTF-8, chỉ một lượt E2EE, không cắt cụt output.
+- Host chỉ cho revision cố định `HEAD`, path đã được giới hạn/pin
+  trong workspace, GitStatus ∩ FilesRead, host local audit, mật khẩu
+  TaskDeck, client Ed25519 được duyệt, live Portal grant, E2EE.
+- Không chạy shell, hooks, external diff/textconv, không ghi Git index
+  hoặc worktree. Các kiểu kết quả E2EE là độc lập, chống tráo type.
+- Regression: typed protocol, từ chối path/revision sai, quá 4KiB,
+  type swap, host Git index không đổi khi có cả staged/unstaged,
+  symlink escape, không có TaskDeck principal; CI Go/PHP mới.
+- `git.diff_head` chưa được tính là hỗ trợ trong `main` trước khi
+  CI trên đúng SHA PASS và PR merge. Chưa stage/commit/PTY/LIVE.
+
+
+## Bổ sung 01/11/2026 — Git stage an toàn (PR chưa merge)
+
+- Nhánh `feature/remote-git-safe-stage-20261101`: `git stage <file>`
+  stage **toàn bộ** một file UTF-8 hiện có trong workspace, <=4KiB,
+  sau preview, xác nhận `STAGE <file>`, đối chiếu SHA-256 CAS trên host.
+- Dùng typed action `git.stage` và kết quả E2EE riêng chỉ chứa blob
+  OID; Relay/PHP không thấy file/path/hash hoặc lấy được TaskDeck principal.
+- Phải có cả hai cờ host `TASKDECK_REMOTE_GIT_WRITE=1` và
+  `TASKDECK_REMOTE_GIT_STAGE=1`, mặc định OFF. Cần quyền
+  GitWrite + FilesRead + FilesWrite của người dùng TaskDeck,
+  E2EE, approved client key, Agent ID pin, Portal grant đang sống,
+  audit trước ghi, shared mutation lease, revoke lock.
+- **Không dùng git add**: `hash-object --no-filters -w --stdin` rồi
+  `update-index --add --cacheinfo`, path được kiểm tra/pin, hook và
+  fsmonitor tắt, Git executable tin cậy, không shell/PTY/argv tùy ý.
+  Chỉ hỗ trợ Git repo có thư mục `.git` thật, không linked worktrees.
+- Test: strict E2EE schema, reject flag/command injection, host flags OFF,
+  CAS stale, PHP không thể giả TaskDeck login, Git clean filter không
+  chạy, index đúng nội dung, file không đổi, symlink escape, replay,
+  confirmation/quota/path; CI Go/PHP trên đúng PR HEAD.
+- Git unstage, commit, reset, pull, push, shell/PTY và file tải về
+  **vẫn chưa hỗ trợ**. Chỉ merge khi toàn bộ CI đạt; không phát hành LIVE.
+
+
+## Bổ sung bảo mật — chặn Git đọc kích hoạt clean filter
+
+- Đã xác nhận Git `status` và `diff` có thể chạy `filter.*.clean`
+  của repo dù chỉ đọc và dùng `--no-ext-diff`. Đây là đường thực thi
+  không được cấp phép cho quyền GitStatus/FilesRead.
+- PR #36 bổ sung `remoteGitReadOnlyConfigSafe`: kiểm tra toàn bộ
+  Git config có nạp includes, từ chối status/status_full/log/branches/
+  diff/diff_staged/diff_head nếu có bất kỳ driver
+  `filter.*.(clean|process|smudge)`; không chạy filter.
+- Có regression filter độc hại tạo marker, tất cả 7 read actions phải
+  từ chối mà không tạo marker; includes cũng không bypass được.
+- Tác động có chủ đích: repo có Git LFS/custom filters trong config
+  sẽ không dùng các Git read views từ xa cho đến khi có thiết kế
+  filter-free an toàn hơn. Stage typed riêng vẫn dùng `--no-filters`.
+- **PR #36 đang CI, chưa vào main. LIVE NO-GO.**
+
+
+## Bổ sung 01/11/2026 — Git unstage (PR đang CI)
+
+- PR #36 `git stage` và chặn Git read clean filters đã merge `main`
+  tại `4bc4b352`, sau Go và PHP CI trên SHA `97642d09` PASS.
+- Nhánh `feature/remote-git-safe-unstage-20261101`: thêm lệnh
+  `git unstage <file>` vào native E2EE console, yêu cầu staged diff
+  đầy đủ tối đa 4KiB, xác nhận chính xác `UNSTAGE <file>`,
+  CAS SHA-256 của staged diff, hai lượt trên tối đa sáu lượt E2EE.
+- Host chỉ khôi phục **một** index entry về blob/mode của `HEAD`;
+  file mới được stage sẽ bị loại khỏi index, giữ nguyên working tree.
+  Không gọi `git reset`, hooks, external filters hay shell; không nhận
+  revision/argv do PHP, Relay hoặc người dùng cung cấp.
+- Có hai cờ host độc lập với stage:
+  `TASKDECK_REMOTE_GIT_WRITE=1` và `TASKDECK_REMOTE_GIT_UNSTAGE=1`;
+  mặc định tắt. Bắt buộc GitWrite, FilesRead, FilesWrite TaskDeck
+  RBAC, client key được host duyệt, Agent pin, live Portal grant,
+  audit trước side effect và revocation lock.
+- Giới hạn: chỉ file còn trong working tree, Git root có thư mục
+  `.git` thật, không nhận staged deletion, symlink, submodule,
+  conflicted index, binary diff, Git LFS/custom executable filters,
+  không hứa atomic với external Git writers ngoài TaskDeck.
+- Kiểm thử E2EE, console, staged/unstaged khác nhau, file mới,
+  file khác không đổi, denied viewer/flags, stale CAS, replay,
+  symlink và parser index. Chưa merge cho tới Go/PHP CI trên exact
+  PR head PASS. `remote_control_available=false` và LIVE NO-GO.
+
+## Bổ sung — Git commit-review riêng (PR chưa merge)
+
+- Nhánh `feature/remote-git-commit-review-20261101` phát triển
+  `git commit-review` (đọc thuần, chưa có `git commit`). Trả về
+  HEAD oid, branch ref, SHA-256 toàn bộ Git index và diff **tất cả**
+  những gì đã stage, chỉ nếu kết quả đầy đủ <=4KiB UTF-8.
+- Kiểm tra repo Git root thực, `.git/index` regular không symlink,
+  giới hạn 1MiB index, từ chối object-store symlink/alternates và\n  replace refs, HEAD commit hiện hữu, branch symbolic (không
+  detached), đối chiếu lại index/HEAD/branch trước phản hồi.
+- Yêu cầu host GitWrite **và** FilesRead TaskDeck, live Portal grant,
+  approved client key, mật khẩu TaskDeck native, E2EE authenticated
+  và audit riêng. Host dùng trusted Git với env cách ly,
+  chặn executable Git filter, không shell, hooks hay Git mutation.
+- Test: schema E2EE no args, type swap, output quá 4KiB bị từ chối,
+  host không sửa index/HEAD, nhiều trạng thái staged+unstaged,
+  viewer/PHP-only bị chặn, clean filter và no staged diff bị chặn.
+- `git commit` thực sự chưa triển khai: cần snapshot index cố định,
+  commit-tree/update-ref CAS, audit trước side effect và an toàn
+  đối với external Git writers. Remote LIVE vẫn NO-GO.
+
+## Bổ sung 01/11/2026 — Git commit có CAS (PR chưa merge)
+
+- `feature/remote-git-pinned-commit-20261101`: `git commit` không có
+  flags, cần `git.commit_review` đầy đủ trước, xác nhận
+  `COMMIT <12-hex-HEAD>` và commit message ASCII 3–96 ký tự.
+- Hai typed E2EE actions, review SHA-256 toàn bộ, request/response tách
+  kiểu và replay protection. PHP/Relay không biết message/hash.
+- Host mặc định OFF: cần đồng thời `TASKDECK_REMOTE_GIT_WRITE=1` và
+  `TASKDECK_REMOTE_GIT_COMMIT=1`. Cần local TaskDeck password,
+  approved Ed25519 client key, Agent pin, Portal grant live, GitWrite,
+  FilesRead, FilesWrite, audit trước side effect, session revoke lock.
+- Host tạo tree từ **bản sao Git index đúng SHA**; chạy fixed
+  `write-tree`, `commit-tree` với identity host, cấm hooks/filters/
+  signing/editor, rồi `update-ref` bằng expected-old-OID. Không cho
+  PHP/user truyền arbitrary Git argv, branch, parent hoặc script.
+- Refuse HEAD/index thay đổi, clean filter, Git alternates, symlink
+  object store, review không đầy đủ/binary, index quá 1MiB, không staged
+  changes; giữ working tree và Git index nguyên vẹn.
+- Giới hạn cần nghiệm thu: Git process bên ngoài TaskDeck có thể sửa
+  index giữa lần xác minh CAS cuối và `update-ref`; CAS branch vẫn
+  chống ghi đè HEAD thay đổi nhưng chưa atomic cùng index. Có thể
+  tạo orphan Git objects nếu update-ref thất bại.
+- Có regression protocol, UI, Git real filesystem, hooks, denied
+  viewer/PHP-only, opt-out, stale/replay, CAS. Chỉ merge sau exact-head
+  Go/PHP CI PASS. `remote_control_available=false`; LIVE NO-GO.
+
+- Bổ sung khóa `.git/index.lock` với O_EXCL cho toàn bộ kiểm tra
+  index, tạo commit và update-ref. Từ chối nếu có lock của tiến trình
+  Git khác, xóa lock của TaskDeck sau khi xong. Chỉ bảo vệ các writer
+  tuân thủ Git lock; cần nghiệm thu writer sửa file Git trực tiếp.
+
+## Bổ sung — Terminal TaskDeck có xác nhận host (PR chờ CI)
+
+- Nhánh `feature/remote-terminal-reviewed-task-20261101`: lệnh
+  `terminal task <ID>` yêu cầu trước đó một `task.list` authenticated
+  E2EE trên chính phiên, hiển thị tên task từ host, nhập chính xác
+  `RUN TASK <ID>` rồi mới gọi `task.run_text`.
+- Không cho chạy task không có trong catalogue, đầu vào có dấu điều
+  khiển/bidi, danh mục thiếu newline, trùng ID/không canonical và vượt
+  quota 6 lượt E2EE; từ chối fail-closed, không tự thực thi.
+- Host **vẫn** xác thực lại toàn bộ hash định nghĩa task và cờ host,
+  principal TaskDeck, TasksRun, Portal live grant, process allowlist
+  và audit trước side effect. Tính năng không mở shell tuỳ ý.
+- Có test native thao tác 2 lượt, cancel, malformed list, zero/leading
+  zero/overflow ID, terminal spoof, quota. Cần Go/PHP CI cuối PASS
+  trước merge. LIVE tiếp tục NO-GO.
+
+## Bổ sung — xem file nguồn theo trang dòng E2EE (PR chưa merge)
+
+- Nhánh `feature/remote-native-file-line-pages-20261101`: lệnh
+  `view-lines <file> <start-line>` đọc từng trang từ file nguồn
+  UTF-8 **tối đa 2MiB**, trang E2EE đầy đủ <=4KiB.
+- Host pin descriptor vào workspace, đối chiếu độ ổn định trước/sau,
+  tính SHA-256 **toàn bộ file**, đếm tổng số dòng, NEXT_LINE và
+  chỉ in các dòng hoàn chỉnh (không cắt giữa dòng).
+- Client xác thực metadata chặt chẽ, nhớ hash theo file và dừng in
+  nếu source thay đổi giữa hai trang trong cùng phiên; output escape
+  ANSI/bidi/control. Cần local TaskDeck login, FilesRead, live Portal
+  grant, E2EE và host audit. Không tự download, không sửa file.
+- File edit và view đầy đủ vẫn yêu cầu <=4KiB; lệnh mới chỉ đọc.
+  Chưa hoàn thiện GUI, scrolling dài hạn hay transactional edit lớn.
+  PR cần Go/PHP CI PASS trước merge, LIVE vẫn NO-GO.
+
+## Bổ sung — điều hướng view-next (đã merge PR #42)
+
+- `feature/remote-native-file-view-next-20261101` (xây trên PR #41):
+  `view-next` không có đối số, tự dùng đúng `NEXT_LINE` và đường dẫn
+  file từ trang gần nhất đã xác thực E2EE.
+- Trước trang đầu, sau EOF hoặc khi SHA nguồn đổi thì không gửi yêu
+  cầu đọc tiếp. Không thay đổi đường dẫn bởi local `cd`, không có
+  quyền shell, download hoặc file mutation.
+- Mỗi trang là 1 E2EE action, giữ quota 6 lượt, cùng FilesRead,
+  grant live và audit ở host. Kiểm thử có EOF, SHA mismatch, local cwd,
+  shell injection, quota và không in trang của phiên bản mới.
+- PR #41 đã merge main, PR #42 đã merge; chưa được phép LIVE.
+
+## Bổ sung — find-lines trên file nguồn đến 2MiB (đã merge PR #43)
+
+- Nhánh `feature/remote-native-find-lines-20261101`:
+  `find-lines <file> :: <literal>` tìm chính xác chuỗi UTF-8 (1–96 bytes)
+  trong **toàn bộ** file nguồn tối đa 2MiB, không chỉ 4KiB đầu.
+- Kết quả gồm hash SHA256 toàn file, hash chuỗi tìm kiếm, số dòng tổng,
+  **tổng số dòng khớp** và nội dung đầy đủ từng dòng khớp có số thứ tự.
+  Nếu không vừa 4KiB thì từ chối tất cả, không hiện kết quả bị cắt.
+- Host kiểm tra FilesRead, E2EE native principal, key được phép, grant
+  Portal còn hiệu lực, audit và pinned descriptor filesystem; không
+  shell, regex thực thi, arbitrary path, tải file hay ghi đè source.
+- Client xác minh hash toàn file và truy vấn, tổng matches/line numbers,
+  không in kết quả từ file đã thay SHA giữa các trang đã xem.
+- Go/PHP CI đã PASS trên exact HEAD và PR #43 đã merge; vẫn
+  `remote_control_available=false` và LIVE NO-GO.
+
+## Bổ sung — Git branch-create có CAS (đã merge PR #45)
+
+- `feature/remote-git-branch-create-20261101`: native
+  `git branch-create <slug>` không nhận Git flags/argv, luôn đọc
+  `git.branch_review` (HEAD + branch hiện hành), kiểm tra SHA-256 và
+  yêu cầu nhập `CREATE BRANCH taskdeck/<slug> <12 ký tự HEAD>`.
+- Host chỉ tạo `refs/heads/taskdeck/<slug>` qua `git update-ref`
+  có expected-old-OID toàn số 0, từ chối nhánh đã tồn tại; không
+  checkout, không đụng Git index/working tree, không chạy hooks.
+- Chỉ hoạt động khi host bật đồng thời
+  `TASKDECK_REMOTE_GIT_WRITE=1` và
+  `TASKDECK_REMOTE_GIT_BRANCH_CREATE=1`. Cần local TaskDeck login,
+  Ed25519 key duyệt tại host, Agent pin, Portal grant live, GitWrite,
+  FilesRead, FilesWrite, audit trước ghi refs và session revoke mutex.
+- Có regression E2EE, no-PHP-principal, RBAC viewer, opt-out flags,
+  Git thực tế, existing branch, stale HEAD, Git hooks, symlink, alternates,
+  không chuyển shell hoặc ref tùy ý. Go/PHP CI đã PASS trên
+  exact HEAD; PR #45 đã merge; LIVE vẫn NO-GO.
+
+## Bổ sung — git switch cùng HEAD (đã merge PR #47)
+
+- Nhánh `feature/remote-git-same-head-switch-20261101`:
+  `git switch taskdeck/<slug>` **chỉ** đổi symbolic HEAD khi target
+  branch cùng commit HEAD, Git index/worktree/untracked đều sạch,
+  không gọi `checkout` hay sửa nội dung dự án.
+- E2EE 2 lượt: review chứa HEAD, source branch, target ref/OID,
+  index SHA256, CLEAN yes; native xác nhận `SWITCH taskdeck/<slug> <12hex>`,
+  host bắt buộc đối chiếu lại SHA toàn bộ review và kiểm tra sau khi
+  lấy HEAD/ref lock. Chỉ target loose ref không symlink.
+- Bật riêng bằng `TASKDECK_REMOTE_GIT_WRITE=1` và
+  `TASKDECK_REMOTE_GIT_SWITCH_SAME_HEAD=1` trên host; còn lại
+  TaskDeck password, approved Ed25519, Agent pin, GitWrite, FilesRead,
+  FilesWrite, live Portal grant và audit trước ghi.
+- Chưa hỗ trợ switch commit khác, checkout, force, merge, rebase,
+  shell/PTY hoặc file transfer UX. CI Go/PHP đã PASS trên exact HEAD, PR #47 đã merge;
+  vẫn cần nghiệm thu security thực tế; `remote_control_available=false`.
+
+
+## Bổ sung 02/11/2026 — xóa một dòng file UTF-8 lớn (PR chờ CI)
+
+- Nhánh `feature/remote-large-file-safe-line-delete-20261102`: native console có lệnh `delete-large-line <file> <line>` cho file nguồn hiện hữu UTF-8 tối đa 2 MiB.
+- Đọc dòng mục tiêu qua `project.file.lines` với **SHA-256 toàn file**, hiển thị nguyên dòng và chỉ gửi lệnh ghi sau khi người dùng nhập chính xác `DELETE LINE <line> <12-hex-SHA>`.
+- Host dùng typed E2EE `project.file.delete_line` riêng (không shell, PHP script, upload hay download); phản hồi xóa có loại receipt riêng, không thể tráo với receipt sửa dòng hoặc thay toàn file.
+- Yêu cầu FilesWrite + FilesRead, client Ed25519 đã duyệt, mật khẩu TaskDeck, Portal grant đang hoạt động, audit trên host trước ghi; ba host flags `TASKDECK_REMOTE_FILE_REPLACE`, `TASKDECK_REMOTE_TEXT_EDIT`, `TASKDECK_REMOTE_LARGE_LINE_EDIT` đều phải bật rõ ràng (mặc định OFF).
+- Xóa đúng dòng đã xem cùng newline theo sau nếu có; nếu dòng cuối không có newline thì xóa cả dấu phân cách LF/CRLF đứng trước, khớp lệnh `delete-line` file nhỏ. Các dòng còn lại giữ nguyên byte và quyền file. Ghi qua pinned fd + SHA-256 CAS + shared mutation lease và atomic rename, cấm path symlink/metadata/thoát workspace, từ chối file đổi sau review, nguồn không phải UTF-8 hoặc dòng dài hơn trang E2EE.
+- Regression cho Go host/transport/native console, quyền bị từ chối, flags OFF, stale SHA, replay, symlink, CRLF và receipt type swap; bắt buộc Go/PHP CI exact PR HEAD PASS trước khi merge.
+- **Chưa hỗ trợ:** xóa nhiều dòng file lớn trong một transaction, edit-range >4KiB, PTY, Git merge/rebase/push/pull, file transfer UX; remote vẫn `remote_control_available=false` và **LIVE NO-GO**.
+
+
+## Bổ sung 02/11/2026 — chèn một dòng file lớn (PR #57, chưa merge)
+
+- `delete-large-line` đã merge `main` qua PR #56 (`8c2cc30a`) sau Go/PHP/GUI CI xanh.
+- Nhánh `feature/remote-large-file-safe-line-insert-20261102`: thêm lệnh native `insert-large-line <file> <line>` chỉ **chèn trước dòng có thật** của nguồn UTF-8 <=2MiB, không chèn vào dòng ảo cuối file và không mở file transfer.
+- Xem dòng đích và hash toàn file từ typed E2EE `project.file.lines`, nhập chính xác `INSERT LINE <line> <12 hex của SHA-256>`; gửi typed `project.file.insert_line` mang một dòng literal <=512B và SHA-256 toàn file.
+- E2EE result được domain-separated với sửa/xóa file, chống type swap; xác thực TaskDeck principal, FilesRead+FilesWrite, approved client Ed25519, Agent pin và live Portal grant. Audit trước ghi, shared mutation lock, session revoke lock, pinned full-file CAS, atomic rename. Ba host flag `TASKDECK_REMOTE_FILE_REPLACE`, `TASKDECK_REMOTE_TEXT_EDIT`, `TASKDECK_REMOTE_LARGE_LINE_EDIT` vẫn OFF mặc định và đều bắt buộc.
+- Chèn dòng mới giữ toàn bộ byte có sẵn, dùng LF/CRLF của dòng đích hoặc dòng trước nếu dòng cuối thiếu newline; từ chối UTF-8 sai, symlink, quá 2MiB, target quá dài, stale SHA, role không đủ, cờ OFF, replay, request/schema giả.
+- Đã thêm test host, native console, protocol và CI gate; cần cả Go, PHP, GUI CI trên exact PR head PASS mới được merge. `remote_control_available=false`, LIVE NO-GO.
+- Chưa hỗ trợ edit-range nhiều dòng của file lớn, chèn vào EOF nếu không có dòng đích, các thao tác trên nhiều file cùng transaction, PTY/shell tương tác, Git merge/rebase/push/pull/fetch và UX tải file.
+
+
+## Bổ sung 02/11/2026 — tìm literal qua native Remote GUI (PR #58 đã merge main)
+
+- PR #57 đã merge `main` commit `739185bb` sau khi Go/PHP/native GUI CI xanh; console có `insert-large-line` giới hạn trước một dòng có thật trong file UTF-8 <=2MiB.
+- Nhánh `feature/remote-native-gui-find-lines-20261102` mở rộng **Files** của native GUI độc lập, không tải JavaScript từ PHP. Có ô tìm một chuỗi literal (UTF-8, 1–96 byte) trong một file UTF-8 <=2 MiB; không phải regex, recursive scan, hay download.
+- Local handler chỉ nhận typed `file_find_lines` kèm `path` + `literal`, kiểm soát localhost Host+Origin+CSRF local key, đường dẫn nằm trong workspace và không phải tệp ẩn/Git metadata. Từ chối trường mode/confirm/task_id/offset thừa và literal trái phép trong các action khác.
+- Client E2EE có sẵn `project.file.find_lines`, host thực hiện FilesRead + TaskDeck principal + approved Ed25519 client key + pinned Agent + live Portal grant. Báo cáo chỉ được hiển thị nếu đủ FILE_SHA256/TERM_SHA256, đếm kết quả và dòng tương ứng, không truncation hoặc mismatch. Kết quả dùng `textContent`, tuyệt đối không thực thi HTML/JS lấy từ file.
+- Mỗi lần tìm chỉ tốn 1 trong 6 lượt E2EE của phiên; giới hạn kết quả 4KiB, danh sách quá dài bị từ chối. Kiểm thử hành vi bình thường, unauthorized PHP Origin, đường dẫn thoát workspace, metadata ẩn, trường giả mạo, literal điều khiển, báo cáo lỗi/truncated.
+- **Chưa hỗ trợ:** editor trực tiếp trên GUI, tìm regex/tìm nhiều file, terminal PTY, Git merge/rebase/push/pull, phiên dài/resume, UX tải file. Go/PHP/native GUI CI trên đúng PR head đều PASS; **PR #58 đã merge `main` tại `50426a2a`**. Remote vẫn `remote_control_available=false`, LIVE NO-GO.
+
+
+## Tiếp tục 02/11/2026 — Native GUI Git writes (PR #59, chờ CI/merge)
+
+- Native GUI độc lập PHP nay có luồng **xem trước và xác nhận một lần**
+  cho Git `stage`, `unstage`, `commit`, `branch-create`,
+  `branch-switch` và `branch-delete`. Mỗi thao tác ghi dùng hai lượt
+  E2EE từ hạn mức sáu lượt: kết quả review lấy trực tiếp từ Agent sau
+  xác thực, người dùng nhập chuỗi xác nhận chính xác, host kiểm tra
+  SHA-256 của toàn bộ snapshot trước khi ghi.
+- Stage: xem trước toàn bộ file UTF-8 <=4 KiB và CAS vào Git index.
+  Unstage: xác thực staged diff trước khi khôi phục một index entry.
+  Commit: xem HEAD, branch, index hash và *toàn bộ* staged diff,
+  nhập message ASCII an toàn, sau đó host xác thực lại HEAD/index.
+- Nhánh chỉ có tiền tố `taskdeck/`: create không checkout, switch
+  chỉ khi target cùng HEAD + Git index/worktree sạch, delete chỉ
+  với nhánh dư thừa chưa checkout cùng HEAD. Không cung cấp
+  arbitrary `git` argv, push/pull/fetch, merge/rebase hay shell.
+- Tất cả cờ host Git write riêng biệt vẫn mặc định OFF; quyền GitWrite,
+  FilesRead, FilesWrite, approved native Ed25519 client key,
+  TaskDeck login + grant Portal, audit, mutation lock và host CAS
+  **không bị thay thế** bởi xác nhận trong trình duyệt.
+- GUI chỉ bind trên loopback 127.0.0.1, có Origin + CSRF secret;
+  PHP không cấp HTML/JS và không thấy nội dung yêu cầu E2EE.
+  Review 45 giây tự hết hạn, chỉ dùng được một lần; invalid/replay
+  bị từ chối. Regression âm/dương chạy trên Linux/macOS CI,
+  cộng với Go Remote Agent và PHP Portal CI.
+- **Trạng thái:** đã commit trên branch
+  `feature/remote-native-gui-git-write-review-20261102`,
+  PR [#59](https://github.com/hacrot3000/PatchAndCollectionToolForAI/pull/59);
+  không nhận là đã merge cho đến khi CI PASS trên exact HEAD và PR được merge.
+  **Remote Control LIVE vẫn NO-GO**: chưa có nghiệm thu thực địa,
+  security review độc lập, PTY stream, Git push/pull và GUI tương đương local.
+
+## Tiếp tục 02/11 — GUI chỉnh sửa file nhỏ an toàn (PR #60)
+
+- Native GUI **Files** bổ sung editor văn bản thuần UTF-8 (tệp hiện có <=4KiB).
+  Đọc preview đầy đủ qua E2EE trước, hiển thị nội dung trong textarea
+  local được đóng gói với binary native; người dùng sửa rồi nhập
+  `EDIT <path> <12 hex SHA>` chính xác. Review chỉ sống 45 giây,
+  dùng một lần và cần còn đủ **hai** lượt E2EE.
+- Agent nhận `project.file.replace_text` đã có, tự kiểm tra lại SHA-256
+  của toàn file/FS path/permissions, host opt-in, audit, khóa ghi;
+  việc edit không bypass được RBAC hoặc Portal grant. Bản thay thế
+  tối đa 4096 byte, UTF-8 hợp lệ không chứa NUL; chống ghi file
+  thay đổi giữa review và ghi. Không mở file hidden/.git hoặc upload.
+- Browser vẫn chạy trên 127.0.0.1 native-only, kiểm tra Origin và CSRF;
+  PHP không cung cấp HTML/JS, mật khẩu hoặc nội dung file. Không có
+  HTTP proxy, shell, arbitrary Git argv, download/transfer.
+- Go GUI regression có test digest, expiry, confirmation/replay, malformed
+  preview, oversized text, NUL, wrong Origin, path escape và quota.
+  Linux/macOS GUI, Go Agent, PHP Portal CI bắt buộc hoàn tất PASS
+  trên cùng source SHA rồi mới xét merge. Chưa phát hành LIVE.
+- Editor nhiều tệp, thao tác trên file >4 KiB, file manager đầy đủ,
+  PTY/interactive streaming và live security acceptance vẫn chưa hỗ trợ.
+
+### Chốt nhánh và kiểm định
+
+- PR #59 Git GUI đã merge `main` tại commit `add20633575e76462b6d1bce14dc05a5accd9d9f`; PR #60 chỉ chứa bổ sung editor file trên nền main đã merge.
+- CI Linux/macOS native GUI, Go Agent, PHP Portal phải PASS trên **exact PR #60 head** sau khi cập nhật nhánh; không lấy PASS từ source SHA cũ. Đây chỉ là staging, không phải cho phép LIVE.
+
+## Tiếp tục 02/11 — Git review staged + unstaged trong GUI (PR #61)
+
+- Thêm nút `Review 2 chiều` tại Git panel, yêu cầu đường dẫn source hợp lệ.
+  Kết quả phân thành **WORKTREE / UNSTAGED** và **INDEX / STAGED**.
+- Lấy hai kết quả qua đúng hai typed E2EE actions đã có `git.diff` và
+  `git.diff_staged`; TaskDeck host recheck RBAC, live Portal grant và
+  local audit **riêng trên từng lượt**. Cả hai phải thành công và đủ
+  <=4096 bytes/mỗi kết quả; lỗi tại lượt hai không được in kết quả
+  chưa hoàn chỉnh của lượt đầu. Giới hạn quota cần còn 2/6 lượt.
+- GUI vẫn từ binary native, loopback-only, Origin + CSRF và textContent;
+  PHP không tạo UI/HTML hoặc lệnh Git tùy ý. Không làm phát sinh quyền ghi.
+- Có kiểm thử thành công, thiếu quota, path/metadata/flag, giả định PHP
+  bị chiếm và thu hồi quyền tại lượt đọc thứ hai. Chờ CI và merge; LIVE
+  vẫn NO-GO.
+
+- Kiểm định PR #61: sau khi đổi base sang main đã merge #60, CI phải chạy lại trên đúng head mới; không tái sử dụng kết quả của nhánh chồng trước đó.
+
+## 02/11/2026 — Native GUI: large-file line edits (PR #62 staging)
+
+- Trong Files, nhập tệp tương đối và số dòng 1..2,097,152, chọn
+  **Review sửa dòng**, **Review chèn dòng** (trước dòng hiện có), hoặc
+  **Review xóa dòng**. Mỗi lần chỉ xử lý một dòng nguồn của file
+  UTF-8 <=2 MiB qua ba typed action đã có: `project.file.edit_line`,
+  `project.file.insert_line`, `project.file.delete_line`.
+- Một vòng `project.file.lines` lấy trang nguồn hoàn chỉnh và
+  `FILE_SHA256` toàn file. Native GUI kiểm tra đầy đủ envelope,
+  vị trí dòng và giới hạn nội dung, sau đó chỉ cho phép một lần ghi
+  trong 45 giây qua xác nhận `EDIT/INSERT/DELETE LINE <N> <SHA12>`.
+  Ghi dùng full-file SHA-CAS trên host; nếu một process khác sửa file
+  sau review, Agent từ chối (không tự retry). Mỗi thao tác chiếm
+  đúng 2 trong 6 lượt E2EE.
+- Input dòng mới UTF-8 <=512 byte, cho phép tab nhưng không có LF,
+  NUL, control/bidi. Metadata `.git`, hidden file, path traversal,
+  shell/git argv, upload/download đều bị chặn. Host duy trì file
+  write flag mặc định OFF, TaskDeck RBAC, live Portal grant và audit.
+- Có test sửa/chèn/xóa, SHA, chống replay, sửa chế độ giữa các lượt,
+  preview sai, thời hạn, origin PHP giả mạo, quota và path traversal.
+  CI và nghiệm thu LIVE chưa được thay thế bởi code/unit test.
+
+- PR #62 được tách lại trên main sau merge #61; kết quả CI trước rebase không thay thế kiểm định Linux/macOS, Go Agent và PHP trên commit hiện hành.
+
+## 02/11/2026 — Native GUI: click-to-select workspace explorer (PR #63)
+
+- Files panel có danh sách D/F (folder/file) đọc từ đúng
+  `project.dir.list` E2EE. Mỗi lần chỉ hiển thị <=192 byte,
+  <=64 entry được host giới hạn; parse lại tại native UI,
+  chỉ cho phép tên visible/UTF-8 hợp lệ và đường dẫn không vượt
+  workspace. Bất kỳ bản tin không đúng định dạng đều không tạo
+  danh sách clickable.
+- Click thư mục chỉ điền đường dẫn, muốn duyệt tiếp phải nhấn
+  nút Duyệt (E2EE read mới). Click file chỉ điền đồng thời Files
+  và Git path, không tự gửi lệnh hay thực thi. Có nút thư mục cha;
+  không liệt kê file hidden, symlink hoặc URL do người dùng nhập.
+- Tạo nút bằng `document.createElement` và `textContent`,
+  không dùng `innerHTML`, eval, script từ PHP/Relay. Duy trì
+  127.0.0.1 Origin + local CSRF, PIN Agent và quota 6 lượt E2EE.
+  Đây là giao diện explorer thử nghiệm, không phải upload/download.
+
+- CI gate #63: chạy lại GUI Linux/macOS, Go Agent, PHP Portal trên commit đã rebase theo main sau merge #62; không dùng PASS từ lịch sử branch chồng cũ.
+
+## 02/11/2026 — Native GUI: approved Tasks list clickable (PR #64)
+
+- Nhấn **Danh sách task** (typed E2EE `task.list`) để lấy danh sách
+  được Agent chấp thuận; client xác minh đầy đủ định dạng
+  `ID<TAB>task label`, ID 1..2147483647 dạng canonical, label
+  <=120 byte UTF-8, không Unicode bidi/control; không trùng ID,
+  <=64 dòng và <=4096 byte đầu ra.
+- Thẻ Task chỉ điền số ID, không tự thực thi. **Xem trước chạy**
+  hoặc **Xem trước 30 giây** vẫn bắt buộc lấy lại quyền từ host,
+  và phải nhập exact confirmation trước khi gửi `task.run_report`
+  hoặc `task.managed_start`. Các cờ chạy task trên host mặc định
+  OFF, PIN Ed25519, TaskDeck login, RBAC, Portal grant, audit giữ nguyên.
+- Đọc đủ 6/6 lượt E2EE vẫn giữ nguyên kết quả đã được xác thực cuối
+  thay vì làm mất output; GUI chỉ báo hết lượt trong dòng trạng thái.
+- Không hỗ trợ shell, argv tùy ý, task chạy tự động khi duyệt, hoặc
+  nội dung HTML/script từ PHP/Agent. Đây là staging cho GUI,
+  không chứng minh điều kiện remote LIVE đã đạt.
+
+- CI gate PR #64: kiểm thử Linux/macOS GUI, Go Agent và PHP Portal lại trên đúng commit sau khi rebase từ main đã merge PR #63. Chưa đạt LIVE.
+
+## 02/11/2026 — Native Git GUI: click-to-select changed file (PR #65)
+
+- `git.status_full` đã có được dùng làm dữ liệu đọc độc lập, hiển thị
+  file Git đã theo dõi trong danh sách chọn nhanh ngay dưới Status.
+  Native client giới hạn <=4096 byte, <=65 dòng, path <=120 ký tự,
+  không có `..`, path hidden/metadata, path Git được quote, rename
+  biểu thức ` -> `, wildcard, control/Unicode dấu điều hướng.
+- Click một mục chỉ điền đường dẫn hiện hành cho Git và Files;
+  không thực thi thao tác ghi hay bất kỳ Git argv nào. Pending Git
+  confirmation bị ẩn/hủy khi đổi file để tránh bấm nhầm.
+- Git stage, unstage, commit vẫn phải qua bước review E2EE + xác nhận
+  và host SHA-CAS/RBAC/Portal grant/host flags. Nội dung Git status
+  từ Agent được hiển thị bằng `textContent`, không có HTML/script.
+  Đây là staging, không phải mở Remote LIVE.
+
+## 02/11/2026 — Clickable taskdeck/ branch list và UI integration tests
+
+- `git.branches` (host readonly, fixed argv) được parse an toàn trên native
+  client để tạo danh sách có thể chọn những branch thuộc `taskdeck/`.
+  Slug strict ASCII, SHA Git đầy đủ 40/64 hex, không trùng;
+  output <=4096 byte và <=65 dòng. Chọn một branch chỉ điền
+  trường slug trong màn hình Git; không tự checkout/xóa/tạo nhánh.
+  Pending xác nhận Git bị ẩn khi chọn lại; mọi thay đổi vẫn yêu cầu
+  review E2EE riêng và host CAS.
+- Trên Linux/macOS, workflow native GUI chạy `node --test` với
+  UI JS thật trong isolated VM + synthetic E2EE responses: thử chọn
+  thư mục, file, task được phê duyệt, file từ Git status, task
+  duplicate, branch selector và lượt quota cuối; không phải chỉ
+  tĩnh `node --check`. Không khẳng định kiểm định LIVE.
+
+## 02/11/2026 — Strict pending-review invalidation in native GUI
+
+- Các pending confirmation Git/file/file-line/task chỉ hợp lệ cho
+  **thao tác kế tiếp đúng loại**. Thực hiện một action khác (kể cả
+  read-only status/list) sẽ xóa pending authorization tương ứng
+  ngay trong trusted local Go server. Trình duyệt cũng ẩn các panel
+  xác nhận cũ; không được dùng lại khi đã đổi ngữ cảnh thao tác.
+- Có native Go integration tests chứng minh một read xen giữa review
+  và execute không thể kích hoạt Git stage, ghi file, ghi dòng hay
+  chạy task. Bảo vệ này bổ sung, không thay thế CAS/host RBAC,
+  approved client keys, giới hạn E2EE và audit.
+- JS behavioral tests cũng xác nhận edit/large-line/stage/task không
+  chạy trực tiếp khi chỉ chọn hoặc xem trước; sai confirmation
+  không gửi write action. Remote LIVE vẫn NO-GO.
+
+- CI gate PR #65 sau rebase PR #64: yêu cầu đồng thời Linux/macOS Native GUI (Node DOM + Go race), Go Agent security và PHP Portal CI trên đúng head mới, không tính các lượt PASS ở commit của branch chồng trước đó.
+
+## 02/11/2026 — Managed task output pager in native GUI (PR #66)
+
+- Tasks panel có bản ghi output dạng văn bản và nút **Đọc tiếp trang
+  đã xác thực**, sử dụng typed read-only `task.managed_output`
+  hiện hữu, không thêm PTY/shell hoặc HTTP endpoint trên Portal.
+- Mỗi cửa sổ E2EE bắt buộc có đầy đủ `TASK_HANDLE`,
+  `OUTPUT_OFFSET`, `OUTPUT_NEXT`, `OUTPUT_TOTAL`,
+  `TASK_STATE`, `OUTPUT_EOF` và boundary marker chính xác.
+  Browser kiểm tra handle 32-hex, offset dạng canonical, giới hạn
+  2KiB/window, `next - offset == bytes UTF-8`, thứ tự
+  offset/next/total và EOF/state; sai -> ngừng paging, không ghép
+  một phần output. Chỉ append những trang liên tiếp của cùng handle,
+  tối đa bốn trang trong RAM/DOM (8KiB nguồn).
+- Nội dung task không bao giờ được render HTML. Control, C1 và
+  Unicode bidi/control format được escape khi hiển thị. Nút Đọc tiếp
+  yêu cầu người dùng nhấn thủ công, không timer/polling nền và không
+  tự lặp sau lỗi. Mỗi trang tiêu tốn 1/6 lượt E2EE trong phiên;
+  thay handle buộc đọc một snapshot khác.
+- Node DOM tests chạy trong native GUI workflow Linux/macOS kiểm tra
+  cursor hợp lệ, EOF, từ chối metadata sai, handle sai, giới hạn
+  giữ output và khả năng hiển thị ESC an toàn. Không phát hành LIVE.
+
+- PR #66 đã rebase lên main sau PR #65; phải kiểm định lại full native GUI Linux/macOS, PHP Portal, Go Agent trên đúng commit mới trước khi merge.
+
+## 02/11/2026 — Source file line paging trong trusted native GUI (PR #67)
+
+- Nút **Xem trang tiếp theo** ở Files chỉ kích hoạt khi đã đọc và
+  kiểm tra thành công trang `project.file.lines` từ Agent. Native
+  Go server kiểm tra envelope đầy đủ bằng `consoleLinePageSHA`
+  trước khi trả ra trình duyệt. Trang sai format, thiếu dữ liệu hoặc
+  cursor không nhất quán bị từ chối (không hiển thị partial output).
+- Browser kiểm tra lại toàn bộ SHA-256 file, START/NEXT/TOTAL_LINE,
+  thứ tự từng dòng và giới hạn 4KiB/page. Khi chuyển trang chỉ
+  ghép nếu cùng file, cùng SHA và cursor liên tục; khác SHA đồng nghĩa
+  đã sửa nguồn, lập tức xóa transcript cũ thay vì hiển thị trộn.
+  Chỉ giữ 4 trang văn bản nguồn trong RAM/DOM.
+- Bấm tiếp trang là thao tác thủ công, mỗi lượt E2EE chiếm một
+  trong sáu action, không tự chạy vòng lặp hoặc nạp file toàn bộ.
+  Chuỗi control/Unicode bidi được escape, dùng `textContent`
+  không render HTML. Cấm hidden path/escape theo host policy.
+- Kiểm thử native Go bảo vệ envelope, Origin PHP bị hack, quota;
+  Node DOM kiểm tra cursor, EOF, đổi SHA/file, forged page.
+  Không thêm upload/download, sửa file lớn hàng loạt hoặc PTY.
+
+- PR #67 sau merge #66: phải chạy lại toàn bộ CI trên exact head có source page browsing mới, không tái sử dụng trạng thái CI branch xếp chồng.
+
+## 02/11/2026 — Literal search result picker (PR #68)
+
+- Kết quả `project.file.find_lines` đã được xác thực và kiểm tra
+  ở Go native UI `consoleFindLinesMetadata`; browser kiểm tra
+  thêm `FILE_SHA256`, `TERM_SHA256`, `TOTAL_LINES`, `MATCHES`,
+  toàn bộ hàng `<line>: <text>`, chỉ số dòng tăng nghiêm ngặt,
+  chuỗi literal hiện diện trong mỗi hàng, <=4096 byte, <=64 matches.
+- Mỗi kết quả tạo nút bằng DOM `textContent` thuần, không HTML.
+  Click chỉ điền số dòng; không tự đọc, sửa hay chạy lệnh. Nếu file
+  hoặc chuỗi tìm đã đổi thì từ chối chọn; người dùng phải tìm lại.
+- Bắt đầu tìm mới xóa danh sách cũ, để lỗi E2EE hay host từ chối
+  không giữ kết quả có thể nhấn từ phiên đọc trước. Kết quả quá
+  lớn/không nguyên vẹn không tạo nút.
+- Có Node DOM tests cho tìm thấy, không tìm thấy, mismatch/duplicate,
+  sai thứ tự, dữ liệu giả mạo, đổi file/literal và không tự thực thi.
+  Giới hạn host login, allowlist keys, RBAC, grant, audit, E2EE còn
+  nguyên. Không thêm upload/download, PTY hoặc shell.
+
+- PR #68 sau merge #67: CI native GUI Linux/macOS, PHP Portal và Go Agent phải PASS lại trên head được xây dựng trực tiếp từ main; branch chồng cũ không thay thế kiểm định.
+
+## 02/11/2026 — Native GUI hostile-PHP full typed-action ingress matrix (PR #69)
+
+- Thêm kiểm thử red-team Go cho 23 nhóm action native GUI:
+  Files browse/view/read/find, editor/file-line review/execute, Git
+  status/log/branch/diff/read-review/write-review/execute, task
+  list/review/run/status/output/cancel. Với PHP-Origin bị thay thế
+  kể cả khi attacker biết local key, không Origin, thiếu key, key
+  giả mạo: mọi request phải trả 403, không xuất dữ liệu hoặc xác
+  nhận, không gọi một phương thức nào của Agent, không tiêu tốn
+  1 lượt E2EE.
+- Bổ sung HTTP ingress tests Host giả, origin từ site khác,
+  GET mutation, sai Content-Type, JSON field lạ, JSON nối tiếp,
+  JSON lỗi và body >8KiB. Mọi hành động đều bị từ chối trước
+  dispatch và không lộ output/quyền TaskDeck.
+- Đây là kiểm thử phát sinh lỗi trong CI, không phải bằng chứng
+  rằng hostile PHP có thể bị xử lý trong mọi môi trường mạng:
+  vẫn cần kiểm thử live TLS/WSS, Firefox/cài đặt máy thật,
+  binary provenance và nghiệm thu độc lập. LIVE NO-GO.
+
+- PR #69 tách độc lập lên main sau #67: CI native GUI Linux/macOS, PHP Portal, Go Agent cần chạy trên exact head mới; không áp dụng PASS của branch PR #68 chồng trước đó.
+
+- CI gate PR #69 sau merge #68: xác thực trên đúng head mới — native GUI Ubuntu/macOS, Go Agent security và PHP Portal phải đạt SUCCESS, không dùng lại workflow của branch cha cũ.
+
+## 02/11/2026 — Trusted native read-only command console (PR #70)
+
+- Bổ sung tab **Read-only Console** ngay trong GUI đã nhúng sẵn
+  bằng binary native; không tải HTML/JS từ PHP. Chỉ hỗ trợ các lệnh
+  cố định `help`, `git status`, `git log`, `git branches`,
+  `tasks list`, `files list <relative>`, `files view <relative>`,
+  `tasks status <32hex>`, `tasks output <32hex> <offset>`.
+- Parser có allowlist **exact syntax**; từ chối shell/script,
+  Git push/merge/checkout, path traversal, absolute path, Git
+  metadata và ký hiệu metacharacter trước khi gửi request.
+  Lệnh hợp lệ chỉ được chuyển thành API action typed read-only
+  hiện có, qua cùng native local Origin + khóa phiên, E2EE
+  Agent và quyền TaskDeck host; không có giao diện generic command.
+- Output hiển thị dạng `textContent`, escape control/Bidi, giữ
+  tối đa bốn response gần nhất, mỗi response tối đa 4500 ký tự;
+  không tự polling/retry. Các xác nhận ghi Git/file/task đang
+  mở bị xóa ở client; native Go hủy pending review khi read.
+  Giữ nguyên quota 6 lượt; `help` nội bộ không dùng quota.
+- DOM tests chứng minh các lệnh read hợp lệ gọi đúng operation,
+  lệnh shell/traversal/unknown chưa bao giờ phát request, quota
+  không bypass và transcript bounded. **Không phải shell PTY**.
+
+- PR #70 sau rebase main chứa PR #68: 3 CI native GUI Linux/macOS, Go Agent, PHP Portal phải chạy lại trên exact head mới; không dùng workflow của nhánh trước khi có source-search.
+
+- PR #70 sau merge #69: chạy lại GUI Ubuntu/macOS + Go Agent + PHP Portal trên commit được dựng mới từ main; không sử dụng kết quả CI cũ của nhánh trước khi tích hợp kiểm thử hostile PHP.
+
+## 02/11/2026 — Native read-only console Git diff/source search và history (PR #71)
+
+- Mở rộng lệnh đọc an toàn của native Console: `git diff/staged/head
+  <workspace-file>`, `files lines <workspace-file> <line>`,
+  `files find <workspace-file> <literal>`, bên cạnh nhóm
+  `git status/log/branches`, `tasks list/status/output` hiện có.
+  Chúng chỉ được chuyển thành *typed read-only* E2EE actions vốn đã
+  định nghĩa ở Agent, không phải tự ghép Git argv/shell command.
+- Đường dẫn phải là workspace-relative, không trắng/quote/control,
+  không hidden metadata, ký hiệu shell hay option; dòng file phải
+  1..2097152; từ khóa nguyên văn UTF-8 tối đa 96 bytes, không shell
+  metacharacter. Các parser input không đạt điều kiện từ chối cục
+  bộ, **0 lượt E2EE** và không chạy lệnh trên host.
+- Thêm history 16 lệnh gần nhất chỉ trong RAM của GUI, phím ↑/↓
+  không tạo request; `clear` chỉ xóa transcript cục bộ mà không
+  ảnh hưởng workspace/E2EE. Không lưu localStorage/PHP/server.
+- Có Node DOM tests cho mapping exact operation, từ chối shell/
+  traversal/git write, Enter và history, không sử dụng terminal PTY.
+  Quyền đọc cần xác thực/RBAC/audit lại tại Agent từng lượt.
+
+- CI gate PR #71 sau merge #70: chỉ merge sau khi Native GUI Ubuntu/macOS, Go Agent và PHP Portal đều PASS tại đúng head mới dựng từ main; không dùng lại CI nhánh chồng trước đó.
+
+## 02/11/2026 — Git recent commit cards and local filter (PR #72)
+
+- Native GUI hiển thị commit từ typed `git.log` E2EE host
+  dưới dạng card (tối đa 30, <=4KiB), gồm short SHA và subject.
+  Dữ liệu bắt buộc đúng format, hash hex ASCII, nội dung UTF-8,
+  không control/Bidi, subject <=160 bytes; sai thì từ chối toàn bộ
+  danh sách, không tạo card mạo danh.
+- Chọn card chỉ đổi text hiển thị `Đã chọn (chỉ đọc)`;
+  không có Git checkout/switch/push/merge hay E2EE call.
+  Lọc SHA/subject chạy trong RAM của native client, không truy cập
+  PHP/Relay/Agent, không tạo thêm một action.
+- Khi nhấn Git Log lần mới, danh sách cũ bị xóa để tránh chọn
+  metadata phiên cũ nếu request thất bại. Card text được render
+  bằng DOM `textContent`, không HTML.
+- Thêm Node DOM security tests cho đúng danh sách, filter cục bộ,
+  duplicate/malformed/ANSI/Bidi/too-long và không chạy lệnh.
+
+- PR #72 sau #71: kiểm thử lại ba workflow Linux/macOS GUI, PHP Portal và Go Agent trên exact head được dựng mới từ main; PASS cũ trên stacked branch không được dùng để merge.
+
+## 02/11/2026 — Git diff preview in native Git panel (PR #73)
+
+- Native GUI hiển thị trực tiếp kết quả `git.diff`, `git.staged`,
+  `git.head` và read-only `git.review` từ E2EE host tại panel Git.
+  Không tạo action/URL/API mới, chỉ gọi typed Git read đã có; kết quả
+  vẫn hiển thị ở output chung như trước.
+- Giới hạn text 4096 byte, escape terminal control/Bidi, render
+  `textContent` không HTML, có tên nguồn và loại diff đã gửi.
+  Khi thay `git-path` hoặc chọn file từ Explorer/Git status, xóa
+  diff cũ ngay. Khi yêu cầu diff mới, xóa trước khi chờ host;
+  nếu Agent từ chối/timeout thì không giữ preview cũ dễ gây nhầm.
+  Nếu đường dẫn thay đổi trong thời gian chờ Agent, kết quả cũ
+  cũng bị từ chối để tránh ghi đè thông tin file mới đã chọn.
+- Các thao tác ghi Git luôn cần riêng review/exact-confirm/SHA-CAS,
+  không bị ảnh hưởng bởi view; tuyệt đối không thực thi Git argv,
+  hook, checkout khác HEAD hay file transfer.
+- Node DOM tests xác nhận không tăng E2EE lượt khi thay nguồn,
+  không hiển thị partial output >4KiB, escape ANSI, và đổi
+  nguồn làm mất snapshot cũ.
+
+- CI gate PR #73 trên nhánh PR #72 cập nhật: kiểm thử đủ Native GUI Linux/macOS, PHP Portal, Go Agent; sau khi #72 merge main phải dựng lại head và kiểm thử lần cuối trước khi merge.
+
+- CI gate PR #73 sau merge #72: yêu cầu Native GUI Linux/macOS, PHP Portal và Go Agent cùng PASS trên đúng head được dựng từ main, không tái dùng CI của stacked branch.
+
+## 02/11/2026 — Closing native E2EE GUI session clears sensitive local state (PR #74)
+
+- Khi người dùng bấm Đóng phiên và xác nhận, browser ngay lập tức
+  xóa output E2EE đã nhận, file/line editor, Git log/diff, task output,
+  danh sách source, dòng tìm được, console transcript/history và
+  trường input chứa dữ liệu đã đọc; ẩn tất cả form review/confirm.
+- GUI khóa tất cả thao tác từ xa trong phiên ngay tại client,
+  vẫn gửi request đóng /api/close từ native GUI với key phiên
+  kể cả khi đang có lượt read E2EE đang chờ; kết quả read trả về
+  sau khi người dùng đóng sẽ bị bỏ qua, không được render lại.
+- Chỉ khi native localhost server xác nhận /api/close mới báo
+  **Đã đóng GUI native**; lúc này `runNativeGUI` kết thúc và
+  `PingClient.Close` được gọi ở caller. Phản hồi /api/close
+  **KHÔNG phải ACK thu hồi phiên do Agent từ xa ký**, nên tuyệt đối
+  không báo Agent đã xác nhận. Mất kết nối/403/JSON lỗi hiện
+  **Chưa xác nhận đóng GUI**, giữ GUI khóa và yêu cầu thoát tiến
+  trình TaskDeck native để ngắt kết nối host. Tác vụ đang chạy có
+  thể hoàn tất trước khi kênh bị đóng. Không retry thực thi tác vụ,
+  không thay đổi Agent/Relay protocol.
+- DOM tests có ba ca: close thành công, close thất bại,
+  E2EE read trả trễ sau khi bấm Close. Dữ liệu không được ghi
+  vào PHP/localStorage. LIVE vẫn NO-GO cho đến khi field tests.
+
+- CI gate PR #74 sau #73: Native GUI Ubuntu/macOS, PHP Portal và Go Agent phải cùng PASS trên head mới dựng trực tiếp từ main; không dùng lại PASS ở nhánh stacked trước đó.
+
+## 02/11/2026 — Console workspace navigation + Git review (staging)
+
+- Native GUI console has local-only pwd/cd/cd .., plus host-authenticated
+  typed ls to inspect the current workspace-relative directory.
+- Files/Git read-only command paths resolve under local console cwd.
+  Reject traversal, shell syntax, hidden Git paths, too-long paths and
+  Git option-like names before any network action. Agent validates again.
+- git review <relative-file> uses the existing TWO-round E2EE GitReview
+  on the host, requiring at least two remaining action slots. It never
+  creates an arbitrary Git process/argument stream or write permission.
+- Long two-way authenticated diff is kept whole in the main output pane;
+  local console transcript refuses silent truncation. pwd/cd/help/clear
+  still work locally after six E2EE actions; remote requests remain blocked.
+- Native close clears the console directory along with other private UI.
+- Tests were added for path escape, cwd, two-round quota and overflow.
+  Production LIVE still NO-GO; full PTY, Git push/pull/merge/rebase,
+  live Linux/macOS NAT/CGNAT testing and external review remain pending.
+
+
+## 02/11/2026 — Khóa ngữ cảnh xác nhận thao tác ghi trên native Remote GUI
+
+- Bổ sung kiểm tra ngữ cảnh đã review cho **Git Stage/Unstage/nhánh**, sửa toàn file
+  4 KiB, sửa dòng lớn và chạy TaskDeck task. Khi người dùng đổi đường dẫn file,
+  slug nhánh, số dòng hoặc Task ID, hộp xác nhận tương ứng bị vô hiệu hóa.
+  Không ghi vào đối tượng cũ trong khi form hiện đối tượng mới.
+- Một review trả về trễ sau khi người dùng thay đổi lựa chọn cũng bị từ chối.
+  Ngay trước khi phát lệnh execute, GUI so lại target đã review với selector
+  đang hiển thị, kể cả khi thay đổi không phát sự kiện DOM input.
+  Thao tác chọn bằng card từ explorer, Git status, Git branch và task catalog
+  cũng kích hoạt kiểm tra.
+- Đã thêm test hồi quy cho Git stage, tạo nhánh, file edit, line edit,
+  task run và review trả về trễ. **Đây là phòng tuyến UX bổ sung**,
+  không thay đổi authority: Agent vẫn bắt buộc token xác nhận dùng một lần,
+  local TaskDeck password/client key/RBAC, grant còn sống, CAS/lock và audit.
+  Không mở API/hành động mới qua PHP/Relay, không mở tải file, không shell/PTY.
+- **Chưa nghiệm thu LIVE:** phải có Native GUI CI Linux/macOS, Go Agent,
+  PHP Portal cùng đúng SHA sau PR; kiểm thử thật trên Linux/macOS/NAT/CGNAT
+  và mô phỏng PHP/Relay bị chiếm vẫn chưa hoàn tất.
+  remote_control_available=false; tiếp tục **LIVE NO-GO**.
+
+## 02/11/2026 — Git Status GUI filters: staged/unstaged/untracked (experimental)
+
+- Bổ sung lọc tên file (không phân biệt hoa thường) và bộ lọc trạng thái
+  **Tất cả / Staged / Unstaged / Untracked** ngay trong Git panel của
+  **trusted native GUI**. File có cả index + worktree changes xuất hiện ở
+  cả hai bộ lọc tương ứng, chỉ dùng snapshot Git Status đã nhận qua E2EE.
+- Hiển thị tổng số file và số file theo từng nhóm. Tìm kiếm/lọc/chọn card
+  được thực hiện thuần cục bộ, **không có fetch tới PHP/Relay/Agent và
+  không tiêu thụ E2EE quota**. Click chỉ chọn đường dẫn; không tự Stage,
+  Unstage, Commit, mở file hoặc thực thi bất kỳ lệnh Git nào.
+- Snapshot giới hạn 4096 byte, tối đa 64 dòng thay đổi, đường dẫn phải
+  workspace-relative và từ chối Git metadata, traversal, rename/quoted path,
+  dấu control/Bidi; status bị sai format hoặc quá lớn không tạo card.
+  Refresh xóa snapshot cũ trước khi gọi Agent, không giữ liên kết cũ nếu lỗi.
+- Node DOM regression: lọc ba trạng thái và tên; card click không gửi
+  lệnh; path injection/Bidi, filter không hợp lệ, refresh trả lỗi đều
+  fail closed. Không thay đổi Agent permissions, transport, host opt-in
+  hay thông tin khóa/mật khẩu.
+- **Chưa LIVE:** GUI/Go/PHP CI trên source SHA cuối và kiểm thử Linux/macOS,
+  NAT/CGNAT, PHP/Relay-compromise thực tế. Remote Control tổng quát vẫn
+  **NO-GO**; remote_control_available=false.
+
+## 02/11/2026 — Đồng bộ Console Git tới Git GUI (experimental)
+
+- `git status`, `git log`, `git branches` chạy từ Console sử dụng
+  **cùng một phản hồi Agent E2EE đã xác thực** để cập nhật card của tab Git.
+  Không tạo request bổ sung tới PHP/Relay/Agent, không tự chạy Git write.
+- Refresh xóa danh sách cũ **trước khi** gọi host. Lỗi trả về hoặc hết
+  quyền không được giữ lại card cũ dưới trạng thái mới; kết quả quá
+  giới hạn, sai định dạng vẫn không sinh card thao tác.
+- Console vẫn giữ transcript dạng text được escape và kết quả chính
+  nguyên bản; click status/branch/log chỉ thực hiện thao tác chọn,
+  trong đó mọi Git/File/Task write cần review + xác nhận mới.
+- DOM regression kiểm tra đồng bộ status với bộ lọc staged, log, branch,
+  không tăng quota và fail-closed khi Agent từ chối/response quá lớn.
+- Không thêm protocol hay quyền host mới. Chưa nghiệm thu release LIVE;
+  yêu cầu CI hoàn tất trên SHA hợp nhất và thử nghiệm thực tế.
+
+
+## 02/11/2026 — Native read-only Console aliases and E2EE panel synchronization
+
+- Added strict typed aliases `ls <dir>`, `cat <file>`,
+  `grep -F <file> <literal>`. All commands resolve only under workspace
+  and reuse Agent `files_list`, `file_view`, `file_find_lines`.
+  No arbitrary shell, shell expansion, regex injection or process creation.
+- Console FilesList, TasksList and Git diff/staged/head reuse the same
+  authenticated E2EE response for corresponding Files/Tasks/Git panels,
+  without additional host requests, quotas or authority.
+- Explorer and catalog render bounded structured replies, reject invalid
+  data, fail closed on Agent denial, and discard stale response-associated
+  clickable cards if GUI selectors change during an in-flight read.
+- Added DOM tests for aliases, traversal/shell denial, one-request GUI
+  synchronization, RBAC rejection and selector-race denial.
+- LIVE NO-GO remains in effect; Go Agent/Portal/E2EE security unchanged.
+  Full interactive PTY, streaming, git push/pull/fetch and conflict resolution
+  remain out of scope for this incremental change.
+
+
+## 02/11/2026 — Git review commands in native Console (awaiting CI)
+
+- `git review-stage`, `review-unstage`, `review-commit` and
+  `review-create/switch/delete-branch` are **review-only** aliases
+  to the already existing typed `git_write_review` E2EE operation.
+- These calls require two remaining E2EE rounds and update the familiar
+  native Git confirmation panel. No shell/PTY, arbitrary command, Git
+  write, hook, checkout or new PHP/Relay capability is exposed.
+- Stage path is workspace-relative and follows Console cwd. Branch slug
+  follows the restricted taskdeck/ ASCII namespace. Changed selectors or
+  late replies cannot reuse stale reviews; execute remains a separate
+  human click with exact one-time confirmation, host-side RBAC and SHA-CAS.
+- DOM tests cover preview-only behavior, separate execution, branch/commit
+  modes, malformed commands, quota, changed selector, delayed result and
+  incorrect confirmation.
+- Before merge, exact-SHA Go Agent/PHP/native GUI Linux/macOS CI must PASS.
+  Production LIVE security acceptance is still NO-GO.
+
+
+## 02/11/2026 — Console reviewed TaskDeck work and verified output (PR pending)
+
+- Typed `tasks review-run <id>` and `tasks review-start <id>` use
+  the existing host-reviewed `task_review` operation, never execute.
+  Review requires at least two available E2EE rounds, reserving the
+  subsequent user-confirmed action. Pending review remains bound to
+  the exact Task ID and is discarded if the selector changes or
+  an old E2EE response arrives late.
+- `tasks status <handle>` selects the same authenticated task handle
+  in native GUI; `tasks output <handle> <offset>` reuses its one
+  authenticated E2EE response for the Task output panel with strict
+  cursor/handle continuity and 2 KiB bounded verified windows.
+  No implicit polling or automatic process execution occurs.
+- DOM security regression includes one-use review, separate execution,
+  host denial, malformed command and offset, input-race, quota and
+  verified output pagination tests.
+- No new Agent/PHP/Relay protocol, shell/PTY, arbitrary execution or
+  change to session authority; LIVE remains NO-GO pending exact-head
+  Go/PHP/Linux/macOS CI and post-pair compromise field testing.
+
+## 02/11/2026 — Invalidate authenticated Git snapshots before potentially committed writes
+
+- Git Status, Log, Branches and diff previews are only snapshots, not live
+  references. On a locally validated, separately confirmed request to write
+  Git, edit a file/line or execute/cancel an approved managed TaskDeck task,
+  the native GUI now invalidates these snapshots **before** the E2EE send.
+- Even when a network response is lost after the host may already have
+  committed a change, stale Git cards or source previews cannot remain
+  actionable as though they were current. Files Explorer, source lines and
+  find results are also cleared; fresh E2EE Status/Log/Branches/Browse reads
+  are needed before selecting cards.
+- Incorrect user confirmation never sends the write or invalidates a
+  still-valid status snapshot. There is no automatic retry, polling, or
+  extra round added to the finite E2EE quota.
+- Added DOM regression for in-flight uncertain Git write, rejected confirmation,
+  file/task mutation, and explicit post-mutation refresh.
+- This is a GUI safety/consistency hardening, not an implementation of Git
+  fetch/push/pull/merge or terminal PTY. Live release remains NO-GO pending
+  complete CI, NAT/CGNAT field tests and post-pair PHP/Relay compromise audit.
+
+## 02/11/2026 — Git two-way staged/unstaged local preview switch (experimental)
+
+- Native Git GUI accepts an authenticated two-way diff and lets the user
+  select Entire / Worktree-Unstaged / Index-Staged without a new host
+  request or additional E2EE mailbox consumption.
+- Full E2EE response is still available in AUTHENTICATED RESULT and the
+  UI explicitly marks filtered portions as incomplete; the selector
+  never bypasses a full human Git write review and host SHA-CAS.
+- Malformed/duplicate review markers trigger full-display fallback,
+  never silent line truncation. Selected file mismatch rejects the
+  cached preview; local close purges cached content and disables filter.
+- Added DOM regression for switching, no E2EE request, duplicate and
+  missing markers, ordinary diff state, changed target and local close.
+- Feature remains unmerged until exact-head Linux/macOS/PHP/Go CI PASS
+  and is not the final LIVE security acceptance.
+
+
+## 02/11/2026 — Console E2EE Git/Files read pane synchronization (CI pending)
+
+- `git review <path>`: same two fixed authenticated host Git reads;
+  both visible through the native Git two-way diff viewer and its
+  local full/worktree/index selector, with no third E2EE round.
+- Two-way GUI cap equals 2 × 4096 bytes plus bounded fixed marker
+  overhead; direct individual Git diff caps remain 4096. Never cut
+  a host Git review without alerting the user.
+- `files lines`: authenticated bounded source lines populate
+  the GUI pager and validated SHA/next-line cursor.
+- `files find` / `grep -F`: authenticated literal line matches
+  populate selectable line cards; no shell, regex, script or edits.
+- Stale target, changed line, changed find literal, denied/malformed
+  Agent response all fail closed, preserving no old clickable card.
+- Added nine DOM regression tests for E2EE quotas, dual preview,
+  limits, local selector, paging, literal match, stale replies and denial.
+- Still not full PTY, arbitrary command execution or Git fetch/push/pull.
+  LIVE remains NO-GO pending real field security acceptance.
+
+
+## 02/11/2026 — Verified cursor-only Console aliases (pending CI)
+
+- `files next` reads only the next SHA-pinned file-page cursor from
+  previously validated native GUI state; `tasks next` only reuses the
+  previous managed-task handle and output cursor. Neither accepts
+  arbitrary user-supplied filesystem or process arguments.
+- Strict EOF, target/offset selector and prior valid response checks
+  deny stale or forged cursor reuse without a new E2EE call.
+- Malformed/changed file SHA and revoked task permission clear the
+  corresponding viewer and disable further reads. No implicit
+  polling/retry, generic shell or PTY is introduced.
+- Six DOM regression tests, with full Linux/macOS/PHP/Go CI and
+  actual post-pair compromised-PHP LIVE tests still outstanding.
+
+
+## 02/11/2026 — Local Git diff line search (pending exact-head CI)
+
+- Native Git GUI can perform bounded case-insensitive literal search
+  within the already verified Entire / Worktree / Index preview.
+  The user can select matching lines in a read-only pane, but this
+  does not stage hunks or initiate any host action.
+- Exact total match count, up to 32 displayed rows; no silent claim
+  that the visible subset is a complete search result.
+- No network requests or E2EE rounds are consumed. Input limit
+  96 UTF-8 bytes with control/Bidi rejection; unsafe diff content
+  is emitted only as escaped text, never HTML.
+- Old row handles are tied to the exact diff snapshot, file, view
+  and search text. Changing any one invalidates the selection.
+  Native close scrubs text/query/list and matching state.
+- Seven DOM security/consistency regressions added. Actual field
+  release remains NO-GO until independently tested.
+
+
+## 02/11/2026 — Console Tab completion (CI pending)
+
+- Local Tab completion exclusively from a small hard-coded allowlist
+  of safe read-only and separately-reviewed Git/TaskDesk verbs.
+- Never complete arbitrary executable commands, untrusted host paths,
+  task handles, filesystem arguments or remote command results.
+- On ambiguity only insert longest common prefix; zero network/E2EE
+  calls even after quota exhaustion; five DOM regressions included.
+- Does not add an arbitrary shell/PTY or widen PHP/Relay authority.
+
+
+## 02/11/2026 — Git diff match paging in trusted native GUI (staging)
+
+- Native Git diff literal search now exposes Previous/Next pages of at most
+  32 matching lines each; all matches in the *already authenticated* preview
+  remain navigable rather than silently hiding matches after the first 32.
+- Page count and current page are local-only. No additional E2EE request,
+  PHP/Relay access, Git subprocess or Git index mutation is triggered by
+  page navigation; the complete bounded authenticated diff remains visible.
+- Changing file, authenticated diff snapshot, staged/unstaged mode, or search
+  text resets pagination and invalidates prior line cards. Re-rendering the
+  same page also invalidates detached old cards; close wipes page context,
+  result rows and controls from the native GUI.
+- DOM regressions cover >64 matches, last-page tail, disabled page edges,
+  view/search/file reset, stale cards after navigating back and unsafe
+  Unicode search/close scrubbing. Verify full same-head Linux/macOS GUI,
+  Go Agent and PHP Portal CI before merge.
+- The PHP-compromise threat model, host password/key approval, E2EE, per-action
+  RBAC and one-use Git write review remain unchanged. Interactive PTY,
+  Git fetch/push/pull/merge/rebase/conflict handling and independent live
+  Internet security acceptance are not implemented by this increment.
+  **Remote Control LIVE NO-GO**; `remote_control_available=false`.
+
+## 02/11/2026 — Bounded multi-file Git review queue (staging)
+
+- Native Git GUI supports an in-memory queue of at most 8 **distinct paths**
+  selected from a successful, independently authenticated Git Status.
+- Previous/Next only changes the path selected for Files/Git; it never
+  sends an E2EE request, reads content automatically or performs Git writes.
+  Each Diff/Review must still be explicitly requested and freshly
+  authenticated by the Agent; stage/unstage/commit still require the
+  existing host-reviewed one-use confirmation.
+- Queue state is bound by **object identity** to the most recent
+  authenticated Git status snapshot, not a text path typed into the page.
+  A new status request, a possible host mutation, native close or a
+  changed/invalid snapshot clears the queue. Old detached status cards
+  cannot select files after a status or local filter redraw.
+- Six DOM regressions cover navigation, explicit E2EE action only, max
+  queue size, bad paths, status refresh, mutation uncertainty, native
+  close and stale clickable cards.
+- No PHP plaintext, host-side privileges, network Git operations,
+  arbitrary shell or PTY have been added. Verify same-HEAD Go, PHP and
+  Linux/macOS native GUI CI before merge. **LIVE NO-GO**.
+
+## 02/11/2026 — Authenticated Git review-load progress + filtered queue
+
+- Native Git GUI lets the operator add all **currently filtered** paths
+  from the latest Agent-authenticated Git status in one local action.
+  The complete union must have at most eight unique, verified paths;
+  overflow/invalid filters fail atomically, with no partial additions.
+- The queue labels a file as **"đã tải review 2 chiều"** only after a
+  bounded, accepted, structurally well-formed two-way E2EE Git review
+  for that exact path. A one-sided diff, malformed/swap/oversized
+  reply or path changed during read cannot count. This means
+  **loaded**, NOT human-reviewed, authorized-to-stage or guaranteed
+  current against concurrent host modifications.
+- "File chưa tải review" selects a pending file locally, wrapping
+  around the queue, without any new Agent/Relay/PHP request.
+  No automatic bulk Git read or write is dispatched.
+- New status, uncertain host mutation or native close wipes the
+  list and load markers. Existing host one-use Git confirmations,
+  SHA-CAS, per-action RBAC, original E2EE and default-OFF write flags
+  are unchanged. No Git push/fetch/pull, shell, PTY or batch staging.
+- Six DOM regressions cover atomic bulk selection, quotas, malformed
+  two-way responses, progress navigation and secret scrubbing.
+  Requires same-HEAD Linux/macOS, Go and PHP CI before merge.
+  **LIVE NO-GO**.
+
+## 03/11/2026 — Native Git authenticated hunk navigation (PR pending)
+
+- Native Git GUI parses unified-diff hunk headers `@@ -old,+new @@`
+  **only from a bounded Agent-authenticated Git preview**. Displays all
+  recognized hunk headers in local pages of up to 16 each, and lets the
+  operator select any hunk to view its patch text without extra E2EE,
+  remote commands or Git index mutations.
+- Existing full preview and the original authenticated response remain
+  available. Selecting a hunk does not stage a partial patch, authorize
+  writes or replace the host-reviewed stage/commit approval.
+- Hunk cards are invalidated on local page/view change, a new diff at the
+  same path, a different file, possible host mutation, or native session
+  close. Content uses textContent with unsafe controls escaped, not HTML.
+  On close, patch snippets and hunk lists are scrubbed and paging disabled.
+- Six Node DOM regression cases cover cross-hunk slicing, >16-hunk
+  pagination, staged/unstaged selector changes, stale cards on refresh,
+  hostile text and logout scrubbing.
+- Requires exact-head CI Linux/macOS/Go/PHP before merge. Remote remains
+  **LIVE NO-GO**, with arbitrary PTY, network Git fetch/pull/push,
+  merge/rebase/conflict resolution and independent post-pair compromised-PHP
+  NAT/CGNAT field acceptance not implemented.
+
+## 03/11/2026 — Git conflict triage + local upstream-tracking metadata (staging)
+
+- Native Git GUI detects the **seven unmerged porcelain XY pairs** (DD,
+  AU, UD, UA, DU, AA, UU) in its **Agent-authenticated, bounded**
+  `git status --short --branch` response; adds conflict-only filtering,
+  conflict count, and a Next Conflict button. Selection changes only the
+  safe path in Git/Files input fields. No automatic remote read or write.
+- Git GUI shows `ahead/behind` only if the **same authenticated status**
+  contains a strictly parsed local branch/upstream header. Values are
+  **local tracking-ref comparisons; no fetch occurred**. Missing,
+  detached, malformed, gone, or excessive metadata is not silently
+  presented as 0/0. Unknown status is explicit.
+- The trusted Console gains local-only `git tracking` and
+  `git conflicts` commands after a successful Git Status read.
+  Commands use only the current validated local snapshot, send **zero**
+  new E2EE requests, and do not accept Git arguments.
+- New Git Status, failed/status-too-large reply, uncertain host
+  mutations, and session close invalidate conflict navigation and
+  cached metadata. No Git fetch/pull/push, merge, conflict resolution,
+  shell/PTY or change to host permissions was introduced.
+- Same-commit Linux/macOS native, Go Agent, and PHP CI required
+  before merge. Production security and NAT/CGNAT acceptance still
+  outstanding; **LIVE NO-GO**.
+
+## 03/11/2026 — Native Console verified transcript literal search
+
+- Trusted native Console search matches an exact case-insensitive literal
+  against **at most four recently displayed** bounded text-only result
+  records, after the existing UTF-8 and control escape rules.
+- No E2EE, Portal, Agent or host calls can originate from the filter.
+  It does not search arbitrary files, task output histories, process
+  streams or remote shell sessions.
+- Query validation: at most 96 bytes UTF-8, no control/format/Bidi,
+  no leading or trailing whitespace. Invalid query fails closed.
+- New authenticated results rerender local matches; `clear` and native
+  close clear both the query and saved transcript.
+- Five DOM regressions; Linux/macOS native GUI, PHP Portal and Go Agent
+  exact-head CI required before merge. LIVE remains NO-GO; interactive
+  PTY, resize, streaming, host execution and Git network operations
+  remain unimplemented.
+
+## 03/11/2026 — Explicit E2EE conflict marker navigator (staging)
+
+- The trusted native Git GUI now provides **Đọc file conflict đã chọn (E2EE)**,
+  enabled only for a path in a freshly authenticated Git Status with a
+  Git unmerged XY status (DD/AU/UD/UA/DU/AA/UU).
+- The click makes exactly one existing `file_view` E2EE request; selection,
+  block navigation and marker parsing add **zero** Agent/Portal calls.
+  Host FilesRead permission/path checks still apply. Full preview requires a
+  complete visible UTF-8 file within 4 KiB; larger/binary files explicitly
+  remain unsupported by this workflow.
+- Parse strict `<<<<<<< name` / `=======` / `>>>>>>> name` blocks.
+  Unexpected/nested/diff3/oversized markers fail closed: no partial blocks
+  become actionable. Up to 16 complete blocks per authenticated preview,
+  original text kept in the authenticated result pane. Block buttons use
+  textContent and escaped controls, never HTML evaluation.
+- A new Status request, changed target, uncertain Git/file/task mutation, or
+  session close clears block data; late E2EE responses and detached cards
+  cannot attach to a different status snapshot. No automatic conflict
+  resolution, no Git index changes, no file writes or shell/PTY exposure.
+- Seven DOM regressions validate the explicit E2EE read, hostile content,
+  malformed markers, changed target, stale status/host mutation, close.
+- Release still **LIVE NO-GO**; merge only with exact-head Go Agent, PHP
+  Portal and Linux/macOS GUI CI. Independent compromised-PHP and NAT/CGNAT
+  real-network security acceptance remains outstanding.
+
+## 03/11/2026 — Native Console bounded safe-command history picker (staging)
+
+- Native Console now lists at most the last **16 user-entered commands**
+  that were accepted by its existing fixed read/review allowlist.
+  The operator can filter and select an item; selecting only fills the
+  input field. It does **not** send an Agent request, invoke host code,
+  approve task execution or bypass Git write review.
+- Search is in RAM, literal and case-insensitive, limited to 96 UTF-8
+  bytes and rejects control, Unicode format/Bidi and whitespace padding.
+  Host output never enters command history; rendering is textContent only.
+- Old detached buttons are invalid after search/history redraw.
+  `clear` now scrubs **both** displayed results and command history
+  plus their local filters, not just transcript text. Native close
+  already wipes them and invalidates existing command cards.
+- Six DOM regressions; exact-head Linux/macOS Native GUI, Go Agent and
+  PHP Portal CI required before merge. This is NOT a PTY, shell/terminal
+  execution or streaming stdin/out.
+- No new host permissions or PHP plaintext. LIVE remains NO-GO pending
+  independent security and real Internet NAT/CGNAT validation.
+
+## 03/11/2026 — Git conflict one-hunk OURS/THEIRS draft with independent CAS file review (staging)
+
+- Trusted native Git GUI can build an in-memory, read-only draft replacing
+  **exactly one valid conflict block** with its OURS or THEIRS lines. Other
+  blocks remain untouched; no claim of complete merge/conflict resolution.
+  No Git write, E2EE network request, or host task is triggered by choosing
+  a side.
+- To put this draft in Files editor the operator explicitly selects
+  **Review file mới và mở editor (E2EE)**. The native client requests the
+  existing host `file_edit_review` action in a fresh E2EE round and requires
+  its complete source text to match byte-for-byte the previous authenticated
+  `file_view`. Mismatch, denial, changed Git Status/selected path,
+  insufficient quota or late response is rejected without an editor draft.
+- Once accepted, Files editor is prefilled with the draft but confirmation
+  is **empty**; the existing separate exact one-use host SHA-CAS
+  `file_edit_execute` remains the only possible write. Selecting a
+  different conflict block/side or refreshing Status invalidates an
+  outstanding draft editor review. A successful write invalidates Git
+  snapshots; the user must re-run Status and separately review Stage.
+- Nine DOM regressions cover ours/theirs, multiple unresolved blocks,
+  exact source mismatch, target race, quota, incorrect/one-use
+  confirmations, successful host CAS delegation, revocation on draft
+  change and close scrubbing.
+- No batch conflict resolution, auto-stage, Git network operations,
+  arbitrary PTY/shell/commands, or PHP plaintext introduced.
+  Exact-head Linux/macOS/Go/PHP CI and independent compromised-PHP/NAT
+  field acceptance remain required. LIVE NO-GO.
+
+## 03/11/2026 — Managed Task output in trusted Console (staging, NOT PTY)
+
+- Added a Console-side **Managed task output · không PTY** panel reusing the
+  existing host-approved TaskDeck managed process output capability.
+  The operator explicitly selects a 32-lowercase-hex task handle from
+  Tasks, then clicks to read its first E2EE 2 KiB window.
+- **Đọc trang task tiếp** sends the existing typed `task_output` operation
+  only if the previous E2EE response proved the exact handle/next-byte
+  cursor and reported not EOF; it never accepts an arbitrary offset,
+  auto-polls or executes a command. Reuses existing Console allowlist
+  `tasks output` and `tasks next`, with no new Agent protocol or PHP
+  privilege. Choosing a task is not executing a new one.
+- Existing native Tasks output also mirrors its same verified sanitized
+  in-memory chunks into Console **without an extra E2EE request**.
+  Invalid/forged/truncated/late/mismatched windows clear the view.
+  Each browser session retains only four verified 2 KiB windows and
+  native close scrubs all visible output and disables controls.
+- Seven DOM regressions for first attach, cursor continuation, EOF,
+  forged offsets, malformed replies, handle races, single-request
+  synchronization and session close.
+- This is **read-only managed task output**, NOT an interactive shell,
+  arbitrary stdin/PTY, resize, terminal reconnect or background stream.
+  Go/PHP/native Linux+macOS CI and external compromised-PHP/NAT field
+  acceptance remain required; LIVE NO-GO.
+
+## 03/11/2026 — Git queue per-file Stage / Unstage review (pending CI)
+
+- Trusted native Git GUI adds **Review Stage file trong queue (E2EE)**
+  and **Review Unstage file trong queue (E2EE)** to its existing eight-file
+  local queue. These are explicit per-file host *review* shortcuts, NOT
+  direct Stage/Unstage mutations or automatic bulk operations.
+- A button is enabled only for a path currently selected from a freshly
+  authenticated Git Status, still in the exact active queue source,
+  with a previously authenticated structurally valid **two-way review**
+  loaded for that same path. Stage requires a tracked unstaged change;
+  Unstage requires staged change. Untracked/conflicted paths are denied
+  by the GUI (host also checks all mutations).
+- Clicking requests the **existing** host-approved `git_write_review`
+  for that path/mode, not `git_write_execute`. This independent review
+  remains SHA-CAS and one-use; the operator must read the host preview
+  and manually enter its exact confirmation in the unchanged Git writes
+  panel. Host action flags remain OFF by default.
+- The selected path, queue identity and authenticated Status source are
+  rechecked **after the Agent reply**. Late responses are rejected;
+  possible host mutations, refreshed Status and native close invalidate
+  the queue. Two remaining E2EE rounds are reserved for review/execute.
+- Nine DOM regressions check eligibility, explicit confirmation,
+  conflict/untracked denial, stale path/response, quota, status/close
+  and malformed two-way previews. Exact-head Linux/macOS GUI, Go Agent,
+  PHP Portal CI required. No fetch/pull/push, batch writes or PTY added;
+  LIVE NO-GO.
+
+## 03/11/2026 — Git remote-name discovery: offline, E2EE, no URLs (staging)
+
+- Adds a new **typed parameterless** E2EE \`git.remotes\` capability under the
+  existing host \`GitLog\` read permission. The host invokes the fixed trusted
+  Git executable's built-in offline \`remote\` listing with isolated environment.
+  There is no user-provided remote name, command, argv, helper, URL or network
+  activity; no fetch/pull/push, remote set-url or credential disclosure.
+- The Agent returns a versioned \`GIT_REMOTES_V1\` list of **only names**,
+  never URLs, auth tokens, SSH command lines, config values or repository
+  secrets. Names are ASCII allowlisted, length 1–64, unique, and capped at
+  16 entries / 1024 bytes; unsafe or oversized output fails in full.
+  Untrusted executable clean/smudge/process filter configurations are
+  refused by the existing remote Git read-only guard.
+- The native PingClient checks a **separate AEAD result type** and validates
+  the complete result again before exposing it to the GUI/Console. A
+  malformed authenticated reply retires the E2EE channel. The native
+  localhost GUI also validates the envelope and strictly accepts no path,
+  mode, extra arguments or host execution.
+- **Remotes (chỉ tên)** on the trusted Git GUI and exact allowlisted
+  \`git remotes\` on both native Console interfaces display the same
+  credential-safe result. Native GUI cards do not provide any mutation.
+  Close, read failures and uncertain repository writes clear displayed
+  names. DOM, Go E2EE, native HTTP, host allowlist/filter security and CLI
+  regressions cover these boundaries.
+- This is a prerequisite for a future separately host-approved Git network
+  design; it does **not** enable network Git. LIVE stays NO-GO pending
+  exact-head Go, PHP, Linux/macOS CI and independent post-pair PHP compromise,
+  NAT/CGNAT and real-host security acceptance.
+
+## 03/11/2026 — E2EE local remote-tracking refs, offline (staging)
+
+- New fixed, parameterless \`git.tracking_refs\` typed E2EE read under
+  the existing \`GitLog\` RBAC grant. Host invokes the **trusted local Git**
+  binary with only fixed \`for-each-ref --sort=refname --count=33\` arguments
+  scoped to \`refs/remotes\`; never invokes a remote network service,
+  SSH credential helper, fetch/pull/push, arbitrary command, hooks or shell.
+- Versioned \`GIT_TRACKING_V1\` result lists at most 32 local cached
+  remote-tracking refs and their 40- or 64-character hexadecimal Git
+  object IDs (OID). Symbolic /HEAD refs are excluded. Refnames are strict
+  bounded ASCII path segments; malformed/duplicate/oversize lists fail
+  closed without partial results. The existing clean-filter safety preflight
+  also applies.
+- Results use a distinct AEAD message type and independent native parser.
+  The trusted Git GUI shows an explicit **Tracking refs (offline)** button,
+  sanitized name plus abbreviated object ID, and prominent **potentially
+  stale, not fetched** copy. Exact \`git tracking-refs\` runs in trusted
+  Console interfaces. No UI action or E2EE request can mutate or fetch a
+  ref; selection/read only.
+- A new read replaces any previously displayed snapshot. Failed reads,
+  uncertain host mutations and native close invalidate cached cards.
+  Host Git tests verify sorted OIDs, empty listing and fail-closed 33+
+  entries. AEAD schema tests, RBAC/authenticated Agent audit, native GUI
+  and Console commands, malicious filters, DOM malformed fields and
+  close/denied retries guard the flow.
+- A remote-tracking ref represents the state of the host's clone as last
+  updated locally, **not the current upstream state**. Git network
+  fetching, Push/Pull, PTY and credentials remain unsupported.
+  \`remote_control_available=false\` and LIVE NO-GO until exact-head CI
+  plus actual compromised PHP/NAT/CGNAT field acceptance.

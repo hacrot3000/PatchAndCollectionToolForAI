@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+REPOSITORY="hacrot3000/PatchAndCollectionToolForAI"
+BRANCH="main"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+INSTALL_DIR="${TASKDECK_INSTALL_DIR:-${HOME}/.local/bin}"
+TASKDECK_BIN="$INSTALL_DIR/taskdeck"
+
+die() {
+    echo "ERROR: $*" >&2
+    exit 1
+}
+
+download_install_script() {
+    local output="$1"
+    local url="https://raw.githubusercontent.com/$REPOSITORY/$BRANCH/install.sh"
+    if command -v curl >/dev/null 2>&1; then
+        curl -fsSL --retry 3 --connect-timeout 10 --max-time 60 -o "$output" "$url" && return 0
+    fi
+    if command -v wget >/dev/null 2>&1; then
+        wget -q --timeout=60 -O "$output" "$url" && return 0
+    fi
+    return 1
+}
+
+install_taskdeck() {
+    echo "TaskDeck chưa được cài tại $TASKDECK_BIN; đang cài global user app..."
+    if [[ -x "$SCRIPT_DIR/install.sh" ]]; then
+        TASKDECK_INSTALL_DIR="$INSTALL_DIR" "$SCRIPT_DIR/install.sh"
+        return
+    fi
+    local tmp
+    tmp="$(mktemp -d "${TMPDIR:-/tmp}/taskdeck-installer.XXXXXX")"
+    download_install_script "$tmp/install.sh" || { rm -rf -- "$tmp"; die "Không tải được install.sh từ GitHub."; }
+    chmod +x "$tmp/install.sh"
+    TASKDECK_INSTALL_DIR="$INSTALL_DIR" "$tmp/install.sh"
+    rm -rf -- "$tmp"
+}
+
+if [[ ! -x "$TASKDECK_BIN" ]]; then
+    install_taskdeck
+fi
+[[ -x "$TASKDECK_BIN" ]] || die "Cài TaskDeck thất bại: không tìm thấy $TASKDECK_BIN"
+
+exec "$TASKDECK_BIN" --workspace "$PWD" "$@"

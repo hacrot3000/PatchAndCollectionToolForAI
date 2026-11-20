@@ -1,0 +1,2181 @@
+package server
+
+import (
+	"os"
+	"strings"
+	"testing"
+
+	webassets "bletonfc/vscode_tasks_menu/web"
+)
+
+func TestPatchPanelUsesBuiltinSessionAPI(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"function installPatchPanel()",
+		"task-patch-panel",
+		"['queue','Queue'",
+		"['resume','Resume'",
+		"['history','History'",
+		"['plan','Plan'",
+		"['ai-pack','AI Pack'",
+		"JSON.stringify({kind:'patch',patch_mode:mode,patch_ui:patchUIMode()})",
+		"app.materializeSession(meta,false)",
+		"/protocol",
+		"const maxAttempts=followLifecycle?7200:40",
+		"for(let attempt=0;attempt<maxAttempts;attempt+=1)",
+		"renderQueueSnapshot(state.queue_snapshot)",
+		"state?.prompt&&renderResumePrompt(sessionId,state.prompt)",
+		"const queuePromptMode=renderQueuePrompt(sessionId,state.prompt)",
+		"renderResumeSnapshot(state.resume_snapshot)",
+		"/resume-action",
+		"submitResumeAction",
+		"prompt?.prompt_kind!=='resume_action'",
+		"failed_indexes",
+		"can_retry",
+		"can_collect",
+		"can_delete",
+		"mode==='queue'||mode==='resume'||mode==='history'",
+		"renderItemLifecycle(state?.items)",
+		"enterRunningView()",
+		"finishRunningView()",
+		"Open terminal evidence",
+		"app.activateView(sessionId,{force:true})",
+		"panel.classList.add('running')",
+		"runningBack.hidden=false",
+		"renderProgress(state?.progress)",
+		"if(state?.action_result)renderActionResult(state.action_result)",
+		"/item-action",
+		"response?.action_id",
+		"waitForActionResult",
+		"state?.action_result?.action_id===actionID",
+		"activeQueuePrompt?.item_actions",
+		"activeQueuePrompt?.queue_actions",
+		"promptItemForQueueItem(item)",
+		"/queue-delete",
+		"response?.mutation_id",
+		"waitForQueueMutation",
+		"state?.queue_mutation_result",
+		"window.confirm",
+		"task-patch-queue-delete",
+		"['inspect','preview','validate']",
+		"task-patch-action-result",
+		"task-patch-item-action",
+		"progress.elapsed_seconds",
+		"progress.output_lines",
+		"task-patch-progress",
+		"renderArtifacts(state?.artifacts)",
+		"/api/files/download?path=",
+		"taskmenu:project-file-open-request",
+		"artifactFormat(kind,path)",
+		"task-patch-artifacts",
+		"followLifecycle?7200:40",
+		"followLifecycle?1000:250",
+		"protocolPollGeneration",
+		"/prompt-response",
+		"submitPromptResponse(sessionId,activeQueuePrompt,'select')",
+		"submitPromptResponse(sessionId,activeQueuePrompt,'cancel')",
+		"prompt.initial_selected",
+		"constraints.collect_exclusive",
+		"constraints?.patch_priority",
+		"data-patch-priority-index",
+		"selectedPromptPriorities()",
+		"payload.priorities=priorities",
+		"Select all PATCH",
+		"Clear selection",
+		"input.checked=!hidden&&!input.disabled&&!queueKindBlocked('PATCH')&&kind==='PATCH'",
+		"clearPromptPriority(Number(input.dataset.patchIndex))",
+		"mode==='queue'",
+		"const visible=items.slice(0,50)",
+		"setQueueSummaryView('queue')",
+		"setQueueSummaryView('failed')",
+		"task-patch-summary-search",
+		"Search name / id / summary / target",
+		"String(item?.search?.text||'')",
+		"groupItems.filter(queueItemMatchesSearch)",
+		"applyQueuePromptSearch()",
+		"row.hidden=Boolean(queueSearchQuery)",
+		"summarySearchInput.oninput",
+		"No item matches search",
+		"item?.group==='failed'",
+		"item?.group==='new'",
+		"failure?.diagnosis_kind",
+		"snapshot?.group_counts",
+		"state?.available===false",
+        "globalThis.TaskMenuPatchPanel={open,close,deactivate,toggle,start,",
+        "choosePatchUpload,uploadPatchPackage,uploadPatchPackages,prepareAIPack,",
+        "operationSnapshot:patchOperationSnapshot,operationControl:patchOperationControl",
+		"Patch panel enhancement disabled:",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("patchpanel.js missing %q", want)
+		}
+	}
+	if strings.Contains(js, "run_python_patches.sh") {
+		t.Fatal("Patch panel must use the built-in session API, not a project launcher path")
+	}
+}
+
+func TestPatchPanelUploadsPatchCollectPackagesFromBrowser(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"['upload','Upload','Upload PATCH/COLLECT package(s) from this browser']",
+		"patchUploadInput.type='file'",
+		"patchUploadInput.multiple=true",
+		".zip,.tar,.tgz,.tar.gz",
+		"async function choosePatchUpload()",
+		"async function uploadPatchPackage(file,overwrite=false)",
+		"async function uploadPatchPackages(files)",
+		"new FormData()",
+		"'/api/patch/upload'",
+		"'?overwrite=1'",
+		"already exists in Patch queue. Overwrite it?",
+		"Packages are published directly to patchs/ and then classified by the Patch runtime.",
+		"refreshPatchQueueAfterUpload()",
+		"refreshQueueSessionSilently(activeSessionId)",
+		"await openQueueWhileRunning()",
+		"A PATCH/COLLECT run is active. Upload after it finishes, or return to Queue first.",
+		"app.hasPermission?.('patch.run')",
+		"activeSessionId&&!runningMode&&(activePatchMode==='queue'||activePatchMode==='resume')",
+		"'/mutation-lock',{method:'POST'}",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("Patch browser upload UI missing %q", want)
+		}
+	}
+}
+
+func TestPatchPanelLoadsBeforeActivityBar(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/next.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	panel := strings.Index(js, "patchpanel.js")
+	activity := strings.Index(js, "activitybar.js")
+	if panel < 0 || activity < 0 || panel > activity {
+		t.Fatal("Patch panel must initialize before the Activity Bar binds its Patch view")
+	}
+}
+
+
+func TestPatchPanelNativeSummaryDoesNotParseTerminalOutput(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, forbidden := range []string{
+		"AUTO STATUS:",
+		"CON TRỎ",
+		"Missing patch signature",
+		"terminal.write",
+	} {
+		if strings.Contains(js, forbidden) {
+			t.Fatalf("Patch native summary must not parse or infer terminal output: found %q", forbidden)
+		}
+	}
+}
+
+
+func TestPatchPanelPromptUsesProtocolDataNotTerminalHeuristics(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"prompt?.prompt_kind!=='queue_selection'",
+		"item?.index",
+		"item?.kind",
+		"item?.group",
+		"prompt.actions",
+		"prompt.constraints",
+		"Python validates the final selection.",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("native queue prompt missing protocol-driven contract %q", want)
+		}
+	}
+}
+
+
+func TestPatchPanelQueueItemLabelTogglesSelection(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"input.id='task-patch-prompt-select-'+index",
+		"copy.htmlFor=input.id",
+		"copy.className='task-patch-prompt-copy'",
+		"row.append(input,copy)",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("queue prompt item label must toggle its checkbox: missing %q", want)
+		}
+	}
+}
+
+func TestPatchPanelArtifactActionsUseStructuredProtocolOnly(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"artifact?.path",
+		"artifact?.artifact_kind",
+		"artifact?.primary",
+		"renderArtifacts(state?.artifacts)",
+		"download.href='/api/files/download?path='+encodeURIComponent(row.path)",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("artifact UI missing structured protocol contract %q", want)
+		}
+	}
+}
+
+
+func TestPatchPanelQueueFailedViewsUsePythonGroupingOnly(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"item?.group==='failed'",
+		"item?.group==='new'",
+		"failure?.status",
+		"failure?.rc",
+		"failure?.diagnosis_kind",
+		"failure?.message",
+		"snapshot?.group_counts",
+		"No unresolved failed item",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("native Queue/Failed view missing protocol field %q", want)
+		}
+	}
+	for _, forbidden := range []string{
+		"item.name.includes('FAIL')",
+		"item.name.includes('failed')",
+		"failure_policy===",
+	} {
+		if strings.Contains(js, forbidden) {
+			t.Fatalf("Queue/Failed UI must not infer Python failure policy: found %q", forbidden)
+		}
+	}
+}
+
+
+func TestPatchPanelNativeItemActionsArePromptAdvertisedAndCorrelated(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"activeQueuePrompt?.item_actions",
+		"promptItemForQueueItem(item)",
+		"String(item?.kind||'').toUpperCase()==='PATCH'",
+		"JSON.stringify({prompt_id:String(activeQueuePrompt.prompt_id||''),action,index})",
+		"response?.action_id",
+		"state?.action_result?.action_id===actionID",
+		"renderActionResult(state.action_result)",
+		"actionResultOutput.textContent=String(result.output||'')",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("native item action UI missing contract %q", want)
+		}
+	}
+	for _, forbidden := range []string{
+		"AUTO STATUS:",
+		"READY_TO_APPLY",
+		"SOURCE_DRIFT",
+	} {
+		if strings.Contains(js, forbidden) {
+			t.Fatalf("native item action UI must not infer action result from terminal text: found %q", forbidden)
+		}
+	}
+}
+
+
+func TestPatchPanelRunningViewKeepsPTYAsSecondaryEvidence(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"if(action==='select'){foregroundRunDescriptor=selectedDescriptor;foregroundProtocolState=null;enterRunningView();}",
+		"app.materializeSession(meta,false)",
+		"async function openTerminalEvidence()",
+		"app.views.has(sessionId)",
+		"app.activateView(sessionId,{force:true})",
+		"finishRunningView();",
+		"runningBack.onclick=()=>openQueueWhileRunning().catch(app.showError)",
+		"task-patch-panel.running .task-patch-summary",
+		"task-patch-panel.running .task-patch-prompt",
+		"task-patch-panel.running .task-patch-actions",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("native Running view missing contract %q", want)
+		}
+	}
+	if strings.Contains(js, "views.delete(activeSessionId)") {
+		t.Fatal("native Running view must retain the PTY session as evidence")
+	}
+}
+
+
+func TestPatchPanelNativeResumeUsesPythonPromptContract(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"function renderResumeSnapshot(snapshot)",
+		"function renderResumePrompt(sessionId,prompt)",
+		"prompt?.prompt_kind!=='resume_action'",
+		"Array.isArray(prompt.options)?prompt.options:[]",
+		"option?.available!==true",
+		"String(option?.label||action)",
+		"String(option?.description||'')",
+		"resumeFailedRows(prompt)",
+		"item?.can_retry",
+		"item?.can_collect",
+		"item?.can_delete",
+		"resumeSelectionActions(prompt)",
+		"JSON.stringify(payload)",
+		"/resume-action",
+		"payload.failed_indexes=indexes",
+		"Recovery policy and availability come from the Python Patch Tool.",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("native Resume UI missing Python-owned contract %q", want)
+		}
+	}
+	for _, forbidden := range []string{
+		"previous_status==='FAIL'",
+		"diagnosis_kind==='",
+		"failure.status==='FAIL'",
+	} {
+		if strings.Contains(js, forbidden) {
+			t.Fatalf("native Resume UI must not infer recovery policy: found %q", forbidden)
+		}
+	}
+}
+
+func TestPatchPanelNativeResumeKeepsPTYFallbackAndDestructiveConfirm(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"app.materializeSession(meta,false)",
+		"if(haveResumeSnapshot)resumeNote.textContent='Native Resume command channel unavailable. Open terminal fallback if needed.'",
+		"Native command channel unavailable. Open terminal evidence/fallback if needed.",
+		"action==='delete_failed'&&!window.confirm",
+		"if(action==='history')",
+		"await start('history');",
+		"['all','failed','remaining','collect_failed'].includes(action)",
+		"void pollProtocol(sessionId,true,true)",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("native Resume fallback/safety contract missing %q", want)
+		}
+	}
+}
+
+
+func TestPatchPanelNativeHistoryUsesProjectedReadOnlyProtocol(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"function renderHistorySnapshot(snapshot)",
+		"function renderHistoryPrompt(sessionId,prompt)",
+		"function renderHistoryReport(report)",
+		"function submitHistoryDetail(sessionId,prompt,runID)",
+		"function submitHistoryManagement(sessionId,prompt,action,runID)",
+		"function waitForHistoryManagement(sessionId,managementID,promptID,runID,snapshotBefore)",
+		"historyActionsForRun(runID)",
+		"/history-manage",
+		"history_management_result",
+		"management_id",
+		"result?.history_changed!==true",
+		"snapshotToken!==snapshotBefore",
+		"String(prompt?.prompt_id||'')!==promptID",
+		"action==='delete'",
+		"window.confirm",
+		"confirmed",
+		"renderHistoryManagementResult",
+		"appendHistoryFile(historyManagementFiles,result.artifact)",
+		"prompt?.prompt_kind!=='history_action'",
+		"state?.history_snapshot",
+		"state?.history_report",
+		"/history-detail",
+		"waitForHistoryReport",
+		"prompt_id:String(prompt.prompt_id||'')",
+		"advertised.has(runID)",
+		"/api/files/download?path=",
+		"taskmenu:project-file-open-request",
+		"app.materializeSession(meta,false)",
+		"historyBack.onclick=()=>stopHistoryAndBack()",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("native History UI missing contract %q", want)
+		}
+	}
+	for _, forbidden := range []string{
+		"LAST_RUN.json",
+		"PINNED_RUNS.json",
+		"unresolved_failures",
+	} {
+		if strings.Contains(js, forbidden) {
+			t.Fatalf("native History UI must not read internal Patch Tool state %q", forbidden)
+		}
+	}
+}
+
+func TestPatchPanelHistoryKeepsTerminalAsFallbackNotPrimary(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"historyTerminal.onclick=()=>openLegacyHistoryTerminal().catch(app.showError)",
+		"Native History command channel unavailable. Open terminal fallback if needed.",
+		"Native History prompt timed out. Open terminal fallback if needed.",
+		"mode==='history'",
+		"renderHistoryPrompt(sessionId,state.prompt)",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("native History fallback contract missing %q", want)
+		}
+	}
+	if strings.Contains(js, "History uses PTY") {
+		t.Fatal("History must no longer default to PTY rendering")
+	}
+}
+
+func TestPatchPanelNativeQueueDeleteWaitsForPythonRefresh(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"function queueActionAllowed(action)",
+		"activeQueuePrompt?.queue_actions",
+		"function submitQueueDelete(item,promptItem)",
+		"window.confirm(`Delete ${name} from patchs/? This cannot be undone.`)",
+		"JSON.stringify({prompt_id:promptID,index})",
+		"/queue-delete",
+		"response?.mutation_id",
+		"state?.queue_mutation_result",
+		"result?.mutation_id===mutationID",
+		"String(prompt.prompt_id)!==oldPromptID",
+		"renderQueueSnapshot(state.queue_snapshot)",
+		"renderQueuePrompt(sessionId,prompt)",
+		"Number(result.remaining)===0",
+		"items.length===0",
+		"summaryStatus.title=String(result.message||'Queue item deleted')",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("native Queue delete UI missing contract %q", want)
+		}
+	}
+	for _, forbidden := range []string{
+		"latestQueueSnapshot.items.splice",
+		"activeQueuePrompt.items.splice",
+		"promptItem.index--",
+		"summaryWarnings.textContent=String(result.message||'Queue item deleted')",
+	} {
+		if strings.Contains(js, forbidden) {
+			t.Fatalf("Queue delete UI must preserve Python-rendered queue state: found %q", forbidden)
+		}
+	}
+}
+
+func TestPatchPanelHistoryManagementUsesOnlyAdvertisedPerRunCapabilities(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"const allowed=historyActionsForRun(runID)",
+		"for(const action of ['pin','unpin','export','delete'])",
+		"if(!allowed.has(action))continue",
+		"manage.dataset.historyAction=action",
+		"historyManagementBusy||historyBusy",
+		"History action ${action} is not advertised for this run",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("native History management capability gate missing %q", want)
+		}
+	}
+}
+
+func TestPatchPanelHistoryMutationWaitsForPythonRefresh(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"matched?.history_changed===true&&state?.history_snapshot",
+		"const snapshotToken=JSON.stringify(state.history_snapshot)",
+		"snapshotToken!==snapshotBefore&&(runs.length===0||freshPrompt)",
+		"renderHistorySnapshot(state.history_snapshot)",
+		"if(runs.length&&freshPrompt)renderHistoryPrompt(sessionId,prompt)",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("native History mutation refresh contract missing %q", want)
+		}
+	}
+}
+
+
+func TestPatchPanelQueuePrioritiesAreCapabilityDrivenAndNeverOrderInWeb(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"function patchPriorityCapability(prompt)",
+		"String(raw.response_field||'')!=='priorities'",
+		"min<0||max>9||min>max",
+		"function selectedPromptPriorities()",
+		"priority.onchange=()=>",
+		"input.checked=true",
+		"applyPromptConstraints(input,activeQueuePrompt)",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("native Queue priority UI missing %q", want)
+		}
+	}
+	for _, forbidden := range []string{
+		"priorities.sort(",
+		"selectedPromptPriorities().sort(",
+		"payload.indexes.sort(",
+	} {
+		if strings.Contains(js, forbidden) {
+			t.Fatalf("web must not own Patch execution ordering: found %q", forbidden)
+		}
+	}
+}
+
+
+func TestPatchPanelQueueSearchUsesOnlyPythonProjection(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	start := strings.Index(js, "function queueItemMatchesSearch(item)")
+	if start < 0 {
+		t.Fatal("queue search matcher block not found")
+	}
+	rest := js[start:]
+	relEnd := strings.Index(rest, "function queueSearchAvailable")
+	if relEnd < 0 {
+		t.Fatal("queue search matcher end not found")
+	}
+	block := rest[:relEnd]
+	if !strings.Contains(block, "queueItemSearchText(item)") {
+		t.Fatal("queue search matcher must use Python-projected search text")
+	}
+	for _, forbidden := range []string{"item?.name", "item?.detail", "item?.kind", "failure", "manifest", ".zip"} {
+		if strings.Contains(block, forbidden) {
+			t.Fatalf("queue search matcher must not infer/search browser fields directly: found %q", forbidden)
+		}
+	}
+	for _, want := range []string{
+		"function queueItemSearchText(item)",
+		"String(item?.search?.text||'')",
+		"function snapshotItemForPromptItem(promptItem)",
+		"applyQueuePromptSearch()",
+		"input.checked=false",
+		"clearPromptPriority(index)",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("native Queue search missing contract %q", want)
+		}
+	}
+}
+
+
+func TestPatchPanelNativePlanIsReadOnlyPrimaryView(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"function enterPlanView()",
+		"panel.classList.add('plan')",
+		"function leavePlanView()",
+		"function renderPlanSnapshot(snapshot)",
+		"snapshot.failure_policy",
+		"snapshot.transaction_policy",
+		"snapshot.previous_failure_action",
+		"snapshot.static_conflicts",
+		"snapshot.resources",
+		"snapshot.previews",
+		"snapshot.warnings",
+		"snapshot.error",
+		"state?.plan_snapshot&&!havePlanSnapshot",
+		"renderPlanSnapshot(state.plan_snapshot)",
+		"task-patch-panel.plan .task-patch-summary",
+		"planTerminal.onclick=()=>openTerminalEvidence().catch(app.showError)",
+		"planBack.onclick=()=>refreshQueueFromSummary().catch(app.showError)",
+		"app.materializeSession(meta,false)",
+		"Native Plan snapshot unavailable or timed out. Use Terminal evidence/fallback.",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("native Plan UI missing contract %q", want)
+		}
+	}
+	start := strings.Index(js, "function renderPlanSnapshot(snapshot)")
+	end := strings.Index(js[start:], "function enterRunningView()")
+	if start < 0 || end < 0 {
+		t.Fatal("native Plan renderer bounds unavailable")
+	}
+	renderer := js[start : start+end]
+	for _, forbidden := range []string{
+		"jsonFetch(",
+		"/plan-action",
+		"submitPlan",
+		"window.confirm",
+		"prompt_response",
+	} {
+		if strings.Contains(renderer, forbidden) {
+			t.Fatalf("native Plan renderer must remain presentation-only: found %q", forbidden)
+		}
+	}
+}
+
+func TestPatchPanelPlanKeepsPTYAsExplicitFallbackNotPrimary(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"if(mode==='plan')enterPlanView();else leavePlanView();",
+		"if(planMode){",
+		"planStatus.textContent='PTY fallback';",
+		"Use Terminal evidence/fallback.",
+		"app.views.has(sessionId)",
+		"app.activateView(sessionId,{force:true})",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("native Plan fallback contract missing %q", want)
+		}
+	}
+}
+
+
+func TestPatchPanelNativeHealthIsReadOnlyPrimaryView(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"['health','Health'",
+		"function enterHealthView()",
+		"panel.classList.add('health')",
+		"function leaveHealthView()",
+		"function renderHealthSnapshot(snapshot)",
+		"snapshot.status",
+		"snapshot.tool_version",
+		"snapshot.summary",
+		"snapshot.checks",
+		"snapshot.warnings",
+		"snapshot.errors",
+		"state?.health_snapshot&&!haveHealthSnapshot",
+		"renderHealthSnapshot(state.health_snapshot)",
+		"task-patch-panel.health .task-patch-summary",
+		"healthTerminal.onclick=()=>openTerminalEvidence().catch(app.showError)",
+		"healthBack.onclick=()=>refreshQueueFromSummary().catch(app.showError)",
+		"app.materializeSession(meta,false)",
+		"Native Health snapshot unavailable or timed out. Use Terminal evidence/fallback.",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("native Health UI missing contract %q", want)
+		}
+	}
+	start := strings.Index(js, "function renderHealthSnapshot(snapshot)")
+	endOffset := strings.Index(js[start:], "function enterRunningView()")
+	if start < 0 || endOffset < 0 {
+		t.Fatal("native Health renderer bounds unavailable")
+	}
+	renderer := js[start : start+endOffset]
+	for _, forbidden := range []string{
+		"jsonFetch(",
+		"/health-action",
+		"window.confirm",
+		"prompt_response",
+		"SHA256SUMS",
+		"PACKAGE_CONTENTS",
+	} {
+		if strings.Contains(renderer, forbidden) {
+			t.Fatalf("native Health renderer must remain typed presentation-only: found %q", forbidden)
+		}
+	}
+}
+
+func TestPatchPanelHealthKeepsPTYAsExplicitFallbackNotPrimary(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"if(mode==='health')enterHealthView();else leaveHealthView();",
+		"if(healthMode){",
+		"healthStatus.textContent='PTY fallback';",
+		"Native Health protocol state unavailable. Use Terminal evidence/fallback.",
+		"app.views.has(sessionId)",
+		"app.activateView(sessionId,{force:true})",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("native Health fallback contract missing %q", want)
+		}
+	}
+}
+
+
+func TestPatchPanelHistorySupportIsCapabilityDrivenAndCorrelated(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"function historyItemSupportAllowed(item)",
+		"activeHistoryPrompt?.constraints",
+		"constraints.item_actions",
+		"item?.actions",
+		"advertised.has('support')&&actions.has('support')",
+		"function submitHistorySupport(sessionId,prompt,runID,item,sourceButton)",
+		"/history-support",
+		"body:JSON.stringify({prompt_id:promptID,run_id:runID,item_index:itemIndex})",
+		"response?.support_id",
+		"function waitForHistorySupport(sessionId,supportID,promptID,runID,itemIndex)",
+		"result?.support_id===supportID",
+		"String(result?.prompt_id||'')!==promptID",
+		"String(result?.run_id||'')!==runID",
+		"Number(result?.item_index)!==itemIndex",
+		"renderHistorySupportResult(result)",
+		"appendHistoryFile(historyManagementFiles,result.artifact)",
+		"historySupportBusy",
+		"historySupportPollGeneration",
+		"support.textContent='Support'",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("native History Support UI missing contract %q", want)
+		}
+	}
+	for _, forbidden := range []string{
+		"item?.status==='FAIL'&&",
+		"item?.kind==='PATCH'&&historyItemSupport",
+	} {
+		if strings.Contains(js, forbidden) {
+			t.Fatalf("History Support must be capability-driven, found %q", forbidden)
+		}
+	}
+}
+
+func TestPatchPanelHistorySupportKeepsHistoryPromptReusable(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	start := strings.Index(js, "async function submitHistorySupport")
+	endRel := strings.Index(js[start:], "function historyPromptRun")
+	if start < 0 || endRel < 0 { t.Fatal("History support function bounds unavailable") }
+	block := js[start:start+endRel]
+	for _, forbidden := range []string{
+		"activeHistoryPrompt=null",
+		"clearPrompt()",
+		"leaveHistoryView()",
+	} {
+		if strings.Contains(block, forbidden) {
+			t.Fatalf("History Support must not consume/clear reusable History prompt: %q", forbidden)
+		}
+	}
+}
+
+
+func TestPatchPanelHistoryCleanupIsCapabilityDrivenAndUsesPythonCounts(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"function historyCleanupProjection(prompt)",
+		"actions.has('cleanup')",
+		"destructive.has('cleanup')",
+		"constraints.cleanup",
+		"remove_unpinned_older_than_days",
+		"cleanup.min_days",
+		"cleanup.max_days",
+		"cleanup.day_options",
+		"cleanup.pinned",
+		"populateHistoryCleanupDays(cleanup)",
+		"historyCleanupPreviewButton",
+		"historyCleanupDelete",
+		"historyCleanupDelete.disabled=historyCleanupBusy||historyBusy||historyManagementBusy||historySupportBusy||eligible<=0||latestHistoryCleanupPreview.candidates_truncated===true",
+		"Array.isArray(candidate?.search_names)&&candidate.search_names.length",
+		"candidateNames.map(value=>String(value||'')).filter(Boolean).join(', ')",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("native History age Cleanup capability UI missing %q", want)
+		}
+	}
+}
+
+func TestPatchPanelHistoryCleanupIsPromptBoundCorrelatedAndListFree(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"async function submitHistoryCleanupPreview(sessionId,prompt)",
+		"async function submitHistoryCleanupDelete(sessionId,prompt)",
+		"/history-cleanup",
+		"older_than_days:olderThanDays",
+		"confirmed:false",
+		"confirmed:true",
+		"preview_cleanup_id:String(preview.cleanup_id||'')",
+		"response?.cleanup_id",
+		"async function waitForHistoryCleanup(sessionId,cleanupID,promptID,snapshotBefore)",
+		"result?.cleanup_id===cleanupID",
+		"String(result?.prompt_id||'')!==promptID",
+		"renderHistoryCleanupResult(result)",
+		"snapshotToken!==snapshotBefore",
+		"String(prompt?.prompt_id||'')!==promptID",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("native History Cleanup correlation UI missing %q", want)
+		}
+	}
+	start := strings.Index(js, "async function submitHistoryCleanupPreview")
+	endRel := strings.Index(js[start:], "function historyActionsForRun")
+	if start < 0 || endRel < 0 { t.Fatal("History Cleanup function bounds unavailable") }
+	block := js[start:start+endRel]
+	for _, forbidden := range []string{"run_id:", "run_ids", "candidates:", "paths:", "cutoff_at:", "candidate_digest:"} {
+		if strings.Contains(block, forbidden) {
+			t.Fatalf("History Cleanup browser request must not choose cleanup candidates or integrity binding: %q", forbidden)
+		}
+	}
+}
+
+func TestPatchPanelHistoryCleanupRequiresExplicitConfirmationAndPreservesPins(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"window.confirm(",
+		"Delete '+eligible+' unpinned Patch Tool History entr",
+		"Only the entries shown in the reviewed preview are eligible",
+		"pinned runs are preserved",
+		"Select an age and preview before deleting.",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("History Cleanup confirmation missing %q", want)
+		}
+	}
+}
+
+func TestPatchStartSeparatesNativeHeadlessAndLegacyTerminalModes(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	start := strings.Index(js, "async function start(mode,sourceButton=null)")
+	endRel := strings.Index(js[start:], "terminalEvidence.onclick")
+	if start < 0 || endRel < 0 { t.Fatal("Patch start function bounds unavailable") }
+	block := js[start:start+endRel]
+
+	for _, want := range []string{
+		"if(patchUIMode()==='terminal'){",
+		"app.materializeSession(meta,false)",
+		"await assertHeadlessNativeSession(meta);",
+		"patch_ui:patchUIMode()",
+	} {
+		if !strings.Contains(block,want) { t.Fatalf("Patch UI mode routing missing %q",want) }
+	}
+	nativeStart := strings.Index(block,"await assertHeadlessNativeSession(meta);")
+	if nativeStart < 0 { t.Fatal("native Patch start branch unavailable") }
+	nativeBlock := block[nativeStart:]
+	if strings.Contains(nativeBlock,"materializeSession(") {
+		t.Fatal("native Patch branch must keep its backing PTY headless")
+	}
+	if !strings.Contains(js, "async function openTerminalEvidence()") ||
+		!strings.Contains(js, "app.materializeSession(meta,false)") {
+		t.Fatal("native terminal evidence fallback path is unavailable")
+	}
+}
+
+func TestPatchPanelHonorsInterfaceSetting(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"function patchUIMode()",
+		"TaskMenuPatchUISettings?.mode==='terminal'",
+		"if(patchUIMode()==='terminal'){",
+		"start('queue').catch(app.showError)",
+		"taskmenu:patch-ui-mode",
+		"patchTab.hidden=true",
+	} {
+		if !strings.Contains(js,want) { t.Fatalf("Patch interface setting wiring missing %q",want) }
+	}
+}
+
+
+func TestPatchPanelOwnsTabbedNativeWorkspaceSurface(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"const tabsHost=document.querySelector('#tabs')",
+		"const panesHost=document.querySelector('#panes')",
+		".task-patch-panel{display:none;position:absolute;inset:0",
+		"patchTab.className='tab task-patch-tab'",
+		"patchTabLabel.textContent='Patch Tool'",
+		"patchTab.onclick=()=>open()",
+		"patchTabClose.onclick=event=>{event.stopPropagation();close();}",
+		"patchTab.classList.toggle('active',visible)",
+		"app.claimForegroundView?.('external:patch')",
+		"app.activateExternalView('patch',{force:true})",
+		"window.addEventListener('taskmenu:view-activated'",
+		"const patchActive=String(app.active||'')==='external:patch'",
+		"deactivate()",
+	} {
+		if !strings.Contains(js,want) {
+			t.Fatalf("native Patch tab surface missing %q",want)
+		}
+	}
+	for _, forbidden := range []string{
+		"position:fixed;top:52px",
+		"body.task-patch-workspace-active main>section{visibility:hidden}",
+		"document.body.classList.toggle('task-patch-workspace-active'",
+	} {
+		if strings.Contains(js,forbidden) {
+			t.Fatalf("native Patch must no longer obscure the workspace tab strip: %q",forbidden)
+		}
+	}
+}
+
+
+func TestPatchPanelSurvivesProgrammaticWorkspaceOpens(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"app.claimForegroundView?.('external:patch')",
+		"app.activateExternalView('patch',{force:true})",
+		"window.addEventListener('taskmenu:view-activated',()=>",
+		"const patchActive=String(app.active||'')==='external:patch'",
+		"deactivate()",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("Patch foreground persistence missing %q", want)
+		}
+	}
+	for _, forbidden := range []string{
+		"app.activateExternalView('patch');",
+		"const explicit=Boolean(event.detail?.explicit)",
+		"if(!explicit&&panel.classList.contains('visible'))",
+	} {
+		if strings.Contains(js, forbidden) {
+			t.Fatalf("Patch panel must not race core foreground activation with %q", forbidden)
+		}
+	}
+}
+
+func TestPatchFileActionsOpenEditorAndCopyFullPath(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"function fullProjectPath(path)",
+		"String(app.taskData?.workspace||'')",
+		"async function copyFullPath(path,button)",
+		"navigator.clipboard.writeText(text)",
+		"copyPath.textContent=String(row.format||'FILE')+' Copy path'",
+		"copyPath.title='Copy full project path'",
+		"function openProjectFile(path)",
+		"globalThis.TaskMenuEditor",
+		"editor.openFile(path).catch(app.showError)",
+		"open.onclick=()=>openProjectFile(textVariant.path)",
+	} {
+		if !strings.Contains(js,want) {
+			t.Fatalf("Patch file action contract missing %q",want)
+		}
+	}
+}
+func TestPatchNativeNavigationDoesNotImplicitlyOpenTerminal(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	if strings.Contains(js,"openTerminalEvidence();") {
+		t.Fatal("normal native Patch navigation must not implicitly materialize terminal evidence")
+	}
+	for _, want := range []string{
+		"if(action==='history'){",
+		"await start('history');",
+		"terminalEvidence.onclick=()=>openTerminalEvidence().catch(app.showError)",
+		"historyTerminal.onclick=()=>openLegacyHistoryTerminal().catch(app.showError)",
+		"planTerminal.onclick=()=>openTerminalEvidence().catch(app.showError)",
+		"healthTerminal.onclick=()=>openTerminalEvidence().catch(app.showError)",
+	} {
+		if !strings.Contains(js,want) { t.Fatalf("native navigation/fallback contract missing %q",want) }
+	}
+
+	dispatcherPath := "../../../_patch_lib/python_patch_queue_dispatcher.py"
+	dispatcher, err := os.ReadFile(dispatcherPath)
+	if os.IsNotExist(err) {
+		t.Skip("repo-root Patch runtime is absent from legacy self-update source staging")
+	}
+	if err != nil { t.Fatal(err) }
+	py := string(dispatcher)
+	oldOrder := "if isinstance(decision, dict) and str(decision.get(\"action\") or \"\") == \"history\":\n                _history_browser(root)\n                if native_resume_handled:"
+	if strings.Contains(py,oldOrder) {
+		t.Fatal("native Resume must not enter the terminal history browser before TaskDeck navigation")
+	}
+	for _, want := range []string{
+		"if native_resume_handled:\n                    return finish_report(\"CANCELLED\", 0)\n                _history_browser(root)",
+		"TaskDeck opens\n                # a dedicated native History session",
+	} {
+		if !strings.Contains(py,want) { t.Fatalf("Python native Resume navigation contract missing %q",want) }
+	}
+}
+
+
+func TestPatchStartFailsClosedWhenBackendLosesHeadlessContract(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"async function assertHeadlessNativeSession(meta)",
+		"if(Number(meta.task_id)!==-1)",
+		"Native Patch invariant failed: backend returned a non-headless session",
+		"if(app.views.has(meta.id))",
+		"Native Patch invariant failed: session was materialized as a terminal tab",
+		"await assertHeadlessNativeSession(meta);",
+	} {
+		if !strings.Contains(js,want) {
+			t.Fatalf("headless runtime invariant missing %q",want)
+		}
+	}
+}
+
+
+func TestPatchFallbackCopyIsExplicitOnly(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, forbidden := range []string{"Continue in PTY","Continue in terminal.","Use Terminal fallback.","PTY-only"} {
+		if strings.Contains(js,forbidden) {
+			t.Fatalf("native Patch fallback copy still implies automatic terminal handoff: %q",forbidden)
+		}
+	}
+	for _, want := range []string{
+		"Terminal fallback available",
+		"Open terminal fallback if needed.",
+		"Open terminal evidence/fallback if needed.",
+	} {
+		if !strings.Contains(js,want) {
+			t.Fatalf("explicit terminal fallback copy missing %q",want)
+		}
+	}
+}
+
+
+func TestPatchQueuePromptDoesNotDuplicateActionableItems(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		".task-patch-summary.prompt-active .task-patch-summary-tabs",
+		".task-patch-summary.prompt-active .task-patch-summary-search",
+		".task-patch-summary.prompt-active .task-patch-summary-list{display:none}",
+		"summary.classList.add('prompt-active')",
+		"summaryTitle.textContent='Queue overview'",
+		"summary.classList.remove('prompt-active')",
+		"for(const item of runnableItems)",
+		"promptBox.hidden=true",
+	} {
+		if !strings.Contains(js,want) {
+			t.Fatalf("queue prompt duplicate suppression missing %q",want)
+		}
+	}
+}
+
+func TestPatchDeactivateKeepsTabAvailable(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	start := strings.Index(js,"function deactivate(){")
+	end := strings.Index(js[start:],"function close(){")
+	if start < 0 || end < 0 { t.Fatal("Patch deactivate/close functions unavailable") }
+	block := js[start:start+end]
+	if strings.Contains(block,"patchTab.hidden=true") || strings.Contains(block,"patchTab.remove(") {
+		t.Fatal("deactivating Patch must not hide/remove the Patch tab")
+	}
+	for _, want := range []string{
+		"if(panel.classList.contains('visible'))setVisible(false)",
+		"globalThis.TaskMenuPatchPanel={open,close,deactivate,toggle,start",
+	} {
+		if !strings.Contains(js,want) { t.Fatalf("Patch deactivate contract missing %q",want) }
+	}
+}
+
+
+
+func TestPatchPanelForegroundLockPreservesContentAcrossAutomaticViewOpens(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+
+	for _, want := range []string{
+		"let lifecycleSuspended=false",
+		"function cancelPatchPanelPolling()",
+		"function suspendPatchPanelLifecycle()",
+		"function resumePatchPanelLifecycle()",
+		"app.claimForegroundView?.('external:patch')",
+		"app.releaseForegroundView?.('external:patch')",
+		"app.activateExternalView('patch',{force:true})",
+		"const patchActive=String(app.active||'')==='external:patch'",
+		"Core foreground locking is authoritative",
+		"deactivate()",
+		"if(generation!==protocolPollGeneration||lifecycleSuspended)return",
+		"while(generation===parallelCollectPollGeneration&&!lifecycleSuspended)",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("Patch panel missing foreground-lock contract %q", want)
+		}
+	}
+
+	deactivateStart := strings.Index(js, "function deactivate(){")
+	closeStart := strings.Index(js, "function close(){")
+	if deactivateStart < 0 || closeStart <= deactivateStart {
+		t.Fatal("Patch deactivate/close functions unavailable")
+	}
+	deactivateBlock := js[deactivateStart:closeStart]
+	if strings.Contains(deactivateBlock, "suspendPatchPanelLifecycle") ||
+		strings.Contains(deactivateBlock, "cancelPatchPanelPolling") ||
+		strings.Contains(deactivateBlock, "PollGeneration+=") {
+		t.Fatal("explicitly switching away from Patch Tool must hide/release foreground without destroying Patch lifecycle")
+	}
+	if !strings.Contains(deactivateBlock, "app.releaseForegroundView?.('external:patch')") {
+		t.Fatal("Patch deactivate must release the shared foreground lock")
+	}
+
+	for _, forbidden := range []string{
+		"if(!visible){protocolPollGeneration+=1",
+		"generation!==protocolPollGeneration||!panel.classList.contains('visible')",
+		"while(generation===parallelCollectPollGeneration&&panel.classList.contains('visible'))",
+		"app.activateExternalView('patch');",
+		"const explicit=Boolean(event.detail?.explicit)",
+	} {
+		if strings.Contains(js, forbidden) {
+			t.Fatalf("Patch background lifecycle must not depend on tab visibility: found %q", forbidden)
+		}
+	}
+}
+
+func TestPatchRunningViewShowsLiveProtocolHeartbeat(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"let runningStartedAtMs=0",
+		"let runningLastEventCount=-1",
+		"function renderRunningHeartbeat(state)",
+		"eventCount!==runningLastEventCount",
+		"phase '+phase",
+		"output lines",
+		"protocol events ",
+		"no new protocol event for ",
+		"runningMeta.classList.toggle('stale',activityAge>=10)",
+		"renderRunningHeartbeat(state);",
+	} {
+		if !strings.Contains(js,want) {
+			t.Fatalf("running heartbeat UI missing %q",want)
+		}
+	}
+}
+
+
+func TestPatchQueueWarningsRenderOnePerLine(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{"task-patch-summary-warning-title","task-patch-summary-warning-line","for(const warning of warnings)"} {
+		if !strings.Contains(js,want) { t.Fatalf("queue warning line rendering missing %q",want) }
+	}
+	if strings.Contains(js,"warnings.slice(0,3).join(' | ')") { t.Fatal("queue warnings must not be collapsed into one line") }
+}
+
+func TestPatchQueuePromptHasPerItemDelete(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{"task-patch-prompt-delete","if(queueActionAllowed('delete'))","remove.onclick=()=>submitQueueDelete(item,item).catch(app.showError)","promptItems.querySelectorAll('.task-patch-prompt-delete')"} {
+		if !strings.Contains(js,want) { t.Fatalf("queue prompt delete missing %q",want) }
+	}
+}
+
+
+func TestPatchArtifactsGroupZipAndTxtOnOneRowWithSeparateActions(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"function groupProtocolArtifacts(artifacts)",
+		"const key=[family,item,index,stem].join('\\u0000')",
+		"function pairedVariantPath(variants)",
+		"return stem+'.{'+extensions.join('|')+'}'",
+		"function appendArtifactVariantGroup(host,variants)",
+		"formatNode.textContent=formats.join(' / ')",
+		"appendArtifactVariantGroup(variants,group.variants)",
+		"const filesSorted=group.files.slice().sort",
+		"format.textContent=filesSorted.map(file=>String(file.format||'FILE')).join(' / ')",
+		"const textFile=filesSorted.find(file=>file.format==='TXT')",
+		"open.textContent='Open TXT'",
+	} {
+		if !strings.Contains(js,want) { t.Fatalf("single-row paired artifact UI missing %q",want) }
+	}
+	for _, forbidden := range []string{
+		"for(const variant of group.variants)appendArtifactVariant",
+		"for(const file of group.files){\n        const line=document.createElement('div');line.className='task-patch-history-variant'",
+	} {
+		if strings.Contains(js,forbidden) { t.Fatalf("paired artifact still creates one visual row per variant: %q",forbidden) }
+	}
+}
+
+
+func TestPatchNativeParallelCollectUsesIndependentSessions(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"function parallelCollectCapability(prompt)",
+		"String(raw.strategy||'')!=='independent_processes'",
+		"max>16",
+		"Select all COLLECT (parallel)",
+		"function launchParallelCollect(sessionId,prompt,indexes)",
+		"/parallel-collect",
+		"function pollParallelCollectRuns()",
+		"parallelCollectRuns=new Map()",
+		"parallelCollectTitle.textContent=runningMode?'Other runs':'Run results and active runs'",
+		"appendProtocolArtifactGroups(artifacts,run.state?.artifacts)",
+		"openTerminalEvidenceForSession(run.sessionId)",
+	} {
+		if !strings.Contains(js,want) { t.Fatalf("parallel COLLECT UI missing %q",want) }
+	}
+	if strings.Contains(js,"terminal.write") { t.Fatal("parallel COLLECT native UI must not infer state from terminal text") }
+}
+
+func TestPatchParallelCollectSelectionDoesNotBreakSingleCollectInvariant(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"selectedCollects.length>parallel.max",
+		"kind==='PATCH'",
+		"kind==='COLLECT'",
+		"parallel&&kinds.every(kind=>kind==='COLLECT')&&(indexes.length>1||activeRunningRunCount()>0)",
+		"submitPromptResponse(sessionId,activeQueuePrompt,'select')",
+	} {
+		if !strings.Contains(js,want) { t.Fatalf("parallel/single COLLECT selection contract missing %q",want) }
+	}
+}
+
+
+func TestPatchRunningCanReturnToFreshQueueWithoutStoppingRun(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"runningBack.textContent='Back to Queue / Add more'",
+		"runningBack.hidden=false",
+		"async function openQueueWhileRunning()",
+		"if(activeSessionId&&runningMode)await rememberForegroundRun(activeSessionId)",
+		"protocolPollGeneration+=1",
+		"await start('queue')",
+		"async function rememberForegroundRun(sessionId)",
+		"parallelCollectRuns.set(key,run)",
+		"function activeRunningRunCount()",
+		"activeExecutionKinds().size>0",
+	} {
+		if !strings.Contains(js,want) { t.Fatalf("background Queue continuation missing %q",want) }
+	}
+	blockStart:=strings.Index(js,"async function openQueueWhileRunning()")
+	blockEnd:=strings.Index(js[blockStart:],"async function refreshQueueSession")
+	if blockStart<0||blockEnd<0 { t.Fatal("openQueueWhileRunning bounds unavailable") }
+	block:=js[blockStart:blockStart+blockEnd]
+	if strings.Contains(block,"/stop") { t.Fatal("Back to Queue must not stop the active run") }
+}
+
+func TestPatchAddModeAllowsSameKindAndLocksOppositeKindAndRunningItems(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"const addingWhileRuns=activeExecutionKinds().size>0",
+		"const runningNames=activeRunningNames()",
+		"const duplicateRunning=runningNames.has(itemName)",
+		"const addModePatch=queueKindBlocked(itemKind)",
+		"input.dataset.patchLocked=locked?'1':'0'",
+		"input.disabled=locked",
+		"already running",
+		"locked while active run exists",
+		"selectAll.dataset.patchLocked=queueKindBlocked('PATCH')?'1':'0'",
+		"remove.dataset.patchLocked=duplicateRunning?'1':'0'",
+		"activeRunningRunCount()>0",
+	} {
+		if !strings.Contains(js,want) { t.Fatalf("active-run add-mode safety missing %q",want) }
+	}
+}
+
+func TestPatchQueueBackgroundRefreshPreservesInteractiveSelectionWithoutBlanking(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"let queueSilentRefreshPending=false",
+		"await refreshQueueSilently()",
+		"async function refreshQueueSilently()",
+		"async function refreshQueueSessionSilently(sessionId)",
+		"queueSilentRefreshPending=true",
+		"function queuePromptItemIdentity(item)",
+		"function captureQueueInteractionState()",
+		"function restoreQueueInteractionState(state,prompt)",
+		"choices.set(queuePromptItemIdentity(item),{checked:Boolean(input.checked),priority:String(priority?.value||'')})",
+		"const preservedInteraction=incremental?captureQueueInteractionState():null",
+		"if(preservedInteraction)restoreQueueInteractionState(preservedInteraction,prompt)",
+		"const preserveQueueUI=queueSilentRefreshPending&&activePatchMode==='queue'",
+		"if(!preserveQueueUI){",
+		"const promptActionBusy=busy",
+		"for(const input of promptItems.querySelectorAll('input[type=\"checkbox\"]'))input.disabled=busy||input.dataset.patchLocked==='1'",
+		"for(const select of promptItems.querySelectorAll('select[data-patch-priority-index]'))select.disabled=busy||select.dataset.patchLocked==='1'",
+		"promptItems.scrollTop=Number(state.promptScrollTop)||0",
+		"summaryList.scrollTop=Number(state.summaryScrollTop)||0",
+		"focusTarget.focus({preventScroll:true})",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("Patch Queue silent refresh state preservation missing %q", want)
+		}
+	}
+	refreshStart := strings.Index(js, "async function refreshQueueSessionSilently(sessionId)")
+	refreshEndRel := strings.Index(js[refreshStart:], "summaryRefresh.onclick")
+	if refreshStart < 0 || refreshEndRel < 0 { t.Fatal("silent Queue refresh bounds unavailable") }
+	refreshBlock := js[refreshStart:refreshStart+refreshEndRel]
+	if strings.Contains(refreshBlock, "clearPrompt()") || strings.Contains(refreshBlock, "resetSummary(") {
+		t.Fatal("background Queue refresh must not blank the current UI while waiting for the refreshed session")
+	}
+}
+
+func TestPatchQueueAutoRefreshTracksWorkspaceAndBrowserActivity(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"const queueAutoRefreshIntervalMS=5000",
+		"const queueAutoRefreshRetryMS=1000",
+		"let activePatchMode='queue'",
+		"function patchQueueListActive()",
+		"function patchQueueBrowserActive()",
+		"function scheduleQueueAutoRefresh(delay=queueAutoRefreshIntervalMS)",
+		"function queueSessionSnapshotSettled()",
+		"async function refreshQueueForActivity(reason='activity')",
+		"void refreshQueueForActivity('patch-tab')",
+		"void refreshQueueForActivity('view-activated')",
+		"window.addEventListener('focus',()=>{void refreshQueueForActivity('window-focus');})",
+		"document.addEventListener('visibilitychange',()=>",
+		"if(document.visibilityState==='visible')void refreshQueueForActivity('visibility')",
+		"lastQueueSnapshotSessionId=String(activeSessionId||'')",
+		"scheduleQueueAutoRefresh();",
+		"activePatchMode=mode",
+		"if(mode!=='queue')cancelQueueAutoRefreshTimer()",
+		"activePatchMode==='queue'",
+		"!runningMode&&!historyMode&&!planMode&&!healthMode",
+		"document.hasFocus()",
+		"planBack.onclick=()=>refreshQueueFromSummary().catch(app.showError)",
+		"healthBack.onclick=()=>refreshQueueFromSummary().catch(app.showError)",
+		"activePatchMode='queue';",
+		"await start('queue');",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("Patch Queue automatic refresh missing %q", want)
+		}
+	}
+	if strings.Contains(js, "setInterval(") {
+		t.Fatal("Patch Queue refresh must use completion-aware scheduling instead of overlapping setInterval polling")
+	}
+}
+
+func TestPatchQueueCanRefreshWhileBackgroundRunsContinue(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"summaryRefresh.textContent='Refresh Queue'",
+		"summaryRefresh.onclick=()=>refreshQueueFromSummary().catch(app.showError)",
+		"async function refreshQueueFromSummary()",
+		"if(activeSessionId)return refreshQueueSession(activeSessionId)",
+		"async function refreshQueueSession(sessionId)",
+		"/stop',{method:'POST'}",
+		"await start('queue')",
+		"if(parallelCollectRuns.size)void pollParallelCollectRuns()",
+	} {
+		if !strings.Contains(js,want) { t.Fatalf("Queue refresh contract missing %q",want) }
+	}
+	if strings.Contains(js,"const refresh=document.createElement('button');refresh.type='button';refresh.textContent='Refresh Queue'") {
+		t.Fatal("Queue selector must not duplicate the persistent Refresh Queue button")
+	}
+}
+
+func TestPatchSingleAdditionalCollectUsesIndependentWorker(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"indexes.length<1||indexes.length>capability.max",
+		"parallel&&kinds.every(kind=>kind==='COLLECT')&&(indexes.length>1||activeRunningRunCount()>0)",
+		"const key=sessionId?('session:'+sessionId)",
+		"names:[name],kinds:['COLLECT']",
+	} {
+		if !strings.Contains(js,want) { t.Fatalf("single additional COLLECT worker UI missing %q",want) }
+	}
+}
+
+
+func TestPatchPairedArtifactActionOrderIsFormatClear(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	start:=strings.Index(js,"function appendArtifactVariantGroup(host,variants)")
+	endRel:=strings.Index(js[start:],"function appendProtocolArtifactGroups")
+	if start<0||endRel<0 { t.Fatal("combined live artifact renderer bounds unavailable") }
+	block:=js[start:start+endRel]
+	download:=strings.Index(block,"+' Download'")
+	copy:=strings.Index(block,"+' Copy path'")
+	open:=strings.Index(block,"Open TXT")
+	if download<0||copy<0||open<0||!(download<copy&&copy<open) {
+		t.Fatal("combined artifact actions must render downloads first, copies second, Open TXT last")
+	}
+}
+
+
+func TestPatchHistoryTerminalStartsSeparateLegacyBrowserSession(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"async function openLegacyHistoryTerminal()",
+		"body:JSON.stringify({kind:'patch',patch_mode:'history',patch_ui:'terminal'})",
+		"app.materializeSession(meta,false)",
+		"historyTerminal.onclick=()=>openLegacyHistoryTerminal().catch(app.showError)",
+		"openLegacyHistoryTerminal,openQueueWhileRunning",
+	} {
+		if !strings.Contains(js,want) { t.Fatalf("legacy terminal History launcher missing %q",want) }
+	}
+	start:=strings.Index(js,"async function openLegacyHistoryTerminal()")
+	endRel:=strings.Index(js[start:],"function clearActionResult()")
+	if start<0||endRel<0 { t.Fatal("legacy History terminal helper bounds unavailable") }
+	block:=js[start:start+endRel]
+	for _, forbidden:=range []string{
+		"openTerminalEvidenceForSession(activeSessionId)",
+		"encodeURIComponent(activeSessionId)",
+	} {
+		if strings.Contains(block,forbidden) {
+			t.Fatalf("History Terminal must not materialize the native backing History session: %q",forbidden)
+		}
+	}
+}
+
+
+func TestPatchActiveRunsRetainCompletedWorkerResultsAndPruneFinishedForeground(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"function sessionMetadataRunning(meta)",
+		"String(meta?.status||'').toLowerCase()==='running'",
+		"async function rememberForegroundRun(sessionId)",
+		"meta=await app.jsonFetch('/api/sessions/'+encodeURIComponent(sessionId))",
+		"if((meta&&!sessionMetadataRunning(meta))||runningFinished||protocolRunFinished(state))",
+		"parallelCollectRuns.delete(key)",
+		"for(const [key,run] of [...parallelCollectRuns.entries()])",
+		"if(!sessionMetadataRunning(meta)){",
+		"run.active=false",
+		"run.completedAt=run.completedAt||Date.now()",
+		"activeRunningRunCount()===0",
+	} {
+		if !strings.Contains(js,want) { t.Fatalf("completed worker retention missing %q",want) }
+	}
+	renderStart:=strings.Index(js,"function renderParallelCollectRuns()")
+	renderEndRel:=strings.Index(js[renderStart:],"async function pollParallelCollectRuns()")
+	if renderStart<0||renderEndRel<0 { t.Fatal("Active runs renderer bounds unavailable") }
+	renderBlock:=js[renderStart:renderStart+renderEndRel]
+	if !strings.Contains(renderBlock,"const entries=[...parallelCollectRuns.entries()]") {
+		t.Fatal("Run results must retain finished worker entries alongside active runs")
+	}
+	if !strings.Contains(renderBlock,".filter(([_key,run])=>Boolean(run))") {
+		t.Fatal("Run results must not hide completed entries")
+	}
+}
+
+func TestPatchActiveRunManualRemovalRequiresBackendNotRunning(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"async function removeRunFromActive(key,run,sourceButton)",
+		"const meta=await app.jsonFetch('/api/sessions/'+encodeURIComponent(run.sessionId))",
+		"if(sessionMetadataRunning(meta))",
+		"This session is still running. It cannot be removed from Active runs yet.",
+		"remove.textContent='Remove from Active'",
+		"removeRunFromActive(key,run,remove).catch(app.showError)",
+	} {
+		if !strings.Contains(js,want) { t.Fatalf("safe Remove from Active contract missing %q",want) }
+	}
+}
+
+func TestPatchParallelCollectLimitCountsExistingActiveRuns(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"const availableSlots=Math.max(0,capability.max-activeRunningRunCount())",
+		"if(indexes.length>availableSlots)",
+		"Parallel COLLECT limit reached:",
+		"const limit=queueKindBlocked('COLLECT')?0:Math.max(0,capability.max-activeRunningRunCount())",
+		"selected<limit",
+	} {
+		if !strings.Contains(js,want) { t.Fatalf("global active COLLECT limit missing %q",want) }
+	}
+}
+
+
+func TestPatchForegroundRunStaysAboveBackgroundActiveRuns(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	order := "body.append(note,summary,actionResultBox,promptBox,resumeBox,historyBox,planBox,healthBox,runningHead,runBox,artifactBox,parallelCollectBox,actions)"
+	if !strings.Contains(js,order) {
+		t.Fatal("foreground run/result must be ordered before background Active runs")
+	}
+	start:=strings.Index(js,"function renderParallelCollectRuns()")
+	endRel:=strings.Index(js[start:],"async function pollParallelCollectRuns()")
+	if start<0||endRel<0 { t.Fatal("Active runs renderer bounds unavailable") }
+	block:=js[start:start+endRel]
+	for _, forbidden:=range []string{
+		"runBox.hidden=true",
+		"artifactBox.hidden=true",
+		"terminalEvidence.hidden=true",
+		"runningTitle.textContent='Active runs'",
+	} {
+		if strings.Contains(block,forbidden) {
+			t.Fatalf("background Active runs must not hide/replace foreground run UI: %q",forbidden)
+		}
+	}
+	for _, want:=range []string{
+		"activeRunningEntries().sort((a,b)=>Number(b[1]?.startedAt||0)-Number(a[1]?.startedAt||0))",
+		"parallelCollectTitle.textContent=runningMode?'Other active runs':'Active runs'",
+	} {
+		if !strings.Contains(block,want) { t.Fatalf("background Active runs hierarchy missing %q",want) }
+	}
+}
+
+func TestPatchLatestCompletedForegroundIsProminent(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want:=range []string{
+		"function foregroundRunName(state=foregroundProtocolState)",
+		"function updateForegroundHeading(state=foregroundProtocolState)",
+		"function stateHasFailure(state)",
+		"Latest failed · ",
+		"Latest completed · ",
+		"runningTitle.textContent=name?'Current run · '+name:'Current run'",
+		"const collectSuccess=!failed&&foregroundIsCollectOnly(state)",
+		"runningHead.classList.toggle('finished',!failed&&!collectSuccess)",
+		"runningHead.classList.toggle('collect-success',collectSuccess)",
+		"runningHead.classList.toggle('failed',failed)",
+		"Failure reason, recent console output, and handoff/artifacts are available below.",
+		"completed successfully. Result and artifacts below are the latest foreground run.",
+		"runTitle.textContent='Current run status'",
+		"artifactTitle.textContent='Current run artifacts'",
+	} {
+		if !strings.Contains(js,want) { t.Fatalf("foreground/latest visual priority missing %q",want) }
+	}
+}
+
+func TestPatchForegroundStatusUsesRunFinishedExitCode(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"function foregroundRunOutcome(state)",
+		"String(event?.type||'')!=='run_finished'",
+		"const rawExit=event?.exit_code",
+		"status==='failed'||status==='fail'||status==='error'||(Number.isFinite(exitCode)&&exitCode!==0)",
+		"const outcome=foregroundRunOutcome(state)",
+		"if(outcome?.failed)return true",
+		"const exitDetail=failed&&outcome?.exitCode!==null?' rc='+outcome.exitCode+'.':''",
+		"failed.'+exitDetail+' Failure reason",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("Patch foreground exit-code failure handling missing %q", want)
+		}
+	}
+}
+
+func TestPatchPanelFailedRunShowsCopyableProtocolEvidence(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"function failureArtifactsForItem(item)",
+		"function failureEvidenceText(item)",
+		"function copyFailureEvidence(item,button)",
+		"function foregroundErrorLogText(state=foregroundProtocolState)",
+		"function copyForegroundErrorLog(button)",
+		"copyFailureLog.textContent='📋 Copy error log'",
+		"copyFailureLog.title='Copy full Patch failure evidence for AI diagnosis'",
+		"TaskDeck Patch Tool failure evidence",
+		"async function projectIdentityEvidenceHeader()",
+		"/api/patch/project-identity",
+		"project.key and project.id",
+		"identityHeader+'\\n\\n'+foregroundErrorLogText",
+		"identityHeader+'\\n\\n'+failureEvidenceText",
+		"Project: '+workspace",
+		"Session: '+activeSessionId",
+		"Run-level protocol errors:",
+		"Array.isArray(state?.run_errors)?state.run_errors:[]",
+		"copyFailureLog.hidden=!failed",
+		"copyFailureLog.onclick=()=>copyForegroundErrorLog(copyFailureLog).catch(app.showError)",
+		"item?.failure_reason",
+		"item?.repair_hint",
+		"item?.discovery_detail",
+		"Discovery detail: ",
+		"How to fix: ",
+		"task-patch-run-failure-fix",
+		"item?.diagnosis_kind",
+		"item?.output_tail",
+		"Failure handoff / AI artifacts:",
+		"family==='fail_handoff'||family==='ai_sync'",
+		"Copy failure + handoff",
+		"Copy failure reason, recent console output, and published handoff paths",
+		"View handoff / artifacts",
+		"Recent console output",
+		"const fallback=[...rows].reverse().find(item=>String(item?.failure_reason||item?.repair_hint||item?.discovery_detail||item?.diagnosis_kind||item?.output_tail||'').trim())",
+		"const outcome=foregroundRunOutcome(state)",
+		"No Patch failure console log is available",
+		"if(lifecycle)row.classList.add(lifecycle)",
+		"task-patch-run-failure-reason",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("failed-run evidence UI missing %q", want)
+		}
+	}
+	if strings.Contains(js,"if(blocks.length)return blocks.join") {
+		t.Fatal("Copy error log must not return before appending run errors and failure artifacts")
+	}
+}
+
+func TestPatchPanelQueueMakesFailedItemsVisuallyProminent(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		".task-patch-summary-item.failed",
+		".task-patch-prompt-item.failed",
+		".task-patch-summary-tab.has-failures",
+		"failedTab.classList.toggle('has-failures',failedCount>0)",
+		"row.classList.toggle('failed',itemFailed)",
+		"row.classList.toggle('failed',itemGroup==='failed')",
+		"itemGroup==='failed'?'FAILED':item?.group",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("failed queue emphasis missing %q", want)
+		}
+	}
+}
+
+
+func TestPatchQueueRefreshRemainsAvailableWhenEmpty(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"summaryRefresh.textContent='Refresh Queue'",
+		"Reload PATCH/COLLECT queue, including when it is empty",
+		"async function refreshQueueFromSummary()",
+		"summaryRefresh.onclick=()=>refreshQueueFromSummary().catch(app.showError)",
+		"const runnableItems=items.filter",
+		"if(!runnableItems.length){",
+		"promptBox.hidden=true",
+		"return 'empty'",
+		"if(queuePromptMode==='selection')summaryStatus.textContent+=' · Awaiting selection'",
+	} {
+		if !strings.Contains(js,want) {
+			t.Fatalf("empty Queue refresh UI missing %q",want)
+		}
+	}
+}
+
+func TestPatchQueueSkippedFilesHaveSafeDeleteUI(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"const skippedRows=Array.isArray(latestQueueSnapshot?.skipped)",
+		"task-patch-summary-warning-delete",
+		"submitQueueDelete(skipped,promptItem)",
+		"const runnableItems=items.filter(item=>['PATCH','COLLECT'].includes(String(item?.kind||'').toUpperCase())&&item?.selectable!==false)",
+		"for(const item of runnableItems)",
+		"SKIPPED entries stay inside the Python-owned prompt only as hidden",
+		"if(!runnableItems.length){",
+		"promptBox.hidden=true",
+		"if(latestQueueSnapshot)renderQueueSnapshot(latestQueueSnapshot);else renderQueueRows()",
+	} {
+		if !strings.Contains(js,want) {
+			t.Fatalf("SKIPPED Queue delete UI missing %q",want)
+		}
+	}
+	for _, forbidden := range []string{
+		"row.classList.toggle('skipped',skipped)",
+		"input.disabled=locked;input.hidden=skipped",
+		"skipped?'SKIPPED'",
+	} {
+		if strings.Contains(js,forbidden) {
+			t.Fatalf("SKIPPED entries must not be duplicated in runnable selector: %q",forbidden)
+		}
+	}
+}
+
+func TestPatchRunLifecycleUsesDistinctStatusColors(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		".task-patch-run-item.running",
+		".task-patch-run-item.passed",
+		".task-patch-run-item.passed.collect-success",
+		".task-patch-run-item.failed",
+		".task-patch-run-item.warning",
+		".task-patch-running-head.collect-success",
+		"html[data-taskmenu-theme=\"light\"] .task-patch-running-head.collect-success",
+		"html[data-taskmenu-theme=\"light\"] .task-patch-run-item.passed.collect-success",
+		"function lifecycleState(value)",
+		"function isCollectKind(value)",
+		"function foregroundRunKinds(state=foregroundProtocolState)",
+		"function foregroundIsCollectOnly(state=foregroundProtocolState)",
+		"if(lifecycle==='passed'&&isCollectKind(item?.kind))row.classList.add('collect-success')",
+		"['RUNNING','STARTING'].includes(status)",
+		"['PASS','PASSED','SUCCESS'].includes(status)",
+		"['FAIL','FAILED','PREFLIGHT_FAIL','INCOMPLETE'].includes(status)",
+		"['BLOCKED','NOT_EXECUTED','CANCELLED'].includes(status)",
+	} {
+		if !strings.Contains(js,want) {
+			t.Fatalf("Patch lifecycle status styling missing %q",want)
+		}
+	}
+}
+
+
+func TestPatchCollectSuccessColorDoesNotChangeFailureHandoffFlow(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"const collectSuccess=!failed&&foregroundIsCollectOnly(state)",
+		"runningHead.classList.toggle('failed',failed)",
+		"copyFailureLog.hidden=!failed",
+		"Copy failure + handoff",
+		"View handoff / artifacts",
+		"family==='fail_handoff'||family==='ai_sync'",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("COLLECT success styling must preserve failure/handoff behavior: missing %q", want)
+		}
+	}
+	if strings.Contains(js, "const collectSuccess=failed&&foregroundIsCollectOnly") {
+		t.Fatal("failed COLLECT runs must never use collect-success styling")
+	}
+}
+
+func TestPatchPanelAutoLoadsQueueOnFirstNativeOpen(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"function open(){",
+		"async function refreshQueueForActivity(reason='activity')",
+		"void refreshQueueForActivity('patch-tab')",
+	} {
+		if !strings.Contains(js,want) {
+			t.Fatalf("first native Patch open must auto-load Queue: missing %q",want)
+		}
+	}
+}
+
+func TestPatchPanelHistorySearchFiltersByAnyProjectedFileName(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"Filter PATCH/COLLECT by file name…",
+		"function historyRunMatchesSearch(run)",
+		"Array.isArray(run?.search_names)?run.search_names:[run?.primary_name]",
+		"toLocaleLowerCase().includes(query)",
+		"function setHistorySearchQuery(value)",
+		"const filteredRuns=runs.filter(historyRunMatchesSearch)",
+		"historySearchInput.oninput=()=>setHistorySearchQuery(historySearchInput.value)",
+		"historySearchClear.onclick=()=>{setHistorySearchQuery('');historySearchInput.focus();}",
+		"No History run matches this file name",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("native History search missing %q", want)
+		}
+	}
+}
+
+
+func TestPatchPanelAIPackIsOnDemandCachedAndCopyable(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"['ai-pack','AI Pack','Package current docs + standard prompt for a new AI chat']",
+		"if(mode==='ai-pack'){prepareAIPack(button).catch(app.showError);return;}",
+		"async function prepareAIPack(sourceButton=null)",
+		"app.jsonFetch('/api/patch/ai-pack',{method:'POST'})",
+		"Hashing only the core PATCH/COLLECT contract docs. ZIP is rebuilt only when those packaged docs change.",
+		"docCount+' essential docs'",
+		"result.cached===true?'Cache current':'Rebuilt'",
+		"Copy Prompt",
+		"Download ZIP",
+		"Copy ZIP path",
+		"Copy absolute ZIP path on the TaskDeck host",
+		"/api/files/download?path=",
+		"aiPackActions.append(aiPackRefresh,aiPackCopyPrompt,aiPackDownload,aiPackDownloadText,aiPackCopyText,aiPackCopyPath)",
+		"aiPackCopyPath.onclick=()=>latestAIPack&&copyFullPath(latestAIPack.path,aiPackCopyPath).catch(app.showError)",
+		"async function copyAIPackPrompt(button,full=false)",
+		"historySafeProjectPath(result.path)",
+		"/^[0-9a-f]{64}$/.test(fingerprint)",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("AI Pack UI missing %q", want)
+		}
+	}
+	start:=strings.Index(js,"async function prepareAIPack")
+	endRel:=strings.Index(js[start:],"async function openTerminalEvidenceForSession")
+	if start<0||endRel<0 { t.Fatal("AI Pack function bounds unavailable") }
+	block:=js[start:start+endRel]
+	for _, forbidden:=range []string{
+		"/api/sessions",
+		"patch_mode:'ai-pack'",
+		"github.com/",
+	} {
+		if strings.Contains(block,forbidden) {
+			t.Fatalf("AI Pack must be local on-demand packaging, found %q",forbidden)
+		}
+	}
+}
+
+
+func TestPatchQueueAndCollectStayHeadlessUntilExplicitEvidence(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+
+	assertNoMaterialize := func(startMarker, endMarker, label string) {
+		t.Helper()
+		start := strings.Index(js, startMarker)
+		if start < 0 {
+			t.Fatalf("%s start marker unavailable", label)
+		}
+		endRel := strings.Index(js[start:], endMarker)
+		if endRel < 0 {
+			t.Fatalf("%s end marker unavailable", label)
+		}
+		block := js[start : start+endRel]
+		if strings.Contains(block, "materializeSession(") {
+			t.Fatalf("%s must keep Patch/COLLECT backing session headless", label)
+		}
+	}
+
+	assertNoMaterialize(
+		"async function openQueueWhileRunning()",
+		"async function refreshQueueFromSummary()",
+		"Back to Queue",
+	)
+	assertNoMaterialize(
+		"async function launchParallelCollect(sessionId,prompt,indexes)",
+		"async function submitPromptResponse(sessionId,prompt,action)",
+		"parallel COLLECT",
+	)
+
+	for _, want := range []string{
+		"await start('queue')",
+		"/parallel-collect",
+		"openTerminalEvidenceForSession(run.sessionId)",
+		"async function openTerminalEvidenceForSession(sessionId)",
+		"app.materializeSession(meta,false)",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("headless Patch/COLLECT evidence contract missing %q", want)
+		}
+	}
+}
+
+
+func TestPatchAIPackProjectRulesEditorAndCopyFlow(t *testing.T) {
+    raw,err:=webassets.Files.ReadFile("featuremods/patchpanel.js")
+    if err!=nil{t.Fatal(err)}
+    js:=string(raw)
+    for _,want:=range []string{
+        "aiPackRulesText.placeholder=",
+        "Use existing coding conventions",
+        "Save project rules",
+        "async function saveAIPackRules()",
+        "'/api/patch/project-rules'",
+        "method:'PUT'",
+        "await saveAIPackRules();",
+        "await prepareAIPack();",
+        "project_rules",
+        "aiPackBox.append(aiPackHead,aiPackMeta,aiPackActions,aiPackRulesBox,aiPackPrompt)",
+    } {
+        if !strings.Contains(js,want) {t.Fatalf("AI Pack rules editor/copy contract missing %q",want)}
+    }
+}
+
+func TestPatchPanelShowsMeasuredSuccessfulPatchFileChanges(t *testing.T) {
+ data,err:=webassets.Files.ReadFile("featuremods/patchpanel.js")
+ if err!=nil {t.Fatal(err)}
+ js:=string(data)
+ for _,want:=range []string{
+  "taskdeck.patch.changed-files.v1",
+  "Files affected by PATCH",
+  "patch_changes_json",
+  "loadPatchChangedFiles(artifacts)",
+  "renderChangedFiles(reports)",
+  "View",
+  "Download",
+  "Preview",
+  "Git diff",
+  "Patch diff",
+  "before_snapshot",
+  "after_snapshot",
+  "snapshot_available",
+  "TaskMenuFileCompare",
+  "TaskMenuFilePreview",
+  "TaskMenuMarkdownPreview",
+  "/api/files/download?path=",
+  "report?.item_name",
+ }{
+  if !strings.Contains(js,want){t.Fatalf("PATCH affected-file feature missing %q",want)}
+ }
+ if strings.Contains(js,"parseTerminalAffectedFiles("){
+   t.Fatal("PATCH affected-file list must come from structured result, not terminal output")
+ }
+}
+
+func TestPatchPanelTextOnlyAIWorkflowUI(t *testing.T) {
+ raw,err:=webassets.Files.ReadFile("featuremods/patchpanel.js")
+ if err!=nil{t.Fatal(err)}
+ js:=string(raw)
+ for _,part:=range []string{
+  "['paste','Paste text'",
+  "const pasteDialog=document.createElement('dialog')",
+  "['patch-python','PATCH · Python source']",
+  "['collect','COLLECT · JSON / Python JSON literal']",
+  "async function queuePastedText()",
+  "'/api/patch/paste'",
+  "await refreshPatchQueueAfterUpload()",
+  "const aiPackDownloadText=document.createElement('a')",
+  "aiPackDownloadText.href='/api/files/download?path='+encodeURIComponent(textPath)",
+  "aiPackCopyText.onclick=()=>copyAIPackPrompt(aiPackCopyText,true)",
+  "result.text_content",
+  "async function uploadPastedPythonFile(file)",
+ } {
+  if !strings.Contains(js,part){t.Errorf("Text-only AI user flow missing %q",part)}
+ }
+}
+
+
+func TestPatchConcurrentRunsRejectMixedKindsAndKeepCompletedWorkerResults(t *testing.T) {
+ data,err:=webassets.Files.ReadFile("featuremods/patchpanel.js")
+ if err!=nil {t.Fatal(err)}
+ js:=string(data)
+ for _,required:=range []string{
+  "function activeExecutionKinds()",
+  "function queueKindBlocked(kind)",
+  "const addModePatch=queueKindBlocked(itemKind)",
+  "const limit=queueKindBlocked('COLLECT')?0:",
+  "if(queueKindBlocked('COLLECT'))throw new Error(",
+  "if(new Set(kinds).size!==1||kinds.some(kind=>queueKindBlocked(kind)))",
+  "const entries=[...parallelCollectRuns.entries()]",
+  "run.active=false",
+  "run.completedAt=run.completedAt||Date.now()",
+  "run.state=state",
+ } {
+  if !strings.Contains(js,required){t.Errorf("missing same-kind admission or completed-result retention: %q",required)}
+ }
+ if strings.Contains(js,"if(!sessionMetadataRunning(meta)){\n          parallelCollectRuns.delete(key)") {
+  t.Fatal("completed COLLECT workers must remain available until explicitly removed")
+ }
+}
+
+func TestPatchConcurrentPythonWorkersDoNotWaitForHistoryAndPersistResults(t *testing.T) {
+ dispatcher,err:=os.ReadFile("../../../_patch_lib/python_patch_queue_dispatcher.py")
+ if err!=nil {t.Fatal(err)}
+ py:=string(dispatcher)
+ for _,required:=range []string{
+  `native = bool(os.environ.get("TASKDECK_PATCH_EVENT_FD"`,
+  `if not native and sys.stdin.isatty() and sys.stdout.isatty():`,
+  `"TASKDECK_PATCH_PRESERVE_QUEUE_INPUTS"`,
+  `automatic duplicate cleanup is paused`,
+ } {
+  if !strings.Contains(py,required){t.Errorf("missing noninteractive result/queue protection: %q",required)}
+ }
+ supervisor,err:=os.ReadFile("../../../_patch_lib/python_patch_collect_progress_v6_7.py")
+ if err!=nil {t.Fatal(err)}
+ for _,required:=range []string{
+  "_persist_direct_collect_history(root, protocol_context, result_meta)",
+  `history = _artifact_subdir(root, "history")`,
+  "_atomic_json(history /",
+  "collect_result",
+ } {
+  if !strings.Contains(string(supervisor),required){
+   t.Errorf("direct COLLECT must publish an independent History record: %q",required)
+  }
+ }
+}
+
+func TestPatchInvalidCollectShowsReadOnlyHandoffAndNoRunControl(t *testing.T) {
+ data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+ if err != nil {t.Fatal(err)}
+ js:=string(data)
+ for _,required:=range []string{
+  "function renderInvalidQueueHandoffs(snapshot)",
+  "const invalidQueueList=document.createElement('div')",
+  "renderInvalidQueueHandoffs(latestQueueSnapshot)",
+  "String(item?.kind||'').toUpperCase()==='COLLECT INVALID'",
+  "function downloadInvalidHandoff(item)",
+  "Download handoff .md",
+  "Copy handoff",
+  "View AI handoff",
+  "URL.createObjectURL(new Blob([content]",
+  "const runnableItems=items.filter(item=>['PATCH','COLLECT'].includes(",
+ } {
+  if !strings.Contains(js,required){t.Fatalf("COLLECT INVALID handoff/selection guard missing %q",required)}
+ }
+}
+
+func TestPatchQueueRefreshReconcilesStableNodesAndPreservesSelection(t *testing.T) {
+    data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+    if err != nil { t.Fatal(err) }
+    js := string(data)
+    for _, want := range []string{
+        "function reconcilePatchRows(host,desired)",
+        "const existing=previous.get(key)",
+        "existing.dataset.patchRowVersion===proposed.dataset.patchRowVersion",
+        "if(node!==cursor)host.insertBefore(node,cursor)",
+        "if(!kept.has(node))node.remove()",
+        "reconcilePatchRows(summaryList,desired)",
+        "reconcilePatchRows(invalidQueueList,desired)",
+        "reconcilePatchRows(summaryWarnings,warningNodes)",
+        "reconcilePatchRows(summaryCounts,countNodes)",
+        "reconcilePatchRows(promptItems,desiredPromptRows)",
+        "const incremental=queueSilentRefreshPending&&activeQueuePrompt&&activeSessionId===sessionId",
+        "if(!incremental)clearPrompt()",
+        "input.onchange=()=>applyPromptConstraints(input,activeQueuePrompt)",
+        "submitPromptResponse(sessionId,activeQueuePrompt,'select')",
+        "submitPromptResponse(sessionId,activeQueuePrompt,'cancel')",
+        "const promptActionBusy=busy",
+    } {
+        if !strings.Contains(js,want) {
+            t.Fatalf("keyed PATCH/COLLECT refresh missing %q",want)
+        }
+    }
+    start := strings.Index(js, "function renderQueueRows()")
+    end := strings.Index(js[start:], "function setQueueSummaryView(view)")
+    if start<0 || end<0 { t.Fatal("queue row render bounds unavailable") }
+    if strings.Contains(js[start:start+end], "summaryList.replaceChildren()") {
+        t.Fatal("queue list refresh must not destroy unchanged item DOM nodes")
+    }
+}
+
+
+func TestPatchPanelExposesPerCommandConsoleInCurrentAndHistory(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"function appendCommandEvidence(host,commands)",
+		"appendCommandEvidence(row,item?.commands)",
+		"View console",
+		"Copy console",
+		"function readCommandConsole(path)",
+		"artifacts/patch_tool/runs/",
+		"/api/files/download?path=",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("missing PATCH command console UI feature: %q", want)
+		}
+	}
+}
+
+
+func TestPatchPanelLiveTaskRunShowsQueuedCommandsAndRefreshingConsoles(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, marker := range []string{
+		"function commandElapsedText(row)",
+		"function commandDisplayStatus(status)",
+		"function appendCommandEvidence(host,commands)",
+		"const commandOpenPaths=new Set()",
+		"commandOpenPaths.has(path)",
+		"function refreshCommandConsole(path,running=false,force=false)",
+		"readCommandConsole(path)",
+		"View console",
+		"Copy console",
+		"QUEUE",
+		"RUNNING",
+		"PASS",
+		"appendCommandEvidence(row,item?.commands)",
+		"status.textContent=visibleStatus",
+	} {
+		if !strings.Contains(js, marker) {
+			t.Fatalf("live Task Run command UI missing %q", marker)
+		}
+	}
+}
+
+
+func TestPatchPanelLiveRunRetriesProtocolErrorsWithoutLosingCommands(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, marker := range []string{
+		"if(runningMode&&sessionId===activeSessionId&&!runningFinished)",
+		"Temporary PATCH protocol fetch error; retrying:",
+		"continuing live polling:",
+		"await new Promise(resolve=>setTimeout(resolve,delayMs));",
+		"function appendCommandEvidence(host,commands)",
+	} {
+		if !strings.Contains(js, marker) {
+			t.Fatalf("Current run must retry recoverable polling failures; missing %q", marker)
+		}
+	}
+}

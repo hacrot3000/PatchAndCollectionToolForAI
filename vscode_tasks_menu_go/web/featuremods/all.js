@@ -1,0 +1,624 @@
+const app=globalThis.TaskMenuApp;
+if(!app)throw new Error('TaskMenuApp unavailable for progressive features');
+
+const seenRecentSessions=new Set();
+let projectProfileTaskIDs=[];
+const style=document.createElement('style');
+style.textContent=`
+.quick-task-section{margin:6px 0 10px;border:1px solid #30343b;border-radius:6px;background:#12161d;overflow:hidden}
+.quick-task-title{font-size:11px;font-weight:600;opacity:.7;padding:6px 8px;border-bottom:1px solid #30343b}
+.quick-task-list{padding:3px}
+.quick-task-row{display:flex;align-items:center;gap:4px}
+.quick-task-run{flex:1;min-width:0;text-align:left;background:#171a20;border:1px solid transparent;padding:6px 7px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.quick-task-run:hover{background:#242a34}
+.quick-task-star{padding:5px 7px;min-width:31px;color:#f4c95d}
+.task-row-ext{display:flex;align-items:stretch;gap:3px;margin:2px 0}
+.task-row-ext>.task{margin:0;flex:1;min-width:0}
+.task-row-ext>.task-favorite-toggle{padding:5px 7px;min-width:31px;color:#f4c95d}
+.session-rerun{white-space:nowrap}
+.tab.state-running{border-top:2px solid #5aa9e6}.tab.state-success{border-top:2px solid #5fbf74}.tab.state-fail{border-top:2px solid #e35d6a}.tab.state-stopped{border-top:2px solid #d0a84d}
+.tab .status.session-status-running-long{display:inline-flex;align-items:center;justify-content:center;margin-left:8px;opacity:1;color:#72b7ea;vertical-align:-2px}
+.tab .status.session-status-running-long .session-running-boxes{display:inline-flex;align-items:center;justify-content:center;gap:2px;width:18px;height:12px;padding:1px 2px;box-sizing:border-box;border:1px solid #72b7ea;border-radius:2px}
+.tab .status.session-status-running-long .session-running-cell{display:block;width:3px;height:5px;border-radius:1px;background:#72b7ea;opacity:.16}
+.tab .status.session-status-running-long .session-running-cell:nth-child(1){opacity:1}
+.tab .status.session-status-running-long .session-running-cell:nth-child(2){animation:taskdeck-tab-running-cell-2 3s steps(1,end) infinite}
+.tab .status.session-status-running-long .session-running-cell:nth-child(3){animation:taskdeck-tab-running-cell-3 3s steps(1,end) infinite}
+.tab .status.session-status-running-long .session-running-spinner{display:inline-block;width:12px;height:12px;box-sizing:border-box;border:2px solid #72b7ea;border-right-color:transparent;border-radius:50%;animation:taskdeck-tab-running-spin var(--taskdeck-running-spin-duration,30s) linear infinite}
+.tab .status.session-status-running-long .session-running-braille{display:inline-block;min-width:12px;text-align:center;font-family:ui-monospace,SFMono-Regular,Consolas,"Liberation Mono",monospace;font-size:14px;line-height:12px}
+.tab .status.session-status-running-long .session-running-braille::before{content:'⠋';animation:taskdeck-tab-running-braille var(--taskdeck-running-braille-duration,30s) steps(1,end) infinite}
+.tab.state-idle{border-top:2px solid transparent}
+.tab.terminal-command-running .status{display:inline-flex;align-items:center;gap:5px;color:#72b7ea;opacity:1}
+.tab.terminal-command-running .status::before{content:'';display:inline-block;width:10px;height:10px;border:2px solid #72b7ea;border-right-color:transparent;border-radius:50%;animation:taskdeck-tab-running-spin var(--taskdeck-running-spin-duration,2s) linear infinite}
+.tab.terminal-command-running.terminal-command-time-only .status::before{display:none}
+.tab.terminal-command-unread .status{animation:taskdeck-terminal-complete-pulse 1.1s ease-in-out infinite}
+@keyframes taskdeck-terminal-complete-pulse{0%,100%{opacity:1}50%{opacity:.2}}
+@media (prefers-reduced-motion:reduce){.tab.terminal-command-unread .status,.tab.terminal-command-running .status::before{animation:none}}
+.tab .status.session-status-success{color:#78d68b;opacity:1;font-weight:800}
+.tab .status.session-status-fail{color:#ff7b65;opacity:1;font-weight:800}
+@keyframes taskdeck-tab-running-cell-2{0%,100%{opacity:.16}20%,80%{opacity:1}}
+@keyframes taskdeck-tab-running-cell-3{0%,39%,61%,100%{opacity:.16}40%,60%{opacity:1}}
+@keyframes taskdeck-tab-running-spin{to{transform:rotate(360deg)}}
+@keyframes taskdeck-tab-running-braille{0%,100%{content:'⠋'}10%{content:'⠙'}20%{content:'⠹'}30%{content:'⠸'}40%{content:'⠼'}50%{content:'⠴'}60%{content:'⠦'}70%{content:'⠧'}80%{content:'⠇'}90%{content:'⠏'}}
+@media (prefers-reduced-motion:reduce){.tab .status.session-status-running-long .session-running-cell,.tab .status.session-status-running-long .session-running-spinner,.tab .status.session-status-running-long .session-running-braille::before{animation:none!important}.tab .status.session-status-running-long .session-running-cell{opacity:1}}
+.history-section{margin:6px 0 10px;border:1px solid #30343b;border-radius:6px;background:#12161d;overflow:hidden}
+.history-head{display:flex;align-items:center;gap:6px;padding:5px 7px;border-bottom:1px solid #30343b}.history-head strong{font-size:11px;opacity:.75;flex:1}.history-clear{padding:2px 6px;font-size:10px}
+.history-list{max-height:180px;overflow:auto;padding:3px}.history-row{display:grid;grid-template-columns:1fr auto;gap:2px 6px;padding:5px 6px;border-bottom:1px solid #222831;font-size:11px}.history-row:last-child{border-bottom:0}.history-label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.history-meta{opacity:.55;grid-column:1/3}.history-state.pass{color:#78d68b}.history-state.fail{color:#ff7b86}.history-state.stopped{color:#e4be63}
+.history-row-actions{grid-column:1/3;display:flex;gap:5px;align-items:center;flex-wrap:wrap}.history-row-actions button{font-size:10px;padding:2px 6px}.history-compare-select{display:flex;align-items:center;gap:4px;font-size:10px;opacity:.8}
+.task-run-dialog{width:min(1100px,94vw);max-height:88vh;background:#11161d;color:inherit;border:1px solid #48515f;border-radius:9px;padding:12px}.task-run-grid{display:grid;grid-template-columns:150px minmax(0,1fr);gap:5px 9px;font-size:11px}.task-run-grid strong{opacity:.65}.task-run-log{max-height:48vh;overflow:auto;white-space:pre-wrap;background:#080b0f;border:1px solid #303843;border-radius:6px;padding:9px;font:11px/1.45 ui-monospace,monospace}.task-run-compare{display:grid;grid-template-columns:1fr 1fr;gap:8px;min-height:0}.task-run-compare>div{min-width:0}.task-run-actions{display:flex;gap:6px;flex-wrap:wrap;margin:9px 0}
+html[data-taskmenu-theme='light'] .task-run-dialog{background:#fff;border-color:#b9c0c8}html[data-taskmenu-theme='light'] .task-run-log{background:#f6f8fa;border-color:#d0d7de}
+.console-find{display:none;align-items:center;gap:6px;padding:5px 10px;background:#101820;border-bottom:1px solid #30343b}.console-find.visible{display:flex}.console-find input{flex:1;min-width:120px;background:#090d12;color:inherit;border:1px solid #3b414d;border-radius:5px;padding:5px 7px}.console-find .match{font-size:11px;opacity:.65;min-width:72px;text-align:right}.console-tool{white-space:nowrap;padding:5px 8px}
+`;
+document.head.append(style);
+
+function emptyProjectState(){return {version:1,favorites:[],recent:[],history:[]};}
+let projectState=emptyProjectState();
+let projectStateLoaded=false;
+let projectStateSaveChain=Promise.resolve();
+
+let serverTaskRuns=[];
+let serverTaskRunsLoaded=false;
+const taskRunCompareSelection=new Set();
+async function loadServerTaskRuns(){
+  const payload=await app.jsonFetch('/api/task-runs');
+  serverTaskRuns=Array.isArray(payload?.runs)?payload.runs:[];
+  serverTaskRunsLoaded=true;
+  renderHistory();
+  return serverTaskRuns;
+}
+function taskRunProjectProfileID(){
+  return String(globalThis.TaskMenuProjectProfiles?.activeProfileID||'').trim();
+}
+async function persistServerTaskRun(view,meta){
+  if(!view||!meta||meta.task_id<=0||meta.status==='running')return null;
+  const log=String(app.consoleText?.(view)||'');
+  const item=await app.jsonFetch('/api/task-runs',{
+    method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({session_id:meta.id,log,project_profile_id:taskRunProjectProfileID()})
+  });
+  await loadServerTaskRuns();
+  return item;
+}
+async function taskRunLog(item){
+  const response=await fetch('/api/task-runs/log?id='+encodeURIComponent(item.id),{cache:'no-store'});
+  if(!response.ok)throw new Error((await response.text()).trim()||('HTTP '+response.status));
+  return response.text();
+}
+function taskRunMetaRows(item){
+  return [
+    ['Task',item.label||String(item.task_id||'')],
+    ['Status',item.status||''],
+    ['Exit code',item.exit_code==null?'':String(item.exit_code)],
+    ['Started',item.started_at||''],
+    ['Ended',item.ended_at||''],
+    ['Duration',formatDuration(Number(item.duration)||0)],
+    ['Git commit',item.git_commit||'(not in Git / unavailable)'],
+    ['CWD',item.cwd||''],
+    ['Target', [item.target_type,item.target_profile_id].filter(Boolean).join(' · ')||'local'],
+    ['Project profile',item.project_profile_id||'(none)'],
+    ['Command',item.command_preview||''],
+    ['Log',String(item.log_bytes||0)+' B'+(item.log_truncated?' · truncated':'')]
+  ];
+}
+function appendTaskRunMeta(host,item){
+  const grid=document.createElement('div');grid.className='task-run-grid';
+  for(const [key,value] of taskRunMetaRows(item)){const k=document.createElement('strong');k.textContent=key;const v=document.createElement('span');v.textContent=value;grid.append(k,v);}
+  host.append(grid);
+}
+function taskRunDialog(titleText){
+  const dialog=document.createElement('dialog');dialog.className='task-run-dialog';
+  const title=document.createElement('h3');title.textContent=titleText;title.style.margin='0 0 8px';
+  const close=document.createElement('button');close.type='button';close.textContent='Close';close.onclick=()=>dialog.close();
+  dialog.append(title);document.body.append(dialog);dialog.addEventListener('close',()=>dialog.remove(),{once:true});
+  return {dialog,close};
+}
+async function openTaskRunDetail(item){
+  const {dialog,close}=taskRunDialog('Task run · '+(item.label||item.id));
+  appendTaskRunMeta(dialog,item);
+  const actions=document.createElement('div');actions.className='task-run-actions';
+  const rerun=document.createElement('button');rerun.type='button';rerun.textContent='Run task again';rerun.onclick=()=>{const task=taskByID(item.task_id);if(!task)throw new Error('Task no longer exists');return app.startTask(task).catch(app.showError);};
+  const download=document.createElement('a');download.href='/api/task-runs/log?id='+encodeURIComponent(item.id)+'&download=1';download.textContent='Download log';download.setAttribute('download','');
+  actions.append(rerun,download);dialog.append(actions);
+  const pre=document.createElement('pre');pre.className='task-run-log';pre.textContent='Loading log…';dialog.append(pre,close);dialog.showModal();
+  try{pre.textContent=await taskRunLog(item)||'(empty log)';}catch(error){pre.textContent='Log unavailable: '+error.message;}
+}
+async function compareSelectedTaskRuns(){
+  const ids=[...taskRunCompareSelection];if(ids.length!==2)throw new Error('Select exactly two task runs to compare.');
+  const left=serverTaskRuns.find(item=>item.id===ids[0]),right=serverTaskRuns.find(item=>item.id===ids[1]);
+  if(!left||!right)throw new Error('Selected task run is no longer available.');
+  const {dialog,close}=taskRunDialog('Compare task runs');
+  const cols=document.createElement('div');cols.className='task-run-compare';
+  const leftCol=document.createElement('div'),rightCol=document.createElement('div');
+  const lh=document.createElement('h4');lh.textContent=left.label+' · '+(left.started_at||left.id);const rh=document.createElement('h4');rh.textContent=right.label+' · '+(right.started_at||right.id);
+  leftCol.append(lh);appendTaskRunMeta(leftCol,left);rightCol.append(rh);appendTaskRunMeta(rightCol,right);
+  const lpre=document.createElement('pre');lpre.className='task-run-log';lpre.textContent='Loading log…';const rpre=document.createElement('pre');rpre.className='task-run-log';rpre.textContent='Loading log…';leftCol.append(lpre);rightCol.append(rpre);cols.append(leftCol,rightCol);dialog.append(cols,close);dialog.showModal();
+  const [ll,rr]=await Promise.allSettled([taskRunLog(left),taskRunLog(right)]);
+  lpre.textContent=ll.status==='fulfilled'?(ll.value||'(empty log)'):'Log unavailable: '+ll.reason;
+  rpre.textContent=rr.status==='fulfilled'?(rr.value||'(empty log)'):'Log unavailable: '+rr.reason;
+}
+
+function legacyStorageKey(name){const workspace=String(app.taskData?.workspace||'').trim();return workspace?'vscode-tasks-menu:'+name+':'+workspace:'';}
+function legacyRead(name,fallback){
+  try{const key=legacyStorageKey(name);if(!key)return fallback;const value=JSON.parse(localStorage.getItem(key)||'null');return value??fallback;}catch{return fallback;}
+}
+function normalizeIDs(values,limit){
+  const out=[];const seen=new Set();
+  for(const value of Array.isArray(values)?values:[]){
+    if(!Number.isInteger(value)||value<=0||seen.has(value))continue;
+    seen.add(value);out.push(value);if(out.length===limit)break;
+  }
+  return out;
+}
+function normalizeHistory(values){
+  const out=[];const seen=new Set();
+  for(const raw of Array.isArray(values)?values:[]){
+    if(!raw||typeof raw!=='object')continue;
+    const taskID=Number(raw.task_id);const sessionID=String(raw.session_id||'').trim();
+    if(!Number.isInteger(taskID)||taskID<=0||!sessionID||seen.has(sessionID))continue;
+    seen.add(sessionID);
+    out.push({session_id:sessionID,task_id:taskID,label:String(raw.label||'').slice(0,512),status:String(raw.status||'').slice(0,32),exit_code:Number.isInteger(raw.exit_code)?raw.exit_code:null,started_at:String(raw.started_at||'').slice(0,80),ended_at:String(raw.ended_at||'').slice(0,80),duration:Number.isFinite(raw.duration)?Math.max(0,Math.floor(raw.duration)):null});
+    if(out.length===10)break;
+  }
+  return out;
+}
+function normalizeProjectState(raw){
+  return {version:1,favorites:normalizeIDs(raw?.favorites,20),recent:normalizeIDs(raw?.recent,10),history:normalizeHistory(raw?.history)};
+}
+function projectStateHasData(state){return state.favorites.length>0||state.recent.length>0||state.history.length>0;}
+function clearLegacyProjectState(){
+  try{for(const name of ['favorites','recent','history']){const key=legacyStorageKey(name);if(key)localStorage.removeItem(key);}}catch(e){console.warn('Cannot clear legacy task state',e);}
+}
+function queueProjectStateSave(){
+  const snapshot=normalizeProjectState(projectState);projectState=snapshot;
+  projectStateSaveChain=projectStateSaveChain.catch(()=>{}).then(()=>app.jsonFetch('/api/state/tasks',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(snapshot)})).catch(e=>{console.warn('Cannot persist project task state',e);});
+  return projectStateSaveChain;
+}
+async function loadProjectState(){
+  const loaded=normalizeProjectState(await app.jsonFetch('/api/state/tasks'));
+  const legacy=normalizeProjectState({favorites:legacyRead('favorites',[]),recent:legacyRead('recent',[]),history:legacyRead('history',[])});
+  projectState=loaded;
+  if(!projectStateHasData(loaded)&&projectStateHasData(legacy)){
+    projectState=legacy;
+    await queueProjectStateSave();
+  }
+  clearLegacyProjectState();
+  projectStateLoaded=true;refresh();
+}
+const taskDataReady=app.taskData?.workspace?Promise.resolve():new Promise(resolve=>window.addEventListener('taskmenu:tasks',resolve,{once:true}));
+taskDataReady.then(()=>loadServerTaskRuns()).catch(e=>console.warn('Cannot load task-run history',e));
+const projectStateReady=taskDataReady.then(()=>loadProjectState()).catch(e=>{
+  console.warn('Cannot load project task state; using legacy browser state for this page',e);
+  projectState=normalizeProjectState({favorites:legacyRead('favorites',[]),recent:legacyRead('recent',[]),history:legacyRead('history',[])});
+  projectStateLoaded=true;refresh();
+});
+
+function taskByID(id){return app.taskData?.tasks.find(t=>t.id===id)||null;}
+function favorites(){return projectState.favorites.filter(id=>taskByID(id));}
+function recent(){return projectState.recent.filter(id=>taskByID(id));}
+function isFavorite(id){return favorites().includes(id);}
+
+function quickTaskDisplayLabel(task){
+  const label=String(task?.menu_label||task?.label||'').trim();
+  const group=(Array.isArray(task?.group)?task.group:[]).map(value=>String(value||'').trim()).filter(Boolean);
+  return group.length?[...group,label].filter(Boolean).join('›'):label;
+}
+
+function toggleFavorite(id){
+  if(!projectStateLoaded){projectStateReady.then(()=>toggleFavorite(id));return;}
+  let ids=favorites();
+  if(ids.includes(id))ids=ids.filter(x=>x!==id);else ids=[id,...ids].slice(0,20);
+  projectState.favorites=ids;queueProjectStateSave();refresh();
+}
+function recordRecent(id){
+  if(!projectStateLoaded){projectStateReady.then(()=>recordRecent(id));return;}
+  projectState.recent=[id,...recent().filter(x=>x!==id)].slice(0,10);queueProjectStateSave();renderQuickSections();
+}
+
+function createQuickSection(title,ids,allowUnstar){
+  if(!ids.length)return null;
+  const section=document.createElement('div');section.className='quick-task-section';
+  const heading=document.createElement('div');heading.className='quick-task-title';heading.textContent=title;
+  const list=document.createElement('div');list.className='quick-task-list';section.append(heading,list);
+  for(const id of ids){
+    const task=taskByID(id);if(!task)continue;
+    const row=document.createElement('div');row.className='quick-task-row';
+    const run=document.createElement('button');run.className='quick-task-run';const displayLabel=quickTaskDisplayLabel(task);run.textContent=displayLabel;run.title=(task.detail?displayLabel+' — '+task.detail:displayLabel);run.onclick=()=>app.startTask(task).catch(app.showError);
+    row.append(run);
+    if(allowUnstar){const star=document.createElement('button');star.className='quick-task-star';star.textContent='★';star.title='Remove from Favorites';star.onclick=()=>toggleFavorite(id);row.append(star);}
+    list.append(row);
+  }
+  return section;
+}
+
+function renderQuickSections(){
+  const menu=document.querySelector('#menu');if(!menu||!app.taskData)return;
+  menu.querySelectorAll('.quick-task-section').forEach(el=>el.remove());
+  const search=menu.querySelector('.task-search-panel');const anchor=search?.nextSibling||menu.firstChild;
+  const blocks=[];
+  const profileTasks=createQuickSection('◆ PROFILE TASKS',projectProfileTaskIDs.filter(id=>taskByID(id)),false);if(profileTasks)blocks.push(profileTasks);
+  const fav=createQuickSection('★ FAVORITES',favorites(),true);if(fav)blocks.push(fav);
+  const rec=createQuickSection('↻ RECENT',recent(),false);if(rec)blocks.push(rec);
+  for(const block of blocks){if(anchor)menu.insertBefore(block,anchor);else menu.append(block);}
+}
+
+function findTaskForButton(button){
+  const label=button.textContent.trim();const title=button.title||'';
+  const matches=(app.taskData?.tasks||[]).filter(task=>(task.menu_label||task.label)===label&&(!title||(task.detail||task.label)===title));
+  return matches.length===1?matches[0]:null;
+}
+
+function decorateTaskButtons(){
+  const menu=document.querySelector('#menu');if(!menu)return;
+  for(const button of [...menu.querySelectorAll('button.task')]){
+    if(button.parentElement?.classList.contains('task-row-ext'))continue;
+    const task=findTaskForButton(button);if(!task)continue;
+    const row=document.createElement('div');row.className='task-row-ext';button.before(row);row.append(button);
+    const star=document.createElement('button');star.className='task-favorite-toggle';star.dataset.taskId=String(task.id);star.onclick=()=>toggleFavorite(task.id);row.append(star);
+  }
+  for(const star of menu.querySelectorAll('.task-favorite-toggle')){
+    const id=Number(star.dataset.taskId);star.textContent=isFavorite(id)?'★':'☆';star.title=isFavorite(id)?'Remove from Favorites':'Add to Favorites';
+  }
+}
+
+function refresh(){renderQuickSections();decorateTaskButtons();renderHistory();}
+window.addEventListener('taskmenu:tasks',()=>setTimeout(refresh,0));
+window.addEventListener('taskmenu:session',event=>{
+  const meta=event.detail?.meta;if(!meta||meta.task_id<=0||seenRecentSessions.has(meta.id))return;
+  seenRecentSessions.add(meta.id);recordRecent(meta.task_id);
+});
+setTimeout(refresh,0);
+
+const finalizedSessions=new Set();
+function readHistory(){return projectState.history;}
+function writeHistory(items){
+  if(!projectStateLoaded){projectStateReady.then(()=>writeHistory(items));return;}
+  projectState.history=normalizeHistory(items).slice(0,10);queueProjectStateSave();
+}
+function secondsBetween(start,end){const a=Date.parse(start||'');const b=Date.parse(end||'');return Number.isFinite(a)&&Number.isFinite(b)&&b>=a?Math.floor((b-a)/1000):null;}
+function formatDuration(seconds){if(seconds==null)return '--:--';const s=Math.max(0,seconds|0);const h=Math.floor(s/3600),m=Math.floor((s%3600)/60),r=s%60;return h?String(h).padStart(2,'0')+':'+String(m).padStart(2,'0')+':'+String(r).padStart(2,'0'):String(m).padStart(2,'0')+':'+String(r).padStart(2,'0');}
+function displayState(meta){
+  if(meta.status==='running')return {text:'running',cls:'running'};
+  if(meta.status==='stopped')return {text:'STOPPED',cls:'stopped'};
+  if(meta.status==='exited'&&meta.exit_code===0)return {text:'PASS',cls:'success'};
+  if(meta.status==='exited')return {text:'FAIL',cls:'fail'};
+  return {text:meta.status||'unknown',cls:'stopped'};
+}
+function elapsedSeconds(meta){
+  const start=Date.parse(meta.started_at||'');if(!Number.isFinite(start))return null;
+  const end=meta.status==='running'?Date.now():Date.parse(meta.ended_at||'');
+  return Number.isFinite(end)&&end>=start?Math.floor((end-start)/1000):null;
+}
+
+function ensureRerunButton(view){
+  if(view.meta.task_id<=0)return;
+  let button=view.pane.querySelector('.session-rerun');
+  if(!button){button=document.createElement('button');button.className='session-rerun';view.stop.before(button);}
+  button.textContent=view.meta.status==='running'?'Restart':'Run again';
+  button.title=view.meta.status==='running'?'Stop the current task and run it again':'Run this task again';
+  button.onclick=()=>restartOrRun(view).catch(app.showError);
+}
+
+async function restartOrRun(view){
+  const task=taskByID(view.meta.task_id);if(!task)throw new Error('Task no longer exists in tasks.json');
+  const button=view.pane.querySelector('.session-rerun');if(button)button.disabled=true;
+  try{
+    if(view.meta.status==='running'){
+      await app.jsonFetch('/api/sessions/'+view.meta.id+'/stop',{method:'POST'});
+      const deadline=Date.now()+6000;
+      while(Date.now()<deadline){
+        await new Promise(resolve=>setTimeout(resolve,120));
+        const meta=await app.jsonFetch('/api/sessions/'+view.meta.id);
+        if(meta.status!=='running')break;
+      }
+    }
+    await app.startTask(task);
+  }finally{if(button?.isConnected)button.disabled=false;}
+}
+
+let runningIndicatorSettings={mode:'braille',rpm:2};
+
+function normalizeRunningIndicatorSettings(value){
+  const mode=['boxes','spinner','braille','time'].includes(value?.mode)?value.mode:'braille';
+  const rpm=Math.max(1,Math.min(120,Math.round(Number(value?.rpm)||2)));
+  return {mode,rpm};
+}
+
+function applyRunningIndicatorSettings(value){
+  runningIndicatorSettings=normalizeRunningIndicatorSettings(value);
+  for(const view of app.views.values()){
+    if(view?.meta?.status==='running')updateSessionPresentation(view,view.meta);
+  }
+}
+
+window.addEventListener('taskmenu:running-indicator-settings',event=>applyRunningIndicatorSettings(event.detail||{}));
+globalThis.TaskMenuTaskSet={
+  apply(ids){
+    const valid=new Set((app.taskData?.tasks||[]).map(task=>Number(task.id)));
+    projectProfileTaskIDs=[...new Set((Array.isArray(ids)?ids:[]).map(Number).filter(id=>Number.isInteger(id)&&valid.has(id)))];
+    renderQuickSections();return [...projectProfileTaskIDs];
+  },
+  get ids(){return [...projectProfileTaskIDs];}
+};
+
+globalThis.TaskMenuRunningIndicator={
+  get settings(){return {...runningIndicatorSettings};},
+  apply:applyRunningIndicatorSettings
+};
+
+function renderLongRunningIndicator(status,duration){
+  const mode=runningIndicatorSettings.mode;
+  if(mode==='time'){
+    if(status.dataset.runningIndicatorMode!=='time'||status.textContent!==duration)status.textContent=duration;
+    status.dataset.runningIndicatorMode='time';
+    return false;
+  }
+
+  const className=mode==='spinner'
+    ?'session-running-spinner'
+    :(mode==='braille'?'session-running-braille':'session-running-boxes');
+  let indicator=status.firstElementChild;
+  const reusable=status.dataset.runningIndicatorMode===mode&&indicator?.classList?.contains(className);
+  if(!reusable){
+    status.replaceChildren();
+    indicator=document.createElement('span');
+    indicator.className=className;
+    indicator.setAttribute('aria-hidden','true');
+    if(mode==='boxes'){
+      for(let index=0;index<3;index++){
+        const cell=document.createElement('span');cell.className='session-running-cell';indicator.append(cell);
+      }
+    }
+    status.append(indicator);
+    status.dataset.runningIndicatorMode=mode;
+  }
+
+  if(mode==='spinner'){
+    indicator.style.setProperty('--taskdeck-running-spin-duration',(60/runningIndicatorSettings.rpm)+'s');
+  }else if(mode==='braille'){
+    indicator.style.setProperty('--taskdeck-running-braille-duration',(60/runningIndicatorSettings.rpm)+'s');
+  }
+  return true;
+}
+
+function interactiveTerminalSession(meta){
+  // The shell/SSH process stays running while its prompt is idle. Native
+  // tasks and built-in Patch sessions keep their original lifecycle status.
+  return Number(meta?.task_id)===0||(Number(meta?.task_id)===-1&&String(meta?.target_type||'').toLowerCase()==='ssh');
+}
+// Native tab tooltips should identify the command that is currently
+// executing. Save the previous tooltip exactly once and restore it when the
+// command finishes, the shell closes, or command detection is unavailable.
+const terminalTabTooltipDefaults=new WeakMap();
+function syncTerminalCommandTooltip(view,command){
+  if(!view?.tab)return;
+  const current=String(command||'').trim();
+  if(current){
+    if(!terminalTabTooltipDefaults.has(view.tab)){
+      terminalTabTooltipDefaults.set(view.tab,{
+        present:view.tab.hasAttribute('title'),
+        value:view.tab.getAttribute('title')
+      });
+    }
+    const tooltip=current.length>2048?current.slice(0,2048)+'…':current;
+    // Status refreshes every second. Avoid resetting a native browser
+    // tooltip on each tick while the user is hovering over the tab.
+    if(view.tab.title!==tooltip)view.tab.title=tooltip;
+    if(view.status&&view.status.title!==tooltip)view.status.title=tooltip;
+  }else{
+    const previous=terminalTabTooltipDefaults.get(view.tab);
+    if(previous){
+      if(previous.present)view.tab.setAttribute('title',previous.value);
+      else view.tab.removeAttribute('title');
+      terminalTabTooltipDefaults.delete(view.tab);
+    }
+  }
+}
+function terminalCommandSnapshot(meta){
+  if(!interactiveTerminalSession(meta)||meta.status!=='running')return null;
+  return globalThis.TaskDeckShellIntegration?.getState?.(meta.id)||null;
+}
+function renderTerminalCommandStatus(view,meta,activity){
+  const activeCommand=Boolean(activity?.executing);
+  const completed=Boolean(!activeCommand&&activity?.completedCount>0&&activity?.finishedAt);
+  const currentDuration=activeCommand?Math.max(0,Math.floor((Date.now()-activity.startedAt)/1000)):
+    completed?Math.max(0,Math.floor((activity.finishedAt-activity.startedAt)/1000)):null;
+  const duration=formatDuration(currentDuration);
+  view.status.classList.remove('session-status-success','session-status-fail','session-status-running-long');
+  delete view.status.dataset.runningIndicatorMode;
+  view.tab.classList.remove('state-running','state-success','state-fail','state-stopped','state-idle','terminal-command-running','terminal-command-time-only');
+  if(activeCommand){
+    view.tab.classList.remove('terminal-command-unread');
+    view.tab.classList.add('state-running','terminal-command-running');
+    view.tab.classList.toggle('terminal-command-time-only',runningIndicatorSettings.mode==='time');
+    view.status.style.setProperty('--taskdeck-running-spin-duration',(60/runningIndicatorSettings.rpm)+'s');
+    view.status.textContent=duration;
+    if(!String(activity?.activeCommand||'').trim())view.status.title='Command running · '+duration;
+    syncTerminalCommandTooltip(view,activity?.activeCommand);
+  }else if(completed){
+    const failed=activity.exitCode!==0&&activity.exitCode!==null;
+    view.tab.classList.add(failed?'state-fail':'state-success');
+    view.status.classList.add(failed?'session-status-fail':'session-status-success');
+    view.status.textContent=failed?'✕':'✓';
+    view.status.title=(failed?'Command failed · exit '+activity.exitCode:'Command finished · exit 0')+' · '+duration;
+    syncTerminalCommandTooltip(view,'');
+  }else{
+    view.tab.classList.remove('terminal-command-unread');
+    view.tab.classList.add('state-idle');
+    view.status.textContent='';
+    view.status.title=activity?.seenPrompt?'Terminal idle · waiting for a command':'Terminal open · waiting for shell prompt';
+    syncTerminalCommandTooltip(view,'');
+  }
+  // ui.go checks this ownership marker before touching the status DOM
+  // during session polling. Otherwise the PTY's long-lived "running"
+  // process status would momentarily overwrite the idle command display.
+  view.status.dataset.runningIndicatorMode='terminal-command';
+  // The user has seen the result once this terminal tab becomes active.
+  if(app.active===String(meta.id)&&!document.hidden)view.tab.classList.remove('terminal-command-unread');
+}
+function updateSessionPresentation(view,meta){
+  const activity=terminalCommandSnapshot(meta);
+  if(interactiveTerminalSession(meta)){
+    if(meta.status==='running'){
+      renderTerminalCommandStatus(view,meta,activity);
+    }else{
+      // A shell exiting is not a completed native Task. Avoid a misleading
+      // PASS badge caused solely by the terminal process returning zero.
+      view.tab.classList.remove('terminal-command-running','terminal-command-unread','terminal-command-time-only','state-running','state-success','state-fail','state-idle');
+      view.tab.classList.add('state-stopped');
+      view.status.classList.remove('session-status-success','session-status-fail','session-status-running-long');
+      delete view.status.dataset.runningIndicatorMode;
+      view.status.textContent='■';
+      view.status.title='Terminal closed'+(meta.exit_code==null?'':' · exit '+meta.exit_code);
+      syncTerminalCommandTooltip(view,'');
+    }
+    ensureConsoleTools(view);
+    return;
+  }
+  const state=displayState(meta);const elapsed=elapsedSeconds(meta);const duration=formatDuration(elapsed);
+  view.status.classList.remove('session-status-success','session-status-fail');
+  view.status.title='';
+  if(meta.status==='running'){
+    view.status.title='Running · '+duration;
+    const longRunning=Number.isFinite(elapsed)&&elapsed>600&&renderLongRunningIndicator(view.status,duration);
+    view.status.classList.toggle('session-status-running-long',Boolean(longRunning));
+    if(!longRunning){
+      view.status.textContent=duration;
+      delete view.status.dataset.runningIndicatorMode;
+    }
+  }else if(state.cls==='success'){
+    view.status.classList.remove('session-status-running-long');
+    delete view.status.dataset.runningIndicatorMode;
+    view.status.textContent='✓';
+    view.status.classList.add('session-status-success');
+    view.status.title='PASS · '+duration;
+  }else if(state.cls==='fail'){
+    view.status.classList.remove('session-status-running-long');
+    delete view.status.dataset.runningIndicatorMode;
+    view.status.textContent='✕';
+    view.status.classList.add('session-status-fail');
+    view.status.title='FAIL · '+duration;
+  }else{
+    view.status.classList.remove('session-status-running-long');
+    delete view.status.dataset.runningIndicatorMode;
+    view.status.textContent=state.text+' '+duration;
+    view.status.title=state.text+' · '+duration;
+  }
+  view.tab.classList.remove('state-running','state-success','state-fail','state-stopped');view.tab.classList.add('state-'+state.cls);
+  ensureRerunButton(view);
+  ensureConsoleTools(view);
+  if(meta.task_id>0&&meta.status!=='running'&&!finalizedSessions.has(meta.id))recordHistory(meta,view);
+}
+
+function recordHistory(meta,view){
+  if(!projectStateLoaded){projectStateReady.then(()=>recordHistory(meta,view));return;}
+  finalizedSessions.add(meta.id);
+  const existing=readHistory();
+  if(!existing.some(item=>item.session_id===meta.id)){
+    const task=taskByID(meta.task_id);
+    const item={session_id:meta.id,task_id:meta.task_id,label:task?.menu_label||meta.label,status:displayState(meta).text,exit_code:meta.exit_code??null,started_at:meta.started_at,ended_at:meta.ended_at,duration:secondsBetween(meta.started_at,meta.ended_at)};
+    writeHistory([item,...existing]);
+  }
+  persistServerTaskRun(view,meta).catch(error=>console.warn('Cannot persist task-run artifact',error));
+  renderHistory();
+}
+
+function renderHistory(){
+  const menu=document.querySelector('#menu');if(!menu||!app.taskData)return;
+  menu.querySelector('.history-section')?.remove();
+  const items=(serverTaskRunsLoaded?serverTaskRuns:readHistory()).slice(0,10);if(!items.length)return;
+  const section=document.createElement('div');section.className='history-section';
+  const head=document.createElement('div');head.className='history-head';const title=document.createElement('strong');title.textContent='HISTORY';
+  const compare=document.createElement('button');compare.className='history-clear';compare.textContent='Compare';compare.disabled=taskRunCompareSelection.size!==2;compare.onclick=()=>compareSelectedTaskRuns().catch(app.showError);
+  const clear=document.createElement('button');clear.className='history-clear';clear.textContent='Clear legacy';clear.title='Clear legacy quick-history only; durable task-run artifacts are retained';clear.onclick=()=>{writeHistory([]);renderHistory();};head.append(title,compare,clear);
+  const list=document.createElement('div');list.className='history-list';section.append(head,list);
+  for(const item of items){
+    const row=document.createElement('div');row.className='history-row';const label=document.createElement('span');label.className='history-label';label.textContent=item.label||String(item.task_id);const state=document.createElement('span');state.className='history-state '+String(item.status||'').toLowerCase();state.textContent=item.status||'';
+    const meta=document.createElement('span');meta.className='history-meta';const when=item.started_at?new Date(item.started_at).toLocaleString():'';meta.textContent=when+' · '+formatDuration(item.duration)+(item.git_commit?' · '+item.git_commit.slice(0,8):'');
+    if(item.id){
+      const actions=document.createElement('div');actions.className='history-row-actions';
+      const selectLabel=document.createElement('label');selectLabel.className='history-compare-select';const box=document.createElement('input');box.type='checkbox';box.checked=taskRunCompareSelection.has(item.id);
+      box.onchange=()=>{if(box.checked){if(taskRunCompareSelection.size>=2){box.checked=false;return;}taskRunCompareSelection.add(item.id);}else taskRunCompareSelection.delete(item.id);renderHistory();};
+      const selText=document.createElement('span');selText.textContent='Compare';selectLabel.append(box,selText);
+      const details=document.createElement('button');details.type='button';details.textContent='Details';details.onclick=()=>openTaskRunDetail(item).catch(app.showError);
+      const task=taskByID(item.task_id);const rerun=document.createElement('button');rerun.type='button';rerun.textContent='Run again';rerun.disabled=!task;rerun.onclick=()=>task&&app.startTask(task).catch(app.showError);
+      actions.append(selectLabel,details,rerun);row.append(label,state,meta,actions);
+    }else{
+      const task=taskByID(item.task_id);if(task){row.style.cursor='pointer';row.title='Click to run again';row.onclick=()=>app.startTask(task).catch(app.showError);}row.append(label,state,meta);
+    }
+    list.append(row);
+  }
+  const quick=[...menu.querySelectorAll('.quick-task-section')];const anchor=quick.length?quick[quick.length-1].nextSibling:menu.querySelector('.task-search-panel')?.nextSibling;
+  if(anchor)menu.insertBefore(section,anchor);else menu.append(section);
+}
+
+const consoleStates=new Map();
+// A task restart reuses its xterm pane but switches backend session IDs.
+// Transfer the search toolbar state instead of constructing duplicate controls.
+window.addEventListener('taskmenu:session-retargeted',event=>{
+  const {oldID,newID}=event.detail||{};
+  if(!oldID||!newID)return;
+  const state=consoleStates.get(oldID);
+  if(state){consoleStates.delete(oldID);consoleStates.set(newID,state);}
+});
+function consoleState(view){
+  let state=consoleStates.get(view.meta.id);if(state)return state;
+  const bar=document.createElement('div');bar.className='console-find';
+  const input=document.createElement('input');input.type='search';input.placeholder='Find in console…';input.autocomplete='off';input.spellcheck=false;
+  const match=document.createElement('span');match.className='match';
+  const prev=document.createElement('button');prev.textContent='↑';prev.title='Previous match';
+  const next=document.createElement('button');next.textContent='↓';next.title='Next match';
+  const close=document.createElement('button');close.textContent='×';close.title='Close search';
+  bar.append(input,match,prev,next,close);
+  const detected=view.pane.querySelector('.detected-actions');if(detected)detected.after(bar);else view.pane.querySelector('.pane-head').after(bar);
+  state={view,bar,input,match,line:-1};consoleStates.set(view.meta.id,state);
+  input.oninput=()=>findInConsole(state,1,true);input.onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();findInConsole(state,e.shiftKey?-1:1,false);}else if(e.key==='Escape'){e.preventDefault();hideConsoleFind(state);}};
+  prev.onclick=()=>findInConsole(state,-1,false);next.onclick=()=>findInConsole(state,1,false);close.onclick=()=>hideConsoleFind(state);
+  return state;
+}
+function showConsoleFind(view){const state=consoleState(view);state.bar.classList.add('visible');state.input.focus();state.input.select();if(state.input.value)findInConsole(state,1,true);}
+function hideConsoleFind(state){state.bar.classList.remove('visible');state.view.term.clearSelection();state.view.term.focus();}
+function findInConsole(state,direction,reset){
+  const q=state.input.value;if(!q){state.match.textContent='';state.view.term.clearSelection();state.line=-1;return;}
+  const buffer=state.view.term.buffer.active;const needle=q.toLowerCase();const count=buffer.length;if(!count)return;
+  let start=reset?(direction>0?0:count-1):(state.line<0?(direction>0?0:count-1):state.line+direction);
+  for(let step=0;step<count;step++){
+    const row=(start+direction*step+count*2)%count;const line=buffer.getLine(row);if(!line)continue;const text=line.translateToString(true);const idx=text.toLowerCase().indexOf(needle);if(idx<0)continue;
+    state.line=row;state.view.term.select(idx,row,q.length);state.view.term.scrollToLine(row);state.match.textContent='line '+(row+1);return;
+  }
+  state.match.textContent='No match';state.view.term.clearSelection();
+}
+function safeLogName(view){const base=(view.meta.label||'console').replace(/[^A-Za-z0-9._-]+/g,'_').replace(/^_+|_+$/g,'')||'console';const d=new Date();const stamp=d.getFullYear()+String(d.getMonth()+1).padStart(2,'0')+String(d.getDate()).padStart(2,'0')+'_'+String(d.getHours()).padStart(2,'0')+String(d.getMinutes()).padStart(2,'0')+String(d.getSeconds()).padStart(2,'0');return base+'_'+stamp+'.log';}
+function saveConsoleLog(view){
+  const text=app.consoleText(view);const blob=new Blob([text+(text.endsWith('\n')?'':'\n')],{type:'text/plain;charset=utf-8'});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=safeLogName(view);document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);
+}
+function ensureConsoleTools(view){
+  const head=view.pane.querySelector('.pane-head');if(!head||head.querySelector('.console-search-btn'))return;
+  const find=document.createElement('button');find.className='console-tool console-search-btn';find.textContent='🔎 Find in console';find.title='Search console (Ctrl+F)';find.onclick=()=>showConsoleFind(view);
+  const save=document.createElement('button');save.className='console-tool console-save-btn';save.textContent='💾 Save console log';save.title='Download the entire console as a .log file';save.onclick=()=>saveConsoleLog(view);
+  view.copy.before(find,save);
+}
+
+document.addEventListener('keydown',e=>{
+  if(!(e.ctrlKey||e.metaKey)||e.shiftKey||e.altKey||e.key.toLowerCase()!=='f')return;
+  const view=app.views.get(app.active);if(!view)return;
+  e.preventDefault();showConsoleFind(view);
+});
+window.addEventListener('taskmenu:session',event=>{const {view,meta}=event.detail||{};if(view&&meta)updateSessionPresentation(view,meta);});
+window.addEventListener('taskmenu:shell-integration',event=>{
+  const {view,type}=event.detail||{};
+  if(!view||!interactiveTerminalSession(view.meta))return;
+  if(type==='execution-finished'&&(app.active!==String(view.meta.id)||document.hidden)){
+    view.tab.classList.add('terminal-command-unread');
+  }
+  if(type==='execution-started'||type==='execution-finished'||type==='prompt'){
+    updateSessionPresentation(view,view.meta);
+  }
+});
+window.addEventListener('taskmenu:view-activated',event=>{
+  if(event.detail?.kind!=='terminal')return;
+  if(!document.hidden)app.views.get(String(event.detail.id))?.tab.classList.remove('terminal-command-unread');
+});
+document.addEventListener('visibilitychange',()=>{
+  if(!document.hidden&&app.active)app.views.get(String(app.active))?.tab.classList.remove('terminal-command-unread');
+});
+setInterval(()=>{for(const view of app.views.values())if(view.meta.status==='running')updateSessionPresentation(view,view.meta);},1000);
+for(const view of app.views.values())updateSessionPresentation(view,view.meta);

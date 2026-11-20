@@ -1,0 +1,21 @@
+//go:build windows
+
+package server
+
+import (
+	"os/exec"
+)
+
+func prepareGitJobProcess(cmd *exec.Cmd) {}
+
+func terminateGitJobProcess(cmd *exec.Cmd) {
+	if cmd != nil && cmd.Process != nil {
+		_ = cmd.Process.Kill()
+	}
+}
+
+func killGitJobProcess(cmd *exec.Cmd) {
+	if cmd != nil && cmd.Process != nil {
+		_ = cmd.Process.Kill()
+	}
+}

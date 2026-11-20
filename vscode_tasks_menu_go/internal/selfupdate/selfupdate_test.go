@@ -1,0 +1,782 @@
+package selfupdate
+
+import (
+	"context"
+	"os"
+	"runtime"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+)
+
+func TestRequestLifecycle(t *testing.T) {
+	workspace := t.TempDir()
+	req, err := CreateRequest(workspace, "0123456789abcdef", "http://127.0.0.1:1234", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if req.Status != "awaiting_confirmation" || req.ID == "" {
+		t.Fatalf("unexpected request: %#v", req)
+	}
+	loaded, err := Load(workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.ID != req.ID || loaded.Revision != req.Revision {
+		t.Fatalf("loaded request mismatch: %#v", loaded)
+	}
+	confirmed, err := Update(workspace, req.ID, "confirmed", "ok", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if confirmed.Status != "confirmed" || confirmed.ConfirmedAt == "" {
+		t.Fatalf("confirmation not recorded: %#v", confirmed)
+	}
+	completed, err := Update(workspace, req.ID, "completed", "done", "http://127.0.0.1:1234", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if completed.CompletedAt == "" || completed.TargetURL == "" {
+		t.Fatalf("completion not recorded: %#v", completed)
+	}
+}
+
+
+func TestReconcileAbandonedLegacyConfirmedRequest(t *testing.T) {
+	workspace := t.TempDir()
+	req, err := CreateRequest(workspace, "0123456789abcdef", "https://127.0.0.1:42881", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.UpdaterPID = 0
+	req.UpdatedAt = time.Now().Add(-time.Minute).Format(time.RFC3339)
+	req.ConfirmedAt = req.UpdatedAt
+	if err := Save(workspace, req); err != nil {
+		t.Fatal(err)
+	}
+	got, err := ReconcileAbandoned(workspace, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != "failed" || !strings.Contains(got.Error, "stopped before completion") {
+		t.Fatalf("reconciled request=%#v", got)
+	}
+}
+
+func TestBindUpdaterPIDRecordsOwner(t *testing.T) {
+	workspace := t.TempDir()
+	req, err := CreateRequest(workspace, "0123456789abcdef", "", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := BindUpdaterPID(workspace, req.ID, os.Getpid())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.UpdaterPID != os.Getpid() || got.UpdatedAt == "" {
+		t.Fatalf("updater owner not recorded: %#v", got)
+	}
+	if !ActiveStatus(got.Status) {
+		t.Fatalf("confirmed request should be active: %#v", got)
+	}
+}
+
+func TestInstallReplacesBinaryAndWritesRevision(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "vscode_tasks_menu")
+	staged := filepath.Join(dir, "staged")
+	if err := os.WriteFile(target, []byte("old"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(staged, []byte("new"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := Install(staged, target, "abcdef0123456789"); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "new" {
+		t.Fatalf("target=%q want new", got)
+	}
+	if revision := InstalledRevision(target); revision != "abcdef0123456789" {
+		t.Fatalf("revision=%q", revision)
+	}
+	if _, err := os.Stat(staged); !os.IsNotExist(err) {
+		t.Fatalf("staged binary still exists: %v", err)
+	}
+}
+
+
+func TestLauncherPathForBinaryRecognizesStandardInstallLayout(t *testing.T) {
+	root := t.TempDir()
+	binary := filepath.Join(root, "vscode_tasks_menu_go", ".build", "vscode_tasks_menu")
+	got, ok := launcherPathForBinary(binary)
+	if !ok {
+		t.Fatal("standard install layout was not recognized")
+	}
+	want := filepath.Join(root, "vscode_tasks_menu")
+	if got != want {
+		t.Fatalf("launcher path=%q want %q", got, want)
+	}
+
+	for _, binary := range []string{
+		filepath.Join(root, "vscode_tasks_menu"),
+		filepath.Join(root, ".build", "vscode_tasks_menu"),
+		filepath.Join(root, "other", ".build", "vscode_tasks_menu"),
+		filepath.Join(root, "vscode_tasks_menu_go", ".build", "renamed"),
+	} {
+		if got, ok := launcherPathForBinary(binary); ok {
+			t.Fatalf("unexpected launcher path for %q: %q", binary, got)
+		}
+	}
+}
+
+func TestInstallReplacesRootLauncherAndBinaryTogether(t *testing.T) {
+	root := t.TempDir()
+	buildDir := filepath.Join(root, "vscode_tasks_menu_go", ".build")
+	if err := os.MkdirAll(buildDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	targetBinary := filepath.Join(buildDir, "vscode_tasks_menu")
+	targetLauncher := filepath.Join(root, "vscode_tasks_menu")
+	stagedBinary := filepath.Join(buildDir, ".vscode_tasks_menu.new.test")
+	stagedLauncher := stagedLauncherPath(stagedBinary)
+
+	if err := os.WriteFile(targetBinary, []byte("old-binary"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(targetLauncher, []byte("old-launcher"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(stagedBinary, []byte("new-binary"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(stagedLauncher, []byte("new-launcher"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	const revision = "abcdef0123456789"
+	if err := Install(stagedBinary, targetBinary, revision); err != nil {
+		t.Fatal(err)
+	}
+	gotBinary, err := os.ReadFile(targetBinary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(gotBinary) != "new-binary" {
+		t.Fatalf("binary=%q", gotBinary)
+	}
+	gotLauncher, err := os.ReadFile(targetLauncher)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(gotLauncher) != "new-launcher" {
+		t.Fatalf("launcher=%q", gotLauncher)
+	}
+	if revisionGot := InstalledRevision(targetBinary); revisionGot != revision {
+		t.Fatalf("revision=%q want %q", revisionGot, revision)
+	}
+	if _, err := os.Stat(stagedLauncher); !os.IsNotExist(err) {
+		t.Fatalf("staged launcher still exists: %v", err)
+	}
+}
+
+func TestInstallDoesNotGuessLauncherOutsideStandardLayout(t *testing.T) {
+	dir := t.TempDir()
+	targetBinary := filepath.Join(dir, "custom-tool-name")
+	stagedBinary := filepath.Join(dir, "staged")
+	if err := os.WriteFile(targetBinary, []byte("old"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(stagedBinary, []byte("new"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(stagedLauncherPath(stagedBinary), []byte("must-not-install"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := Install(stagedBinary, targetBinary, "1234567890abcdef"); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := launcherPathForBinary(targetBinary); ok {
+		t.Fatal("custom binary path unexpectedly recognized as standard launcher layout")
+	}
+}
+
+
+func TestGlobalTaskdeckBinaryPathAndPreference(t *testing.T) {
+	installDir := t.TempDir()
+	t.Setenv("TASKDECK_INSTALL_DIR", installDir)
+	global, err := GlobalBinaryPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join(installDir, "taskdeck")
+	if global != want {
+		t.Fatalf("global path=%q want %q", global, want)
+	}
+	current := filepath.Join(t.TempDir(), "vscode_tasks_menu")
+	if got := PreferredBinary(current); got != current {
+		t.Fatalf("preferred missing-global=%q want current %q", got, current)
+	}
+	if err := os.WriteFile(global, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if got := PreferredBinary(current); got != global {
+		t.Fatalf("preferred=%q want global %q", got, global)
+	}
+	if !SameExecutablePath(global, filepath.Join(installDir, ".", "taskdeck")) {
+		t.Fatal("equivalent global paths were not recognized")
+	}
+}
+
+
+func TestCopyRootSupportFileStagesInstallerAndLauncher(t *testing.T) {
+	source := t.TempDir()
+	dest := t.TempDir()
+	for _, item := range []struct {
+		name string
+		mode os.FileMode
+	}{
+		{name: "vscode_tasks_menu", mode: 0o755},
+		{name: "install.sh", mode: 0o755},
+		{name: "python_patch_entry.py", mode: 0o755},
+		{name: "test_python_patch_entry.py", mode: 0o644},
+		{name: "run_python_patches.sh", mode: 0o755},
+	} {
+		want := "#!/bin/sh\necho " + item.name + "\n"
+		if err := os.WriteFile(filepath.Join(source, item.name), []byte(want), item.mode); err != nil {
+			t.Fatal(err)
+		}
+		if err := copyRootSupportFile(source, dest, item.name, item.mode); err != nil {
+			t.Fatal(err)
+		}
+		got, err := os.ReadFile(filepath.Join(dest, item.name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(got) != want {
+			t.Fatalf("%s content=%q want %q", item.name, got, want)
+		}
+		info, err := os.Stat(filepath.Join(dest, item.name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if item.mode&0o111 != 0 && info.Mode().Perm()&0o111 == 0 {
+			t.Fatalf("%s is not executable: %v", item.name, info.Mode())
+		}
+		if item.mode&0o111 == 0 && info.Mode().Perm()&0o111 != 0 {
+			t.Fatalf("%s unexpectedly executable: %v", item.name, info.Mode())
+		}
+	}
+	if err := copyRootSupportFile(source, dest, "../escape", 0o755); err == nil {
+		t.Fatal("expected unsafe support-file name rejection")
+	}
+}
+
+
+func TestSameExecutablePathRecognizesSymlinkToGlobalBinary(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "taskdeck")
+	if err := os.WriteFile(target, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(dir, "taskdeck-link")
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatal(err)
+	}
+	if !SameExecutablePath(link, target) {
+		t.Fatalf("symlink %q and target %q must be treated as the same executable", link, target)
+	}
+}
+
+
+func makeFakeRelease(t *testing.T, path string) {
+	t.Helper()
+	for _, item := range []struct {
+		path string
+		mode os.FileMode
+	}{
+		{filepath.Join(path, "taskdeck"), 0o755},
+		{filepath.Join(path, "patchtool", "python_patch_entry.py"), 0o755},
+		{filepath.Join(path, "patchtool", "_patch_lib", "python_patch_queue_dispatcher.py"), 0o644},
+	} {
+		if err := os.MkdirAll(filepath.Dir(item.path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(item.path, []byte("test\n"), item.mode); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func TestGlobalReleasePathsAndAtomicInstallPreserveOldRelease(t *testing.T) {
+	root := t.TempDir()
+	binDir := filepath.Join(root, "bin")
+	appDir := filepath.Join(root, "lib", "taskdeck")
+	t.Setenv("TASKDECK_INSTALL_DIR", binDir)
+	t.Setenv("TASKDECK_APP_DIR", appDir)
+
+	rev1 := "1111111111111111111111111111111111111111"
+	rev2 := "2222222222222222222222222222222222222222"
+
+	release1, err := GlobalReleaseDir(rev1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	staged1 := filepath.Join(filepath.Dir(release1), ".stage-one")
+	makeFakeRelease(t, staged1)
+	if err := InstallGlobalRelease(staged1, rev1); err != nil {
+		t.Fatal(err)
+	}
+
+	global, err := GlobalBinaryPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := filepath.EvalSymlinks(global)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resolved != filepath.Join(release1, "taskdeck") {
+		t.Fatalf("global resolves to %q want %q", resolved, filepath.Join(release1, "taskdeck"))
+	}
+	if InstalledRevision(global) != rev1 {
+		t.Fatalf("marker=%q want %q", InstalledRevision(global), rev1)
+	}
+	if !GlobalReleaseReady(rev1) {
+		t.Fatal("first release should be globally ready")
+	}
+
+	release2, err := GlobalReleaseDir(rev2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	staged2 := filepath.Join(filepath.Dir(release2), ".stage-two")
+	makeFakeRelease(t, staged2)
+	if err := InstallGlobalRelease(staged2, rev2); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(release1, "taskdeck")); err != nil {
+		t.Fatalf("old release was removed: %v", err)
+	}
+	resolved, err = filepath.EvalSymlinks(global)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resolved != filepath.Join(release2, "taskdeck") {
+		t.Fatalf("global resolves to %q want %q", resolved, filepath.Join(release2, "taskdeck"))
+	}
+	if GlobalReleaseReady(rev1) {
+		t.Fatal("old release must not remain current")
+	}
+	if !GlobalReleaseReady(rev2) {
+		t.Fatal("second release should be globally ready")
+	}
+}
+
+func TestGlobalReleaseDirRejectsUnsafeRevision(t *testing.T) {
+	t.Setenv("TASKDECK_APP_DIR", t.TempDir())
+	for _, revision := range []string{"", "../escape", "not-a-sha", "1234/567890abcdef"} {
+		if _, err := GlobalReleaseDir(revision); err == nil {
+			t.Fatalf("unsafe revision accepted: %q", revision)
+		}
+	}
+}
+
+
+func TestRestoreGlobalActivationRemovesGlobalEntryWhenPreviouslyAbsent(t *testing.T) {
+	root := t.TempDir()
+	binDir := filepath.Join(root, "bin")
+	appDir := filepath.Join(root, "lib", "taskdeck")
+	t.Setenv("TASKDECK_INSTALL_DIR", binDir)
+	t.Setenv("TASKDECK_APP_DIR", appDir)
+
+	snapshot, err := CaptureGlobalActivation()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.Present {
+		t.Fatalf("unexpected pre-existing global activation: %#v", snapshot)
+	}
+
+	rev := "3333333333333333333333333333333333333333"
+	release, err := GlobalReleaseDir(rev)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stage := filepath.Join(filepath.Dir(release), ".rollback-stage-new")
+	makeFakeRelease(t, stage)
+	if err := InstallGlobalRelease(stage, rev); err != nil {
+		t.Fatal(err)
+	}
+	if !GlobalReleaseReady(rev) {
+		t.Fatal("new release should be active before rollback")
+	}
+	if err := RestoreGlobalActivation(snapshot); err != nil {
+		t.Fatal(err)
+	}
+	global, err := GlobalBinaryPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(global); !os.IsNotExist(err) {
+		t.Fatalf("global entry should be removed after rollback to absent state: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(release, "taskdeck")); err != nil {
+		t.Fatalf("validated release should remain available after rollback: %v", err)
+	}
+}
+
+
+func TestRestoreGlobalActivationReturnsToPreviousRelease(t *testing.T) {
+	root := t.TempDir()
+	binDir := filepath.Join(root, "bin")
+	appDir := filepath.Join(root, "lib", "taskdeck")
+	t.Setenv("TASKDECK_INSTALL_DIR", binDir)
+	t.Setenv("TASKDECK_APP_DIR", appDir)
+
+	rev1 := "1111111111111111111111111111111111111111"
+	rev2 := "2222222222222222222222222222222222222222"
+
+	release1, err := GlobalReleaseDir(rev1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stage1 := filepath.Join(filepath.Dir(release1), ".rollback-stage-one")
+	makeFakeRelease(t, stage1)
+	if err := InstallGlobalRelease(stage1, rev1); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := CaptureGlobalActivation()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !snapshot.Present || snapshot.Executable != filepath.Join(release1, "taskdeck") || snapshot.Revision != rev1 {
+		t.Fatalf("snapshot=%#v", snapshot)
+	}
+
+	release2, err := GlobalReleaseDir(rev2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stage2 := filepath.Join(filepath.Dir(release2), ".rollback-stage-two")
+	makeFakeRelease(t, stage2)
+	if err := InstallGlobalRelease(stage2, rev2); err != nil {
+		t.Fatal(err)
+	}
+	if !GlobalReleaseReady(rev2) {
+		t.Fatal("second release should be active before rollback")
+	}
+
+	if err := RestoreGlobalActivation(snapshot); err != nil {
+		t.Fatal(err)
+	}
+	global, err := GlobalBinaryPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := filepath.EvalSymlinks(global)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resolved != filepath.Join(release1, "taskdeck") {
+		t.Fatalf("rollback resolved=%q want %q", resolved, filepath.Join(release1, "taskdeck"))
+	}
+	if InstalledRevision(global) != rev1 {
+		t.Fatalf("rollback marker=%q want %q", InstalledRevision(global), rev1)
+	}
+	if !GlobalReleaseReady(rev1) {
+		t.Fatal("previous release should be active after rollback")
+	}
+	if _, err := os.Stat(filepath.Join(release2, "taskdeck")); err != nil {
+		t.Fatalf("rollback must keep validated new release for diagnostics/retry: %v", err)
+	}
+}
+
+
+func TestGoTestsDoNotDependOnRepositoryOnlyPatchDocs(t *testing.T) {
+	moduleRoot := filepath.Clean(filepath.Join("..", ".."))
+	forbidden := strings.Join([]string{"TASKDECK", "_PATCH", "_HANDOFF", ".md"}, "")
+	err := filepath.Walk(moduleRoot, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if info.IsDir() || !strings.HasSuffix(path, "_test.go") {
+			return nil
+		}
+		data, readErr := os.ReadFile(path)
+		if readErr != nil {
+			return readErr
+		}
+		if strings.Contains(string(data), forbidden) {
+			t.Fatalf("Go test %s depends on repository-only document %s; self-update stages only the Go module plus bounded runtime support files", path, forbidden)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestLegacySelfUpdateSensitiveTestsGuardMissingRepoRootFiles(t *testing.T) {
+	moduleRoot := filepath.Clean(filepath.Join("..", ".."))
+	checks := []struct {
+		path           string
+		repoRootMarker string
+		skipText       string
+	}{
+		{
+			path:           "cmd/vscode_tasks_menu/launcher_self_install_test.go",
+			repoRootMarker: `filepath.Join(root, "vscode_tasks_menu")`,
+			skipText:       "root launcher is absent from legacy self-update source staging",
+		},
+		{
+			path:           "internal/server/patchpanel_ui_test.go",
+			repoRootMarker: "../../../_patch_lib/python_patch_queue_dispatcher.py",
+			skipText:       "repo-root Patch runtime is absent from legacy self-update source staging",
+		},
+	}
+	for _, check := range checks {
+		data, err := os.ReadFile(filepath.Join(moduleRoot, filepath.FromSlash(check.path)))
+		if err != nil {
+			t.Fatalf("read %s: %v", check.path, err)
+		}
+		src := string(data)
+		if !strings.Contains(src, check.repoRootMarker) {
+			continue
+		}
+		if !strings.Contains(src, "os.IsNotExist(err)") || !strings.Contains(src, check.skipText) {
+			t.Fatalf("%s reads a repository-root dependency without a legacy self-update staging guard", check.path)
+		}
+	}
+}
+
+
+func TestIsolatedGoTestEnvironmentDoesNotReadLiveBrowserSettings(t *testing.T) {
+	configDir := filepath.Join(t.TempDir(), "candidate-config")
+	if err := os.MkdirAll(configDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("XDG_CONFIG_HOME", "/private/live-config")
+	t.Setenv("APPDATA", "/private/live-appdata")
+	t.Setenv("TASKDECK_BROWSER_WORKER_SOCKET", "/private/live-worker.sock")
+	t.Setenv("TASKDECK_BROWSER_WORKER_TOKEN", "must-not-leak-worker-secret")
+	t.Setenv("TASKDECK_UNRELATED_TEST_SETTING", "preserved")
+	t.Setenv("GOPROXY", "https://host-proxy.example.invalid")
+	t.Setenv("GOSUMDB", "host-sumdb.example.invalid")
+
+	env := isolatedGoTestEnvironment(configDir)
+	values := make(map[string]string, len(env))
+	for _, item := range env {
+		key, value, ok := strings.Cut(item, "=")
+		if !ok {
+			t.Fatalf("invalid environment entry %q", item)
+		}
+		key = strings.ToUpper(key)
+		if _, protected := map[string]bool{
+			"XDG_CONFIG_HOME": true, "APPDATA": true,
+			"TASKDECK_BROWSER_WORKER_SOCKET": true, "TASKDECK_BROWSER_WORKER_TOKEN": true,
+			"GOPROXY": true, "GOSUMDB": true,
+		}[key]; protected {
+			if _, duplicate := values[key]; duplicate {
+				t.Fatalf("duplicate isolated environment key %s", key)
+			}
+		}
+		values[key] = value
+	}
+	for key, want := range map[string]string{
+		"XDG_CONFIG_HOME": configDir,
+		"APPDATA": configDir,
+		"TASKDECK_BROWSER_WORKER_SOCKET": "",
+		"TASKDECK_BROWSER_WORKER_TOKEN": "",
+		"GOPROXY": "off",
+		"GOSUMDB": "off",
+		"TASKDECK_UNRELATED_TEST_SETTING": "preserved",
+	} {
+		if got := values[key]; got != want {
+			t.Fatalf("%s=%q; want %q", key, got, want)
+		}
+	}
+	if os.Getenv("TASKDECK_BROWSER_WORKER_TOKEN") != "must-not-leak-worker-secret" {
+		t.Fatal("candidate test environment changed the live process")
+	}
+	if strings.Contains(strings.Join(env, "\n"), "must-not-leak-worker-secret") {
+		t.Fatal("candidate test environment inherited a live worker token")
+	}
+}
+
+func TestSelfUpdateGoResolverAcceptsPinnedToolchainOutsideDaemonPATH(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("test uses a POSIX shell fake Go executable")
+	}
+	root := t.TempDir()
+	goDir := filepath.Join(root, "toolchain", "bin")
+	if err := os.MkdirAll(goDir, 0o755); err != nil { t.Fatal(err) }
+	goFile := filepath.Join(goDir, "go")
+	// The fake executable checks that subcommands inherit its bin directory,
+	// not the daemon's intentionally incomplete original PATH.
+	code := "#!/bin/sh\ncase \"$PATH\" in \"" + goDir + ":\"*) printf 'TOOLCHAIN_OK' ;; *) exit 19 ;; esac\n"
+	if err := os.WriteFile(goFile, []byte(code), 0o755); err != nil { t.Fatal(err) }
+	t.Setenv("PATH", filepath.Join(root, "empty-path"))
+	t.Setenv("TASKDECK_GO", goFile)
+	if got, err := resolveGoExecutable(); err != nil || got != goFile {
+		t.Fatalf("resolved Go %q: %v; want %q", got, err, goFile)
+	}
+	if out, err := runGo(context.Background(), root, "build", "./cmd/example"); err != nil || string(out) != "TOOLCHAIN_OK" {
+		t.Fatalf("build subcommand: out=%q, err=%v", out, err)
+	}
+	if out, err := runGo(context.Background(), root, "test", "./..."); err != nil || string(out) != "TOOLCHAIN_OK" {
+		t.Fatalf("isolated test subcommand: out=%q, err=%v", out, err)
+	}
+}
+
+// Ensure that daemon startup without the user's shell PATH still discovers
+// common home-directory Go installations without executing profile scripts.
+func TestSelfUpdateUserManagedGoCandidates(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX Go installation layouts")
+	}
+	home := t.TempDir()
+	want := []string{
+		filepath.Join(home, "go", "bin", "go"),
+		filepath.Join(home, ".nix-profile", "bin", "go"),
+		filepath.Join(home, ".goenv", "versions", "1.25.3", "bin", "go"),
+		filepath.Join(home, ".gvm", "gos", "go1.25.3", "bin", "go"),
+		filepath.Join(home, ".local", "share", "rtx", "installs", "golang", "1.25.3", "bin", "go"),
+	}
+	for _, file := range want {
+		if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil { t.Fatal(err) }
+		if err := os.WriteFile(file, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil { t.Fatal(err) }
+	}
+	candidates := userManagedGoCandidates(home)
+	for _, file := range want {
+		found := false
+		for _, got := range candidates {
+			if got == file { found = true; break }
+		}
+		if !found { t.Errorf("Go location %q not found among candidates", file) }
+	}
+	shim := filepath.Join(home, ".goenv", "shims", "go")
+	if err := os.MkdirAll(filepath.Dir(shim), 0o755); err != nil { t.Fatal(err) }
+	if err := os.WriteFile(shim, []byte("#!/bin/sh\\nexit 0\\n"), 0o755); err != nil { t.Fatal(err) }
+	shimIndex, realIndex := -1, -1
+	for i, file := range candidates {
+		if file == shim { shimIndex = i }
+		if file == want[2] { realIndex = i }
+	}
+	if shimIndex < 0 || realIndex < 0 || realIndex >= shimIndex {
+		t.Fatalf("real Go installation should precede shims: real=%d shim=%d", realIndex, shimIndex)
+	}
+	if got := userManagedGoCandidates(""); len(got) != 0 {
+		t.Fatalf("empty home must not produce relative candidates: %v", got)
+	}
+}
+
+func TestSelfUpdateGoHomeHintsFromDaemonPATH(t *testing.T) {
+ if runtime.GOOS=="windows" { t.Skip("POSIX user toolchain paths") }
+ base:=t.TempDir()
+ actualHome:=filepath.Join(base,"interactive")
+ daemonHome:=filepath.Join(base,"daemon")
+ if err:=os.MkdirAll(daemonHome,0o755);err!=nil{t.Fatal(err)}
+ goFile:=filepath.Join(actualHome,".local","share","mise","installs","golang","1.25.5","bin","go")
+ if err:=os.MkdirAll(filepath.Dir(goFile),0o755);err!=nil{t.Fatal(err)}
+ if err:=os.WriteFile(goFile,[]byte("#!/bin/sh\nexit 0\n"),0o755);err!=nil{t.Fatal(err)}
+ daemonPATH:=filepath.Join(actualHome,".local","bin")+string(os.PathListSeparator)+
+  filepath.Join(actualHome,".cargo","bin")+string(os.PathListSeparator)+"/usr/bin"
+ t.Setenv("HOME",daemonHome)
+ t.Setenv("PATH",daemonPATH)
+ t.Setenv("GOROOT","")
+ t.Setenv("TASKDECK_GO","")
+ homes:=goHomeCandidatesFromPATH(os.Getenv("PATH"))
+ if len(homes)!=1||homes[0]!=actualHome {t.Fatalf("home hints = %#v, want %q",homes,actualHome)}
+ // A CI machine can have /usr/local/go/bin/go, which takes precedence in
+ // resolveGoExecutable. Verify the user-home fallback independently.
+ if binary:=firstExecutableGoCandidate(userManagedGoCandidates(homes[0]));binary!=goFile {
+  t.Fatalf("fallback returned %q; expected actual compiler %q",binary,goFile)
+ }
+ if binary,err:=resolveGoExecutable();err!=nil||binary=="" {
+  t.Fatalf("resolver did not discover any compiler: %q, %v",binary,err)
+ }
+ for _,unsafe:=range []string{"",":", "/usr/local/bin:/usr/bin", "./.local/bin"} {
+  for _,got:=range goHomeCandidatesFromPATH(unsafe) {
+   if got==""||got=="/" {t.Fatalf("unsafe home inferred from %q: %q",unsafe,got)}
+  }
+ }
+}
+
+func TestSelfUpdateGoResolverRejectsBadConfiguredToolchain(t *testing.T) {
+	t.Setenv("TASKDECK_GO", "relative/go")
+	if _, err := resolveGoExecutable(); err == nil || !strings.Contains(err.Error(), "absolute") {
+		t.Fatalf("relative TASKDECK_GO should fail with actionable explanation: %v", err)
+	}
+	t.Setenv("TASKDECK_GO", filepath.Join(t.TempDir(), "missing-go"))
+	if _, err := resolveGoExecutable(); err == nil || !strings.Contains(err.Error(), "not executable") {
+		t.Fatalf("missing TASKDECK_GO should fail instead of using other Go versions: %v", err)
+	}
+}
+
+func TestSelfUpdateGoToolEnvironmentKeepsSinglePATH(t *testing.T) {
+	goBinary := filepath.Join("toolchain", "bin", "go")
+	got := goToolEnvironment([]string{"HOME=/example", "PATH=/usr/bin", "GOPROXY=off"}, goBinary)
+	pathCount := 0
+	for _, entry := range got {
+		if strings.HasPrefix(entry, "PATH=") {
+			pathCount++
+			if !strings.HasPrefix(entry, "PATH="+filepath.Dir(goBinary)+string(os.PathListSeparator)) {
+				t.Fatalf("Go executable directory was not prepended: %q", entry)
+			}
+		}
+	}
+	if pathCount != 1 { t.Fatalf("expected one PATH, got %d in %#v", pathCount, got) }
+}
+
+func TestInstallerManagedGoIsDiscoverableForSelfUpdate(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Unix executable stub test")
+	}
+	home := t.TempDir()
+	goBinary := filepath.Join(home, ".local", "lib", "taskdeck", "toolchains", "go1.27.3-darwin-arm64", "bin", "go")
+	if err := os.MkdirAll(filepath.Dir(goBinary), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(goBinary, []byte("#!/bin/sh\nexit 0\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if got := firstExecutableGoCandidate(userManagedGoCandidates(home)); got != goBinary {
+		t.Fatalf("auto-installed Go was not discovered: got %q want %q", got, goBinary)
+	}
+}
+
+func TestTaskdeckBootstrapGoCandidatesPreferManagedSDK(t *testing.T) {
+	home := t.TempDir()
+	for _, arch := range []string{"darwin-amd64", "darwin-arm64"} {
+		exe := filepath.Join(home, ".local", "lib", "taskdeck", "toolchains", "go1.27.3-"+arch, "bin", "go")
+		if err := os.MkdirAll(filepath.Dir(exe), 0700); err != nil { t.Fatal(err) }
+		if err := os.WriteFile(exe, []byte("stub"), 0700); err != nil { t.Fatal(err) }
+	}
+	got := taskdeckBootstrapGoCandidates(home)
+	if len(got) != 2 { t.Fatalf("expected 2 managed SDKs, got %v", got) }
+	if got[0] < got[1] { t.Fatalf("candidates should be newest/sorted descending: %v", got) }
+}
+
+func TestGoToolEnvironmentDoesNotInheritAnotherProjectsGOROOT(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "sdk")
+	if err := os.MkdirAll(filepath.Join(root, "bin"), 0o755); err != nil { t.Fatal(err) }
+	if err := os.MkdirAll(filepath.Join(root, "src", "runtime"), 0o755); err != nil { t.Fatal(err) }
+	compiler := filepath.Join(root, "bin", "go")
+	got := goToolEnvironment([]string{"PATH=/usr/bin", "GOROOT=/wrong/project/go", "HOME=/tmp"}, compiler)
+	count := 0
+	for _, entry := range got {
+		if strings.HasPrefix(entry, "GOROOT=") {
+			count++
+			if entry != "GOROOT="+root {
+				t.Fatalf("Go toolchain inherited wrong GOROOT: %s", entry)
+			}
+		}
+	}
+	if count != 1 { t.Fatalf("expected one matching GOROOT, got %#v", got) }
+}

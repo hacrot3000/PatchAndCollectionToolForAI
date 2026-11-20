@@ -1,0 +1,37 @@
+name: TaskDeck PATCH/COLLECT Incremental UI
+on:
+  pull_request:
+    paths:
+      - 'vscode_tasks_menu_go/web/featuremods/patchpanel.js'
+      - 'vscode_tasks_menu_go/web/patchpanel_refresh_test.cjs'
+      - 'vscode_tasks_menu_go/internal/server/patchpanel_ui_test.go'
+      - '.github/workflows/taskdeck_patch_queue_incremental_ui.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'vscode_tasks_menu_go/web/featuremods/patchpanel.js'
+      - 'vscode_tasks_menu_go/web/patchpanel_refresh_test.cjs'
+      - 'vscode_tasks_menu_go/internal/server/patchpanel_ui_test.go'
+      - '.github/workflows/taskdeck_patch_queue_incremental_ui.yml'
+permissions:
+  contents: read
+jobs:
+  ui-incremental:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.23.x'
+          cache: false
+      - name: Browser JavaScript syntax
+        run: node --check vscode_tasks_menu_go/web/featuremods/patchpanel.js
+      - name: DOM reconciliation regressions
+        run: node vscode_tasks_menu_go/web/patchpanel_refresh_test.cjs
+      - name: Patch UI protocol compatibility
+        working-directory: vscode_tasks_menu_go
+        run: go test -count=1 -timeout=7m -run '^(TestPatchPanelQueue|TestPatchPanelNativeQueue|TestPatchQueueBackgroundRefresh|TestPatchQueueAutoRefresh|TestPatchQueueRefresh)' ./internal/server

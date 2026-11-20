@@ -1,0 +1,61 @@
+# Example only. Requires a dedicated, UNPRIVILEGED OS account and a
+# checkout containing no production secrets, deployment credentials or
+# privileged pipelines. Do not reuse an administrator TaskDeck daemon.
+#
+# Install as /etc/systemd/system/taskdeck-restricted.service after adapting
+# the paths and reviewing all sandbox directives for your Linux/systemd.
+#
+# sudo useradd --system --home /var/lib/taskdeck-restricted \
+#   --shell /usr/sbin/nologin taskdeck-restricted
+# sudo mkdir -p /srv/taskdeck-restricted/workspace
+# sudo chown -R taskdeck-restricted:taskdeck-restricted \
+#   /srv/taskdeck-restricted/workspace
+# sudo install -d -m 0700 -o taskdeck-restricted -g taskdeck-restricted \
+#   /var/lib/taskdeck-restricted
+#
+# This example only accepts loopback network connections. Configure a trusted
+# external access path separately; never disable Shared Server TLS/auth to
+# make this service accessible remotely.
+
+[Unit]
+Description=TaskDeck Restricted Developer (isolated account)
+After=network.target
+
+[Service]
+Type=simple
+User=taskdeck-restricted
+Group=taskdeck-restricted
+Environment=HOME=/var/lib/taskdeck-restricted
+WorkingDirectory=/srv/taskdeck-restricted/workspace
+ExecStart=/usr/local/bin/taskdeck --workspace /srv/taskdeck-restricted/workspace --restricted --restricted-policy /etc/taskdeck/restricted-policy.json
+Restart=on-failure
+RestartSec=5
+UMask=0077
+StateDirectory=taskdeck-restricted
+StateDirectoryMode=0700
+
+# Keep the host, user homes and OS immutable to this service.
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+ProtectKernelLogs=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+RestrictRealtime=yes
+ReadWritePaths=/srv/taskdeck-restricted/workspace /var/lib/taskdeck-restricted
+
+# Inbound service connections must be local. No outbound network access to
+# CI/deploy/metadata services; local reverse proxy requires explicit TLS setup.
+IPAddressDeny=any
+IPAddressAllow=localhost
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+
+[Install]
+WantedBy=multi-user.target

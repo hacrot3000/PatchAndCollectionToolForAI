@@ -1,0 +1,627 @@
+{
+  "schema_version": 1,
+  "tool_version": "6.20.2",
+  "manifest_file": "PATCH_TOOL_MANIFEST.json",
+  "manifest": {
+    "type": "object",
+    "required": [
+      "schema_version",
+      "patch"
+    ],
+    "allowed_fields": [
+      "schema_version",
+      "project",
+      "patch",
+      "compatibility",
+      "provenance",
+      "ai_context",
+      "execution",
+      "batch",
+      "targets",
+      "preflight",
+      "resources",
+      "validation",
+      "post_patch",
+      "on_failure",
+      "git",
+      "recovery",
+      "manual_execution",
+      "payload",
+      "remote_ssh"
+    ],
+    "fields": {
+      "schema_version": {
+        "type": "integer",
+        "const": 1
+      },
+      "project": {
+        "type": "object",
+        "allowed_fields": [
+          "key",
+          "id"
+        ],
+        "fields": {
+          "key": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string",
+            "description": "Stable project UUID generated locally by TaskDeck; must match .python_patch_tool.json project.id"
+          }
+        }
+      },
+      "patch": {
+        "type": "object",
+        "required": [
+          "id"
+        ],
+        "allowed_fields": [
+          "id",
+          "version",
+          "phase",
+          "phase_under_test",
+          "summary",
+          "regression_scope"
+        ],
+        "fields": {
+          "id": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          },
+          "phase": {
+            "type": "string"
+          },
+          "phase_under_test": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "regression_scope": {
+            "type": "string"
+          }
+        }
+      },
+      "compatibility": {
+        "type": "object",
+        "allowed_fields": [
+          "min_tool_version",
+          "max_tool_version",
+          "max_tested_version"
+        ],
+        "fields": {
+          "min_tool_version": {
+            "type": "string",
+            "format": "semver"
+          },
+          "max_tool_version": {
+            "type": "string",
+            "format": "semver"
+          },
+          "max_tested_version": {
+            "type": "string",
+            "format": "semver"
+          }
+        }
+      },
+      "execution": {
+        "type": "object",
+        "allowed_fields": [
+          "timeout_seconds"
+        ],
+        "fields": {
+          "timeout_seconds": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1800
+          }
+        }
+      },
+      "targets": {
+        "type": "array",
+        "items": {
+          "type": "string",
+          "format": "project_relative_path"
+        }
+      },
+      "preflight": {
+        "type": "object",
+        "allowed_fields": [
+          "files",
+          "require_clean_worktree"
+        ],
+        "fields": {
+          "require_clean_worktree": {
+            "type": "boolean"
+          },
+          "files": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "path"
+              ],
+              "allowed_fields": [
+                "path",
+                "exists",
+                "sha256",
+                "anchors"
+              ],
+              "fields": {
+                "path": {
+                  "type": "string",
+                  "format": "project_relative_path"
+                },
+                "exists": {
+                  "type": "boolean"
+                },
+                "sha256": {
+                  "type": "string",
+                  "format": "sha256"
+                },
+                "anchors": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "resources": {
+        "type": "array",
+        "items": {
+          "type": "string",
+          "format": "archive_relative_path"
+        }
+      },
+      "validation": {
+        "type": "object",
+        "allowed_fields": [
+          "profiles"
+        ],
+        "fields": {
+          "profiles": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "post_patch": {
+        "type": "object",
+        "allowed_fields": [
+          "commands",
+          "run_when_no_changes",
+          "no_change_reason",
+          "safety_profile"
+        ],
+        "fields": {
+          "run_when_no_changes": {
+            "type": "boolean"
+          },
+          "commands": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "argv"
+              ],
+              "allowed_fields": [
+                "name",
+                "argv",
+                "cwd",
+                "timeout_seconds"
+              ],
+              "fields": {
+                "name": {
+                  "type": "string"
+                },
+                "argv": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "cwd": {
+                  "type": "string",
+                  "format": "project_relative_dir"
+                },
+                "timeout_seconds": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 1800
+                }
+              }
+            }
+          },
+          "no_change_reason": {
+            "type": "string"
+          },
+          "safety_profile": {
+            "type": "string",
+            "enum": [
+              "current",
+              "legacy_strict"
+            ]
+          }
+        }
+      },
+      "git": {
+        "type": "object",
+        "allowed_fields": [
+          "add",
+          "commit",
+          "commit_message",
+          "push",
+          "fail_on_error",
+          "timeout_seconds"
+        ],
+        "fields": {
+          "add": {
+            "type": [
+              "string",
+              "boolean"
+            ],
+            "enum": [
+              "changed",
+              "off",
+              false
+            ]
+          },
+          "commit": {
+            "type": [
+              "string",
+              "boolean"
+            ],
+            "enum": [
+              "auto",
+              "off",
+              false
+            ]
+          },
+          "commit_message": {
+            "type": "string"
+          },
+          "push": {
+            "type": "string",
+            "enum": [
+              "auto",
+              "off"
+            ]
+          },
+          "fail_on_error": {
+            "type": "boolean"
+          },
+          "timeout_seconds": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1800
+          }
+        },
+        "description": "Legacy PATCH Git mutation policy retained only for explicit rejection/compatibility diagnostics. v6.20.0 forbids add/commit/push execution."
+      },
+      "recovery": {
+        "type": "object",
+        "allowed_fields": [
+          "fail_handoff",
+          "collect_on_source_drift",
+          "rollback"
+        ],
+        "fields": {
+          "fail_handoff": {
+            "type": "boolean",
+            "description": "Deprecated compatibility field. Every PATCH failure creates FAIL_HANDOFF in v6.17.5; false is accepted but ignored with a warning."
+          },
+          "collect_on_source_drift": {
+            "type": "boolean"
+          },
+          "rollback": {
+            "type": "object",
+            "required": [
+              "targets"
+            ],
+            "allowed_fields": [
+              "targets",
+              "on",
+              "max_total_bytes"
+            ],
+            "fields": {
+              "targets": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "format": "project_relative_path"
+                }
+              },
+              "on": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "payload_failure",
+                    "post_patch_failure"
+                  ]
+                }
+              },
+              "max_total_bytes": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 1073741824
+              }
+            }
+          }
+        }
+      },
+      "batch": {
+        "type": "object",
+        "allowed_fields": [
+          "depends_on",
+          "on_dependency_failure",
+          "previous_failure"
+        ],
+        "fields": {
+          "depends_on": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "on_dependency_failure": {
+            "type": "string",
+            "enum": [
+              "block",
+              "run_anyway"
+            ]
+          },
+          "previous_failure": {
+            "type": "object",
+            "required": [
+              "action",
+              "reason"
+            ],
+            "allowed_fields": [
+              "patch_id",
+              "patch_file",
+              "action",
+              "reason"
+            ],
+            "fields": {
+              "patch_id": {
+                "type": "string"
+              },
+              "patch_file": {
+                "type": "string"
+              },
+              "action": {
+                "type": "string",
+                "enum": [
+                  "delete",
+                  "retry_before",
+                  "run_after",
+                  "block"
+                ]
+              },
+              "reason": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      },
+      "on_failure": {
+        "type": "object",
+        "allowed_fields": [
+          "commands"
+        ],
+        "fields": {
+          "commands": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "argv"
+              ],
+              "allowed_fields": [
+                "name",
+                "argv",
+                "cwd",
+                "timeout_seconds"
+              ],
+              "fields": {
+                "name": {
+                  "type": "string"
+                },
+                "argv": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "cwd": {
+                  "type": "string",
+                  "format": "project_relative_dir"
+                },
+                "timeout_seconds": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 1800
+                }
+              }
+            }
+          }
+        }
+      },
+      "ai_context": {
+        "type": "object",
+        "allowed_fields": [
+          "known_tool_version",
+          "sync_token",
+          "agent_id",
+          "request_full_sync"
+        ],
+        "fields": {
+          "known_tool_version": {
+            "type": "string",
+            "format": "semver"
+          },
+          "sync_token": {
+            "type": "string",
+            "format": "ai_sync_token"
+          },
+          "agent_id": {
+            "type": "string",
+            "format": "ai_agent_id"
+          },
+          "request_full_sync": {
+            "type": "boolean"
+          }
+        }
+      },
+      "payload": {
+        "type": "string",
+        "enum": [
+          "manual_only"
+        ]
+      },
+      "manual_execution": {
+        "type": "object",
+        "required": [
+          "steps"
+        ],
+        "allowed_fields": [
+          "stop_on_failure",
+          "package_result",
+          "steps"
+        ],
+        "fields": {
+          "stop_on_failure": {
+            "type": "boolean"
+          },
+          "package_result": {
+            "type": "boolean"
+          },
+          "steps": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "id",
+                "argv"
+              ],
+              "allowed_fields": [
+                "id",
+                "title",
+                "description",
+                "cwd",
+                "argv",
+                "expected_exit_codes"
+              ],
+              "fields": {
+                "id": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "description": {
+                  "type": "string"
+                },
+                "cwd": {
+                  "type": "string"
+                },
+                "argv": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "expected_exit_codes": {
+                  "type": "array",
+                  "items": {
+                    "type": "integer"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "provenance": {
+        "type": "object",
+        "required": [
+          "format",
+          "algorithm",
+          "key_id",
+          "signature"
+        ],
+        "allowed_fields": [
+          "format",
+          "algorithm",
+          "key_id",
+          "signature"
+        ],
+        "fields": {
+          "format": {
+            "type": "string",
+            "const": "ptv-patch-signature-v1"
+          },
+          "algorithm": {
+            "type": "string",
+            "const": "ed25519"
+          },
+          "key_id": {
+            "type": "string"
+          },
+          "signature": {
+            "type": "string"
+          }
+        },
+        "description": "Optional Ed25519 provenance signature. Trust is resolved only from local .python_patch_tool.json policy."
+      },
+      "remote_ssh": {
+        "type": "object",
+        "required": [
+          "profile_name",
+          "argv"
+        ],
+        "allowed_fields": [
+          "profile_name",
+          "argv",
+          "timeout_seconds"
+        ],
+        "fields": {
+          "profile_name": {
+            "type": "string"
+          },
+          "argv": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "timeout_seconds": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 120
+          }
+        },
+        "description": "Dedicated manifest-only PATCH remote command. Exactly one read-only SSH whitelist command, selected by unique saved TaskDeck SSH profile name; not compatible with source payload, post_patch or other execution stages. No interpreter, script or shell-string allowed."
+      }
+    }
+  },
+  "payload_contract": {
+    "python": "Exactly one non-resource Python entrypoint when PATCH_TOOL_OPS.json is absent.",
+    "ops": "PATCH_TOOL_OPS.json and no Python entrypoint.",
+    "ambiguous": "A package containing both OPS and a Python entrypoint, or multiple Python entrypoints, is rejected before project modification."
+  },
+  "preflight_guarantee": "Schema, compatibility, optional/required Ed25519 provenance trust, payload, declared resources, declared file hashes/anchors, data-only OPS sequential dry-run, post-command cwd/executable, and Git executable requirements are checked before patch payload execution.",
+  "rollback_contract": "Optional recovery.rollback is fail-closed and metadata-driven. rollback.targets must exactly cover the PATCH target set and every rollback target must have an explicit preflight.files baseline (exists=false for initially missing paths, or exists=true plus sha256 for existing files). The runner snapshots only those declared regular-file targets before payload execution. Automatic rollback may run only for configured payload_failure/post_patch_failure stages, before Git policy. For exists=false targets, the parent directory must already exist as a real non-symlink directory inside the project before payload execution; rollback does not invent/remove parent directories. Rollback snapshot creation revalidates the declared baseline to close preflight-to-snapshot TOCTOU.",
+  "batch_execution_contract": "Selected PATCH manifests may declare batch.depends_on by existing manifest.patch.id. Dependency/related-target failures are always BLOCKED; legacy on_dependency_failure=run_anyway remains schema-readable only for compatibility and is ignored at runtime. Cross-run unresolved predecessor enforcement is relation-based per selected successor; multiple related unresolved predecessors require Smart Resume before a singular batch.previous_failure successor batch can proceed.",
+  "batch_transaction_contract": "Batch transaction policy is target-bounded atomic rollback. Every selected PATCH must declare targets; validation.profiles, post_patch.commands, on_failure.commands and Git add/commit/push are rejected in batch-atomic mode."
+}

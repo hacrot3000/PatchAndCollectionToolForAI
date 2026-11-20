@@ -1,0 +1,551 @@
+package server
+
+import (
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	"bletonfc/vscode_tasks_menu/internal/session"
+)
+
+func waitTerminalCwd(t *testing.T, m *session.Manager, id, want string) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		cwd, err := m.CurrentCwd(id)
+		if err == nil && cwd == want {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("terminal %s cwd did not become %q; last=%q err=%v", id, want, cwd, err)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+func TestProjectTerminalStateNormalizeMigratesLegacySplit(t *testing.T) {
+	value := projectTerminalState{Version: 99, ActiveIndex: 39, Split: &terminalSplitState{Left: 0, Right: 31, Ratio: 9}}
+	for i := 0; i < 40; i++ {
+		value.Terminals = append(value.Terminals, terminalStateItem{Cwd: filepath.Join("/tmp", "terminal", string(rune('a'+i%26)))})
+	}
+	got := normalizeProjectTerminalState(value)
+	if got.Version != 5 || len(got.Terminals) != projectTerminalMaxTabs {
+		t.Fatalf("normalized terminal state = %#v", got)
+	}
+	if got.ActiveIndex != 0 {
+		t.Fatalf("active index=%d want fallback 0", got.ActiveIndex)
+	}
+	if len(got.Splits) != 1 || got.Splits[0].Ratio != 0.8 || got.Splits[0].Orientation != "vertical" {
+		t.Fatalf("splits=%#v want migrated/clamped legacy split", got.Splits)
+	}
+	if got.Split != nil {
+		t.Fatalf("legacy split field must be cleared after normalization: %#v", got.Split)
+	}
+}
+
+func TestProjectTerminalStateAllowsNestedSplitGroups(t *testing.T) {
+	value := projectTerminalState{Terminals: []terminalStateItem{{Cwd: "/a"}, {Cwd: "/b"}, {Cwd: "/c"}, {Cwd: "/d"}}}
+	value.Splits = []terminalSplitState{
+		{Left: 0, Right: 1, Ratio: 0.5, Orientation: "vertical"},
+		{Left: 1, Right: 2, Ratio: 0.4, Orientation: "horizontal"},
+		{Left: 2, Right: 3, Ratio: 0.6, Orientation: "vertical"},
+	}
+	got := normalizeProjectTerminalState(value)
+	if len(got.Splits) != 3 {
+		t.Fatalf("nested split groups were not preserved: %#v", got.Splits)
+	}
+	if got.Splits[1].Left != 1 || got.Splits[1].Right != 2 || got.Splits[1].Orientation != "horizontal" {
+		t.Fatalf("nested split=%#v", got.Splits[1])
+	}
+}
+
+func TestProjectTerminalStateRejectsSplitCycle(t *testing.T) {
+	value := projectTerminalState{Terminals: []terminalStateItem{{Cwd: "/a"}, {Cwd: "/b"}, {Cwd: "/c"}}}
+	value.Splits = []terminalSplitState{
+		{Left: 0, Right: 1, Ratio: 0.5, Orientation: "vertical"},
+		{Left: 1, Right: 2, Ratio: 0.5, Orientation: "horizontal"},
+		{Left: 2, Right: 0, Ratio: 0.5, Orientation: "vertical"},
+	}
+	got := normalizeProjectTerminalState(value)
+	if len(got.Splits) != 2 {
+		t.Fatalf("cycle/duplicate second terminal was not rejected safely: %#v", got.Splits)
+	}
+}
+
+func TestProjectTerminalStateTracksCwdOrderMultipleSplitsAndRestores(t *testing.T) {
+	root := t.TempDir()
+	dirs := make([]string, 4)
+	for i, name := range []string{"a", "b", "c", "d"} {
+		dirs[i] = filepath.Join(root, name)
+		if err := os.Mkdir(dirs[i], 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	m := session.NewManager(64 << 10)
+	s := &Server{Workspace: root, Sessions: m}
+	spec, err := workspaceTerminalExecutionAt(root, ".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	metas := make([]session.Metadata, 4)
+	for i := range metas {
+		metas[i], err = m.Start(spec)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := m.Input(metas[i].ID, []byte("cd "+[]string{"a", "b", "c", "d"}[i]+"\n")); err != nil {
+			t.Fatal(err)
+		}
+		waitTerminalCwd(t, m, metas[i].ID, dirs[i])
+	}
+	defer m.Shutdown(time.Second)
+
+	order := []session.Metadata{metas[1], metas[0], metas[3], metas[2]}
+	value, err := s.captureTerminalState(terminalSnapshotRequest{
+		SessionIDs:      []string{order[0].ID, order[1].ID, order[2].ID, order[3].ID},
+		ActiveSessionID: order[3].ID,
+		Splits: []terminalSnapshotSplitRequest{
+			{LeftSessionID: order[0].ID, RightSessionID: order[1].ID, Ratio: 0.65, Orientation: "vertical"},
+			{LeftSessionID: order[1].ID, RightSessionID: order[2].ID, Ratio: 0.4, Orientation: "horizontal"},
+			{LeftSessionID: order[2].ID, RightSessionID: order[3].ID, Ratio: 0.55, Orientation: "vertical"},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantCwds := []string{dirs[1], dirs[0], dirs[3], dirs[2]}
+	if len(value.Terminals) != len(wantCwds) {
+		t.Fatalf("terminal count=%d want %d", len(value.Terminals), len(wantCwds))
+	}
+	for i, want := range wantCwds {
+		if value.Terminals[i].Cwd != want {
+			t.Fatalf("terminal[%d].cwd=%q want %q", i, value.Terminals[i].Cwd, want)
+		}
+		if value.Terminals[i].SessionID != order[i].ID {
+			t.Fatalf("terminal[%d].session_id=%q want %q", i, value.Terminals[i].SessionID, order[i].ID)
+		}
+	}
+	if value.ActiveIndex != 3 || len(value.Splits) != 3 {
+		t.Fatalf("active/nested splits not preserved: %#v", value)
+	}
+	if value.Splits[0].Left != 0 || value.Splits[0].Right != 1 || value.Splits[0].Ratio != 0.65 || value.Splits[0].Orientation != "vertical" {
+		t.Fatalf("first split=%#v", value.Splits[0])
+	}
+	if value.Splits[1].Left != 1 || value.Splits[1].Right != 2 || value.Splits[1].Ratio != 0.4 || value.Splits[1].Orientation != "horizontal" {
+		t.Fatalf("nested second split=%#v", value.Splits[1])
+	}
+	if value.Splits[2].Left != 2 || value.Splits[2].Right != 3 || value.Splits[2].Ratio != 0.55 || value.Splits[2].Orientation != "vertical" {
+		t.Fatalf("nested third split=%#v", value.Splits[2])
+	}
+	if err := writeProjectTerminalState(root, value); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(projectTerminalStatePath(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o600 {
+		t.Fatalf("state mode=%o want 600", info.Mode().Perm())
+	}
+
+	m2 := session.NewManager(64 << 10)
+	s2 := &Server{Workspace: root, Sessions: m2}
+	resp, err := s2.restoreTerminalState()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer m2.Shutdown(time.Second)
+	if len(resp.Sessions) != 4 || resp.ActiveIndex != 3 || len(resp.Splits) != 3 {
+		t.Fatalf("restore response=%#v", resp)
+	}
+	if resp.Splits[0].Orientation != "vertical" || resp.Splits[1].Orientation != "horizontal" || resp.Splits[2].Orientation != "vertical" {
+		t.Fatalf("restore orientations=%#v", resp.Splits)
+	}
+	for i, want := range wantCwds {
+		waitTerminalCwd(t, m2, resp.Sessions[i].ID, want)
+	}
+
+	persisted, err := readProjectTerminalState(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, meta := range resp.Sessions {
+		if persisted.Terminals[i].SessionID != meta.ID {
+			t.Fatalf("restored terminal[%d] session_id=%q want new id %q", i, persisted.Terminals[i].SessionID, meta.ID)
+		}
+	}
+
+	req := httptest.NewRequest("GET", "/api/state/tasks?scope=terminals", nil)
+	rr := httptest.NewRecorder()
+	s2.taskState(rr, req)
+	if rr.Code != 200 {
+		t.Fatalf("terminal state GET status=%d body=%s", rr.Code, rr.Body.String())
+	}
+}
+
+
+func TestTerminalStateRestoresTitleBroadcastGroupColorAndRemapsSessionIDs(t *testing.T) {
+	root := t.TempDir()
+	m := session.NewManager(64 << 10)
+	defer m.Shutdown(time.Second)
+	srv := &Server{Workspace: root, Sessions: m}
+	spec, err := workspaceTerminalExecutionAt(root, ".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := m.Start(spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := m.Start(spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.SetTitle(first.ID, "Main build terminal"); err != nil {
+		t.Fatal(err)
+	}
+	groupID := createBroadcastGroupForTest(t, srv, "Build group", "violet")
+	assignBroadcastGroupForTest(t, srv, first.ID, groupID)
+
+	value, err := srv.captureTerminalState(terminalSnapshotRequest{
+		SessionIDs: []string{first.ID, second.ID},
+		ActiveSessionID: second.ID,
+		Splits: []terminalSnapshotSplitRequest{{
+			LeftSessionID: first.ID, RightSessionID: second.ID, Ratio: 0.6, Orientation: "vertical",
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(value.Terminals) != 2 {
+		t.Fatalf("captured terminals=%#v", value.Terminals)
+	}
+	if value.Terminals[0].Title != "Main build terminal" || value.Terminals[0].BroadcastGroupID != groupID {
+		t.Fatalf("presentation metadata not captured: %#v", value.Terminals[0])
+	}
+	if err := writeProjectTerminalState(root, value); err != nil {
+		t.Fatal(err)
+	}
+
+	oldFirstID := first.ID
+	oldSecondID := second.ID
+	m2 := session.NewManager(64 << 10)
+	defer m2.Shutdown(time.Second)
+	srv2 := &Server{Workspace: root, Sessions: m2}
+	resp, err := srv2.restoreTerminalState()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(resp.Sessions) != 2 {
+		t.Fatalf("restored sessions=%#v", resp.Sessions)
+	}
+	newFirstID := resp.Sessions[0].ID
+	newSecondID := resp.Sessions[1].ID
+	if newFirstID == oldFirstID || newSecondID == oldSecondID {
+		t.Fatalf("restore must create new session IDs: old=%q,%q new=%q,%q", oldFirstID, oldSecondID, newFirstID, newSecondID)
+	}
+	if resp.Sessions[0].Title != "Main build terminal" {
+		t.Fatalf("restored title=%q", resp.Sessions[0].Title)
+	}
+	if len(resp.LiveSplits) != 1 || resp.LiveSplits[0].LeftSessionID != newFirstID || resp.LiveSplits[0].RightSessionID != newSecondID {
+		t.Fatalf("live split IDs were not remapped: %#v", resp.LiveSplits)
+	}
+
+	broadcast, err := loadBroadcastState(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if broadcast.Assignments[newFirstID] != groupID {
+		t.Fatalf("restored group assignment=%q want %q; state=%#v", broadcast.Assignments[newFirstID], groupID, broadcast)
+	}
+	if _, ok := broadcast.Assignments[oldFirstID]; ok {
+		t.Fatalf("stale old broadcast assignment remains: %#v", broadcast.Assignments)
+	}
+
+	persisted, err := readProjectTerminalState(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if persisted.Version != 5 || persisted.Terminals[0].SessionID != newFirstID {
+		t.Fatalf("persisted restored state=%#v", persisted)
+	}
+	if persisted.Terminals[0].Title != "Main build terminal" || persisted.Terminals[0].BroadcastGroupID != groupID {
+		t.Fatalf("presentation metadata lost after restore: %#v", persisted.Terminals[0])
+	}
+}
+
+func TestTerminalStateRestoresLegacyBroadcastAssignmentByOldSessionID(t *testing.T) {
+	root := t.TempDir()
+	oldID := "legacy-terminal-id"
+	groupID := ""
+	_, err := mutateBroadcastState(root, func(state *broadcastState) error {
+		groupID = "legacy-group"
+		state.Groups = append(state.Groups, broadcastGroup{ID: groupID, Name: "Legacy group", Preset: "ocean"})
+		state.Assignments[oldID] = groupID
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	state := projectTerminalState{
+		Version: 4,
+		Terminals: []terminalStateItem{{SessionID: oldID, Cwd: root}},
+		ActiveIndex: 0,
+	}
+	if err := writeProjectTerminalState(root, state); err != nil {
+		t.Fatal(err)
+	}
+
+	m := session.NewManager(64 << 10)
+	defer m.Shutdown(time.Second)
+	srv := &Server{Workspace: root, Sessions: m}
+	resp, err := srv.restoreTerminalState()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(resp.Sessions) != 1 {
+		t.Fatalf("restored sessions=%#v", resp.Sessions)
+	}
+	newID := resp.Sessions[0].ID
+	broadcast, err := loadBroadcastState(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if broadcast.Assignments[newID] != groupID {
+		t.Fatalf("legacy assignment was not remapped: %#v", broadcast.Assignments)
+	}
+	if _, ok := broadcast.Assignments[oldID]; ok {
+		t.Fatalf("legacy stale assignment remains: %#v", broadcast.Assignments)
+	}
+}
+
+func TestTerminalStatePreservesIndependentLiveSplitGroupsForTaskAndShellSessions(t *testing.T) {
+	root := t.TempDir()
+	m := session.NewManager(64 << 10)
+	defer m.Shutdown(time.Second)
+	srv := &Server{Workspace: root, Sessions: m}
+
+	shellSpec, err := workspaceTerminalExecutionAt(root, ".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	shellA, err := m.Start(shellSpec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	shellB, err := m.Start(shellSpec)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	taskSpec := shellSpec
+	taskSpec.Command = "/bin/sh"
+	taskSpec.Args = []string{"-c", "exit 0"}
+	taskSpec.TaskID = 101
+	taskSpec.Label = "task-a"
+	taskA, err := m.Start(taskSpec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	taskSpec.TaskID = 102
+	taskSpec.Label = "task-b"
+	taskB, err := m.Start(taskSpec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		metaA, okA := m.Metadata(taskA.ID)
+		metaB, okB := m.Metadata(taskB.ID)
+		if okA && okB && metaA.Status != "running" && metaB.Status != "running" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("task terminals did not finish before split snapshot: a=%#v b=%#v", metaA, metaB)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	value, err := srv.captureTerminalState(terminalSnapshotRequest{
+		SessionIDs: []string{shellA.ID, shellB.ID},
+		Splits: []terminalSnapshotSplitRequest{
+			{LeftSessionID: shellA.ID, RightSessionID: shellB.ID, Ratio: 0.6, Orientation: "vertical"},
+			{LeftSessionID: taskA.ID, RightSessionID: taskB.ID, Ratio: 0.4, Orientation: "horizontal"},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(value.Terminals) != 2 {
+		t.Fatalf("restorable shell terminal count=%d want 2", len(value.Terminals))
+	}
+	if len(value.Splits) != 1 {
+		t.Fatalf("indexed restorable splits=%#v want only shell group", value.Splits)
+	}
+	if len(value.LiveSplits) != 2 {
+		t.Fatalf("live splits=%#v want both independent groups", value.LiveSplits)
+	}
+	if value.LiveSplits[1].LeftSessionID != taskA.ID || value.LiveSplits[1].RightSessionID != taskB.ID {
+		t.Fatalf("task live split not preserved: %#v", value.LiveSplits[1])
+	}
+	if err := writeProjectTerminalState(root, value); err != nil {
+		t.Fatal(err)
+	}
+	persisted, err := readProjectTerminalState(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(persisted.LiveSplits) != 2 {
+		t.Fatalf("persisted live split groups=%#v", persisted.LiveSplits)
+	}
+}
+
+func TestTerminalLayoutProfilesKeepDesktopSplitWhenMobileSaves(t *testing.T) {
+	root := t.TempDir()
+	desktop := projectTerminalState{
+		Version: 3,
+		Terminals: []terminalStateItem{
+			{SessionID: "desktop-a", Cwd: root},
+			{SessionID: "desktop-b", Cwd: root},
+		},
+		ActiveIndex: 1,
+		Splits: []terminalSplitState{{Left: 0, Right: 1, Ratio: 0.6, Orientation: "vertical"}},
+	}
+	if err := writeProjectTerminalStateProfile(root, "desktop", desktop); err != nil {
+		t.Fatal(err)
+	}
+	mobile := projectTerminalState{
+		Version: 3,
+		Terminals: []terminalStateItem{
+			{SessionID: "mobile-b", Cwd: root},
+			{SessionID: "mobile-a", Cwd: root},
+		},
+		ActiveIndex: 0,
+		Splits: []terminalSplitState{{Left: 0, Right: 1, Ratio: 0.3, Orientation: "horizontal"}},
+		LiveSplits: []terminalSnapshotSplitRequest{{
+			LeftSessionID: "mobile-b", RightSessionID: "mobile-a", Ratio: 0.3, Orientation: "horizontal",
+		}},
+	}
+	if err := writeProjectTerminalStateProfile(root, "mobile", mobile); err != nil {
+		t.Fatal(err)
+	}
+
+	gotDesktop, err := readProjectTerminalStateProfile(root, "desktop")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotDesktop.ActiveIndex != 1 || len(gotDesktop.Splits) != 1 {
+		t.Fatalf("desktop layout was changed by mobile save: %#v", gotDesktop)
+	}
+	if gotDesktop.Splits[0].Ratio != 0.6 || gotDesktop.Splits[0].Orientation != "vertical" {
+		t.Fatalf("desktop split was changed by mobile save: %#v", gotDesktop.Splits)
+	}
+
+	gotMobile, err := readProjectTerminalStateProfile(root, "mobile")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotMobile.ActiveIndex != 0 || len(gotMobile.Splits) != 0 || len(gotMobile.LiveSplits) != 0 {
+		t.Fatalf("mobile layout must never persist split state: %#v", gotMobile)
+	}
+	if projectTerminalStatePathForProfile(root, "desktop") == projectTerminalStatePathForProfile(root, "mobile") {
+		t.Fatal("desktop and mobile terminal state paths must be different")
+	}
+}
+
+
+func TestTerminalStateFreezeRejectsEmptyShutdownSnapshotAndPreservesSavedLayout(t *testing.T) {
+	root := t.TempDir()
+	saved := projectTerminalState{
+		Version: 3,
+		Terminals: []terminalStateItem{
+			{SessionID: "old-a", Cwd: root},
+			{SessionID: "old-b", Cwd: root},
+		},
+		ActiveIndex: 1,
+		Splits: []terminalSplitState{{Left: 0, Right: 1, Ratio: 0.6, Orientation: "vertical"}},
+	}
+	if err := writeProjectTerminalState(root, saved); err != nil {
+		t.Fatal(err)
+	}
+
+	s := &Server{Workspace: root, Sessions: session.NewManager(64 << 10)}
+	s.FreezeTerminalStatePersistence()
+
+	req := httptest.NewRequest("PUT", "/api/state/tasks?scope=terminals", strings.NewReader(`{"session_ids":[],"active_session_id":"","splits":[]}`))
+	rr := httptest.NewRecorder()
+	s.terminalState(rr, req)
+	if rr.Code != 503 {
+		t.Fatalf("frozen terminal state PUT status=%d body=%s", rr.Code, rr.Body.String())
+	}
+
+	got, err := readProjectTerminalState(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Terminals) != 2 || got.ActiveIndex != 1 || len(got.Splits) != 1 {
+		t.Fatalf("saved terminal layout was overwritten during shutdown: %#v", got)
+	}
+}
+
+func TestTerminalStateEmptySnapshotStillClearsWhenNotFrozen(t *testing.T) {
+	root := t.TempDir()
+	if err := writeProjectTerminalState(root, projectTerminalState{
+		Version: 3,
+		Terminals: []terminalStateItem{{SessionID: "old-a", Cwd: root}},
+		ActiveIndex: 0,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	s := &Server{Workspace: root, Sessions: session.NewManager(64 << 10)}
+	req := httptest.NewRequest("PUT", "/api/state/tasks?scope=terminals", strings.NewReader(`{"session_ids":[],"active_session_id":"","splits":[]}`))
+	rr := httptest.NewRecorder()
+	s.terminalState(rr, req)
+	if rr.Code != 200 {
+		t.Fatalf("normal empty terminal state PUT status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	got, err := readProjectTerminalState(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Terminals) != 0 {
+		t.Fatalf("intentional empty snapshot was not persisted: %#v", got)
+	}
+}
+
+
+func TestTerminalStatePathsLiveUnderVSCode(t *testing.T) {
+	root := t.TempDir()
+	for profile, name := range map[string]string{
+		"desktop": projectTerminalStateFile,
+		"mobile": projectTerminalMobileStateFile,
+	} {
+		want := filepath.Join(root, ".vscode", name)
+		if got := projectTerminalStatePathForProfile(root, profile); got != want {
+			t.Fatalf("%s state path=%q want %q", profile, got, want)
+		}
+	}
+}
+
+func TestTerminalStateReadMigratesLegacyRootFile(t *testing.T) {
+	root := t.TempDir()
+	legacy := filepath.Join(root, projectTerminalStateFile)
+	data := []byte("{\"version\":3,\"terminals\":[],\"active_index\":-1,\"splits\":[]}\n")
+	if err := os.WriteFile(legacy, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := readProjectTerminalState(root); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(legacy); !os.IsNotExist(err) {
+		t.Fatalf("legacy terminal state still exists: %v", err)
+	}
+	if _, err := os.Stat(projectTerminalStatePath(root)); err != nil {
+		t.Fatalf("migrated terminal state missing: %v", err)
+	}
+}

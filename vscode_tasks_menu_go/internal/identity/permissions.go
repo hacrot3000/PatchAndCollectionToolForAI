@@ -1,0 +1,193 @@
+package identity
+
+// Permission keys are the server authorization vocabulary. Unknown keys deny.
+const (
+	PermissionTasksView          = "tasks.view"
+	PermissionTasksRun           = "tasks.run"
+	PermissionTerminalViewOwn    = "terminal.view_own"
+	PermissionTerminalControlOwn = "terminal.control_own"
+	PermissionTerminalCreate     = "terminal.create"
+	PermissionTerminalViewAll    = "terminal.view_all"
+	PermissionTerminalControlAll = "terminal.control_all"
+	PermissionPatchView          = "patch.view"
+	PermissionPatchRun           = "patch.run"
+	PermissionPatchCollect       = "patch.collect"
+	PermissionPatchHistory       = "patch.history"
+	PermissionPatchCleanup       = "patch.cleanup"
+	PermissionFilesRead          = "files.read"
+	PermissionFilesDownload      = "files.download"
+	PermissionFilesUpload        = "files.upload"
+	PermissionFilesWrite         = "files.write"
+	PermissionFilesystemDelete   = "filesystem.delete"
+	PermissionGitStatus          = "git.status"
+	PermissionGitLog             = "git.log"
+	PermissionGitDiff            = "git.diff"
+	PermissionGitWrite           = "git.write"
+	PermissionGitPush            = "git.push"
+	PermissionGitRemoteDelete    = "git.remote.delete"
+	PermissionGitForceDelete     = "git.force_delete"
+	PermissionDBRead             = "db.read"
+	PermissionDBWrite            = "db.write"
+	PermissionDBSchema           = "db.schema"
+	PermissionSSHUse             = "ssh.use"
+	PermissionTransferRead       = "transfer.read"
+	PermissionTransferUpload     = "transfer.upload"
+	PermissionTransferDelete     = "transfer.delete"
+	PermissionSchedulesView      = "schedules.view"
+	PermissionSchedulesRun       = "schedules.run"
+	PermissionSchedulesManage    = "schedules.manage"
+	PermissionSettingsRead       = "settings.read"
+	PermissionSettingsWrite      = "settings.write"
+	PermissionSelfupdateCheck    = "selfupdate.check"
+	PermissionSelfupdateRun      = "selfupdate.run"
+	PermissionUsersView          = "users.view"
+	PermissionUsersManage        = "users.manage"
+	PermissionRolesView          = "roles.view"
+	PermissionRolesManage        = "roles.manage"
+	PermissionAuditView          = "audit.view"
+	PermissionSessionsManage     = "sessions.manage"
+	PermissionApprovalsView       = "approvals.view"
+	PermissionApprovalsManage     = "approvals.manage"
+	PermissionSecretsView         = "secrets.view"
+	PermissionSecretsUse          = "secrets.use"
+	PermissionSecretsManage       = "secrets.manage"
+)
+
+type PermissionDefinition struct {
+	Key    string `json:"key"`
+	Module string `json:"module"`
+}
+
+func PermissionRegistry() []PermissionDefinition {
+	return []PermissionDefinition{
+		{Key: PermissionTasksView, Module: "tasks"},
+		{Key: PermissionTasksRun, Module: "tasks"},
+		{Key: PermissionTerminalViewOwn, Module: "terminal"},
+		{Key: PermissionTerminalControlOwn, Module: "terminal"},
+		{Key: PermissionTerminalCreate, Module: "terminal"},
+		{Key: PermissionTerminalViewAll, Module: "terminal"},
+		{Key: PermissionTerminalControlAll, Module: "terminal"},
+		{Key: PermissionPatchView, Module: "patch"},
+		{Key: PermissionPatchRun, Module: "patch"},
+		{Key: PermissionPatchCollect, Module: "patch"},
+		{Key: PermissionPatchHistory, Module: "patch"},
+		{Key: PermissionPatchCleanup, Module: "patch"},
+		{Key: PermissionFilesRead, Module: "files"},
+		{Key: PermissionFilesDownload, Module: "files"},
+		{Key: PermissionFilesUpload, Module: "files"},
+		{Key: PermissionFilesWrite, Module: "files"},
+		{Key: PermissionFilesystemDelete, Module: "filesystem"},
+		{Key: PermissionGitStatus, Module: "git"},
+		{Key: PermissionGitLog, Module: "git"},
+		{Key: PermissionGitDiff, Module: "git"},
+		{Key: PermissionGitWrite, Module: "git"},
+		{Key: PermissionGitPush, Module: "git"},
+		{Key: PermissionGitRemoteDelete, Module: "git"},
+		{Key: PermissionGitForceDelete, Module: "git"},
+		{Key: PermissionDBRead, Module: "db"},
+		{Key: PermissionDBWrite, Module: "db"},
+		{Key: PermissionDBSchema, Module: "db"},
+		{Key: PermissionSSHUse, Module: "ssh"},
+		{Key: PermissionTransferRead, Module: "transfer"},
+		{Key: PermissionTransferUpload, Module: "transfer"},
+		{Key: PermissionTransferDelete, Module: "transfer"},
+		{Key: PermissionSchedulesView, Module: "schedules"},
+		{Key: PermissionSchedulesRun, Module: "schedules"},
+		{Key: PermissionSchedulesManage, Module: "schedules"},
+		{Key: PermissionSettingsRead, Module: "settings"},
+		{Key: PermissionSettingsWrite, Module: "settings"},
+		{Key: PermissionSelfupdateCheck, Module: "selfupdate"},
+		{Key: PermissionSelfupdateRun, Module: "selfupdate"},
+		{Key: PermissionUsersView, Module: "users"},
+		{Key: PermissionUsersManage, Module: "users"},
+		{Key: PermissionRolesView, Module: "roles"},
+		{Key: PermissionRolesManage, Module: "roles"},
+		{Key: PermissionAuditView, Module: "audit"},
+		{Key: PermissionSessionsManage, Module: "sessions"},
+		{Key: PermissionApprovalsView, Module: "approvals"},
+		{Key: PermissionApprovalsManage, Module: "approvals"},
+		{Key: PermissionSecretsView, Module: "secrets"},
+		{Key: PermissionSecretsUse, Module: "secrets"},
+		{Key: PermissionSecretsManage, Module: "secrets"},
+		{Key: PermissionProjectAdmin, Module: "project"},
+	}
+}
+
+func KnownPermission(key string) bool {
+	for _, permission := range PermissionRegistry() {
+		if permission.Key == key {
+			return true
+		}
+	}
+	return false
+}
+
+func PermissionUpgradeV2Keys() []string {
+	return []string{
+		PermissionFilesystemDelete,
+		PermissionGitWrite,
+		PermissionGitPush,
+		PermissionGitRemoteDelete,
+		PermissionGitForceDelete,
+		PermissionDBRead,
+		PermissionDBWrite,
+		PermissionDBSchema,
+		PermissionSSHUse,
+		PermissionTransferRead,
+		PermissionTransferUpload,
+		PermissionTransferDelete,
+	}
+}
+
+func PermissionUpgradeV3Keys() []string {
+	return []string{
+		PermissionApprovalsView,
+		PermissionApprovalsManage,
+	}
+}
+
+func PermissionUpgradeV4Keys() []string {
+	return []string{
+		PermissionSecretsView,
+		PermissionSecretsUse,
+		PermissionSecretsManage,
+	}
+}
+
+// V5 permissions are opt-in for existing non-admin roles because schedules
+// may execute unattended commands with TaskDeck daemon privileges.
+func PermissionUpgradeV5Keys() []string {
+ return []string{PermissionSchedulesView, PermissionSchedulesRun, PermissionSchedulesManage}
+}
+
+// RestrictedDeveloperRoleID is a reserved, immutable security boundary.
+// It cannot be emulated by naming a custom role "restricted-developer".
+const RestrictedDeveloperRoleID ID = "system:restricted-developer"
+
+func RestrictedDeveloperPermissions() []string {
+ return []string{PermissionFilesRead, PermissionFilesWrite, PermissionGitStatus}
+}
+
+type SystemRoleDefinition struct {
+	ID          ID
+	Name        string
+	Permissions []string
+}
+
+// Return fresh slices so callers cannot alter the process-wide defaults.
+func SystemRoles() []SystemRoleDefinition {
+	var all []string
+	for _, permission := range PermissionRegistry() {
+		all = append(all, permission.Key)
+	}
+	read := []string{PermissionTasksView, PermissionPatchView, PermissionPatchHistory, PermissionFilesRead, PermissionFilesDownload, PermissionGitStatus, PermissionGitLog, PermissionGitDiff}
+	developer := append(append([]string(nil), read...), PermissionTasksRun, PermissionTerminalViewOwn, PermissionTerminalControlOwn, PermissionTerminalCreate, PermissionPatchRun, PermissionPatchCollect, PermissionFilesUpload, PermissionFilesWrite, PermissionSettingsRead, PermissionSelfupdateCheck)
+	operator := append(append([]string(nil), read...), PermissionTasksRun, PermissionPatchCollect, PermissionSelfupdateCheck)
+	return []SystemRoleDefinition{
+		{ID: "system:admin", Name: "admin", Permissions: all},
+		{ID: "system:developer", Name: "developer", Permissions: developer},
+		{ID: "system:operator", Name: "operator", Permissions: operator},
+		{ID: "system:viewer", Name: "viewer", Permissions: read},
+		{ID: RestrictedDeveloperRoleID, Name: "restricted-developer", Permissions: RestrictedDeveloperPermissions()},
+	}
+}

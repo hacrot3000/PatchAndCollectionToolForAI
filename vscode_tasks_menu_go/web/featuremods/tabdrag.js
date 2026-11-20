@@ -1,0 +1,191 @@
+const app=globalThis.TaskMenuApp;
+if(!app)throw new Error('TaskMenuApp unavailable for tab drag ordering');
+
+const tabsHost=document.querySelector('#tabs');
+if(!tabsHost)throw new Error('Tab host unavailable for tab drag ordering');
+
+let dragged=null;
+let originalOrder=[];
+let committed=false;
+let suppressClickUntil=0;
+
+const style=document.createElement('style');
+style.textContent=`
+#tabs>[data-id][draggable="true"]{cursor:grab}
+#tabs>[data-id][draggable="true"] .close{cursor:pointer}
+#tabs>[data-id].tab-dragging{opacity:.5;cursor:grabbing}
+body.tab-reordering,#tabs.tab-reordering{user-select:none}
+`;
+document.head.append(style);
+
+function storageKey(){return 'vscode-tasks-menu:tab-order:'+(app.layoutProfile||'desktop')+':'+app.taskData.workspace+(app.sharedMode?':user:'+encodeURIComponent(app.currentUser?.user_id||'unknown'):'');}
+function workspaceTabs(){
+  return [...tabsHost.children].filter(node=>node instanceof HTMLElement&&Boolean(node.dataset.id));
+}
+function workspaceTabFromTarget(target){
+  const tab=target instanceof Element?target.closest('[data-id]'):null;
+  return tab&&tab.parentElement===tabsHost?tab:null;
+}
+function workspaceTabByID(id){
+  id=String(id||'');
+  return workspaceTabs().find(tab=>tab.dataset.id===id)||null;
+}
+function currentIDs(){
+  return workspaceTabs().map(tab=>tab.dataset.id||'').filter(Boolean);
+}
+function saveOrder(){
+  try{sessionStorage.setItem(storageKey(),JSON.stringify(currentIDs()));}
+  catch(e){console.warn('Cannot persist tab order',e);}
+  globalThis.TaskMenuTerminalRestore?.persistSnapshot?.();
+  globalThis.TaskMenuEditor?.persistSession?.();
+  globalThis.TaskMenuWorkspaceTabs?.saveNow?.();
+}
+function readOrder(){
+  try{
+    const raw=JSON.parse(sessionStorage.getItem(storageKey())||'[]');
+    return Array.isArray(raw)?raw.map(String).filter(Boolean):[];
+  }catch{return [];}
+}
+function applyOrder(ids){
+  if(!Array.isArray(ids)||!ids.length)return false;
+  const current=workspaceTabs();
+  const byID=new Map(current.map(tab=>[tab.dataset.id,tab]));
+  const ordered=[];
+  for(const id of ids){
+    const tab=byID.get(id);
+    if(tab){ordered.push(tab);byID.delete(id);}
+  }
+  // Tabs not present in the saved order are new sessions; keep their current
+  // relative order after the restored entries.
+  ordered.push(...byID.values());
+  if(ordered.length===current.length&&ordered.every((tab,index)=>tab===current[index]))return false;
+  for(const tab of ordered)tabsHost.append(tab);
+  return true;
+}
+function restoreSavedOrder(){applyOrder(readOrder());}
+function installTab(tab){
+  if(!tab||tab.dataset.dragOrderInstalled==='1')return;
+  tab.dataset.dragOrderInstalled='1';
+  tab.draggable=true;
+}
+function installAll(){
+  for(const tab of workspaceTabs())installTab(tab);
+}
+
+function tabAtPointer(event){
+  const direct=workspaceTabFromTarget(event.target);
+  if(direct&&direct!==dragged)return direct;
+  const tabs=workspaceTabs().filter(tab=>tab!==dragged);
+  for(const tab of tabs){
+    const rect=tab.getBoundingClientRect();
+    if(event.clientX<rect.left+rect.width/2)return tab;
+  }
+  return null;
+}
+function moveDragged(event){
+  if(!dragged)return;
+  const before=tabAtPointer(event);
+  if(before)tabsHost.insertBefore(dragged,before);
+  else tabsHost.append(dragged);
+  const rect=tabsHost.getBoundingClientRect();
+  if(event.clientX<rect.left+36)tabsHost.scrollLeft-=28;
+  else if(event.clientX>rect.right-36)tabsHost.scrollLeft+=28;
+}
+function cleanup(){
+  dragged?.classList.remove('tab-dragging');
+  dragged=null;
+  originalOrder=[];
+  committed=false;
+  tabsHost.classList.remove('tab-reordering');
+  document.body.classList.remove('tab-reordering');
+}
+
+tabsHost.addEventListener('pointerdown',event=>{
+  const target=event.target instanceof Element?event.target:null;
+  const tab=workspaceTabFromTarget(target);
+  if(!tab)return;
+  tab.dataset.dragHandleAllowed=target?.closest('.close')?'0':'1';
+},true);
+
+tabsHost.addEventListener('dragstart',event=>{
+  const target=event.target instanceof Element?event.target:null;
+  const tab=workspaceTabFromTarget(target);
+  if(!tab||tab.dataset.dragHandleAllowed==='0'){event.preventDefault();return;}
+  dragged=tab;originalOrder=currentIDs();committed=false;
+  tab.classList.add('tab-dragging');tabsHost.classList.add('tab-reordering');document.body.classList.add('tab-reordering');
+  if(event.dataTransfer){
+    event.dataTransfer.effectAllowed='move';
+    try{event.dataTransfer.setData('text/plain',tab.dataset.id||'');}catch{}
+  }
+});
+
+tabsHost.addEventListener('dragover',event=>{
+  if(!dragged)return;
+  event.preventDefault();
+  if(event.dataTransfer)event.dataTransfer.dropEffect='move';
+  moveDragged(event);
+});
+
+tabsHost.addEventListener('drop',event=>{
+  if(!dragged)return;
+  event.preventDefault();moveDragged(event);committed=true;
+  saveOrder();
+});
+
+tabsHost.addEventListener('dragend',()=>{
+  if(!dragged)return;
+  if(!committed)applyOrder(originalOrder);
+  else saveOrder();
+  suppressClickUntil=Date.now()+180;
+  cleanup();
+});
+
+tabsHost.addEventListener('click',event=>{
+  if(Date.now()>=suppressClickUntil)return;
+  event.preventDefault();event.stopImmediatePropagation();
+},true);
+
+const tabObserver=new MutationObserver(records=>{
+  let installedNewTab=false;
+  for(const record of records){
+    for(const node of record.addedNodes){
+      if(!(node instanceof HTMLElement)||node.parentElement!==tabsHost||!node.dataset.id)continue;
+      const alreadyInstalled=node.dataset.dragOrderInstalled==='1';
+      installTab(node);
+      if(!alreadyInstalled)installedNewTab=true;
+    }
+  }
+  // Reordering uses append(), which also produces childList records. Only a
+  // genuinely new workspace tab should trigger saved-order restoration.
+  if(installedNewTab&&!dragged){
+    queueMicrotask(()=>{
+      if(dragged)return;
+      // The unified semantic-order store is authoritative once hydration completes.
+      const manager=globalThis.TaskMenuWorkspaceTabs;
+      if(manager){if(!manager.restoring)manager.scheduleSave?.();return;}
+      applyOrder(readOrder());
+    });
+  }
+});
+tabObserver.observe(tabsHost,{childList:true});
+
+window.addEventListener('taskmenu:session',event=>{
+  const tab=event.detail?.view?.tab;
+  if(tab)installTab(tab);
+});
+window.addEventListener('taskmenu:view-activated',event=>{
+  if(event.detail?.kind!=='external')return;
+  const id=String(event.detail?.id||'');
+  const tab=workspaceTabByID(id);
+  if(tab)installTab(tab);
+});
+
+installAll();
+(async()=>{
+  try{await globalThis.TaskMenuTerminalRestore?.ready;}catch{}
+  restoreSavedOrder();installAll();
+  // Persist the final terminal subset after applying the full live-tab order.
+  globalThis.TaskMenuTerminalRestore?.persistSnapshot?.();
+})();
+
+globalThis.TaskMenuTabOrder={saveOrder,restoreSavedOrder,currentIDs,applyOrder};

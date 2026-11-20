@@ -1,0 +1,75 @@
+# Python Patch Tool v6.20.2 — portable layout and migration
+
+## Primary installation: extract and run
+
+From the project root:
+
+```bash
+unzip -o python_patch_tool_v6.20.2.zip -d "$PWD"
+./tools/run_python_patches.sh
+```
+
+The standalone portable release contains final project-relative paths under `tools/`. No installer is required for that portable installation or upgrade. The release does not contain `.python_patch_tool.json`, so project-local configuration is not overwritten by extraction.
+
+TaskDeck also supports a **managed bundled layout**. In that mode the active Patch Tool runtime is stored beside the TaskDeck binary under a release-local `patchtool/` directory, while the target project may have no Patch Tool runtime files at all. TaskDeck passes the project root separately to the bundled public entry.
+
+The invariant is:
+
+- public/project data scope: `<project>/patchs/`, `.python_patch_tool.json`, source files and `artifacts/patch_tool/`;
+- private runtime scope: the directory containing the active `python_patch_entry.py` and its sibling `_patch_lib/`;
+- dispatcher child processes must resolve from the private runtime scope, not from `<project>/tools/_patch_lib/`.
+
+## Public/private layout
+
+```text
+project/
+└── tools/
+    ├── run_python_patches.sh
+    ├── run_python_patches.bat
+    ├── run_python_patches.ps1
+    ├── implementing.md
+    ├── PYTHON_PATCH_TOOL_FEATURES_VI.md
+    ├── HUONG_DAN_PYTHON_PATCH_TOOL.html
+    ├── db_profiles.example.json              # packaged example only
+    ├── db_profiles.local.json                # optional local secret-bearing config; never packaged
+    └── _patch_lib/
+        ├── python_patch_queue_dispatcher.py
+        ├── python_patch_runner.py
+        ├── python_patch_utils.py
+        ├── install_python_patch_tool_v6.py      # optional controlled helper
+        ├── install_python_patch_tool_v5.py      # historical filename wrapper
+        ├── docs/
+        └── SHA256SUMS
+```
+
+`tools/run_python_patches.sh` (or the Windows wrapper) is the normal public entry point for the portable layout. Under TaskDeck-managed execution, TaskDeck invokes the bundled `patchtool/python_patch_entry.py` directly. Modules under `_patch_lib/` are private runtime/maintenance utilities in either layout and must not be invoked by project PATCH payloads.
+
+A migrated TaskDeck project may therefore intentionally contain only a compatibility launcher shim (or no private runtime payload) under `tools/`. Missing `<project>/tools/_patch_lib/python_patch_runner.py` is not a project defect in managed mode.
+
+For `database_select`, copy `tools/db_profiles.example.json` to `tools/db_profiles.local.json` and edit it locally. The release ZIP deliberately never contains `db_profiles.local.json`; upgrades must not overwrite it, and COLLECT/PATCH handoffs must not package its credentials. MySQL remote access is represented by an SSH target/profile, not by embedding an SSH private key in Patch Tool configuration.
+
+## Optional controlled migration
+
+Use only when an older project still has obsolete Patch-Tool-managed loose files or when you explicitly want a safe default config created:
+
+```bash
+python3 tools/_patch_lib/install_python_patch_tool_v6.py --project-root "$PWD" --dry-run
+python3 tools/_patch_lib/install_python_patch_tool_v6.py --project-root "$PWD"
+python3 tools/_patch_lib/install_python_patch_tool_v6.py --project-root "$PWD" --create-config
+```
+
+Safety contract:
+
+- only an exact fixed list of historical Patch-Tool-managed loose files may be migrated;
+- every migrated file is copied to `artifacts/patch_tool/installer_backups/...` before deletion;
+- symlinks/non-regular files fail closed;
+- unrelated `tools/*` files are untouched;
+- an existing `.python_patch_tool.json` is never overwritten;
+- `--create-config` only creates a missing config with prompt/non-interactive-safe defaults;
+- no network operation, Git mutation, project-source mutation or arbitrary cleanup occurs.
+
+The historical `install_python_patch_tool_v5.py` filename remains a thin wrapper around the current helper so old maintenance instructions do not fail solely because of a filename change.
+
+## Compatibility governance
+
+Before changing package layout or removing migration helpers, read `NO_SILENT_REMOVAL_POLICY.md`, `CAPABILITY_LEDGER.md`, `HISTORICAL_FEATURE_BASELINE_V5_15.md`, and `HISTORICAL_FEATURE_STATUS_V5_15.json`. Historical capability #81 was COMPLETE in v5.15 and is restored in v6.18.3; it must not silently disappear again.

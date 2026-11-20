@@ -1,0 +1,216 @@
+package server
+
+import (
+	"strings"
+	"testing"
+
+	webassets "bletonfc/vscode_tasks_menu/web"
+)
+
+func TestMobileUIProfileIsIsolatedFromDesktopPresentation(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/mobile.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"if(app.layoutProfile==='mobile')",
+		"mobile-drawer-open",
+		"mobile-actions-open",
+		"mobile-terminal-keys",
+		"--taskmenu-header-height:50px",
+		"window.visualViewport",
+		"env(safe-area-inset-top)",
+		"env(safe-area-inset-bottom)",
+		"['Ctrl+C','\\x03']",
+		"['↑','\\x1b[A']",
+		"['Enter','\\r']",
+		"app.browserLeaseLost",
+		".header-action-menus>.taskmenu-direct-action",
+		"if(target?.closest('.taskmenu-direct-action'))setTimeout(closePanels,0)",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("mobile.js missing %q", want)
+		}
+	}
+
+	loader, err := webassets.Files.ReadFile("featuremods/next.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(loader), "import '/featuremods/mobile.js';") {
+		t.Fatal("next.js must load mobile.js")
+	}
+}
+
+func TestCoreUIDetectsStableLayoutProfileOncePerPage(t *testing.T) {
+	for _, want := range []string{
+		"const layoutProfile=(matchMedia('(pointer: coarse)').matches||matchMedia('(max-width: 900px)').matches)?'mobile':'desktop';",
+		"document.documentElement.dataset.taskmenuLayout=layoutProfile;",
+		"get layoutProfile(){return layoutProfile;}",
+	} {
+		if !strings.Contains(appJS, want) {
+			t.Fatalf("app JS missing layout-profile behavior %q", want)
+		}
+	}
+}
+
+
+func TestMobileHeaderActionsStayAboveBackdrop(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/mobile.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		`body>header{height:50px!important;min-height:50px!important;max-height:50px!important;padding:0 8px!important;gap:8px!important;z-index:1300`,
+		`body.mobile-actions-open>header{z-index:1600}`,
+		`.header-action-menus{display:none;position:fixed;z-index:1550`,
+		`.mobile-backdrop{display:none;position:fixed;inset:0;z-index:1400`,
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("mobile stacking contract missing %q", want)
+		}
+	}
+}
+
+func TestMobileWorkspaceToolNavigationReachesDesktopCapabilities(t *testing.T) {
+ read := func(name string) string {
+  t.Helper()
+  data,err:=webassets.Files.ReadFile("featuremods/"+name+".js")
+  if err!=nil{t.Fatal(err)}
+  return string(data)
+ }
+ mobile:=read("mobile")
+ for _,name:=range []string{
+  "mobile-workspace-tools",
+  "globalThis.TaskMenuMobileTools={open:openMobileTool",
+  "globalThis.TaskMenuPatchPanel?.open?.()",
+  "globalThis.TaskMenuConnections?.open?.()",
+  "globalThis.TaskMenuSchedules?.open?.('','overview')",
+  "globalThis.TaskMenuSchedules?.openPanel?.()",
+  "globalThis.TaskMenuExplorer?.open?.()",
+  "globalThis.TaskMenuGitFiles?.open?.()",
+  "globalThis.TaskMenuOperationCenter?.open?.()",
+  "globalThis.TaskMenuWorkspaceSnapshots?.open?.()",
+  "globalThis.TaskMenuProjectHealth?.open?.()",
+  "globalThis.TaskMenuProjectProfiles?.open?.()",
+  "globalThis.TaskMenuRemoteWorkspace?.open?.()",
+  "globalThis.TaskMenuProjectSearch?.open?.()",
+  "canAny('patch.view','patch.run')",
+  "canAny('schedules.view','schedules.manage','schedules.run')",
+  "button.hidden=!allowed()",
+  "if(entry&&!entry[3]())throw new Error",
+  "globalThis.TaskMenuConnections?.close?.()",
+  "globalThis.TaskMenuExplorer?.close?.()",
+  "globalThis.TaskMenuSchedules?.closePanel?.()",
+  "globalThis.TaskMenuGitFiles?.close?.()",
+  "menu.prepend(toolsNav)",
+  "body.mobile-drawer-open>main>aside{z-index:2150}",
+  ".task-patch-panel-body",
+  ".task-connections-panel",
+  ".task-connection-form{grid-template-columns:minmax(0,1fr)}",
+  ".schedule-nav",
+  ".operation-center-row",
+  ".workspace-snapshot-row",
+ } {
+  if !strings.Contains(mobile,name){t.Errorf("mobile feature unreachable or not touch-responsive: %q",name)}
+ }
+ for _,name:=range []string{"patchpanel","connections"} {
+  js:=read(name)
+  if strings.Contains(js,"app.layoutProfile==='mobile'||!app.taskData?.workspace") {
+   t.Errorf("%s is still disabled on mobile",name)
+  }
+ }
+ // The desktop sidebar is intentionally not installed on small screens:
+ // mobile.js provides its own equivalent navigation rather than a second rail.
+ if !strings.Contains(read("activitybar"),"app.layoutProfile==='mobile'") {
+  t.Fatal("mobile nav must not also install desktop Activity Bar")
+ }
+}
+
+func TestMobileTabContextCanBeOpenedWithoutRightClick(t *testing.T) {
+ data,err:=webassets.Files.ReadFile("featuremods/tabcontext.js")
+ if err!=nil{t.Fatal(err)}
+ js:=string(data)
+ for _,part:=range []string{
+  "function decorateMobileTabActions(descriptor)",
+  "button.className='mobile-tab-actions'",
+  "button.setAttribute('aria-haspopup','menu')",
+  "openContextMenu(current.view,rect.left,rect.bottom+4)",
+  "openEditorContextMenu(current.view,rect.left,rect.bottom+4)",
+  "openFeatureContextMenu(current,rect.left,rect.bottom+4)",
+  "decorateMobileTabActions(descriptor)",
+ } {
+  if !strings.Contains(js,part){t.Errorf("mobile tab context affordance missing: %q",part)}
+ }
+}
+
+func TestMobileToolsRemainAvailableAfterTaskMenuRerender(t *testing.T) {
+  if !strings.Contains(appJS, "node.hasAttribute('data-taskmenu-persistent')") ||
+    !strings.Contains(appJS, "menu.replaceChildren(...persistent)") {
+    t.Fatal("core renderMenu must preserve registered workspace navigation")
+  }
+  data,err:=webassets.Files.ReadFile("featuremods/mobile.js")
+  if err!=nil {t.Fatal(err)}
+  js:=string(data)
+  if strings.Contains(js,"toolsButton") || strings.Contains(js,"toggleTools()") {
+    t.Error("duplicate Công cụ header button must not be installed")
+  }
+  for _,want:=range []string{
+    "header?.prepend(menuButton);",
+    "menuButton.onclick=()=>{restoreMobileNavigation();toggleDrawer();}",
+    "toolsNav.setAttribute('data-taskmenu-persistent','1')",
+    "toolsNav.id='mobile-workspace-tools'",
+    "function restoreMobileNavigation()",
+    "menu.firstElementChild!==toolsNav",
+    "const navigationObserver=new MutationObserver",
+    "navigationObserver.observe(menu,{childList:true})",
+    "window.addEventListener('taskmenu:tasks'",
+    "restoreMobileNavigation();",
+    "menuButton.setAttribute('aria-expanded',String(open))",
+  } {
+    if !strings.Contains(js,want){t.Errorf("mobile tools lost across reload: %q",want)}
+  }
+}
+
+func TestAutocompleteDiagnosticsOptInHidesDebugOnDesktopAndMobile(t *testing.T) {
+	read := func(name string) string {
+		t.Helper()
+		data, err := webassets.Files.ReadFile("featuremods/" + name + ".js")
+		if err != nil { t.Fatal(err) }
+		return string(data)
+	}
+	trace := read("smartterminal_trace")
+	for _, want := range []string{
+		"const DIAGNOSTICS_VISIBILITY_KEY='taskdeck:autocomplete-diagnostics-visible'",
+		"let diagnosticsVisible=false",
+		"trigger.hidden=!diagnosticsVisible",
+		"#completion-trace-trigger[hidden]{display:none!important}",
+		"function setDiagnosticsVisible(value)",
+		"if(!diagnosticsVisible)return false",
+		"stop();",
+		"clear();",
+		"get diagnosticsVisible(){return diagnosticsVisible;}",
+	} {
+		if !strings.Contains(trace, want) {t.Errorf("trace gating missing %q", want)}
+	}
+	menus := read("menus")
+	for _, want := range []string{
+		"completionDebugToggle.type='checkbox'",
+		"completionDebugToggle.id='autocomplete-diagnostics-visible'",
+		"completionDebugToggle.checked=Boolean(globalThis.TaskDeckCompletionTrace?.diagnosticsVisible)",
+		"globalThis.TaskDeckCompletionTrace?.setDiagnosticsVisible?.(completionDebugToggle.checked)",
+		"addSection(settings.pop,'TERMINAL'",
+	} {
+		if !strings.Contains(menus,want) {t.Errorf("Settings toggle missing %q",want)}
+	}
+	palette := read("terminalpalette")
+	if !strings.Contains(palette,"...(globalThis.TaskDeckCompletionTrace?.diagnosticsVisible?[{") {
+		t.Fatal("Autocomplete Trace command must be absent unless diagnostics are enabled")
+	}
+	mobile := read("mobile")
+	if strings.Contains(mobile,"toolsButton") || strings.Contains(mobile,"toggleTools()") {
+		t.Fatal("mobile must only have the hamburger drawer control")
+	}
+}

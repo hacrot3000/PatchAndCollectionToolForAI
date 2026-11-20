@@ -1,0 +1,36 @@
+name: TaskDeck Terminal History Keys
+
+on:
+  pull_request:
+    paths:
+      - 'vscode_tasks_menu_go/web/featuremods/smartterminal.js'
+      - 'vscode_tasks_menu_go/test_smartterminal_keyboard.cjs'
+      - 'vscode_tasks_menu_go/test_smartterminal_path_ui.cjs'
+      - '.github/workflows/taskdeck_terminal_history_keys.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'vscode_tasks_menu_go/web/featuremods/smartterminal.js'
+      - 'vscode_tasks_menu_go/test_smartterminal_keyboard.cjs'
+      - 'vscode_tasks_menu_go/test_smartterminal_path_ui.cjs'
+      - '.github/workflows/taskdeck_terminal_history_keys.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  terminal-history:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    defaults:
+      run:
+        working-directory: vscode_tasks_menu_go
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Validate Smart Terminal JavaScript
+        run: node --input-type=module --check < web/featuremods/smartterminal.js
+      - name: Verify shell history pass-through and autocomplete regression
+        run: node --test test_smartterminal_keyboard.cjs test_smartterminal_path_ui.cjs
