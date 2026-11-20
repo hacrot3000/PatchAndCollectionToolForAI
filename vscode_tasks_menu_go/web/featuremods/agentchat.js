@@ -211,6 +211,7 @@ const providerSelect=agentEl('select'),modelSelect=agentEl('select'),modeSelect=
 for(const mode of [['stateless','Stateless'],['previous_response','Response chain'],['conversation','Conversations (fallback)']]){
  modeSelect.append(agentOption(mode[0],mode[1]));
 }
+modeSelect.value='stateless';
 // Hidden selects keep a single source of truth for new-session creation,
  // provider/model config, model default and immutable existing sessions.
 const transcript=agentEl('div','agentchat-transcript');
@@ -372,47 +373,99 @@ function normalizeProvider(raw){
   }))
  };
 }
+function toggleAgentConfigMenu(force){
+ const open=force===undefined?!agentConfigMenu.classList.contains('open'):Boolean(force);
+ agentConfigMenu.classList.toggle('open',open);
+ agentConfigButton.setAttribute('aria-expanded',String(open));
+ if(open){
+  toggleAgentSessions(false);
+  renderAgentConfigMenu();
+ }else{
+  for(const entry of agentConfigCategories.values())entry.row.setAttribute('aria-expanded','false');
+ }
+}
+function agentSelectedModel(){
+ const provider=agentProviders.find(p=>p.id===providerSelect.value);
+ return (provider?.models||[]).find(m=>m.id===modelSelect.value)||null;
+}
+function updateAgentEfforts(preferred){
+ const model=agentSelectedModel();
+ const before=preferred!==undefined?preferred:effortSelect.value;
+ const supported=Array.isArray(model?.reasoning_efforts)?model.reasoning_efforts:[];
+ effortSelect.replaceChildren(agentOption('','Model default'+(model?.default_reasoning_effort?' ('+model.default_reasoning_effort+')':'')));
+ for(const effort of supported)effortSelect.append(agentOption(effort,effort));
+ const initial=model?.default_reasoning_effort||'';
+ effortSelect.value=supported.includes(before)?before:(supported.includes(initial)?initial:'');
+ renderAgentConfigMenu();
+}
+function renderAgentConfigMenu(){
+ const provider=agentProviders.find(p=>p.id===providerSelect.value);
+ const model=agentSelectedModel();
+ const fallback=provider?.api_type==='chat_completions';
+ const specs=[
+  ['Provider',agentProviders.map(p=>[p.id,p.name||p.id]),providerSelect.value,(v)=>{
+   providerSelect.value=v;updateAgentModels();
+  }],
+  ['Model',(provider?.models||[]).map(m=>[m.id,m.name||m.id]),modelSelect.value,(v)=>{
+   modelSelect.value=v;updateAgentEfforts();
+  }],
+  ['Effort',[['','Model default'+(model?.default_reasoning_effort?' ('+model.default_reasoning_effort+')':'')],...(model?.reasoning_efforts||[]).map(e=>[e,e])],effortSelect.value,(v)=>{
+   effortSelect.value=v;renderAgentConfigMenu();
+  }],
+  ['Context',[['stateless','Stateless'],['previous_response',fallback?'Response chain (local history)':'Response chain'],['conversation',fallback?'Conversations (local history)':'Conversations']],modeSelect.value||'stateless',(v)=>{
+   modeSelect.value=v;renderAgentConfigMenu();
+  }],
+ ];
+ for(const [name,choices,current,select] of specs){
+  const group=agentConfigCategories.get(name);
+  if(!group)continue;
+  group.values.replaceChildren();
+  for(const [value,label] of choices){
+   const option=agentButton((value===current?'✓ ':'')+label,()=>{
+    select(value);
+    toggleAgentConfigMenu(false);
+   });
+   option.setAttribute('role','menuitemradio');
+   option.setAttribute('aria-checked',String(value===current));
+   option.dataset.value=value;
+   group.values.append(option);
+  }
+  if(!choices.length)group.values.append(agentEl('div','agentchat-config-note','No options configured'));
+  group.button.textContent=name+' · '+(choices.find(([v])=>v===current)?.[1]||'Not configured')+' ▸';
+ }
+ agentConfigNote.textContent=fallback
+  ?'Selections apply to new conversations. Chat Completions replays TaskDeck local history for Response chain and Conversations; no provider-side references are used.'
+  :'Selections apply to new conversations. Stateful provider references are used only after capability verification; otherwise TaskDeck replays local history.';
+}
 async function loadAgentProviders(){
+ const previousProvider=providerSelect.value, previousModel=modelSelect.value, previousEffort=effortSelect.value;
  const result=await agentApp.jsonFetch('/api/agent/providers');
  agentProviders=Array.isArray(result.providers)?result.providers:[];
- providerSelect.replaceChildren();settingsPicker.replaceChildren();
+ providerSelect.replaceChildren();
+ settingsPicker.replaceChildren();
  for(const p of agentProviders){
   providerSelect.append(agentOption(p.id,p.name+' ('+p.id+')'));
   settingsPicker.append(agentOption(p.id,p.name));
  }
  if(!agentProviders.length)providerSelect.append(agentOption('','Configure provider first'));
- updateAgentModels();
+ providerSelect.value=agentProviders.some(p=>p.id===previousProvider)?previousProvider:(agentProviders[0]?.id||'');
+ updateAgentModels(previousModel,previousEffort);
+ settingsPicker.value=providerSelect.value;
  settingsPicker.dispatchEvent(new Event('change'));
 }
-function updateAgentModels(){
- const p=agentProviders.find(x=>x.id===providerSelect.value);
+function updateAgentModels(preferredModel,preferredEffort){
+ const provider=agentProviders.find(p=>p.id===providerSelect.value);
+ const oldModel=preferredModel!==undefined?preferredModel:modelSelect.value;
  modelSelect.replaceChildren();
- for(const m of (p?.models||[]))modelSelect.append(agentOption(m.id,m.name||m.id));
- const current=(p?.models||[]).find(m=>m.id===modelSelect.value)||(p?.models||[])[0];
- effortSelect.replaceChildren(agentOption('','Model default'));
- if(p?.api_type!=='chat_completions'){
-  for(const effort of (current?.reasoning_efforts||[]))effortSelect.append(agentOption(effort,effort));
-  effortSelect.value=(current?.default_reasoning_effort||'');
- }else{effortSelect.value='';}
- const statelessOnly=p?.api_type==='chat_completions';
- for(const option of modeSelect.options){
-  option.disabled=statelessOnly&&option.value!=='stateless';
- }
- if(statelessOnly)modeSelect.value='stateless';
- const hasAgent=Boolean(p&&p.has_api_key);
+ for(const m of (provider?.models||[]))modelSelect.append(agentOption(m.id,m.name||m.id));
+ modelSelect.value=(provider?.models||[]).some(m=>m.id===oldModel)?oldModel:(provider?.models?.[0]?.id||'');
+ updateAgentEfforts(preferredEffort);
+ const hasAgent=Boolean(provider?.has_api_key);
  newChat.disabled=!hasAgent||agentBusy;
  attachButton.disabled=false;
 }
-providerSelect.addEventListener('change',updateAgentModels);
-modelSelect.addEventListener('change',()=>{
- const p=agentProviders.find(x=>x.id===providerSelect.value);
- const m=(p?.models||[]).find(x=>x.id===modelSelect.value);
- effortSelect.replaceChildren(agentOption('','Model default'));
- if(p?.api_type!=='chat_completions'){
-  for(const effort of (m?.reasoning_efforts||[]))effortSelect.append(agentOption(effort,effort));
-  effortSelect.value=(m?.default_reasoning_effort||'');
- }else{effortSelect.value='';}
-});
+providerSelect.addEventListener('change',()=>updateAgentModels());
+modelSelect.addEventListener('change',()=>updateAgentEfforts());
 settingsPicker.addEventListener('change',()=>{
  blockedIPNotice.hidden=true;blockedIPNotice.replaceChildren();
  const p=agentProviders.find(x=>x.id===settingsPicker.value);
@@ -811,9 +864,9 @@ async function selectAgentSession(id){
   agentAttachments=(agentAttachmentDrafts.get(id)||[]).map(a=>({...a}));
   renderAgentAttachments();
   const p=agentProviders.find(p=>p.id===sess.provider_id);
-  if(p){providerSelect.value=p.id;updateAgentModels();modelSelect.value=sess.model_id;}
+  if(p){providerSelect.value=p.id;updateAgentModels(sess.model_id,sess.reasoning_effort||'');}
   modeSelect.value=sess.mode;
-  effortSelect.value=sess.reasoning_effort||'';
+  renderAgentConfigMenu();
  }
  renderAgentAutomationControls(sess);
  send.disabled=agentSessionBusy(id)||(sess.status==='requesting_ai');
