@@ -20,6 +20,20 @@ type ProjectIdentity struct {
     ID string `json:"id"`
 }
 
+// ReadProjectIdentity reads an existing identity without creating or modifying it.
+func ReadProjectIdentity(workspace string) (ProjectIdentity, error) {
+    root, err := filepath.Abs(workspace)
+    if err != nil { return ProjectIdentity{}, err }
+    if _, err = os.Lstat(filepath.Join(root, projectConfigName)); err != nil { return ProjectIdentity{}, err }
+    _, project, _, err := readProjectIdentity(root)
+    if err != nil { return ProjectIdentity{}, err }
+    if len(project["key"]) == 0 || len(project["id"]) == 0 { return ProjectIdentity{}, os.ErrNotExist }
+    var identity ProjectIdentity
+    if err = json.Unmarshal(project["key"], &identity.Key); err != nil || strings.TrimSpace(identity.Key) == "" { return ProjectIdentity{}, errors.New("project key unavailable") }
+    if err = json.Unmarshal(project["id"], &identity.ID); err != nil || !projectUUIDPattern.MatchString(identity.ID) { return ProjectIdentity{}, errors.New("project ID unavailable") }
+    return identity, nil
+}
+
 const projectConfigName = ".python_patch_tool.json"
 
 var projectUUIDPattern = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)

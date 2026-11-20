@@ -23,7 +23,11 @@ func (s *Server) agentChatStore() (*agentchat.Store, error) {
 	if err != nil {
 		return nil, err
 	}
-	return agentchat.NewStore(filepath.Join(filepath.Dir(privateFile), "agent-sessions-"+aiWorkspaceHash(s.Workspace)))
+	identity, err := patchtool.ReadProjectIdentity(s.Workspace)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return nil, err
+	}
+	return agentchat.NewProjectStore(filepath.Join(filepath.Dir(privateFile), "agent-sessions-"+aiWorkspaceHash(s.Workspace)), s.Workspace, identity.ID)
 }
 
 // agentChatSessionsAPI implements only create/list in this milestone. A
@@ -145,6 +149,11 @@ func (s *Server) agentChatSessionsAPI(w http.ResponseWriter, r *http.Request) {
 	identity, err := patchtool.EnsureProjectIdentity(s.Workspace)
 	if err != nil {
 		http.Error(w, "project identity unavailable", http.StatusConflict)
+		return
+	}
+	store, err = s.agentChatStore()
+	if err != nil {
+		http.Error(w, "session storage unavailable", http.StatusInternalServerError)
 		return
 	}
 	if target := strings.TrimSpace(req.Target); target != "" && target != "local" {

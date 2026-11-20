@@ -167,13 +167,38 @@ func NewSession(owner, workspace, projectID, providerID, modelID string, mode Co
 }
 
 // Store keeps canonical session history outside the project source tree.
-type Store struct{ dir string }
+type Store struct {
+	dir       string
+	scoped    bool
+	workspace string
+	projectID string
+}
 
 func NewStore(dir string) (*Store, error) {
 	if dir == "" || !filepath.IsAbs(dir) {
 		return nil, errors.New("absolute private state directory required")
 	}
 	return &Store{dir: filepath.Clean(dir)}, nil
+}
+
+// NewProjectStore restricts reads and writes to one authoritative workspace and project.
+// An empty project ID represents an as-yet uninitialised project and matches no sessions.
+func NewProjectStore(dir, workspace, projectID string) (*Store, error) {
+	if workspace == "" || !filepath.IsAbs(workspace) {
+		return nil, errors.New("absolute workspace required")
+	}
+	store, err := NewStore(dir)
+	if err != nil {
+		return nil, err
+	}
+	store.scoped = true
+	store.workspace = filepath.Clean(workspace)
+	store.projectID = projectID
+	return store, nil
+}
+
+func (s *Store) matchesProject(x Session) bool {
+	return !s.scoped || (s.projectID != "" && x.ProjectID == s.projectID && filepath.Clean(x.Workspace) == s.workspace)
 }
 func validID(id string) bool {
 	if len(id) != 32 {
@@ -393,7 +418,7 @@ func (s *Store) Get(id, owner string) (Session, error) {
 		if e != nil {
 			return e
 		}
-		if x.Owner != owner {
+		if x.Owner != owner || !s.matchesProject(x) {
 			return ErrNotFound
 		}
 		out = x
@@ -412,6 +437,9 @@ func (s *Store) Save(x Session, expectedRevision uint64) (Session, error) {
 	err := s.withLock(func() error {
 		if err := validateSession(x); err != nil {
 			return err
+		}
+		if !s.matchesProject(x) {
+			return ErrInvalidSession
 		}
 		existing, e := s.readLocked(x.ID)
 		if errors.Is(e, ErrNotFound) {
@@ -492,7 +520,7 @@ func (s *Store) List(owner string) ([]Session, error) {
 			if e != nil {
 				return e
 			}
-			if x.Owner == owner {
+			if x.Owner == owner && s.matchesProject(x) {
 				out = append(out, x)
 			}
 		}

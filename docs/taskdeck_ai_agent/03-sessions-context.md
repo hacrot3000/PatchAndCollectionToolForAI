@@ -2,6 +2,8 @@
 
 Điều hướng: [kế hoạch chung](README.md). Áp dụng F03, F03.1, F03.1.1–F03.1.2, F03.2, F03.2.1–F03.2.2, F03.3, F03.3.1–F03.3.3.
 
+Agent Chat session journals are private per workspace, and the server additionally checks both the workspace path and the current project ID for every scoped store read, list and write. Tabs within the same project share its conversations; another project cannot list or open them even if a journal is misplaced. Existing journals are not deleted. If a project identity changes, sessions bound to the old identity are hidden rather than silently rebound.
+
 ## Hiện trạng
 
 `internal/agentchat/store.go` lưu một JSON/session private 0600, atomic rename, revision CAS và mutex theo process; `Session` ràng buộc owner/workspace/project/provider/model/mode, chưa có target, title, archive, version migration hay cross-process CAS. Limit 4 MiB/session, 256 history items, 32 tool records. `agent_chat_sessions.go` chỉ list/create/get, giới hạn 32 sessions/owner và kể cả session cũ; fallback legacy có thể tạo session dùng provider chưa đăng ký Agent. `agent_chat_messages.go` lưu user trước egress, first turn lấy `BuildAIPack` text ≤400 KiB và fingerprint; `scrubAIContext` là best-effort, không bảo đảm loại hết secret. Context đầy trả lỗi, chưa compaction.
