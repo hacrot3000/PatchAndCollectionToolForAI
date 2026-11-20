@@ -65,6 +65,14 @@ class FakeElement {
       this.children.push(node);
     }
   }
+  prepend(...nodes) {
+    this.appendCount += nodes.length;
+    for(const node of nodes){
+      if(node.parentElement)node.parentElement.children=node.parentElement.children.filter(child=>child!==node);
+      node.parentElement=this;
+    }
+    this.children.unshift(...nodes);
+  }
   replaceChildren(...nodes) { this.replaceCount++; for (const child of this.children) child.parentElement=null; this.children = []; this.append(...nodes); }
   remove() {
     const p=this.parentElement;
@@ -143,7 +151,7 @@ const debugButtons = (() => {const scan = node => [ ...(node.tagName==='button'?
 assert.equal(debugButtons.length,1,'AI Debug must expose exactly one action');
 assert.equal(debugButtons[0].textContent,'Copy log','one action must be Copy log');
 const find = (node, predicate) => predicate(node) ? node : node.children.map(child => find(child, predicate)).find(Boolean);
-const sessionsButton = find(windowBox, node => node.textContent === 'Saved conversations ▾');
+const sessionsButton = find(windowBox, node => node.textContent === 'History ▾');
 const sessionsList = find(windowBox, node => node.id === 'agentchat-saved-sessions');
 assert.ok(sessionsButton && sessionsList, 'Saved conversations menu is present');
 assert.equal(sessionsButton.parentElement.parentElement, viewTabs, 'Saved conversations shares the conversation/debug tab row');
@@ -260,15 +268,31 @@ assert.ok(css.includes('.agentchat-header-menu{position:absolute;')&&css.include
  'header submenu must open toward the interior of the dock');
 section.clientWidth = 1000; section.clientHeight = 700; heading.clientWidth = 800;
 resizeObserver.callback();
+assert.equal(moreMenu.children.length,0,'no overflow leaves More empty');
+assert.equal(moreButton.hidden,true,'empty More menu must be hidden');
+moreButton.click();
+assert.equal(moreMenu.classList.contains('open'),false,'empty More menu must not open programmatically');
 const countAfterResize = toolbarActions.appendCount;
 for (let i = 0; i < 50; i++) resizeObserver.callback();
 assert.equal(toolbarActions.appendCount, countAfterResize, 'Repeated identical resize notifications must not rearrange actions');
+// Simulate narrow panel: the responsive toolbar must move actions into
+// More and reveal the ellipsis only while those actions actually exist.
+Object.defineProperty(toolbarActions,'scrollWidth',{configurable:true,get(){return this.children.length*100;}});
+heading.clientWidth=280;
+resizeObserver.callback();
+assert.ok(moreMenu.children.length>0,'narrow toolbar must provide overflow actions');
+assert.equal(moreButton.hidden,false,'More becomes visible when it contains actions');
 moreButton.click();
-assert.equal(moreMenu.classList.contains('open'), true, 'One click opens More actions');
+assert.equal(moreMenu.classList.contains('open'), true, 'One click opens populated More actions');
 assert.equal(moreButton.attributes['aria-expanded'], 'true');
 moreButton.click();
 assert.equal(moreMenu.classList.contains('open'), false, 'Second click closes More actions');
 assert.equal(moreButton.attributes['aria-expanded'], 'false');
+// Growing back to full width restores the groups and hides the now-empty More.
+heading.clientWidth=800;
+resizeObserver.callback();
+assert.equal(moreMenu.children.length,0,'wide toolbar restores all actions');
+assert.equal(moreButton.hidden,true,'More hides again after resizing back to wide');
 for (const label of ['AI Agent Chat', 'Bottom', 'Auto Hide', '⋯', 'Hide', '+ New session', 'Preview context',
   'Rename', 'Archive', 'Delete conversation', 'Refresh', '+ Text file', 'Auto-send results',
   'Auto apply Patch: OFF', 'Auto Collection: ON', 'Conversation ▾', 'Automation ▾', 'Tools ▾', 'Layout ▾']) {
