@@ -1,0 +1,70 @@
+package server
+
+import (
+ "context"
+ "net/http"
+ "net/http/httptest"
+ "strings"
+ "testing"
+
+ "bletonfc/vscode_tasks_menu/internal/agentchat"
+ "bletonfc/vscode_tasks_menu/internal/identity"
+)
+
+func TestAgentDebugReportAutoCaptureAndJournal(t *testing.T) {
+ s,id:=newAgentConversationFixture(t,"stateless")
+ store:=s.debugStore()
+ store.mu.Lock()
+ store.owner("local").State.Enabled=false
+ store.mu.Unlock()
+ recorder,traceID:=s.startAgentDebug("local","provider_request",id,
+  agentchat.ProviderConfig{ID:"provider",APIType:"responses"},"model")
+ recorder.RecordProviderDiagnostic(agentchat.DiagnosticEvent{
+  Level:"error",Stage:"provider_http",Event:"http.error",Code:"PROVIDER_HTTP_502",
+  HTTPStatus:502,RequestBody:[]byte("TOP_SECRET private project prompt"),
+  SafeMessage:"Provider returned HTTP 502",
+ })
+ s.recordAgentDebugEvent("local",id,"","collection","collection.failed",
+  "COLLECTION_CONTINUATION_FAILED","round=2 provider request trace="+traceID)
+ w:=httptest.NewRecorder()
+ s.agentChatDebugReportAPI(w,httptest.NewRequest("GET","/api/agent/debug/report",nil))
+ if w.Code!=200{t.Fatalf("report %d: %s",w.Code,w.Body)}
+ for _,v:=range []string{"taskdeck.agent.debug.report.v1",traceID,
+  "PROVIDER_HTTP_502","COLLECTION_CONTINUATION_FAILED",id,"history_items"} {
+  if !strings.Contains(w.Body.String(),v) {t.Fatalf("report omitted %q: %s",v,w.Body)}
+ }
+ if strings.Contains(w.Body.String(),"TOP_SECRET")||strings.Contains(w.Body.String(),"private project prompt"){
+  t.Fatal("report exposed request body")
+ }
+ // The session journal still appears after losing in-memory traces.
+ s.agentDebugMu.Lock();s.agentDebug=nil;s.agentDebugMu.Unlock()
+ back:=httptest.NewRecorder()
+ s.agentChatDebugReportAPI(back,httptest.NewRequest("GET","/api/agent/debug/report",nil))
+ if back.Code!=200||!strings.Contains(back.Body.String(),id)||
+  !strings.Contains(back.Body.String(),"No in-memory provider traces"){
+  t.Fatalf("restarted safe report missing journal: %d %s",back.Code,back.Body)
+ }
+}
+
+func TestAgentDebugReportAuthorizationAndOwnerIsolation(t *testing.T){
+ s,id:=newAgentConversationFixture(t,"stateless")
+ s.startAgentDebug("local","provider_request",id,agentchat.ProviderConfig{ID:"private-provider"},"m")
+ if got:=sharedRoutePermissions(httptest.NewRequest("GET","/api/agent/debug/report",nil));
+  len(got)!=1||got[0]!=identity.PermissionSettingsRead{
+  t.Fatalf("report permission %v",got)
+ }
+ s.Config.SharedServerEnabled=true
+ req:=httptest.NewRequest("GET","/api/agent/debug/report",nil)
+ req=req.WithContext(context.WithValue(req.Context(),sharedPrincipalContextKey{},
+  identity.Principal{UserID:identity.ID("other-user"),
+   Permissions:map[string]bool{identity.PermissionSettingsRead:true}}))
+ w:=httptest.NewRecorder()
+ s.agentChatDebugReportAPI(w,req)
+ if w.Code!=200{t.Fatalf("other owner status %d: %s",w.Code,w.Body)}
+ if strings.Contains(w.Body.String(),id)||strings.Contains(w.Body.String(),"private-provider"){
+  t.Fatal("report leaked a different owner's trace or journal")
+ }
+ denied:=httptest.NewRecorder()
+ s.agentChatDebugReportAPI(denied,httptest.NewRequest(http.MethodPost,"/api/agent/debug/report",nil))
+ if denied.Code!=http.StatusMethodNotAllowed{t.Fatalf("write accepted: %d",denied.Code)}
+}
