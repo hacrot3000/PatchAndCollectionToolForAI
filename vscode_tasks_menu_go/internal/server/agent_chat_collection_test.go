@@ -223,3 +223,21 @@ func TestAgentCollectionOversizeBatchKeepsPaginableResults(t *testing.T) {
 		if _,err:=parseAgentCollectionArguments(invalid,identity);err==nil {t.Fatalf("invalid paging was accepted: %s",invalid)}
 	}
 }
+
+func TestAgentCollectionReadsPagesOfSourceLargerThan128KiB(t *testing.T){
+ root:=t.TempDir()
+ const lines=10000
+ path:=filepath.Join(root,"longfile.go")
+ if err:=os.WriteFile(path,[]byte(strings.Repeat("func Test(){ println(\"Xin chào\") }\n",lines)),0600);err!=nil{t.Fatal(err)}
+ got,err:=agentCollectionReadPage(root,"longfile.go",9601,8)
+ if err!=nil{t.Fatal(err)}
+ if got["start_line"]!="9601"||got["total_lines"]!="10000"||
+  got["next_line"]!="9609"||strings.Count(got["content"],"Xin chào")!=8{
+  t.Fatalf("paged large file read lost evidence: %+v",got)
+ }
+ last,err:=agentCollectionReadPage(root,"longfile.go",9999,3)
+ if err!=nil{t.Fatal(err)}
+ if last["truncated"]!="false"||strings.Count(last["content"],"Xin chào")!=2{
+  t.Fatalf("last file page must terminate cleanly: %+v",last)
+ }
+}
