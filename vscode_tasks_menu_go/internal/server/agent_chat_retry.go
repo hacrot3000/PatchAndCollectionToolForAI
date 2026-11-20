@@ -24,6 +24,7 @@ type agentRetryProgress struct {
  NextAt *time.Time `json:"next_at,omitempty"`
  LastCode string `json:"last_code,omitempty"`
 }
+var agentRetryDelay = 10 * time.Second // tests may shorten this; production stays 10 seconds
 var agentRetryProgressMu sync.Mutex
 var agentRetryProgressBySession=map[string]agentRetryProgress{}
 func agentRetryKey(workspace,owner,id string) string{return workspace+"\x00"+owner+"\x00"+id}
@@ -100,12 +101,12 @@ func (s *Server) agentChatProviderWithRetry(ctx context.Context,owner,sessionID 
     (mode==agentchat.RetryLimited&&attempt>=6)||ctx.Err()!=nil{
    return result,err,trace
   }
-  next:=time.Now().UTC().Add(10*time.Second)
+  next:=time.Now().UTC().Add(agentRetryDelay)
   agentRetryPublish(s.Workspace,owner,sessionID,agentRetryProgress{
    Mode:mode,Attempt:attempt,Remaining:remaining,Phase:"waiting",
    NextAt:&next,LastCode:agentRetryCode(err),
   })
-  timer:=time.NewTimer(10*time.Second)
+  timer:=time.NewTimer(agentRetryDelay)
   select{
   case <-ctx.Done():
    if !timer.Stop(){select{case <-timer.C:default:}}
