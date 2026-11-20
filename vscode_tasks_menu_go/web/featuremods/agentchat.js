@@ -795,7 +795,11 @@ function agentLivePhase(session){
  const events=session.events||[];
  const newer=turn?events.filter(e=>Number(e.seq||0)>turn.baseEventSeq):events;
  const lastEvent=newer.length?newer[newer.length-1]:null;
- if(turn?.error)return {message:'Request failed · '+turn.error,error:true};
+ if(turn?.error){
+  const persistedError=(session.events||[]).some(e=>Number(e.seq||0)>turn.baseEventSeq&&
+   ['turn_failed','collect_failed','turn_cancelled','feedback_unknown'].includes(e.kind));
+  if(!persistedError)return {message:'Request failed · '+turn.error,error:true};
+ }
  if(session.status==='failed')return null; // durable failure row in history
  if(session.status==='cancelled')return null;
  if(session.status==='requesting_ai'){
@@ -805,6 +809,7 @@ function agentLivePhase(session){
   if(lastCall?.feedback_status==='sending'||lastCall?.feedback_status==='prepared')return {message:'Sending native Patch result to AI…'};
   return {message:'Thinking…'};
  }
+ if(turn?.phase==='feedback'&&!turn.acknowledged)return {message:'Sending native Patch result to AI…'};
  if(turn?.phase==='sending'&&!turn.acknowledged)return {message:'Sending request…'};
  if(['queued','dispatching','running'].includes(lastCall?.status))return {message:'Running native Patch…'};
  if(session.status==='waiting_tool'&&lastCall?.status==='pending'&&session.auto_patch)return {message:'Submitting Patch to native tool…'};
