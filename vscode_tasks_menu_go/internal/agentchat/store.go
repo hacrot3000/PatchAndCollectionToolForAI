@@ -138,6 +138,9 @@ type Session struct {
 	Events            []SessionEvent   `json:"events,omitempty"`
 	EventSeq          uint64           `json:"event_seq,omitempty"`
 	AutoFeedback      bool             `json:"auto_feedback,omitempty"`
+	// Long-lived per-conversation provider-sharing opt-in via Automation.
+	// Legacy 30-minute grants still use AutoFeedbackUntil.
+	AutoFeedbackPersistent bool        `json:"auto_feedback_persistent,omitempty"`
 	AutoPatch         bool             `json:"auto_patch,omitempty"`
 	// Nil preserves automatic read-only Collection for existing sessions.
 	AutoCollection    *bool            `json:"auto_collection,omitempty"`
