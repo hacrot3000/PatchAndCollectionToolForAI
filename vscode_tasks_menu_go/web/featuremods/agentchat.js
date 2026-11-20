@@ -64,6 +64,21 @@ agentCSS.textContent=[
 '.agentchat-sessions{flex:none;margin-left:auto}',
 '.agentchat-list{display:none;position:absolute;z-index:6;top:100%;right:7px;width:min(320px,calc(100% - 14px));max-height:min(50vh,400px);overflow:auto;padding:8px;flex-direction:column;gap:5px;background:#192330;border:1px solid #55657a;border-radius:7px;box-shadow:0 8px 28px #0009}',
 '.agentchat-list.open{display:flex}',
+'.agentchat-config-menu{position:relative;flex:none}',
+'.agentchat-config-menu>button[aria-expanded="true"]{background:#273b52;border-color:#7db6e6}',
+'.agentchat-config-panel{display:none;position:absolute;z-index:31;right:0;top:calc(100% + 5px);width:220px;max-width:calc(100vw - 18px);padding:6px;background:#192330;border:1px solid #60748b;border-radius:7px;box-shadow:0 8px 24px #0008}',
+'.agentchat-config-menu.open>.agentchat-config-panel{display:flex;flex-direction:column;gap:3px}',
+'.agentchat-config-category{position:relative;min-width:0}',
+'.agentchat-config-category>button{display:flex;width:100%;justify-content:space-between;align-items:center;text-align:left;gap:8px}',
+'.agentchat-config-category[aria-expanded="true"]>button,.agentchat-config-category:hover>button,.agentchat-config-category:focus-within>button{background:#273b52}',
+'.agentchat-config-category-values{display:none;position:absolute;z-index:32;right:100%;top:0;width:230px;max-width:calc(100vw - 18px);max-height:min(50vh,360px);overflow:auto;padding:5px;background:#192330;border:1px solid #60748b;border-radius:7px;box-shadow:0 8px 24px #0008}',
+'.agentchat-config-category:hover>.agentchat-config-category-values,.agentchat-config-category:focus-within>.agentchat-config-category-values,.agentchat-config-category[aria-expanded="true"]>.agentchat-config-category-values{display:flex;flex-direction:column;gap:2px}',
+'.agentchat-config-category-values button{width:100%;text-align:left;white-space:normal;overflow-wrap:anywhere}',
+'.agentchat-config-category-values button[aria-checked="true"]{background:#344c66;border-color:#7db6e6}',
+'.agentchat-config-note{font-size:11px;line-height:1.4;padding:5px;color:#b6cce2}',
+'@media(max-width:700px){.agentchat-config-category-values{right:0;top:calc(100% + 2px)}}',
+'html[data-taskmenu-theme="light"] .agentchat-config-panel,html[data-taskmenu-theme="light"] .agentchat-config-category-values{background:#fff;color:#17283a;border-color:#bac8d8}',
+
 '.agentchat-session{display:flex;align-items:center;gap:7px;text-align:left;width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
 '.agentchat-session.selected{border-color:#60a8e6;background:#263f59}',
 '.agentchat-main{position:relative;display:flex;flex:1;min-width:0;min-height:0;flex-direction:column}',
@@ -157,6 +172,33 @@ sessionList.id='agentchat-saved-sessions';
 sessionList.setAttribute('aria-label','Saved conversations');
 sessionMenu.append(sessionMenuButton,sessionList);
 viewTabs.append(sessionMenu);
+// Keep the native select elements as a canonical, testable selection model.
+// The space-consuming inline row is replaced by the adjacent nested menu.
+const agentConfigMenu=agentEl('div','agentchat-config-menu');
+const agentConfigButton=agentButton('AI setup ▾',()=>toggleAgentConfigMenu());
+agentConfigButton.setAttribute('aria-haspopup','menu');
+agentConfigButton.setAttribute('aria-expanded','false');
+agentConfigButton.setAttribute('aria-label','Provider Model Effort and Context options for a new conversation');
+const agentConfigPanel=agentEl('div','agentchat-config-panel');
+const agentConfigNote=agentEl('div','agentchat-config-note','Selections apply when creating a new conversation. Existing conversations retain their original configuration.');
+const agentConfigCategories=new Map();
+for(const name of ['Provider','Model','Effort','Context']){
+ const category=agentEl('div','agentchat-config-category');
+ const categoryButton=agentButton(name+' ▸',()=>{
+  const next=category.getAttribute('aria-expanded')!=='true';
+  for(const other of agentConfigCategories.values())other.row.setAttribute('aria-expanded','false');
+  category.setAttribute('aria-expanded',String(next));
+ });
+ categoryButton.setAttribute('aria-haspopup','menu');
+ category.setAttribute('aria-expanded','false');
+ const values=agentEl('div','agentchat-config-category-values');
+ category.append(categoryButton,values);
+ agentConfigPanel.append(category);
+ agentConfigCategories.set(name,{row:category,button:categoryButton,values});
+}
+agentConfigPanel.append(agentConfigNote);
+agentConfigMenu.append(agentConfigButton,agentConfigPanel);
+viewTabs.append(agentConfigMenu);
 const main=agentEl('div','agentchat-main'),modelBar=agentEl('div','agentchat-modelbar');
 const toolNotice=agentEl('div','agentchat-info');toolNotice.hidden=true;
 // Open tabs are UI-only: the server remains the source of truth for every
@@ -169,7 +211,8 @@ const providerSelect=agentEl('select'),modelSelect=agentEl('select'),modeSelect=
 for(const mode of [['stateless','Stateless'],['previous_response','Response chain'],['conversation','Conversations (fallback)']]){
  modeSelect.append(agentOption(mode[0],mode[1]));
 }
-modelBar.append(agentEl('span','','Provider'),providerSelect,agentEl('span','','Model'),modelSelect,modeSelect,agentEl('span','','Effort'),effortSelect);
+// Hidden selects keep a single source of truth for new-session creation,
+ // provider/model config, model default and immutable existing sessions.
 const transcript=agentEl('div','agentchat-transcript');
 // Keep inspection expansion and the execution viewer independent of transcript
 // replacements triggered by native status polling.
@@ -235,7 +278,7 @@ const agentHeaderGroups=[conversationGroup,automationGroup,toolsGroup,layoutGrou
 for(const group of agentHeaderGroups)toolbarActions.append(group);
 heading.append(title,toolbarActions,moreButton,close,moreMenu);
 actionLine.append(status,cancel,send);composer.append(attachList,prompt,actionLine);
-main.append(tabbar,modelBar,toolNotice,transcript,agentExecutionPanel,composer);layout.append(main);
+main.append(tabbar,toolNotice,transcript,agentExecutionPanel,composer);layout.append(main);
 const footer=agentEl('div','agentchat-info','Agent automation is configured per conversation. Native Patch results are verified before being sent to AI.');
 windowBox.append(heading,viewTabs,layout,debugPanel,footer);root.append(windowBox);
 const agentToolbarItems=agentHeaderGroups;
