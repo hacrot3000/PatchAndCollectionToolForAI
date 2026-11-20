@@ -616,35 +616,66 @@ function displayAgentSession(session){
  const nextFeedback=session.auto_feedback?'Auto-send: ON':'Auto-send results';
  if(autoFeedback.textContent!==nextFeedback)autoFeedback.textContent=nextFeedback;
 }
+function updateAgentSessionRows(){
+ const wanted=new Set();
+ for(const sess of agentSessions){
+  wanted.add(sess.id);
+  const label=(sess.archived?'[archived] ':'')+(sess.title||sess.model_id)+' · '+sess.status;
+  let button=agentSessionListNodes.get(sess.id);
+  if(!button){
+   button=agentButton(label,()=>{toggleAgentSessions(false);selectAgentSession(sess.id).catch(showAgentError);});
+   button.title=sess.id;agentSessionListNodes.set(sess.id,button);
+   sessionList.append(button);
+  }
+  if(button.textContent!==label)button.textContent=label;
+  const cls='agentchat-session'+(sess.id===agentActive?' selected':'');
+  if(button.className!==cls)button.className=cls;
+ }
+ for(const [id,node] of agentSessionListNodes){
+  if(!wanted.has(id)){node.remove();agentSessionListNodes.delete(id);}
+ }
+ if(!agentSessions.length){
+  if(!sessionList.children.length)sessionList.append(agentEl('p','agentchat-info','No saved chat sessions.'));
+ }else{
+  for(const child of [...sessionList.children]){
+   if(child.className==='agentchat-info')child.remove();
+  }
+ }
+}
 async function loadAgentSessions(){
  const response=await agentApp.jsonFetch('/api/agent/sessions');
  agentSessions=Array.isArray(response.sessions)?response.sessions:[];
- sessionList.replaceChildren();
- for(const sess of agentSessions){
-  const label=(sess.archived?'[archived] ':'')+(sess.title||sess.model_id)+' · '+sess.status;
-  const item=agentButton(label,()=>{toggleAgentSessions(false);selectAgentSession(sess.id).catch(showAgentError);});
-  item.className='agentchat-session'+(sess.id===agentActive?' selected':'');
-  item.title=sess.id;
-  sessionList.append(item);
- }
- if(!agentSessions.length)sessionList.append(agentEl('p','agentchat-info','No saved chat sessions.'));
+ updateAgentSessionRows();
+ renderAgentTabs();
 }
 function renderAgentTabs(){
- tabbar.replaceChildren();
- if(!agentTabs.length){tabbar.append(agentEl('span','agentchat-info','No open tabs'));return;}
+ const wanted=new Set(agentTabs);
+ for(const [id,node] of agentTabNodes){
+  if(!wanted.has(id)){node.remove();agentTabNodes.delete(id);}
+ }
+ if(!agentTabs.length){
+  if(!tabbar.children.length)tabbar.append(agentEl('span','agentchat-info','No open tabs'));
+  return;
+ }
+ for(const child of [...tabbar.children]){
+  if(child.className==='agentchat-info')child.remove();
+ }
  for(const id of agentTabs){
   const sess=agentSessions.find(s=>s.id===id);
-  const label=(sess?.title||sess?.model_id||id.slice(0,8));
-  const tab=agentEl('span','agentchat-tab'+(id===agentActive?' active':''));
-  const open=agentButton(String(label),()=>selectAgentSession(id).catch(showAgentError));
-  open.className='';
-  open.style.padding='0';
-  open.style.border='0';
-  open.style.background='transparent';
-  const close=agentButton('✕',()=>closeAgentTab(id));
-  close.className='close';
-  tab.append(open,close);
-  tabbar.append(tab);
+  const label=String(sess?.title||sess?.model_id||id.slice(0,8));
+  let tab=agentTabNodes.get(id);
+  if(!tab){
+   tab=agentEl('span','agentchat-tab');
+   const open=agentButton(label,()=>selectAgentSession(id).catch(showAgentError));
+   open.className='';
+   open.style.padding='0';open.style.border='0';open.style.background='transparent';
+   const close=agentButton('✕',()=>closeAgentTab(id));
+   close.className='close';tab.append(open,close);
+   agentTabNodes.set(id,tab);tabbar.append(tab);
+  }
+  if(tab.children[0].textContent!==label)tab.children[0].textContent=label;
+  const cls='agentchat-tab'+(id===agentActive?' active':'');
+  if(tab.className!==cls)tab.className=cls;
  }
 }
 function openAgentTab(id){
