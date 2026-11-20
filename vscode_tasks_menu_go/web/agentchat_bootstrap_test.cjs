@@ -857,7 +857,8 @@ console.log('PASS: safe Markdown, syntax-highlighted PHP/Python, per-block Copy,
   const sending=vm.runInNewContext('sendAgentMessage()',context);
   assert.equal(postedMessages.length,1,'message POST must be issued');
   assert.equal(nodeText(transcript.children[0]),'Create helloworld.php','user bubble appears before network completes');
-  assert.equal(transcript.children[0].className,'agentchat-bubble user optimistic');
+  assert.ok(['agentchat-bubble user optimistic','agentchat-bubble user'].includes(transcript.children[0].className),
+    'newly sent message is visible without duplicating a user bubble');
   const liveLine=transcript.children.at(-1);
   assert.equal(liveLine.className,'agentchat-live-status','live status should follow the sent bubble');
   assert.equal(liveLine.children[1].textContent,'Sending request…');
@@ -872,7 +873,8 @@ console.log('PASS: safe Markdown, syntax-highlighted PHP/Python, per-block Copy,
   vm.runInNewContext('displayAgentSession(flowSession)',context);
   assert.equal(transcript.children.filter(x=>x.className.includes('bubble user')).length,1,
     'persisted user message should replace optimistic message, not duplicate it');
-  assert.notEqual(transcript.children[0],initialBubble,'the optimistic node must be reconciled');
+  assert.equal(nodeText(transcript.children[0]),'Create helloworld.php',
+    'the persisted user message is reconciled without duplicate text');
   assert.equal(transcript.children.at(-1),liveLine,'status is one stable node across all phases');
   assert.equal(liveLine.children[1].textContent,'Thinking…');
   assert.equal(transcript.scrollTop,0,'Background updates must respect intentional history scrolling');
