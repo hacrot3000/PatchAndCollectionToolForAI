@@ -21,7 +21,7 @@ func agentChatInstructions(projectID string, patchToolAvailable bool, projectKey
 		instructions += " No execution tools are enabled as native function calls for this model. " +
 			"You can STILL propose file creation and source edits with an exact, standalone JSON object. " +
 			"Use this JSON schema with no surrounding prose: " +
-			"{\\\"type\\\":\\\"taskdeck_patch_proposal\\\",\\\"project\\\":{\\\"key\\\":\\\"PROJECT_KEY\\\",\\\"id\\\":\\\"PROJECT_ID\\\"},\\\"name\\\":\\\"short title\\\",\\\"patch_python\\\":\\\"complete Python Patch with TASKDECK_PROJECT_KEY and TASKDECK_PROJECT_ID comment headers\\\"}. " +
+			`{"type":"taskdeck_patch_proposal","project":{"key":"PROJECT_KEY","id":"PROJECT_ID"},"name":"short title","patch_python":"complete Python Patch with TASKDECK_PROJECT_KEY and TASKDECK_PROJECT_ID comment headers"}. ` +
 			"TaskDeck validates that exact JSON, displays the code for human approval, and only the native Patch Tool may execute an approved patch. " +
 			"Do NOT tell the user tool calling must be verified to submit a proposal. Do NOT claim execution until TaskDeck verifies it. " +
 			"To inspect files first without function calling, you may output one exact project-bound read-only Collection JSON request; TaskDeck will return its verified result. "
