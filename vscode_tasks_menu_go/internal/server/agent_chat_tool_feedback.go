@@ -238,11 +238,16 @@ func (s *Server) agentDeliverToolResult(ctx context.Context, store *agentchat.St
 		_, _ = store.Save(x, x.Revision)
 		return agentDeliverResult{}, agentContinueError{403, "explicit external-provider consent is required"}
 	}
-	callCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
-	defer cancel()
-	releaseRequest := registerAgentRequest(agentRequestKey(s.Workspace, owner, x.ID), cancel)
+	// The Patch feedback may trigger several read-only Collection turns.
+	// Keep one cancelable multi-call scope alive across the whole sequence;
+	// the provider's individual request deadline remains 60 seconds.
+	continuationCtx, continuationCancel := context.WithTimeout(ctx, 7*60*time.Second)
+	defer continuationCancel()
+	releaseRequest := registerAgentRequest(agentRequestKey(s.Workspace, owner, x.ID), continuationCancel)
+	defer releaseRequest()
+	callCtx, callCancel := context.WithTimeout(continuationCtx, 60*time.Second)
 	result, err, _ := s.agentChatCallForOwner(callCtx, owner, x.ID, p, string(secret), payload)
-	releaseRequest()
+	callCancel()
 	if err != nil {
 		if errors.Is(callCtx.Err(), context.Canceled) {
 			s.recordAgentDebugEvent(owner, x.ID, call.CallID, "feedback", "feedback.unknown", "FEEDBACK_DELIVERY_UNKNOWN", "Provider acknowledgement was not confirmed; result will not be resent")
@@ -261,7 +266,7 @@ func (s *Server) agentDeliverToolResult(ctx context.Context, store *agentchat.St
 	x.AppendEvent("feedback_acknowledged", x.Status, call.CallID, "")
 	// A verified native Patch result can legitimately lead the model to
 	// inspect more code. Continue read-only Collection calls automatically.
-	result, err = s.agentChatRunCollection(ctx, store, &x, result, p, model, string(secret), identity, toolAvailable)
+	result, err = s.agentChatRunCollection(continuationCtx, store, &x, result, p, model, string(secret), identity, toolAvailable)
 	if err != nil {
 		x.Status = "failed"
 		x.AppendEvent("collect_failed", "failed", "", "")
