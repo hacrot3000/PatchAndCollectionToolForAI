@@ -133,7 +133,8 @@ func (s *Server) agentHistoryResultFromHistory(call agentchat.ToolCallRecord,lat
     "source":"native_patch_history","item_index":call.SelectedIndex,
     "diagnosis_kind":scrubAIContext(diag,128),
     "failure_reason":scrubAIContext(reason,400),
-    "stdout_tail":scrubAIContext(item.OutputTail,400),
+    "stdout_tail":agentPatchLogExcerpt(item.OutputTail,1400),
+     "test_verification":"Patch PASS / rc=0 does not establish that nested tests passed; inspect stdout_tail for exit codes and warnings.",
     "project_unchanged":status=="PREFLIGHT_FAIL",
     "automatic_retry":false,
    }
