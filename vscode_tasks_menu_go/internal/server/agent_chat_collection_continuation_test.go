@@ -151,3 +151,47 @@ func TestAgentCollectionProviderFailurePreservesObservationAndTrace(t *testing.T
 	}
 	if !found {t.Fatal("verified Collection observation was lost after provider HTTP failure")}
 }
+
+func TestAgentCollectionMalformedReadRequestIsRepairable(t *testing.T) {
+	s,id:=newAgentConversationFixture(t,"stateless")
+	if err:=os.WriteFile(filepath.Join(s.Workspace,"helloworld.php"),[]byte("<?php echo 'Hello World';\n"),0600);err!=nil {t.Fatal(err)}
+	calls:=0
+	s.AgentChatCall=func(_ context.Context,_ agentchat.ProviderConfig,_ string,body []byte)(agentchat.ResponsesResult,error) {
+		calls++
+		switch calls {
+		case 1:
+			return agentchat.ResponsesResult{ResponseID:"bad-read",Calls:[]agentchat.FunctionCall{{
+				CallID:"bad-1",Name:"taskdeck_collect_workspace",Arguments:`{"actions":[{"type":"write","path":"helloworld.php"}]}`,
+			}}},nil
+		case 2:
+			var payload struct{ Input []map[string]any `json:"input"` }
+			if err:=json.Unmarshal(body,&payload);err!=nil {t.Fatal(err)}
+			found:=false
+			for _,item:=range payload.Input {
+				if item["type"]=="function_call_output" && item["call_id"]=="bad-1" &&
+					strings.Contains(fmt.Sprint(item["output"]),"INVALID_COLLECTION_REQUEST") {found=true}
+			}
+			if !found {t.Fatal("malformed read was not returned as a repairable tool error")}
+			return agentchat.ResponsesResult{ResponseID:"fixed-read",Calls:[]agentchat.FunctionCall{{
+				CallID:"read-2",Name:"taskdeck_collect_workspace",Arguments:`{"actions":[{"type":"read","path":"helloworld.php"}]}`,
+			}}},nil
+		case 3:
+			return agentchat.ResponsesResult{ResponseID:"answer-read",Text:"Read the PHP greeting; ready to propose a patch."},nil
+		}
+		t.Fatalf("unexpected Collection round %d",calls)
+		return agentchat.ResponsesResult{},nil
+	}
+	w:=invokeAI(t,s.agentChatSessionItemAPI,"POST","/api/agent/sessions/"+id+"/messages",
+		map[string]any{"message":"Read helloworld.php and translate its greeting","confirm_external":true,"expected_revision":1})
+	if w.Code!=200 || calls!=3 {t.Fatalf("malformed request terminated the turn: %d %s",w.Code,w.Body)}
+	if _,err:=os.Stat(filepath.Join(s.Workspace,"helloworld.php"));err!=nil {t.Fatal("read-only Collection damaged project file")}
+}
+
+func TestAgentCollectionLocalFailuresHaveConcreteErrorStage(t *testing.T) {
+	err:=&agentCollectionLocalError{Stage:"request_build",Round:2,Cause:fmt.Errorf("too many items")}
+	data:=debugErrorJSON(err,"trace-correct","COLLECTION_CONTINUATION_FAILED","tool_execution","generic")
+	body,_:=json.Marshal(data)
+	for _,value:=range []string{"COLLECTION_REQUEST_BUILD_FAILED","request_build",`"round":2`,`"ambiguous":false`} {
+		if !strings.Contains(string(body),value) {t.Fatalf("missing specific diagnostic %q: %s",value,body)}
+	}
+}
