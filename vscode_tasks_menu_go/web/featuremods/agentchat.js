@@ -780,23 +780,34 @@ async function showAgentExecution(sessionID,callID){
  agentExecutionContent.textContent=agentExecutionText;
  agentExecutionPanel.classList.add('visible');
 }
-async function syncAgentPatch(id){
+async function syncAgentPatch(id,{quiet=false}={}){
  if(agentSessionBusy(id)){
-  status.textContent='Agent is busy; native Patch status can be checked when the current request finishes.';
+  if(!quiet)status.textContent='Agent is busy; native Patch status can be checked when the request finishes.';
   return null;
  }
- const result=await agentApp.jsonFetch('/api/agent/sessions/'+encodeURIComponent(id)+'/sync',{
-  method:'POST',headers:{'Content-Type':'application/json'},body:'{}',
- });
- if(agentActive===id){
-  await selectAgentSession(id);
-  const last=(result.tool_calls||[]).slice(-1)[0];
-  if(last?.status==='done')status.textContent='Native Patch PASS · '+(last.feedback_sent?'result sent to AI':'click Send verified result to AI, or enable Auto-send results');
-  else if(last?.status==='error')status.textContent='Native Patch finished with errors · review its result';
-  else if(last?.status==='running')status.textContent='Native Patch still running or awaiting final verifiable evidence';
-  else if(last?.status==='unknown')status.textContent='Native Patch evidence unavailable · inspect Patch History';
+ if(agentPatchSyncInFlight.has(id))return null;
+ agentPatchSyncInFlight.add(id);
+ try{
+  const result=await agentApp.jsonFetch('/api/agent/sessions/'+encodeURIComponent(id)+'/sync',{
+   method:'POST',headers:{'Content-Type':'application/json'},body:'{}',
+  });
+  if(agentActive!==id)return result;
+  // No journal revision change means native state did not change. Keep the
+  // whole transcript/tab/console DOM untouched and avoid a second API call.
+  if(!agentCurrentSession||result.revision!==agentCurrentSession.revision){
+   await selectAgentSession(id);
+  }
+  if(!quiet){
+   const last=(result.tool_calls||[]).slice(-1)[0];
+   if(last?.status==='done')status.textContent='Native Patch PASS · '+(last.feedback_sent?'result sent to AI':'click Send verified result to AI, or enable Auto-send results');
+   else if(last?.status==='error')status.textContent='Native Patch finished with errors · review its result';
+   else if(last?.status==='running')status.textContent='Native Patch still running or awaiting final verifiable evidence';
+   else if(last?.status==='unknown')status.textContent='Native Patch evidence unavailable · inspect Patch History';
+  }
+  return result;
+ }finally{
+  agentPatchSyncInFlight.delete(id);
  }
- return result;
 }
 async function continueAgentTool(session,callID){
  if(agentSessionBusy(session.id))return;
@@ -816,32 +827,32 @@ async function continueAgentTool(session,callID){
   agentAbort=null;agentBusy=false;markAgentSessionBusy(session.id,false);
  }
 }
-// Resync transition journal after a reconnect, without replaying prompts.
-async function syncAgentEvents(sessionID){
- if(agentSessionBusy(sessionID))return;
- try{
-  const data=await agentApp.jsonFetch('/api/agent/sessions/'+encodeURIComponent(sessionID)+'/events');
-  if(sessionID!==agentActive)return;
-  const last=(data.events||[]).slice(-1)[0];
-  if(last&&['tool_final','turn_finished','turn_failed','turn_cancelled'].includes(last.kind)){
-   await selectAgentSession(sessionID);
-  }
- }catch{}
-}
+// One bounded reconciliation call per polling interval. Never combine a
+// second events fetch plus /sync plus unconditional full-session fetch.
 function scheduleAgentMonitor(sess){
  clearTimeout(agentMonitorTimer);agentMonitorTimer=0;
  if(!root.classList.contains('visible')||!sess)return;
  if(agentApp.sharedMode&&!agentApp.hasPermission?.('patch.view'))return;
- if(!(sess.tool_calls||[]).some(c=>c.status==='running'))return;
+ const pending=(sess.tool_calls||[]).some(call=>['running','dispatching','queued'].includes(call.status));
+ const awaitingFeedback=sess.auto_feedback&&sess.status==='waiting_tool'&&
+  (sess.tool_calls||[]).some(call=>['done','error'].includes(call.status)&&!call.feedback_sent);
+ if(!pending&&!awaitingFeedback)return;
  const id=sess.id;
  agentMonitorTimer=setTimeout(async()=>{
   if(agentActive!==id||!root.classList.contains('visible'))return;
-  await syncAgentEvents(id);
-  if(agentBusy){scheduleAgentMonitor(sess);return;}
-  try{await syncAgentPatch(id);}
-  catch(error){
+  if(agentBusy||agentSessionBusy(id)){
+   scheduleAgentMonitor(agentCurrentSession||sess);return;
+  }
+  try{
+   const result=await syncAgentPatch(id,{quiet:true});
+   // If the revision is unchanged no selectAgentSession() runs. Rearm
+   // polling from the actual latest session, never the stale captured one.
+   if(agentActive===id&&result&&result.revision===(agentCurrentSession?.revision)){
+    scheduleAgentMonitor(agentCurrentSession);
+   }
+  }catch(error){
    status.textContent='Native Patch polling failed: '+String(error?.message||error);
-   agentMonitorTimer=setTimeout(()=>selectAgentSession(id).catch(showAgentError),5000);
+   agentMonitorTimer=setTimeout(()=>scheduleAgentMonitor(agentCurrentSession||sess),5000);
   }
  },2800);
 }
