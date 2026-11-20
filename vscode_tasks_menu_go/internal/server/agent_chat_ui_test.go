@@ -49,7 +49,7 @@ func TestAgentChatUIHasNoExecutionAndWiresProviderSessions(t *testing.T) {
 		"stageContext",
 		"attachProjectFile",
 		"Attach file to Chat",
-		"Attach selected text to Chat",
+		"Add selection to chat",
 		"attachments:wireAttachments",
 		"agentAttachmentDrafts.set(sessionID,attachments)",
 		"normalizeStagedAttachments",
@@ -92,7 +92,7 @@ func TestAgentChatUIHasNoExecutionAndWiresProviderSessions(t *testing.T) {
 		if strings.Contains(string(b), "globalThis.TaskMenuAgentChat") && otherPath == "featuremods/projectfileactions.js" && (!strings.Contains(string(b), "Attach to Chat") || !strings.Contains(string(b), "attachProjectFile")) {
 			t.Errorf("%s lacks file attachment action", otherPath)
 		}
-		if otherPath == "featuremods/tabcontext.js" && (!strings.Contains(string(b), "editorActions") || !strings.Contains(string(b), "Attach selected text to Chat")) {
+		if otherPath == "featuremods/tabcontext.js" && (!strings.Contains(string(b), "editorActions") || !strings.Contains(string(b), "Add selection to chat")) {
 			t.Errorf("%s lacks editor attachment action", otherPath)
 		}
 		if otherPath == "featuremods/editor.js" && !strings.Contains(string(b), "getTextSelectionContext") {
