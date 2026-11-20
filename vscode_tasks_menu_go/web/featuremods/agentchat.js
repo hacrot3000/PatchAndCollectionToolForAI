@@ -1211,18 +1211,31 @@ async function syncAgentPatch(id,{quiet=false}={}){
 async function continueAgentTool(session,callID){
  if(agentSessionBusy(session.id))return;
  if(!window.confirm('Send the verified native Patch execution result back to the external AI provider to continue this conversation?'))return;
+ const turn={message:'',phase:'feedback',error:'',baseHistoryLength:session.history?.length||0,
+  baseEventSeq:session.event_seq||0,optimisticNode:null,acknowledged:false};
+ agentLiveTurns.set(session.id,turn);
+ if(agentActive===session.id)agentUpdateLiveRow(agentCurrentSession||session);
  agentBusy=true;markAgentSessionBusy(session.id,true);
  agentAbort=new AbortController();
+ agentStartProgressPoll(session.id);
  try{
   const result=await agentApp.jsonFetch('/api/agent/sessions/'+encodeURIComponent(session.id)+'/tools/'+encodeURIComponent(callID)+'/continue',{
    method:'POST',headers:{'Content-Type':'application/json'},
    body:JSON.stringify({expected_revision:session.revision,confirm_external:true}),signal:agentAbort.signal,
   });
-  await selectAgentSession(session.id);
-  status.textContent=result.status==='waiting_tool'
-   ?'AI proposed another patch; review and approve separately.'
-   :'AI has received the verified native Patch result.';
+  if(agentActive===session.id)await selectAgentSession(session.id);
+  agentLiveTurns.delete(session.id);
+  if(agentActive===session.id&&agentCurrentSession)agentUpdateLiveRow(agentCurrentSession);
+  return result;
+ }catch(error){
+  turn.error=String(error?.message||error).slice(0,450);
+  if(agentActive===session.id){
+   try{await selectAgentSession(session.id);}catch{}
+   if(agentCurrentSession?.id===session.id)agentUpdateLiveRow(agentCurrentSession);
+  }
+  throw error;
  }finally{
+  agentStopProgressPoll(session.id);
   agentAbort=null;agentBusy=false;markAgentSessionBusy(session.id,false);
  }
 }
@@ -1237,7 +1250,8 @@ function scheduleAgentMonitor(sess){
   (sess.tool_calls||[]).some(call=>call.status==='pending');
  const awaitingFeedback=sess.auto_feedback&&sess.status==='waiting_tool'&&
   (sess.tool_calls||[]).some(call=>['done','error','rejected'].includes(call.status)&&!call.feedback_sent);
- if(!pending&&!awaitingFeedback&&!awaitingAutoPatch)return;
+ const thinking=sess.status==='requesting_ai';
+ if(!pending&&!awaitingFeedback&&!awaitingAutoPatch&&!thinking)return;
  const id=sess.id;
  agentMonitorTimer=setTimeout(async()=>{
   if(agentActive!==id||!root.classList.contains('visible'))return;
@@ -1245,11 +1259,15 @@ function scheduleAgentMonitor(sess){
    scheduleAgentMonitor(agentCurrentSession||sess);return;
   }
   try{
-   const result=await syncAgentPatch(id,{quiet:true});
-   // If the revision is unchanged no selectAgentSession() runs. Rearm
-   // polling from the actual latest session, never the stale captured one.
-   if(agentActive===id&&result&&result.revision===(agentCurrentSession?.revision)){
-    scheduleAgentMonitor(agentCurrentSession);
+   if(thinking){
+    // An auto-feedback provider call may continue in another HTTP request.
+    // GET its journal while thinking; native /sync is for Patch executions.
+    await selectAgentSession(id);
+   }else{
+    const result=await syncAgentPatch(id,{quiet:true});
+    if(agentActive===id&&result&&result.revision===(agentCurrentSession?.revision)){
+     scheduleAgentMonitor(agentCurrentSession);
+    }
    }
   }catch(error){
    status.textContent='Native Patch polling failed: '+String(error?.message||error);
