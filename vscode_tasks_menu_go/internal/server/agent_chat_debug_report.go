@@ -119,11 +119,17 @@ func (s *Server) agentChatDebugReportAPI(w http.ResponseWriter, r *http.Request)
  // embedding raw HTTP payload, workstation paths or unknown provider bodies.
  b,err:=json.MarshalIndent(report,"","  ")
  if err!=nil{http.Error(w,"cannot encode safe report",500);return}
- if len(b)>2<<20{
-  // Preserve the durable summary and explain why trace volume was omitted.
-  report["provider_traces"]=[]agentDebugTrace{}
+ // Keep the newest trace evidence when the report reaches its 2 MiB
+ // limit. Never drop all diagnostic traces just because old ones are large.
+ omitted:=0
+ for len(b)>2<<20 && len(traces)>1 {
+  traces=traces[1:]
+  omitted++
+  report["provider_traces"]=traces
+  report["provider_trace_count"]=len(traces)
   report["traces_truncated"]=true
-  report["diagnostic_note"]="Safe provider traces exceeded 2 MiB; they were omitted from this single report. Durable session transitions remain available."
+  report["omitted_oldest_traces"]=omitted
+  report["diagnostic_note"]="Safe report exceeded 2 MiB; oldest provider traces were omitted, newest trace evidence and durable sessions are retained."
   b,err=json.MarshalIndent(report,"","  ")
   if err!=nil{http.Error(w,"cannot encode report",500);return}
  }
