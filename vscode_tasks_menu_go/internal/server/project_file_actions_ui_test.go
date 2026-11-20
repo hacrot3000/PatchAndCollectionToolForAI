@@ -34,6 +34,7 @@ func TestSharedProjectFileActionRegistryProvidesCommonWorkflow(t *testing.T) {
 	for _, want := range []string{
 		"function standardActions(pathValue,type='file')",
 		"Open",
+		"Attach to Chat",
 		"Reveal in Explorer",
 		"Open containing folder",
 		"Search / Replace in folder…",

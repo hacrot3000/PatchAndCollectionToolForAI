@@ -18,6 +18,7 @@ class FakeElement {
     this.type = '';
     this.value = '';
     this.disabled = false;
+    this.options = this.children;
     this.style = { setProperty() {} };
     this.dataset = {};
     this.clientWidth = 0;
@@ -66,6 +67,8 @@ class FakeElement {
   addEventListener(type, listener) { (this.listeners[type] ||= []).push(listener); }
   querySelector(selector) { return selector === 'button' ? this.children.find(child => child.tagName === 'button') || null : null; }
   focus() {}
+  dispatchEvent() { return true; }
+  contains(node) { return node === this || this.children.some(child => child.contains?.(node)); }
   click() {
     const event = { target: this, stopPropagation() {} };
     this.onclick?.(event);
@@ -80,6 +83,7 @@ const document = {
   body: new FakeElement('body'),
   createElement: tag => new FakeElement(tag),
   querySelector: selector => selector === 'main>section' ? section : selector === '#tabs' ? tabs : selector === '#panes' ? panes : null,
+  addEventListener() {},
 };
 let resizeObserver;
 const context = {
@@ -88,6 +92,8 @@ const context = {
   },
   document,
   Event: class Event { constructor(type) { this.type = type; } },
+  TextEncoder,
+  TextDecoder,
   ResizeObserver: class ResizeObserver {
     constructor(callback) { this.callback = callback; resizeObserver = this; }
     observe() {}
@@ -95,6 +101,8 @@ const context = {
   window: { innerWidth: 1200, innerHeight: 800, addEventListener() {}, dispatchEvent() {} },
   setTimeout() { return 1; },
   clearTimeout() {},
+  setInterval() { return 0; },
+  clearInterval() {},
 };
 assert.doesNotThrow(
   () => vm.runInNewContext(source, context, { filename: 'agentchat.js', timeout: 2000 }),
@@ -172,6 +180,68 @@ assert.equal(context.TaskMenuAgentChat.autoHide, true);
 console.log('PASS: Agent Chat bootstraps and dock position/auto-hide state transitions work');
 
 (async () => {
+  const staged = await context.TaskMenuAgentChat.stageContext({
+    kind: 'file_selection', name: 'hello.php', mime: 'text/x-php',
+    text: 'line one\nline two',
+    source: { path: 'src/目录/hello.php', start_line: 12, start_column: 4, end_line: 13, end_column: 8,
+      content_source: 'unsaved_editor_buffer', dirty: true, captured_at: '2026-11-20T00:00:00Z' },
+  }, { open: false });
+  assert.equal(staged.ok, true);
+  assert.equal(staged.pending, true, 'Staging without a session remains pending');
+  assert.equal(staged.session_id, null);
+  const stagedText = vm.runInNewContext('agentPendingAttachments[0].text', context);
+  assert.match(stagedText, /FILE_PATH: src\/目录\/hello\.php/);
+  assert.match(stagedText, /RANGE: L12:C4-L13:C8/);
+  assert.match(stagedText, /CONTENT_SOURCE: unsaved_editor_buffer/);
+  assert.match(stagedText, /line one\nline two/);
+  assert.equal(context.TaskMenuAgentChat.visible, false, 'Staging does not implicitly open or send the chat');
+  for (let i = 0; i < 3; i++) {
+    const result = await context.TaskMenuAgentChat.stageContext({kind:'file',name:'f'+i+'.txt',mime:'text/plain',text:'x'}, {open:false});
+    assert.equal(result.ok, true);
+  }
+  const fifth = await context.TaskMenuAgentChat.stageContext({kind:'file',name:'fifth.txt',mime:'text/plain',text:'x'}, {open:false});
+  assert.equal(fifth.ok, false, 'Fifth attachment is rejected');
+  assert.equal(vm.runInNewContext('agentPendingAttachments.length', context), 4, 'Rejected staging keeps prior pending items');
+  const binary = await context.TaskMenuAgentChat.stageContext({kind:'file',name:'x.bin',mime:'application/octet-stream',text:'x'}, {open:false});
+  assert.equal(binary.ok, false, 'Binary MIME is rejected');
+  vm.runInNewContext('agentPendingAttachments.splice(0)', context);
+  const oversized = await context.TaskMenuAgentChat.stageContext({kind:'file',name:'big.txt',mime:'text/plain',text:'x'.repeat(40 * 1024)}, {open:false});
+  assert.equal(oversized.ok, false, 'Oversized attachment is rejected without truncation');
+  const selection = await vm.runInNewContext(`editorSelectionContexts({
+    closed:false, dirty:true, file:{path:'src/app/main.go'},
+    cm:{state:{doc:{
+      sliceString:(from,to)=>['alpha','beta','gamma'].join('\\n').slice(from,to),
+      lineAt:(offset)=>({number:offset<6?1:2,from:offset<6?0:6,to:offset<6?5:11}),
+    },selection:{main:{from:6,to:10},ranges:[]}}},
+  })`, context);
+  assert.equal(selection.kind, 'file_selection');
+  assert.equal(selection.source.start_line, 2);
+  assert.equal(selection.source.start_column, 1);
+  assert.equal(selection.source.end_line, 2);
+  assert.equal(selection.source.end_column, 5);
+  assert.equal(selection.text, 'L2:C1-L2:C5\nbeta');
+  assert.equal(selection.source.dirty, true);
+  const reverse = await vm.runInNewContext(`editorSelectionContexts({
+    closed:false, dirty:false, file:{path:'src/app/main.go'},
+    cm:{state:{doc:{
+      sliceString:(from,to)=>['alpha','beta','gamma'].join('\\n').slice(from,to),
+      lineAt:(offset)=>({number:offset<6?1:2,from:offset<6?0:6,to:offset<6?5:11}),
+    },selection:{main:{anchor:10,head:6,from:6,to:10},ranges:[{from:6,to:10}]}}},
+  })`, context);
+  assert.equal(reverse.source.start_line, 2, 'Reverse selections use range.from for start line');
+  assert.equal(reverse.source.start_column, 1);
+  assert.equal(reverse.source.end_line, 2);
+  assert.equal(reverse.source.end_column, 5);
+  const multiple = await vm.runInNewContext(`editorSelectionContexts({
+    closed:false, dirty:false, file:{path:'src/app/main.go'},
+    cm:{state:{doc:{
+      sliceString:(from,to)=>['alpha','beta','gamma'].join('\\n').slice(from,to),
+      lineAt:(offset)=>({number:offset<6?1:2,from:offset<6?0:6,to:offset<6?5:11}),
+    },selection:{main:{from:0,to:3},ranges:[{from:6,to:10},{from:0,to:3}]}}},
+  })`, context);
+  assert.equal(multiple.source.ranges.length, 2);
+  assert.match(multiple.text, /RANGE 1/);
+  assert.match(multiple.text, /RANGE 2/);
   let saved;
   context.window.confirm = () => true;
   context.TaskMenuApp.jsonFetch = async (url, options) => {
@@ -179,11 +249,41 @@ console.log('PASS: Agent Chat bootstraps and dock position/auto-hide state trans
     saved = JSON.parse(options.body);
     return { provider: saved.provider };
   };
+  let listCalls=0;
+  context.TaskMenuApp.jsonFetch=async url=>{if(url==='/api/agent/providers')return {providers:[]};if(url==='/api/agent/sessions/session-1'||url==='/api/agent/sessions/session-2')return {session:{id:url.split('/').pop(),title:'Existing project session',status:'created',history:[],provider_id:'p',model_id:'m',mode:'stateless',revision:1}};if(url==='/api/agent/sessions')return {sessions:[{id:'session-1',title:'Existing project session'}]};listCalls++;throw new Error('Unexpected request '+url);};
+  const opened=await context.TaskMenuAgentChat.stageContext({kind:'file',name:'pending.txt',mime:'text/plain',text:'pending'},{open:true});
+  assert.equal(opened.ok,true,opened.error);
+  assert.equal(opened.pending,true,'Without a session the context stays pending');
+  assert.equal(opened.session_id,null);
+  assert.equal(context.TaskMenuAgentChat.visible,true,'Pending context opens the dock');
+  assert.equal(vm.runInNewContext('agentPendingAttachments.length',context),1,'Pending context is not lost');
+  // Choosing a session later moves the pending context into that session only.
+  await vm.runInNewContext("selectAgentSession('session-1')", context);
+  assert.equal(vm.runInNewContext('agentAttachments.length',context),1,'Pending context moves into the chosen session');
+  assert.equal(vm.runInNewContext('agentPendingAttachments.length',context),0);
+  vm.runInNewContext('agentAttachments.splice(0);agentPendingAttachments.splice(0);agentAttachmentDrafts.clear();agentActive=null',context);
+  // Attachments are session-scoped: staging for A must not appear in B.
+  await vm.runInNewContext("stageContext({kind:'file',name:'a.txt',mime:'text/plain',text:'A'},{open:false,session_id:'session-1'})",context);
+  await vm.runInNewContext("selectAgentSession('session-1')",context);
+  assert.equal(vm.runInNewContext('agentAttachments.length',context),1,'Session A keeps its attachment');
+  await vm.runInNewContext("selectAgentSession('session-2')",context);
+  assert.equal(vm.runInNewContext('agentAttachments.length',context),0,'Session B does not inherit session A attachments');
+  await vm.runInNewContext("selectAgentSession('session-1')",context);
+  assert.equal(vm.runInNewContext('agentAttachments.length',context),1,'Returning to session A restores its attachment');
+  const cards=vm.runInNewContext('attachList.children.length',context);
+  assert.equal(cards,1,'Attachment chip is rendered in the composer');
+  vm.runInNewContext("agentAttachments.splice(0);agentActive=null",context);
   vm.runInNewContext(`
     agentProviders=[{id:'p',name:'Provider',api_type:'responses',base_url:'https://example.com/v1',models:[]}];
+    agentSessions=[{id:'session-1',title:'Existing project session',archived:false}];
     settingsPicker.value='p';
     providerEditor.value=JSON.stringify({...agentProviders[0], name:'Unsaved edit'});
   `, context);
+  context.TaskMenuApp.jsonFetch=async (url,options)=>{
+    assert.equal(url,'/api/agent/providers');
+    saved=JSON.parse(options.body);
+    return {provider:saved.provider};
+  };
   await vm.runInNewContext("allowAgentProviderIP('p','https://example.com/v1','100.64.0.19')", context);
   assert.deepEqual(saved.provider.trusted_shared_ips, ['100.64.0.19']);
   assert.equal(saved.provider.name, 'Provider', 'Allowing an IP does not persist unrelated unsaved edits');

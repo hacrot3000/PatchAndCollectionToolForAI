@@ -179,7 +179,7 @@ function decorateMobileTabActions(descriptor){
     const rect=button.getBoundingClientRect();
     const current=descriptorForTab(tab);
     if(!current)return;
-    if(current.kind==='editor')openEditorContextMenu(current.view,rect.left,rect.bottom+4);
+    if(current.kind==='editor')openEditorContextMenu(current.view,rect.left,rect.bottom+4,current.view.cm?.state?.selection);
     else if(current.kind==='terminal')openContextMenu(current.view,rect.left,rect.bottom+4);
     else openFeatureContextMenu(current,rect.left,rect.bottom+4);
   };
@@ -368,7 +368,7 @@ function clampPosition(x,y){
   globalThis.TaskMenuContextViewport.place(menu,x,y);
 }
 
-function openEditorContextMenu(view,x,y){
+function openEditorContextMenu(view,x,y,selectionSnapshot=null){
   closeContextMenu();
   contextView=view;
   const descriptor=descriptorForTab(view.tab);
@@ -377,7 +377,19 @@ function openEditorContextMenu(view,x,y){
   addHeading('Editor');
   const editor=globalThis.TaskMenuEditor;
   const projectActions=(globalThis.TaskMenuProjectFileActions?.standardActions?.(view.file?.path,'file')||[])
-    .filter(action=>action.label!=='Open'&&!action.separator);
+    .filter(action=>action.label!=='Open'&&action.label!=='Attach to Chat'&&!action.separator);
+  const targetSessionID=globalThis.TaskMenuAgentChat?.activeSessionID||null;
+  const chatActions=(globalThis.TaskMenuAgentChat?.editorActions?.(view,selectionSnapshot)||[]).map(action=>({...action,run:()=>action.run?.(targetSessionID?{session_id:targetSessionID}:{})}));
+  const browserSelection=window.getSelection?.()?.toString?.().trim();
+  const snapshotRanges=selectionSnapshot?.ranges?.length?selectionSnapshot.ranges:[selectionSnapshot?.main];
+  if(browserSelection&&view.cm?.contentDOM?.contains(window.getSelection()?.anchorNode)&&!snapshotRanges.some(range=>range&&range.from!==range.to)){
+    const browserContext=globalThis.TaskMenuEditor?.getTextSelectionContext?.({view});
+    if(browserContext)chatActions.push({label:'Attach selected text to Chat',run:async options=>{
+      const sessionID=options?.session_id??targetSessionID;
+      const staged=await globalThis.TaskMenuAgentChat?.stageContext?.(browserContext,{open:true,...(sessionID?{session_id:sessionID}:{})});
+      if(!staged?.ok)throw new Error(staged?.error||'Could not attach the selected text to Chat.');return staged;
+    }});
+  }
   const splitParent=editor?.getSplitParent?.(view);
   const compare=globalThis.TaskMenuFileCompare;
   const currentCompareSource=compare?.editorSource?.(view,{label:'Editor buffer'});
@@ -397,7 +409,7 @@ function openEditorContextMenu(view,x,y){
   ];
   // Frequent editor actions stay one click away. The long-tail operations
   // live behind consistent first-level submenus.
-  addCustomActions('',[actions[0],actions[1],actions[6]]);
+  addCustomActions('',[...chatActions,actions[0],actions[1],actions[6]]);
   addCustomActions('',[
     {label:'Compare',children:actions.slice(2,6)},
     {label:'Split',children:actions.slice(7,11)},
@@ -625,7 +637,7 @@ tabsHost.addEventListener('contextmenu',event=>{
   const descriptor=descriptorForTab(tab);
   if(!descriptor)return;
   event.preventDefault();event.stopPropagation();
-  if(descriptor.kind==='editor')openEditorContextMenu(descriptor.view,event.clientX,event.clientY);
+  if(descriptor.kind==='editor')openEditorContextMenu(descriptor.view,event.clientX,event.clientY,descriptor.view.cm?.state?.selection);
   else if(descriptor.kind==='terminal')openContextMenu(descriptor.view,event.clientX,event.clientY);
   else openFeatureContextMenu(descriptor,event.clientX,event.clientY);
 },true);
@@ -676,6 +688,7 @@ function retargetTerminal(oldID,view){
 }
 
 globalThis.TaskMenuTabContext={
+  openEditorContextMenu,
   openContextMenu,
   openEmptyTabContextMenu,
   reopenClosedTab,

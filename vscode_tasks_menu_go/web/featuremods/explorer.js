@@ -783,11 +783,13 @@ function appendSharedProjectActions(pathValue,type){
   const actions=globalThis.TaskMenuProjectFileActions?.standardActions?.(pathValue,type)||[];
   for(const action of actions){
     if(action.separator)contextSeparator();
+    else if(action.label==='Attach to Chat')contextAction(action.label,()=>Promise.resolve(action.run?.()).catch(app.showError),action);
     else contextAction(action.label,action.run,action);
   }
 }
 function showContextMenu(event,pathValue,type){
   event.preventDefault();event.stopPropagation();
+  const nameTarget=event.target instanceof Element?event.target.closest('.project-explorer-name'):null;
   if(!selected.has(pathValue)){selected.clear();selected.add(pathValue);lastSelectedPath=pathValue;render();}
   closeContextMenu();
   const paths=[...selected];
