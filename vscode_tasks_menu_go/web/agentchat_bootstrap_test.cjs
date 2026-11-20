@@ -126,6 +126,15 @@ assert.equal(sessionsButton.attributes['aria-expanded'], 'true');
 sessionsButton.onclick();
 assert.equal(sessionsList.classList.contains('open'), false, 'Saved conversations close on second click');
 assert.equal(sessionsButton.attributes['aria-expanded'], 'false');
+// The saved conversation selector must include a separate scoped Delete action
+// without forcing the user to open the conversation first.
+vm.runInNewContext('agentSessions=[{id:"deleted-view-only",title:"Old conversation",model_id:"m",status:"completed",archived:false}];updateAgentSessionRows()', context);
+const listedDelete=find(sessionsList,node=>node.className==='delete'&&node.textContent==='Delete');
+assert.ok(listedDelete,'saved conversations need a per-row Delete action');
+assert.equal(listedDelete.disabled,false,'completed conversations can be deleted');
+vm.runInNewContext('agentSessions=[{id:"deleted-view-only",title:"Old conversation",model_id:"m",status:"waiting_tool",archived:false}];updateAgentSessionRows()', context);
+assert.equal(listedDelete.disabled,true,'pending native Patch work cannot be deleted');
+vm.runInNewContext('agentSessions=[];updateAgentSessionRows()', context);
 const collectLabels = node => [node.textContent, ...node.children.flatMap(collectLabels)];
 const labels = collectLabels(heading);
 const moreButton = heading.children.find(child => child.textContent === '⋯');
