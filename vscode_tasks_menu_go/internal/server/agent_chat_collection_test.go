@@ -98,9 +98,7 @@ func TestAgentChatLegacyCollectionFeedsPatchProposal(t *testing.T) {
 			}
 			return agentchat.ResponsesResult{ResponseID: "patch-proposal", Calls: []agentchat.FunctionCall{{
 				CallID: "patch-1", Name: "taskdeck_submit_patch",
-				Arguments: `{"name":"Hello PHP","patch_python":"# TASKDECK_PROJECT_KEY: M3
-# TASKDECK_PROJECT_ID: 1ba64b25-0575-4f67-a6d3-cac508ef4a56
-print('test')"}`,
+				Arguments: `{"name":"Hello PHP","patch_python":"# TASKDECK_PROJECT_KEY: M3\n# TASKDECK_PROJECT_ID: 1ba64b25-0575-4f67-a6d3-cac508ef4a56\nprint('test')"}`,
 			}}}, nil
 		}
 		t.Fatalf("unexpected provider call %d", count)
