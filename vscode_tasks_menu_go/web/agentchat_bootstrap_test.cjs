@@ -806,6 +806,52 @@ console.log('PASS: Agent Chat bootstraps and dock position/auto-hide state trans
     'Copy log must work for failures of the debug endpoint itself');
   console.log('PASS: one-button AI Debug copies all safe traces/journals or a useful fallback');
 
+  // Per-conversation retry policy and current retry countdown reuse the
+  // existing single status row; they must not stack duplicates.
+  const retryBase={id:'retry-progress',revision:3,status:'requesting_ai',event_seq:1,
+    history:[{type:'user',content:'Check phpinfo.php'}],
+    events:[{seq:1,kind:'turn_started',status:'requesting_ai',history_index:1}],
+    tool_calls:[],retry_mode:'limited'};
+  context.retryBase=retryBase;
+  vm.runInNewContext("agentActive='retry-progress';displayAgentSession(retryBase);renderAgentAutomationControls(retryBase);",context);
+  const retryControl=find(windowBox,node=>node.tagName==='button'&&node.textContent==='AI retry: 5 attempts (10s)');
+  assert.ok(retryControl,'retry policy control must be available for the selected conversation');
+  const retryWaiting={...retryBase,retry_runtime:{
+    mode:'limited',attempt:2,phase:'waiting',last_code:'HTTP_503',
+    next_at:new Date(Date.now()+10000).toISOString()
+  }};
+  context.retryWaiting=retryWaiting;
+  vm.runInNewContext("displayAgentSession(retryWaiting)",context);
+  const retryLive=transcript.children.at(-1);
+  assert.equal(retryLive.className,'agentchat-live-status');
+  assert.ok(retryLive.children[1].textContent.includes('AI retry 2/5'));
+  assert.ok(retryLive.children[1].textContent.includes('Stop request to cancel'));
+  const retrySending={...retryBase,retry_runtime:{mode:'limited',attempt:3,phase:'sending'}};
+  context.retrySending=retrySending;
+  vm.runInNewContext("displayAgentSession(retrySending)",context);
+  assert.equal(transcript.children.at(-1),retryLive,'retry phase must reuse one status DOM node');
+  assert.ok(retryLive.children[1].textContent.includes('attempt 3'));
+  assert.equal(transcript.children.filter(node=>node.className==='agentchat-live-status').length,1);
+
+  const stuckPatch={id:'old-patch',status:'waiting_tool',revision:8,
+    history:[{type:'function_call',call_id:'old-call',name:'taskdeck_submit_patch',
+      arguments:JSON.stringify({name:'Vietnamese diacritics and phpinfo output',patch_python:'print(1)'})}],
+    tool_calls:[{call_id:'old-call',name:'taskdeck_submit_patch',status:'running',
+      queue_path:'patchs/PATCH_CLEAR_TEXT_Vietnamese-diacritics-and-phpinfo-output.zip',
+      patch_session_id:'native-old'}]};
+  vm.runInNewContext('displayAgentSession('+JSON.stringify(stuckPatch)+')',context);
+  assert.ok(find(windowBox,node=>node.tagName==='button'&&node.textContent==='Recover old result → send to AI'),
+    'stuck running Patch must offer old-result recovery instead of automatic re-execution');
+  assert.equal(Boolean(find(windowBox,node=>node.tagName==='button'&&node.textContent==='Retry run Patch · new approval')),false,
+    'uncertain RUNNING Patch cannot have a rerun action');
+  const failedPatch={...stuckPatch,tool_calls:[{...stuckPatch.tool_calls[0],
+    status:'error',result:'{"status":"PREFLIGHT_FAIL","rc":2}'}]};
+  vm.runInNewContext('displayAgentSession('+JSON.stringify(failedPatch)+')',context);
+  assert.ok(find(windowBox,node=>node.tagName==='button'&&node.textContent==='Retry run Patch · new approval'),
+    'verified failed Patch must offer a separate manually approved retry');
+  console.log('PASS: bounded/unlimited retry UI, single retry countdown and safe old-Patch recovery actions');
+
+
 
 
 })().catch(error => { console.error(error); process.exitCode = 1; });
