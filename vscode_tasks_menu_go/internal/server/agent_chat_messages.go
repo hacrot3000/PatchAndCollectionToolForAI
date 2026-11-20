@@ -71,6 +71,22 @@ func (s *Server) agentChatObservedCall(ctx context.Context, owner, action, sessi
 		var providerErr *agentchat.ProviderError
 		if errors.As(err, &providerErr) {
 			providerErr.TraceID = traceID
+			// The one-click safe report needs the actual classified failure
+			// metadata, not just a generic "inspect trace" event.
+			recorder.RecordProviderDiagnostic(agentchat.DiagnosticEvent{
+				Level: "error", Stage: providerErr.Stage, Event: "provider.failure",
+				Code: providerErr.Code, ProviderID: p.ID, APIType: p.APIType,
+				HTTPStatus: providerErr.HTTPStatus,
+				SafeMessage: "Provider error type=" + scrubAIContext(providerErr.ProviderErrorType, 100) +
+					" code=" + scrubAIContext(providerErr.ProviderErrorCode, 100) +
+					" detail=" + scrubAIContext(agentchat.SafeProviderText(providerErr.Message), 400),
+			})
+		} else {
+			recorder.RecordProviderDiagnostic(agentchat.DiagnosticEvent{
+				Level: "error", Stage: "provider_http", Event: "provider.failure",
+				Code: "PROVIDER_CALL_FAILED", ProviderID: p.ID, APIType: p.APIType,
+				SafeMessage: scrubAIContext(agentchat.SafeProviderText(err.Error()), 500),
+			})
 		}
 	} else {
 		recorder.finish("", "Provider request completed")
@@ -472,6 +488,8 @@ func (s *Server) agentChatMessageAPI(w http.ResponseWriter, r *http.Request, id 
 		} else if errors.Is(ctx.Err(), context.Canceled) {
 			code, httpStatus = "COLLECTION_CANCELLED", http.StatusConflict
 		}
+		s.recordAgentDebugEvent(owner, id, "", "collection", "collection.failed", code,
+			"stage="+stage+" trace="+traceID+" cause="+scrubAIContext(agentchat.SafeProviderText(callErr.Error()), 600))
 		writeAgentStructuredError(w, httpStatus, callErr, traceID, code, stage, "Collection read result was saved, but continuation could not finish; no Patch was executed. Inspect the provider trace for the underlying error.")
 		return
 	}
