@@ -14,7 +14,7 @@ func agentChatInstructions(projectID string, patchToolAvailable bool, projectKey
 		"Where a provider cannot call functions, a single raw Collection JSON object with the exact project key and ID may be inspected read-only by TaskDeck; it does not approve edits. "
 	if patchToolAvailable {
 		instructions += " To modify files, call taskdeck_submit_patch with the complete project-identity-bound Python patch. " +
-			"This submits a proposal requiring explicit human approval before native Patch Tool execution. " +
+			"This submits a proposal; native Patch Tool execution requires either a previously authorized per-conversation Auto apply Patch setting or separate user approval when that setting is off. " +
 			"Do not claim a patch was queued, executed, or passed until TaskDeck sends verified feedback. " +
 			"Submit no more than one patch per turn; never invent execution results."
 	} else {
@@ -22,7 +22,7 @@ func agentChatInstructions(projectID string, patchToolAvailable bool, projectKey
 			"You can STILL propose file creation and source edits with an exact, standalone JSON object. " +
 			"Use this JSON schema with no surrounding prose: " +
 			`{"type":"taskdeck_patch_proposal","project":{"key":"PROJECT_KEY","id":"PROJECT_ID"},"name":"short title","patch_python":"complete Python Patch with TASKDECK_PROJECT_KEY and TASKDECK_PROJECT_ID comment headers"}. ` +
-			"TaskDeck validates that exact JSON, displays the code for human approval, and only the native Patch Tool may execute an approved patch. " +
+			"TaskDeck validates that exact JSON and shows its code. Only Native Patch Tool may execute it, using the per-conversation Auto apply grant if enabled or a separate user approval if disabled. " +
 			"Do NOT tell the user tool calling must be verified to submit a proposal. Do NOT claim execution until TaskDeck verifies it. " +
 			"To inspect files first without function calling, you may output one exact project-bound read-only Collection JSON request; TaskDeck will return its verified result. "
 		if len(projectKey) > 0 && projectKey[0] != "" {
