@@ -218,8 +218,7 @@ func agentCollectionReadPage(root, rel string, startLine, maxLines int) (map[str
  out:=map[string]string{"content":value,"start_line":strconv.Itoa(startLine),
   "total_lines":strconv.Itoa(total),"truncated":strconv.FormatBool(end<total||partialLongLine)}
  if end<total{
-  if partialLongLine{out["error"]="source line exceeds 12 KiB inline page; use narrower search"}
-  else{out["next_line"]=strconv.Itoa(end+1)}
+  if partialLongLine{out["error"]="source line exceeds 12 KiB inline page; use narrower search"} else{out["next_line"]=strconv.Itoa(end+1)}
  }
  return out,nil
 }
