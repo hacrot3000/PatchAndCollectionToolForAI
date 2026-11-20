@@ -196,6 +196,17 @@ type agentPatchExpectation struct {
 	ItemIndex int
 }
 
+// agentPatchLogExcerpt sends the recent end of the native log, after
+// credential redaction. The last lines often hold nested test exit codes,
+// which can differ from the enclosing Patch rc=0.
+func agentPatchLogExcerpt(raw string, maxBytes int) string {
+ if maxBytes < 1 || strings.TrimSpace(raw)=="" { return "" }
+ clean := scrubAIContext(raw, len(raw)+1)
+ if len(clean) <= maxBytes { return clean }
+ tail := strings.ToValidUTF8(clean[len(clean)-maxBytes:], "")
+ return "[EARLIER LOG TRUNCATED; LAST OUTPUT FOLLOWS]\n" + tail
+}
+
 // agentPatchResultFromProtocol is strictly evidence-based: only a matching
 // native item with a final status can satisfy the model tool call. Name-only
 // matching is insufficient because a reused/renamed queue item would be
@@ -233,7 +244,8 @@ func agentPatchResultFromProtocol(state session.ProtocolState, expect agentPatch
 				"diagnosis_kind":  item.DiagnosisKind,
 				"elapsed_seconds": item.ElapsedSeconds,
 				"commands":        commands,
-				"stdout_tail":     scrubAIContext(item.OutputTail, 1800),
+				"stdout_tail":     agentPatchLogExcerpt(item.OutputTail, 1800),
+				"test_verification": "Patch PASS / rc=0 only establishes that the Patch wrapper succeeded. Independently executed scripts can fail: inspect stdout_tail and any nested exit codes before asserting tests passed.",
 				"project_unchanged": status=="PREFLIGHT_FAIL",
 				"automatic_retry": false,
 			}
