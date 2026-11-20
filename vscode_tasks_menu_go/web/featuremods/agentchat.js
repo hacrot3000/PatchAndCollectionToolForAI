@@ -9,6 +9,20 @@ agentCSS.textContent=[
 '.agentchat-window{display:flex;flex:1;min-width:0;min-height:0;flex-direction:column;overflow:hidden}',
 '.agentchat-toolbar{position:relative;z-index:4;min-height:44px;padding:5px 7px;display:flex;align-items:center;gap:5px;border-bottom:1px solid #35445c;flex-wrap:nowrap}',
 '.agentchat-toolbar strong{font-size:13px;white-space:nowrap}',
+'.agentchat-header-group{position:relative;display:inline-flex;flex:none;align-items:center}',
+'.agentchat-header-group>summary{list-style:none;cursor:pointer;white-space:nowrap;border:1px solid #55657a;border-radius:6px;padding:5px 7px;font-size:12px}',
+'.agentchat-header-group>summary::-webkit-details-marker{display:none}',
+'.agentchat-header-group[open]>summary{background:#273b52}',
+'.agentchat-header-menu{position:absolute;z-index:25;top:calc(100% + 5px);left:0;display:flex;flex-direction:column;gap:4px;min-width:210px;padding:7px;background:#192330;border:1px solid #657589;border-radius:7px;box-shadow:0 8px 24px #0008}',
+'.agentchat-header-menu button{text-align:left;white-space:nowrap;width:100%}',
+'.agentchat-session-row{display:flex;align-items:center;gap:4px}',
+'.agentchat-session-row>.agentchat-session{flex:1;min-width:0}',
+'.agentchat-session-row>.delete{flex:none;color:#ecb2b2}',
+'.agentchat-header-group:focus-within .agentchat-header-menu{outline:0}',
+'.agentchat-toolbar-actions{overflow:visible}',
+'.agentchat-more-menu .agentchat-header-menu{left:auto;right:0}',
+'.agentchat-header-group[open] .agentchat-header-menu{display:flex}',
+'.agentchat-header-menu{max-height:min(70vh,400px);overflow:auto}',
 '.agentchat-toolbar-actions{display:flex;align-items:center;gap:4px;min-width:0;overflow:hidden}',
 '.agentchat-toolbar button{white-space:nowrap;padding:5px 7px}',
 '.agentchat-more-menu{position:absolute;right:6px;top:calc(100% + 4px);z-index:20;display:none;min-width:190px;max-width:min(300px,90vw);max-height:70vh;overflow:auto;padding:5px;background:#192330;border:1px solid #55657a;border-radius:7px;box-shadow:0 8px 28px #0009}',
@@ -196,14 +210,30 @@ cancel.disabled=true;
 const preview=agentButton('Preview context',()=>previewAgentContext().catch(showAgentError));
 const rename=agentButton('Rename',()=>renameAgentSession().catch(showAgentError));
 const archive=agentButton('Archive',()=>archiveAgentSession().catch(showAgentError));
-rename.disabled=true;archive.disabled=true;
-for(const button of [newChat,preview,rename,archive,planButton,settingsButton,refresh,attachButton,autoFeedback])toolbarActions.append(button);
-heading.append(title,toolbarActions,dockPositionButton,autoHideButton,moreButton,close,moreMenu);
+const deleteChat=agentButton('Delete conversation',()=>deleteAgentSession(agentActive).catch(showAgentError));
+const autoPatch=agentButton('Auto apply Patch: OFF',()=>toggleAgentAutomation('patch').catch(showAgentError));
+const autoCollection=agentButton('Auto Collection: ON',()=>toggleAgentAutomation('collection').catch(showAgentError));
+rename.disabled=true;archive.disabled=true;deleteChat.disabled=true;
+function makeAgentHeaderGroup(label,items){
+ const group=agentEl('details','agentchat-header-group');
+ const summary=agentEl('summary','',label+' ▾');
+ const panel=agentEl('div','agentchat-header-menu');
+ panel.append(...items);group.append(summary,panel);
+ panel.addEventListener('click',event=>{if(event.target.closest('button'))group.open=false;});
+ return group;
+}
+const conversationGroup=makeAgentHeaderGroup('Conversation',[newChat,rename,archive,deleteChat,refresh]);
+const automationGroup=makeAgentHeaderGroup('Automation',[autoPatch,autoCollection,autoFeedback]);
+const toolsGroup=makeAgentHeaderGroup('Tools',[attachButton,preview,planButton]);
+const layoutGroup=makeAgentHeaderGroup('Layout',[dockPositionButton,autoHideButton]);
+const agentHeaderGroups=[conversationGroup,automationGroup,toolsGroup,layoutGroup];
+for(const group of agentHeaderGroups)toolbarActions.append(group);
+heading.append(title,toolbarActions,moreButton,close,moreMenu);
 actionLine.append(status,cancel,send);composer.append(attachList,prompt,actionLine);
 main.append(tabbar,modelBar,toolNotice,transcript,agentExecutionPanel,composer);layout.append(main);
-const footer=agentEl('div','agentchat-info','AI Pack on first turn • read-only Collection inspection • tool or text-only Patch proposals require explicit native approval; verified results return to AI.');
+const footer=agentEl('div','agentchat-info','Agent automation is configured per conversation. Native Patch results are verified before being sent to AI.');
 windowBox.append(heading,viewTabs,layout,debugPanel,footer);root.append(windowBox);
-const agentToolbarItems=[newChat,preview,rename,archive,planButton,settingsButton,refresh,attachButton,autoFeedback];
+const agentToolbarItems=agentHeaderGroups;
 mountAgentDock();
 
 const settingsOverlay=agentEl('div','agentchat-overlay agentchat-settings-overlay'),settingsBox=agentEl('section','agentchat-settings-box');
@@ -706,7 +736,7 @@ async function selectAgentSession(id){
   }else{
    const reasons={model_disabled:'Tool calling is disabled for this model.',unverified:'Tool calling has not been verified for this provider and model.',unavailable:'Provider or capability information is unavailable.'};
    toolNotice.append(agentEl('span','',(reasons[toolStatus]||'Patch tool status is unavailable.')+' Text-only Patch JSON proposals can still be reviewed and executed through native Patch approval. '));
-   toolNotice.append(agentButton('Provider settings',()=>openAgentSettings().catch(showAgentError)));
+   // Provider/API Key configuration belongs to TaskDeck Settings, not this panel.
   }
   agentToolNoticeKey=toolStatus;
  }
@@ -1109,7 +1139,7 @@ function rebalanceAgentToolbar(){
  if(!space)return;
  for(const button of agentToolbarItems)toolbarActions.append(button);
  moreMenu.classList.remove('open');moreButton.setAttribute('aria-expanded','false');
- const always=dockPositionButton.offsetWidth+autoHideButton.offsetWidth+moreButton.offsetWidth+close.offsetWidth+title.offsetWidth+24;
+ const always=moreButton.offsetWidth+close.offsetWidth+title.offsetWidth+24;
  while(toolbarActions.scrollWidth>Math.max(0,space-always)&&toolbarActions.children.length>1){
   const button=toolbarActions.lastElementChild;moreMenu.prepend(button);
  }
