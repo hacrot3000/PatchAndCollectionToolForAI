@@ -7,6 +7,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 
+const formatterSource = fs.readFileSync(path.join(__dirname, 'featuremods/agentchatformat.js'), 'utf8');
 const source = fs.readFileSync(path.join(__dirname, 'featuremods/agentchat.js'), 'utf8');
 // Module imports execute in strict mode. A sloppy vm.runInNewContext can
 // accept duplicate function declarations that Firefox rejects at parse time.
@@ -134,6 +135,8 @@ const context = {
   setInterval() { return 0; },
   clearInterval() {},
 };
+assert.doesNotThrow(() => vm.runInNewContext(formatterSource, context, {filename:'agentchatformat.js', timeout:2000}),
+  'Chat Markdown formatter must bootstrap before Agent Chat');
 assert.doesNotThrow(
   () => vm.runInNewContext(source, context, { filename: 'agentchat.js', timeout: 2000 }),
   'Agent Chat must load without referencing lexical variables before initialization'
@@ -153,6 +156,7 @@ const debugButtons = (() => {const scan = node => [ ...(node.tagName==='button'?
 assert.equal(debugButtons.length,1,'AI Debug must expose exactly one action');
 assert.equal(debugButtons[0].textContent,'Copy log','one action must be Copy log');
 const find = (node, predicate) => predicate(node) ? node : node.children.map(child => find(child, predicate)).find(Boolean);
+const nodeText = node => String(node.textContent||'')+(node.children||[]).map(nodeText).join('');
 const sessionsButton = find(windowBox, node => node.textContent === 'History ▾');
 const sessionsList = find(windowBox, node => node.id === 'agentchat-saved-sessions');
 assert.ok(sessionsButton && sessionsList, 'Saved conversations menu is present');
@@ -316,6 +320,73 @@ assert.equal(context.TaskMenuAgentChat.autoHide, true);
 console.log('PASS: Agent Chat bootstraps and dock position/auto-hide state transitions work');
 
 (async () => {
+// Formatter regression: both sent and received text use the same safe parser,
+// retain each fenced code block's language and provide a small Copy icon.
+const richSource = [
+ '**Đã làm** và \x60inline.php\x60',
+ '',
+ '> **TaskDeck** \x60/home/duongtc/project\x60',
+ '',
+ '- First item',
+ '- Second item',
+ '',
+ '\x60\x60\x60php',
+ '<?php',
+ 'echo "Xin chào, thế giới!\\n";',
+ 'phpinfo();',
+ '\x60\x60\x60',
+ '',
+ '\x60\x60\x60python',
+ 'print("ok")',
+ '\x60\x60\x60',
+ '',
+ '| File | Status |',
+ '| --- | --- |',
+ '| helloworld.php | PASS |',
+ '',
+ '[Documentation](https://example.com/doc) [unsafe](javascript:alert(1))',
+ '<img src=x onerror=alert(1)>'
+].join('\n');
+const renderRich=role=>context.TaskMenuAgentChatFormat.renderMessage(role,richSource);
+for(const role of ['user','assistant']){
+ const node=renderRich(role);
+ assert.equal(node.className,'agentchat-bubble '+role);
+ assert.ok(find(node,x=>x.tagName==='strong'),'Markdown bold should render as an element');
+ assert.ok(find(node,x=>x.tagName==='blockquote'),'Markdown quote should render');
+ assert.ok(find(node,x=>x.tagName==='ul'),'Markdown list should render');
+ assert.ok(find(node,x=>x.tagName==='table'),'Markdown table should render');
+ assert.ok(find(node,x=>x.tagName==='code'&&x.className==='agentchat-inline-code'&&x.textContent==='inline.php'),'Inline code should render');
+ const codeBlocks=[];
+ const walk=n=>{if(n.className==='agentchat-code-block')codeBlocks.push(n);n.children.forEach(walk);};
+ walk(node);
+ assert.equal(codeBlocks.length,2,'multiple independent code blocks must not merge');
+ assert.deepEqual(codeBlocks.map(b=>b.children[0].children[0].textContent),['php','python']);
+ assert.ok(find(codeBlocks[0],x=>x.className==='agentchat-syntax-keyword'&&x.textContent==='echo'),
+   'PHP keywords should receive syntax color');
+ assert.ok(find(codeBlocks[1],x=>x.className==='agentchat-syntax-function'&&x.textContent==='print'),
+   'Python functions should receive syntax color');
+ assert.ok(find(node,x=>x.tagName==='a'&&x.href==='https://example.com/doc'),'Safe links should render');
+ assert.equal(Boolean(find(node,x=>x.tagName==='a'&&String(x.href).startsWith('javascript:'))),false,'Unsafe links must remain inert text');
+ assert.equal(Boolean(find(node,x=>x.tagName==='img')),false,'Raw HTML must never become live markup');
+ const copyButton=codeBlocks[0].children[0].children[1];
+ assert.equal(copyButton.tagName,'button');
+ assert.equal(copyButton.attributes['aria-label'],'Copy code block');
+ const copied=[];
+ context.navigator={clipboard:{writeText:async text=>{copied.push(text);}}};
+ copyButton.onclick();
+ await new Promise(resolve=>setImmediate(resolve)); // Flush cross-realm clipboard callbacks
+ assert.equal(copied[0],'<?php\necho "Xin chào, thế giới!\\n";\nphpinfo();',
+   'Copy must use the exact original code, without Markdown fences or language labels');
+ assert.equal(copyButton.textContent,'✓','Copy should acknowledge clipboard success');
+}
+const inlineSingleLine=context.TaskMenuAgentChatFormat.renderMessage('assistant',
+ '\x60\x60\x60php echo "Xin chào"; \x60\x60\x60');
+assert.ok(find(inlineSingleLine,x=>x.className==='agentchat-code-language'&&x.textContent==='php'),
+ 'Flattened single-line fenced code should still be highlighted');
+assert.equal(context.TaskMenuAgentChatFormat.languageOf('','<?php echo "ok";'),'php',
+ 'Unlabelled PHP code blocks should infer PHP');
+console.log('PASS: safe Markdown, syntax-highlighted PHP/Python, per-block Copy, quotes, lists, tables and unsafe HTML/links');
+
   // Regression: the old double-escaped surrogate regex incorrectly treated
   // normal PHP source with digits/uppercase as invalid UTF-8.
   const phpSource = '<?php\nfunction HelloWorld2026() {\n  echo "Hello, Việt Nam! 🎉";\n  return 123;\n}\n';
@@ -553,7 +624,7 @@ console.log('PASS: Agent Chat bootstraps and dock position/auto-hide state trans
   // status row is also moved to the bottom to remain after that new message.
   assert.equal(transcript.appendCount,baselineAppend+2,'new assistant row plus relocated single live status are the only appends');
   assert.equal(transcript.children[0],originalUser,'old user message must remain the same element');
-  const assistantCreated=transcript.children.find(node=>node.textContent==='helloworld.php created');
+  const assistantCreated=transcript.children.find(node=>node.className==='agentchat-bubble assistant'&&nodeText(node)==='helloworld.php created');
   assert.ok(assistantCreated,'new assistant message must be present exactly once');
   const patchDone={...extended,revision:201,tool_calls:[
     {...patchSession.tool_calls[0],status:'done',result:'{"status":"PASS"}'}
@@ -574,7 +645,7 @@ console.log('PASS: Agent Chat bootstraps and dock position/auto-hide state trans
   const removalBeforeEdit=transcript.removeCount;
   vm.runInNewContext('displayAgentSession('+JSON.stringify(edited)+')',context);
   assert.equal(transcript.children[0],originalUser,'changing last answer must not redraw earlier history');
-  assert.equal(transcript.children.at(-1).textContent,'helloworld.php verified');
+  assert.equal(nodeText(transcript.children.at(-1)),'helloworld.php verified');
   assert.equal(transcript.removeCount,removalBeforeEdit+1,'only the changed assistant tail should be removed on this update');
 
   // The tab and conversation list should preserve keyed DOM nodes as their
@@ -639,7 +710,7 @@ console.log('PASS: Agent Chat bootstraps and dock position/auto-hide state trans
   };
   const sending=vm.runInNewContext('sendAgentMessage()',context);
   assert.equal(postedMessages.length,1,'message POST must be issued');
-  assert.equal(transcript.children[0].textContent,'Create helloworld.php','user bubble appears before network completes');
+  assert.equal(nodeText(transcript.children[0]),'Create helloworld.php','user bubble appears before network completes');
   assert.equal(transcript.children[0].className,'agentchat-bubble user optimistic');
   const liveLine=transcript.children.at(-1);
   assert.equal(liveLine.className,'agentchat-live-status','live status should follow the sent bubble');
@@ -677,7 +748,7 @@ console.log('PASS: Agent Chat bootstraps and dock position/auto-hide state trans
     'completed response removes the spinner instead of archiving a stale status');
   assert.equal(transcript.children.filter(x=>x.className.includes('bubble user')).length,1,
     'successful request must have exactly one user message');
-  assert.equal(transcript.children.at(-1).textContent,'Created helloworld.php.','assistant reply is appended after tool IO');
+  assert.equal(nodeText(transcript.children.at(-1)),'Created helloworld.php.','assistant reply is appended after tool IO');
   assert.equal(vm.runInNewContext('agentLiveTurns.size',context),0);
   const lastBubble=transcript.children.at(-1);
   context.flowSession={...context.flowSession,status:'failed',revision:5,event_seq:4,
@@ -731,7 +802,7 @@ console.log('PASS: Agent Chat bootstraps and dock position/auto-hide state trans
     history:[...context.flowSession.history,{type:'assistant',content:'Patch verified and applied.'}]};
   resolveFeedback({status:'ready'});
   await continuing;
-  assert.equal(transcript.children.at(-1).textContent,'Patch verified and applied.');
+  assert.equal(nodeText(transcript.children.at(-1)),'Patch verified and applied.');
   assert.ok(transcript.children.some(x=>x.className==='agentchat-io-details'&&x.children[0].textContent.includes('Native Patch result sent')),
     'native Patch response must stay in user-visible history');
   assert.equal(transcript.children.filter(x=>x.className==='agentchat-live-status').length,0);
