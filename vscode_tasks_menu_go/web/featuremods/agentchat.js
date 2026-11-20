@@ -108,15 +108,14 @@ const settingsButton=agentButton('Providers / API keys',()=>openAgentSettings().
 const planButton=agentButton('Planning only',()=>openTaskManifestPreview());
 const refresh=agentButton('Refresh',()=>loadAgentState().catch(showAgentError));
 const close=agentButton('Hide',()=>closeAgentPanel());
-const debugButton=agentButton('🐞',()=>toggleAgentDebug().catch(showAgentError));
-debugButton.title='AI Debug capture';debugButton.setAttribute('aria-label','Enable AI Debug capture');debugButton.setAttribute('aria-pressed','false');
 const dockPositionButton=agentButton('Bottom',()=>setAgentDockPosition(agentDock.position==='right'?'bottom':'right'));
 dockPositionButton.title='Move Agent Chat between right and bottom';dockPositionButton.setAttribute('aria-label','Move Agent Chat to bottom');
 const autoHideButton=agentButton('Auto Hide',()=>setAgentDockAutoHide(!agentDock.autoHide));
 autoHideButton.title='Toggle Agent Chat auto hide';autoHideButton.setAttribute('aria-label','Enable Agent Chat auto hide');
 const moreButton=agentButton('⋯',()=>toggleAgentMore());moreButton.title='More Agent Chat actions';moreButton.setAttribute('aria-label','More Agent Chat actions');
 const toolbarActions=agentEl('div','agentchat-toolbar-actions'),moreMenu=agentEl('div','agentchat-more-menu');
-let agentDebugEnabled=false,agentDebugRaw=false,agentDebugView='chat',agentDebugTab='timeline',agentDebugTrace=null;
+let agentDebugView='chat',agentDebugLog='',agentDebugFetchInFlight=null;
+const agentDebugClientErrors=[];
 const viewTabs=agentEl('div','agentchat-view-tabs');
 const chatViewButton=agentButton('Conversation',()=>setAgentDebugView('chat'));
 const debugViewButton=agentButton('AI Debug',()=>setAgentDebugView('debug'));
@@ -124,22 +123,11 @@ chatViewButton.setAttribute('aria-selected','true');debugViewButton.setAttribute
 viewTabs.append(chatViewButton,debugViewButton);
 const debugPanel=agentEl('div','agentchat-debug-panel');
 const debugToolbar=agentEl('div','agentchat-debug-toolbar');
-const debugStateLabel=agentEl('span','agentchat-info','Debug is off.');
-const debugTraceSelect=agentEl('select');debugTraceSelect.setAttribute('aria-label','Select debug trace');
-const debugRefresh=agentButton('Refresh',()=>loadAgentDebugTraces().catch(showAgentError));
-const debugRawButton=agentButton('Enable RAW…',()=>enableAgentDebugRaw().catch(showAgentError));
-const debugClear=agentButton('Clear traces',()=>clearAgentDebug().catch(showAgentError));
-const debugExport=agentButton('Export safe',()=>exportAgentDebug().catch(showAgentError));
-const debugPartSelect=agentEl('select');for(const part of ['request','response','sse'])debugPartSelect.append(agentOption(part,part.toUpperCase()));
-const debugPayloadView=agentEl('select');debugPayloadView.append(agentOption('safe','Safe view'),agentOption('raw','RAW view'));
-const debugPayloadLoad=agentButton('View payload',()=>loadAgentDebugPayload().catch(showAgentError));
-const debugCopy=agentButton('Copy visible',()=>copyAgentDebug().catch(showAgentError));
-debugToolbar.append(debugStateLabel,debugTraceSelect,debugRefresh,debugRawButton,debugClear,debugExport,debugPartSelect,debugPayloadView,debugPayloadLoad,debugCopy);
-const debugTabs=agentEl('div','agentchat-debug-tabs'),debugOutput=agentEl('pre','agentchat-debug-output','Enable capture and refresh to inspect diagnostics.');
-for(const [key,label] of [['timeline','Timeline'],['console','Console'],['http','HTTP'],['payload','Payload'],['tools','Tools'],['configuration','Configuration']]){
- const tab=agentButton(label,()=>{agentDebugTab=key;renderAgentDebugTrace();});tab.dataset.debugTab=key;debugTabs.append(tab);
-}
-debugPanel.append(debugToolbar,debugTabs,debugOutput);
+const debugStateLabel=agentEl('span','agentchat-info','Safe AI diagnostic metadata is collected automatically.');
+const debugCopy=agentButton('Copy log',()=>copyAgentDebug().catch(showAgentError));
+debugToolbar.append(debugStateLabel,debugCopy);
+const debugOutput=agentEl('pre','agentchat-debug-output','Opening AI Debug will load one complete safe diagnostic report.');
+debugPanel.append(debugToolbar,debugOutput);
 const agentDock={position:'right',autoHide:false,expanded:false,rightWidth:420,bottomHeight:320,observer:null};
 const dockResizer=agentEl('div','agentchat-dock-resizer');dockResizer.tabIndex=0;dockResizer.setAttribute('role','separator');
 const agentStrip=agentButton('✦ AI Agent Chat',()=>openAgentPanel().catch(showAgentError));
@@ -209,7 +197,7 @@ const rename=agentButton('Rename',()=>renameAgentSession().catch(showAgentError)
 const archive=agentButton('Archive',()=>archiveAgentSession().catch(showAgentError));
 rename.disabled=true;archive.disabled=true;
 for(const button of [newChat,preview,rename,archive,planButton,settingsButton,refresh,attachButton,autoFeedback])toolbarActions.append(button);
-heading.append(title,toolbarActions,dockPositionButton,autoHideButton,debugButton,moreButton,close,moreMenu);
+heading.append(title,toolbarActions,dockPositionButton,autoHideButton,moreButton,close,moreMenu);
 actionLine.append(status,cancel,send);composer.append(attachList,prompt,actionLine);
 main.append(tabbar,modelBar,toolNotice,transcript,agentExecutionPanel,composer);layout.append(main);
 const footer=agentEl('div','agentchat-info','AI Pack on first turn • read-only Collection inspection • tool or text-only Patch proposals require explicit native approval; verified results return to AI.');
@@ -280,6 +268,10 @@ function showAgentError(error){
  try{const parsed=JSON.parse(message);const detail=parsed?.error;if(detail)message='FAILED · '+String(detail.code||'UNKNOWN')+' · '+String(detail.stage||'unknown stage')+' · '+String(detail.message||'No safe provider message')+(detail.http_status?' · HTTP '+detail.http_status:'')+(detail.trace_id?' · Trace '+detail.trace_id:'')+(detail.ambiguous?' · outcome may be ambiguous':'');}catch{}
  status.textContent='Error: '+message;
  settingsStatus.textContent='Error: '+message;
+ agentDebugClientErrors.push({at:new Date().toISOString(),message:message.slice(0,2000),session_id:agentActive||null});
+ if(agentDebugClientErrors.length>64)agentDebugClientErrors.shift();
+ if(agentDebugView==='debug')loadAgentDebugReport().catch(()=>{});
+
 }
 function normalizeProvider(raw){
  const data=raw?.provider||raw;
@@ -1184,73 +1176,56 @@ document.addEventListener?.('pointerdown',event=>{
 window.addEventListener('resize',()=>{agentDock.rightWidth=clampDockSize(agentDock.rightWidth,'right');agentDock.bottomHeight=clampDockSize(agentDock.bottomHeight,'bottom');applyAgentDock();rebalanceAgentToolbar();});
 function setAgentDebugView(view){
  agentDebugView=view==='debug'?'debug':'chat';
- layout.style.display=agentDebugView==='chat'?'flex':'none';debugPanel.classList.toggle('visible',agentDebugView==='debug');
- chatViewButton.setAttribute('aria-selected',String(agentDebugView==='chat'));debugViewButton.setAttribute('aria-selected',String(agentDebugView==='debug'));
- if(agentDebugView==='debug')loadAgentDebugState().then(loadAgentDebugTraces).catch(showAgentError);
+ layout.style.display=agentDebugView==='chat'?'flex':'none';
+ debugPanel.classList.toggle('visible',agentDebugView==='debug');
+ chatViewButton.setAttribute('aria-selected',String(agentDebugView==='chat'));
+ debugViewButton.setAttribute('aria-selected',String(agentDebugView==='debug'));
+ if(agentDebugView==='debug')loadAgentDebugReport().catch(showAgentError);
 }
-async function loadAgentDebugState(){
- const state=await agentApp.jsonFetch('/api/agent/debug/state');agentDebugEnabled=Boolean(state.enabled);agentDebugRaw=Boolean(state.raw_active);
- debugButton.textContent=agentDebugEnabled?'🐞 ON':'🐞 OFF';debugButton.setAttribute('aria-pressed',String(agentDebugEnabled));
- debugButton.setAttribute('aria-label',agentDebugEnabled?'Disable AI Debug capture':'Enable AI Debug capture');
- debugStateLabel.textContent='Capturing: '+(agentDebugEnabled?'ON':'OFF')+' · '+(agentDebugRaw?'RAW ACTIVE until '+new Date(state.raw_until).toLocaleTimeString():'safe only')+' · '+String(state.raw_bytes||0)+' raw bytes in memory';
- debugRawButton.textContent=agentDebugRaw?'Disable RAW':'Enable RAW…';debugPayloadView.disabled=!agentDebugRaw;debugPayloadView.value=agentDebugRaw?'raw':'safe';
+// This is the only debug data source. It combines recent provider traces with
+// durable Agent journal entries, even if the previous debug toggle was OFF.
+async function loadAgentDebugReport(){
+ if(agentDebugFetchInFlight)return agentDebugFetchInFlight;
+ agentDebugFetchInFlight=(async()=>{
+  const data=await agentApp.jsonFetch('/api/agent/debug/report');
+  const bundle={...data,
+   browser:{session_id:agentActive||null,
+    current_conversation_status:agentCurrentSession?.status||null,
+    local_time:new Date().toString(),
+    captured_client_errors:agentDebugClientErrors.slice(),
+   }};
+  agentDebugLog=JSON.stringify(bundle,null,2);
+  debugOutput.textContent=agentDebugLog;
+  const traces=Array.isArray(data.provider_traces)?data.provider_traces.length:0;
+  const sessions=Array.isArray(data.sessions)?data.sessions.length:0;
+  debugStateLabel.textContent='Automatic safe capture · '+traces+' provider trace(s) · '+sessions+' saved conversation(s)';
+  return agentDebugLog;
+ })();
+ try{return await agentDebugFetchInFlight;}
+ finally{agentDebugFetchInFlight=null;}
 }
-async function toggleAgentDebug(){
- const enabled=!agentDebugEnabled;
- const state=await agentApp.jsonFetch('/api/agent/debug/state',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled})});
- agentDebugEnabled=Boolean(state.enabled);await loadAgentDebugState();
- if(enabled)setAgentDebugView('debug');
-}
-async function enableAgentDebugRaw(){
- if(agentDebugRaw){
-  await agentApp.jsonFetch('/api/agent/debug/state',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled:agentDebugEnabled,disable_raw:true})});
-  await loadAgentDebugState();return;
+async function copyAgentDebug(){
+ // Always obtain the latest combined report, rather than copying a selected
+ // trace or a stale rendered panel. A failed report is itself copyable.
+ let log;
+ try{log=await loadAgentDebugReport();}
+ catch(error){
+  log=JSON.stringify({format:'taskdeck.agent.debug.report.fallback.v1',
+   generated_at:new Date().toISOString(),
+   report_error:String(error?.message||error),
+   browser_errors:agentDebugClientErrors.slice(),
+   session_id:agentActive||null},null,2);
+  agentDebugLog=log;
+  debugOutput.textContent=log;
  }
- if(!agentDebugEnabled)throw new Error('Enable safe AI Debug capture before RAW mode.');
- if(!window.confirm('RAW mode temporarily holds request/response bodies in bounded server memory for up to 30 minutes. These may include prompts, AI Pack and tool output. Credentials and authorization headers are never captured. Continue?'))return;
- await agentApp.jsonFetch('/api/agent/debug/state',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled:true,raw_consent:true})});await loadAgentDebugState();
+ if(!navigator.clipboard?.writeText)throw new Error('Clipboard API unavailable. Use the browser clipboard permission or copy the displayed log.');
+ await navigator.clipboard.writeText(log);
+ debugStateLabel.textContent='Log copied · '+log.length+' characters · safe metadata';
 }
-async function loadAgentDebugTraces(){
- if(!agentDebugEnabled){debugTraceSelect.replaceChildren(agentOption('','Capture is off'));agentDebugTrace=null;renderAgentDebugTrace();return;}
- const result=await agentApp.jsonFetch('/api/agent/debug/traces?limit=64');const traces=Array.isArray(result.traces)?result.traces:[];
- debugTraceSelect.replaceChildren();for(const trace of traces){const label=new Date(trace.created_at).toLocaleTimeString()+' · '+trace.action+' · '+(trace.model_id||trace.provider_id||'provider');debugTraceSelect.append(agentOption(trace.trace_id,label));}
- if(agentDebugTrace&&traces.some(t=>t.trace_id===agentDebugTrace))debugTraceSelect.value=agentDebugTrace;else agentDebugTrace=traces[0]?.trace_id||null;
- if(agentDebugTrace)debugTraceSelect.value=agentDebugTrace;
- renderAgentDebugTrace();
-}
-async function loadAgentDebugTrace(){
- const id=debugTraceSelect.value;if(!id)return null;agentDebugTrace=id;const result=await agentApp.jsonFetch('/api/agent/debug/traces/'+encodeURIComponent(id));return result.trace||null;
-}
-async function renderAgentDebugTrace(){
- const trace=await loadAgentDebugTrace();if(!trace){debugOutput.textContent=agentDebugEnabled?'No diagnostic traces captured yet.':'Enable capture; structured provider errors remain available while capture is off.';return;}
- const events=Array.isArray(trace.events)?trace.events:[];
- const selected=events.filter(event=>agentDebugTab==='http'?event.stage==='provider_http':agentDebugTab==='tools'?event.stage==='tool'||event.event?.startsWith('tool.'):agentDebugTab==='configuration'?event.stage==='config':true);
- if(agentDebugTab==='payload'){debugOutput.textContent='Choose REQUEST, RESPONSE or SSE above. Safe view hides free-text bodies; metadata remains available in Timeline/HTTP. Use RAW only during the explicit short-lived grant.';return;}
- if(agentDebugTab==='console')debugOutput.textContent=selected.map(event=>new Date(event.at).toLocaleString()+' ['+String(event.level||'info').toUpperCase()+'] '+event.stage+'.'+event.event+(event.code?' '+event.code:'')+(event.safe_message?' — '+event.safe_message:'')).join('\n')||'No console entries.';
- else debugOutput.textContent=JSON.stringify(selected,null,2)||'[]';
-}
-async function loadAgentDebugPayload(){
- if(!agentDebugTrace)throw new Error('Select a trace first.');
- if(debugPayloadView.value==='raw'&&!agentDebugRaw)throw new Error('RAW grant is not active.');
- const part=debugPartSelect.value,view=debugPayloadView.value;
- const result=await agentApp.jsonFetch('/api/agent/debug/traces/'+encodeURIComponent(agentDebugTrace)+'/payload?part='+encodeURIComponent(part)+'&view='+encodeURIComponent(view));
- let body=result.body||'';if(view==='raw'&&result.raw_base64){const binary=atob(result.raw_base64);const bytes=Uint8Array.from(binary,ch=>ch.charCodeAt(0));body=new TextDecoder().decode(bytes);}
- debugOutput.textContent=JSON.stringify({part,view,total_bytes:result.total_bytes,captured_bytes:result.captured_bytes,sha256:result.sha256,truncated:result.truncated,body,warning:result.warning},null,2);
-}
-async function clearAgentDebug(){
- if(!window.confirm('Clear this owner’s in-memory Agent Debug traces? This does not delete sessions or native Patch data.'))return;
- await agentApp.jsonFetch('/api/agent/debug/clear',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});agentDebugTrace=null;await loadAgentDebugTraces();
-}
-async function exportAgentDebug(){
- const trace=await loadAgentDebugTrace();if(!trace)throw new Error('Select a trace first.');
- const blob=new Blob([JSON.stringify({trace,export_view:'safe; payload bodies omitted'},null,2)],{type:'application/json'});const link=document.createElement('a');link.href=URL.createObjectURL(blob);link.download='agent-debug-'+trace.trace_id+'.json';link.click();URL.revokeObjectURL(link.href);
-}
-async function copyAgentDebug(){if(!navigator.clipboard)throw new Error('Clipboard API unavailable.');await navigator.clipboard.writeText(debugOutput.textContent||'');}
-debugTraceSelect.addEventListener('change',()=>{agentDebugTrace=debugTraceSelect.value;renderAgentDebugTrace().catch(showAgentError);});
 async function openAgentPanel(){
  agentDock.expanded=true;applyAgentDock();saveAgentDock();
  await loadAgentState();
- if(agentDebugView==='debug'){await loadAgentDebugState();await loadAgentDebugTraces();}
+ if(agentDebugView==='debug')await loadAgentDebugReport();
  return true;
 }
 function closeAgentPanel(){agentDock.expanded=false;toggleAgentMore(false);applyAgentDock();saveAgentDock();}
@@ -1269,4 +1244,4 @@ globalThis.TaskMenuAgentChat={open:openAgentPanel,close:closeAgentPanel,settings
  get dockPosition(){return agentDock.position;},get autoHide(){return agentDock.autoHide;},
  get visible(){return agentDock.expanded;}};
 if(agentDock.expanded)loadAgentState().catch(showAgentError);
-if(agentApp.taskData?.workspace)loadAgentDebugState().catch(()=>{});
+// Safe capture is automatic on the server; no UI toggle is required.
