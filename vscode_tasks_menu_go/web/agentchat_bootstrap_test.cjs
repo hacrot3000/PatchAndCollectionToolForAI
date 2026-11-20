@@ -93,6 +93,8 @@ const context = {
     observe() {}
   },
   window: { innerWidth: 1200, innerHeight: 800, addEventListener() {}, dispatchEvent() {} },
+  setTimeout() { return 1; },
+  clearTimeout() {},
 };
 assert.doesNotThrow(
   () => vm.runInNewContext(source, context, { filename: 'agentchat.js', timeout: 2000 }),
