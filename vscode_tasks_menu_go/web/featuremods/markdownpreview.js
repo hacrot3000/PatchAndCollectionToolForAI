@@ -129,12 +129,20 @@ function renderMarkdown(content){
   return root;
 }
 
+body.addEventListener('contextmenu',event=>{
+  const selected=String(window.getSelection?.()?.toString()||'');
+  if(!selected.trim()||!body.contains(window.getSelection()?.anchorNode))return;
+  const info=backdrop._taskMenuMarkdownInfo;if(!info)return;
+  globalThis.TaskMenuAgentChat?.openAttachContextMenu?.({kind:'file_selection',name:info.name||'selection.md',mime:'text/markdown',text:selected,source:{path:info.project_path||info.path||'',source_line_unavailable:true,content_source:info.content_source||'rendered_markdown_preview',dirty:Boolean(info.dirty),captured_at:new Date().toISOString()}},event);
+});
 function close(){
   backdrop.classList.remove('visible');
+  backdrop._taskMenuMarkdownInfo=null;
   body.replaceChildren();
 }
 function open(info){
   if(!info||info.kind!=='markdown'||typeof info.content!=='string')return;
+  backdrop._taskMenuMarkdownInfo=info;
   title.textContent=info.path||info.name||'Markdown';
   title.title=info.path||'';
   meta.textContent=['Markdown',formatBytes(info.size)].join(' · ');

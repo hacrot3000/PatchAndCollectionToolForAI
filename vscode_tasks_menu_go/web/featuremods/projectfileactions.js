@@ -264,7 +264,8 @@ function standardActions(pathValue,type='file'){
   pathValue=cleanPath(pathValue);type=type==='dir'?'dir':'file';
   const actions=[];
   if(type==='file')actions.push(
-    {label:'Open',run:()=>openProjectFile(pathValue)}
+    {label:'Open',run:()=>openProjectFile(pathValue)},
+    {label:'Attach to Chat',title:'Read this bounded text file through the project API and stage it without sending',run:async()=>{const api=globalThis.TaskMenuAgentChat;if(!api?.attachProjectFile)throw new Error('Agent Chat attachments are unavailable');const sessionID=api.selectedSessionID;const result=await api.attachProjectFile(pathValue,{...(sessionID?{session_id:sessionID}:{})});if(!result?.ok)throw new Error(result?.error||'Could not attach the project file to Chat.');return result;}}
   );
   // Explorer and other project-file menus share these actions. Make Markdown
   // preview directly accessible without opening the secondary Open With menu.

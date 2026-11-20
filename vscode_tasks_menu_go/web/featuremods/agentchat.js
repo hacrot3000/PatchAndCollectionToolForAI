@@ -69,6 +69,16 @@ agentCSS.textContent=[
 '.agentchat-tool-summary{font-size:11px;color:#c5dbed;line-height:1.4;white-space:pre-wrap;overflow-wrap:anywhere}',
 
 '.agentchat-composer{padding:9px;border-top:1px solid #35445c;display:flex;flex-direction:column;gap:6px}',
+'.agentchat-attachment-list{display:flex;flex-direction:column;gap:5px;max-height:150px;overflow:auto}',
+'.agentchat-attachment-card{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:2px 8px;padding:6px 8px;border:1px solid #465365;border-radius:6px;font-size:11px}',
+'.agentchat-attachment-title{display:flex;gap:6px;min-width:0;font-weight:650}',
+'.agentchat-attachment-title span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
+'.agentchat-attachment-path,.agentchat-attachment-meta{grid-column:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;opacity:.68;font:10px ui-monospace,monospace}',
+'.agentchat-attachment-preview{grid-column:1/3;max-height:42px;overflow:hidden;white-space:pre-wrap;overflow-wrap:anywhere;opacity:.8;font:10px/1.35 ui-monospace,monospace}',
+'.agentchat-attachment-remove{grid-column:2;grid-row:1/4;padding:2px 6px!important}',
+'.agentchat-attach-context-menu{position:fixed;z-index:17200;display:none;min-width:190px;padding:5px;background:#192330;color:#e6eef9;border:1px solid #55657a;border-radius:7px;box-shadow:0 8px 28px #0009}',
+'.agentchat-attach-context-menu.open{display:block}.agentchat-attach-context-menu button{width:100%;text-align:left}',
+'html[data-taskmenu-theme="light"] .agentchat-attach-context-menu{background:#fff;color:#17283a}',
 '.agentchat-composer textarea{width:100%;min-height:66px;max-height:160px;resize:vertical}',
 '.agentchat-info{font-size:11px;color:#b6cce2;line-height:1.5;padding:4px 8px}',
 '.agentchat-settings-overlay{position:fixed;inset:0;z-index:17110;display:none;align-items:center;justify-content:center;background:#000a;padding:15px}',
@@ -94,7 +104,11 @@ function agentEl(tag,cls,text){
 }
 function agentButton(text,fn){const b=agentEl('button','',text);b.type='button';b.onclick=fn;return b;}
 function agentOption(value,label){const op=agentEl('option','',label);op.value=value;return op;}
-const root=agentEl('div','agentchat-overlay'),windowBox=agentEl('section','agentchat-window');
+const attachContextMenu=agentEl('div','agentchat-attach-context-menu');
+attachContextMenu.setAttribute('role','menu');document.body.append(attachContextMenu);
+
+root=agentEl('div','agentchat-overlay');
+const windowBox=agentEl('section','agentchat-window');
 windowBox.setAttribute('role','region');windowBox.setAttribute('aria-label','TaskDeck Agent Chat');
 const heading=agentEl('div','agentchat-toolbar'),title=agentEl('strong','','AI Agent Chat');
 const newChat=agentButton('+ New session',()=>createSession().catch(showAgentError));
@@ -134,7 +148,7 @@ for(const [key,label] of [['timeline','Timeline'],['console','Console'],['http',
  const tab=agentButton(label,()=>{agentDebugTab=key;renderAgentDebugTrace();});tab.dataset.debugTab=key;debugTabs.append(tab);
 }
 debugPanel.append(debugToolbar,debugTabs,debugOutput);
-const agentDock={position:'right',autoHide:false,expanded:false,rightWidth:420,bottomHeight:320,observer:null};
+agentDock={position:'right',autoHide:false,expanded:false,rightWidth:420,bottomHeight:320,observer:null};
 const dockResizer=agentEl('div','agentchat-dock-resizer');dockResizer.tabIndex=0;dockResizer.setAttribute('role','separator');
 const agentStrip=agentButton('✦ AI Agent Chat',()=>openAgentPanel().catch(showAgentError));
 agentStrip.className='agentchat-strip';agentStrip.setAttribute('aria-label','Open Agent Chat');
@@ -155,6 +169,9 @@ const tabbar=agentEl('div','agentchat-modelbar');
 let agentTabs=[];const agentDrafts=new Map();const agentAttachmentDrafts=new Map();
 const agentRequestIDs=new Map();
 let agentSelectGeneration=0;
+let agentActive=null,agentProviders=[],agentSessions=[],agentBusy=false,agentAbort=null;
+const agentBusySessions=new Set();
+function agentSelectedChatSession(){return agentActive||null;}
 const providerSelect=agentEl('select'),modelSelect=agentEl('select'),modeSelect=agentEl('select'),effortSelect=agentEl('select');
 for(const mode of [['stateless','Stateless'],['previous_response','Response chain'],['conversation','Conversations (fallback)']]){
  modeSelect.append(agentOption(mode[0],mode[1]));
@@ -164,11 +181,14 @@ const transcript=agentEl('div','agentchat-transcript');
 const composer=agentEl('div','agentchat-composer'),prompt=agentEl('textarea');
 // Text-only attachment staging. Binary files are rejected server-side; the UI
 // never reads local paths or embeds base64.
-const attachButton=agentButton('+ Text file',()=>pickAgentAttachment().catch(showAgentError));
+const attachButton=agentButton('+ Text file',()=>{const sessionID=agentSelectedChatSession();pickAgentAttachment(sessionID).catch(showAgentError);});
 const autoFeedback=agentButton('Auto-send results',()=>toggleAutoFeedback().catch(showAgentError));
-const attachList=agentEl('div','agentchat-info','');
+const attachList=agentEl('div','agentchat-attachment-list','');
 let agentAttachments=[];
+const agentPendingAttachments=[];
+const agentMaxAttachmentBytes=32*1024,agentMaxAttachmentTotal=64*1024,agentMaxAttachmentCount=4;
 prompt.setAttribute('placeholder','Type an AI request for this TaskDeck project…');
+prompt.addEventListener('input',()=>{if(agentActive){agentDrafts.set(agentActive,prompt.value);agentRequestIDs.delete(agentActive);}});
 const actionLine=agentEl('div','agentchat-composer-actions');
 const status=agentEl('span','', 'No session selected. Patch execution requires per-call approval.');
 const send=agentButton('Send',()=>sendAgentMessage().catch(showAgentError));
@@ -231,10 +251,8 @@ const agentSample={
   {id:'gpt-6.1-sol',name:'gpt-6.1-sol',tool_calling:true,vision:true,max_input_tokens:1280000,max_output_tokens:160000,reasoning_efforts:['low','medium','high','xhigh','max'],default_reasoning_effort:'xhigh'}
  ]
 };
-let agentProviders=[],agentSessions=[],agentActive=null,agentBusy=false,agentAbort=null;
 // Tracks which session owns the in-flight UI request so another session can
 // still be opened/read while one provider turn is pending.
-const agentBusySessions=new Set();
 function agentSessionBusy(id){return Boolean(id&&agentBusySessions.has(id));}
 function markAgentSessionBusy(id,busy){
  if(!id)return;
@@ -559,6 +577,13 @@ async function selectAgentSession(id){
  openAgentTab(id);
  prompt.value=agentDrafts.get(id)||'';
  agentAttachments=(agentAttachmentDrafts.get(id)||[]).map(a=>({...a}));
+ const pendingToTransfer=agentPendingAttachments.slice();
+ if(pendingToTransfer.length){
+  try{
+   const merged=normalizeStagedAttachments([...agentAttachments,...pendingToTransfer]);
+   agentAttachments=merged;agentAttachmentDrafts.set(id,merged.map(a=>({...a})));agentPendingAttachments.splice(0,pendingToTransfer.length);
+  }catch(error){status.textContent='Pending attachments need room in this session: '+String(error?.message||error);}
+ }
  renderAgentAttachments();
  // After a refresh/reconnect, an in-flight provider turn has no browser
  // request attached. Reflect it instead of offering a duplicate send.
@@ -682,6 +707,7 @@ async function createSession(){
  await loadAgentSessions();
  await selectAgentSession(result.session.id);
  prompt.focus();
+ if(agentPendingAttachments.length){const pending=agentPendingAttachments.slice();try{const merged=normalizeStagedAttachments([...agentAttachments,...pending]);agentAttachments=merged;agentAttachmentDrafts.set(result.session.id,merged.map(a=>({...a})));agentPendingAttachments.splice(0,pending.length);renderAgentAttachments();}catch(error){status.textContent='Pending attachments need room in this session: '+String(error?.message||error);}}
 }
 async function sendAgentMessage(){
  if(!agentActive)throw new Error('Create a session first.');
@@ -689,6 +715,7 @@ async function sendAgentMessage(){
  const sessionID=agentActive;
  const msg=prompt.value.trim();
  const attachments=(agentAttachments||[]).map(a=>({...a}));
+ const wireAttachments=attachments.map(({name,mime,text})=>({name,mime,text}));
  if(!msg)throw new Error('Enter a message.');
  if(!window.confirm('Send this request, its text attachments'+(attachments.length?' ('+attachments.length+')':'')+' and, on the first turn, the TaskDeck AI Pack to the selected external provider? This chat may propose patch execution, which requires a separate approval.'))return;
  const s=await selectAgentSession(sessionID);
@@ -698,15 +725,17 @@ async function sendAgentMessage(){
  try{
   status.textContent='Waiting for AI provider…';
   // Keep one key per composition while retrying after a transport failure.
-  let requestID=agentRequestIDs.get(sessionID);
-  if(!requestID){
-   requestID='ui-'+sessionID+'-'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2,8);
-   agentRequestIDs.set(sessionID,requestID);
+  const requestFingerprint=JSON.stringify({message:msg,attachments:wireAttachments});
+  let request=agentRequestIDs.get(sessionID);
+  if(!request||request.fingerprint!==requestFingerprint){
+   request={id:'ui-'+sessionID+'-'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2,8),fingerprint:requestFingerprint};
+   agentRequestIDs.set(sessionID,request);
   }
+  const requestID=request.id;
   const response=await agentApp.jsonFetch('/api/agent/sessions/'+encodeURIComponent(sessionID)+'/messages',{
    method:'POST',headers:{'Content-Type':'application/json'},
    body:JSON.stringify({message:msg,confirm_external:true,expected_revision:s.revision,request_id:requestID,
-    attachments}),
+    attachments:wireAttachments}),
    signal:agentAbort.signal
   });
   agentRequestIDs.delete(sessionID);
@@ -730,28 +759,190 @@ async function sendAgentMessage(){
   agentAbort=null;agentBusy=false;markAgentSessionBusy(sessionID,false);
  }
 }
-function pickAgentAttachment(){
+function currentStagedAttachments(){return agentActive?agentAttachments:agentPendingAttachments;}
+function safeAttachmentMetadata(value){return String(value??'').replace(/[\r\n\0]/g,' ').trim();}
+function attachmentByteLength(text){return new TextEncoder().encode(text).length;}
+function normalizeStagedAttachments(items){
+ if(!Array.isArray(items))throw new Error('Attachments must be an array.');
+ if(items.length>agentMaxAttachmentCount)throw new Error('At most 4 attachments are allowed per session.');
+ let total=0;
+ return items.map(item=>{
+  if(!item||typeof item.text!=='string'||item.text.includes('\0')||!globalThis.TextEncoder)throw new Error('Attachment must contain valid UTF-8 text.');
+  const name=safeAttachmentMetadata(item.name)||'attachment.txt';
+  if(name.length>120)throw new Error('Attachment name is too long.');
+  let mime=String(item.mime||'text/plain').toLowerCase().trim();
+  if(!(mime.startsWith('text/')||mime==='application/json'))throw new Error('Only text and JSON attachments are supported.');
+  const text=item.text,bytes=attachmentByteLength(text);
+  try{if(new TextDecoder('utf-8',{fatal:true}).decode(new TextEncoder().encode(text))!==text)throw new Error();}catch{throw new Error(name+' is not valid UTF-8 text.');}
+  if(bytes>agentMaxAttachmentBytes)throw new Error(name+' is '+bytes+' bytes; the per-file limit is 32 KiB. Select a smaller range.');
+  const source=item.source&&typeof item.source==='object'?{...item.source}:{};
+  const kind=['file','file_selection','terminal_console','terminal_selection'].includes(item.kind)?item.kind:(source.kind||'file');
+  const lines=['SOURCE_TYPE: '+safeAttachmentMetadata(kind)];
+  if(source.path)lines.push('FILE_PATH: '+safeAttachmentMetadata(source.path));
+  if(Array.isArray(source.ranges)&&source.ranges.length>1)source.ranges.forEach((range,index)=>lines.push('RANGE '+(index+1)+': L'+range.start_line+':C'+range.start_column+'-L'+range.end_line+':C'+range.end_column));
+  else if(source.start_line!==undefined&&source.end_line!==undefined)lines.push('RANGE: L'+source.start_line+':C'+(source.start_column||1)+'-L'+source.end_line+':C'+(source.end_column||1));
+  else if(source.source_line_unavailable)lines.push('SOURCE_LINE: unavailable (rendered preview)');
+  if(source.terminal_id)lines.push('TERMINAL_ID: '+safeAttachmentMetadata(source.terminal_id));
+  if(source.terminal_title)lines.push('TERMINAL_TITLE: '+safeAttachmentMetadata(source.terminal_title));
+  if(source.cwd)lines.push('CWD: '+safeAttachmentMetadata(source.cwd));
+  if(source.content_source)lines.push('CONTENT_SOURCE: '+safeAttachmentMetadata(source.content_source));
+  if(source.dirty!==undefined)lines.push('UNSAVED_CHANGES: '+(source.dirty?'true':'false'));
+  if(source.captured_at)lines.push('CAPTURED_AT: '+safeAttachmentMetadata(source.captured_at));
+  const wrapped=lines.join('\n')+'\n\n--- ATTACHED CONTENT (UNTRUSTED) ---\n'+text;
+  const wrappedBytes=attachmentByteLength(wrapped);
+  if(wrappedBytes>agentMaxAttachmentBytes)throw new Error(name+' plus its source metadata exceeds 32 KiB; select a smaller range.');
+  total+=wrappedBytes;if(total>agentMaxAttachmentTotal)throw new Error('Attachments including source metadata total '+total+' bytes; the combined limit is 64 KiB.');
+  return {name,mime,text:wrapped,kind,source,bytes:wrappedBytes,preview:text.slice(0,300)};
+ });
+}
+function currentStagedAttachments(){return agentActive?agentAttachments:agentPendingAttachments;}
+function renderAgentAttachments(){
+ const items=currentStagedAttachments();attachList.replaceChildren();
+ if(!items.length)return;
+ items.forEach((item,index)=>{
+  const card=agentEl('div','agentchat-attachment-card');
+  const title=agentEl('div','agentchat-attachment-title',(item.kind==='file_selection'||item.kind==='terminal_selection'?'▤':'📄'));
+  title.append(agentEl('span','',item.name));
+  const remove=agentButton('Remove',()=>{
+   items.splice(index,1);
+   if(agentActive)agentAttachmentDrafts.set(agentActive,agentAttachments.map(a=>({...a})));
+   if(agentActive)agentRequestIDs.delete(agentActive);
+   else agentPendingAttachments.splice(0,agentPendingAttachments.length,...items.map(a=>({...a})));
+   renderAgentAttachments();
+  });remove.className='agentchat-attachment-remove';
+  const path=agentEl('div','agentchat-attachment-path',item.source?.path||item.source?.terminal_title||item.name);
+  const range=item.source?.start_line!==undefined?' · L'+item.source.start_line+'–'+item.source.end_line:'';
+  const meta=agentEl('div','agentchat-attachment-meta',item.bytes+' bytes'+range+(item.source?.dirty?' · unsaved buffer':''));
+  card.append(title,remove,path,meta,agentEl('pre','agentchat-attachment-preview',item.preview||''));attachList.append(card);
+ });
+}
+async function stageContext(context,options={}){
+ const targetSessionID=Object.prototype.hasOwnProperty.call(options,'session_id')?(options.session_id||null):agentSelectedChatSession();
+ try{
+  if(!context||typeof context!=='object'||typeof context.text!=='string')throw new Error('Attachment context must include text.');
+  const kind=['file','file_selection','terminal_console','terminal_selection'].includes(context.kind)?context.kind:null;
+  if(!kind)throw new Error('Unsupported attachment context kind.');
+  const item={kind,name:context.name,mime:context.mime||'text/plain',text:context.text,source:context.source||{}};
+  const current=targetSessionID?(targetSessionID===agentActive?agentAttachments:(agentAttachmentDrafts.get(targetSessionID)||[])):agentPendingAttachments;
+  const staged=normalizeStagedAttachments([...current,item]);
+  current.splice(0,current.length,...staged);
+  if(targetSessionID){agentAttachmentDrafts.set(targetSessionID,staged.map(a=>({...a})));agentRequestIDs.delete(targetSessionID);}
+  if(!targetSessionID||targetSessionID===agentActive)renderAgentAttachments();
+  if(options.open!==false){
+   if(targetSessionID&&targetSessionID!==agentActive)await selectAgentSession(targetSessionID);
+   else if(agentDock.expanded){if(!agentActive)await openAgentPanel({preserveEmpty:Boolean(agentPendingAttachments.length),preserveActive:true});}
+   else await openAgentPanel({preserveEmpty:Boolean(agentPendingAttachments.length),preserveActive:true});
+  }
+  if(options.focusComposer!==false)prompt.focus();
+  const actualSession=targetSessionID||agentActive||null;
+  return {ok:true,session_id:actualSession,pending:!actualSession,attachment_count:current.length};
+ }catch(error){return {ok:false,session_id:targetSessionID,error:String(error?.message||error)};}
+}
+function isValidUTF8Text(text){
+ if(typeof text!=='string'||text.includes('\0'))return false;
+ try{return /[\\uD800-\\uDBFF](?![\\uDC00-\\uDFFF])|(?<![\\uD800-\\uDBFF])[\\uDC00-\\uDFFF]/.test(text)?false:new TextDecoder('utf-8',{fatal:true}).decode(new TextEncoder().encode(text))===text;}catch{return false;}
+}
+function editorContextActions(view,selectionSnapshot){
+ const targetSessionID=agentSelectedChatSession();
+ const actions=[{label:'Attach file to Chat',run:async options=>{const sessionID=options?.session_id??targetSessionID;const result=await stageContext(editorSourceContext(view),{open:true,...(sessionID?{session_id:sessionID}:{})});if(!result.ok)throw new Error(result.error);return result;}}];
+ const selection=selectionSnapshot||view?.cm?.state?.selection;
+ if(((selection?.ranges?.length?selection.ranges:[selection?.main])).some(range=>range&&range.from!==range.to))actions.push({label:'Attach selected text to Chat',run:async options=>{const sessionID=options?.session_id??targetSessionID;const result=await stageContext(editorSelectionContexts(view,selection),{open:true,...(sessionID?{session_id:sessionID}:{})});if(!result.ok)throw new Error(result.error);return result;}});
+ return actions;
+}
+function openAttachContextMenu(context,event,label='Attach selection to Chat',options={}){
+ if(!context||!event)return false;
+ const targetSessionID=Object.prototype.hasOwnProperty.call(options,'session_id')?(options.session_id||null):agentSelectedChatSession();
+ event.preventDefault?.();event.stopPropagation?.();
+ attachContextMenu.replaceChildren();
+ const button=agentButton(label,()=>{
+  const run=async()=>{attachContextMenu.classList.remove('open');const result=await stageContext(context,{open:true,...(targetSessionID?{session_id:targetSessionID}:{})});if(!result.ok)throw new Error(result.error);};
+  run().catch(showAgentError);
+ });
+ attachContextMenu.append(button);attachContextMenu.classList.add('open');
+ const margin=6,x=Math.max(margin,Math.min(event.clientX,window.innerWidth-220)),y=Math.max(margin,Math.min(event.clientY,window.innerHeight-80));
+ attachContextMenu.style.left=x+'px';attachContextMenu.style.top=y+'px';
+ return true;
+}
+document.addEventListener('pointerdown',event=>{if(attachContextMenu.classList.contains('open')&&!attachContextMenu.contains(event.target))attachContextMenu.classList.remove('open');},true);
+document.addEventListener('keydown',event=>{if(event.key==='Escape'&&attachContextMenu.classList.contains('open'))attachContextMenu.classList.remove('open');});
+async function stageProjectFile(pathValue,options={}){
+ const targetSessionID=Object.prototype.hasOwnProperty.call(options,'session_id')?(options.session_id||null):agentSelectedChatSession();
+ const path=String(pathValue||'').replace(/^\.\//,'');
+ if(!path||path.startsWith('/')||path.split('/').some(part=>part==='..'))throw new Error('Project-relative file path required.');
+ const info=await agentApp.jsonFetch('/api/project/preview?path='+encodeURIComponent(path),{cache:'no-store'});
+ if(!['text','markdown'].includes(info.kind))throw new Error('This file is binary or unsupported; only text and JSON can be attached.');
+ if(Number(info.size)>agentMaxAttachmentBytes)throw new Error('File is larger than 32 KiB; select a smaller range in the editor.');
+ let text=info.kind==='markdown'&&typeof info.content==='string'?info.content:null;
+ if(text===null){
+  const file=await agentApp.jsonFetch('/api/project/file?path='+encodeURIComponent(path),{cache:'no-store'});
+  if(file.streamed||file.large_file)throw new Error('This file is windowed/large; attach a selected range from the editor instead.');
+  if(typeof file.content!=='string')throw new Error('The file API did not return a complete text file.');
+  text=file.content;
+ }
+ if(attachmentByteLength(text)>agentMaxAttachmentBytes)throw new Error('File content exceeds 32 KiB; no file truncation is performed.');
+ if(!isValidUTF8Text(text))throw new Error('File is not valid UTF-8 text and was not attached.');
+ const result=await stageContext({kind:'file',name:info.name||path.split('/').pop(),mime:info.kind==='markdown'?'text/markdown':attachmentMime(path),text,source:{path,content_source:'project_file_snapshot',dirty:false,captured_at:new Date().toISOString()}},{open:true,...(targetSessionID?{session_id:targetSessionID}:{})});
+ if(!result.ok)throw new Error(result.error);return result;
+}
+function attachmentMime(path){
+ const ext=String(path).split('.').pop().toLowerCase();
+ if(ext==='json'||ext==='ipynb')return 'application/json';
+ return ({md:'text/markdown',markdown:'text/markdown',csv:'text/csv',tsv:'text/tab-separated-values',html:'text/html',htm:'text/html',xml:'text/xml',php:'text/x-php'})[ext]||'text/plain';
+}
+function editorSourceContext(view,selectionSnapshot=null){
+ if(!view||view.closed||view.file?.remote_workspace_id||view.file?.remote_transfer_profile_id)throw new Error('Only local project editor files can be attached.');
+ if(view.file?.streamed)throw new Error('This editor is windowed; attach a selected range from a complete text viewer instead.');
+ const doc=view.cm?.state?.doc;if(!doc)throw new Error('Editor content is unavailable.');
+ const text=doc.toString();if(attachmentByteLength(text)>agentMaxAttachmentBytes)throw new Error('Editor buffer exceeds 32 KiB; select a smaller range instead.');if(!isValidUTF8Text(text))throw new Error('Editor buffer is not valid UTF-8 text.');
+ return {kind:'file',name:String(view.file.path).split(/[\\/]/).pop(),mime:attachmentMime(view.file.path),text,source:{path:view.file.path,content_source:view.dirty?'unsaved_editor_buffer':'editor_buffer',dirty:Boolean(view.dirty),captured_at:new Date().toISOString()}};
+}
+function editorSelectionContexts(view,selectionSnapshot=null){
+ if(!view||view.closed||view.file?.streamed)throw new Error('Selection is unavailable for this editor.');
+ const doc=view.cm?.state?.doc,state=view.cm?.state;if(!doc||!state)throw new Error('Editor content is unavailable.');
+ const selection=selectionSnapshot||state.selection;
+ const ranges=(selection.ranges?.length?selection.ranges:[selection.main]).filter(range=>range&&range.from!==range.to);
+ if(!ranges.length)throw new Error('Select text before attaching a selection.');
+ const ordered=ranges.map(range=>({from:range.from,to:range.to})).sort((a,b)=>a.from-b.from||a.to-b.to);
+ let total=0;const pieces=[];const metadata=[];
+ for(let i=0;i<ordered.length;i++){
+  const range=ordered[i],start=doc.lineAt(range.from),end=doc.lineAt(range.to);
+  const startColumn=range.from-start.from+1,endColumn=range.to-end.from+1;
+  const selected=doc.sliceString(range.from,range.to);if(!isValidUTF8Text(selected))throw new Error('Selected range is not valid UTF-8 text.');total+=attachmentByteLength(selected);
+  if(total>agentMaxAttachmentBytes)throw new Error('Selected text exceeds 32 KiB; select a smaller range.');
+  metadata.push({start_line:start.number,start_column:startColumn,end_line:end.number,end_column:endColumn});
+  pieces.push((ordered.length>1?'RANGE '+(i+1)+' · ':'')+'L'+start.number+':C'+startColumn+'-L'+end.number+':C'+endColumn+'\n'+selected);
+ }
+ const main=metadata[0],last=metadata[metadata.length-1];
+ return {kind:'file_selection',name:String(view.file.path).split(/[\\/]/).pop(),mime:attachmentMime(view.file.path),text:pieces.join('\n\n'),source:{path:view.file.path,start_line:main.start_line,start_column:main.start_column,end_line:last.end_line,end_column:last.end_column,ranges:metadata,content_source:view.dirty?'unsaved_editor_buffer':'editor_buffer',dirty:Boolean(view.dirty),captured_at:new Date().toISOString()}};
+}
+function editorSelectionContextFromBrowserSelection(view,selection){
+ if(!view||view.closed||view.file?.streamed||!selection?.toString?.().trim())throw new Error('Select text in a complete text viewer before attaching.');
+ if(view.file?.remote_workspace_id||view.file?.remote_transfer_profile_id)throw new Error('Remote file attachment is unavailable.');
+ const doc=view.cm?.state?.doc;if(!doc)throw new Error('Editor document is unavailable.');
+ let from,to;try{from=view.cm.posAtDOM?.(selection.anchorNode,selection.anchorOffset);to=view.cm.posAtDOM?.(selection.focusNode,selection.focusOffset);}catch{return null;}
+ if(!Number.isInteger(from)||!Number.isInteger(to))throw new Error('Could not map the selected viewer text to its source document.');
+ const range={from:Math.min(from,to),to:Math.max(from,to)};
+ const start=doc.lineAt(range.from),end=doc.lineAt(range.to),text=doc.sliceString(range.from,range.to);
+ if(!text.trim()||text!==String(selection.toString()))throw new Error('Could not accurately map the selected text to source positions.');
+ return {kind:'file_selection',name:String(view.file.path).split(/[\\/]/).pop(),mime:attachmentMime(view.file.path),text,source:{path:view.file.path,start_line:start.number,start_column:range.from-start.from+1,end_line:end.number,end_column:range.to-end.from+1,content_source:'readonly_editor_view',dirty:Boolean(view.dirty),captured_at:new Date().toISOString()}};
+}
+function pickAgentAttachment(targetSessionID=agentSelectedChatSession()){
  const input=document.createElement('input');
  input.type='file';input.accept='.txt,.md,.json,.log,.csv,.yaml,.yml,.ini,.sql,.py,.js,.ts,.go,.sh,.c,.h,.cpp,.java,.rb,.php,.html,.css,.xml';
- input.onchange=()=>{
-  const file=input.files&&input.files[0];
-  if(!file)return;
-  if(file.size>32*1024){showAgentError(new Error('Attachment must be at most 32 KiB of text.'));return;}
-  if(agentAttachments.length>=4){showAgentError(new Error('At most 4 attachments.'));return;}
-  const reader=new FileReader();
-  reader.onload=()=>{
-   agentAttachments.push({name:file.name,mime:file.type&&file.type.startsWith('text/')?file.type:'text/plain',text:String(reader.result||'')});
-   renderAgentAttachments();
-  };
-  reader.onerror=()=>showAgentError(new Error('Cannot read attachment.'));
-  reader.readAsText(file);
+ input.onchange=async()=>{
+  const file=input.files&&input.files[0];if(!file)return;
+  if(file.size>agentMaxAttachmentBytes){showAgentError(new Error('Attachment is over 32 KiB; choose a smaller text file or attach a selection.'));return;}
+  try{
+   const bytes=await file.arrayBuffer();let text;
+   try{text=new TextDecoder('utf-8',{fatal:true}).decode(bytes);}catch{throw new Error('File is binary or not valid UTF-8 text.');}
+   if(!isValidUTF8Text(text))throw new Error('File is not valid UTF-8 text.');
+   const result=await stageContext({kind:'file',name:file.name,mime:attachmentMime(file.name),text,source:{content_source:'local_file_snapshot',dirty:false,captured_at:new Date().toISOString()}},{open:false,...(targetSessionID?{session_id:targetSessionID}:{})});
+   if(!result.ok)throw new Error(result.error);
+  }catch(error){showAgentError(error);}
  };
  input.click();
 }
-function renderAgentAttachments(){
- if(!agentAttachments.length){attachList.textContent='';return;}
- attachList.textContent='Attachments (sent to the provider with consent): '+agentAttachments.map(a=>a.name).join(', ');
-}
+
 async function toggleAutoFeedback(){
  if(!agentActive)return;
  const session=await selectAgentSession(agentActive);
@@ -860,11 +1051,12 @@ async function archiveAgentSession(){
  await loadAgentSessions();
  await selectAgentSession(result.session.id);
 }
-async function loadAgentState(){
+async function loadAgentState(options={}){
  await loadAgentProviders();await loadAgentSessions();
  if(agentActive&&agentSessions.some(s=>s.id===agentActive))await selectAgentSession(agentActive);
- else if(agentSessions.length)await selectAgentSession(agentSessions[0].id);
+ else if(agentSessions.length&&!options.preserveEmpty)await selectAgentSession(agentSessions[0].id);
  else displayAgentSession(null);
+ renderAgentAttachments();
 }
 function agentDockKey(){
  const workspace=String(agentApp.taskData?.workspace||'').trim()||'default';
@@ -1064,9 +1256,9 @@ async function exportAgentDebug(){
 }
 async function copyAgentDebug(){if(!navigator.clipboard)throw new Error('Clipboard API unavailable.');await navigator.clipboard.writeText(debugOutput.textContent||'');}
 debugTraceSelect.addEventListener('change',()=>{agentDebugTrace=debugTraceSelect.value;renderAgentDebugTrace().catch(showAgentError);});
-async function openAgentPanel(){
+async function openAgentPanel(options={}){
  agentDock.expanded=true;applyAgentDock();saveAgentDock();
- await loadAgentState();
+ await loadAgentState({preserveEmpty:Boolean((options.preserveEmpty||options.preserveActive)&&agentPendingAttachments.length)});
  if(agentDebugView==='debug'){await loadAgentDebugState();await loadAgentDebugTraces();}
  return true;
 }
@@ -1083,6 +1275,9 @@ window.addEventListener('keydown',e=>{
 });
 globalThis.TaskMenuAgentChat={open:openAgentPanel,close:closeAgentPanel,settings:openAgentSettings,
  setDockPosition:setAgentDockPosition,setAutoHide:setAgentDockAutoHide,
+ stageContext,attachProjectFile:stageProjectFile,editorActions:editorContextActions,editorSelectionContextFromBrowserSelection,openAttachContextMenu,
+ get activeSessionID(){return agentActive;},
+ get selectedSessionID(){return agentSelectedChatSession();},
  get dockPosition(){return agentDock.position;},get autoHide(){return agentDock.autoHide;},
  get visible(){return agentDock.expanded;}};
 if(agentDock.expanded)loadAgentState().catch(showAgentError);

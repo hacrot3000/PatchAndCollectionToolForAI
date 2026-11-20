@@ -40,6 +40,17 @@ func TestAgentChatUIHasNoExecutionAndWiresProviderSessions(t *testing.T) {
 		"closeAgentTab",
 		"agentDrafts",
 		"Auto-send results",
+		"stageContext",
+		"attachProjectFile",
+		"Attach file to Chat",
+		"Attach selected text to Chat",
+		"attachments:wireAttachments",
+		"agentAttachmentDrafts.set(sessionID,attachments)",
+		"normalizeStagedAttachments",
+		"agentPendingAttachments",
+		"editorSelectionContexts",
+		"project_file_snapshot",
+		"view.dirty?'unsaved_editor_buffer':'editor_buffer'",
 		"/api/agent/task-manifests/validate",
 		"Planning only",
 		"Validate / Preview",
@@ -48,7 +59,6 @@ func TestAgentChatUIHasNoExecutionAndWiresProviderSessions(t *testing.T) {
 		"settingsAPIType",
 		"Chat Completions API",
 		"requesting_ai",
-		"attachments}),",
 		"request_id:requestID",
 		"View console",
 		"Send verified result to AI",
@@ -68,6 +78,21 @@ func TestAgentChatUIHasNoExecutionAndWiresProviderSessions(t *testing.T) {
 	} {
 		if !strings.Contains(js, needle) {
 			t.Errorf("Agent Chat UI lacks %q", needle)
+		}
+	}
+	for _, otherPath := range []string{"featuremods/projectfileactions.js", "featuremods/tabcontext.js", "featuremods/editor.js", "featuremods/markdownpreview.js", "featuremods/structuredview.js"} {
+		b, err := webassets.Files.ReadFile(otherPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(string(b), "globalThis.TaskMenuAgentChat") && otherPath == "featuremods/projectfileactions.js" && (!strings.Contains(string(b), "Attach to Chat") || !strings.Contains(string(b), "attachProjectFile")) {
+			t.Errorf("%s lacks file attachment action", otherPath)
+		}
+		if otherPath == "featuremods/tabcontext.js" && (!strings.Contains(string(b), "editorActions") || !strings.Contains(string(b), "Attach selected text to Chat")) {
+			t.Errorf("%s lacks editor attachment action", otherPath)
+		}
+		if otherPath == "featuremods/editor.js" && !strings.Contains(string(b), "getTextSelectionContext") {
+			t.Errorf("%s cannot map viewer selection", otherPath)
 		}
 	}
 	for _, unsafe := range []string{"innerHTML", "eval(", "new Function(", "/api/patch/paste", "/api/terminal/command"} {
