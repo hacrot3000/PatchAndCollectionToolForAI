@@ -18,7 +18,7 @@ func agentChatInstructions(projectID string, patchToolAvailable bool) string {
 			"Do not claim a patch was queued, executed, or passed until TaskDeck sends verified feedback. " +
 			"Submit no more than one patch per turn; never invent execution results."
 	} else {
-		instructions += " Patch execution tools are NOT available for this provider/model. You cannot create or edit files. " +
+		instructions += " No execution tools are enabled for this provider/model. You cannot create or edit files. " +
 			"Do not output a fake Patch JSON or claim any write succeeded. Explain that the model must support verified function tool calling to propose the edit."
 	}
 	return instructions
