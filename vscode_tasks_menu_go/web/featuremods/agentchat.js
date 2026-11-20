@@ -143,6 +143,7 @@ agentCSS.textContent=[
 '.agentchat-attachment-info{position:relative;display:inline-flex;align-items:center;justify-content:center;min-width:21px;height:22px;padding:0 4px!important;border-radius:50%;font-size:11px;cursor:help}',
 '.agentchat-attachment-tooltip{display:none;position:absolute;bottom:calc(100% + 6px);right:0;z-index:30;width:min(330px,70vw);max-height:220px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;text-align:left;font:11px/1.45 ui-monospace,monospace;background:#101a28;border:1px solid #70849d;border-radius:6px;color:#edf3ff;padding:8px;box-shadow:0 6px 20px #0009;pointer-events:none}',
 '.agentchat-attachment-info:hover .agentchat-attachment-tooltip,.agentchat-attachment-info:focus-visible .agentchat-attachment-tooltip{display:block}',
+'.agentchat-attachment-tooltip.visible{display:block;position:fixed;bottom:auto;right:auto}',
 '.agentchat-attachment-remove{padding:2px 5px!important;min-width:22px;height:22px}',
 'html[data-taskmenu-theme="light"] .agentchat-attachment-tooltip{background:#fff;color:#17283a;border-color:#b1c4d9;box-shadow:0 6px 20px #0002}',
 '.agentchat-attach-context-menu{position:fixed;z-index:17200;display:none;min-width:190px;padding:5px;background:#192330;color:#e6eef9;border:1px solid #55657a;border-radius:7px;box-shadow:0 8px 28px #0009}',
@@ -1499,7 +1500,9 @@ function normalizeStagedAttachments(items){
  });
 }
 function currentStagedAttachments(){return agentActive?agentAttachments:agentPendingAttachments;}
+let agentAttachmentTooltip=null;
 function renderAgentAttachments(){
+ agentAttachmentTooltip?.remove?.();agentAttachmentTooltip=null;
  const items=currentStagedAttachments();attachList.replaceChildren();
  items.forEach((item,index)=>{
   const card=agentEl('div','agentchat-attachment-card');
@@ -1522,6 +1525,26 @@ function renderAgentAttachments(){
   details.title=summary;
   const tip=agentEl('span','agentchat-attachment-tooltip',summary);
   tip.setAttribute('role','tooltip');details.append(tip);
+  const showDetails=()=>{
+   if(agentAttachmentTooltip&&agentAttachmentTooltip!==tip)agentAttachmentTooltip.remove();
+   const rect=details.getBoundingClientRect?.();
+   if(!rect)return;
+   const width=Math.min(330,Math.max(175,window.innerWidth-16));
+   document.body.append(tip);tip.classList.add('visible');
+   tip.style.width=width+'px';
+   tip.style.left=Math.max(8,Math.min(rect.right-width,window.innerWidth-width-8))+'px';
+   const height=tip.offsetHeight||115;
+   tip.style.top=(rect.top-height-7>=6?rect.top-height-7:Math.min(rect.bottom+7,window.innerHeight-height-6))+'px';
+   agentAttachmentTooltip=tip;
+  };
+  const hideDetails=()=>{
+   tip.classList.remove('visible');tip.remove();
+   if(agentAttachmentTooltip===tip)agentAttachmentTooltip=null;
+  };
+  details.addEventListener('mouseenter',showDetails);
+  details.addEventListener('mouseleave',hideDetails);
+  details.addEventListener('focus',showDetails);
+  details.addEventListener('blur',hideDetails);
   const remove=agentButton('×',()=>{
    items.splice(index,1);
    if(agentActive)agentAttachmentDrafts.set(agentActive,agentAttachments.map(a=>({...a})));
