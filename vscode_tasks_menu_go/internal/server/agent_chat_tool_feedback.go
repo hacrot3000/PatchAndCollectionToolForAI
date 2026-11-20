@@ -202,7 +202,7 @@ func (s *Server) agentDeliverToolResult(ctx context.Context, store *agentchat.St
 		Mode: mode, PreviousResponseID: x.PreviousResponseID, ConversationID: conversationID,
 		History: x.History, Next: []agentchat.HistoryItem{next},
 		MaxOutputTokens: limit, ReasoningEffort: agentProviderReasoningEffort(p, x.ReasoningEffort, model),
-		EnablePatchTool: toolAvailable,
+		EnablePatchTool: toolAvailable, EnableCollectionTool: toolAvailable,
 	})
 	if err != nil {
 		return agentDeliverResult{}, agentContinueError{413, "cannot format tool-result model request"}
@@ -253,6 +253,15 @@ func (s *Server) agentDeliverToolResult(ctx context.Context, store *agentchat.St
 	}
 	x.ToolCalls[idx].FeedbackStatus = "acknowledged"
 	x.AppendEvent("feedback_acknowledged", x.Status, call.CallID, "")
+	// A verified native Patch result can legitimately lead the model to
+	// inspect more code. Continue read-only Collection calls automatically.
+	result, err = s.agentChatRunCollection(ctx, store, &x, result, p, model, string(secret), identity, toolAvailable)
+	if err != nil {
+		x.Status = "failed"
+		x.AppendEvent("collect_failed", "failed", "", "")
+		_, _ = store.Save(x, x.Revision)
+		return agentDeliverResult{}, agentContinueError{502, "Collection continuation after Patch result failed; inspect the Agent journal"}
+	}
 	appendAgentProviderResult(&x, result, toolAvailable)
 	x, err = store.Save(x, x.Revision)
 	if err != nil {
