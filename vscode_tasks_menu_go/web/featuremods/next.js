@@ -83,6 +83,7 @@ import '/featuremods/aiplans.js';
 import '/featuremods/ai_terminal_actions_core.js';
 import '/featuremods/ai_terminal_troubleshoot.js';
 import '/featuremods/menus.js';
+import '/featuremods/terminalchatcontext.js';
 import '/featuremods/broadcast.js';
 import '/featuremods/commandpresets.js';
 import '/featuremods/tabcontext.js';
