@@ -5,6 +5,7 @@ import (
     "encoding/hex"
     "encoding/json"
     "errors"
+    "fmt"
     "io"
     "strings"
     "unicode/utf8"
@@ -117,6 +118,15 @@ func agentModelVisibleHistory(x agentchat.Session) []agentchat.HistoryItem {
         if (item.Type == "function_call" || item.Type == "function_call_output") && synthetic[item.CallID] {continue}
         out = append(out, item)
         size += len(item.Content) + len(item.Arguments)
+    }
+    if x.ArchivedHistoryItems>0 {
+        checkpoint:=agentchat.HistoryItem{Type:"user",Content:fmt.Sprintf(
+            "[TASKDECK STORAGE CHECKPOINT — NOT A NEW USER MESSAGE] %d earlier Collection/narration history items were durably archived in %d private segment(s). The original user task remains active; no completion is implied. Exact older evidence must be re-read with scoped Collection requests if required. Do not invent findings from archives.",
+            x.ArchivedHistoryItems,x.HistoryArchiveParts)}
+        if len(out)>0 {
+            out=append(out[:1],append([]agentchat.HistoryItem{checkpoint},out[1:]...)...)
+        } else {out=append(out,checkpoint)}
+        size+=len(checkpoint.Content)
     }
     const modelHistoryBudget = 384 << 10
     const recentUnmodifiedItems = 10
