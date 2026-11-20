@@ -172,7 +172,7 @@ const dockPositionButton=agentButton('Bottom',()=>setAgentDockPosition(agentDock
 dockPositionButton.title='Move Agent Chat between right and bottom';dockPositionButton.setAttribute('aria-label','Move Agent Chat to bottom');
 const autoHideButton=agentButton('Auto Hide',()=>setAgentDockAutoHide(!agentDock.autoHide));
 autoHideButton.title='Toggle Agent Chat auto hide';autoHideButton.setAttribute('aria-label','Enable Agent Chat auto hide');
-const moreButton=agentButton('⋯',()=>toggleAgentMore());moreButton.title='More Agent Chat actions';moreButton.setAttribute('aria-label','More Agent Chat actions');
+const moreButton=agentButton('⋯',()=>toggleAgentMore());moreButton.title='More Agent Chat actions';moreButton.setAttribute('aria-label','More Agent Chat actions');moreButton.setAttribute('aria-haspopup','menu');moreButton.setAttribute('aria-expanded','false');moreButton.hidden=true;
 const toolbarActions=agentEl('div','agentchat-toolbar-actions'),moreMenu=agentEl('div','agentchat-more-menu');
 let agentDebugView='chat',agentDebugLog='',agentDebugFetchInFlight=null;
 const agentDebugClientErrors=[];
@@ -195,7 +195,7 @@ const agentStrip=agentButton('✦ AI Agent Chat',()=>openAgentPanel().catch(show
 agentStrip.className='agentchat-strip';agentStrip.setAttribute('aria-label','Open Agent Chat');
 const layout=agentEl('div','agentchat-layout'),sessionList=agentEl('div','agentchat-list');
 const sessionMenu=agentEl('div','agentchat-sessions');
-const sessionMenuButton=agentButton('Saved conversations ▾',()=>toggleAgentSessions());
+const sessionMenuButton=agentButton('History ▾',()=>toggleAgentSessions());
 sessionMenuButton.setAttribute('aria-expanded','false');
 sessionMenuButton.setAttribute('aria-controls','agentchat-saved-sessions');
 sessionList.id='agentchat-saved-sessions';
@@ -1773,16 +1773,32 @@ function clampDockSize(value,position){
 }
 function rebalanceAgentToolbar(){
  if(!toolbarActions.isConnected&&root.parentElement?.classList?.contains('task-agent-dock-section')===false)return;
+ // Always restore the groups before measuring: a previous resize may have
+ // moved them into More. Do not reserve space for More unless it is needed.
+ for(const group of agentToolbarItems)toolbarActions.append(group);
+ moreMenu.classList.remove('open');
+ moreButton.setAttribute('aria-expanded','false');
+ moreButton.hidden=true;
  const space=heading.clientWidth||0;
  if(!space)return;
- for(const button of agentToolbarItems)toolbarActions.append(button);
- moreMenu.classList.remove('open');moreButton.setAttribute('aria-expanded','false');
- const always=moreButton.offsetWidth+close.offsetWidth+title.offsetWidth+24;
- while(toolbarActions.scrollWidth>Math.max(0,space-always)&&toolbarActions.children.length>1){
-  const button=toolbarActions.lastElementChild;moreMenu.prepend(button);
+ const available=Math.max(0,space-close.offsetWidth-title.offsetWidth-24);
+ if(toolbarActions.scrollWidth>available){
+  moreButton.hidden=false;
+  const withMore=Math.max(0,available-moreButton.offsetWidth);
+  while(toolbarActions.scrollWidth>withMore && toolbarActions.children.length){
+   moreMenu.prepend(toolbarActions.lastElementChild);
+  }
  }
+ // Never leave an inert ellipsis on the title bar.
+ moreButton.hidden=moreMenu.children.length===0;
 }
 function toggleAgentMore(force){
+ if(!moreMenu.children.length){
+  moreMenu.classList.remove('open');
+  moreButton.hidden=true;
+  moreButton.setAttribute('aria-expanded','false');
+  return;
+ }
  const open=force===undefined?!moreMenu.classList.contains('open'):Boolean(force);
  moreMenu.classList.toggle('open',open);moreButton.setAttribute('aria-expanded',String(open));
  if(open)moreMenu.querySelector('button')?.focus();else moreButton.focus();
