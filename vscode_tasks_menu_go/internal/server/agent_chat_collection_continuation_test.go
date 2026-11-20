@@ -47,7 +47,19 @@ func TestAgentCollectionReadPHPThenProposeVietnamesePatch(t *testing.T) {
 		found := false
 		for _, item := range payload.Input {
 			if item["type"]=="function_call_output" && item["call_id"]=="read-php" {
-				if strings.Contains(fmt.Sprint(item["output"]), original) { found=true }
+				// The JSON encoder may escape PHP's leading '<' as \\u003c.
+				// Compare the decoded file contents, not the raw JSON string.
+				var observed struct {
+					Results []struct {
+						Files []struct{ Content string `json:"content"`; Path string `json:"path"` } `json:"files"`
+					} `json:"results"`
+				}
+				if err:=json.Unmarshal([]byte(fmt.Sprint(item["output"])),&observed);err!=nil { t.Fatal(err) }
+				for _, result:=range observed.Results {
+					for _, file:=range result.Files {
+						if file.Path=="helloworld.php" && file.Content==original { found=true }
+					}
+				}
 			}
 		}
 		if !found { t.Fatalf("Collection read result missing from provider continuation: %+v", payload.Input) }
