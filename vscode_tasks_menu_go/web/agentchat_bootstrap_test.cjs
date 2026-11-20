@@ -304,5 +304,38 @@ console.log('PASS: Agent Chat bootstraps and dock position/auto-hide state trans
   assert.equal(transcript.children[0],originalUser,'changed revision without new content may not repaint');
   console.log('PASS: append-only transcript, single-card status updates and revision-gated polling');
 
+  // One click copies the WHOLE multi-trace/session report, not a selected tab
+  // or only the currently visible subset. Prefetch is complete before click
+  // so Firefox retains its transient clipboard activation.
+  let copied='';
+  context.navigator={clipboard:{writeText(value){copied=value;return Promise.resolve();}}};
+  const completeReport={
+    format:'taskdeck.agent.debug.report.v1',
+    provider_traces:[{trace_id:'failed-collection-trace',events:[{code:'COLLECTION_PROVIDER_FAILED',http_status:502}]}],
+    sessions:[{id:'test-session',events:[{kind:'collect_failed'}]}],
+  };
+  context.TaskMenuApp.jsonFetch=async url=>{
+    assert.equal(url,'/api/agent/debug/report','AI Debug must use a single report endpoint');
+    return completeReport;
+  };
+  vm.runInNewContext("setAgentDebugView('debug')",context);
+  await vm.runInNewContext("loadAgentDebugReport()",context);
+  const copyLog=find(debugPanel,node=>node.tagName==='button'&&node.textContent==='Copy log');
+  assert.ok(copyLog&&!copyLog.disabled,'Copy log must be enabled after automatic capture loads');
+  await copyLog.onclick();
+  assert.ok(copied.includes('failed-collection-trace')&&copied.includes('collect_failed'),
+    'Copy log must include provider errors and durable session journal together');
+  assert.equal(debugPanel.children[0].children.filter(node=>node.tagName==='button').length,1,
+    'AI Debug must have exactly one action');
+
+  // Even a broken report endpoint should create a copyable client diagnostic.
+  context.TaskMenuApp.jsonFetch=async()=>{throw new Error('REPORT_HTTP_503');};
+  await vm.runInNewContext("loadAgentDebugReport()",context);
+  await copyLog.onclick();
+  assert.ok(copied.includes('REPORT_HTTP_503')&&copied.includes('report.unavailable'),
+    'Copy log must work for failures of the debug endpoint itself');
+  console.log('PASS: one-button AI Debug copies all safe traces/journals or a useful fallback');
+
+
 
 })().catch(error => { console.error(error); process.exitCode = 1; });
