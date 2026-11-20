@@ -841,7 +841,7 @@ console.log('PASS: Agent Chat bootstraps and dock position/auto-hide state trans
       patch_session_id:'native-old'}]};
   const oldPatchCard=vm.runInNewContext('renderAgentTool('+JSON.stringify(stuckPatch)+','+JSON.stringify(stuckPatch.history[0])+')',context);
   assert.ok(find(oldPatchCard,node=>node.tagName==='button'&&node.textContent==='Recover old result → send to AI'),
-    'stuck running Patch must offer old-result recovery instead of automatic re-execution');
+    'stuck running Patch must offer old-result recovery instead of automatic re-execution; got '+JSON.stringify(oldPatchCard.children.map(x=>({tag:x.tagName,txt:x.textContent,children:x.children.map(y=>({tag:y.tagName,txt:y.textContent,children:y.children.map(z=>({tag:z.tagName,txt:z.textContent}))}))}))));
   assert.equal(Boolean(find(oldPatchCard,node=>node.tagName==='button'&&node.textContent==='Retry run Patch · new approval')),false,
     'uncertain RUNNING Patch cannot have a rerun action');
   const failedPatch={...stuckPatch,tool_calls:[{...stuckPatch.tool_calls[0],
