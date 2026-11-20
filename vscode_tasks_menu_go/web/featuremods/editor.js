@@ -418,7 +418,7 @@ function openEditorMarkdownPreview(view){
  if(typeof preview?.open!=='function')throw new Error('Markdown Preview unavailable');
  // Render the CodeMirror buffer, including unsaved edits, without fetching from disk.
  const content=view.cm.state.doc.toString();
- preview.open({kind:'markdown',path:view.file.path,content,size:new Blob([content]).size});
+ preview.open({kind:'markdown',path:view.file.path,content,size:new Blob([content]).size,dirty:Boolean(view.dirty),content_source:view.dirty?'unsaved_editor_buffer':'editor_buffer'});
  return true;
 }
 function syncEditorMarkdownPreview(view){
@@ -2783,7 +2783,23 @@ function taskVariableContext(){
   return {path:String(view.file.path||''),line_number:lineNumber,
     column_number:columnNumber,selected_text:selectedText};
 }
+function getTextSelectionContext(options={}){
+  const view=options.view||(activeEditorID?editors.get(activeEditorID):null),selection=window.getSelection?.();
+  if(!view||view.closed||view.file?.streamed||!selection?.toString?.().trim())return null;
+  const selected=globalThis.TaskMenuAgentChat?.editorSelectionContextFromBrowserSelection?.(view,selection);
+  if(!selected)return null;
+  if(selected.text!==String(selection.toString()))return null;
+  if(options.restoreSelection){
+    try{
+      const from=view.cm.posAtDOM(selection.anchorNode,selection.anchorOffset),to=view.cm.posAtDOM(selection.focusNode,selection.focusOffset);
+      if(Number.isInteger(from)&&Number.isInteger(to))view.cm.dispatch({selection:{anchor:from,head:to}});
+    }catch{return null;}
+  }
+  return selected;
+}
+
 globalThis.TaskMenuEditor={
+  getTextSelectionContext,
   taskVariableContext,
   snapshotRemoteState:snapshotRemoteEditorTabs,
   restoreRemoteState:restoreRemoteEditorTabs,

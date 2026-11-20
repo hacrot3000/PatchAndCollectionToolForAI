@@ -216,6 +216,11 @@ function setMode(view,requested){
   const content=document.createElement('div');content.className='editor-structured-content';
   toolbar.append(status,refresh,copy);shell.append(toolbar,content);view.pane.append(shell);
   view.structuredPreview=shell;view.structuredContent=content;view.structuredStatus=status;
+  shell.addEventListener('contextmenu',event=>{
+   const selection=window.getSelection?.(),selected=String(selection?.toString()||'');
+   if(!selected.trim()||!selection?.anchorNode||!shell.contains(selection.anchorNode))return;
+   globalThis.TaskMenuAgentChat?.openAttachContextMenu?.({kind:'file_selection',name:String(view.file?.path||'selection').split(/[\\/]/).pop(),mime:'text/plain',text:selected,source:{path:String(view.file?.path||''),source_line_unavailable:true,content_source:'structured_view_selection',dirty:Boolean(view.dirty),captured_at:new Date().toISOString()}},event);
+  });
   refresh.onclick=()=>{try{setMode(view,view.structuredMode);}catch(e){view.structuredStatus.textContent=e.message;}};
   copy.onclick=()=>{navigator.clipboard?.writeText(view.structuredText||view.structuredContent.textContent).catch(e=>{view.structuredStatus.textContent='Copy failed: '+e.message;});};
  }
