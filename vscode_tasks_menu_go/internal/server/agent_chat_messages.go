@@ -447,7 +447,7 @@ func (s *Server) agentChatMessageAPI(w http.ResponseWriter, r *http.Request, id 
 	// Collection tool calls (and project-bound legacy Collection JSON) are
 	// read-only. Execute and feed them back to the provider automatically until
 	// it answers or proposes a Patch requiring the existing human approval.
-	result, callErr = s.agentChatRunCollection(ctx, store, &session, result, p, model, string(secret), identity, patchToolAvailable)
+	result, statelessCollection, callErr := s.agentChatRunCollection(ctx, store, &session, result, p, model, string(secret), identity, patchToolAvailable)
 	if callErr != nil {
 		session.Status = "failed"
 		stage := "collection_continuation"
@@ -476,6 +476,12 @@ func (s *Server) agentChatMessageAPI(w http.ResponseWriter, r *http.Request, id 
 		return
 	}
 	appendAgentProviderResult(&session, result, patchToolAvailable)
+	if statelessCollection {
+		// The last Collection response was not persisted provider-side.
+		// Preserve local audit history without an unusable stateful reference.
+		session.PreviousResponseID = ""
+		session.ConversationID = ""
+	}
 	appendAgentTextPatchProposal(&session, result, identity)
 	session.AppendEvent("turn_finished", session.Status, "", "")
 	// Capture the reviewed workspace state now, at proposal time, so a later
