@@ -156,4 +156,42 @@ console.log('PASS: Agent Chat bootstraps and dock position/auto-hide state trans
   assert.equal(vm.runInNewContext('JSON.parse(providerEditor.value).name', context), 'Unsaved edit');
   assert.equal(vm.runInNewContext('JSON.parse(providerEditor.value).trusted_shared_ips[0]', context), '100.64.0.19');
   console.log('PASS: Allow this IP saves only the trusted address and preserves editor drafts');
+
+  // Native status polling replaces transcript DOM. The expanded code review
+  // and independent console window must remain open across that refresh.
+  const patchSession = {
+    id:'test-session',status:'waiting_tool',revision:9,
+    history:[
+      {type:'user',content:'tạo file helloworld.php trên thư mục gốc'},
+      {type:'function_call',call_id:'read-1',name:'taskdeck_collect_workspace',arguments:'{"actions":[{"type":"ls","path":"."}]}'},
+      {type:'function_call_output',call_id:'read-1',content:'{"results":[{"entries":["helloworld.php"]}]}'},
+      {type:'function_call',call_id:'patch-1',name:'taskdeck_submit_patch',arguments:'{"name":"Create root helloworld.php","patch_python":"print(1)"}'}
+    ],
+    tool_calls:[{call_id:'patch-1',name:'taskdeck_submit_patch',status:'running',patch_session_id:'native-1'}]
+  };
+  vm.runInNewContext('displayAgentSession('+JSON.stringify(patchSession)+')',context);
+  const patchDetail=find(windowBox,node=>node.dataset?.agentDetailKey==='test-session:patch-1:patch-code');
+  assert.ok(patchDetail,'Patch code review must be present');
+  patchDetail.open=true;
+  patchDetail.listeners.toggle[0]();
+  vm.runInNewContext('displayAgentSession('+JSON.stringify(patchSession)+')',context);
+  const reopened=find(windowBox,node=>node.dataset?.agentDetailKey==='test-session:patch-1:patch-code');
+  assert.equal(reopened.open,true,'Patch review must stay expanded during native status refresh');
+  const collectLabel=find(windowBox,node=>node.textContent==='Collection · inspected');
+  assert.ok(collectLabel,'Collection must not be displayed as BLOCKED after successful read');
+  assert.equal(Boolean(find(windowBox,node=>node.textContent==='Unrecognized function; execution blocked.')),false);
+  context.TaskMenuApp.jsonFetch=async(url)=>{
+    assert.ok(url.endsWith('/tools/patch-1/execution'),'wrong console endpoint');
+    return {execution:{status:'running',stdout_tail:'Patch output remains readable'}};
+  };
+  vm.runInNewContext("agentActive='test-session'",context);
+  await vm.runInNewContext("showAgentExecution('test-session','patch-1')",context);
+  const consoleView=find(windowBox,node=>node.className==='agentchat-execution-panel');
+  assert.ok(consoleView?.classList.contains('visible'),'View console must open a persistent panel');
+  vm.runInNewContext('displayAgentSession('+JSON.stringify({...patchSession,revision:10})+')',context);
+  assert.equal(consoleView.classList.contains('visible'),true,'Native status polling must not close the console');
+  const consoleText=find(windowBox,node=>node.className==='agentchat-execution-content');
+  assert.ok(consoleText.textContent.includes('Patch output remains readable'));
+  console.log('PASS: Collection presentation, stable Patch review and persistent native console across refresh');
+
 })().catch(error => { console.error(error); process.exitCode = 1; });
