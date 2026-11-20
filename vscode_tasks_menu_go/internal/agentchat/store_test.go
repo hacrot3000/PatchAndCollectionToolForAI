@@ -151,3 +151,31 @@ func TestNewSessionRejectsInvalidOrUnscopedIdentity(t *testing.T) {
 		t.Fatal("unknown context mode")
 	}
 }
+
+
+func TestSessionLifecycleEventsPreserveChronologicalHistoryPosition(t *testing.T) {
+	s, err := NewStore(filepath.Join(t.TempDir(), "agent"))
+	if err != nil { t.Fatal(err) }
+	x, err := NewSession("local", "/workspace/test", "project-uuid", "provider", "model", Stateless)
+	if err != nil { t.Fatal(err) }
+	x.History = append(x.History, HistoryItem{Type:"user",Content:"Create helloworld.php"})
+	x.Status = "requesting_ai"
+	x.AppendEvent("turn_started", "requesting_ai", "", "")
+	x.History = append(x.History,
+		HistoryItem{Type:"function_call",Name:"taskdeck_collect_workspace",CallID:"collect-1",Arguments:"{}"},
+		HistoryItem{Type:"function_call_output",CallID:"collect-1",Content:"{}"})
+	x.AppendEvent("collect_observed", "requesting_ai", "collect-1", "")
+	x.Status = "failed"
+	x.AppendEvent("collect_failed", "failed", "", "collection_continuation")
+	x, err = s.Save(x, 0)
+	if err != nil { t.Fatal(err) }
+	reloaded,err:=s.Get(x.ID,"local")
+	if err!=nil{t.Fatal(err)}
+	if len(reloaded.Events)!=3 {t.Fatalf("lost session phase transitions: %+v",reloaded.Events)}
+	if reloaded.Events[0].HistoryIndex!=1 ||
+		reloaded.Events[1].HistoryIndex!=3 ||
+		reloaded.Events[2].HistoryIndex!=3 ||
+		reloaded.Events[2].Detail!="collection_continuation"{
+		t.Fatalf("history event anchors incorrect: %+v",reloaded.Events)
+	}
+}
