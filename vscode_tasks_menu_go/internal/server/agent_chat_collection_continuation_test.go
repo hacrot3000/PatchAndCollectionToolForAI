@@ -288,22 +288,30 @@ func TestAgentCollectionContinuesWithoutRoundLimitToPatchProposal(t *testing.T){
 	if err!=nil||string(value)!=original{t.Fatal("Collection bypassed approval and modified project")}
 }
 
-func TestAgentCollectionStopsIdenticalNoProgressReads(t *testing.T){
-	s,id:=newAgentConversationFixture(t,"stateless")
-	calls:=0
-	s.AgentChatCall=func(_ context.Context,_ agentchat.ProviderConfig,_ string,_ []byte)(agentchat.ResponsesResult,error){
-		calls++
-		if calls>5 {t.Fatalf("no-progress loop was not fenced: %d",calls)}
-		return agentchat.ResponsesResult{ResponseID:fmt.Sprintf("read-loop-%d",calls),
-			Calls:[]agentchat.FunctionCall{{CallID:fmt.Sprintf("repeat-%d",calls),
-				Name:"taskdeck_collect_workspace",Arguments:`{"actions":[{"type":"ls","path":"."}]}`}}},nil
-	}
-	w:=invokeAI(t,s.agentChatSessionItemAPI,"POST","/api/agent/sessions/"+id+"/messages",
-		map[string]any{"message":"inspect the project and make progress","confirm_external":true,"expected_revision":1})
-	if w.Code!=200 || calls!=3 || !strings.Contains(w.Body.String(),"not") && !strings.Contains(w.Body.String(),"non-progressing"){
-		t.Fatalf("no-progress loop did not produce a truthful checkpoint: HTTP %d calls=%d body=%s",w.Code,calls,w.Body)
-	}
-	store,err:=s.agentChatStore();if err!=nil{t.Fatal(err)}
-	saved,err:=store.Get(id,"local");if err!=nil{t.Fatal(err)}
-	if len(saved.ToolCalls)!=0 {t.Fatal("no-progress loop executed a Patch")}
+func TestAgentCollectionIdenticalReadsYieldRecoverableWarningWithoutStopping(t *testing.T){
+ s,id:=newAgentConversationFixture(t,"stateless")
+ calls:=0
+ s.AgentChatCall=func(_ context.Context,_ agentchat.ProviderConfig,_ string,_ []byte)(agentchat.ResponsesResult,error){
+  calls++
+  if calls<=4{
+   return agentchat.ResponsesResult{ResponseID:fmt.Sprintf("read-loop-%d",calls),
+    Calls:[]agentchat.FunctionCall{{CallID:fmt.Sprintf("repeat-%d",calls),
+     Name:"taskdeck_collect_workspace",Arguments:`{"actions":[{"type":"ls","path":"."}]}`}}},nil
+  }
+  if calls==5{return agentchat.ResponsesResult{ResponseID:"recovered",Text:"I will inspect a narrower path before proposing a Patch."},nil}
+  t.Fatalf("unexpected continuation count %d",calls);return agentchat.ResponsesResult{},nil
+ }
+ w:=invokeAI(t,s.agentChatSessionItemAPI,"POST","/api/agent/sessions/"+id+"/messages",
+  map[string]any{"message":"inspect the project and make progress","confirm_external":true,"expected_revision":1})
+ if w.Code!=200 || calls!=5 {
+  t.Fatalf("identical reads must not impose a hard stop: HTTP %d calls=%d body=%s",w.Code,calls,w.Body)
+ }
+ store,err:=s.agentChatStore();if err!=nil{t.Fatal(err)}
+ saved,err:=store.Get(id,"local");if err!=nil{t.Fatal(err)}
+ var warnings int
+ for _,row:=range saved.History{
+  if row.Type=="function_call_output"&&strings.Contains(row.Content,"COLLECTION_NO_PROGRESS"){warnings++}
+ }
+ if warnings==0{t.Fatal("repeated read did not yield a corrective tool warning")}
+ if len(saved.ToolCalls)!=0{t.Fatal("read-only no-progress warning executed a Patch")}
 }
