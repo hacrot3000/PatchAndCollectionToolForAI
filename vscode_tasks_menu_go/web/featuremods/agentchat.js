@@ -98,6 +98,18 @@ agentCSS.textContent=[
 '.agentchat-bubble.user{align-self:flex-end;background:#203b56}',
 '.agentchat-bubble.assistant{align-self:flex-start;background:transparent;border-color:transparent;padding:4px 0}',
 '.agentchat-bubble.tool{align-self:flex-start;background:#1d2936;border-color:#394b60}',
+'.agentchat-bubble.optimistic{opacity:.86}',
+'.agentchat-live-status{display:flex;align-items:center;gap:8px;align-self:flex-start;max-width:95%;padding:5px 7px;color:#b7ccdf;font-size:12px;line-height:1.5}',
+'.agentchat-live-status.error{color:#ffb1ae}',
+'.agentchat-live-spinner{width:14px;height:14px;flex:none;border-radius:50%;border:2px solid currentColor;border-right-color:transparent;animation:agentchat-spin .8s linear infinite}',
+'@keyframes agentchat-spin{to{transform:rotate(360deg)}}',
+'@media(prefers-reduced-motion:reduce){.agentchat-live-spinner{animation:none}}',
+'.agentchat-activity{display:flex;align-items:flex-start;gap:7px;align-self:flex-start;padding:4px 8px;font-size:11px;line-height:1.5;color:#b9cadc;border-left:2px solid #506881;max-width:95%;overflow-wrap:anywhere}',
+'.agentchat-activity.error{color:#eab5a9;border-color:#b76d65}',
+'.agentchat-io-details{align-self:flex-start;width:min(100%,610px);font-size:11px;color:#b8cce0}',
+'.agentchat-io-details summary{cursor:pointer;padding:4px 8px}',
+'.agentchat-io-details pre{padding:8px;border:1px solid #40516a;border-radius:5px;max-height:250px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;font:11px/1.4 ui-monospace,monospace}',
+
 '.agentchat-tool-actions{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:8px}',
 '.agentchat-tool-code{font:11px/1.5 ui-monospace,monospace;white-space:pre-wrap;overflow-wrap:anywhere;max-height:280px;overflow:auto;border:1px solid #5f6675;padding:8px;border-radius:6px}',
 '.agentchat-tool-summary{font-size:11px;color:#c5dbed;line-height:1.4;white-space:pre-wrap;overflow-wrap:anywhere}',
@@ -248,6 +260,18 @@ let agentToolNoticeKey='';
 const agentTabNodes=new Map();
 const agentSessionListNodes=new Map();
 let agentPatchSyncInFlight=new Set();
+// Transient phases are one row per conversation, separate from canonical
+// history. The user's just-submitted text is visible before any network await.
+const agentLiveTurns=new Map();
+const agentLiveRow=agentEl('div','agentchat-live-status');
+const agentLiveSpinner=agentEl('span','agentchat-live-spinner');
+agentLiveSpinner.setAttribute('aria-hidden','true');
+const agentLiveText=agentEl('span','','');
+agentLiveRow.setAttribute('role','status');
+agentLiveRow.setAttribute('aria-live','polite');
+agentLiveRow.append(agentLiveSpinner,agentLiveText);
+const agentProgressTimers=new Map();
+
 let agentExecutionTarget=null,agentExecutionText='';
 const agentExecutionPanel=agentEl('section','agentchat-execution-panel');
 const agentExecutionHeader=agentEl('div','agentchat-execution-header');
