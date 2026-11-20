@@ -522,16 +522,19 @@ console.log('PASS: Agent Chat bootstraps and dock position/auto-hide state trans
   ]};
   vm.runInNewContext('displayAgentSession('+JSON.stringify(extended)+')',context);
   assert.equal(transcript.replaceCount,baselineReplace,'new message must not recreate transcript');
-  assert.equal(transcript.appendCount,baselineAppend+1,'new message must append just one row');
+  // The historical assistant row is appended once; the independent live
+  // status row is also moved to the bottom to remain after that new message.
+  assert.equal(transcript.appendCount,baselineAppend+2,'new assistant row plus relocated single live status are the only appends');
   assert.equal(transcript.children[0],originalUser,'old user message must remain the same element');
-  assert.equal(transcript.children.at(-1).textContent,'helloworld.php created');
+  const assistantCreated=transcript.children.find(node=>node.textContent==='helloworld.php created');
+  assert.ok(assistantCreated,'new assistant message must be present exactly once');
   const patchDone={...extended,revision:201,tool_calls:[
     {...patchSession.tool_calls[0],status:'done',result:'{"status":"PASS"}'}
   ]};
-  const stableAssistant=transcript.children.at(-1);
+  const stableAssistant=assistantCreated;
   vm.runInNewContext('displayAgentSession('+JSON.stringify(patchDone)+')',context);
   assert.equal(transcript.children[0],originalUser,'native status must not repaint old user messages');
-  assert.equal(transcript.children.at(-1),stableAssistant,'native status must not repaint assistant answer');
+  assert.equal(transcript.children.at(-1),stableAssistant,'native completion removes only the transient live row, not the assistant answer');
   assert.equal(transcript.replaceCount,baselineReplace+1,'native status must replace exactly its own tool card');
   assert.equal(find(windowBox,node=>node.dataset?.agentDetailKey==='test-session:patch-1:patch-code').open,true,
     'card replacement must preserve expanded code review');
@@ -541,10 +544,11 @@ console.log('PASS: Agent Chat bootstraps and dock position/auto-hide state trans
   const edited={...patchDone,revision:202,history:[
     ...patchSession.history,{type:'assistant',content:'helloworld.php verified'}
   ]};
+  const removalBeforeEdit=transcript.removeCount;
   vm.runInNewContext('displayAgentSession('+JSON.stringify(edited)+')',context);
   assert.equal(transcript.children[0],originalUser,'changing last answer must not redraw earlier history');
   assert.equal(transcript.children.at(-1).textContent,'helloworld.php verified');
-  assert.equal(transcript.removeCount,1,'only changed tail row should be removed');
+  assert.equal(transcript.removeCount,removalBeforeEdit+1,'only the changed assistant tail should be removed on this update');
 
   // The tab and conversation list should preserve keyed DOM nodes as their
   // labels or active state change.
