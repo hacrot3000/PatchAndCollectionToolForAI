@@ -731,8 +731,8 @@ function renderAgentTool(session,item){
  }
  const actions=agentEl('div','agentchat-tool-actions');
  if(state==='pending'){
-  if(session.auto_patch&&!record.manual_retry_only){
-   box.append(agentEl('p','agentchat-tool-summary','Auto apply is ON · Native Patch Tool will handle this proposal. No per-Patch approval needed.'));
+  if((session.auto_patch||record.auto_run_once)&&!record.manual_retry_only){
+   box.append(agentEl('p','agentchat-tool-summary',record.auto_run_once?'Re-apply approved once · Native Patch will execute, then send its final result to AI.':'Auto apply is ON · Native Patch Tool will handle this proposal. No per-Patch approval needed.'));
   }else{
    const approve=agentButton('Approve & run in Patch Tool',()=>agentToolDecision(agentCurrentSession||session,item.call_id,'approve').catch(showAgentError));
    approve.disabled=Boolean(agentApp.sharedMode&&!agentApp.hasPermission?.('patch.run'));
@@ -747,18 +747,18 @@ function renderAgentTool(session,item){
  }
  if(['done','error','rejected'].includes(state)){
   actions.append(agentButton('View native result',()=>showAgentExecution(session.id,item.call_id).catch(showAgentError)));
-  if(!record.feedback_sent){
-   if(session.auto_feedback)box.append(agentEl('p','agentchat-tool-summary','Auto-send result is ON · forwarding verified '+(state==='error'?'failure':'result')+' to AI.'));
-   else actions.append(agentButton('Send verified result to AI',()=>continueAgentTool(agentCurrentSession||session,item.call_id).catch(showAgentError)));
+ }
+ if(!record.feedback_sent&&['running','dispatching','queued','unknown','done','error'].includes(state)){
+  if((session.auto_feedback||record.send_after_retry)&&['done','error'].includes(state)){
+   box.append(agentEl('p','agentchat-tool-summary','Automatically forwarding the verified native result (PASS or FAIL) to AI…'));
+  }else{
+   actions.append(agentButton('Get the last result and send to AI',
+    ()=>recoverAgentPatch(agentCurrentSession||session,item.call_id,'send_existing').catch(showAgentError)));
   }
- }
- if(['running','dispatching','queued','unknown'].includes(state)&&!record.feedback_sent){
-  actions.append(agentButton('Recover old result → send to AI',
-   ()=>recoverAgentPatch(agentCurrentSession||session,item.call_id,'send_existing').catch(showAgentError)));
- }
- if(state==='error'&&!record.feedback_sent){
-  actions.append(agentButton('Retry run Patch · new approval',
-   ()=>recoverAgentPatch(agentCurrentSession||session,item.call_id,'rerun_patch').catch(showAgentError)));
+  const reapply=agentButton('Re-apply Patch then send to AI',
+   ()=>recoverAgentPatch(agentCurrentSession||session,item.call_id,'rerun_and_send').catch(showAgentError));
+  reapply.disabled=Boolean(agentApp.sharedMode&&!agentApp.hasPermission?.('patch.run'));
+  actions.append(reapply);
  }
  if(state==='unknown')actions.append(agentEl('p','agentchat-tool-summary',
   'Old native result is not verified yet. Recovery will inspect the original run; it will not rerun an uncertain Patch.'));
@@ -1225,19 +1225,24 @@ async function recoverAgentPatch(session,callID,action){
  if(!current)return;
  const record=(current.tool_calls||[]).find(x=>x.call_id===callID);
  if(!record)throw new Error('Original Patch call no longer exists.');
- if(action==='rerun_patch'){
-  if(!window.confirm('Create a fresh MANUAL Patch approval from the original proposal? The prior failed run will stay in history. Do not rerun an uncertain or still-running Patch. Reapplying may change source files again.'))return;
- }else if(!window.confirm('Recover the original native Patch result and send it to AI ONLY if TaskDeck verifies an exact final PASS/FAIL from the old run? The old Patch will NOT execute again.'))return;
+ if(action==='rerun_and_send'){
+  if(!window.confirm('Re-apply this verified FAILED Patch exactly once through Native Patch Tool, then automatically send its final PASS/FAIL to AI? The old attempt remains in History. Reapplying may modify project files.'))return;
+ }else if(action==='rerun_patch'){
+  if(!window.confirm('Prepare a fresh manual Patch approval? The previous failed run stays in History.'))return;
+ }else if(!window.confirm('Get the latest matching verified native Patch History result (PASS or FAIL) and send it to AI? The Patch will NOT run again.'))return;
  const result=await agentApp.jsonFetch('/api/agent/sessions/'+encodeURIComponent(session.id)+
    '/tools/'+encodeURIComponent(callID)+'/recover',{
   method:'POST',headers:{'Content-Type':'application/json'},
   body:JSON.stringify({action,expected_revision:current.revision,
-   confirm_execution:action==='rerun_patch',confirm_external:action==='send_existing'}),
+   confirm_execution:action==='rerun_patch'||action==='rerun_and_send',
+    confirm_external:action==='send_existing'||action==='rerun_and_send'}),
  });
  if(agentActive===session.id)await selectAgentSession(session.id);
- status.textContent=action==='rerun_patch'
+ status.textContent=action==='rerun_and_send'
+  ?'One re-apply approved; Native Patch will execute, then the final result will be sent to AI.'
+  :action==='rerun_patch'
   ?'Previous attempt preserved. Review the pending Patch and approve a new native execution.'
-  :'Verified old Patch result delivered to AI without re-execution.';
+  :'Latest verified native result delivered to AI without re-execution.';
  return result;
 }
 async function showAgentExecution(sessionID,callID){
