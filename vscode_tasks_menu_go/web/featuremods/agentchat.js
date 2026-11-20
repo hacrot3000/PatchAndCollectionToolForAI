@@ -1263,46 +1263,74 @@ async function sendAgentMessage(){
  const attachments=(agentAttachments||[]).map(a=>({...a}));
  const wireAttachments=attachments.map(({name,mime,text})=>({name,mime,text}));
  if(!msg)throw new Error('Enter a message.');
- // Sending the message is the user's explicit action and provider sharing
- // authorization. No redundant modal is shown on every send.
- const s=await selectAgentSession(sessionID);
- if(!s||agentActive!==sessionID)return;
+ const old=agentLiveTurns.get(sessionID);
+ if(old?.optimisticNode&&old.error)old.optimisticNode.remove();
+ // Render the user's message synchronously, before session preflight, provider
+ // egress, or any await. Only one ephemeral status row follows it.
+ const turn={
+  message:msg,phase:'sending',error:'',
+  baseHistoryLength:agentCurrentSession?.history?.length||0,
+  baseEventSeq:agentCurrentSession?.event_seq||0,
+  optimisticNode:agentEl('div','agentchat-bubble user optimistic',msg),
+  acknowledged:false,
+ };
+ agentLiveTurns.set(sessionID,turn);
+ if(agentLiveRow.parentElement)agentLiveRow.remove();
+ transcript.append(turn.optimisticNode);
+ agentUpdateLiveRow(agentCurrentSession||{id:sessionID,status:'created',history:[],events:[]});
+ prompt.value='';
+ agentDrafts.set(sessionID,'');
+ // Sending is explicit authorization to contact the configured provider.
+ // Never block the optimistic append on a redundant confirmation dialog.
  agentBusy=true;markAgentSessionBusy(sessionID,true);
  agentAbort=new AbortController();
+ agentStartProgressPoll(sessionID);
  try{
-  status.textContent='Waiting for AI provider…';
-  // Keep one key per composition while retrying after a transport failure.
+  const s=agentCurrentSession?.id===sessionID?agentCurrentSession:await selectAgentSession(sessionID);
+  if(!s||agentActive!==sessionID)throw new Error('Conversation changed before the message could be submitted.');
   const requestFingerprint=JSON.stringify({message:msg,attachments:wireAttachments});
   let request=agentRequestIDs.get(sessionID);
   if(!request||request.fingerprint!==requestFingerprint){
    request={id:'ui-'+sessionID+'-'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2,8),fingerprint:requestFingerprint};
    agentRequestIDs.set(sessionID,request);
   }
-  const requestID=request.id;
   const response=await agentApp.jsonFetch('/api/agent/sessions/'+encodeURIComponent(sessionID)+'/messages',{
    method:'POST',headers:{'Content-Type':'application/json'},
-   body:JSON.stringify({message:msg,confirm_external:true,expected_revision:s.revision,request_id:requestID,
-    attachments:wireAttachments}),
+   body:JSON.stringify({message:msg,confirm_external:true,expected_revision:s.revision,
+    request_id:request.id,attachments:wireAttachments}),
    signal:agentAbort.signal
   });
   agentRequestIDs.delete(sessionID);
-  agentDrafts.delete(sessionID);agentAttachmentDrafts.delete(sessionID);
-  if(agentActive===sessionID){prompt.value='';agentAttachments=[];renderAgentAttachments();}
-  if(agentActive===sessionID)await selectAgentSession(sessionID);
+  agentAttachmentDrafts.delete(sessionID);
   if(agentActive===sessionID){
-   status.textContent=response.status==='waiting_tool'?(s.auto_patch?'AI proposed a Patch · automatic native approval enabled.':'AI proposed a Patch · review and approve to run.'):
-    'Response received.';
+   if(!prompt.value)agentDrafts.delete(sessionID);
+   agentAttachments=[];
+   renderAgentAttachments();
+   await selectAgentSession(sessionID);
   }
+  turn.acknowledged=true;
+  // Tool proposals, model messages and verified output are already persisted
+  // in canonical history. Only the transient progress line is discarded.
+  agentLiveTurns.delete(sessionID);
+  if(agentActive===sessionID&&agentCurrentSession)agentUpdateLiveRow(agentCurrentSession);
+  return response;
  }catch(error){
-  agentDrafts.set(sessionID,msg);
-  agentAttachmentDrafts.set(sessionID,attachments);
+  turn.error=String(error?.message||error).slice(0,450);
+  if(turn.optimisticNode)turn.optimisticNode.textContent=msg+'\n(Not confirmed sent)';
   if(agentActive===sessionID){
-   prompt.value=msg;
+   if(!prompt.value.trim())prompt.value=msg;
+   agentDrafts.set(sessionID,prompt.value);
    agentAttachments=attachments.map(a=>({...a}));
    renderAgentAttachments();
+   // A timeout may have persisted the user turn; reconcile with the
+   // authoritative journal instead of assuming it was not delivered.
+   try{await selectAgentSession(sessionID);}
+   catch{}
+   if(agentCurrentSession?.id===sessionID)agentUpdateLiveRow(agentCurrentSession);
   }
   throw error;
  }finally{
+  agentStopProgressPoll(sessionID);
   agentAbort=null;agentBusy=false;markAgentSessionBusy(sessionID,false);
  }
 }
