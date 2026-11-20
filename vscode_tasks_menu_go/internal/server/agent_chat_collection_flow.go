@@ -175,10 +175,11 @@ func (s *Server) agentChatRunCollection(
 			signature := string(rawArgs) + "\x00" + observed
 			if signature == lastReadSignature { repeatedRead++ } else { lastReadSignature, repeatedRead = signature, 1 }
 			if repeatedRead >= agentCollectionMaxIdenticalObservations {
-				return agentchat.ResponsesResult{ResponseID:result.ResponseID,ConversationID:result.ConversationID,
-					Text:"TaskDeck paused a non-progressing Collection loop after three identical read requests and identical observations. The original task is NOT complete. Inspected evidence is saved in session history; continue with a different file, read start_line/max_lines, or propose a Patch. No file changes were made in this Collection loop."},clearProviderRefs,nil
-			}
-			if repeatedRead == 2 {
+				// Never terminate a legitimate long task because of read counts.
+				// Return a truthful, bounded tool error requesting a different
+				// inspection strategy, then let the model continue the original task.
+				observed = `{"error":{"code":"COLLECTION_NO_PROGRESS","message":"Repeated identical Collection request and unchanged result. Choose another file, change search scope, or advance start_line/max_lines; do not re-request identical evidence.","retry_allowed":true}}`
+			} else if repeatedRead == 2 {
 				// Preserve the JSON tool-result contract while telling the model
 				// why it must adjust its inspection plan.
 				var envelope map[string]any
