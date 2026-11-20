@@ -59,6 +59,7 @@ func (s *Server) agentChatSessionsAPI(w http.ResponseWriter, r *http.Request) {
 				"title": item.Title, "archived": item.Archived, "target": item.Target,
 				"reasoning_effort": item.ReasoningEffort,
 				"revision":         item.Revision, "updated_at": item.UpdatedAt,
+				"unresolved": agentchat.HasUnresolvedWork(item),
 			})
 		}
 		w.Header().Set("Cache-Control", "no-store")
