@@ -858,6 +858,16 @@ function agentStopProgressPoll(sessionID){
  if(timer!==undefined)clearTimeout(timer);
  agentProgressTimers.delete(sessionID);
 }
+// The retained transcript compares only the changed native tool card's
+// canonical evidence. Restore this helper independently of live activity UI.
+function agentToolRenderVersion(item,records,outputs){
+ if(item.type!=='function_call')return '';
+ if(item.name==='taskdeck_collect_workspace'){
+  const output=outputs.get(item.call_id);
+  return 'collect:'+String(output?.content||'');
+ }
+ return 'patch:'+JSON.stringify(records.get(item.call_id)||null);
+}
 function displayAgentSession(session){
  if(!session){
   if(agentLiveRow.parentElement)agentLiveRow.remove();
