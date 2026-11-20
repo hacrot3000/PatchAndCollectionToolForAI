@@ -195,3 +195,44 @@ func TestAgentCollectionLocalFailuresHaveConcreteErrorStage(t *testing.T) {
 		if !strings.Contains(string(body),value) {t.Fatalf("missing specific diagnostic %q: %s",value,body)}
 	}
 }
+
+func TestAgentCollectionUnlimitedRetriesContinuationWithoutDuplicateRead(t *testing.T){
+ s,id:=newAgentConversationFixture(t,"stateless")
+ store,err:=s.agentChatStore()
+ if err!=nil{t.Fatal(err)}
+ x,err:=store.Get(id,"local")
+ if err!=nil{t.Fatal(err)}
+ x.RetryMode=agentchat.RetryUnlimited
+ x,err=store.Save(x,x.Revision)
+ if err!=nil{t.Fatal(err)}
+ oldDelay:=agentRetryDelay
+ agentRetryDelay=time.Millisecond
+ defer func(){agentRetryDelay=oldDelay}()
+ calls:=0
+ var original []byte
+ s.AgentChatCall=func(_ context.Context,_ agentchat.ProviderConfig,_ string,payload []byte)(agentchat.ResponsesResult,error){
+  calls++
+  switch calls{
+  case 1:
+   return agentchat.ResponsesResult{ResponseID:"collection",Calls:[]agentchat.FunctionCall{{
+    CallID:"read-once",Name:"taskdeck_collect_workspace",Arguments:`{"actions":[{"type":"ls","path":"."}]}`,
+   }}},nil
+  case 2:
+   original=append([]byte(nil),payload...)
+   return agentchat.ResponsesResult{},&agentchat.ProviderError{Code:"CONNECT_TIMEOUT",Stage:"provider_http",Retryable:true,Ambiguous:true}
+  case 3:
+   if string(payload)!=string(original){t.Fatal("continuation changed after retry")}
+   return agentchat.ResponsesResult{ResponseID:"completed",Text:"Collection finished"},nil
+  }
+  t.Fatalf("unexpected provider call %d",calls)
+  return agentchat.ResponsesResult{},nil
+ }
+ w:=invokeAI(t,s.agentChatSessionItemAPI,"POST","/api/agent/sessions/"+id+"/messages",
+  map[string]any{"message":"inspect project root","confirm_external":true,"expected_revision":x.Revision})
+ if w.Code!=200||calls!=3{t.Fatalf("Collection failed: %d %d %s",w.Code,calls,w.Body)}
+ saved,err:=store.Get(id,"local")
+ if err!=nil{t.Fatal(err)}
+ observations:=0
+ for _,item:=range saved.History{if item.Type=="function_call_output"&&item.CallID=="read-once"{observations++}}
+ if observations!=1||saved.Status!="completed"{t.Fatalf("Collection duplicate read: %d, status=%s",observations,saved.Status)}
+}

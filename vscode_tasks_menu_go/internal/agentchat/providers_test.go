@@ -169,3 +169,21 @@ func TestProviderStorePersistsWithoutSecretOrOwnerLeak(t *testing.T) {
 		t.Fatalf("upsert failed %v %+v", err, ps)
 	}
 }
+
+func TestProviderResponseParseRetryClassification(t *testing.T) {
+ cases:=[]struct{body,code,reason string;retry bool}{
+  {`{"id":"one","status":"incomplete","incomplete_details":{"reason":"timeout"}}`,"RESPONSE_INCOMPLETE","timeout",true},
+  {`{"id":"one","status":"incomplete","incomplete_details":{"reason":"max_output_tokens"}}`,"RESPONSE_INCOMPLETE","max_output_tokens",true},
+  {`{"id":"one","status":"incomplete","incomplete_details":{"reason":"content_filter"}}`,"RESPONSE_INCOMPLETE","content_filter",false},
+  {`{"id":"one","status":"failed","error":{"code":"server_error"}}`,"RESPONSE_FAILED","server_error",true},
+  {`{"id":"one","status":"failed","error":{"code":"invalid_request"}}`,"RESPONSE_FAILED","invalid_request",false},
+  {`{"id":"one","status":"completed","output":[]}`,"JSON_PARSE_FAILED","",false},
+  {`{"id":"one","status":"completed","output":`,"JSON_PARSE_FAILED","",true},
+ }
+ for _,tc:=range cases {
+  pe:=classifyProviderResponseParseError([]byte(tc.body),fmt.Errorf("provider parse failed"))
+  if pe.Code!=tc.code||pe.ProviderErrorCode!=tc.reason||pe.Retryable!=tc.retry{
+   t.Errorf("body %s: %+v",tc.body,pe)
+  }
+ }
+}

@@ -3,6 +3,7 @@ package server
 import (
  "context"
  "errors"
+ "encoding/json"
  "net/http"
  "testing"
  "time"
@@ -84,4 +85,51 @@ func TestAgentUnlimitedRetryStopsOnCancellationAndNeverRetriesPermanentError(t *
  }
  _,err,_=s.agentChatCallForOwner(context.Background(),"local",id,agentchat.ProviderConfig{ID:"fake",APIType:"responses"},"test-key",[]byte(`{"model":"m"}`))
  if err==nil||calls!=1{t.Fatalf("401 must not retry forever; calls=%d error=%v",calls,err)}
+}
+
+func TestAgentUnlimitedRetriesIncompleteByExpandingOutputBudget(t *testing.T){
+ s,id:=newAgentConversationFixture(t,"stateless")
+ store,err:=s.agentChatStore()
+ if err!=nil{t.Fatal(err)}
+ x,err:=store.Get(id,"local")
+ if err!=nil{t.Fatal(err)}
+ x.RetryMode=agentchat.RetryUnlimited
+ if _,err=store.Save(x,x.Revision);err!=nil{t.Fatal(err)}
+ oldDelay:=agentRetryDelay
+ agentRetryDelay=time.Millisecond
+ defer func(){agentRetryDelay=oldDelay}()
+ p:=agentchat.ProviderConfig{ID:"fake",APIType:"responses",Models:[]agentchat.ModelConfig{{ID:"model",MaxOutputTokens:8192}}}
+ calls:=0
+ s.AgentChatCall=func(_ context.Context,_ agentchat.ProviderConfig,_ string,payload []byte)(agentchat.ResponsesResult,error){
+  calls++
+  var request struct{Model string `json:"model"`;Limit int `json:"max_output_tokens"`}
+  if err:=json.Unmarshal(payload,&request);err!=nil{t.Fatal(err)}
+  expected:=4096
+  if calls==2{expected=8192}
+  if request.Model!="model"||request.Limit!=expected{t.Fatalf("unexpected retry payload: %+v",request)}
+  if calls==1{return agentchat.ResponsesResult{},&agentchat.ProviderError{Code:"RESPONSE_INCOMPLETE",ProviderErrorCode:"max_output_tokens",Retryable:true}}
+  return agentchat.ResponsesResult{ResponseID:"done",Text:"Recovered"},nil
+ }
+ result,err,_:=s.agentChatCallForOwner(context.Background(),"local",id,p,"key",[]byte(`{"model":"model","max_output_tokens":4096}`))
+ if err!=nil||calls!=2||result.Text!="Recovered"{t.Fatalf("retry failed: calls=%d result=%+v err=%v",calls,result,err)}
+ if agentRetrySnapshot(s.Workspace,"local",id)!=nil{t.Fatal("progress state leaked")}
+}
+
+func TestAgentUnlimitedStopsAtConfiguredOutputCap(t *testing.T){
+ s,id:=newAgentConversationFixture(t,"stateless")
+ store,err:=s.agentChatStore()
+ if err!=nil{t.Fatal(err)}
+ x,err:=store.Get(id,"local")
+ if err!=nil{t.Fatal(err)}
+ x.RetryMode=agentchat.RetryUnlimited
+ if _,err=store.Save(x,x.Revision);err!=nil{t.Fatal(err)}
+ calls:=0
+ s.AgentChatCall=func(_ context.Context,_ agentchat.ProviderConfig,_ string,_ []byte)(agentchat.ResponsesResult,error){
+  calls++
+  return agentchat.ResponsesResult{},&agentchat.ProviderError{Code:"RESPONSE_INCOMPLETE",ProviderErrorCode:"max_output_tokens",Retryable:true}
+ }
+ _,err,_=s.agentChatCallForOwner(context.Background(),"local",id,
+  agentchat.ProviderConfig{ID:"fake",Models:[]agentchat.ModelConfig{{ID:"model",MaxOutputTokens:4096}}},
+  "key",[]byte(`{"model":"model","max_output_tokens":4096}`))
+ if err==nil||calls!=1{t.Fatalf("hard output cap must stop: calls=%d err=%v",calls,err)}
 }
