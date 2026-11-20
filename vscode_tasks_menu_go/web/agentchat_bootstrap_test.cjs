@@ -839,15 +839,15 @@ console.log('PASS: Agent Chat bootstraps and dock position/auto-hide state trans
     tool_calls:[{call_id:'old-call',name:'taskdeck_submit_patch',status:'running',
       queue_path:'patchs/PATCH_CLEAR_TEXT_Vietnamese-diacritics-and-phpinfo-output.zip',
       patch_session_id:'native-old'}]};
-  vm.runInNewContext('displayAgentSession('+JSON.stringify(stuckPatch)+')',context);
-  assert.ok(find(windowBox,node=>node.tagName==='button'&&node.textContent==='Recover old result → send to AI'),
+  const oldPatchCard=vm.runInNewContext('renderAgentTool('+JSON.stringify(stuckPatch)+','+JSON.stringify(stuckPatch.history[0])+')',context);
+  assert.ok(find(oldPatchCard,node=>node.tagName==='button'&&node.textContent==='Recover old result → send to AI'),
     'stuck running Patch must offer old-result recovery instead of automatic re-execution');
-  assert.equal(Boolean(find(windowBox,node=>node.tagName==='button'&&node.textContent==='Retry run Patch · new approval')),false,
+  assert.equal(Boolean(find(oldPatchCard,node=>node.tagName==='button'&&node.textContent==='Retry run Patch · new approval')),false,
     'uncertain RUNNING Patch cannot have a rerun action');
   const failedPatch={...stuckPatch,tool_calls:[{...stuckPatch.tool_calls[0],
     status:'error',result:'{"status":"PREFLIGHT_FAIL","rc":2}'}]};
-  vm.runInNewContext('displayAgentSession('+JSON.stringify(failedPatch)+')',context);
-  assert.ok(find(windowBox,node=>node.tagName==='button'&&node.textContent==='Retry run Patch · new approval'),
+  const failedPatchCard=vm.runInNewContext('renderAgentTool('+JSON.stringify(failedPatch)+','+JSON.stringify(failedPatch.history[0])+')',context);
+  assert.ok(find(failedPatchCard,node=>node.tagName==='button'&&node.textContent==='Retry run Patch · new approval'),
     'verified failed Patch must offer a separate manually approved retry');
   console.log('PASS: bounded/unlimited retry UI, single retry countdown and safe old-Patch recovery actions');
 
