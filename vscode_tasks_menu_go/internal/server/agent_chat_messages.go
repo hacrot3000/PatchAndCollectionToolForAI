@@ -351,7 +351,7 @@ func (s *Server) agentChatMessageAPI(w http.ResponseWriter, r *http.Request, id 
 	if !patchToolAvailable && agentNeedsWorkspaceTools(msg) {
 		patchToolAvailable = s.agentChatEnsureTools(r.Context(), owner, p, model, string(secret))
 	}
-	instructions := agentChatInstructions(session.ProjectID, patchToolAvailable)
+	instructions := agentChatInstructions(session.ProjectID, patchToolAvailable, identity.Key)
 	limit := 4096
 	if model.MaxOutputTokens > 0 && model.MaxOutputTokens < limit {
 		limit = model.MaxOutputTokens
@@ -371,7 +371,7 @@ func (s *Server) agentChatMessageAPI(w http.ResponseWriter, r *http.Request, id 
 	payload, err := agentchat.BuildResponsesRequest(agentchat.RequestConfig{
 		Model: session.ModelID, Instructions: instructions, Mode: mode,
 		PreviousResponseID: session.PreviousResponseID, ConversationID: conversationID,
-		History: session.History, Next: []agentchat.HistoryItem{next}, MaxOutputTokens: limit,
+		History: agentModelVisibleHistory(session), Next: []agentchat.HistoryItem{next}, MaxOutputTokens: limit,
 		ReasoningEffort: agentProviderReasoningEffort(p, session.ReasoningEffort, model),
 		EnablePatchTool: patchToolAvailable, EnableCollectionTool: patchToolAvailable,
 	})
@@ -453,11 +453,12 @@ func (s *Server) agentChatMessageAPI(w http.ResponseWriter, r *http.Request, id 
 		return
 	}
 	appendAgentProviderResult(&session, result, patchToolAvailable)
+	appendAgentTextPatchProposal(&session, result, identity)
 	session.AppendEvent("turn_finished", session.Status, "", "")
 	// Capture the reviewed workspace state now, at proposal time, so a later
 	// approval can detect drift. Best effort: an unreadable workspace records no
 	// snapshot and the approval path will capture/verify one itself.
-	if patchToolAvailable {
+	if len(session.ToolCalls) > 0 {
 		if snap, err := agentWorkspaceSnapshotOf(r.Context(), s.Workspace); err == nil {
 			for i := range session.ToolCalls {
 				if session.ToolCalls[i].Status == "pending" && session.ToolCalls[i].ExpectedHead == "" && !session.ToolCalls[i].GitIsRepo {
