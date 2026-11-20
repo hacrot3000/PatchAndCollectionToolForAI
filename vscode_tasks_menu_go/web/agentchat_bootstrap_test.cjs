@@ -210,4 +210,94 @@ console.log('PASS: Agent Chat bootstraps and dock position/auto-hide state trans
   assert.ok(consoleText.textContent.includes('Patch output remains readable'));
   console.log('PASS: Collection presentation, stable Patch review and persistent native console across refresh');
 
+  // A sequence of identical server snapshots (including revision-only
+  // changes) must not rebuild a single bubble, tab, code review or console.
+  const transcript=find(windowBox,node=>node.className==='agentchat-transcript');
+  const originalUser=transcript.children[0];
+  const originalPatch=find(windowBox,node=>node.dataset?.agentDetailKey==='test-session:patch-1:patch-code');
+  const baselineReplace=transcript.replaceCount;
+  const baselineAppend=transcript.appendCount;
+  const baselineNodes=[...transcript.children];
+  for(let i=0;i<60;i++){
+    vm.runInNewContext('displayAgentSession('+JSON.stringify({...patchSession,revision:100+i})+')',context);
+  }
+  assert.equal(transcript.replaceCount,baselineReplace,'unchanged snapshots must never clear transcript');
+  assert.equal(transcript.appendCount,baselineAppend,'unchanged snapshots must not append duplicate rows');
+  assert.deepEqual(transcript.children,baselineNodes,'every existing bubble must retain DOM identity');
+  assert.equal(find(windowBox,node=>node.dataset?.agentDetailKey==='test-session:patch-1:patch-code'),originalPatch,
+    'expanded code review node must survive all unchanged polls');
+
+  // One new assistant message should append exactly one node and preserve all
+  // previous nodes and their state. A native Patch status updates only its card.
+  const extended={...patchSession,revision:200,history:[
+    ...patchSession.history,{type:'assistant',content:'helloworld.php created'}
+  ]};
+  vm.runInNewContext('displayAgentSession('+JSON.stringify(extended)+')',context);
+  assert.equal(transcript.replaceCount,baselineReplace,'new message must not recreate transcript');
+  assert.equal(transcript.appendCount,baselineAppend+1,'new message must append just one row');
+  assert.equal(transcript.children[0],originalUser,'old user message must remain the same element');
+  assert.equal(transcript.children.at(-1).textContent,'helloworld.php created');
+  const patchDone={...extended,revision:201,tool_calls:[
+    {...patchSession.tool_calls[0],status:'done',result:'{"status":"PASS"}'}
+  ]};
+  const stableAssistant=transcript.children.at(-1);
+  vm.runInNewContext('displayAgentSession('+JSON.stringify(patchDone)+')',context);
+  assert.equal(transcript.children[0],originalUser,'native status must not repaint old user messages');
+  assert.equal(transcript.children.at(-1),stableAssistant,'native status must not repaint assistant answer');
+  assert.equal(transcript.replaceCount,baselineReplace+1,'native status must replace exactly its own tool card');
+  assert.equal(find(windowBox,node=>node.dataset?.agentDetailKey==='test-session:patch-1:patch-code').open,true,
+    'card replacement must preserve expanded code review');
+
+  // An actual change in the last history item should replace only the tail,
+  // not any preceding source or tool rows.
+  const edited={...patchDone,revision:202,history:[
+    ...patchSession.history,{type:'assistant',content:'helloworld.php verified'}
+  ]};
+  vm.runInNewContext('displayAgentSession('+JSON.stringify(edited)+')',context);
+  assert.equal(transcript.children[0],originalUser,'changing last answer must not redraw earlier history');
+  assert.equal(transcript.children.at(-1).textContent,'helloworld.php verified');
+  assert.equal(transcript.removeCount,1,'only changed tail row should be removed');
+
+  // The tab and conversation list should preserve keyed DOM nodes as their
+  // labels or active state change.
+  vm.runInNewContext("agentSessions=[{id:'test-session',title:'First',status:'waiting_tool'}];agentActive='test-session';agentTabs=['test-session'];updateAgentSessionRows();renderAgentTabs();",context);
+  const tabbar=find(windowBox,node=>node.className==='agentchat-modelbar'&&node.children.some(c=>c.className.startsWith('agentchat-tab')));
+  const savedTab=tabbar.children[0],savedListButton=sessionsList.children[0];
+  const tabReplace=tabbar.replaceCount, listReplace=sessionsList.replaceCount;
+  for(let i=0;i<30;i++){
+    vm.runInNewContext("agentSessions[0].status='done';updateAgentSessionRows();renderAgentTabs();",context);
+  }
+  assert.equal(tabbar.children[0],savedTab,'tab DOM must be retained across status refreshes');
+  assert.equal(sessionsList.children[0],savedListButton,'session DOM must be retained across status refreshes');
+  assert.equal(tabbar.replaceCount,tabReplace,'tab bar must not be cleared');
+  assert.equal(sessionsList.replaceCount,listReplace,'session list must not be cleared');
+
+  // A no-op /sync response must not fetch /sessions/:id, even when the user
+  // explicitly checks status. A changed revision needs just one detail fetch.
+  let requests=[];
+  vm.runInNewContext("agentActive='test-session'",context);
+  context.TaskMenuApp.jsonFetch=async url=>{
+    requests.push(url);
+    if(url.endsWith('/sync'))return {revision:202,tool_calls:patchDone.tool_calls};
+    if(url.endsWith('/sessions/test-session'))return {session:edited,patch_tool_status:'enabled'};
+    throw new Error('Unexpected API request: '+url);
+  };
+  await vm.runInNewContext("syncAgentPatch('test-session',{quiet:true})",context);
+  assert.deepEqual(requests,['/api/agent/sessions/test-session/sync'],
+    'unchanged Patch sync must do only one API call');
+  assert.equal(transcript.children[0],originalUser,'no-op sync may not redraw transcript');
+  requests=[];
+  context.TaskMenuApp.jsonFetch=async url=>{
+    requests.push(url);
+    if(url.endsWith('/sync'))return {revision:203,tool_calls:patchDone.tool_calls};
+    if(url.endsWith('/sessions/test-session'))return {session:{...edited,revision:203},patch_tool_status:'enabled'};
+    throw new Error('Unexpected API request: '+url);
+  };
+  await vm.runInNewContext("syncAgentPatch('test-session',{quiet:true})",context);
+  assert.deepEqual(requests,['/api/agent/sessions/test-session/sync','/api/agent/sessions/test-session'],
+    'changed sync must fetch exactly one session detail');
+  assert.equal(transcript.children[0],originalUser,'changed revision without new content may not repaint');
+  console.log('PASS: append-only transcript, single-card status updates and revision-gated polling');
+
+
 })().catch(error => { console.error(error); process.exitCode = 1; });
