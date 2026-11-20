@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bufio"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -177,44 +178,48 @@ func agentCollectionUTF8Prefix(source string, maximum int) string {
 }
 
 func agentCollectionReadPage(root, rel string, startLine, maxLines int) (map[string]string, error) {
- path, _, err := agentCollectionPath(root, rel)
- if err != nil {return nil,err}
- fi,err:=os.Lstat(path)
- if err!=nil{return nil,err}
+ path,_,err:=agentCollectionPath(root,rel);if err!=nil{return nil,err}
+ fi,err:=os.Lstat(path);if err!=nil{return nil,err}
  if !fi.Mode().IsRegular(){return nil,errors.New("not a regular file")}
- if fi.Size()>128<<10{return nil,errors.New("file is larger than the 128 KiB inline inspection limit")}
  f,err:=os.Open(path);if err!=nil{return nil,err};defer f.Close()
- data,err:=io.ReadAll(io.LimitReader(f,(128<<10)+1))
- if err!=nil{return nil,err}
- if len(data)>128<<10 || !utf8.Valid(data) || strings.IndexByte(string(data),0)>=0 {
-  return nil,errors.New("binary or oversized file cannot be included inline")
- }
- lines:=strings.Split(string(data),"\n")
- if len(lines)>0 && lines[len(lines)-1]=="" {lines=lines[:len(lines)-1]}
- total:=len(lines)
- if startLine<=0 {startLine=1}
- if maxLines<=0 {maxLines=200}
- if startLine>total {return map[string]string{"content":"","start_line":strconv.Itoa(startLine),"total_lines":strconv.Itoa(total),"truncated":"false"},nil}
+ if startLine<=0{startLine=1}
+ if maxLines<=0{maxLines=200}
+ // Stream a bounded selection even from a large file: a 128 KiB source-size
+ // limit no longer blocks paged reads. Scanner enforces a 2 MiB per-line
+ // memory ceiling, independent of the total file size.
+ scanner:=bufio.NewScanner(f)
+ scanner.Buffer(make([]byte,64<<10),2<<20)
  var builder strings.Builder
- end:=startLine-1
+ total,end:=0,startLine-1
  partialLongLine:=false
- for end<total && end<startLine-1+maxLines {
-  line:=lines[end]
-  if end+1<total || strings.HasSuffix(string(data),"\n"){line+="\n"}
-  if builder.Len()+len(line)>12000 {
-   if builder.Len()==0 {builder.WriteString(agentCollectionUTF8Prefix(line,12000));partialLongLine=true}
-   break
+ capture:=true
+ for scanner.Scan(){
+  total++
+  if total<startLine||total>=startLine+maxLines||!capture{continue}
+  line:=scanner.Text()
+  if !utf8.ValidString(line)||strings.IndexByte(line,0)>=0{return nil,errors.New("binary or invalid UTF-8 file cannot be included inline")}
+  line+="\n"
+  if builder.Len()+len(line)>12000{
+   if builder.Len()==0{builder.WriteString(agentCollectionUTF8Prefix(line,12000));partialLongLine=true}
+   capture=false
+   continue
   }
   builder.WriteString(line)
-  end++
+  end=total
  }
- out:=map[string]string{"content":builder.String(),"start_line":strconv.Itoa(startLine),
+ if err:=scanner.Err();err!=nil{return nil,fmt.Errorf("cannot read file as bounded lines: %w",err)}
+ value:=builder.String()
+ // Scanner removes line terminators; restore the absence of a final LF.
+ if end==total&&total>0&&fi.Size()>0{
+  last:=[]byte{0};if _,err:=f.ReadAt(last,fi.Size()-1);err==nil&&last[0]!='\n'{
+   value=strings.TrimSuffix(value,"\n")
+  }
+ }
+ out:=map[string]string{"content":value,"start_line":strconv.Itoa(startLine),
   "total_lines":strconv.Itoa(total),"truncated":strconv.FormatBool(end<total||partialLongLine)}
- if end<total {
-  // If one oversized line could not fit, re-requesting the same start_line
-  // cannot advance. Report the limitation explicitly rather than claiming
-  // a usable continuation cursor.
-  if partialLongLine {out["error"]="line exceeds the 12 KiB inline page budget; use narrower search"} else {out["next_line"]=strconv.Itoa(end+1)}
+ if end<total{
+  if partialLongLine{out["error"]="source line exceeds 12 KiB inline page; use narrower search"}
+  else{out["next_line"]=strconv.Itoa(end+1)}
  }
  return out,nil
 }
