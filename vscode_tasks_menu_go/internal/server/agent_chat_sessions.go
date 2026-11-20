@@ -433,13 +433,16 @@ func (s *Server) agentChatSessionCancelAPI(w http.ResponseWriter, r *http.Reques
 		}
 	}
 	if cancelled {
-		// The provider request context was cancelled. Persist that the turn
-		// is no longer running so a late response cannot be treated as final.
-		if x.Status == "requesting_ai" {
-			x.Status = "cancelled"
-		}
-		if changed, err := store.Save(x, x.Revision); err == nil {
-			x = changed
+		// A currently executing provider turn owns the journal CAS until it
+		// observes the cancelled context. Do not race it with a second Save:
+		// that could prevent the worker from persisting its final cancellation.
+		// A detached/manual registered request without a turn lock is still
+		// marked cancelled immediately for crash/reconnect recovery.
+		if unlock, acquired := lockAgentTurn(s.Workspace, owner, id); acquired {
+			if x.Status == "requesting_ai" { x.Status = "cancelled" }
+			x.AppendEvent("turn_cancel_requested",x.Status,"","user_stop")
+			if changed, saveErr := store.Save(x,x.Revision); saveErr == nil { x = changed }
+			unlock()
 		}
 	}
 	w.Header().Set("Cache-Control", "no-store")
