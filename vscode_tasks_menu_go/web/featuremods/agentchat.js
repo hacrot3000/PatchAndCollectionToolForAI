@@ -15,6 +15,13 @@ agentCSS.textContent=[
 '.agentchat-header-group[open]>summary{background:#273b52}',
 '.agentchat-header-menu{position:absolute;z-index:30;top:100%;left:auto;right:0;display:none;flex-direction:column;gap:3px;min-width:210px;padding:7px;background:#192330;border:1px solid #657589;border-radius:7px;box-shadow:0 8px 24px #0008}',
 '.agentchat-header-menu button{text-align:left;white-space:nowrap;width:100%}',
+'.agentchat-retry-submenu{display:flex;flex-direction:column;gap:2px}',
+'.agentchat-retry-submenu>button{width:100%;text-align:left}',
+'.agentchat-retry-options{display:none;flex-direction:column;gap:2px;margin:0 2px 4px 10px;padding-left:7px;border-left:1px solid #64788e}',
+'.agentchat-retry-submenu.open>.agentchat-retry-options{display:flex}',
+'.agentchat-retry-options button{width:100%;padding:6px 10px;text-align:left}',
+'.agentchat-retry-options button[aria-checked="true"]{background:#344b66;border-color:#7db6e6}',
+'html[data-taskmenu-theme="light"] .agentchat-retry-options button[aria-checked="true"]{background:#e3effc;color:#17283a}',
 '.agentchat-session-row{display:flex;align-items:center;gap:4px}',
 '.agentchat-session-row>.agentchat-session{flex:1;min-width:0}',
 '.agentchat-session-row>.delete{flex:none;color:#ecb2b2}',
@@ -308,8 +315,26 @@ const archive=agentButton('Archive',()=>archiveAgentSession().catch(showAgentErr
 const deleteChat=agentButton('Delete conversation',()=>deleteAgentSession(agentActive).catch(showAgentError));
 const autoPatch=agentButton('Auto apply Patch: OFF',()=>toggleAgentAutomation('patch').catch(showAgentError));
 const autoCollection=agentButton('Auto Collection: ON',()=>toggleAgentAutomation('collection').catch(showAgentError));
-const aiRetry=agentButton('AI retry: OFF',()=>toggleAgentRetry().catch(showAgentError));
-aiRetry.title='OFF → 5 retries, 10 seconds apart → unlimited retries, 10 seconds apart → OFF. Stop request cancels an active retry. Transient provider errors can produce duplicate inference; Native Patch is never automatically rerun.';
+const retryMenu=agentEl('div','agentchat-retry-submenu');
+const aiRetry=agentButton('AI retry: OFF',()=>toggleAgentRetryMenu());
+aiRetry.title='Choose the AI provider retry policy. Retries are 10 seconds apart. Use Stop request to cancel; Native Patch is never automatically rerun.';
+aiRetry.setAttribute('aria-haspopup','menu');
+aiRetry.setAttribute('aria-expanded','false');
+aiRetry.setAttribute('aria-controls','agentchat-retry-options');
+const retryOptions=agentEl('div','agentchat-retry-options');
+retryOptions.id='agentchat-retry-options';
+retryOptions.setAttribute('role','menu');
+retryOptions.setAttribute('aria-label','AI retry policy');
+const retryOptionButtons=new Map();
+for(const [mode,label] of [['off','Off'],['limited','5 times'],['unlimited','Unlimited']]){
+ const choice=agentButton(label,()=>setAgentRetryMode(mode).catch(showAgentError));
+ choice.setAttribute('role','menuitemradio');
+ choice.setAttribute('aria-checked',String(mode==='off'));
+ choice.dataset.retryMode=mode;
+ retryOptionButtons.set(mode,choice);
+ retryOptions.append(choice);
+}
+retryMenu.append(aiRetry,retryOptions);
 autoPatch.title='When enabled, proposed Python Patches run automatically via native validation, workspace drift checks and the Patch Tool. Turning OFF does not cancel work already queued.';
 autoCollection.title='Read-only workspace inspection. When disabled, Agent requests that require Collection stop before accessing files.';
 autoFeedback.title='Send verified native Patch results to the selected provider until turned off. Each result is sent at most once.';
@@ -330,13 +355,19 @@ function makeAgentHeaderGroup(label,items){
    if(other!==group){
     other.open=false;
     other.children[0].setAttribute('aria-expanded','false');
+    if(other===automationGroup)toggleAgentRetryMenu(false);
    }
   }
+  if(!opening&&group===automationGroup)toggleAgentRetryMenu(false);
   group.open=opening;
   summary.setAttribute('aria-expanded',String(opening));
  };
  panel.addEventListener('click',event=>{
+  // Clicking the retry label only opens its inline submenu; selecting an
+  // option does not dismiss Automation before the selection can be shown.
+  if(retryMenu.contains(event.target))return;
   if(event.target.closest('button')){
+   toggleAgentRetryMenu(false);
    group.open=false;
    summary.setAttribute('aria-expanded','false');
   }
@@ -344,7 +375,7 @@ function makeAgentHeaderGroup(label,items){
  return group;
 }
 const conversationGroup=makeAgentHeaderGroup('Conversation',[newChat,rename,archive,deleteChat,refresh]);
-const automationGroup=makeAgentHeaderGroup('Automation',[autoPatch,autoCollection,autoFeedback,aiRetry]);
+const automationGroup=makeAgentHeaderGroup('Automation',[autoPatch,autoCollection,autoFeedback,retryMenu]);
 const toolsGroup=makeAgentHeaderGroup('Tools',[attachButton,preview,planButton]);
 const layoutGroup=makeAgentHeaderGroup('Layout',[dockPositionButton,autoHideButton]);
 const agentHeaderGroups=[conversationGroup,automationGroup,toolsGroup,layoutGroup];
@@ -1613,8 +1644,12 @@ function renderAgentAutomationControls(session){
  const retryMode=session?.retry_mode||'off';
  aiRetry.textContent=retryMode==='unlimited'?'AI retry: UNLIMITED (10s)':
   retryMode==='limited'?'AI retry: 5 retries (10s)':'AI retry: OFF';
- aiRetry.setAttribute('aria-label','Change AI retry mode. Current: '+retryMode);
- aiRetry.setAttribute('aria-pressed',String(retryMode!=='off'));
+ aiRetry.setAttribute('aria-label','Choose AI retry mode. Current: '+retryMode);
+ for(const [mode,button] of retryOptionButtons){
+  button.setAttribute('aria-checked',String(mode===retryMode));
+  button.disabled=!exists;
+ }
+ if(!exists)toggleAgentRetryMenu(false);
  autoPatch.textContent='Auto apply Patch: '+(session?.auto_patch?'ON':'OFF');
  autoPatch.setAttribute('aria-pressed',String(Boolean(session?.auto_patch)));
  autoCollection.textContent='Auto Collection: '+(session?.auto_collection===false?'OFF':'ON');
@@ -1645,13 +1680,19 @@ async function toggleAgentAutomation(option){
   (enabled?' enabled for this conversation.':' disabled for this conversation.')+
   (option==='feedback'&&enabled?' Enabled until you turn it off.':'');
 }
-async function toggleAgentRetry(){
+function toggleAgentRetryMenu(force){
+ const open=Boolean(agentActive)&&!aiRetry.disabled&&
+  (force===undefined?!retryMenu.classList.contains('open'):Boolean(force));
+ retryMenu.classList.toggle('open',open);
+ aiRetry.setAttribute('aria-expanded',String(open));
+}
+async function setAgentRetryMode(mode){
+ if(!['off','limited','unlimited'].includes(mode))throw new Error('Unknown AI retry mode');
  if(!agentActive)throw new Error('Select a conversation first.');
  const session=await selectAgentSession(agentActive);
  if(!session||agentSessionBusy(session.id)||session.status==='requesting_ai')
   throw new Error('Conversation is busy. Press Stop to end the active retry first.');
- const current=session.retry_mode||'off';
- const mode=current==='off'?'limited':current==='limited'?'unlimited':'off';
+ if((session.retry_mode||'off')===mode)return;
  if(mode!=='off'&&!window.confirm(
   'Enable '+(mode==='limited'?'up to 5 provider retries':'unlimited provider retries')+
   ' with 10 seconds between failures? Transient provider requests may have been processed upstream and repeated inference may be billed. Native Patch is never automatically rerun. Use Stop request to cancel.'))
@@ -1937,7 +1978,11 @@ dockResizer.addEventListener('keydown',event=>{
 });
 moreMenu.addEventListener('click',event=>{
  event.stopPropagation();
- if(event.target.closest('button')){moreMenu.classList.remove('open');moreButton.setAttribute('aria-expanded','false');}
+ if(retryMenu.contains(event.target))return;
+ if(event.target.closest('button')){
+  toggleAgentRetryMenu(false);
+  moreMenu.classList.remove('open');moreButton.setAttribute('aria-expanded','false');
+ }
 });
 for(const overlay of [settingsOverlay,planOverlay])overlay.addEventListener('pointerdown',event=>event.stopPropagation());
 document.addEventListener?.('pointerdown',event=>{
@@ -1945,6 +1990,7 @@ document.addEventListener?.('pointerdown',event=>{
   if(group.open&&!group.contains(event.target)){
    group.open=false;
    group.children[0].setAttribute('aria-expanded','false');
+   if(group===automationGroup)toggleAgentRetryMenu(false);
   }
  }
  if(sessionList.classList.contains('open')&&!sessionMenu.contains(event.target))toggleAgentSessions(false);
