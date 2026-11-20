@@ -575,6 +575,7 @@ func (s *Server) agentChatAutoFeedbackAPI(w http.ResponseWriter, r *http.Request
 		return
 	}
 	x.AutoFeedback = req.Enabled
+	x.AutoFeedbackPersistent = false // legacy endpoint grants only a time-bounded lease
 	if req.Enabled {
 		until := time.Now().UTC().Add(agentAutoFeedbackMaxAge)
 		x.AutoFeedbackUntil = &until
