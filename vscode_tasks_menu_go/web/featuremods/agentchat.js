@@ -1167,9 +1167,17 @@ async function stageContext(context,options={}){
   return {ok:true,session_id:actualSession,pending:!actualSession,attachment_count:current.length};
  }catch(error){return {ok:false,session_id:targetSessionID,error:String(error?.message||error)};}
 }
+// Editor documents are JavaScript strings (UTF-16), not raw UTF-8 bytes.
+// TextEncoder replaces unpaired UTF-16 surrogates with U+FFFD, therefore
+// compare a strict UTF-8 round trip to reject malformed buffers without
+// rejecting ordinary PHP/JS characters, digits, Vietnamese text or emoji.
+// In particular, never use a character-class regex with double-escaped
+// \\u sequences: it treats printable ASCII as invalid input.
 function isValidUTF8Text(text){
- if(typeof text!=='string'||text.includes('\0'))return false;
- try{return /[\\uD800-\\uDBFF](?![\\uDC00-\\uDFFF])|(?<![\\uD800-\\uDBFF])[\\uDC00-\\uDFFF]/.test(text)?false:new TextDecoder('utf-8',{fatal:true}).decode(new TextEncoder().encode(text))===text;}catch{return false;}
+ if(typeof text!=='string'||text.includes('\0')||!globalThis.TextEncoder||!globalThis.TextDecoder)return false;
+ try{
+  return new TextDecoder('utf-8',{fatal:true}).decode(new TextEncoder().encode(text))===text;
+ }catch{return false;}
 }
 function editorContextActions(view,selectionSnapshot){
  const targetSessionID=agentSelectedChatSession();
