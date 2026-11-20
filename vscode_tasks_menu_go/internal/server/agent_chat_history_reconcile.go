@@ -47,7 +47,7 @@ func (s *Server) agentVerifyFinalPackage(record agentchat.ToolCallRecord) error 
 // selected/executed package AND the approved immutable ZIP bytes. This is a
 // read-only recovery path; never start or repeat any Patch action.
 func (s *Server) agentFinalResultFromHistory(call agentchat.ToolCallRecord) (string,string,string,bool) {
- if call.Status!="running" || call.SelectedIndex<1 || s.agentVerifyFinalPackage(call)!=nil {
+ if (call.Status!="running" && call.Status!="unknown" && call.Status!="dispatching") || s.agentVerifyFinalPackage(call)!=nil {
   return "","","",false
  }
  identity,err:=patchtool.ReadProjectIdentity(s.Workspace)
@@ -68,6 +68,8 @@ func (s *Server) agentFinalResultFromHistory(call agentchat.ToolCallRecord) (str
   RC *int `json:"rc"`
   FailureReason string `json:"failure_reason"`
   DiagnosisKind string `json:"diagnosis_kind"`
+  Diagnosis struct {Kind string `json:"kind"`;Message string `json:"message"`} `json:"diagnosis"`
+  OutputTail string `json:"output_tail"`
  }
  var foundStatus,foundResult,foundRun string
  for _,entry:=range entries {
@@ -92,18 +94,28 @@ func (s *Server) agentFinalResultFromHistory(call agentchat.ToolCallRecord) (str
   selected,executed:=0,0
   for _,n:=range report.Selected { if n==name { selected++ } }
   for _,n:=range report.ExecutionOrder { if n==name { executed++ } }
-  if selected!=1 || executed!=1 { continue }
+  if selected!=1 || executed>1 {continue}
   for _,item:=range report.Results {
    if item.Name!=name || strings.ToUpper(item.Kind)!="PATCH" { continue }
    status:=strings.ToUpper(item.Status)
+   if !executed && status!="PREFLIGHT_FAIL" {continue}
+   if call.SelectedIndex<1 && status!="PREFLIGHT_FAIL" {continue}
    if status!="PASS" && status!="FAIL" && status!="INCOMPLETE" && status!="PREFLIGHT_FAIL" { continue }
    if foundRun!="" || (call.RunID!="" && call.RunID!=report.RunID) { return "","","",false }
+   if !executed && (item.RC==nil || *item.RC!=2) {continue}
    foundRun=report.RunID
+   diag:=item.DiagnosisKind
+   if diag=="" {diag=item.Diagnosis.Kind}
+   reason:=item.FailureReason
+   if reason=="" {reason=item.Diagnosis.Message}
    evidence:=map[string]any{
     "status":status,"name":name,"run_id":report.RunID,
     "source":"native_patch_history","item_index":call.SelectedIndex,
-    "diagnosis_kind":item.DiagnosisKind,
-    "failure_reason":scrubAIContext(item.FailureReason,400),
+    "diagnosis_kind":scrubAIContext(diag,128),
+    "failure_reason":scrubAIContext(reason,400),
+    "stdout_tail":scrubAIContext(item.OutputTail,400),
+    "project_unchanged":status=="PREFLIGHT_FAIL",
+    "automatic_retry":false,
    }
    if item.RC!=nil { evidence["rc"]=*item.RC }
    b,err:=json.Marshal(evidence)
