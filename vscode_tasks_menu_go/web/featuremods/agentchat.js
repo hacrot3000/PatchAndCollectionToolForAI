@@ -1612,7 +1612,7 @@ function renderAgentAutomationControls(session){
  aiRetry.disabled=!exists;
  const retryMode=session?.retry_mode||'off';
  aiRetry.textContent=retryMode==='unlimited'?'AI retry: UNLIMITED (10s)':
-  retryMode==='limited'?'AI retry: 5 attempts (10s)':'AI retry: OFF';
+  retryMode==='limited'?'AI retry: 5 retries (10s)':'AI retry: OFF';
  aiRetry.setAttribute('aria-label','Change AI retry mode. Current: '+retryMode);
  aiRetry.setAttribute('aria-pressed',String(retryMode!=='off'));
  autoPatch.textContent='Auto apply Patch: '+(session?.auto_patch?'ON':'OFF');
