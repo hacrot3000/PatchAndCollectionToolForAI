@@ -193,7 +193,7 @@ func BuildResponsesRequest(c RequestConfig) ([]byte, error) {
 	if c.EnableCollectionTool {
 		req["tools"] = []any{map[string]any{
 			"type": "function", "name": "taskdeck_collect_workspace",
-			"description": "Read-only inspect actual TaskDeck project files and return bounded observed results. Call this to list the project root, search source or read files BEFORE proposing a patch. Never output Collection JSON as chat text.",
+			"description": "Read-only inspect TaskDeck project files. For large files, use read with start_line (1-based) and max_lines (1..200), and continue using next_line. Output may be explicitly marked truncated: page or narrow the request instead of repeating it. Never output Collection JSON as chat text.",
 			"strict": false,
 			"parameters": map[string]any{
 				"type": "object",
@@ -210,6 +210,8 @@ func BuildResponsesRequest(c RequestConfig) ([]byte, error) {
 								"max_entries": map[string]string{"type":"integer"},
 								"max_results": map[string]string{"type":"integer"},
 								"max_matches": map[string]string{"type":"integer"},
+								"start_line": map[string]any{"type":"integer","minimum":1,"description":"1-based first line when type is read"},
+								"max_lines": map[string]any{"type":"integer","minimum":1,"maximum":200,"description":"number of source lines to read, at most 200"},
 							}, "required": []string{"type"}, "additionalProperties": false},
 					},
 				},
