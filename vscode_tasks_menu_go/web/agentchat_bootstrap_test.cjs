@@ -665,6 +665,53 @@ console.log('PASS: Agent Chat bootstraps and dock position/auto-hide state trans
     'journal polling must not repeat the same failure event');
   console.log('PASS: optimistic user send, Sending→Thinking→Collection progress, tool history and durable failure');
 
+  // Sending a verified Patch result has the same one-row transition behavior.
+  // The actual output and next AI reply remain in persisted history.
+  const pendingFeedback={...baseFlow,status:'waiting_tool',revision:12,event_seq:9,
+    history:[{type:'user',content:'Fix main.php'},
+      {type:'function_call',call_id:'patch-1',name:'taskdeck_submit_patch',
+        arguments:'{"name":"Fix main.php","patch_python":"print(1)"}'}],
+    events:[],tool_calls:[{call_id:'patch-1',name:'taskdeck_submit_patch',status:'done',
+      result:'{"status":"PASS"}',feedback_sent:false}]};
+  context.flowSession=pendingFeedback;
+  vm.runInNewContext('displayAgentSession(flowSession)',context);
+  context.window.confirm=()=>true;
+  let resolveFeedback;
+  context.TaskMenuApp.jsonFetch=async(url)=>{
+    if(url.endsWith('/tools/patch-1/continue'))return new Promise(resolve=>{resolveFeedback=resolve;});
+    if(url==='/api/agent/sessions/natural-flow')return {session:context.flowSession,patch_tool_status:'enabled'};
+    throw new Error('Unexpected feedback API request: '+url);
+  };
+  const continuing=vm.runInNewContext("continueAgentTool(flowSession,'patch-1')",context);
+  assert.equal(transcript.children.at(-1).className,'agentchat-live-status');
+  assert.equal(transcript.children.at(-1).children[1].textContent,'Sending native Patch result to AI…');
+  context.flowSession={...pendingFeedback,status:'requesting_ai',revision:13,event_seq:10,
+    history:[...pendingFeedback.history,{type:'function_call_output',call_id:'patch-1',
+      content:'{"status":"PASS","rc":0}'}],
+    events:[{seq:10,kind:'feedback_prepared',status:'requesting_ai',
+      history_index:3,call_id:'patch-1'}],
+    tool_calls:[{...pendingFeedback.tool_calls[0],feedback_sent:true,feedback_status:'sending'}]
+  };
+  vm.runInNewContext('displayAgentSession(flowSession)',context);
+  assert.equal(transcript.children.at(-1).children[1].textContent,'Sending native Patch result to AI…');
+  context.flowSession={...context.flowSession,revision:14,event_seq:11,
+    events:[...context.flowSession.events,{seq:11,kind:'feedback_acknowledged',
+      status:'requesting_ai',history_index:3,call_id:'patch-1'}],
+    tool_calls:[{...context.flowSession.tool_calls[0],feedback_status:'acknowledged'}]
+  };
+  vm.runInNewContext('displayAgentSession(flowSession)',context);
+  assert.equal(transcript.children.at(-1).children[1].textContent,'Thinking…');
+  context.flowSession={...context.flowSession,status:'ready',revision:15,event_seq:12,
+    history:[...context.flowSession.history,{type:'assistant',content:'Patch verified and applied.'}]};
+  resolveFeedback({status:'ready'});
+  await continuing;
+  assert.equal(transcript.children.at(-1).textContent,'Patch verified and applied.');
+  assert.ok(transcript.children.some(x=>x.className==='agentchat-io-details'&&x.children[0].textContent.includes('Native Patch result sent')),
+    'native Patch response must stay in user-visible history');
+  assert.equal(transcript.children.filter(x=>x.className==='agentchat-live-status').length,0);
+  console.log('PASS: verified Patch feedback Sending→Thinking→reply without duplicate or stale statuses');
+
+
 
   // One click copies the WHOLE multi-trace/session report, not a selected tab
   // or only the currently visible subset. Prefetch is complete before click
