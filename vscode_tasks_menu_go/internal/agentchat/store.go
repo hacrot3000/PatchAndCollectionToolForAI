@@ -503,6 +503,22 @@ func (s *Store) Save(x Session, expectedRevision uint64) (Session, error) {
 	}
 	return saved, nil
 }
+// HasUnresolvedWork identifies native work that would lose its ownership
+// journal if deleted. Finished Patch calls may still have feedback pending:
+// deleting that completed work is allowed, without re-running or delivering.
+func HasUnresolvedWork(x Session) bool {
+	if x.Status == "requesting_ai" || x.Status == "tool_queuing" {
+		return true
+	}
+	for _, call := range x.ToolCalls {
+		switch call.Status {
+		case "pending", "queuing", "queued", "dispatching", "running", "unknown":
+			return true
+		}
+	}
+	return false
+}
+
 // Delete is owner/project scoped and revision-fenced. Never delete a journal
 // with an unresolved native Patch or live provider turn: those outcomes must
 // remain recoverable until they reach a verified final state.
@@ -512,14 +528,8 @@ func (s *Store) Delete(id, owner string, expectedRevision uint64) error {
 		if err != nil { return err }
 		if x.Owner != owner || !s.matchesProject(x) { return ErrNotFound }
 		if x.Revision != expectedRevision { return ErrStaleRevision }
-		if x.Status == "requesting_ai" || x.Status == "waiting_tool" || x.Status == "tool_queuing" {
-			return errors.New("conversation contains an active or unresolved operation")
-		}
-		for _, call := range x.ToolCalls {
-			switch call.Status {
-			case "pending", "queuing", "queued", "dispatching", "running", "unknown":
-				return errors.New("conversation contains an unresolved Patch call")
-			}
+		if HasUnresolvedWork(x) {
+			return errors.New("conversation contains an active or unresolved Patch operation")
 		}
 		return os.Remove(s.file(id))
 	})
