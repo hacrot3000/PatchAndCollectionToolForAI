@@ -30,6 +30,7 @@ type SessionEvent struct {
 	Status string    `json:"status,omitempty"`
 	CallID string    `json:"call_id,omitempty"`
 	Detail string    `json:"detail,omitempty"`
+	HistoryIndex int `json:"history_index,omitempty"` // insertion point for durable activity in conversation transcript
 }
 
 // AppendEvent records a bounded transition. The journal is trimmed
@@ -45,6 +46,7 @@ func (x *Session) AppendEvent(kind, status, callID, detail string) {
 	x.Events = append(x.Events, SessionEvent{
 		Seq: x.EventSeq, At: time.Now().UTC(), Kind: kind,
 		Status: status, CallID: callID, Detail: detail,
+		HistoryIndex: len(x.History),
 	})
 	if len(x.Events) > maxSessionEvents {
 		x.Events = append([]SessionEvent(nil), x.Events[len(x.Events)-maxSessionEvents:]...)
