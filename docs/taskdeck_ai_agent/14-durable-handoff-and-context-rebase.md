@@ -39,3 +39,13 @@ Continue the multi-day AI Agent effort documented in [handoff 13](13-context-com
 PR #159 Agent Chat protocol core: **PASS** on validated head (record exact SHA after merge). Remote Portal (PHP): **PASS**. Remote Agent (Go) check may still be in progress at the time of the final update.
 
 **Delivery constraint:** Do not describe this as a guarantee of uninterrupted multi-day autonomous execution. It provides a durable handoff on every persisted session step and bounded provider context, while preserving the explicit recovery boundary for ambiguous egress.
+
+
+## Completion record — 2026-11-21
+
+- PR: [#159](https://github.com/hacrot3000/PatchAndCollectionToolForAI/pull/159), **merged**.
+- Merge commit: `25fd122fecc57b710509ec9f38124a111f62d4fd`.
+- CI on final functional head `f95afaffbe70f51f9c19c5875871d0dc23f29996`: **TaskDeck Agent Chat protocol core PASS**, **Remote Portal (PHP) PASS**; Remote Agent (Go) check ended **cancelled**, not a verified PASS.
+- End-to-end handoff access: AI Agent Chat → Tools → Open handoff; or owner-scoped `GET /api/agent/sessions/{id}/handoff?format=markdown`.
+- Validated: canonical session remains authoritative; a completed provider turn updates a durable revision and corresponding Markdown checkpoint; remote provider chains are not reused after a Patch/Collection exchange and new `function_call_output` stays paired with its pending call.
+- **Not completed:** automatic safe restart of an ambiguous provider request, authoritative provider acknowledgement reconciliation for unknown feedback, task-level acceptance-plan orchestration, or endurance testing over several real days. These remain next priority work, not claimed fixed here.
