@@ -51,8 +51,7 @@ func TestDurableTaskPlanRequiresEvidenceAndPreservesOriginalGoal(t *testing.T){
   got.History[0].Content!="Original user request"{t.Fatal("plan, evidence or original goal lost after restart")}
  handoff,_,err:=reopened.Handoff(x.ID,"local")
  if err!=nil||!strings.Contains(handoff,"Durable task plan (2/2)")||
-  !strings.Contains(handoff,"Acknowledged native Patch receipt"){t.Fatalf("handoff lost acceptance proof: %v
-%s",err,handoff)}
+  !strings.Contains(handoff,"Acknowledged native Patch receipt"){t.Fatalf("handoff lost acceptance proof: %v\n%s",err,handoff)}
 }
 func TestTaskPlanInputIntegrityAndUnverifiedWorkDoesNotAdvance(t *testing.T){
  _,err:=NewTaskPlan("goal",[]TaskPlanStep{
