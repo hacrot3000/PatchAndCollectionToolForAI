@@ -387,7 +387,7 @@ func (s *Server) agentChatMessageAPI(w http.ResponseWriter, r *http.Request, id 
 	payload, err := agentchat.BuildResponsesRequest(agentchat.RequestConfig{
 		Model: session.ModelID, Instructions: instructions, Mode: mode,
 		PreviousResponseID: session.PreviousResponseID, ConversationID: conversationID,
-		History: agentModelVisibleHistory(session), Next: []agentchat.HistoryItem{next}, MaxOutputTokens: limit,
+		History: agentContextForRequest(session, model, instructions, []agentchat.HistoryItem{next}), Next: []agentchat.HistoryItem{next}, MaxOutputTokens: limit,
 		ReasoningEffort: agentProviderReasoningEffort(p, session.ReasoningEffort, model),
 		EnablePatchTool: patchToolAvailable, EnableCollectionTool: patchToolAvailable,
 	})
