@@ -63,6 +63,7 @@ func agentChatInstructionsWithAutomation(x agentchat.Session, toolsEnabled bool,
 		instructions+=fmt.Sprintf(" TaskDeck USER-OWNED DURABLE TASK PLAN: goal=%q; state=%s; verified-or-attested milestones=%d/%d. A finished model response is NOT a completed plan. Follow outstanding acceptance criteria in order, use Collection/Patch evidence, and report honest gaps; only the user-owned plan API can mark steps done.",strings.TrimSpace(plan.Goal),plan.State,done,total)
 		if next:=agentchat.TaskPlanNext(plan);next!=nil {
 			instructions+=fmt.Sprintf(" NEXT PLANNED STEP: %s (%s). ACCEPTANCE: %s. Work on this step, and provide exact evidence IDs for the user to approve its completion.",next.ID,next.Title,next.Acceptance)
+            instructions+=` Optional: after a real verified tool call, include ONE fenced block \x60\x60\x60taskdeck-evidence-suggestion then a JSON object {"step_id":"STEP_ID","kind":"patch_pass or full_file_read","call_id":"ACTUAL_TOOL_CALL_ID","path":"REQUIRED_FILE_FOR_READ"}, then close the fence. Use only exact known IDs. This is an UNTRUSTED review suggestion and cannot approve or finish anything. Never emit it in place of a standalone text-only Patch proposal.`
 		}
 		shown:=0
 		for _,step:=range plan.Steps {
@@ -80,6 +81,7 @@ func agentChatInstructionsWithAutomation(x agentchat.Session, toolsEnabled bool,
 func appendAgentProviderResult(x *agentchat.Session, result agentchat.ResponsesResult, toolAvailable bool) {
 	if result.Text != "" {
 		x.History = append(x.History, agentchat.HistoryItem{Type: "assistant", Content: result.Text})
+        agentchat.CaptureTaskEvidenceSuggestion(x, result.ResponseID, result.Text)
 	}
 	registeredCall := false
 	for i, call := range result.Calls {

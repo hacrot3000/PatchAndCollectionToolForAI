@@ -2138,6 +2138,19 @@ function renderAgentTaskPlan(data){
       }).catch(showAgentError);
      });
      row.append(agentEl('span','','Optional: a single exact tool call ID will be verified without executing or retrying any tool.'),ruleKind,ruleCall,rulePath);
+     // Suggestions are advisory AI output, not acceptance proof or permission.
+     // The user must explicitly select one, then confirm the EXISTING rule API.
+     for(const suggestion of (plan.suggestions||[]).filter(x=>x.step_id===step.id).slice(-3)){
+      const hint=agentEl('span','',
+       'AI-suggested, NOT verified: '+suggestion.kind+' · '+suggestion.call_id+
+       (suggestion.path?' · '+suggestion.path:''));
+      const review=agentButton('Review suggested proof',()=>{
+       ruleKind.value=suggestion.kind;
+       ruleCall.value=suggestion.call_id;
+       rulePath.value=suggestion.path||'';
+      });
+      row.append(hint,review);
+     }
      buttons.append(grant);
     }
    }else{

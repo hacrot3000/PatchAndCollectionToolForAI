@@ -155,3 +155,14 @@ This follow-up remains within the Handoff 17 **structured external test receipt*
 
 - **Narrow, important limitation:** this verifies **one TaskDeck native Task ran and exited zero**, not that arbitrary app semantics or every acceptance criterion passed. Its originating native session must still be reachable **when first recording the proof**; a user-uploaded log or historical unsourced Task-run JSON is not an authoritative substitute. This does **not** automatically execute or select a test, grant shell/tool permissions, replay a Patch, invoke a provider or auto-complete the whole plan.
 - **Unresolved next work inside the original handoff:** provider-specific authoritative reconciliation of SENDING/UNKNOWN; optional reviewed model-suggested proof claims bound to user-owned rules; richer external test suite identity/coverage and retained verifiable receipts after native session eviction; long-run fairness/pagination limits. None of these are represented as completed by PR #164.
+
+
+## Continuation — 2026-11-21 · reviewed AI evidence suggestions
+
+This iteration addresses the exact Handoff 17 P1 item: user-reviewed binding of a model-suggested proof pointer to the existing **user-owned objective Auto-check** rule. It does not introduce a new provider request, new executable action, approval bypass, semantic validator or automatic whole-plan completion.
+
+- A model may optionally include one fenced `taskdeck-evidence-suggestion` JSON object after a real tool operation: `step_id`, `kind=patch_pass|full_file_read`, exact `call_id`, and `path` only for full-file reads.
+- TaskDeck parses only the **actual canonical provider response** (not user text, Collection results or attached files), rejects extra keys and unsafe paths, checks the matching uncompleted user plan milestone, and retains at most eight model-proposed hints with provider-turn identity, source SHA-256 and time in the durable Task plan. They remain explicitly **UNTRUSTED**.
+- Task plan displays these hints next to the unchanged native proof rule editor. Clicking `Review suggested proof` only fills the local editor controls. The existing `Enable exact-proof auto-check` action still requires a separate click, explicit owner confirmation, revision CAS and the owner-scoped real receipt check. No suggested hint can directly create an Auto-check rule or mark `done`.
+- Historical/reopened journals retain the hints while recent ones can roll off at the defined cap. The plan can still finish only when actual verified evidence or separately user-attested acceptance satisfies every milestone. Suggestion messages must never count as verified work for the no-progress guard.
+- Regression tests cover valid provider-sourced suggestion, invalid or invented call ID, missing consent, unknown step, unsupported kind, malformed/extra fields, duplicate and bounded history, and persistence after reopening. Record exact merged commit and CI outcome in the completion addendum.
