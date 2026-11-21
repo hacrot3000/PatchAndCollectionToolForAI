@@ -90,6 +90,9 @@ func (s *Server) runAgentAutoFeedback(ctx context.Context) {
 // all other conversations.
 func (s *Server) processAgentAutoFeedbackSession(ctx context.Context, store *agentchat.Store, id string) {
 	if ctx.Err() != nil { return }
+	// Resume a pre-egress, exact-payload provider request if it was durably
+	// PREPARED before a daemon restart. Never replay SENDING/UNKNOWN.
+	if s.resumePreparedAgentProviderRun(ctx,store,id){return}
 	// Auto Patch uses exactly the existing revision-fenced native approval
 	// gateway; it must not reexecute an ambiguous native Patch.
 	s.autoPatchOne(ctx, store, id)
@@ -104,6 +107,7 @@ func (s *Server) processAgentAutoFeedbackSession(ctx context.Context, store *age
 
 func agentAutoFeedbackNeedsWork(x agentchat.Session) bool {
 	if x.Owner != "local" || x.Archived { return false }
+	if x.Status=="requesting_ai" && x.ProviderRun!=nil && x.ProviderRun.Phase=="prepared"{return true}
 	if _, ok := agentAutoPatchCandidate(x); ok { return true }
 	if _, ok := agentAutoFeedbackCandidate(x); ok { return true }
 	// A native operation can finish while the GUI is closed; it still

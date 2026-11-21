@@ -131,6 +131,11 @@ func (s *Server) agentDeliverToolResult(ctx context.Context, store *agentchat.St
 	if call.FeedbackSent {
 		return agentDeliverResult{}, agentContinueError{409, "tool result not pending"}
 	}
+	// Consent must precede both the PREPARED journal and SENDING fence.
+	// A denied request never creates a replayable provider intent.
+	if !consent {
+		return agentDeliverResult{},agentContinueError{403,"explicit external-provider consent is required"}
+	}
 	if _, found := findAgentToolCall(x.History, call.CallID); !found {
 		return agentDeliverResult{}, agentContinueError{409, "source tool call not in transcript"}
 	}
@@ -209,29 +214,25 @@ func (s *Server) agentDeliverToolResult(ctx context.Context, store *agentchat.St
 	x.ToolCalls[idx].FeedbackStatus = "prepared"
 	x.Status = "requesting_ai"
 	x.AppendEvent("feedback_prepared", "requesting_ai", call.CallID, "")
+	if err=prepareAgentProviderRun(store,&x,"feedback",call.CallID,p,model,payload);err!=nil{
+		return agentDeliverResult{},agentContinueError{409,"cannot persist prepared provider feedback"}
+	}
 	x, err = store.Save(x, x.Revision)
 	if err != nil {
 		return agentDeliverResult{}, agentContinueError{409, "cannot persist once-only tool output"}
 	}
 	x.ToolCalls[idx].FeedbackStatus = "sending"
-	if x, err = store.Save(x, x.Revision); err != nil {
+	if err=markAgentProviderSending(store,&x); err != nil {
 		return agentDeliverResult{}, agentContinueError{409, "cannot record tool-output delivery attempt"}
 	}
-	if !consent {
-		// The scheduler must never send without a recorded user grant. Restore the
-		// pending state so a later explicit continuation remains possible.
-		x.ToolCalls[idx].FeedbackStatus = ""
-		x.History = x.History[:len(x.History)-1]
-		x.ToolCalls[idx].FeedbackSent = false
-		x.Status = "waiting_tool"
-		_, _ = store.Save(x, x.Revision)
-		return agentDeliverResult{}, agentContinueError{403, "explicit external-provider consent is required"}
-	}
+
 	// The Patch feedback may trigger several read-only Collection turns.
 	// Keep one cancelable multi-call scope alive across the whole sequence;
 	// the provider's individual request deadline remains 60 seconds.
 	continuationCtx, continuationCancel := agentRetryTurnContext(ctx, x.RetryMode)
 	defer continuationCancel()
+	stopHeartbeat:=startAgentProviderHeartbeat(continuationCtx,store,owner,x.ID)
+	defer stopHeartbeat()
 	releaseRequest := registerAgentRequest(agentRequestKey(s.Workspace, owner, x.ID), continuationCancel)
 	defer releaseRequest()
 	result, err, _ := s.agentChatCallForOwner(continuationCtx, owner, x.ID, p, string(secret), payload)
@@ -240,6 +241,7 @@ func (s *Server) agentDeliverToolResult(ctx context.Context, store *agentchat.St
 			s.recordAgentDebugEvent(owner, x.ID, call.CallID, "feedback", "feedback.unknown", "FEEDBACK_DELIVERY_UNKNOWN", "Provider acknowledgement was not confirmed; result will not be resent")
 			x.Status = "cancelled"
 			x.ToolCalls[idx].FeedbackStatus = "unknown"
+			markAgentProviderOutcome(&x,"unknown")
 			x.AppendEvent("feedback_unknown", "cancelled", call.CallID, "provider_acknowledgement_unconfirmed")
 			_, _ = store.Save(x, x.Revision)
 			return agentDeliverResult{}, agentContinueError{409, "continuation cancelled; the tool result was already recorded and will not be resent"}
@@ -247,17 +249,20 @@ func (s *Server) agentDeliverToolResult(ctx context.Context, store *agentchat.St
 		s.recordAgentDebugEvent(owner, x.ID, call.CallID, "feedback", "feedback.unknown", "FEEDBACK_DELIVERY_UNKNOWN", "Provider acknowledgement was not confirmed; result will not be resent")
 		x.Status = "failed"
 		x.ToolCalls[idx].FeedbackStatus = "unknown"
+		markAgentProviderOutcome(&x,"unknown")
 		x.AppendEvent("feedback_unknown", "failed", call.CallID, "provider_acknowledgement_unconfirmed")
 		_, _ = store.Save(x, x.Revision)
 		return agentDeliverResult{}, agentContinueError{502, "provider continuation failed; tool result was saved and will not be resent automatically"}
 	}
 	x.ToolCalls[idx].FeedbackStatus = "acknowledged"
+	markAgentProviderOutcome(&x,"acknowledged")
 	x.AppendEvent("feedback_acknowledged", x.Status, call.CallID, "")
 	// A verified native Patch result can legitimately lead the model to
 	// inspect more code. Continue read-only Collection calls automatically.
 	result, statelessCollection, err := s.agentChatRunCollection(continuationCtx, store, &x, result, p, model, string(secret), identity, toolAvailable)
 	if err != nil {
 		x.Status = "failed"
+		markAgentProviderOutcome(&x,"unknown")
 		x.AppendEvent("collect_failed", "failed", "", "")
 		_, _ = store.Save(x, x.Revision)
 		return agentDeliverResult{}, agentContinueError{502, "Collection continuation after Patch result failed; inspect the Agent journal"}
@@ -270,6 +275,7 @@ func (s *Server) agentDeliverToolResult(ctx context.Context, store *agentchat.St
 		x.ConversationID = ""
 	}
 	appendAgentTextPatchProposal(&x, result, identity)
+	markAgentProviderOutcome(&x,"completed")
 	x.AppendEvent("feedback_turn_finished", x.Status, call.CallID, "")
 	x, err = store.Save(x, x.Revision)
 	if err != nil {

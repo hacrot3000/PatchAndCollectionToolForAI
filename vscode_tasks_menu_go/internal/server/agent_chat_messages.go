@@ -376,6 +376,13 @@ func (s *Server) agentChatMessageAPI(w http.ResponseWriter, r *http.Request, id 
 	session.History = append(session.History, next)
 	session.Status = "requesting_ai"
 	session.AppendEvent("turn_started", "requesting_ai", "", "")
+	// Write the EXACT future request to private disk before publishing
+	// PREPARED in the authoritative journal. It can be recovered only if
+	// process failure occurred before the durable SENDING transition.
+	if err=prepareAgentProviderRun(store,&session,"message","",p,model,payload);err!=nil{
+		http.Error(w,"cannot persist prepared provider request",409)
+		return
+	}
 	// Persist the idempotency intent BEFORE egress so a crash/retry cannot send
 	// the same user request twice.
 	if requestKey != "" {
@@ -389,6 +396,10 @@ func (s *Server) agentChatMessageAPI(w http.ResponseWriter, r *http.Request, id 
 		http.Error(w, "cannot persist user message", 409)
 		return
 	}
+	if err=markAgentProviderSending(store,&session);err!=nil{
+		http.Error(w,"cannot persist provider egress boundary; request was not sent",409)
+		return
+	}
 	// A model may inspect several files before proposing one Patch. The whole
 	// turn has a bounded multi-call budget, while each provider call has its
 	// OWN 60-second deadline. Reusing one 60-second deadline across all rounds
@@ -396,6 +407,8 @@ func (s *Server) agentChatMessageAPI(w http.ResponseWriter, r *http.Request, id 
 	turnCtx := s.agentServerContext()
 	ctx, cancel := agentRetryTurnContext(turnCtx, session.RetryMode)
 	defer cancel()
+	stopHeartbeat:=startAgentProviderHeartbeat(ctx,store,owner,id)
+	defer stopHeartbeat()
 	// Keep cancellation registered through every read-only Collection round.
 	// Unregister only when this turn actually finishes or fails.
 	releaseRequest := registerAgentRequest(agentRequestKey(s.Workspace, owner, id), cancel)
@@ -406,6 +419,7 @@ func (s *Server) agentChatMessageAPI(w http.ResponseWriter, r *http.Request, id 
 			// The turn was explicitly cancelled: keep the user's message, but never
 			// record a partial or late provider response as final.
 			session.Status = "cancelled"
+			markAgentProviderOutcome(&session,"unknown")
 			session.AppendEvent("turn_cancelled", "cancelled", "", "")
 			_, saveErr := store.Save(session, session.Revision)
 			if saveErr != nil {
@@ -419,6 +433,7 @@ func (s *Server) agentChatMessageAPI(w http.ResponseWriter, r *http.Request, id 
 		// user turn and neither is retried automatically. A timeout may still have
 		// reached the provider, so the durable status is failed (not "safe to retry").
 		session.Status = "failed"
+		markAgentProviderOutcome(&session,"unknown")
 		session.AppendEvent("turn_failed", "failed", "", agentRetryFailureDetail(callErr))
 		if errors.Is(callErr, context.DeadlineExceeded) {
 			if _, saveErr := store.Save(session, session.Revision); saveErr != nil {
@@ -435,6 +450,7 @@ func (s *Server) agentChatMessageAPI(w http.ResponseWriter, r *http.Request, id 
 		writeAgentStructuredError(w, 502, callErr, traceID, "PROVIDER_REQUEST_FAILED", "provider_http", "AI provider request failed; original turn was retained and will not be retried automatically")
 		return
 	}
+	markAgentProviderOutcome(&session,"acknowledged")
 	// Collection tool calls (and project-bound legacy Collection JSON) are
 	// read-only. Execute and feed them back to the provider automatically until
 	// it answers or proposes a Patch requiring the existing human approval.
@@ -446,6 +462,7 @@ func (s *Server) agentChatMessageAPI(w http.ResponseWriter, r *http.Request, id 
 			session.Status = "cancelled"
 			stage = "collection_cancelled"
 		}
+		markAgentProviderOutcome(&session,"unknown")
 		session.AppendEvent("collect_failed", session.Status, "", stage)
 		if _, saveErr := store.Save(session, session.Revision); saveErr != nil {
 			http.Error(w, "Collection continuation failed; inspect the persisted Agent session", 409)
@@ -476,6 +493,7 @@ func (s *Server) agentChatMessageAPI(w http.ResponseWriter, r *http.Request, id 
 		session.ConversationID = ""
 	}
 	appendAgentTextPatchProposal(&session, result, identity)
+	markAgentProviderOutcome(&session,"completed")
 	session.AppendEvent("turn_finished", session.Status, "", "")
 	// Capture the reviewed workspace state now, at proposal time, so a later
 	// approval can detect drift. Best effort: an unreadable workspace records no

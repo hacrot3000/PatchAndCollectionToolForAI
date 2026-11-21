@@ -427,6 +427,24 @@ func (s *Server) agentChatSessionCancelAPI(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	cancelled := cancelAgentRequest(s.Workspace, owner, id)
+	// A PREPARED request has not crossed the network and may be waiting in
+	// the recovery queue with no active request cancellation handle yet.
+	// Honor Stop by revision-fencing the journal under the normal turn lock.
+	if !cancelled && x.Status=="requesting_ai" && x.ProviderRun!=nil && x.ProviderRun.Phase=="prepared" {
+		if unlock,acquired:=lockAgentTurn(s.Workspace,owner,id);acquired{
+			fresh,e:=store.Get(id,owner)
+			if e==nil && fresh.Status=="requesting_ai" && fresh.ProviderRun!=nil && fresh.ProviderRun.Phase=="prepared"{
+				fresh.Status="cancelled"
+				markAgentProviderOutcome(&fresh,"blocked")
+				fresh.AppendEvent("turn_cancelled","cancelled",fresh.ProviderRun.CallID,"user_stop_prepared")
+				if saved,e:=store.Save(fresh,fresh.Revision);e==nil{
+					x=saved;cancelled=true
+					_=store.DeleteProviderPayload(id)
+				}
+			}
+			unlock()
+		}
+	}
 	// A tool call that already left the proposal stage cannot be declared
 	// cancelled from here; the native Patch session owns that execution.
 	unresolved := false

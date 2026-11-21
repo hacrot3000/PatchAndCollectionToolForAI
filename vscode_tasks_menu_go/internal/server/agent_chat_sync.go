@@ -103,14 +103,22 @@ func (s *Server) agentReconcilePendingOnStartup(ctx context.Context) {
 		// at daemon startup has no live provider worker. Do not leave it stuck
 		// forever and do not blindly replay an ambiguous provider request.
 		if sess.Status=="requesting_ai" {
-			sess.Status="failed"
-			sess.AppendEvent("turn_interrupted","failed","","provider_egress_after_restart_unknown")
-			for j:=range sess.ToolCalls{
-				if sess.ToolCalls[j].FeedbackStatus=="sending"{
-					sess.ToolCalls[j].FeedbackStatus="unknown"
+			if sess.ProviderRun!=nil && sess.ProviderRun.Phase=="prepared" {
+				// Exact payload was durably staged but the journal has no
+				// SENDING mark. The scheduler can safely continue this run.
+				// It must still verify the payload checksum and provider before
+				// crossing the network boundary.
+			} else {
+				sess.Status="failed"
+				markAgentProviderOutcome(&sess,"unknown")
+				sess.AppendEvent("turn_interrupted","failed","","provider_egress_after_restart_unknown")
+				for j:=range sess.ToolCalls{
+					if sess.ToolCalls[j].FeedbackStatus=="sending"{
+						sess.ToolCalls[j].FeedbackStatus="unknown"
+					}
 				}
+				changed=true
 			}
-			changed=true
 		}
 		for j, record := range sess.ToolCalls {
 			if s.Sessions == nil || record.Status != "running" || record.PatchSessionID == "" {
