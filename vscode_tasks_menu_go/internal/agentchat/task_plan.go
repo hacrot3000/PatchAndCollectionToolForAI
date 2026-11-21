@@ -14,6 +14,7 @@ const (
  MaxTaskPlanSteps=128
  MaxTaskPlanGoalBytes=4096
  MaxTaskPlanEvidence=12
+ MaxTaskPlanSuggestions=8
 )
 var taskPlanStepIDPattern=regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$`)
 
@@ -34,6 +35,9 @@ type TaskPlanStep struct {
 }
 type TaskPlan struct {
  Goal string `json:"goal"`
+ // Provider-proposed exact evidence pointers are UNTRUSTED review hints.
+ // They never create user-owned AutoCheck rules or complete plan steps.
+ Suggestions []TaskEvidenceSuggestion `json:"suggestions,omitempty"`
  State string `json:"state"` // active, paused, completed
  AutoContinue bool `json:"auto_continue,omitempty"`
  Steps []TaskPlanStep `json:"steps"`
@@ -57,11 +61,18 @@ func ValidateTaskPlan(p *TaskPlan)error{
  if len(p.Goal)==0||len(p.Goal)>MaxTaskPlanGoalBytes||strings.TrimSpace(p.Goal)==""||
   len(p.Steps)==0||len(p.Steps)>MaxTaskPlanSteps||p.CreatedAt.IsZero()||p.UpdatedAt.IsZero()||
   len(p.LastContinuationKey)>128||len(p.LastWorkSignature)>128||p.NoProgressTurns<0||p.NoProgressTurns>100||
-  p.RetryStreak<0||p.RetryStreak>100 {
+  p.RetryStreak<0||p.RetryStreak>100||len(p.Suggestions)>MaxTaskPlanSuggestions {
   return ErrInvalidSession
  }
  switch p.State{case "active","paused","completed":default:return ErrInvalidSession}
  if p.State=="completed"&&(!TaskPlanAllDone(p)||p.AutoContinue){return ErrInvalidSession}
+ for _,suggestion:=range p.Suggestions {
+  if !taskPlanStepIDPattern.MatchString(suggestion.StepID)||len(suggestion.TurnID)==0||len(suggestion.TurnID)>256||
+   len(suggestion.SourceDigest)!=64||suggestion.At.IsZero()||
+   ValidateTaskAutoCheck(&TaskAutoCheck{Kind:suggestion.Kind,CallID:suggestion.CallID,Path:suggestion.Path})!=nil {
+   return ErrInvalidSession
+  }
+ }
  ids:=make(map[string]bool,len(p.Steps))
  for _,step:=range p.Steps{
   if !taskPlanStepIDPattern.MatchString(step.ID)||ids[step.ID]||
@@ -80,6 +91,7 @@ func ValidateTaskPlan(p *TaskPlan)error{
    } else if e.Ref==""||len(e.Digest)!=64{return ErrInvalidSession}
   }
  }
+ for _,suggestion:=range p.Suggestions{if !ids[suggestion.StepID]{return ErrInvalidSession}}
  return nil
 }
 func NewTaskPlan(goal string,steps []TaskPlanStep)(*TaskPlan,error){
