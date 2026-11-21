@@ -13,6 +13,7 @@ import (
 type ProviderHeartbeat struct {
  RunID string `json:"run_id"`
  At time.Time `json:"at"`
+ LeaseUntil time.Time `json:"lease_until"`
 }
 
 func (s *Store) providerHeartbeatFile(id string)string{
@@ -29,7 +30,8 @@ func (s *Store) TouchActiveProviderHeartbeat(id,owner string)error{
   if x.Owner!=owner||!s.matchesProject(x){return ErrNotFound}
   if x.Status!="requesting_ai"||x.ProviderRun==nil||
    x.ProviderRun.Phase!="sending"{return ErrInvalidSession}
-  raw,err:=json.Marshal(ProviderHeartbeat{RunID:x.ProviderRun.ID,At:time.Now().UTC()})
+  now:=time.Now().UTC()
+  raw,err:=json.Marshal(ProviderHeartbeat{RunID:x.ProviderRun.ID,At:now,LeaseUntil:now.Add(90*time.Second)})
   if err!=nil{return err}
   temp,err:=os.CreateTemp(s.dir,".agent-provider-heartbeat-*")
   if err!=nil{return err}
