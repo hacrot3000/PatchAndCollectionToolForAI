@@ -24,7 +24,8 @@ Continue developing TaskDeck AI Agent for very large multi-day tasks with hundre
 5. **PREPARED recovery:** `agent_chat_provider_resume.go` uses the existing per-session lock and bounded worker pool. It checks owner, workspace/project identity, provider model/config fingerprint, credential, exact staged bytes and original Patch receipt/feedback status. Only after passing these checks does it commit SENDING and call the existing provider/retry/Collection and Native Patch proposal handlers. It cannot auto-execute a Patch without the original native approval gates.
 6. **Stop:** `POST /api/agent/sessions/{id}/cancel` can stop a queued PREPARED run even when no network worker was registered yet. Stop marks the request blocked/cancelled and removes the pending sidecar.
 7. **Handoff:** the existing Markdown handoff now shows provider run ID, phase, payload digest, whether the request is safe to auto-resume, and when explicit acknowledgement reconciliation is required.
-8. **Tests:** private store restart/owner/hash and sending safety, new server tests for initial user request recovery, Collection-safe continuation, prepared Native Patch feedback, corrupted payload, sending-before-crash and Stop-before-egress.
+8. **Diagnostic heartbeat/lease:** `provider_heartbeat.go` writes an owner-scoped 0600 heartbeat sidecar without incrementing session revision. A running worker refreshes it every 30 seconds with a 90-second diagnostic lease; Handoff GET identifies recent versus stale heartbeats. Neither a stale nor fresh heartbeat proves provider acknowledgement, and an expired lease never authorizes replay of SENDING/UNKNOWN.
+9. **Tests:** private store restart/owner/hash, prepared-only recovery, fingerprint/payload mismatch, Native Patch feedback, sending-before-crash, Stop-before-egress, heartbeat owner isolation and no session-CAS churn.
 
 ## Strict safety boundary
 
@@ -50,7 +51,7 @@ A process may crash *after* SENDING is saved but *before* the first network byte
 
 - **P0:** Provider SENDING/UNKNOWN cannot be safely re-sent until the provider supplies an authoritative idempotency or acknowledgment mechanism, or the user explicitly resolves the ambiguity.
 - **P0:** Full multi-day plan orchestration is still not implemented. A model can voluntarily finish a turn without completing all user tasks.
-- **P1:** Durable live-lease/heartbeat, fair queue capacity and resource availability across daemon restarts should be tracked separately. The existing worker pool limits concurrency but is process-local.
+- **P1:** A diagnostic heartbeat/lease is now written per active provider attempt. This is NOT a distributed job lease or proof of provider receipt. Durable fairness, queue ownership across multiple daemons, and resource availability still need work; existing worker admission remains process-local.
 - **P1:** Provider configuration or credential changed between PREPARED and restart intentionally blocks exact automatic replay until corrected; this must be exposed clearly in UI.
 - **P1:** Private source-bearing PREPARED sidecars are local 0600 files; ensure backup/retention policy and test crash-orphan cleanup.
 - **P1:** Existing provider retries can still stop on explicit Stop, permanent errors, quota, disk-full or session corruption. No software can promise indefinite execution under those conditions.
