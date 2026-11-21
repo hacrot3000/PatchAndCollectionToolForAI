@@ -361,6 +361,13 @@ for (const label of ['Bottom', 'Auto Hide', '⋯', 'Hide', '+ New session', 'Pre
   'Auto apply Patch: OFF', 'Auto Collection: ON']) {
   assert.equal(labels.filter(value => value === label).length, 1, 'Control duplicated: ' + label);
 }
+const taskPlanButton=find(heading,node=>node.tagName==='button'&&node.textContent==='Task plan');
+assert.ok(taskPlanButton,'Tools menu needs durable Task plan action');
+const taskPlanPanel=find(windowBox,node=>String(node.className||'').includes('agentchat-taskplan-panel'));
+assert.ok(taskPlanPanel,'Task plan needs an in-app editing panel');
+assert.equal(taskPlanPanel.classList.contains('visible'),false,'Task plan must be lazy and collapsed until opened');
+assert.equal(find(taskPlanPanel,node=>node.className==='agentchat-taskplan-body').childElementCount,0,
+ 'Closed task plan should not render historical milestone forms or evidence');
 assert.ok(!labels.includes('Providers / API keys'),'Provider/API keys must not appear in Agent Chat header');
 assert.equal(heading.children.filter(child=>child.className==='agentchat-toolbar-actions').length,1);
 assert.equal(context.TaskMenuAgentChat.dockPosition, 'right');

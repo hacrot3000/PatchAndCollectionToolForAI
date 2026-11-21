@@ -131,6 +131,14 @@ agentCSS.textContent=[
 '.agentchat-execution-header{display:flex;gap:6px;align-items:center;flex-wrap:wrap;padding:8px;border-bottom:1px solid #35445c}',
 '.agentchat-execution-header strong{flex:1;min-width:90px}',
 '.agentchat-execution-content{flex:1;min-height:0;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;padding:10px;margin:0;font:11px/1.5 ui-monospace,monospace}',
+'.agentchat-taskplan-body{flex:1;min-height:0;overflow:auto;padding:10px;display:flex;flex-direction:column;gap:9px}',
+'.agentchat-taskplan-body textarea,.agentchat-taskplan-body input,.agentchat-taskplan-body select{box-sizing:border-box;max-width:100%;width:100%;padding:6px;background:#19293b;color:#edf5ff;border:1px solid #65768c;border-radius:5px;font-size:12px}',
+'.agentchat-taskplan-body textarea{min-height:68px;resize:vertical}',
+'.agentchat-taskplan-actions{display:flex;gap:6px;align-items:center;flex-wrap:wrap}',
+'.agentchat-taskplan-step{padding:8px;display:flex;flex-direction:column;gap:5px;border:1px solid #42556d;border-radius:6px}',
+'.agentchat-taskplan-step>strong{font-size:12px}',
+'.agentchat-taskplan-step>span{font-size:11px;color:#c2d3e3;white-space:pre-wrap;overflow-wrap:anywhere}',
+'html[data-taskmenu-theme="light"] .agentchat-taskplan-body textarea,html[data-taskmenu-theme="light"] .agentchat-taskplan-body input,html[data-taskmenu-theme="light"] .agentchat-taskplan-body select{background:#fff;color:#182b42}',
 'html[data-taskmenu-theme="light"] .agentchat-execution-panel{background:#fff;color:#17283a}',
 
 '.agentchat-composer{padding:9px;border-top:1px solid #35445c;display:flex;flex-direction:column;gap:6px}',
@@ -316,6 +324,17 @@ const agentExecutionClose=agentButton('Close',()=>{agentExecutionPanel.classList
 agentExecutionHeader.append(agentExecutionHeading,agentExecutionRefresh,agentExecutionCopy,agentExecutionClose);
 const agentExecutionContent=agentEl('pre','agentchat-execution-content','');
 agentExecutionPanel.append(agentExecutionHeader,agentExecutionContent);
+const agentTaskPlanPanel=agentEl('section','agentchat-execution-panel agentchat-taskplan-panel');
+agentTaskPlanPanel.setAttribute('role','dialog');
+agentTaskPlanPanel.setAttribute('aria-label','Durable task plan');
+const agentTaskPlanHeader=agentEl('div','agentchat-execution-header');
+const agentTaskPlanHeading=agentEl('strong','','Durable task plan');
+const agentTaskPlanRefresh=agentButton('Refresh',()=>openAgentTaskPlan().catch(showAgentError));
+const agentTaskPlanClose=agentButton('Close',()=>agentTaskPlanPanel.classList.remove('visible'));
+agentTaskPlanHeader.append(agentTaskPlanHeading,agentTaskPlanRefresh,agentTaskPlanClose);
+const agentTaskPlanBody=agentEl('div','agentchat-taskplan-body');
+agentTaskPlanPanel.append(agentTaskPlanHeader,agentTaskPlanBody);
+let agentTaskPlanData=null;
 const composer=agentEl('div','agentchat-composer'),prompt=agentEl('textarea');
 // Text-only attachment staging. Binary files are rejected server-side; the UI
 // never reads local paths or embeds base64.
@@ -326,6 +345,8 @@ const agentHandoffButton=agentButton('Open handoff',()=>{
  window.open(link,'_blank','noopener,noreferrer');
 });
 agentHandoffButton.title='Open the latest durable per-revision task handoff for copying to another AI session.';
+const agentTaskPlanButton=agentButton('Task plan',()=>openAgentTaskPlan().catch(showAgentError));
+agentTaskPlanButton.title='Create and review an evidence-gated long-running task plan';
 const autoFeedback=agentButton('Auto-send results',()=>toggleAutoFeedback().catch(showAgentError));
 const attachToggle=agentButton('Attachments (0) ▸',()=>toggleAgentAttachmentsPopup());
 attachToggle.className='agentchat-attachments-trigger';
@@ -431,13 +452,13 @@ function makeAgentHeaderGroup(label,items){
 }
 const conversationGroup=makeAgentHeaderGroup('Conversation',[newChat,rename,archive,deleteChat,refresh]);
 const automationGroup=makeAgentHeaderGroup('Automation',[autoPatch,autoCollection,autoFeedback,retryMenu]);
-const toolsGroup=makeAgentHeaderGroup('Tools',[attachButton,preview,planButton,agentHandoffButton]);
+const toolsGroup=makeAgentHeaderGroup('Tools',[attachButton,preview,planButton,agentTaskPlanButton,agentHandoffButton]);
 const layoutGroup=makeAgentHeaderGroup('Layout',[dockPositionButton,autoHideButton]);
 const agentHeaderGroups=[conversationGroup,automationGroup,toolsGroup,layoutGroup];
 for(const group of agentHeaderGroups)toolbarActions.append(group);
 heading.append(title,toolbarActions,moreButton,close,moreMenu);
 actionLine.append(status,cancel,send);composer.append(attachToggle,prompt,actionLine);
-main.append(tabbar,toolNotice,transcript,agentExecutionPanel,composer,attachPopup);layout.append(main);
+main.append(tabbar,toolNotice,transcript,agentExecutionPanel,agentTaskPlanPanel,composer,attachPopup);layout.append(main);
 const footer=agentEl('div','agentchat-info','Agent automation is configured per conversation. Native Patch results are verified before being sent to AI.');
 windowBox.append(heading,viewTabs,layout,debugPanel,footer);root.append(windowBox);
 const agentToolbarItems=agentHeaderGroups;
@@ -1266,6 +1287,7 @@ async function selectAgentSession(id){
  // position of the current session. These change only on a tab switch.
  if(switched&&previousID){
   agentExecutionPanel.classList.remove('visible');agentExecutionTarget=null;
+  agentTaskPlanPanel.classList.remove('visible');agentTaskPlanData=null;
   agentDrafts.set(previousID,prompt.value);
   agentAttachmentDrafts.set(previousID,agentAttachments.map(a=>({...a})));
  }
@@ -1970,6 +1992,141 @@ async function setAgentRetryMode(mode){
  status.textContent='AI provider retry: '+(mode==='off'?'OFF':mode==='limited'?'up to 5 retries every 10s':'unlimited every 10s until Stop')+'.';
 }
 async function toggleAutoFeedback(){return toggleAgentAutomation('feedback');}
+
+async function openAgentTaskPlan(){
+ if(!agentActive)throw new Error('Select an Agent conversation first.');
+ const sessionID=agentActive;
+ const data=await agentApp.jsonFetch('/api/agent/sessions/'+encodeURIComponent(sessionID)+'/plan');
+ if(agentActive!==sessionID)return;
+ agentTaskPlanPanel.classList.add('visible');
+ renderAgentTaskPlan(data);
+}
+async function agentTaskPlanAction(action,params={}){
+ const state=agentTaskPlanData;
+ if(!agentActive||!state)throw new Error('Open the current task plan first.');
+ const sessionID=agentActive;
+ const updated=await agentApp.jsonFetch('/api/agent/sessions/'+encodeURIComponent(sessionID)+'/plan',{
+  method:'POST',headers:{'Content-Type':'application/json'},
+  body:JSON.stringify({action,expected_revision:state.revision,...params}),
+ });
+ if(agentActive!==sessionID)return;
+ renderAgentTaskPlan(updated);
+ await selectAgentSession(sessionID);
+}
+function renderAgentTaskPlan(data){
+ agentTaskPlanData=data;
+ agentTaskPlanBody.replaceChildren();
+ const plan=data?.plan;
+ if(!plan){
+  agentTaskPlanBody.append(agentEl('div','agentchat-info',
+   'Create a checklist with acceptance criteria. AI replies alone do not mark steps done. Completion requires verified Collection/Patch evidence or explicit user acceptance.'));
+  const goal=agentEl('textarea','agentchat-taskplan-input');
+  goal.placeholder='Overall task goal';
+  const rows=agentEl('textarea','agentchat-taskplan-input');
+  rows.placeholder='One step per line: step-id | title | acceptance criteria';
+  rows.style.minHeight='110px';
+  const create=agentButton('Create plan',()=>{(async()=>{
+   const steps=rows.value.split(/\r?\n/).map(s=>s.trim()).filter(Boolean).map(s=>{
+    const parts=s.split('|').map(v=>v.trim());
+    if(parts.length!==3||!parts.every(Boolean))throw new Error('Each step must have ID | title | acceptance criteria.');
+    return {id:parts[0],title:parts[1],acceptance:parts[2]};
+   });
+   if(!goal.value.trim()||!steps.length)throw new Error('Enter the overall goal and at least one step.');
+   await agentTaskPlanAction('create',{goal:goal.value.trim(),steps});
+  })().catch(showAgentError);});
+  agentTaskPlanBody.append(agentEl('strong','','New durable task plan'),goal,rows,create);
+  return;
+ }
+ const header=agentEl('strong','',String(data.done||0)+' / '+String(data.total||0)+' steps accepted · '+String(plan.state||'active').toUpperCase());
+ agentTaskPlanBody.append(header,agentEl('div','agentchat-info',String(plan.goal||'')));
+ if(agentCurrentSession?.status==='created'){
+  agentTaskPlanBody.append(agentEl('div','agentchat-info',
+   'Send the first AI request normally. Auto continue starts only after a verified completed model turn; it never starts an empty conversation by itself.'));
+ }
+ if(plan.next_retry_at){
+  agentTaskPlanBody.append(agentEl('div','agentchat-info',
+   'Next automatic provider attempt not before: '+String(plan.next_retry_at)+
+   ' · admission delay #'+String(plan.retry_streak||1)+
+   '. No request is re-sent if its previous provider outcome is unknown.'));
+ }
+ const actions=agentEl('div','agentchat-taskplan-actions');
+ if(plan.state==='completed'){
+  actions.append(agentButton('Reopen plan',()=>agentTaskPlanAction('reopen').catch(showAgentError)));
+ }
+ if(plan.state!=='completed'){
+  const isPaused=plan.state==='paused';
+  const pause=agentButton(isPaused?'Resume plan':'Pause plan',()=>agentTaskPlanAction(isPaused?'resume':'pause').catch(showAgentError));
+  actions.append(pause);
+  if(!isPaused){
+   const auto=agentButton('Auto continue: '+(plan.auto_continue?'ON':'OFF'),()=>{(async()=>{
+    const enabled=!plan.auto_continue;
+    if(enabled&&!window.confirm(
+     'Allow TaskDeck to send further AI requests for this unfinished plan automatically? '+
+     'Provider usage may be billed repeatedly. Native Patch still requires the existing approval settings; '+
+     'ambiguous provider feedback is never replayed. Stop/Disable Auto continue at any time.'))return;
+    await agentTaskPlanAction('set_auto_continue',{enabled,confirm_external:enabled});
+   })().catch(showAgentError);});
+   auto.setAttribute('aria-pressed',String(Boolean(plan.auto_continue)));
+   actions.append(auto);
+  }
+  if((plan.steps||[]).length>0&&(plan.steps||[]).every(s=>s.status==='done'&&Array.isArray(s.evidence)&&s.evidence.length)){
+   const finish=agentButton('Complete verified plan',()=>agentTaskPlanAction('complete').catch(showAgentError));
+   actions.append(finish);
+  }
+ }
+ agentTaskPlanBody.append(actions);
+ if(plan.no_progress_turns>0){
+  agentTaskPlanBody.append(agentEl('div','agentchat-info',
+   String(plan.no_progress_turns)+' automatic turn(s) without new verified work. After three, Auto continue pauses to avoid repeating billable answers.'));
+ }
+ for(const step of plan.steps||[]){
+  const row=agentEl('div','agentchat-taskplan-step');
+  const heading=agentEl('strong','',step.id+' · '+step.title+' · '+String(step.status).toUpperCase());
+  const acceptance=agentEl('span','','Acceptance: '+step.acceptance);
+  row.append(heading,acceptance);
+  for(const item of step.evidence||[]){
+   const description=item.kind==='manual'?'User-attested':'Verified tool';
+   row.append(agentEl('span','',description+' · '+item.kind+' · '+(item.ref||'')+' · '+(item.note||'')+' · '+(item.digest||'')));
+  }
+  if(plan.state!=='completed'){
+   const buttons=agentEl('div','agentchat-taskplan-actions');
+   if(step.status!=='done'){
+    const active=agentButton('Working',()=>agentTaskPlanAction('set_step',{step_id:step.id,status:'active'}).catch(showAgentError));
+    const blocked=agentButton('Blocked',()=>agentTaskPlanAction('set_step',{step_id:step.id,status:'blocked'}).catch(showAgentError));
+    buttons.append(active,blocked);
+    const kind=agentEl('select');
+    for(const [key,label] of [['manual','User acceptance'],['patch','Native Patch receipt'],['collection','Collection evidence']]){
+     kind.append(agentOption(key,label));
+    }
+    const ref=agentEl('input');ref.placeholder='Tool call ID (for Patch or Collection)';
+    const note=agentEl('input');note.placeholder='Acceptance evidence note (required for manual)';
+    const done=agentButton('Mark done',()=>agentTaskPlanAction('set_step',{
+     step_id:step.id,status:'done',evidence_kind:kind.value,
+     evidence_ref:kind.value==='manual'?'':ref.value.trim(),
+     evidence_note:note.value.trim(),
+    }).catch(showAgentError));
+    row.append(kind,ref,note);
+    buttons.append(done);
+   }else{
+    buttons.append(agentButton('Reopen',()=>agentTaskPlanAction('set_step',{step_id:step.id,status:'pending'}).catch(showAgentError)));
+   }
+   row.append(buttons);
+  }
+  agentTaskPlanBody.append(row);
+ }
+ if(plan.state!=='completed'){
+  const more=agentEl('div','agentchat-taskplan-step');
+  more.append(agentEl('strong','','Add another step'));
+  const id=agentEl('input');id.placeholder='Unique step ID (letters/numbers/-/_)';
+  const name=agentEl('input');name.placeholder='Step title';
+  const acceptance=agentEl('input');acceptance.placeholder='Objective acceptance criteria';
+  const create=agentButton('Add step',()=>agentTaskPlanAction('add_step',{
+   step_id:id.value.trim(),title:name.value.trim(),acceptance:acceptance.value.trim(),
+  }).catch(showAgentError));
+  more.append(id,name,acceptance,create);
+  agentTaskPlanBody.append(more);
+ }
+}
 function openTaskManifestPreview(){planOverlay.classList.add('visible');}
 function downloadTaskManifest(){
  if(!lastValidatedManifest||!lastValidatedManifest.valid)return;

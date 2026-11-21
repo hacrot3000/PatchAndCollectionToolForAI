@@ -244,6 +244,10 @@ func (s *Server) agentChatSessionItemAPI(w http.ResponseWriter, r *http.Request)
 		s.agentChatHandoffAPI(w, r, segments[0])
 		return
 	}
+	if len(segments) == 2 && segments[0] != "" && segments[1] == "plan" {
+		s.agentChatTaskPlanAPI(w, r, segments[0])
+		return
+	}
 	if len(segments) == 2 && segments[0] != "" && segments[1] == "retry" {
 		s.agentChatRetryAPI(w, r, segments[0])
 		return
