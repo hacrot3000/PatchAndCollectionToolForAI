@@ -128,3 +128,30 @@ This follow-up remains within the Handoff 17 **structured external test receipt*
 - **Persistence:** the accepted immutable digest and exact Task session reference are recorded in the canonical Agent journal and handoff. The Task session must still be retrievable from the native SessionService **at the time of proof adoption**; merely having a user-supplied log or historical Task-run JSON is insufficient.
 - **Meaning:** this is machine proof that a particular Task **exited 0**; it is not semantic evidence of full application correctness, and the user must review whether the Task actually implements the milestone's acceptance criteria. This feature intentionally does not auto-accept test results or alter `set_auto_check` scope.
 - **Regression plan:** API positive Task run with real command; reject wrong ID, failed exit, invalid status, unrelated workspace and missing/stale identity; verify journal survives reopening. Record actual CI and merge SHA below.
+
+
+## Completion addendum — 2026-11-21 · PR #164 (native Task-run evidence)
+
+- **Merged PR:** [#164](https://github.com/hacrot3000/PatchAndCollectionToolForAI/pull/164).
+- **Merge commit on main:** `1c4f258ba47c411b0228540845da274ea2b8a9e8`.
+- **Validated feature HEAD:** `8c4a338a3c50e1d9cc3c6a51becdfea4ea9e1cc3`.
+- **CI on the final feature HEAD:** Agent Chat protocol core **PASS twice**; read-only Collection/Patch regression **PASS**; Remote Portal PHP **PASS**. Remote Agent Go **still running at merge**, so no claim of Go CI success.
+- **Delivered:** machine-derived SHA-256 of actual Task `command + argv + cwd` in native SessionService metadata; revision-fenced `set_step` support for `evidence_kind:"task_run"`, an exact real Task session ID and explicit Task ID. Server verifies terminal `exited/exit_code=0`, owner/project identity (including current workspace identity), post-plan run timing, expected Task ID, command digest and cwd containment. The UI asks for the exact IDs and confirms acceptance. Accepted evidence is included in the durable plan/handoff even when the native session later disappears.
+- **Tests:** actual POSIX Task process PASS and FAIL, fake session ID, wrong Task ID, stopped/nonzero/missing exit, missing/malformed command identity, stale/inconsistent times, session kind mismatch, workspace escape, shared owner/project mismatch and durable journal reopen.
+- **API example (explicit user review only):**
+
+```json
+{
+  "action": "set_step",
+  "expected_revision": 35,
+  "step_id": "test",
+  "status": "done",
+  "evidence_kind": "task_run",
+  "evidence_ref": "actual-native-task-session-id",
+  "evidence_task_id": 42,
+  "evidence_note": "Reviewed that this Task runs the intended acceptance tests"
+}
+```
+
+- **Narrow, important limitation:** this verifies **one TaskDeck native Task ran and exited zero**, not that arbitrary app semantics or every acceptance criterion passed. Its originating native session must still be reachable **when first recording the proof**; a user-uploaded log or historical unsourced Task-run JSON is not an authoritative substitute. This does **not** automatically execute or select a test, grant shell/tool permissions, replay a Patch, invoke a provider or auto-complete the whole plan.
+- **Unresolved next work inside the original handoff:** provider-specific authoritative reconciliation of SENDING/UNKNOWN; optional reviewed model-suggested proof claims bound to user-owned rules; richer external test suite identity/coverage and retained verifiable receipts after native session eviction; long-run fairness/pagination limits. None of these are represented as completed by PR #164.
