@@ -5,6 +5,7 @@ import (
  "reflect"
  "sync"
  "testing"
+ "time"
 )
 
 func TestAgentAutoFeedbackFairAdmissionRotatesAfterSaturation(t *testing.T){
@@ -106,5 +107,110 @@ func TestAgentAutoFeedbackFairCursorMemoryIsBounded(t *testing.T){
  }
  if p.lastAdmitted[fmt.Sprintf("project-%d:local",maxAgentAutoFeedbackCursorScopes+29)]!="one"{
   t.Fatal("most recently admitted workspace cursor was lost")
+ }
+}
+
+func TestAgentAutoFeedbackCrossWorkspacePendingTurnPreventsSlotTheft(t *testing.T){
+ p:=&agentAutoFeedbackWorkerPool{active:map[string]struct{}{}}
+ a,b:="workspace-A:local","workspace-B:local"
+ candidatesA:=[]string{"a7","a6","a5","a4","a3","a2","a1"}
+ candidatesB:=[]string{"b3","b1","b2"}
+ if got:=p.acquireFairBatch(a,candidatesA);!reflect.DeepEqual(got,[]string{"a1","a2","a3","a4"}){
+  t.Fatalf("initial A reservation: %v",got)
+ }
+ // B's normal poll registers it while all four workers remain occupied.
+ if got:=p.acquireFairBatch(b,candidatesB);len(got)!=0{
+  t.Fatalf("B bypassed global capacity: %v",got)
+ }
+ if _,registered:=p.pendingScopes[b];!registered{
+  t.Fatal("workspace B did not retain its pending fair turn")
+ }
+ p.release(a+":a1")
+ if got:=p.acquireFairBatch(a,candidatesA);len(got)!=0{
+  t.Fatalf("noisy A stole B's next global slot: %v",got)
+ }
+ if got:=p.acquireFairBatch(b,candidatesB);!reflect.DeepEqual(got,[]string{"b1"}){
+  t.Fatalf("waiting B did not receive its reserved turn: %v",got)
+ }
+ if len(p.active)!=agentAutoFeedbackWorkerLimit{t.Fatal("worker count grew beyond global limit")}
+ p.release(a+":a2")
+ if got:=p.acquireFairBatch(a,candidatesA);!reflect.DeepEqual(got,[]string{"a5"}){
+  t.Fatalf("A did not get the following turn: %v",got)
+ }
+ p.release(b+":b1")
+ if got:=p.acquireFairBatch(b,candidatesB);!reflect.DeepEqual(got,[]string{"b2"}){
+  t.Fatalf("B did not regain its fair turn: %v",got)
+ }
+ if len(p.active)!=agentAutoFeedbackWorkerLimit{
+  t.Fatalf("worker capacity incorrect after alternation: %d",len(p.active))
+ }
+ if p.lastAdmittedScope!=b{t.Fatalf("global fairness cursor incorrect: %s",p.lastAdmittedScope)}
+ if got:=p.acquireFairBatch(b,candidatesB);len(got)!=0{
+  t.Fatalf("B stole a second consecutive slot: %v",got)
+ }
+}
+
+func TestAgentAutoFeedbackCrossWorkspaceStaleWaitingScopeDoesNotBlock(t *testing.T){
+ p:=&agentAutoFeedbackWorkerPool{active:map[string]struct{}{}}
+ a,b:="workspace-A:local","workspace-B:local"
+ ids:=[]string{"a1","a2","a3","a4","a5"}
+ if got:=p.acquireFairBatch(a,ids);len(got)!=agentAutoFeedbackWorkerLimit{
+  t.Fatalf("initial slots=%v",got)
+ }
+ p.acquireFairBatch(b,[]string{"b1"})
+ p.mu.Lock()
+ p.pendingScopes[b]=time.Now().Add(-agentAutoFeedbackPendingScopeTTL-time.Second)
+ p.mu.Unlock()
+ p.release(a+":a1")
+ if got:=p.acquireFairBatch(a,ids);!reflect.DeepEqual(got,[]string{"a5"}){
+  t.Fatalf("stale B waiter incorrectly blocked active A: %v",got)
+ }
+ if _,still:=p.pendingScopes[b];still{t.Fatal("stale workspace waiter was retained")}
+ // A cleared an empty/no-ready queue; no abandoned scope should block B.
+ if got:=p.acquireFairBatch(a,nil);len(got)!=0{t.Fatal("empty queue unexpectedly allocated worker")}
+ if _,still:=p.pendingScopes[a];still{t.Fatal("empty workspace did not unregister")}
+}
+
+func TestAgentAutoFeedbackCrossWorkspacePendingRegistryIsBounded(t *testing.T){
+ p:=&agentAutoFeedbackWorkerPool{active:map[string]struct{}{}}
+ busy:="busy:local"
+ p.acquireFairBatch(busy,[]string{"a","b","c","d","e"})
+ for i:=0;i<maxAgentAutoFeedbackCursorScopes+40;i++{
+  name:=fmt.Sprintf("scope-%03d:local",i)
+  if got:=p.acquireFairBatch(name,[]string{"ready"});len(got)!=0{
+   t.Fatalf("full pool admitted %q: %v",name,got)
+  }
+ }
+ if len(p.pendingScopes)>maxAgentAutoFeedbackCursorScopes{
+  t.Fatalf("pending scope registry grew without bound: %d",len(p.pendingScopes))
+ }
+ last:=fmt.Sprintf("scope-%03d:local",maxAgentAutoFeedbackCursorScopes+39)
+ if _,ok:=p.pendingScopes[last];!ok{t.Fatal("latest waiting workspace was lost")}
+ if _,ok:=p.pendingScopes["scope-000:local"];ok{
+  t.Fatal("oldest inactive waiter was not evicted")
+ }
+}
+
+func TestAgentAutoFeedbackCrossWorkspaceConcurrentReservationsKeepGlobalCap(t *testing.T){
+ p:=&agentAutoFeedbackWorkerPool{active:map[string]struct{}{}}
+ const total=32
+ start:=make(chan struct{})
+ var wg sync.WaitGroup
+ for i:=0;i<total;i++{
+  wg.Add(1)
+  go func(n int){
+   defer wg.Done()
+   <-start
+   p.acquireFairBatch(fmt.Sprintf("scope-%d:local",n),[]string{"one","two","three"})
+  }(i)
+ }
+ close(start);wg.Wait()
+ p.mu.Lock()
+ defer p.mu.Unlock()
+ if len(p.active)>agentAutoFeedbackWorkerLimit{
+  t.Fatalf("concurrent workspace ticks overbooked pool: %d",len(p.active))
+ }
+ if len(p.pendingScopes)>maxAgentAutoFeedbackCursorScopes{
+  t.Fatal("concurrent waiter registry grew without bound")
  }
 }
