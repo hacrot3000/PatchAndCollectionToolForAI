@@ -156,3 +156,36 @@ func TaskPlanNext(p *TaskPlan)*TaskPlanStep{
  }
  return nil
 }
+
+func TaskPlanAutoContinueCandidate(x Session)bool{
+ p:=x.TaskPlan
+ if p==nil||x.Owner!="local"||x.Archived||p.State!="active"||
+  !p.AutoContinue||x.Status!="completed"||TaskPlanNext(p)==nil||
+  HasUnresolvedWork(x){return false}
+ if x.ProviderRun!=nil && (x.ProviderRun.Phase=="sending"||
+  x.ProviderRun.Phase=="unknown"||x.ProviderRun.Phase=="prepared"){return false}
+ for _,call:=range x.ToolCalls{
+  if call.FeedbackSent&&call.FeedbackStatus!="acknowledged"{return false}
+ }
+ return true
+}
+
+// VerifiedWorkSignature changes only when new read-only tool observations,
+// native final receipts, or human-attested plan milestones exist. Model-only
+// narration / repeated generic answers cannot indefinitely reset the
+// no-progress guard and spend provider tokens without observable work.
+func VerifiedWorkSignature(x Session)string{
+ var b strings.Builder
+ done,total:=TaskPlanProgress(x.TaskPlan)
+ fmt.Fprintf(&b,"done:%d/%d archive:%d/%d\n",done,total,x.ArchivedHistoryItems,x.ArchivedPatchCalls)
+ for _,it:=range x.History{
+  if it.Type!="function_call_output"{continue}
+  fmt.Fprintf(&b,"output:%s:%s\n",it.CallID,taskPlanDigest(it.Content))
+ }
+ for _,call:=range x.ToolCalls {
+  if call.FeedbackStatus=="acknowledged"{
+   fmt.Fprintf(&b,"patch:%s:%s:%s\n",call.CallID,call.Status,taskPlanDigest(call.Result))
+  }
+ }
+ return taskPlanDigest(b.String())
+}
