@@ -2046,6 +2046,9 @@ function renderAgentTaskPlan(data){
    '. No request is re-sent if its previous provider outcome is unknown.'));
  }
  const actions=agentEl('div','agentchat-taskplan-actions');
+ if(plan.state==='completed'){
+  actions.append(agentButton('Reopen plan',()=>agentTaskPlanAction('reopen').catch(showAgentError)));
+ }
  if(plan.state!=='completed'){
   const isPaused=plan.state==='paused';
   const pause=agentButton(isPaused?'Resume plan':'Pause plan',()=>agentTaskPlanAction(isPaused?'resume':'pause').catch(showAgentError));
