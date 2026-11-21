@@ -104,6 +104,7 @@ func agentContextForRequest(x agentchat.Session, model agentchat.ModelConfig, in
   MaxInputTokens:model.MaxInputTokens,CollectionPercent:30,
   Instructions:instructions,Next:next,
   ArchivedItems:x.ArchivedHistoryItems,ArchivedParts:x.HistoryArchiveParts,
+  ArchivedPatchCalls:x.ArchivedPatchCalls,ArchivedPatchSummaries:x.PatchArchiveSummaries,
   SyntheticPatchIDs:map[string]bool{},
  }
  for _,call:=range x.ToolCalls{if call.TextFallback{policy.SyntheticPatchIDs[call.CallID]=true}}
