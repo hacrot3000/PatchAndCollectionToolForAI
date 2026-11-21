@@ -30,7 +30,13 @@ func (s *Server) verifyNativeTaskRunEvidence(x agentchat.Session, ref string, ta
   return agentchat.TaskPlanEvidence{},errors.New("Task plan project identity has changed")
  }
  meta,ok:=s.Sessions.Metadata(ref)
- if !ok||meta.ID!=ref{return agentchat.TaskPlanEvidence{},errors.New("exact native Task session unavailable; history log is not proof")}
+ if !ok||meta.ID!=ref{
+  // A completed Task may have been evicted from the native broker. Only a
+  // host-private, MAC-authenticated receipt created while its metadata was
+  // still authoritative can serve as the fallback, never workspace history.
+  meta,err=s.verifiedNativeTaskRunReceipt(ref,x.ProjectID)
+  if err!=nil{return agentchat.TaskPlanEvidence{},errors.New("native Task session and authenticated completion receipt are unavailable")}
+ }
  return verifyNativeTaskRunMetadata(s.Workspace,s.Config.SharedServerEnabled,x,meta,taskID,note)
 }
 
