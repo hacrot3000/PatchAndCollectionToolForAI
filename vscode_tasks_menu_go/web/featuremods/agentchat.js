@@ -320,6 +320,12 @@ const composer=agentEl('div','agentchat-composer'),prompt=agentEl('textarea');
 // Text-only attachment staging. Binary files are rejected server-side; the UI
 // never reads local paths or embeds base64.
 const attachButton=agentButton('+ Text file',()=>{const sessionID=agentSelectedChatSession();pickAgentAttachment(sessionID).catch(showAgentError);});
+const agentHandoffButton=agentButton('Open handoff',()=>{
+ if(!agentActive)return;
+ const link='/api/agent/sessions/'+encodeURIComponent(agentActive)+'/handoff?format=markdown';
+ window.open(link,'_blank','noopener,noreferrer');
+});
+agentHandoffButton.title='Open the latest durable per-revision task handoff for copying to another AI session.';
 const autoFeedback=agentButton('Auto-send results',()=>toggleAutoFeedback().catch(showAgentError));
 const attachToggle=agentButton('Attachments (0) ▸',()=>toggleAgentAttachmentsPopup());
 attachToggle.className='agentchat-attachments-trigger';
@@ -425,7 +431,7 @@ function makeAgentHeaderGroup(label,items){
 }
 const conversationGroup=makeAgentHeaderGroup('Conversation',[newChat,rename,archive,deleteChat,refresh]);
 const automationGroup=makeAgentHeaderGroup('Automation',[autoPatch,autoCollection,autoFeedback,retryMenu]);
-const toolsGroup=makeAgentHeaderGroup('Tools',[attachButton,preview,planButton]);
+const toolsGroup=makeAgentHeaderGroup('Tools',[attachButton,preview,planButton,agentHandoffButton]);
 const layoutGroup=makeAgentHeaderGroup('Layout',[dockPositionButton,autoHideButton]);
 const agentHeaderGroups=[conversationGroup,automationGroup,toolsGroup,layoutGroup];
 for(const group of agentHeaderGroups)toolbarActions.append(group);
