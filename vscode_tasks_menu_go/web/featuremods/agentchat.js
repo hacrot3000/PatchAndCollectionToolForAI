@@ -335,6 +335,8 @@ agentTaskPlanHeader.append(agentTaskPlanHeading,agentTaskPlanRefresh,agentTaskPl
 const agentTaskPlanBody=agentEl('div','agentchat-taskplan-body');
 agentTaskPlanPanel.append(agentTaskPlanHeader,agentTaskPlanBody);
 let agentTaskPlanData=null;
+let agentTaskPlanOffset=0;
+const agentTaskPlanPageLimit=24;
 const composer=agentEl('div','agentchat-composer'),prompt=agentEl('textarea');
 // Text-only attachment staging. Binary files are rejected server-side; the UI
 // never reads local paths or embeds base64.
@@ -1287,7 +1289,7 @@ async function selectAgentSession(id){
  // position of the current session. These change only on a tab switch.
  if(switched&&previousID){
   agentExecutionPanel.classList.remove('visible');agentExecutionTarget=null;
-  agentTaskPlanPanel.classList.remove('visible');agentTaskPlanData=null;
+  agentTaskPlanPanel.classList.remove('visible');agentTaskPlanData=null;agentTaskPlanOffset=0;
   agentDrafts.set(previousID,prompt.value);
   agentAttachmentDrafts.set(previousID,agentAttachments.map(a=>({...a})));
  }
@@ -1993,11 +1995,15 @@ async function setAgentRetryMode(mode){
 }
 async function toggleAutoFeedback(){return toggleAgentAutomation('feedback');}
 
-async function openAgentTaskPlan(){
+async function openAgentTaskPlan(offset=agentTaskPlanOffset){
  if(!agentActive)throw new Error('Select an Agent conversation first.');
  const sessionID=agentActive;
- const data=await agentApp.jsonFetch('/api/agent/sessions/'+encodeURIComponent(sessionID)+'/plan');
+ const wanted=Math.max(0,Math.floor(Number(offset)||0));
+ const path='/api/agent/sessions/'+encodeURIComponent(sessionID)+
+  '/plan?offset='+wanted+'&limit='+agentTaskPlanPageLimit;
+ const data=await agentApp.jsonFetch(path);
  if(agentActive!==sessionID)return;
+ agentTaskPlanOffset=wanted;
  agentTaskPlanPanel.classList.add('visible');
  renderAgentTaskPlan(data);
 }
@@ -2010,7 +2016,9 @@ async function agentTaskPlanAction(action,params={}){
   body:JSON.stringify({action,expected_revision:state.revision,...params}),
  });
  if(agentActive!==sessionID)return;
- renderAgentTaskPlan(updated);
+ // POST remains legacy full-plan for compatibility. Do not render its
+ // unbounded steps: reload only the selected page after any mutation.
+ await openAgentTaskPlan(agentTaskPlanOffset);
  await selectAgentSession(sessionID);
 }
 function renderAgentTaskPlan(data){
@@ -2069,7 +2077,7 @@ function renderAgentTaskPlan(data){
    auto.setAttribute('aria-pressed',String(Boolean(plan.auto_continue)));
    actions.append(auto);
   }
-  if((plan.steps||[]).length>0&&(plan.steps||[]).every(s=>s.status==='done'&&Array.isArray(s.evidence)&&s.evidence.length)){
+  if(data.all_done){
    const finish=agentButton('Complete verified plan',()=>agentTaskPlanAction('complete').catch(showAgentError));
    actions.append(finish);
   }
@@ -2078,6 +2086,22 @@ function renderAgentTaskPlan(data){
  if(plan.no_progress_turns>0){
   agentTaskPlanBody.append(agentEl('div','agentchat-info',
    String(plan.no_progress_turns)+' automatic turn(s) without new verified work. After three, Auto continue pauses to avoid repeating billable answers.'));
+ }
+ const page=data.page;
+ if(page){
+  const first=page.total_steps?Number(page.offset)+1:0;
+  const last=Number(page.offset)+(plan.steps||[]).length;
+  const pager=agentEl('div','agentchat-taskplan-actions');
+  pager.append(agentEl('span','','Milestones '+first+'–'+last+' of '+
+   page.total_steps+' · page size '+page.limit));
+  const previous=agentButton('Previous',()=>
+   openAgentTaskPlan(Math.max(0,page.offset-page.limit)).catch(showAgentError));
+  const next=agentButton('Next',()=>
+   openAgentTaskPlan(page.offset+page.limit).catch(showAgentError));
+  previous.disabled=page.offset===0;
+  next.disabled=!page.has_next;
+  pager.append(previous,next);
+  agentTaskPlanBody.append(pager);
  }
  for(const step of plan.steps||[]){
   const row=agentEl('div','agentchat-taskplan-step');
