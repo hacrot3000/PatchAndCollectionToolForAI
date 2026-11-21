@@ -63,7 +63,7 @@ func agentChatInstructionsWithAutomation(x agentchat.Session, toolsEnabled bool,
 		instructions+=fmt.Sprintf(" TaskDeck USER-OWNED DURABLE TASK PLAN: goal=%q; state=%s; verified-or-attested milestones=%d/%d. A finished model response is NOT a completed plan. Follow outstanding acceptance criteria in order, use Collection/Patch evidence, and report honest gaps; only the user-owned plan API can mark steps done.",strings.TrimSpace(plan.Goal),plan.State,done,total)
 		if next:=agentchat.TaskPlanNext(plan);next!=nil {
 			instructions+=fmt.Sprintf(" NEXT PLANNED STEP: %s (%s). ACCEPTANCE: %s. Work on this step, and provide exact evidence IDs for the user to approve its completion.",next.ID,next.Title,next.Acceptance)
-            instructions+=` Optional: after a real verified tool call, include ONE fenced block \x60\x60\x60taskdeck-evidence-suggestion then a JSON object {"step_id":"STEP_ID","kind":"patch_pass or full_file_read","call_id":"ACTUAL_TOOL_CALL_ID","path":"REQUIRED_FILE_FOR_READ"}, then close the fence. Use only exact known IDs. This is an UNTRUSTED review suggestion and cannot approve or finish anything. Never emit it in place of a standalone text-only Patch proposal.`
+            instructions+=` Optional: after an actual verified tool call, you may include ONE triple-backtick fenced JSON block labeled taskdeck-evidence-suggestion with exact keys step_id, kind, call_id and optional path. kind must be patch_pass or full_file_read; path is REQUIRED for full_file_read and MUST be omitted for patch_pass. Only use actual known tool call IDs, never invent them. This block is an UNTRUSTED review hint, never an approval or proof. Do not emit it while producing a standalone text-only Patch proposal.`
 		}
 		shown:=0
 		for _,step:=range plan.Steps {

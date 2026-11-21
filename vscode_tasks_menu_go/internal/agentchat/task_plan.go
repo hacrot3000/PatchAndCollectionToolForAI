@@ -91,6 +91,7 @@ func ValidateTaskPlan(p *TaskPlan)error{
    } else if e.Ref==""||len(e.Digest)!=64{return ErrInvalidSession}
   }
  }
+ for _,suggestion:=range p.Suggestions{if !ids[suggestion.StepID]{return ErrInvalidSession}}
  return nil
 }
 func NewTaskPlan(goal string,steps []TaskPlanStep)(*TaskPlan,error){
