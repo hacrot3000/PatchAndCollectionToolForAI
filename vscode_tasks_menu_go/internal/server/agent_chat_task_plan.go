@@ -5,11 +5,15 @@ import (
  "errors"
  "io"
  "net/http"
+ "strconv"
  "strings"
  "time"
 
  "bletonfc/vscode_tasks_menu/internal/agentchat"
 )
+
+const maxAgentTaskPlanPageSize = 32
+const defaultAgentTaskPlanPageSize = 24
 
 // The task plan is user-owned state. Provider text is never interpreted as an
 // instruction to mark a milestone complete or change AutoContinue permission.
@@ -73,9 +77,54 @@ func (s *Server) agentChatTaskPlanAPI(w http.ResponseWriter,r *http.Request,id s
  if x.Workspace!=s.Workspace{http.Error(w,"workspace mismatch",403);return}
  if r.Method==http.MethodGet{
   done,total:=agentchat.TaskPlanProgress(x.TaskPlan)
+  result:=map[string]any{
+   "session_id":id,"revision":x.Revision,"plan":x.TaskPlan,
+   "done":done,"total":total,"all_done":agentchat.TaskPlanAllDone(x.TaskPlan),
+   "completed":x.TaskPlan!=nil&&x.TaskPlan.State=="completed",
+  }
+  // Existing unpaginated callers retain the complete plan. Paging creates
+  // only a response copy, never a truncated journal or independent edits.
+  q:=r.URL.Query()
+  _,hasLimit:=q["limit"]
+  _,hasOffset:=q["offset"]
+  if hasLimit||hasOffset{
+   if len(q["limit"])>1||len(q["offset"])>1{
+    http.Error(w,"duplicate pagination parameter",400);return
+   }
+   limit,offset:=defaultAgentTaskPlanPageSize,0
+   if hasLimit{
+    value,e:=strconv.Atoi(q.Get("limit"))
+    if e!=nil||value<1||value>maxAgentTaskPlanPageSize{
+     http.Error(w,"invalid task plan page limit",400);return
+    }
+    limit=value
+   }
+   if hasOffset{
+    value,e:=strconv.Atoi(q.Get("offset"))
+    if e!=nil||value<0{
+     http.Error(w,"invalid task plan page offset",400);return
+    }
+    offset=value
+   }
+   count:=0
+   if x.TaskPlan!=nil{count=len(x.TaskPlan.Steps)}
+   if offset>count{
+    http.Error(w,"task plan page offset exceeds plan length",400);return
+   }
+   end:=offset+limit
+   if end>count{end=count}
+   if x.TaskPlan!=nil{
+    pagePlan:=*x.TaskPlan
+    pagePlan.Steps=append([]agentchat.TaskPlanStep{},x.TaskPlan.Steps[offset:end]...)
+    result["plan"]=&pagePlan
+   }
+   result["page"]=map[string]any{
+    "offset":offset,"limit":limit,"total_steps":count,
+    "has_next":end<count,
+   }
+  }
   w.Header().Set("Cache-Control","no-store")
-  writeJSON(w,200,map[string]any{"session_id":id,"revision":x.Revision,
-   "plan":x.TaskPlan,"done":done,"total":total,"completed":x.TaskPlan!=nil&&x.TaskPlan.State=="completed"})
+  writeJSON(w,200,result)
   return
  }
  if x.Revision!=req.ExpectedRevision{
@@ -311,5 +360,7 @@ func (s *Server) agentChatTaskPlanAPI(w http.ResponseWriter,r *http.Request,id s
  done,total:=agentchat.TaskPlanProgress(x.TaskPlan)
  w.Header().Set("Cache-Control","no-store")
  writeJSON(w,200,map[string]any{"session_id":id,"revision":x.Revision,
-  "plan":x.TaskPlan,"done":done,"total":total,"completed":x.TaskPlan!=nil&&x.TaskPlan.State=="completed"})
+  "plan":x.TaskPlan,"done":done,"total":total,
+  "all_done":agentchat.TaskPlanAllDone(x.TaskPlan),
+  "completed":x.TaskPlan!=nil&&x.TaskPlan.State=="completed"})
 }
