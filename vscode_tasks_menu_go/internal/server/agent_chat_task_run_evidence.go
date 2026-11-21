@@ -24,12 +24,14 @@ func (s *Server) verifyNativeTaskRunEvidence(x agentchat.Session, ref string, ta
  if len(ref)==0||len(ref)>256||strings.TrimSpace(ref)!=ref||taskID<1||len(note)>512{
   return agentchat.TaskPlanEvidence{},errors.New("exact Task session ID and positive Task ID are required")
  }
- if s==nil||s.Sessions==nil{return agentchat.TaskPlanEvidence{},errors.New("native Task session service unavailable")}
+ if s==nil{return agentchat.TaskPlanEvidence{},errors.New("TaskDeck server unavailable")}
  identity,err:=patchtool.ReadProjectIdentity(s.Workspace)
  if err!=nil||identity.ID!=x.ProjectID{
   return agentchat.TaskPlanEvidence{},errors.New("Task plan project identity has changed")
  }
- meta,ok:=s.Sessions.Metadata(ref)
+ var meta session.Metadata
+ var ok bool
+ if s.Sessions!=nil{meta,ok=s.Sessions.Metadata(ref)}
  if !ok||meta.ID!=ref{
   // A completed Task may have been evicted from the native broker. Only a
   // host-private, MAC-authenticated receipt created while its metadata was

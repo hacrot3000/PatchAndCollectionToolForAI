@@ -116,7 +116,9 @@ func (s *Server) recordNativeTaskRunReceipt(meta session.Metadata)error{
  // An existing committed receipt is immutable; no attempt to forge old
  // proof from a repeat browser history submission.
  if _,err:=os.Lstat(target);err==nil{return errors.New("Task receipt already exists")}
- if err:=os.Rename(tmpPath,target);err!=nil{return err}
+ // Create the durable name exclusively even across another TaskDeck process:
+ // rename alone could silently replace an existing authenticated receipt.
+ if err:=os.Link(tmpPath,target);err!=nil{return err}
  return nil
 }
 
