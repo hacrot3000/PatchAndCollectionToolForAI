@@ -2,6 +2,18 @@
 
 Audit date: **2026-11-21**. Source of truth: `hacrot3000/PatchAndCollectionToolForAI`, current `main` (audited at `3031e9d3b00ecde0998deb8ec029d6817ca50066`) plus the fixes in this audit branch.
 
+## Status update — 2026-11-21 (PR #158)
+
+The original risk table below is a historical baseline as of the first audit. Changes landed subsequently in [PR #158](https://github.com/hacrot3000/PatchAndCollectionToolForAI/pull/158):
+
+- **R-01 partially mitigated:** up to 125 sequential, fully acknowledged completed Native Patch calls were verified with persistent owner-scoped Patch archive segments and minimal provider-context summaries. The live 32-record limit remains intentionally for calls that are pending, running, rejected without final acknowledgement, or otherwise ambiguous; do not call it unlimited for those cases.
+- **R-02 partially mitigated:** daemon startup marks orphaned `requesting_ai` as interrupted/failed with a durable event; a `sending` Patch result becomes `FeedbackStatus=unknown`. This removes the stuck `requesting_ai` state, **but does not autonomously resume/replay an uncertain provider call**.
+- **R-03 still unresolved:** exact provider acknowledgement for uncertain feedback egress requires provider-specific reconciliation/idempotency or an explicitly approved manual recovery.
+- **Context policy improved:** new standalone `internal/agentchat/contextcompact` selectively preserves recent full Collection observations subject to a configurable safe token share; older read-only evidence becomes path/file summaries and past completed Patches become minimal receipts. The exact new Patch/Collection output is unmodified; the canonical journal is never truncated merely to fit the model request. Provider-side conversation reference chains still need a deliberate stateless rebase to guarantee remote context pruning.
+- **Handoff:** see `docs/taskdeck_ai_agent/13-context-compact-and-multiday-handoff.md` for final commit, tests and next coding request.
+
+**Remaining release gate:** safely recover/reconcile provider egress and long-running job state across restart (R-02/R-03). A complete multi-day autonomous Patch workflow is not yet guaranteed.
+
 ## Scope and conclusion
 
 A task may involve hundreds/thousands of read-only **Collection** requests interleaved with many **Native Patch** proposals and verified feedback. The Collection loop is unlimited by *number of rounds*, but **a task is NOT yet guaranteed to run autonomously for days**, especially across a process restart or large numbers of Patch operations.
