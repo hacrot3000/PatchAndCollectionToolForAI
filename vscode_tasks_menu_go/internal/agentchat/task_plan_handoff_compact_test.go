@@ -50,7 +50,7 @@ func TestLargeTaskPlanHandoffStaysBoundedAndKeepsCanonicalEvidence(t *testing.T)
   "Durable task plan (90/128)","pending=36, active=1, blocked=1, done=90",
   "Canonical step-inventory SHA-256","116 of 128 milestones omitted",
   "Next actionable milestone: task-090",
-  "task-091","Owner-bound","TestOne, TestTwo",
+  "task-091","Expected native Task 91","TestOne, TestTwo",
   "/plan?offset=0&limit=24","task-089",
  }{
   if !strings.Contains(out,want){t.Fatalf("bounded handoff omitted %q",want)}
