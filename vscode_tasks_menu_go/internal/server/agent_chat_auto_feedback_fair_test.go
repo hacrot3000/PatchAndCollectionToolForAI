@@ -45,7 +45,7 @@ func TestAgentAutoFeedbackFairAdmissionHandlesRemovedCandidateAndScopes(t *testi
  for _,id:=range []string{"a","c","e"}{p.release(scope+":"+id)}
  // Cursor points to a removed ID; use upper-bound lookup, not an index
  // into yesterday's list. No endlessly retrying the same high-activity chat.
- if got:=p.acquireFairBatch(scope,[]string{"b","d","f"});!reflect.DeepEqual(got,[]string{"b","d","f"}){
+ if got:=p.acquireFairBatch(scope,[]string{"b","d","f"});!reflect.DeepEqual(got,[]string{"f","b","d"}){
   t.Fatalf("removed cursor/candidate was not reconciled: %v",got)
  }
  for _,id:=range []string{"b","d","f"}{p.release(scope+":"+id)}
