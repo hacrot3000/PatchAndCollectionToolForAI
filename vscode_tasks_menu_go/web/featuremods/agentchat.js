@@ -131,6 +131,14 @@ agentCSS.textContent=[
 '.agentchat-execution-header{display:flex;gap:6px;align-items:center;flex-wrap:wrap;padding:8px;border-bottom:1px solid #35445c}',
 '.agentchat-execution-header strong{flex:1;min-width:90px}',
 '.agentchat-execution-content{flex:1;min-height:0;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;padding:10px;margin:0;font:11px/1.5 ui-monospace,monospace}',
+'.agentchat-taskplan-body{flex:1;min-height:0;overflow:auto;padding:10px;display:flex;flex-direction:column;gap:9px}',
+'.agentchat-taskplan-body textarea,.agentchat-taskplan-body input,.agentchat-taskplan-body select{box-sizing:border-box;max-width:100%;width:100%;padding:6px;background:#19293b;color:#edf5ff;border:1px solid #65768c;border-radius:5px;font-size:12px}',
+'.agentchat-taskplan-body textarea{min-height:68px;resize:vertical}',
+'.agentchat-taskplan-actions{display:flex;gap:6px;align-items:center;flex-wrap:wrap}',
+'.agentchat-taskplan-step{padding:8px;display:flex;flex-direction:column;gap:5px;border:1px solid #42556d;border-radius:6px}',
+'.agentchat-taskplan-step>strong{font-size:12px}',
+'.agentchat-taskplan-step>span{font-size:11px;color:#c2d3e3;white-space:pre-wrap;overflow-wrap:anywhere}',
+'html[data-taskmenu-theme="light"] .agentchat-taskplan-body textarea,html[data-taskmenu-theme="light"] .agentchat-taskplan-body input,html[data-taskmenu-theme="light"] .agentchat-taskplan-body select{background:#fff;color:#182b42}',
 'html[data-taskmenu-theme="light"] .agentchat-execution-panel{background:#fff;color:#17283a}',
 
 '.agentchat-composer{padding:9px;border-top:1px solid #35445c;display:flex;flex-direction:column;gap:6px}',
@@ -316,6 +324,17 @@ const agentExecutionClose=agentButton('Close',()=>{agentExecutionPanel.classList
 agentExecutionHeader.append(agentExecutionHeading,agentExecutionRefresh,agentExecutionCopy,agentExecutionClose);
 const agentExecutionContent=agentEl('pre','agentchat-execution-content','');
 agentExecutionPanel.append(agentExecutionHeader,agentExecutionContent);
+const agentTaskPlanPanel=agentEl('section','agentchat-execution-panel agentchat-taskplan-panel');
+agentTaskPlanPanel.setAttribute('role','dialog');
+agentTaskPlanPanel.setAttribute('aria-label','Durable task plan');
+const agentTaskPlanHeader=agentEl('div','agentchat-execution-header');
+const agentTaskPlanHeading=agentEl('strong','','Durable task plan');
+const agentTaskPlanRefresh=agentButton('Refresh',()=>openAgentTaskPlan().catch(showAgentError));
+const agentTaskPlanClose=agentButton('Close',()=>agentTaskPlanPanel.classList.remove('visible'));
+agentTaskPlanHeader.append(agentTaskPlanHeading,agentTaskPlanRefresh,agentTaskPlanClose);
+const agentTaskPlanBody=agentEl('div','agentchat-taskplan-body');
+agentTaskPlanPanel.append(agentTaskPlanHeader,agentTaskPlanBody);
+let agentTaskPlanData=null;
 const composer=agentEl('div','agentchat-composer'),prompt=agentEl('textarea');
 // Text-only attachment staging. Binary files are rejected server-side; the UI
 // never reads local paths or embeds base64.
@@ -326,6 +345,8 @@ const agentHandoffButton=agentButton('Open handoff',()=>{
  window.open(link,'_blank','noopener,noreferrer');
 });
 agentHandoffButton.title='Open the latest durable per-revision task handoff for copying to another AI session.';
+const agentTaskPlanButton=agentButton('Task plan',()=>openAgentTaskPlan().catch(showAgentError));
+agentTaskPlanButton.title='Create and review an evidence-gated long-running task plan';
 const autoFeedback=agentButton('Auto-send results',()=>toggleAutoFeedback().catch(showAgentError));
 const attachToggle=agentButton('Attachments (0) ▸',()=>toggleAgentAttachmentsPopup());
 attachToggle.className='agentchat-attachments-trigger';
@@ -431,13 +452,13 @@ function makeAgentHeaderGroup(label,items){
 }
 const conversationGroup=makeAgentHeaderGroup('Conversation',[newChat,rename,archive,deleteChat,refresh]);
 const automationGroup=makeAgentHeaderGroup('Automation',[autoPatch,autoCollection,autoFeedback,retryMenu]);
-const toolsGroup=makeAgentHeaderGroup('Tools',[attachButton,preview,planButton,agentHandoffButton]);
+const toolsGroup=makeAgentHeaderGroup('Tools',[attachButton,preview,planButton,agentTaskPlanButton,agentHandoffButton]);
 const layoutGroup=makeAgentHeaderGroup('Layout',[dockPositionButton,autoHideButton]);
 const agentHeaderGroups=[conversationGroup,automationGroup,toolsGroup,layoutGroup];
 for(const group of agentHeaderGroups)toolbarActions.append(group);
 heading.append(title,toolbarActions,moreButton,close,moreMenu);
 actionLine.append(status,cancel,send);composer.append(attachToggle,prompt,actionLine);
-main.append(tabbar,toolNotice,transcript,agentExecutionPanel,composer,attachPopup);layout.append(main);
+main.append(tabbar,toolNotice,transcript,agentExecutionPanel,agentTaskPlanPanel,composer,attachPopup);layout.append(main);
 const footer=agentEl('div','agentchat-info','Agent automation is configured per conversation. Native Patch results are verified before being sent to AI.');
 windowBox.append(heading,viewTabs,layout,debugPanel,footer);root.append(windowBox);
 const agentToolbarItems=agentHeaderGroups;
@@ -1266,6 +1287,7 @@ async function selectAgentSession(id){
  // position of the current session. These change only on a tab switch.
  if(switched&&previousID){
   agentExecutionPanel.classList.remove('visible');agentExecutionTarget=null;
+  agentTaskPlanPanel.classList.remove('visible');agentTaskPlanData=null;
   agentDrafts.set(previousID,prompt.value);
   agentAttachmentDrafts.set(previousID,agentAttachments.map(a=>({...a})));
  }
