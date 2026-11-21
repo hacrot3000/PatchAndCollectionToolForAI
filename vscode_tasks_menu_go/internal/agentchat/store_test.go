@@ -2,6 +2,7 @@ package agentchat
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
@@ -177,5 +178,27 @@ func TestSessionLifecycleEventsPreserveChronologicalHistoryPosition(t *testing.T
 		reloaded.Events[2].HistoryIndex!=3 ||
 		reloaded.Events[2].Detail!="collection_continuation"{
 		t.Fatalf("history event anchors incorrect: %+v",reloaded.Events)
+	}
+}
+
+func TestStoreListIgnoresThousandsOfCollectionArchiveSegments(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "private", "agent")
+	store, err := NewStore(dir)
+	if err != nil { t.Fatal(err) }
+	x, err := NewSession("local", "/workspace/project", "project-uuid", "provider", "model", Stateless)
+	if err != nil { t.Fatal(err) }
+	x, err = store.Save(x, 0)
+	if err != nil { t.Fatal(err) }
+	// Thousands of archive segments can accumulate over multiple days.
+	// They are not separate conversations and must not disable the
+	// auto-Patch/auto-feedback scheduler, which relies on Store.List.
+	for i := 1; i <= 1050; i++ {
+		name := filepath.Join(dir, fmt.Sprintf("%s.history.%d.json", x.ID, i))
+		if err := os.WriteFile(name, []byte("{}"), 0600); err != nil { t.Fatal(err) }
+	}
+	sessions, err := store.List("local")
+	if err != nil { t.Fatalf("Collection archives prevented session enumeration: %v", err) }
+	if len(sessions) != 1 || sessions[0].ID != x.ID {
+		t.Fatalf("unexpected active sessions with archives: %+v", sessions)
 	}
 }
