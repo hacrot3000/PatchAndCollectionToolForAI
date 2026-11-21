@@ -51,10 +51,10 @@ jobs:
       - name: Test agent chat context and session store
         working-directory: vscode_tasks_menu_go
         run: |
-          go test -race -count=1 ./internal/agentchat
+          go test -race -count=1 ./internal/agentchat/...
           go test -count=1 ./internal/server -run '^TestAgent'
           go test -race -count=1 ./internal/taskmanifest
-          go vet ./internal/agentchat ./internal/taskmanifest
+          go vet ./internal/agentchat/... ./internal/taskmanifest
           go vet ./internal/server
           node --check web/featuremods/agentchat.js
           node --check web/featuremods/agentchatformat.js
