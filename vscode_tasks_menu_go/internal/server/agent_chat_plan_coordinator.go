@@ -47,9 +47,10 @@ func (s *Server) autoContinueTaskPlanOne(ctx context.Context,store *agentchat.St
  // are deduplicated by the bounded per-session background worker pool.
  s.agentChatMessageAPI(w,req,id)
  if w.Code!=http.StatusOK{
-  // Admission pressure, a revoked grant or provider failure must not be
-  // disguised as a completed milestone. Session status and the durable
-  // provider egress ledger remain the authority for safe recovery.
+  // Admission backoff is safe only if the request was rejected BEFORE
+  // provider egress. Any ambiguous provider response already changes
+  // the canonical session status and cannot be scheduled again.
+  if ctx.Err()==nil{s.deferTaskPlanAdmission(store,id,w.Code)}
   return
  }
  release,acquired:=lockAgentTurn(s.Workspace,"local",id)
@@ -72,6 +73,8 @@ func (s *Server) autoContinueTaskPlanOne(ctx context.Context,store *agentchat.St
  }
  p.LastWorkSignature=after
  p.LastContinuationKey=requestID
+ p.RetryStreak=0
+ p.NextRetryAt=nil
  if p.NoProgressTurns>=3{
   // This is a safety brake against recurring billable text-only answers,
   // not a limit on legitimate thousands of Collection/Patch operations.
@@ -83,4 +86,37 @@ func (s *Server) autoContinueTaskPlanOne(ctx context.Context,store *agentchat.St
  }
  p.UpdatedAt=time.Now().UTC()
  _,_=store.Save(current,current.Revision)
+}
+
+// Admission failures occur before the model provider is contacted. Retry
+// them with a durable exponential delay instead of hitting the scheduler
+// every three seconds. Post-egress failures are NEVER retried from here.
+func (s *Server) deferTaskPlanAdmission(store *agentchat.Store,id string,httpCode int){
+ release,ok:=lockAgentTurn(s.Workspace,"local",id)
+ if !ok{return}
+ defer release()
+ x,err:=store.Get(id,"local")
+ if err!=nil||x.TaskPlan==nil||x.TaskPlan.State!="active"||
+  !x.TaskPlan.AutoContinue||x.Status!="completed"{return}
+ p:=x.TaskPlan
+ if httpCode==429||httpCode==500||httpCode==503{
+  if p.RetryStreak<8{p.RetryStreak++}
+  shift:=p.RetryStreak-1
+  if shift>6{shift=6}
+  delay:=10*time.Second*time.Duration(1<<shift)
+  if delay>10*time.Minute{delay=10*time.Minute}
+  until:=time.Now().UTC().Add(delay)
+  p.NextRetryAt=&until
+  x.AppendEvent("plan_deferred",x.Status,"",fmt.Sprintf("http_%d_retry_after_%ds",httpCode,int(delay.Seconds())))
+ }else if httpCode!=409{
+  // Invalid or unauthorized plan requests need an explicit user decision.
+  // Never keep retrying an impossible prompt or exhausted context.
+  p.AutoContinue=false
+  p.State="paused"
+  x.AppendEvent("plan_blocked",x.Status,"",fmt.Sprintf("http_%d_requires_review",httpCode))
+ }else{
+  return
+ }
+ p.UpdatedAt=time.Now().UTC()
+ _,_=store.Save(x,x.Revision)
 }
