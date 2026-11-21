@@ -33,84 +33,15 @@ type TaskCommandGuard struct {
  BoundAt time.Time `json:"bound_at"`
 }
 // TaskGoTestRequirements is an owner-selected, pre-run checklist of exact
-// named Go tests in a single Go package. Matching these outcomes does not
-// establish meaningful assertions or overall application coverage.
+// named Go tests in a single Go package. This does not claim semantic coverage.
 type TaskGoTestRequirements struct {
  Package string `json:"package"`
  Tests []string `json:"tests"`
  BoundAt time.Time `json:"bound_at"`
 }
 
-var goRequirementPackagePattern=regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9_./-]{0,199}package agentchat
-
-import (
- "crypto/sha256"
- "encoding/hex"
- "errors"
- "fmt"
- "regexp"
- "strings"
- "time"
-)
-
-const (
- MaxTaskPlanSteps=128
- MaxTaskPlanGoalBytes=4096
- MaxTaskPlanEvidence=12
- MaxTaskPlanSuggestions=8
- MaxTaskGoRequiredTests=16
-)
-var taskPlanStepIDPattern=regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$`)
-
-type TaskPlanEvidence struct {
- Kind string `json:"kind"` // patch, collection, task_run or manual
- Ref string `json:"ref,omitempty"`
- Digest string `json:"digest,omitempty"`
- Note string `json:"note,omitempty"`
-}
-// TaskCommandGuard is a user-owned expected native test command identity.
-// It asserts the exact launched command+argv+cwd, not semantic coverage.
-type TaskCommandGuard struct {
- TaskID int `json:"task_id"`
- CommandSHA256 string `json:"command_sha256"`
- BoundAt time.Time `json:"bound_at"`
-}
-)
-var goRequirementTestPattern=regexp.MustCompile(`^Test[A-Za-z0-9_]+(/[A-Za-z0-9_=.,-]+)*package agentchat
-
-import (
- "crypto/sha256"
- "encoding/hex"
- "errors"
- "fmt"
- "regexp"
- "strings"
- "time"
-)
-
-const (
- MaxTaskPlanSteps=128
- MaxTaskPlanGoalBytes=4096
- MaxTaskPlanEvidence=12
- MaxTaskPlanSuggestions=8
- MaxTaskGoRequiredTests=16
-)
-var taskPlanStepIDPattern=regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$`)
-
-type TaskPlanEvidence struct {
- Kind string `json:"kind"` // patch, collection, task_run or manual
- Ref string `json:"ref,omitempty"`
- Digest string `json:"digest,omitempty"`
- Note string `json:"note,omitempty"`
-}
-// TaskCommandGuard is a user-owned expected native test command identity.
-// It asserts the exact launched command+argv+cwd, not semantic coverage.
-type TaskCommandGuard struct {
- TaskID int `json:"task_id"`
- CommandSHA256 string `json:"command_sha256"`
- BoundAt time.Time `json:"bound_at"`
-}
-)
+var goRequirementPackagePattern=regexp.MustCompile("^[A-Za-z0-9_][A-Za-z0-9_./-]{0,199}$")
+var goRequirementTestPattern=regexp.MustCompile("^Test[A-Za-z0-9_]+(/[A-Za-z0-9_=.,-]+)*$")
 
 func ValidateTaskGoTestRequirements(v *TaskGoTestRequirements)error{
  if v==nil{return nil}
@@ -189,8 +120,7 @@ func ValidateTaskPlan(p *TaskPlan)error{
   }
   if err:=ValidateTaskGoTestRequirements(step.GoTestRequirements);err!=nil{return err}
   if step.GoTestRequirements!=nil{
-   if step.TaskCommandGuard==nil||
-    step.GoTestRequirements.BoundAt.Before(step.TaskCommandGuard.BoundAt){return ErrInvalidSession}
+   if step.TaskCommandGuard==nil||step.GoTestRequirements.BoundAt.Before(step.TaskCommandGuard.BoundAt){return ErrInvalidSession}
   }
   if err:=ValidateTaskAutoCheck(step.AutoCheck);err!=nil{return err}
   switch step.Status{case "pending","active","blocked","done":default:return ErrInvalidSession}
