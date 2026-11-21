@@ -135,8 +135,13 @@ func (s *Server) agentChatTaskPlanAPI(w http.ResponseWriter,r *http.Request,id s
   if x.TaskPlan==nil||!agentchat.TaskPlanAllDone(x.TaskPlan){
    http.Error(w,"all steps must have completion evidence",409);return
   }
-  if agentchat.HasUnresolvedWork(x) ||
-   (x.ProviderRun!=nil&&(x.ProviderRun.Phase=="sending"||x.ProviderRun.Phase=="unknown")){
+  unresolved:=agentchat.HasUnresolvedWork(x)
+  for _,call:=range x.ToolCalls{
+   if (call.Status=="done"||call.Status=="error"||call.Status=="rejected")&&
+    (!call.FeedbackSent||call.FeedbackStatus!="acknowledged"){unresolved=true}
+  }
+  if unresolved||
+   (x.ProviderRun!=nil&&(x.ProviderRun.Phase=="prepared"||x.ProviderRun.Phase=="sending"||x.ProviderRun.Phase=="unknown")){
    http.Error(w,"unresolved provider or native Patch work blocks task completion",409);return
   }
   x.TaskPlan.State="completed"
