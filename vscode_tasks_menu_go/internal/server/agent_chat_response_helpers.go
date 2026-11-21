@@ -70,7 +70,6 @@ func agentChatInstructionsWithAutomation(x agentchat.Session, toolsEnabled bool,
 			instructions+=fmt.Sprintf(" [%s: %s, state=%s, acceptance=%s]",step.ID,step.Title,step.Status,step.Acceptance)
 			shown++
 		}
-		if len(instructions)>16000 {instructions=instructions[:16000]}
 	}
 	return instructions
 }
