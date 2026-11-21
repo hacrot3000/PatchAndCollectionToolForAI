@@ -38,6 +38,7 @@ type taskRunRecord struct {
 	GitCommit string `json:"git_commit,omitempty"`
 	Cwd string `json:"cwd,omitempty"`
 	CommandPreview string `json:"command_preview,omitempty"`
+	CommandSHA256 string `json:"command_sha256,omitempty"`
 	TargetType string `json:"target_type,omitempty"`
 	TargetProfileID string `json:"target_profile_id,omitempty"`
 	ProjectProfileID string `json:"project_profile_id,omitempty"`
@@ -89,6 +90,7 @@ func normalizeTaskRunRecord(item taskRunRecord) taskRunRecord {
 	item.GitCommit = trimStateString(item.GitCommit, 80)
 	item.Cwd = trimStateString(item.Cwd, 4096)
 	item.CommandPreview = trimStateString(item.CommandPreview, 4096)
+	item.CommandSHA256 = trimStateString(item.CommandSHA256, 64)
 	item.TargetType = trimStateString(item.TargetType, 64)
 	item.TargetProfileID = trimStateString(item.TargetProfileID, 160)
 	item.ProjectProfileID = trimStateString(item.ProjectProfileID, 160)
@@ -236,7 +238,7 @@ func (s *Server) recordTaskRun(r *http.Request,req taskRunRecordRequest)(taskRun
 	item:=normalizeTaskRunRecord(taskRunRecord{
 		ID:id,SessionID:meta.ID,TaskID:meta.TaskID,Label:meta.Label,Status:taskRunStatus(meta),ExitCode:meta.ExitCode,
 		StartedAt:meta.StartedAt,EndedAt:meta.EndedAt,Duration:taskRunDuration(meta),
-		GitCommit:taskRunGitCommit(r.Context(),s,meta.Cwd),Cwd:meta.Cwd,CommandPreview:meta.CommandPreview,
+		GitCommit:taskRunGitCommit(r.Context(),s,meta.Cwd),Cwd:meta.Cwd,CommandPreview:meta.CommandPreview,CommandSHA256:meta.CommandSHA256,
 		TargetType:meta.TargetType,TargetProfileID:meta.TargetProfileID,ProjectProfileID:req.ProjectProfileID,
 		OwnerUserID:meta.OwnerUserID,ProjectID:meta.ProjectID,LogBytes:len(log),LogTruncated:truncated,
         VerifiedReceipt: s.recordTaskReceiptBestEffort(meta),
