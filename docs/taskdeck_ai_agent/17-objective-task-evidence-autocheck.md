@@ -106,3 +106,13 @@ Scope remains the original objective Auto-check; this does **not** introduce new
 - **Correction:** `full_file_read` now requires the actual native result to explicitly provide `start_line=1`, a parseable nonnegative `total_lines`, and `truncated=false` with no continuation/error. The paired canonical request must start at line 1 (or omit `start_line`, which defaults to 1). An incomplete final page, missing metadata or a mismatched request is not proof. The ordinary, manually inspected Collection evidence path is unchanged.
 - **Regression coverage:** included a real tail-only page of a 43-line file, a false first-line response to a tail-only request, missing metadata, a truncated page and a valid default first-line read; existing live and archived Auto-check fixtures now use the native Collection pagination metadata.
 - **Branch:** `feature/agent-exact-full-read-evidence-20261121` based on `2b0bbe8e22b4c7b255e611007558daf0294a48a9`. Commit and CI validation are recorded in the later finalization entry. The remaining external structured test receipt and provider acknowledgment work listed above remain **unimplemented** and must not be described as completed by this hardening.
+
+
+## Completion addendum — 2026-11-21 · PR #163
+
+- **Merged follow-up:** [PR #163](https://github.com/hacrot3000/PatchAndCollectionToolForAI/pull/163).
+- **Merged commit on main:** `168d43e0e077713419311b4f1901381ee2bcda21`.
+- **Validated feature HEAD:** `3ca8307a6102fcff898c1680fff948a9852c04c6`.
+- **CI for exact feature HEAD:** two Agent Chat protocol core checks **PASS**; Remote Portal (PHP) **PASS**; Remote Agent (Go) **still in progress at merge**, not yet verified successful.
+- **Closed objective-proof gap:** exact `full_file_read` evidence must include native `start_line=1`, parseable `total_lines`, `truncated=false`, and no continuation/error; its canonical request must start at line 1 or use the native first-line default. A tail-only final read can never satisfy a full-file milestone. Regression tests cover invalid last-page/missing-metadata claims and preserve verified live/archive Auto-check behavior.
+- **Scope boundary:** This closes the **objective full-file Auto-check hardening** described above. Independent functional-test receipts, model-suggested reviewed proof, provider-aware SENDING/UNKNOWN reconciliation and long-run scheduler fairness remain separate **open work** from the existing risks section. They are not silently considered complete, and this change does not authorize additional provider/network calls or repeat Native Patch side effects.
