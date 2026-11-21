@@ -101,3 +101,34 @@ func collectionCallRequestedPath(arguments,required string)bool{
  }
  return false
 }
+
+// Old verified evidence is still usable after canonical journal compaction.
+// Archive readers validate their private segment checksums and project/owner
+// scope. We run the SAME objective auto-check, rather than trusting summary
+// text or reissuing a provider/native request.
+func VerifyArchivedTaskAutoCheck(store *Store,x Session,rule *TaskAutoCheck)(TaskPlanEvidence,error){
+ current,err:=VerifyTaskAutoCheck(x,rule)
+ if err==nil{return current,nil}
+ if store==nil||ValidateTaskAutoCheck(rule)!=nil{return TaskPlanEvidence{},ErrInvalidSession}
+ switch rule.Kind{
+ case "patch_pass":
+  for part:=x.PatchArchiveParts;part>0;part--{
+   entries,e:=store.ArchivedPatchHistory(x.ID,x.Owner,part)
+   if e!=nil{return TaskPlanEvidence{},e}
+   for _,entry:=range entries{
+    if entry.Call.CallID!=rule.CallID{continue}
+    return VerifyTaskAutoCheck(Session{ToolCalls:[]ToolCallRecord{entry.Call}},rule)
+   }
+  }
+ case "full_file_read":
+  for part:=x.HistoryArchiveParts;part>0;part--{
+   items,e:=store.ArchivedCollectionHistory(x.ID,x.Owner,part)
+   if e!=nil{return TaskPlanEvidence{},e}
+   for i:=0;i+1<len(items);i++{
+    if items[i].Type!="function_call"||items[i].CallID!=rule.CallID{continue}
+    return VerifyTaskAutoCheck(Session{History:items[i:i+2]},rule)
+   }
+  }
+ }
+ return TaskPlanEvidence{},err
+}
