@@ -17,6 +17,8 @@ type TaskAutoCheck struct {
  Kind string `json:"kind"` // patch_pass, full_file_read
  CallID string `json:"call_id"`
  Path string `json:"path,omitempty"`
+ CheckedHistoryParts uint64 `json:"checked_history_parts,omitempty"`
+ CheckedPatchParts uint64 `json:"checked_patch_parts,omitempty"`
 }
 
 func ValidateTaskAutoCheck(rule *TaskAutoCheck) error{
@@ -83,6 +85,11 @@ func TaskAutoCheckReady(x Session)bool{
  for _,step:=range x.TaskPlan.Steps{
   if step.Status=="done"||step.AutoCheck==nil{continue}
   if _,err:=VerifyTaskAutoCheck(x,step.AutoCheck);err==nil{return true}
+  // An exact call may have been archived during a long Collection/Patch
+  // sequence before the scheduler polled. Only recheck when archive
+  // generations advance, not every three seconds forever.
+  if x.HistoryArchiveParts>step.AutoCheck.CheckedHistoryParts||
+   x.PatchArchiveParts>step.AutoCheck.CheckedPatchParts{return true}
  }
  return false
 }
