@@ -231,6 +231,8 @@ func (s *Server) agentDeliverToolResult(ctx context.Context, store *agentchat.St
 	// the provider's individual request deadline remains 60 seconds.
 	continuationCtx, continuationCancel := agentRetryTurnContext(ctx, x.RetryMode)
 	defer continuationCancel()
+	stopHeartbeat:=startAgentProviderHeartbeat(continuationCtx,store,owner,x.ID)
+	defer stopHeartbeat()
 	releaseRequest := registerAgentRequest(agentRequestKey(s.Workspace, owner, x.ID), continuationCancel)
 	defer releaseRequest()
 	result, err, _ := s.agentChatCallForOwner(continuationCtx, owner, x.ID, p, string(secret), payload)
