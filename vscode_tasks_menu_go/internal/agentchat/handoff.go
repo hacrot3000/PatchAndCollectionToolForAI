@@ -158,5 +158,13 @@ func (s *Store) writeHandoffLocked(x Session)error{
 func (s *Store) Handoff(id,owner string)(string,uint64,error){
  x,err:=s.Get(id,owner)
  if err!=nil{return "",0,err}
- return HandoffMarkdown(x),x.Revision,nil
+ content:=HandoffMarkdown(x)
+ if x.ProviderRun!=nil && x.ProviderRun.Phase=="sending"{
+  // A heartbeat is a hint, not an acknowledgement: report the observed
+  // timestamp without declaring the provider alive or the task complete.
+  if h,e:=s.LatestProviderHeartbeat(id,owner);e==nil {
+   content+=fmt.Sprintf("\nLast observed provider worker heartbeat: %s (run %s). Liveness only; provider acknowledgement remains unverified.\n",h.At.UTC().Format(time.RFC3339),h.RunID)
+  }
+ }
+ return content,x.Revision,nil
 }
