@@ -189,3 +189,40 @@ func VerifiedWorkSignature(x Session)string{
  }
  return taskPlanDigest(b.String())
 }
+
+// VerifyArchivedTaskPlanEvidence allows a milestone to reference an older
+// verified Collection or Native Patch receipt even after its full source was
+// moved to an integrity-checked private archive. All segments are owner scoped.
+// This is audit lookup only: no provider request or Native Patch is executed.
+func VerifyArchivedTaskPlanEvidence(store *Store,x Session,kind,ref,note string)(TaskPlanEvidence,error){
+ current,err:=VerifyTaskPlanEvidence(x,kind,ref,note)
+ if err==nil{return current,nil}
+ if store==nil||x.ID==""||x.Owner==""||ref==""||len(ref)>256{return TaskPlanEvidence{},err}
+ switch kind{
+ case "patch":
+  for part:=x.PatchArchiveParts;part>0;part--{
+   entries,e:=store.ArchivedPatchHistory(x.ID,x.Owner,part)
+   if e!=nil{return TaskPlanEvidence{},fmt.Errorf("cannot verify Patch archive %d: %w",part,e)}
+   for _,entry:=range entries{
+    call:=entry.Call
+    if call.CallID==ref&&call.FeedbackSent&&call.FeedbackStatus=="acknowledged"&&
+     (call.Status=="done"||call.Status=="error"||call.Status=="rejected")&&call.Result!=""{
+     return TaskPlanEvidence{Kind:"patch",Ref:ref,Digest:taskPlanDigest(call.Result),Note:strings.TrimSpace(note)},nil
+    }
+   }
+  }
+ case "collection":
+  for part:=x.HistoryArchiveParts;part>0;part--{
+   items,e:=store.ArchivedCollectionHistory(x.ID,x.Owner,part)
+   if e!=nil{return TaskPlanEvidence{},fmt.Errorf("cannot verify Collection archive %d: %w",part,e)}
+   for i:=0;i+1<len(items);i++{
+    call,output:=items[i],items[i+1]
+    if call.CallID==ref&&call.Type=="function_call"&&call.Name=="taskdeck_collect_workspace"&&
+     output.Type=="function_call_output"&&output.CallID==ref{
+     return TaskPlanEvidence{Kind:"collection",Ref:ref,Digest:taskPlanDigest(output.Content),Note:strings.TrimSpace(note)},nil
+    }
+   }
+  }
+ }
+ return TaskPlanEvidence{},err
+}
