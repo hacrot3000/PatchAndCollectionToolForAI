@@ -56,3 +56,13 @@ A process may crash *after* SENDING is saved but *before* the first network byte
 - **P1:** Private source-bearing PREPARED sidecars are local 0600 files; ensure backup/retention policy and test crash-orphan cleanup.
 - **P1:** Existing provider retries can still stop on explicit Stop, permanent errors, quota, disk-full or session corruption. No software can promise indefinite execution under those conditions.
 - **P2:** The visible handoff and event API should eventually display the run phase and liveness details directly as dashboard indicators.
+
+## Completion record — 2026-11-21
+
+- **Merged:** [PR #160](https://github.com/hacrot3000/PatchAndCollectionToolForAI/pull/160).
+- **Merge commit on main:** `6b1c9666e92ef413ffa4a2002e6a3c7482569f75`.
+- **Validated feature HEAD:** `96d8e31a33d1527865251a4fca0db466373d9d49`.
+- **CI:** Agent Chat protocol core **PASS**, including durable payload/heartbeat and prepared-only recovery regressions. Remote Agent (Go) was still in progress and Remote Portal (PHP) pending at last check; do not claim they passed until confirmed.
+- **Safety invariant:** PREPARED may resume only from exact checksummed bytes; SENDING/UNKNOWN is never automatically replayed, even after a diagnostic lease expires.
+- **Handoff:** This file contains the completed code scope, outstanding provider acknowledgement P0 and future task coordinator work. Another AI should fetch latest main before starting changes.
+- **Next priority:** implement provider-aware reconciliation for ambiguous egress where supported, durable plan-level tasks/checklists/acceptance gates, and background queue fairness. Do not turn an expired heartbeat into permission to repeat a Native Patch or Patch feedback.
