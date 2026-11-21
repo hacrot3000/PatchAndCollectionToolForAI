@@ -64,6 +64,12 @@
 4. Start the next PR with provider-side state rebase and the durable restart/resume scheduler (risk items 1–3).
 5. Update this handoff after every completed coding request with new commit/PR IDs, verified tests, changed assumptions, remaining risks and concrete next steps.
 
-## Completion summary (as of handoff creation)
+## Completion summary — request closed 2026-11-21
 
-Code and tests above have been submitted to PR #158. **Build/CI validation and merge status must be confirmed on the final PR HEAD; do not infer PASS from earlier workflow runs.**
+- **Merged PR:** [#158](https://github.com/hacrot3000/PatchAndCollectionToolForAI/pull/158)
+- **Merge commit on main:** `cec5061ef88bf4138759ca9048231b39ae88277f`.
+- **Validated PR head:** `15c6c4cb3312cab01601329e895e28bf7571a7cc`.
+- **CI:** TaskDeck Agent Chat protocol core **PASS**; Remote Portal (PHP) **PASS**; Remote Agent (Go) still running on the final check.
+- **Verified features:** isolated model-context policy, exact fresh tool outputs, adaptively selected recent full Collections, older Collection file/evidence catalogs, old Patch metadata instead of repeated source/output, persistent acknowledged Patch archive, and safe restart interruption state.
+- **Not implemented:** automatic cross-process resume through ambiguous provider egress; provider-side Conversation history pruning/rebase; user-facing archive browser; automatic runtime handoff after each provider response. These need separate testable work and remain in the risk register.
+- **Next handoff action:** inspect recent `main`, read this file and `12-multiday-agent-run-audit.md`, then implement the remaining durable resume/acknowledgement and optional stateless rebase in a new PR. Do not replay an unknown Patch or tool result automatically.
