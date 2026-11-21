@@ -54,6 +54,9 @@ func (s *Server) resumePreparedAgentProviderRun(ctx context.Context,store *agent
  if err!=nil{fail("prepared_payload_invalid");return true}
  if current.Revision!=x.Revision||current.ProviderRun==nil||
   current.ProviderRun.ID!=run.ID{fail("run_revision_changed");return true}
+ if run.Kind=="collection" && x.AutoCollection!=nil && !*x.AutoCollection {
+  fail("collection_permission_revoked");return true
+ }
  if run.Kind=="feedback"{
   matched:=false
   for _,call:=range x.ToolCalls{
