@@ -20,6 +20,19 @@ func HandoffMarkdown(x Session) string {
  fmt.Fprintf(&b,"Session: %s\nProject ID: %s\nRevision: %d\nUpdated: %s\nStatus: %s\n",
   x.ID,x.ProjectID,x.Revision,x.UpdatedAt.UTC().Format("2006-01-02T15:04:05Z07:00"),x.Status)
  fmt.Fprintf(&b,"Provider/model: %s / %s\n\n",x.ProviderID,x.ModelID)
+ if x.ProviderRun!=nil {
+  fmt.Fprintf(&b,"Provider request: %s (%s), phase=%s, call=%s, payload_sha256=%s.\n",
+   handoffTrim(x.ProviderRun.ID,90),x.ProviderRun.Kind,x.ProviderRun.Phase,
+   handoffTrim(x.ProviderRun.CallID,95),x.ProviderRun.PayloadSHA256)
+  switch x.ProviderRun.Phase {
+  case "prepared":
+   b.WriteString("PREPARED: provider payload was durably staged; TaskDeck may automatically resume only this exact unsent request.\n\n")
+  case "sending","unknown":
+   b.WriteString("AMBIGUOUS PROVIDER EGRESS: TaskDeck must not replay this request automatically. Reconcile provider acknowledgement first.\n\n")
+  default:
+   b.WriteString("The provider request phase is journaled; this is not a claim that the complete user task passed its acceptance criteria.\n\n")
+  }
+ }
  b.WriteString("## Original user goal\n\n")
  foundGoal:=false
  for _,it:=range x.History {
