@@ -407,6 +407,8 @@ func (s *Server) agentChatMessageAPI(w http.ResponseWriter, r *http.Request, id 
 	turnCtx := s.agentServerContext()
 	ctx, cancel := agentRetryTurnContext(turnCtx, session.RetryMode)
 	defer cancel()
+	stopHeartbeat:=startAgentProviderHeartbeat(ctx,store,owner,id)
+	defer stopHeartbeat()
 	// Keep cancellation registered through every read-only Collection round.
 	// Unregister only when this turn actually finishes or fails.
 	releaseRequest := registerAgentRequest(agentRequestKey(s.Workspace, owner, id), cancel)
