@@ -126,6 +126,8 @@ func (s *Server) agentChatTaskPlanAPI(w http.ResponseWriter,r *http.Request,id s
   x.TaskPlan.AutoContinue=req.Enabled
   x.TaskPlan.NoProgressTurns=0
   x.TaskPlan.LastWorkSignature=""
+  x.TaskPlan.RetryStreak=0
+  x.TaskPlan.NextRetryAt=nil
   x.TaskPlan.UpdatedAt=now
  case "pause":
   if x.TaskPlan==nil||x.TaskPlan.State=="completed"{
@@ -139,6 +141,8 @@ func (s *Server) agentChatTaskPlanAPI(w http.ResponseWriter,r *http.Request,id s
    http.Error(w,"plan is not paused",409);return
   }
   x.TaskPlan.State="active"
+  x.TaskPlan.RetryStreak=0
+  x.TaskPlan.NextRetryAt=nil
   x.TaskPlan.UpdatedAt=now
  case "complete":
   if x.TaskPlan==nil||!agentchat.TaskPlanAllDone(x.TaskPlan){
