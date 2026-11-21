@@ -45,6 +45,9 @@ type taskRunRecord struct {
 	ProjectID string `json:"project_id,omitempty"`
 	LogBytes int `json:"log_bytes,omitempty"`
 	LogTruncated bool `json:"log_truncated,omitempty"`
+	// Indicates that the server successfully retained a private signed
+	// completion receipt. This history flag is never proof by itself.
+	VerifiedReceipt bool `json:"verified_receipt,omitempty"`
 }
 
 type taskRunHistoryFileData struct {
@@ -236,6 +239,7 @@ func (s *Server) recordTaskRun(r *http.Request,req taskRunRecordRequest)(taskRun
 		GitCommit:taskRunGitCommit(r.Context(),s,meta.Cwd),Cwd:meta.Cwd,CommandPreview:meta.CommandPreview,
 		TargetType:meta.TargetType,TargetProfileID:meta.TargetProfileID,ProjectProfileID:req.ProjectProfileID,
 		OwnerUserID:meta.OwnerUserID,ProjectID:meta.ProjectID,LogBytes:len(log),LogTruncated:truncated,
+        VerifiedReceipt: s.recordTaskReceiptBestEffort(meta),
 	})
 	history,err:=readTaskRunHistory(s.Workspace);if err!=nil{return taskRunRecord{},err}
 	next:=[]taskRunRecord{item}
