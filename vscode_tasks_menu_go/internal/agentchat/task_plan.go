@@ -165,7 +165,10 @@ func TaskPlanAutoContinueCandidate(x Session)bool{
  if x.ProviderRun!=nil && (x.ProviderRun.Phase=="sending"||
   x.ProviderRun.Phase=="unknown"||x.ProviderRun.Phase=="prepared"){return false}
  for _,call:=range x.ToolCalls{
-  if call.FeedbackSent&&call.FeedbackStatus!="acknowledged"{return false}
+  // A final native run that has not yet been sent back to AI still owns the
+  // current step. Do not skip it by starting an unrelated model request.
+  if (call.Status=="done"||call.Status=="error"||call.Status=="rejected")&&
+   (!call.FeedbackSent||call.FeedbackStatus!="acknowledged"){return false}
  }
  return true
 }
