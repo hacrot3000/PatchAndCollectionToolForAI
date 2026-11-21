@@ -244,6 +244,7 @@ func (s *Server) agentDeliverToolResult(ctx context.Context, store *agentchat.St
 			s.recordAgentDebugEvent(owner, x.ID, call.CallID, "feedback", "feedback.unknown", "FEEDBACK_DELIVERY_UNKNOWN", "Provider acknowledgement was not confirmed; result will not be resent")
 			x.Status = "cancelled"
 			x.ToolCalls[idx].FeedbackStatus = "unknown"
+			markAgentProviderOutcome(&x,"unknown")
 			x.AppendEvent("feedback_unknown", "cancelled", call.CallID, "provider_acknowledgement_unconfirmed")
 			_, _ = store.Save(x, x.Revision)
 			return agentDeliverResult{}, agentContinueError{409, "continuation cancelled; the tool result was already recorded and will not be resent"}
@@ -251,17 +252,20 @@ func (s *Server) agentDeliverToolResult(ctx context.Context, store *agentchat.St
 		s.recordAgentDebugEvent(owner, x.ID, call.CallID, "feedback", "feedback.unknown", "FEEDBACK_DELIVERY_UNKNOWN", "Provider acknowledgement was not confirmed; result will not be resent")
 		x.Status = "failed"
 		x.ToolCalls[idx].FeedbackStatus = "unknown"
+		markAgentProviderOutcome(&x,"unknown")
 		x.AppendEvent("feedback_unknown", "failed", call.CallID, "provider_acknowledgement_unconfirmed")
 		_, _ = store.Save(x, x.Revision)
 		return agentDeliverResult{}, agentContinueError{502, "provider continuation failed; tool result was saved and will not be resent automatically"}
 	}
 	x.ToolCalls[idx].FeedbackStatus = "acknowledged"
+	markAgentProviderOutcome(&x,"acknowledged")
 	x.AppendEvent("feedback_acknowledged", x.Status, call.CallID, "")
 	// A verified native Patch result can legitimately lead the model to
 	// inspect more code. Continue read-only Collection calls automatically.
 	result, statelessCollection, err := s.agentChatRunCollection(continuationCtx, store, &x, result, p, model, string(secret), identity, toolAvailable)
 	if err != nil {
 		x.Status = "failed"
+		markAgentProviderOutcome(&x,"unknown")
 		x.AppendEvent("collect_failed", "failed", "", "")
 		_, _ = store.Save(x, x.Revision)
 		return agentDeliverResult{}, agentContinueError{502, "Collection continuation after Patch result failed; inspect the Agent journal"}
@@ -274,6 +278,7 @@ func (s *Server) agentDeliverToolResult(ctx context.Context, store *agentchat.St
 		x.ConversationID = ""
 	}
 	appendAgentTextPatchProposal(&x, result, identity)
+	markAgentProviderOutcome(&x,"completed")
 	x.AppendEvent("feedback_turn_finished", x.Status, call.CallID, "")
 	x, err = store.Save(x, x.Revision)
 	if err != nil {
