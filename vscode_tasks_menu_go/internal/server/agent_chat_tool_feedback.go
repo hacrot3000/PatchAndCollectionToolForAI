@@ -188,15 +188,10 @@ func (s *Server) agentDeliverToolResult(ctx context.Context, store *agentchat.St
 		limit = model.MaxOutputTokens
 	}
 	toolAvailable := model.ToolCalling && s.agentToolCapabilityVerified(owner, p, model)
-	mode := x.Mode
+	mode := agentContextRequestMode(x,p.APIType,s.agentConversationCapabilityVerified(owner,p,model))
+	if call.TextFallback {mode=agentchat.Stateless}
+	agentClearProviderRefsForStateless(&x,mode)
 	conversationID := x.ConversationID
-	if call.TextFallback || p.APIType == "chat_completions" {
-		mode = agentchat.Stateless
-		conversationID = ""
-	} else if mode == agentchat.Conversation && !s.agentConversationCapabilityVerified(owner, p, model) {
-		mode = agentchat.Stateless
-		conversationID = ""
-	}
 	payload, err := agentchat.BuildResponsesRequest(agentchat.RequestConfig{
 		Model: x.ModelID, Instructions: agentChatInstructionsWithAutomation(x, toolAvailable, identity.Key),
 		Mode: mode, PreviousResponseID: x.PreviousResponseID, ConversationID: conversationID,
@@ -268,7 +263,7 @@ func (s *Server) agentDeliverToolResult(ctx context.Context, store *agentchat.St
 		return agentDeliverResult{}, agentContinueError{502, "Collection continuation after Patch result failed; inspect the Agent journal"}
 	}
 	appendAgentProviderResult(&x, result, toolAvailable)
-	if statelessCollection {
+	if mode==agentchat.Stateless || statelessCollection {
 		// The last Collection response was not persisted provider-side.
 		// Preserve local audit history without an unusable stateful reference.
 		x.PreviousResponseID = ""
