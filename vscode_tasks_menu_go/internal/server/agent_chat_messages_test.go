@@ -113,20 +113,20 @@ func TestAgentChatMessagesPreviousResponseContextAndPersistence(t *testing.T) {
 	if first.Code != 200 {
 		t.Fatalf("first turn %d %s", first.Code, first.Body)
 	}
+	store, err := s.agentChatStore()
+	if err != nil { t.Fatal(err) }
+	afterFirst, err := store.Get(id, "local")
+	if err != nil { t.Fatal(err) }
 	second := invokeAI(t, s.agentChatSessionItemAPI, "POST", "/api/agent/sessions/"+id+"/messages",
-		map[string]any{"message": "Second prompt", "confirm_external": true, "expected_revision": 3})
+		map[string]any{"message": "Second prompt", "confirm_external": true, "expected_revision": afterFirst.Revision})
 	if second.Code != 200 {
 		t.Fatalf("second turn %d %s", second.Code, second.Body)
-	}
-	store, err := s.agentChatStore()
-	if err != nil {
-		t.Fatal(err)
 	}
 	saved, err := store.Get(id, "local")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if saved.Revision != 5 || saved.PreviousResponseID != "resp_2" || saved.AIPackFingerprint != "fingerprint-001" || len(saved.History) != 4 {
+	if saved.Revision != afterFirst.Revision+3 || saved.PreviousResponseID != "resp_2" || saved.AIPackFingerprint != "fingerprint-001" || len(saved.History) != 4 {
 		t.Fatalf("context not correctly persisted: %+v", saved)
 	}
 	if count != 2 {
