@@ -15,6 +15,7 @@ const (
  MaxTaskPlanGoalBytes=4096
  MaxTaskPlanEvidence=12
  MaxTaskPlanSuggestions=8
+ MaxTaskGoRequiredTests=16
 )
 var taskPlanStepIDPattern=regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$`)
 
@@ -31,6 +32,98 @@ type TaskCommandGuard struct {
  CommandSHA256 string `json:"command_sha256"`
  BoundAt time.Time `json:"bound_at"`
 }
+// TaskGoTestRequirements is an owner-selected, pre-run checklist of exact
+// named Go tests in a single Go package. Matching these outcomes does not
+// establish meaningful assertions or overall application coverage.
+type TaskGoTestRequirements struct {
+ Package string `json:"package"`
+ Tests []string `json:"tests"`
+ BoundAt time.Time `json:"bound_at"`
+}
+
+var goRequirementPackagePattern=regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9_./-]{0,199}package agentchat
+
+import (
+ "crypto/sha256"
+ "encoding/hex"
+ "errors"
+ "fmt"
+ "regexp"
+ "strings"
+ "time"
+)
+
+const (
+ MaxTaskPlanSteps=128
+ MaxTaskPlanGoalBytes=4096
+ MaxTaskPlanEvidence=12
+ MaxTaskPlanSuggestions=8
+ MaxTaskGoRequiredTests=16
+)
+var taskPlanStepIDPattern=regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$`)
+
+type TaskPlanEvidence struct {
+ Kind string `json:"kind"` // patch, collection, task_run or manual
+ Ref string `json:"ref,omitempty"`
+ Digest string `json:"digest,omitempty"`
+ Note string `json:"note,omitempty"`
+}
+// TaskCommandGuard is a user-owned expected native test command identity.
+// It asserts the exact launched command+argv+cwd, not semantic coverage.
+type TaskCommandGuard struct {
+ TaskID int `json:"task_id"`
+ CommandSHA256 string `json:"command_sha256"`
+ BoundAt time.Time `json:"bound_at"`
+}
+)
+var goRequirementTestPattern=regexp.MustCompile(`^Test[A-Za-z0-9_]+(/[A-Za-z0-9_=.,-]+)*package agentchat
+
+import (
+ "crypto/sha256"
+ "encoding/hex"
+ "errors"
+ "fmt"
+ "regexp"
+ "strings"
+ "time"
+)
+
+const (
+ MaxTaskPlanSteps=128
+ MaxTaskPlanGoalBytes=4096
+ MaxTaskPlanEvidence=12
+ MaxTaskPlanSuggestions=8
+ MaxTaskGoRequiredTests=16
+)
+var taskPlanStepIDPattern=regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$`)
+
+type TaskPlanEvidence struct {
+ Kind string `json:"kind"` // patch, collection, task_run or manual
+ Ref string `json:"ref,omitempty"`
+ Digest string `json:"digest,omitempty"`
+ Note string `json:"note,omitempty"`
+}
+// TaskCommandGuard is a user-owned expected native test command identity.
+// It asserts the exact launched command+argv+cwd, not semantic coverage.
+type TaskCommandGuard struct {
+ TaskID int `json:"task_id"`
+ CommandSHA256 string `json:"command_sha256"`
+ BoundAt time.Time `json:"bound_at"`
+}
+)
+
+func ValidateTaskGoTestRequirements(v *TaskGoTestRequirements)error{
+ if v==nil{return nil}
+ if v.BoundAt.IsZero()||!goRequirementPackagePattern.MatchString(v.Package)||
+  len(v.Tests)==0||len(v.Tests)>MaxTaskGoRequiredTests{return ErrInvalidSession}
+ seen:=make(map[string]bool,len(v.Tests))
+ for _,name:=range v.Tests{
+  if !goRequirementTestPattern.MatchString(name)||seen[name]{return ErrInvalidSession}
+  seen[name]=true
+ }
+ return nil
+}
+
 type TaskPlanStep struct {
  ID string `json:"id"`
  Title string `json:"title"`
@@ -39,6 +132,7 @@ type TaskPlanStep struct {
  Evidence []TaskPlanEvidence `json:"evidence,omitempty"`
  AutoCheck *TaskAutoCheck `json:"auto_check,omitempty"`
  TaskCommandGuard *TaskCommandGuard `json:"task_command_guard,omitempty"`
+ GoTestRequirements *TaskGoTestRequirements `json:"go_test_requirements,omitempty"`
  UpdatedAt time.Time `json:"updated_at,omitempty"`
 }
 type TaskPlan struct {
@@ -93,11 +187,16 @@ func ValidateTaskPlan(p *TaskPlan)error{
     strings.ToLower(guard.CommandSHA256)!=guard.CommandSHA256{return ErrInvalidSession}
    if _,err:=hex.DecodeString(guard.CommandSHA256);err!=nil{return ErrInvalidSession}
   }
+  if err:=ValidateTaskGoTestRequirements(step.GoTestRequirements);err!=nil{return err}
+  if step.GoTestRequirements!=nil{
+   if step.TaskCommandGuard==nil||
+    step.GoTestRequirements.BoundAt.Before(step.TaskCommandGuard.BoundAt){return ErrInvalidSession}
+  }
   if err:=ValidateTaskAutoCheck(step.AutoCheck);err!=nil{return err}
   switch step.Status{case "pending","active","blocked","done":default:return ErrInvalidSession}
   if step.Status=="done"&&len(step.Evidence)==0{return ErrInvalidSession}
   for _,e:=range step.Evidence{
-   switch e.Kind{case "patch","collection","task_run","go_test_case","manual":default:return ErrInvalidSession}
+   switch e.Kind{case "patch","collection","task_run","go_test_case","go_test_suite","manual":default:return ErrInvalidSession}
    if len(e.Ref)>256||len(e.Note)>512||len(e.Digest)>64{return ErrInvalidSession}
    if e.Kind=="manual" {
     if strings.TrimSpace(e.Note)==""||e.Ref!=""||e.Digest!=""{return ErrInvalidSession}
@@ -110,7 +209,7 @@ func ValidateTaskPlan(p *TaskPlan)error{
 func NewTaskPlan(goal string,steps []TaskPlanStep)(*TaskPlan,error){
  now:=time.Now().UTC()
  p:=&TaskPlan{Goal:strings.TrimSpace(goal),State:"active",Steps:steps,CreatedAt:now,UpdatedAt:now}
- for i:=range p.Steps{p.Steps[i].Status="pending";p.Steps[i].Evidence=nil;p.Steps[i].TaskCommandGuard=nil;p.Steps[i].UpdatedAt=now}
+ for i:=range p.Steps{p.Steps[i].Status="pending";p.Steps[i].Evidence=nil;p.Steps[i].TaskCommandGuard=nil;p.Steps[i].GoTestRequirements=nil;p.Steps[i].UpdatedAt=now}
  if err:=ValidateTaskPlan(p);err!=nil{return nil,err}
  return p,nil
 }

@@ -38,6 +38,8 @@ func (s *Server) agentChatTaskPlanAPI(w http.ResponseWriter,r *http.Request,id s
   EvidenceTaskID int `json:"evidence_task_id,omitempty"`
   EvidenceGoPackage string `json:"evidence_go_package,omitempty"`
   EvidenceGoTest string `json:"evidence_go_test,omitempty"`
+  RequiredGoTests []string `json:"required_go_tests,omitempty"`
+  ConfirmGoTests bool `json:"confirm_go_tests,omitempty"`
   ExpectedCommandSHA256 string `json:"expected_command_sha256,omitempty"`
   ConfirmCommandGuard bool `json:"confirm_command_guard,omitempty"`
   Enabled bool `json:"enabled,omitempty"`
@@ -103,6 +105,13 @@ func (s *Server) agentChatTaskPlanAPI(w http.ResponseWriter,r *http.Request,id s
   if x.TaskPlan.State=="completed"{http.Error(w,"reopen the completed plan explicitly before editing evidence",409);return}
   var proof *agentchat.TaskPlanEvidence
   if req.Status=="done"{
+   // An owner-bound required-test checklist must not silently degrade to
+   // plain exit-zero or an opportunistically selected single test.
+   for _,step:=range x.TaskPlan.Steps{
+    if step.ID==req.StepID&&step.GoTestRequirements!=nil&&req.EvidenceKind!="go_test_suite"{
+     http.Error(w,"remove the expected Go tests explicitly before using weaker evidence",409);return
+    }
+   }
    var verified agentchat.TaskPlanEvidence
    var e error
    if req.EvidenceKind=="task_run"{
@@ -110,6 +119,12 @@ func (s *Server) agentChatTaskPlanAPI(w http.ResponseWriter,r *http.Request,id s
    }else if req.EvidenceKind=="go_test_case"{
     verified,e=s.verifyNativeGoTestCaseEvidence(x,req.EvidenceRef,req.EvidenceTaskID,
       req.StepID,req.EvidenceGoPackage,req.EvidenceGoTest,req.EvidenceNote)
+   }else if req.EvidenceKind=="go_test_suite"{
+    if req.EvidenceGoPackage!=""||req.EvidenceGoTest!=""||len(req.RequiredGoTests)!=0{
+     http.Error(w,"expected Go test suite is read from the owner-bound plan only",400);return
+    }
+    verified,e=s.verifyNativeGoTestSuiteEvidence(x,req.EvidenceRef,req.EvidenceTaskID,
+      req.StepID,req.EvidenceNote)
    }else{
     verified,e=agentchat.VerifyArchivedTaskPlanEvidence(store,x,req.EvidenceKind,req.EvidenceRef,req.EvidenceNote)
    }
@@ -128,6 +143,7 @@ func (s *Server) agentChatTaskPlanAPI(w http.ResponseWriter,r *http.Request,id s
    if step.ID!=req.StepID{continue}
    found=true
    if step.Status=="done"{http.Error(w,"reopen accepted milestone before editing test command",409);return}
+   if step.GoTestRequirements!=nil{http.Error(w,"remove expected Go tests explicitly before changing command lock",409);return}
    if !req.Enabled{step.TaskCommandGuard=nil
    }else{
     digest:=req.ExpectedCommandSHA256
@@ -139,6 +155,40 @@ func (s *Server) agentChatTaskPlanAPI(w http.ResponseWriter,r *http.Request,id s
     }
    }
    step.UpdatedAt=now;x.TaskPlan.UpdatedAt=now
+   break
+  }
+  if !found{http.Error(w,"unknown milestone",404);return}
+ case "set_go_test_requirements":
+  if x.TaskPlan==nil||x.TaskPlan.State=="completed"{
+   http.Error(w,"no editable Task plan",409);return
+  }
+  if !req.ConfirmGoTests{
+   http.Error(w,"explicit owner confirmation required for expected Go tests",403);return
+  }
+  found:=false
+  for i:=range x.TaskPlan.Steps{
+   step:=&x.TaskPlan.Steps[i]
+   if step.ID!=req.StepID{continue}
+   found=true
+   if step.Status=="done"{
+    http.Error(w,"reopen accepted milestone before changing test requirements",409);return
+   }
+   if !req.Enabled{
+    step.GoTestRequirements=nil
+   }else{
+    if step.TaskCommandGuard==nil{
+     http.Error(w,"lock the expected native test command before selecting required tests",409);return
+    }
+    candidate:=&agentchat.TaskGoTestRequirements{
+     Package:req.EvidenceGoPackage,Tests:req.RequiredGoTests,BoundAt:now,
+    }
+    if err:=agentchat.ValidateTaskGoTestRequirements(candidate);err!=nil{
+     http.Error(w,"invalid or duplicate expected Go test names",400);return
+    }
+    step.GoTestRequirements=candidate
+   }
+   step.UpdatedAt=now
+   x.TaskPlan.UpdatedAt=now
    break
   }
   if !found{http.Error(w,"unknown milestone",404);return}
