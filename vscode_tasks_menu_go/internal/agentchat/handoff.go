@@ -164,7 +164,10 @@ func (s *Store) Handoff(id,owner string)(string,uint64,error){
   // A heartbeat is a hint, not an acknowledgement: report the observed
   // timestamp without declaring the provider alive or the task complete.
   if h,e:=s.LatestProviderHeartbeat(id,owner);e==nil {
-   content+=fmt.Sprintf("\nLast observed provider worker heartbeat: %s (run %s). Liveness only; provider acknowledgement remains unverified.\n",h.At.UTC().Format(time.RFC3339),h.RunID)
+   lease:="recent"
+   if time.Now().UTC().After(h.LeaseUntil){lease="stale/expired"}
+   content+=fmt.Sprintf("\nProvider worker heartbeat: %s (run %s; lease %s through %s). Diagnostic liveness only; provider acknowledgement remains unverified.\n",
+    h.At.UTC().Format(time.RFC3339),h.RunID,lease,h.LeaseUntil.UTC().Format(time.RFC3339))
   }
  }
  return content,x.Revision,nil
