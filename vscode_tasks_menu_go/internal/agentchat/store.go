@@ -181,6 +181,7 @@ type Session struct {
 	AutoCollection    *bool            `json:"auto_collection,omitempty"`
 	AutoFeedbackUntil *time.Time       `json:"auto_feedback_until,omitempty"`
 	Status            string           `json:"status"`
+	ProviderRun       *ProviderRun     `json:"provider_run,omitempty"`
 	History           []HistoryItem    `json:"history"`
 	HistoryArchiveParts uint64 `json:"history_archive_parts,omitempty"`
 	ArchivedHistoryItems uint64 `json:"archived_history_items,omitempty"`
@@ -291,6 +292,7 @@ func (s *Store) withLock(fn func() error) error {
 	return fn()
 }
 func validateSession(x Session) error {
+	if !validProviderRun(x.ProviderRun) {return ErrInvalidSession}
 	if x.RetryMode != "" && x.RetryMode != RetryOff &&
 		x.RetryMode != RetryLimited && x.RetryMode != RetryUnlimited {
 		return ErrInvalidSession
@@ -593,6 +595,7 @@ func (s *Store) Delete(id, owner string, expectedRevision uint64) error {
 		}
 		if err:=os.Remove(s.file(id));err!=nil{return err}
 		if err:=os.Remove(s.handoffFile(id));err!=nil&&!os.IsNotExist(err){return err}
+		if err:=os.Remove(s.providerRunFile(id));err!=nil&&!os.IsNotExist(err){return err}
 		for _,part:=range s.historyArchiveSequences(x){
    if err:=os.Remove(s.historyArchivePath(id,part));err!=nil&&!os.IsNotExist(err){return err}
   }
