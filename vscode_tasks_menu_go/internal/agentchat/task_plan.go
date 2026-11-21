@@ -43,6 +43,8 @@ type TaskPlan struct {
  LastContinuationKey string `json:"last_continuation_key,omitempty"`
  LastWorkSignature string `json:"last_work_signature,omitempty"`
  NoProgressTurns int `json:"no_progress_turns,omitempty"`
+ RetryStreak int `json:"retry_streak,omitempty"`
+ NextRetryAt *time.Time `json:"next_retry_at,omitempty"`
 }
 func TaskPlanAllDone(p *TaskPlan)bool{
  if p==nil||len(p.Steps)==0{return false}
@@ -53,7 +55,8 @@ func ValidateTaskPlan(p *TaskPlan)error{
  if p==nil{return nil}
  if len(p.Goal)==0||len(p.Goal)>MaxTaskPlanGoalBytes||strings.TrimSpace(p.Goal)==""||
   len(p.Steps)==0||len(p.Steps)>MaxTaskPlanSteps||p.CreatedAt.IsZero()||p.UpdatedAt.IsZero()||
-  len(p.LastContinuationKey)>128||len(p.LastWorkSignature)>128||p.NoProgressTurns<0||p.NoProgressTurns>100 {
+  len(p.LastContinuationKey)>128||len(p.LastWorkSignature)>128||p.NoProgressTurns<0||p.NoProgressTurns>100||
+  p.RetryStreak<0||p.RetryStreak>100 {
   return ErrInvalidSession
  }
  switch p.State{case "active","paused","completed":default:return ErrInvalidSession}
@@ -162,6 +165,7 @@ func TaskPlanAutoContinueCandidate(x Session)bool{
  if p==nil||x.Owner!="local"||x.Archived||p.State!="active"||
   !p.AutoContinue||x.Status!="completed"||TaskPlanNext(p)==nil||
   HasUnresolvedWork(x){return false}
+ if p.NextRetryAt!=nil&&time.Now().UTC().Before(*p.NextRetryAt){return false}
  if x.ProviderRun!=nil && (x.ProviderRun.Phase=="sending"||
   x.ProviderRun.Phase=="unknown"||x.ProviderRun.Phase=="prepared"){return false}
  for _,call:=range x.ToolCalls{
