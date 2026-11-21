@@ -272,11 +272,19 @@ const agentAutoFeedbackWorkerLimit = 4
 // workspaces over multiple days. This is not a distributed scheduler lease.
 const maxAgentAutoFeedbackCursorScopes = 128
 
+// Pending scopes are refreshed by their existing three-second scheduler
+// polls. A scope that stops polling must not block all other work indefinitely.
+const agentAutoFeedbackPendingScopeTTL = 6 * agentAutoFeedbackPoll
+
 type agentAutoFeedbackWorkerPool struct {
  mu sync.Mutex
  active map[string]struct{}
  lastAdmitted map[string]string
  cursorOrder []string
+ // Global, process-local workspace round robin. A scope appears here only
+ // while it has eligible sessions not already occupying a worker.
+ pendingScopes map[string]time.Time
+ lastAdmittedScope string
 }
 
 var agentAutoFeedbackWorkers = agentAutoFeedbackWorkerPool{active: map[string]struct{}{}}
@@ -296,23 +304,66 @@ func (p *agentAutoFeedbackWorkerPool) release(key string) {
  p.mu.Unlock()
 }
 
-// acquireFairBatch selects ready sessions in deterministic round-robin order
-// rather than Store.List's newest-updated-first order. A chat whose provider
-// keeps updating its journal cannot permanently outrank a quieter chat.
-// Reservation, duplicate protection, worker limit and cursor movement are
-// one atomic operation. Nothing here grants provider egress or repeats Patch.
+// acquireFairBatch provides two-level process-local fairness: workspaces
+// alternate for free slots, and sessions alternate within each workspace.
+// Calls may arrive from independent workspace scheduler goroutines. A waiting
+// scope gets a turn on its next poll; an aggressively polling scope cannot
+// repeatedly take its reserved turn. This is not a durable cross-daemon queue.
 func (p *agentAutoFeedbackWorkerPool) acquireFairBatch(scope string,candidates []string)[]string{
- if scope==""||len(candidates)==0{return nil}
+ if scope==""{return nil}
  ids:=append([]string(nil),candidates...)
  sort.Strings(ids)
  p.mu.Lock()
  defer p.mu.Unlock()
  if p.active==nil{p.active=map[string]struct{}{}}
  if p.lastAdmitted==nil{p.lastAdmitted=map[string]string{}}
+ if p.pendingScopes==nil{p.pendingScopes=map[string]time.Time{}}
+ now:=time.Now()
+ for name,seen:=range p.pendingScopes{
+  if now.Sub(seen)>agentAutoFeedbackPendingScopeTTL{delete(p.pendingScopes,name)}
+ }
+ // Never register a scope whose only eligible conversations already have
+ // in-flight workers. An empty poll explicitly clears a stale waiter.
+ ready:=false
+ for _,id:=range ids{
+  if _,busy:=p.active[scope+":"+id];!busy{ready=true;break}
+ }
+ if !ready{
+  delete(p.pendingScopes,scope)
+  return nil
+ }
+ if _,exists:=p.pendingScopes[scope];!exists&&len(p.pendingScopes)>=maxAgentAutoFeedbackCursorScopes{
+  // Bound memory. Prefer dropping the stalest waiting scope; it can
+  // re-register on its next normal scheduler tick.
+  oldest:=""
+  var oldestAt time.Time
+  for name,seen:=range p.pendingScopes{
+   if oldest==""||seen.Before(oldestAt)||(seen.Equal(oldestAt)&&name<oldest){
+    oldest=name;oldestAt=seen
+   }
+  }
+  delete(p.pendingScopes,oldest)
+ }
+ p.pendingScopes[scope]=now
+ if len(p.active)>=agentAutoFeedbackWorkerLimit{return nil}
+
+ // Admit the lexicographically next waiting workspace after the last
+ // successful allocation. Busy/updated-first Store.List order is irrelevant.
+ scopes:=make([]string,0,len(p.pendingScopes))
+ for name:=range p.pendingScopes{scopes=append(scopes,name)}
+ sort.Strings(scopes)
+ next:=sort.Search(len(scopes),func(i int)bool{return scopes[i]>p.lastAdmittedScope})
+ if next==len(scopes){next=0}
+ if scopes[next]!=scope{return nil}
+
  last:=p.lastAdmitted[scope]
  first:=sort.Search(len(ids),func(i int)bool{return ids[i]>last})
- reserved:=make([]string,0,agentAutoFeedbackWorkerLimit)
- for i:=0;i<len(ids)&&len(p.active)<agentAutoFeedbackWorkerLimit;i++{
+ capacity:=agentAutoFeedbackWorkerLimit-len(p.active)
+ // When other workspaces are waiting, reserve at most one worker this
+ // turn. Another workspace receives the next available slot on its poll.
+ if len(scopes)>1&&capacity>1{capacity=1}
+ reserved:=make([]string,0,capacity)
+ for i:=0;i<len(ids)&&len(reserved)<capacity;i++{
   id:=ids[(first+i)%len(ids)]
   key:=scope+":"+id
   if _,running:=p.active[key];running{continue}
@@ -327,7 +378,15 @@ func (p *agentAutoFeedbackWorkerPool) acquireFairBatch(scope string,candidates [
    p.cursorOrder=append(p.cursorOrder,scope)
   }
   p.lastAdmitted[scope]=id
+  p.lastAdmittedScope=scope
  }
+ // Do not let an exhausted scope monopolize the global turn. The next
+ // poll will register it again if a worker completes and work remains.
+ stillWaiting:=false
+ for _,id:=range ids{
+  if _,busy:=p.active[scope+":"+id];!busy{stillWaiting=true;break}
+ }
+ if !stillWaiting{delete(p.pendingScopes,scope)}
  return reserved
 }
 
