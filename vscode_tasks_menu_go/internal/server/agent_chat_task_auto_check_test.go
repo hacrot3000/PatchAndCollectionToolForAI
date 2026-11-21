@@ -76,8 +76,7 @@ func TestAutoCheckAPIRequiresExplicitOwnerConsentAndExactProof(t *testing.T){
   agentchat.HistoryItem{Type:"function_call",Name:"taskdeck_collect_workspace",CallID:"read-exact",
    Arguments:`{"actions":[{"type":"read","path":"src/main.go"}]}`},
   agentchat.HistoryItem{Type:"function_call_output",CallID:"read-exact",
-   Content:`{"results":[{"type":"read","files":[{"path":"src/main.go","content":"package main
-"}]}]}`},
+   Content:`{"results":[{"type":"read","files":[{"path":"src/main.go","content":"package main"}]}]}`},
  )
  x.Status="completed"
  x,err=store.Save(x,x.Revision);if err!=nil{t.Fatal(err)}
