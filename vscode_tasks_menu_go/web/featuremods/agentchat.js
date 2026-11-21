@@ -2114,6 +2114,41 @@ function renderAgentTaskPlan(data){
     });
     row.append(kind,ref,taskID,note);
     buttons.append(done);
+    // Optional owner-controlled expected command, not proof of coverage.
+    if(step.task_command_guard){
+     const guard=step.task_command_guard;
+     row.append(agentEl('span','',
+      'Locked expected test command · Task '+guard.task_id+
+      ' · SHA-256 '+guard.command_sha256+
+      ' · bound '+guard.bound_at+
+      '. Run a NEW Task after binding; exit 0 alone does not prove coverage.'));
+     buttons.append(agentButton('Remove test command lock',()=>{
+      if(!window.confirm('Remove this expected test command restriction? Native Task completion will still require explicit user review.'))return;
+      agentTaskPlanAction('set_task_command_guard',{step_id:step.id,enabled:false,
+       confirm_command_guard:true}).catch(showAgentError);
+     }));
+    }else{
+     const expectedTask=agentEl('input');expectedTask.type='number';expectedTask.min='1';
+     expectedTask.placeholder='Expected native Task ID';
+     const expectedHash=agentEl('input');
+     expectedHash.placeholder='64-char SHA-256 from Task Run History';
+     const lock=agentButton('Lock expected test command',()=>{
+      const tid=Number(expectedTask.value);
+      const digest=expectedHash.value.trim();
+      if(!Number.isSafeInteger(tid)||tid<1||!/^[a-f0-9]{64}$/.test(digest)){
+       showAgentError(new Error('Enter an exact Task ID and lowercase 64-character SHA-256 digest.'));
+       return;
+      }
+      if(!window.confirm('Bind this milestone to Task '+tid+' and the exact executed-command fingerprint? You MUST rerun the Task after binding. This verifies command identity and exit 0, not suite coverage.'))return;
+      agentTaskPlanAction('set_task_command_guard',{step_id:step.id,enabled:true,
+       evidence_task_id:tid,expected_command_sha256:digest,
+       confirm_command_guard:true}).catch(showAgentError);
+     });
+     row.append(agentEl('span','',
+      'Optional: copy the executed command SHA-256 from Task Run History, lock it here, then run the Task AGAIN.'),
+      expectedTask,expectedHash);
+     buttons.append(lock);
+    }
     // Objective auto-verification is explicit per milestone and exact call.
     if(step.auto_check){
      row.append(agentEl('span','',

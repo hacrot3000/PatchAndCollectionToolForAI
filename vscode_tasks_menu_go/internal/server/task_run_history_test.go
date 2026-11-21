@@ -47,6 +47,9 @@ func TestDurableTaskRunHistoryRecordsSessionEvidenceAndLog(t *testing.T) {
 	var recorded taskRunRecord
 	if err:=json.Unmarshal(rr.Body.Bytes(),&recorded);err!=nil{t.Fatal(err)}
 	if recorded.TaskID!=7||recorded.Status!="PASS"||recorded.ProjectProfileID!="release"{t.Fatalf("record=%+v",recorded)}
+	if recorded.CommandSHA256==""||recorded.CommandSHA256!=finished.CommandSHA256{
+		t.Fatalf("Task Run History must expose authoritative native command fingerprint, got %q want %q",recorded.CommandSHA256,finished.CommandSHA256)
+	}
 	if !recorded.LogTruncated||recorded.LogBytes!=maxTaskRunLogBytes{t.Fatalf("log bounds record=%+v",recorded)}
 	wantHead:=gitQuickRun(t,workspace,"rev-parse","HEAD")
 	if recorded.GitCommit!=wantHead{t.Fatalf("git commit=%q want=%q",recorded.GitCommit,wantHead)}

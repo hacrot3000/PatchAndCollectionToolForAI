@@ -36,6 +36,8 @@ func (s *Server) agentChatTaskPlanAPI(w http.ResponseWriter,r *http.Request,id s
   EvidenceRef string `json:"evidence_ref,omitempty"`
   EvidenceNote string `json:"evidence_note,omitempty"`
   EvidenceTaskID int `json:"evidence_task_id,omitempty"`
+  ExpectedCommandSHA256 string `json:"expected_command_sha256,omitempty"`
+  ConfirmCommandGuard bool `json:"confirm_command_guard,omitempty"`
   Enabled bool `json:"enabled,omitempty"`
   ConfirmExternal bool `json:"confirm_external,omitempty"`
   ConfirmAutoAccept bool `json:"confirm_auto_accept,omitempty"`
@@ -102,7 +104,7 @@ func (s *Server) agentChatTaskPlanAPI(w http.ResponseWriter,r *http.Request,id s
    var verified agentchat.TaskPlanEvidence
    var e error
    if req.EvidenceKind=="task_run"{
-    verified,e=s.verifyNativeTaskRunEvidence(x,req.EvidenceRef,req.EvidenceTaskID,req.EvidenceNote)
+    verified,e=s.verifyNativeTaskRunEvidence(x,req.EvidenceRef,req.EvidenceTaskID,req.EvidenceNote,req.StepID)
    }else{
     verified,e=agentchat.VerifyArchivedTaskPlanEvidence(store,x,req.EvidenceKind,req.EvidenceRef,req.EvidenceNote)
    }
@@ -112,6 +114,29 @@ func (s *Server) agentChatTaskPlanAPI(w http.ResponseWriter,r *http.Request,id s
   if e:=agentchat.UpdateTaskPlanStep(&x,req.StepID,req.Status,proof);e!=nil{
    http.Error(w,"invalid task plan step: "+e.Error(),409);return
   }
+ case "set_task_command_guard":
+  if x.TaskPlan==nil||x.TaskPlan.State=="completed"{http.Error(w,"no editable task plan",409);return}
+  if !req.ConfirmCommandGuard{http.Error(w,"explicit owner confirmation required",403);return}
+  found:=false
+  for i:=range x.TaskPlan.Steps {
+   step:=&x.TaskPlan.Steps[i]
+   if step.ID!=req.StepID{continue}
+   found=true
+   if step.Status=="done"{http.Error(w,"reopen accepted milestone before editing test command",409);return}
+   if !req.Enabled{step.TaskCommandGuard=nil
+   }else{
+    digest:=req.ExpectedCommandSHA256
+    if req.EvidenceTaskID<1||len(digest)!=64||strings.ToLower(digest)!=digest{
+     http.Error(w,"invalid expected native command SHA-256 or Task ID",400);return
+    }
+    step.TaskCommandGuard=&agentchat.TaskCommandGuard{
+     TaskID:req.EvidenceTaskID,CommandSHA256:digest,BoundAt:now,
+    }
+   }
+   step.UpdatedAt=now;x.TaskPlan.UpdatedAt=now
+   break
+  }
+  if !found{http.Error(w,"unknown milestone",404);return}
  case "set_auto_check":
   if x.TaskPlan==nil||x.TaskPlan.State=="completed"{
    http.Error(w,"reopen the plan before changing automatic acceptance",409);return

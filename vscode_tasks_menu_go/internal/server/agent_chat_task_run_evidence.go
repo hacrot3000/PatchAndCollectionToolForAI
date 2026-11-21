@@ -20,7 +20,7 @@ import (
 // Patch feedback. Browser-supplied log text, provider messages and the Task
 // display preview are NEVER the success authority. Task session metadata is
 // collected from the native SessionService after process exit.
-func (s *Server) verifyNativeTaskRunEvidence(x agentchat.Session, ref string, taskID int, note string)(agentchat.TaskPlanEvidence,error){
+func (s *Server) verifyNativeTaskRunEvidence(x agentchat.Session, ref string, taskID int, note string, stepID ...string)(agentchat.TaskPlanEvidence,error){
  if len(ref)==0||len(ref)>256||strings.TrimSpace(ref)!=ref||taskID<1||len(note)>512{
   return agentchat.TaskPlanEvidence{},errors.New("exact Task session ID and positive Task ID are required")
  }
@@ -39,10 +39,10 @@ func (s *Server) verifyNativeTaskRunEvidence(x agentchat.Session, ref string, ta
   meta,err=s.verifiedNativeTaskRunReceipt(ref,x.ProjectID)
   if err!=nil{return agentchat.TaskPlanEvidence{},errors.New("native Task session and authenticated completion receipt are unavailable")}
  }
- return verifyNativeTaskRunMetadata(s.Workspace,s.Config.SharedServerEnabled,x,meta,taskID,note)
+ return verifyNativeTaskRunMetadata(s.Workspace,s.Config.SharedServerEnabled,x,meta,taskID,note,stepID...)
 }
 
-func verifyNativeTaskRunMetadata(workspace string,shared bool,x agentchat.Session,meta session.Metadata,taskID int,note string)(agentchat.TaskPlanEvidence,error){
+func verifyNativeTaskRunMetadata(workspace string,shared bool,x agentchat.Session,meta session.Metadata,taskID int,note string,stepID ...string)(agentchat.TaskPlanEvidence,error){
  failed:=func(reason string)(agentchat.TaskPlanEvidence,error){return agentchat.TaskPlanEvidence{},errors.New(reason)}
  if x.TaskPlan==nil||taskID<1||meta.ID==""||meta.TaskID!=taskID||meta.TaskID<1{
   return failed("Task ID or plan identity does not match")
@@ -62,6 +62,27 @@ func verifyNativeTaskRunMetadata(workspace string,shared bool,x agentchat.Sessio
  end,endErr:=time.Parse(time.RFC3339,meta.EndedAt)
  if startErr!=nil||endErr!=nil||end.Before(start)||start.Before(x.TaskPlan.CreatedAt.Add(-2*time.Second)){
   return failed("Task timestamps are missing, inconsistent or older than the plan")
+ }
+ // A user may pin a milestone BEFORE a qualifying Task is launched.
+ // The native executed command identity must match, not a browser preview.
+ if len(stepID)>0{
+  found:=false
+  for _,step:=range x.TaskPlan.Steps{
+   if step.ID!=stepID[0]{continue}
+   found=true
+   if guard:=step.TaskCommandGuard;guard!=nil{
+    if guard.TaskID!=meta.TaskID||guard.CommandSHA256!=meta.CommandSHA256{
+     return failed("native Task differs from the user-bound expected test command")
+    }
+    // Task metadata timestamps have second precision; a same-second start
+    // cannot prove it happened after user confirmation, so reject it.
+    if !start.After(guard.BoundAt.Truncate(time.Second)){
+     return failed("new Task must start after the expected command was bound")
+    }
+   }
+   break
+  }
+  if !found{return failed("unknown user-owned milestone")}
  }
  if meta.CommandPreview==""||len(meta.CommandSHA256)!=64{
   return failed("native Task has no immutable executed-command identity")
@@ -96,6 +117,14 @@ func verifyNativeTaskRunMetadata(workspace string,shared bool,x agentchat.Sessio
  if err!=nil{return failed("cannot encode verified Task receipt")}
  digest:=sha256.Sum256(payload)
  evidenceNote:=fmt.Sprintf("Verified native Task %d exited 0; independently review its test scope, not proof of app correctness",meta.TaskID)
+ if len(stepID)>0{
+  for _,step:=range x.TaskPlan.Steps{
+   if step.ID==stepID[0]&&step.TaskCommandGuard!=nil{
+    evidenceNote+="; user-bound native test command SHA-256 matched"
+    break
+   }
+  }
+ }
  if strings.TrimSpace(note)!="" {evidenceNote+="; user note: "+strings.TrimSpace(note)}
  if len(evidenceNote)>512{return failed("Task evidence note too long")}
  return agentchat.TaskPlanEvidence{Kind:"task_run",Ref:meta.ID,Digest:hex.EncodeToString(digest[:]),Note:evidenceNote},nil

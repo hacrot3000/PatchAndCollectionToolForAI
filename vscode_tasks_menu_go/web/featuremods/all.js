@@ -96,6 +96,7 @@ function taskRunMetaRows(item){
     ['Target', [item.target_type,item.target_profile_id].filter(Boolean).join(' · ')||'local'],
     ['Project profile',item.project_profile_id||'(none)'],
     ['Command',item.command_preview||''],
+    ['Executed command SHA-256',item.command_sha256||'(legacy run: unavailable)'],
     ['Log',String(item.log_bytes||0)+' B'+(item.log_truncated?' · truncated':'')]
   ];
 }

@@ -24,6 +24,13 @@ type TaskPlanEvidence struct {
  Digest string `json:"digest,omitempty"`
  Note string `json:"note,omitempty"`
 }
+// TaskCommandGuard is a user-owned expected native test command identity.
+// It asserts the exact launched command+argv+cwd, not semantic coverage.
+type TaskCommandGuard struct {
+ TaskID int `json:"task_id"`
+ CommandSHA256 string `json:"command_sha256"`
+ BoundAt time.Time `json:"bound_at"`
+}
 type TaskPlanStep struct {
  ID string `json:"id"`
  Title string `json:"title"`
@@ -31,6 +38,7 @@ type TaskPlanStep struct {
  Status string `json:"status"` // pending, active, blocked, done
  Evidence []TaskPlanEvidence `json:"evidence,omitempty"`
  AutoCheck *TaskAutoCheck `json:"auto_check,omitempty"`
+ TaskCommandGuard *TaskCommandGuard `json:"task_command_guard,omitempty"`
  UpdatedAt time.Time `json:"updated_at,omitempty"`
 }
 type TaskPlan struct {
@@ -80,6 +88,11 @@ func ValidateTaskPlan(p *TaskPlan)error{
    len(step.Acceptance)==0||len(step.Acceptance)>600||strings.TrimSpace(step.Acceptance)==""||
    len(step.Evidence)>MaxTaskPlanEvidence{return ErrInvalidSession}
   ids[step.ID]=true
+  if guard:=step.TaskCommandGuard;guard!=nil{
+   if guard.TaskID<1||len(guard.CommandSHA256)!=64||guard.BoundAt.IsZero()||
+    strings.ToLower(guard.CommandSHA256)!=guard.CommandSHA256{return ErrInvalidSession}
+   if _,err:=hex.DecodeString(guard.CommandSHA256);err!=nil{return ErrInvalidSession}
+  }
   if err:=ValidateTaskAutoCheck(step.AutoCheck);err!=nil{return err}
   switch step.Status{case "pending","active","blocked","done":default:return ErrInvalidSession}
   if step.Status=="done"&&len(step.Evidence)==0{return ErrInvalidSession}
@@ -97,7 +110,7 @@ func ValidateTaskPlan(p *TaskPlan)error{
 func NewTaskPlan(goal string,steps []TaskPlanStep)(*TaskPlan,error){
  now:=time.Now().UTC()
  p:=&TaskPlan{Goal:strings.TrimSpace(goal),State:"active",Steps:steps,CreatedAt:now,UpdatedAt:now}
- for i:=range p.Steps{p.Steps[i].Status="pending";p.Steps[i].Evidence=nil;p.Steps[i].UpdatedAt=now}
+ for i:=range p.Steps{p.Steps[i].Status="pending";p.Steps[i].Evidence=nil;p.Steps[i].TaskCommandGuard=nil;p.Steps[i].UpdatedAt=now}
  if err:=ValidateTaskPlan(p);err!=nil{return nil,err}
  return p,nil
 }

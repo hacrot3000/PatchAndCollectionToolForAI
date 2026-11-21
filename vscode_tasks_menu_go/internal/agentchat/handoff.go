@@ -59,6 +59,10 @@ func HandoffMarkdown(x Session) string {
   for _,step:=range plan.Steps{
    fmt.Fprintf(&b,"- [%s] %s — %s; acceptance: %s\n",
     step.Status,handoffTrim(step.ID,60),handoffTrim(step.Title,230),handoffTrim(step.Acceptance,580))
+   if g:=step.TaskCommandGuard;g!=nil{
+    fmt.Fprintf(&b,"  - Owner-bound expected test command: Task %d, SHA-256 %s, bound at %s; a NEW native Task run must match (not proof of test coverage).\n",
+     g.TaskID,handoffTrim(g.CommandSHA256,64),g.BoundAt.UTC().Format(time.RFC3339))
+   }
    for _,ev:=range step.Evidence{
     fmt.Fprintf(&b,"  - %s evidence: ref=%s digest=%s note=%s\n",
      ev.Kind,handoffTrim(ev.Ref,120),handoffTrim(ev.Digest,64),handoffTrim(ev.Note,300))
