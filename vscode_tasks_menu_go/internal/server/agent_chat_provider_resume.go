@@ -88,6 +88,8 @@ func (s *Server) resumePreparedAgentProviderRun(ctx context.Context,store *agent
  if err=markAgentProviderSending(store,&x);err!=nil{return true}
  turnCtx,cancel:=agentRetryTurnContext(ctx,x.RetryMode)
  defer cancel()
+ stopHeartbeat:=startAgentProviderHeartbeat(turnCtx,store,"local",id)
+ defer stopHeartbeat()
  unregister:=registerAgentRequest(agentRequestKey(s.Workspace,"local",id),cancel)
  defer unregister()
  result,callErr,_:=s.agentChatCallForOwner(turnCtx,"local",id,p,string(secret),payload)
