@@ -80,7 +80,7 @@ func (s *Server) agentChatSyncAPI(w http.ResponseWriter, r *http.Request, id str
 // unknown or ambiguous case is left untouched for explicit manual recovery.
 // Runs are bounded so a large journal cannot stall daemon start.
 func (s *Server) agentReconcilePendingOnStartup(ctx context.Context) {
-	if s == nil || s.Sessions == nil || s.Workspace == "" {
+	if s == nil || s.Workspace == "" {
 		return
 	}
 	store, err := s.agentChatStore()
@@ -113,7 +113,7 @@ func (s *Server) agentReconcilePendingOnStartup(ctx context.Context) {
 			changed=true
 		}
 		for j, record := range sess.ToolCalls {
-			if record.Status != "running" || record.PatchSessionID == "" {
+			if s.Sessions == nil || record.Status != "running" || record.PatchSessionID == "" {
 				continue
 			}
 			// Persisting after disconnect must not extend an expired approval
