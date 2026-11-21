@@ -2107,6 +2107,32 @@ function renderAgentTaskPlan(data){
     }).catch(showAgentError));
     row.append(kind,ref,note);
     buttons.append(done);
+    // Objective auto-verification is explicit per milestone and exact call.
+    if(step.auto_check){
+     row.append(agentEl('span','',
+      'Auto-check: '+step.auto_check.kind+' · '+step.auto_check.call_id+
+      (step.auto_check.path?' · '+step.auto_check.path:'')));
+     buttons.append(agentButton('Remove auto-check',()=>agentTaskPlanAction('set_auto_check',{
+      step_id:step.id,enabled:false,
+     }).catch(showAgentError)));
+    }else{
+     const ruleKind=agentEl('select');
+     for(const [value,label] of [['patch_pass','Native Patch PASS'],['full_file_read','Complete file read']]){
+      ruleKind.append(agentOption(value,label));
+     }
+     const ruleCall=agentEl('input');ruleCall.placeholder='Exact tool call ID for auto-check';
+     const rulePath=agentEl('input');rulePath.placeholder='Project-relative file path (read only)';
+     const grant=agentButton('Enable exact-proof auto-check',()=>{
+      if(!window.confirm('Automatically accept THIS milestone only if its exact native tool call succeeds? Native Patch PASS does not verify all tests or full application behavior.'))return;
+      agentTaskPlanAction('set_auto_check',{
+       step_id:step.id,enabled:true,confirm_auto_accept:true,
+       auto_kind:ruleKind.value,auto_call_id:ruleCall.value.trim(),
+       auto_path:ruleKind.value==='full_file_read'?rulePath.value.trim():'',
+      }).catch(showAgentError);
+     });
+     row.append(agentEl('span','','Optional: a single exact tool call ID will be verified without executing or retrying any tool.'),ruleKind,ruleCall,rulePath);
+     buttons.append(grant);
+    }
    }else{
     buttons.append(agentButton('Reopen',()=>agentTaskPlanAction('set_step',{step_id:step.id,status:'pending'}).catch(showAgentError)));
    }

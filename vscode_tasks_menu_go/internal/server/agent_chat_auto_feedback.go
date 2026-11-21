@@ -103,6 +103,9 @@ func (s *Server) processAgentAutoFeedbackSession(ctx context.Context, store *age
 	if _, ok := agentAutoFeedbackCandidate(fresh); ok {
 		s.autoFeedbackOne(ctx, store, id)
 	}
+	// Check exact user-authorized Native Patch/Collection receipt rules
+	// before advancing to the next unfinished milestone.
+	s.autoCheckTaskPlanOne(ctx,store,id)
 	// A finished model turn is not an accepted whole plan. Continue only
 	// when the LOCAL user explicitly enabled automatic plan continuation.
 	s.autoContinueTaskPlanOne(ctx,store,id)
@@ -112,6 +115,7 @@ func agentAutoFeedbackNeedsWork(x agentchat.Session) bool {
 	if x.Owner != "local" || x.Archived { return false }
 	if x.Status=="requesting_ai" && x.ProviderRun!=nil && x.ProviderRun.Phase=="prepared"{return true}
 	if agentchat.TaskPlanAutoContinueCandidate(x){return true}
+	if agentchat.TaskAutoCheckReady(x){return true}
 	if _, ok := agentAutoPatchCandidate(x); ok { return true }
 	if _, ok := agentAutoFeedbackCandidate(x); ok { return true }
 	// A native operation can finish while the GUI is closed; it still

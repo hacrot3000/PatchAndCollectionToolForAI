@@ -29,6 +29,7 @@ type TaskPlanStep struct {
  Acceptance string `json:"acceptance"`
  Status string `json:"status"` // pending, active, blocked, done
  Evidence []TaskPlanEvidence `json:"evidence,omitempty"`
+ AutoCheck *TaskAutoCheck `json:"auto_check,omitempty"`
  UpdatedAt time.Time `json:"updated_at,omitempty"`
 }
 type TaskPlan struct {
@@ -68,6 +69,7 @@ func ValidateTaskPlan(p *TaskPlan)error{
    len(step.Acceptance)==0||len(step.Acceptance)>600||strings.TrimSpace(step.Acceptance)==""||
    len(step.Evidence)>MaxTaskPlanEvidence{return ErrInvalidSession}
   ids[step.ID]=true
+  if err:=ValidateTaskAutoCheck(step.AutoCheck);err!=nil{return err}
   switch step.Status{case "pending","active","blocked","done":default:return ErrInvalidSession}
   if step.Status=="done"&&len(step.Evidence)==0{return ErrInvalidSession}
   for _,e:=range step.Evidence{
@@ -102,8 +104,7 @@ func VerifyTaskPlanEvidence(x Session,kind,ref,note string)(TaskPlanEvidence,err
   return TaskPlanEvidence{Kind:"manual",Note:strings.TrimSpace(note)},nil
  case "patch":
   for _,call:=range x.ToolCalls {
-   if call.CallID==ref && (call.Status=="done"||call.Status=="error"||call.Status=="rejected")&&
-    call.FeedbackStatus=="acknowledged"&&call.FeedbackSent&&call.Result!=""{
+   if call.CallID==ref && validateTaskNativePatchSuccess(call)==nil {
     return TaskPlanEvidence{Kind:"patch",Ref:ref,Digest:taskPlanDigest(call.Result),Note:strings.TrimSpace(note)},nil
    }
   }
@@ -116,7 +117,7 @@ func VerifyTaskPlanEvidence(x Session,kind,ref,note string)(TaskPlanEvidence,err
    if item.Type=="function_call"&&item.Name=="taskdeck_collect_workspace"{call=true}
    if item.Type=="function_call_output"{output=true;content=item.Content}
   }
-  if call&&output{
+  if call&&output&&validateTaskCollectionSuccess(content)==nil{
    return TaskPlanEvidence{Kind:"collection",Ref:ref,Digest:taskPlanDigest(content),Note:strings.TrimSpace(note)},nil
   }
   return TaskPlanEvidence{},fmt.Errorf("no paired verified Collection observation for %q",ref)
@@ -212,8 +213,7 @@ func VerifyArchivedTaskPlanEvidence(store *Store,x Session,kind,ref,note string)
    if e!=nil{return TaskPlanEvidence{},fmt.Errorf("cannot verify Patch archive %d: %w",part,e)}
    for _,entry:=range entries{
     call:=entry.Call
-    if call.CallID==ref&&call.FeedbackSent&&call.FeedbackStatus=="acknowledged"&&
-     (call.Status=="done"||call.Status=="error"||call.Status=="rejected")&&call.Result!=""{
+    if call.CallID==ref&&validateTaskNativePatchSuccess(call)==nil{
      return TaskPlanEvidence{Kind:"patch",Ref:ref,Digest:taskPlanDigest(call.Result),Note:strings.TrimSpace(note)},nil
     }
    }
@@ -225,7 +225,7 @@ func VerifyArchivedTaskPlanEvidence(store *Store,x Session,kind,ref,note string)
    for i:=0;i+1<len(items);i++{
     call,output:=items[i],items[i+1]
     if call.CallID==ref&&call.Type=="function_call"&&call.Name=="taskdeck_collect_workspace"&&
-     output.Type=="function_call_output"&&output.CallID==ref{
+     output.Type=="function_call_output"&&output.CallID==ref&&validateTaskCollectionSuccess(output.Content)==nil{
      return TaskPlanEvidence{Kind:"collection",Ref:ref,Digest:taskPlanDigest(output.Content),Note:strings.TrimSpace(note)},nil
     }
    }

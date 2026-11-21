@@ -37,6 +37,10 @@ func (s *Server) agentChatTaskPlanAPI(w http.ResponseWriter,r *http.Request,id s
   EvidenceNote string `json:"evidence_note,omitempty"`
   Enabled bool `json:"enabled,omitempty"`
   ConfirmExternal bool `json:"confirm_external,omitempty"`
+  ConfirmAutoAccept bool `json:"confirm_auto_accept,omitempty"`
+  AutoKind string `json:"auto_kind,omitempty"`
+  AutoCallID string `json:"auto_call_id,omitempty"`
+  AutoPath string `json:"auto_path,omitempty"`
  }
  if r.Method==http.MethodPost{
   r.Body=http.MaxBytesReader(w,r.Body,64<<10)
@@ -101,6 +105,42 @@ func (s *Server) agentChatTaskPlanAPI(w http.ResponseWriter,r *http.Request,id s
   if e:=agentchat.UpdateTaskPlanStep(&x,req.StepID,req.Status,proof);e!=nil{
    http.Error(w,"invalid task plan step: "+e.Error(),409);return
   }
+ case "set_auto_check":
+  if x.TaskPlan==nil||x.TaskPlan.State=="completed"{
+   http.Error(w,"reopen the plan before changing automatic acceptance",409);return
+  }
+  found:=false
+  for i:=range x.TaskPlan.Steps{
+   step:=&x.TaskPlan.Steps[i]
+   if step.ID!=req.StepID{continue}
+   found=true
+   if step.Status=="done"{http.Error(w,"accepted task evidence is immutable unless the step is reopened",409);return}
+   if !req.Enabled{step.AutoCheck=nil;step.UpdatedAt=now;break}
+   if !req.ConfirmAutoAccept{
+    http.Error(w,"explicit owner confirmation required for mechanical auto-verification",403);return
+   }
+   rule:=&agentchat.TaskAutoCheck{Kind:req.AutoKind,CallID:req.AutoCallID,Path:req.AutoPath}
+   if err:=agentchat.ValidateTaskAutoCheck(rule);err!=nil{
+    http.Error(w,"invalid automatic evidence rule",400);return
+   }
+   // Baseline archive generations before accepting the rule. Future
+   // compaction will wake the worker if the exact receipt moved to disk.
+   rule.CheckedHistoryParts=x.HistoryArchiveParts
+   rule.CheckedPatchParts=x.PatchArchiveParts
+   step.AutoCheck=rule
+   step.UpdatedAt=now
+   // A historical native receipt may already be in an archived segment.
+   // A checked, immutable result can be recorded immediately; otherwise the
+   // background scheduler examines this exact rule after future tool work.
+   if evidence,err:=agentchat.VerifyArchivedTaskAutoCheck(store,x,rule);err==nil{
+    if err:=agentchat.UpdateTaskPlanStep(&x,step.ID,"done",&evidence);err!=nil{
+     http.Error(w,"could not persist verified evidence",409);return
+    }
+   }
+   break
+  }
+  if !found{http.Error(w,"unknown task milestone",404);return}
+  x.TaskPlan.UpdatedAt=now
  case "set_auto_continue":
   if x.TaskPlan==nil||x.TaskPlan.State=="completed"{
    http.Error(w,"no active task plan",409);return
