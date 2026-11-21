@@ -2039,6 +2039,12 @@ function renderAgentTaskPlan(data){
  }
  const header=agentEl('strong','',String(data.done||0)+' / '+String(data.total||0)+' steps accepted · '+String(plan.state||'active').toUpperCase());
  agentTaskPlanBody.append(header,agentEl('div','agentchat-info',String(plan.goal||'')));
+ if(plan.next_retry_at){
+  agentTaskPlanBody.append(agentEl('div','agentchat-info',
+   'Next automatic provider attempt not before: '+String(plan.next_retry_at)+
+   ' · admission delay #'+String(plan.retry_streak||1)+
+   '. No request is re-sent if its previous provider outcome is unknown.'));
+ }
  const actions=agentEl('div','agentchat-taskplan-actions');
  if(plan.state!=='completed'){
   const isPaused=plan.state==='paused';
