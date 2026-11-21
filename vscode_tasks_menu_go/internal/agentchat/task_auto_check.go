@@ -62,7 +62,6 @@ func VerifyTaskAutoCheck(x Session,rule *TaskAutoCheck)(TaskPlanEvidence,error){
   for i,call:=range x.History {
    if call.Type!="function_call"||call.Name!="taskdeck_collect_workspace"||
     call.CallID!=rule.CallID{continue}
-   }
    if i+1>=len(x.History){break}
    output:=x.History[i+1]
    if output.Type!="function_call_output"||output.CallID!=rule.CallID{break}
