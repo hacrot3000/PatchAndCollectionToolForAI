@@ -91,6 +91,7 @@ func (s *Server) agentChatTaskPlanAPI(w http.ResponseWriter,r *http.Request,id s
   x.TaskPlan.UpdatedAt=now
  case "set_step":
   if x.TaskPlan==nil{http.Error(w,"create a task plan first",409);return}
+  if x.TaskPlan.State=="completed"{http.Error(w,"reopen the completed plan explicitly before editing evidence",409);return}
   var proof *agentchat.TaskPlanEvidence
   if req.Status=="done"{
    verified,e:=agentchat.VerifyArchivedTaskPlanEvidence(store,x,req.EvidenceKind,req.EvidenceRef,req.EvidenceNote)
@@ -141,6 +142,16 @@ func (s *Server) agentChatTaskPlanAPI(w http.ResponseWriter,r *http.Request,id s
    http.Error(w,"plan is not paused",409);return
   }
   x.TaskPlan.State="active"
+  x.TaskPlan.RetryStreak=0
+  x.TaskPlan.NextRetryAt=nil
+  x.TaskPlan.UpdatedAt=now
+ case "reopen":
+  if x.TaskPlan==nil||x.TaskPlan.State!="completed"{
+   http.Error(w,"only a completed plan can be reopened",409);return
+  }
+  x.TaskPlan.State="paused"
+  x.TaskPlan.AutoContinue=false
+  x.TaskPlan.NoProgressTurns=0
   x.TaskPlan.RetryStreak=0
   x.TaskPlan.NextRetryAt=nil
   x.TaskPlan.UpdatedAt=now
