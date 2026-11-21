@@ -21,7 +21,7 @@ func exampleAutoCollectionRead() []HistoryItem {
   {Type:"function_call",Name:"taskdeck_collect_workspace",CallID:"collect-123",
    Arguments:`{"actions":[{"type":"read","path":"src/main.go","start_line":1,"max_lines":200}]}`},
   {Type:"function_call_output",CallID:"collect-123",
-   Content:`{"results":[{"type":"read","files":[{"path":"src/main.go","content":"package main"}]}]}`},
+   Content:`{"results":[{"type":"read","files":[{"path":"src/main.go","start_line":"1","total_lines":"1","truncated":"false","content":"package main"}]}]}`},
  }
 }
 func TestTaskPlanCannotAcceptFailedNativePatchAsCompleted(t *testing.T){
@@ -138,7 +138,7 @@ func TestAutoCheckVerifiedOldReceiptsAfterCollectionAndPatchArchival(t *testing.
    HistoryItem{Type:"function_call",Name:"taskdeck_collect_workspace",CallID:id,
     Arguments:`{"actions":[{"type":"read","path":"src/main.go"}]}`},
    HistoryItem{Type:"function_call_output",CallID:id,
-    Content:`{"results":[{"type":"read","files":[{"path":"src/main.go","content":"package main"}]}]}`},
+    Content:`{"results":[{"type":"read","files":[{"path":"src/main.go","start_line":"1","total_lines":"1","truncated":"false","content":"package main"}]}]}`},
   )
  }
  x.Status="completed"
@@ -156,4 +156,36 @@ func TestAutoCheckVerifiedOldReceiptsAfterCollectionAndPatchArchival(t *testing.
  }
  x,err=store.Save(x,x.Revision)
  if err!=nil{t.Fatalf("archived auto-verification could not be persisted: %v",err)}
+}
+
+
+func TestAutoCheckFullReadRejectsPartialLastPageAndMissingMetadata(t *testing.T){
+ rule:=&TaskAutoCheck{Kind:"full_file_read",CallID:"collect-123",Path:"src/main.go"}
+ for name,tc:=range map[string]struct{arguments,result string}{
+  "tail_only":{`{"actions":[{"type":"read","path":"src/main.go","start_line":42,"max_lines":200}]}`,
+   `{"results":[{"type":"read","files":[{"path":"src/main.go","start_line":"42","total_lines":"43","truncated":"false","content":"last lines"}]}]}`},
+  "request_tail_claims_first":{`{"actions":[{"type":"read","path":"src/main.go","start_line":42}]}`,
+   `{"results":[{"type":"read","files":[{"path":"src/main.go","start_line":"1","total_lines":"43","truncated":"false","content":"last lines"}]}]}`},
+  "missing_page_metadata":{`{"actions":[{"type":"read","path":"src/main.go"}]}`,
+   `{"results":[{"type":"read","files":[{"path":"src/main.go","content":"last lines"}]}]}`},
+  "claimed_nontruncated_without_total":{`{"actions":[{"type":"read","path":"src/main.go"}]}`,
+   `{"results":[{"type":"read","files":[{"path":"src/main.go","start_line":"1","truncated":"false","content":"last lines"}]}]}`},
+  "explicitly_truncated":{`{"actions":[{"type":"read","path":"src/main.go"}]}`,
+   `{"results":[{"type":"read","files":[{"path":"src/main.go","start_line":"1","total_lines":"2","truncated":"true","content":"first line"}]}]}`},
+ }{
+  t.Run(name,func(t *testing.T){
+   items:=exampleAutoCollectionRead()
+   items[0].Arguments=tc.arguments
+   items[1].Content=tc.result
+   if _,err:=VerifyTaskAutoCheck(Session{History:items},rule);err==nil{
+    t.Fatal("incomplete read incorrectly satisfied exact full_file_read milestone")
+   }
+  })
+ }
+ // An omitted start_line is valid: native Collection begins at 1 by default.
+ items:=exampleAutoCollectionRead()
+ items[0].Arguments=`{"actions":[{"type":"read","path":"src/main.go"}]}`
+ if _,err:=VerifyTaskAutoCheck(Session{History:items},rule);err!=nil{
+  t.Fatalf("native default first-line read rejected: %v",err)
+ }
 }

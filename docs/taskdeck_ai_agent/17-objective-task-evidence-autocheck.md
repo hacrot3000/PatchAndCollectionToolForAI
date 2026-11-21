@@ -96,3 +96,13 @@ New unit tests reject `FAIL`, `PREFLIGHT_FAIL`, `INCOMPLETE`, nonzero RC, nested
 - **Remote Agent (Go) / Remote Portal (PHP):** Still running / pending on final CI head at the time of this record. Do not claim either passed without final evidence.
 - **Safety:** This feature performs no extra provider egress and no native Patch replay. Automatic milestone acceptance is restricted to explicitly user-configured objective rules, and a machine-verified Patch wrapper PASS is not semantic end-to-end acceptance. Provider SENDING/UNKNOWN remains non-replayable.
 - **Next recommended focus:** Provide structured, independently verifiable test receipts for functional acceptance, then investigate provider-aware acknowledgement reconciliation where supported. Keep a per-response handoff current, and never infer task completion from a model answer.
+
+
+## Continuation — 2026-11-21 · exact full-file evidence hardening
+
+Scope remains the original objective Auto-check; this does **not** introduce new task kinds, grant extra provider egress, or claim functional tests are verified.
+
+- **Issue confirmed in implementation:** a read starting at a later line could finish without a `next_line` and report `truncated=false`. The previous verifier checked truncation but not the start line or required total-lines metadata, so a tail-only Collection read could be auto-accepted as a **full-file** read.
+- **Correction:** `full_file_read` now requires the actual native result to explicitly provide `start_line=1`, a parseable nonnegative `total_lines`, and `truncated=false` with no continuation/error. The paired canonical request must start at line 1 (or omit `start_line`, which defaults to 1). An incomplete final page, missing metadata or a mismatched request is not proof. The ordinary, manually inspected Collection evidence path is unchanged.
+- **Regression coverage:** included a real tail-only page of a 43-line file, a false first-line response to a tail-only request, missing metadata, a truncated page and a valid default first-line read; existing live and archived Auto-check fixtures now use the native Collection pagination metadata.
+- **Branch:** `feature/agent-exact-full-read-evidence-20261121` based on `2b0bbe8e22b4c7b255e611007558daf0294a48a9`. Commit and CI validation are recorded in the later finalization entry. The remaining external structured test receipt and provider acknowledgment work listed above remain **unimplemented** and must not be described as completed by this hardening.

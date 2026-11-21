@@ -101,11 +101,14 @@ func collectionCallRequestedPath(arguments,required string)bool{
   Actions []struct{
    Type string `json:"type"`
    Path string `json:"path"`
+   StartLine int `json:"start_line"`
   } `json:"actions"`
  }
  if json.Unmarshal([]byte(arguments),&data)!=nil{return false}
  for _,action:=range data.Actions{
-  if action.Type=="read"&&action.Path==required{return true}
+  // A request for just the tail of the file cannot prove a complete read.
+  // Absent start_line defaults to the first line in the native executor.
+  if action.Type=="read"&&action.Path==required&&action.StartLine>=0&&action.StartLine<=1{return true}
  }
  return false
 }
