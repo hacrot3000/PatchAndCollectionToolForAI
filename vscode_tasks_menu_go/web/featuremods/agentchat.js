@@ -2039,6 +2039,10 @@ function renderAgentTaskPlan(data){
  }
  const header=agentEl('strong','',String(data.done||0)+' / '+String(data.total||0)+' steps accepted · '+String(plan.state||'active').toUpperCase());
  agentTaskPlanBody.append(header,agentEl('div','agentchat-info',String(plan.goal||'')));
+ if(agentCurrentSession?.status==='created'){
+  agentTaskPlanBody.append(agentEl('div','agentchat-info',
+   'Send the first AI request normally. Auto continue starts only after a verified completed model turn; it never starts an empty conversation by itself.'));
+ }
  if(plan.next_retry_at){
   agentTaskPlanBody.append(agentEl('div','agentchat-info',
    'Next automatic provider attempt not before: '+String(plan.next_retry_at)+
