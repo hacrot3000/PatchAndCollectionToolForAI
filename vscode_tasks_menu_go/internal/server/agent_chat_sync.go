@@ -80,7 +80,7 @@ func (s *Server) agentChatSyncAPI(w http.ResponseWriter, r *http.Request, id str
 // unknown or ambiguous case is left untouched for explicit manual recovery.
 // Runs are bounded so a large journal cannot stall daemon start.
 func (s *Server) agentReconcilePendingOnStartup(ctx context.Context) {
-	if s == nil || s.Sessions == nil || s.Workspace == "" {
+	if s == nil || s.Workspace == "" {
 		return
 	}
 	store, err := s.agentChatStore()
@@ -99,8 +99,21 @@ func (s *Server) agentReconcilePendingOnStartup(ctx context.Context) {
 	for _, sess := range sessions {
 		if ctx.Err() != nil { return }
 		changed := false
+		// Provider turns are process-owned, so a requesting_ai journal loaded
+		// at daemon startup has no live provider worker. Do not leave it stuck
+		// forever and do not blindly replay an ambiguous provider request.
+		if sess.Status=="requesting_ai" {
+			sess.Status="failed"
+			sess.AppendEvent("turn_interrupted","failed","","provider_egress_after_restart_unknown")
+			for j:=range sess.ToolCalls{
+				if sess.ToolCalls[j].FeedbackStatus=="sending"{
+					sess.ToolCalls[j].FeedbackStatus="unknown"
+				}
+			}
+			changed=true
+		}
 		for j, record := range sess.ToolCalls {
-			if record.Status != "running" || record.PatchSessionID == "" {
+			if s.Sessions == nil || record.Status != "running" || record.PatchSessionID == "" {
 				continue
 			}
 			// Persisting after disconnect must not extend an expired approval

@@ -190,35 +190,37 @@ func TestAgentTextOnlyCollectionThenPatchNativeApprovalAndFeedback(t *testing.T)
     }
 }
 
-func TestAgentVisibleHistoryArchivesOnlyOldReadOnlyEvidence(t *testing.T) {
-	x:=agentchat.Session{}
-	x.History=append(x.History,agentchat.HistoryItem{Type:"user",Content:"Please inspect files and complete the original request"})
-	patchReceipt:=strings.Repeat("Patch verified PASS rc=0; ",1500)
-	x.History=append(x.History,agentchat.HistoryItem{
-		Type:"function_call",CallID:"patch-safety",Name:"taskdeck_submit_patch",Arguments:"{}",
-	},agentchat.HistoryItem{Type:"function_call_output",CallID:"patch-safety",Content:patchReceipt})
-	for i:=0;i<36;i++{
-		id:=fmt.Sprintf("read-%d",i)
-		x.History=append(x.History,
-			agentchat.HistoryItem{Type:"function_call",CallID:id,Name:"taskdeck_collect_workspace",Arguments:`{"actions":[{"type":"read","path":"AGENT.md"}]}`},
-			agentchat.HistoryItem{Type:"function_call_output",CallID:id,Content:strings.Repeat("UTF8 xin chào, verified text\n",600)})
-	}
-	raw:=x.History[4].Content
-	shown:=agentModelVisibleHistory(x)
-	if len(shown)!=len(x.History) {t.Fatalf("provider history lost tool call pairs: %d vs %d",len(shown),len(x.History))}
-	if shown[2].Content!=patchReceipt {t.Fatal("canonical Patch verification evidence was compacted")}
-	if !strings.Contains(shown[4].Content,"archived_read_only_observation") ||
-		!strings.Contains(shown[4].Content,"sha256") {
-		t.Fatal("old Collection result was not compacted before outbound context")
-	}
-	if strings.Contains(shown[len(shown)-1].Content,"archived_read_only_observation"){
-		t.Fatal("most recent Collection evidence should remain fully available")
-	}
-	if x.History[4].Content!=raw {t.Fatal("model-only compaction mutated canonical audited history")}
-	before,after:=0,0
-	for _,v:=range x.History{before+=len(v.Content)}
-	for _,v:=range shown{after+=len(v.Content)}
-	if after>=before || after>440<<10 {
-		t.Fatalf("long-running tool history did not reduce model context safely: before=%d after=%d",before,after)
-	}
+func TestAgentVisibleHistoryCompactsHistoricalPatchAndCollectionWithoutMutatingCanonical(t *testing.T) {
+ x:=agentchat.Session{}
+ x.History=append(x.History,agentchat.HistoryItem{Type:"user",Content:"Please inspect files and complete the original request"})
+ patchReceipt:=strings.Repeat("Patch verified PASS rc=0; ",1500)
+ patchArgs:=`{"name":"Fix CLI","patch_python":"print('pass')"}`
+ x.History=append(x.History,agentchat.HistoryItem{
+  Type:"function_call",CallID:"patch-safety",Name:"taskdeck_submit_patch",Arguments:patchArgs,
+ },agentchat.HistoryItem{Type:"function_call_output",CallID:"patch-safety",Content:patchReceipt})
+ for i:=0;i<36;i++{
+  id:=fmt.Sprintf("read-%d",i)
+  x.History=append(x.History,
+   agentchat.HistoryItem{Type:"function_call",CallID:id,Name:"taskdeck_collect_workspace",Arguments:`{"actions":[{"type":"read","path":"AGENT.md"}]}`},
+   agentchat.HistoryItem{Type:"function_call_output",CallID:id,Content:strings.Repeat("UTF8 xin chào, verified text\n",600)})
+ }
+ raw:=x.History[4].Content
+ shown:=agentModelVisibleHistory(x)
+ joined:=fmt.Sprint(shown)
+ if strings.Contains(joined,patchReceipt)||strings.Contains(joined,patchArgs) {
+  t.Fatal("historical Patch source or full receipt was re-sent")
+ }
+ if !strings.Contains(joined,"Fix CLI")||!strings.Contains(joined,"Prior Native Patch"){
+  t.Fatalf("Patch provenance lost after context compaction: %s",joined)
+ }
+ if !strings.Contains(joined,"AGENT.md")||!strings.Contains(joined,"evidence:"){
+  t.Fatal("prior Collection summary omitted source path and evidence")
+ }
+ if x.History[4].Content!=raw {t.Fatal("canonical audited history mutated")}
+ before,after:=0,0
+ for _,v:=range x.History{before+=len(v.Content)+len(v.Arguments)}
+ for _,v:=range shown{after+=len(v.Content)+len(v.Arguments)}
+ if after>=before || after>250<<10 {
+  t.Fatalf("large history was not compacted: before=%d after=%d",before,after)
+ }
 }

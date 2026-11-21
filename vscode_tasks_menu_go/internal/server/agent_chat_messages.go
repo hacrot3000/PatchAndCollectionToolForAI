@@ -302,25 +302,8 @@ func (s *Server) agentChatMessageAPI(w http.ResponseWriter, r *http.Request, id 
 	}
 	defer releaseQuota()
 
-	if len(session.History) > 200 {
-		// Remove only completed plain-text turns that precede any tool exchange or
-		// the protected tail. If nothing safe can be dropped, fail closed with 413
-		// rather than truncating pending commitments or tool pairs.
-		compacted := agentchat.CompactHistory(session.History, agentchat.CompactionConfig{KeepTail: 120, MaxDropped: 120})
-		if compacted.Dropped == 0 {
-			http.Error(w, "context is full and no safe compaction is available; start a new session", 413)
-			return
-		}
-		session.History = compacted.History
-		if session.Status == "" {
-			session.Status = "ready"
-		}
-		session, err = store.Save(session, session.Revision)
-		if err != nil {
-			http.Error(w, "cannot persist compacted context", 409)
-			return
-		}
-	}
+	// Provider context is compacted independently by contextcompact.
+	// Never destroy verified canonical source evidence to reduce request size.
 	first := len(session.History) == 0
 	next := agentchat.HistoryItem{Type: "user", Content: msg}
 	if first {
@@ -387,7 +370,7 @@ func (s *Server) agentChatMessageAPI(w http.ResponseWriter, r *http.Request, id 
 	payload, err := agentchat.BuildResponsesRequest(agentchat.RequestConfig{
 		Model: session.ModelID, Instructions: instructions, Mode: mode,
 		PreviousResponseID: session.PreviousResponseID, ConversationID: conversationID,
-		History: agentModelVisibleHistory(session), Next: []agentchat.HistoryItem{next}, MaxOutputTokens: limit,
+		History: agentContextForRequest(session, model, instructions, []agentchat.HistoryItem{next}), Next: []agentchat.HistoryItem{next}, MaxOutputTokens: limit,
 		ReasoningEffort: agentProviderReasoningEffort(p, session.ReasoningEffort, model),
 		EnablePatchTool: patchToolAvailable, EnableCollectionTool: patchToolAvailable,
 	})

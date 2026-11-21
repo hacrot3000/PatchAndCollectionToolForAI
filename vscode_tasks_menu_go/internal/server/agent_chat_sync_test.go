@@ -342,3 +342,27 @@ func TestAgentEventsJournalResyncsAfterCursor(t *testing.T) {
 		t.Fatalf("invalid cursor accepted: %d", r2.Code)
 	}
 }
+
+func TestAgentStartupMarksInterruptedProviderTurnRecoverableWithoutReplayingPatch(t *testing.T){
+ s,id,_:=agentPendingCallFixture(t,true)
+ store,err:=s.agentChatStore();if err!=nil{t.Fatal(err)}
+ x,err:=store.Get(id,"local");if err!=nil{t.Fatal(err)}
+ x.Status="requesting_ai"
+ x.ToolCalls[0].Status="done"
+ x.ToolCalls[0].Result=`{"status":"PASS","rc":0}`
+ x.ToolCalls[0].FeedbackSent=true
+ x.ToolCalls[0].FeedbackStatus="sending"
+ if _,err=store.Save(x,x.Revision);err!=nil{t.Fatal(err)}
+ s.agentReconcilePendingOnStartup(context.Background())
+ got,err:=store.Get(id,"local");if err!=nil{t.Fatal(err)}
+ if got.Status!="failed"||got.ToolCalls[0].FeedbackStatus!="unknown"{
+  t.Fatalf("provider egress was retried or not marked ambiguous: status=%s feedback=%s",
+   got.Status,got.ToolCalls[0].FeedbackStatus)
+ }
+ if got.ToolCalls[0].Status!="done"||got.ToolCalls[0].Result==""{
+  t.Fatal("native Patch receipt was lost/reexecuted")
+ }
+ var interrupted bool
+ for _,e:=range got.Events{if e.Kind=="turn_interrupted"{interrupted=true;break}}
+ if !interrupted{t.Fatal("restart interruption missing durable event")}
+}

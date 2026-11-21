@@ -185,6 +185,9 @@ type Session struct {
 	HistoryArchiveParts uint64 `json:"history_archive_parts,omitempty"`
 	ArchivedHistoryItems uint64 `json:"archived_history_items,omitempty"`
 	ToolCalls         []ToolCallRecord `json:"tool_calls,omitempty"`
+ PatchArchiveParts uint64 `json:"patch_archive_parts,omitempty"`
+ ArchivedPatchCalls uint64 `json:"archived_patch_calls,omitempty"`
+ PatchArchiveSummaries []string `json:"patch_archive_summaries,omitempty"`
 	Revision          uint64           `json:"revision"`
 	CreatedAt         time.Time        `json:"created_at"`
 	UpdatedAt         time.Time        `json:"updated_at"`
@@ -325,9 +328,9 @@ func validateSession(x Session) error {
 			completed[item.CallID] = true
 		}
 	}
-	if len(x.ToolCalls) > 32 {
-		return ErrInvalidSession
-	}
+	if len(x.ToolCalls) > 32 {return ErrInvalidSession}
+ if len(x.PatchArchiveSummaries)>24 {return ErrInvalidSession}
+ for _,summary:=range x.PatchArchiveSummaries {if len(summary)>220{return ErrInvalidSession}}
 	seenCalls := make(map[string]bool, len(x.ToolCalls))
 	for _, call := range x.ToolCalls {
 		if call.CallID == "" || len(call.CallID) > 256 || call.Name != "taskdeck_submit_patch" || seenCalls[call.CallID] || len(call.QueuePath) > 512 || len(call.PackageSHA256) > 64 || call.PackageSize < 0 || call.PackageSize > 2<<20 || len(call.PatchSessionID) > 256 || len(call.Result) > 4096 {
@@ -490,7 +493,7 @@ func (s *Store) Save(x Session, expectedRevision uint64) (Session, error) {
 		// A long-running Collection session can temporarily exceed the active
 		// history budget. Archive old completed reads before validating it.
 		// Other fields are still validated after the archival transformation.
-		if len(x.History) <= maxItems {
+		if len(x.History) <= maxItems && len(x.ToolCalls) <= 32 {
 			if err := validateSession(x); err != nil {return err}
 		}
 		if !s.matchesProject(x) {
@@ -508,11 +511,13 @@ func (s *Store) Save(x Session, expectedRevision uint64) (Session, error) {
 				return ErrStaleRevision
 			}
 			if existing.Owner != x.Owner || existing.Workspace != x.Workspace || existing.ProjectID != x.ProjectID || existing.ProviderID != x.ProviderID || existing.ModelID != x.ModelID || existing.Mode != x.Mode || !existing.CreatedAt.Equal(x.CreatedAt) ||
-				x.HistoryArchiveParts!=existing.HistoryArchiveParts || x.ArchivedHistoryItems!=existing.ArchivedHistoryItems {
+				x.HistoryArchiveParts!=existing.HistoryArchiveParts || x.ArchivedHistoryItems!=existing.ArchivedHistoryItems ||
+            x.PatchArchiveParts!=existing.PatchArchiveParts || x.ArchivedPatchCalls!=existing.ArchivedPatchCalls {
 				return ErrInvalidSession
 			}
 		}
-		if err:=s.archiveCollectionHistory(&x);err!=nil{return err}
+		if err:=s.archivePatchHistory(&x);err!=nil{return err}
+        if err:=s.archiveCollectionHistory(&x);err!=nil{return err}
 		if err:=validateSession(x);err!=nil{return err}
 		x.Revision = expectedRevision + 1
 		x.UpdatedAt = time.Now().UTC()
@@ -584,8 +589,11 @@ func (s *Store) Delete(id, owner string, expectedRevision uint64) error {
 		}
 		if err:=os.Remove(s.file(id));err!=nil{return err}
 		for _,part:=range s.historyArchiveSequences(x){
-			if err:=os.Remove(s.historyArchivePath(id,part));err!=nil&&!os.IsNotExist(err){return err}
-		}
+   if err:=os.Remove(s.historyArchivePath(id,part));err!=nil&&!os.IsNotExist(err){return err}
+  }
+  for part:=uint64(1);part<=x.PatchArchiveParts;part++{
+   if err:=os.Remove(s.patchArchivePath(id,part));err!=nil&&!os.IsNotExist(err){return err}
+  }
 		return nil
 	})
 }
