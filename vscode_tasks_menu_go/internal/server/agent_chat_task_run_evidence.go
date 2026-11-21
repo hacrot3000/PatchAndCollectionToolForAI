@@ -11,6 +11,7 @@ import (
  "time"
 
  "bletonfc/vscode_tasks_menu/internal/agentchat"
+ "bletonfc/vscode_tasks_menu/internal/patchtool"
  "bletonfc/vscode_tasks_menu/internal/session"
  "bletonfc/vscode_tasks_menu/internal/tasks"
 )
@@ -24,6 +25,10 @@ func (s *Server) verifyNativeTaskRunEvidence(x agentchat.Session, ref string, ta
   return agentchat.TaskPlanEvidence{},errors.New("exact Task session ID and positive Task ID are required")
  }
  if s==nil||s.Sessions==nil{return agentchat.TaskPlanEvidence{},errors.New("native Task session service unavailable")}
+ identity,err:=patchtool.ReadProjectIdentity(s.Workspace)
+ if err!=nil||identity.ID!=x.ProjectID{
+  return agentchat.TaskPlanEvidence{},errors.New("Task plan project identity has changed")
+ }
  meta,ok:=s.Sessions.Metadata(ref)
  if !ok||meta.ID!=ref{return agentchat.TaskPlanEvidence{},errors.New("exact native Task session unavailable; history log is not proof")}
  return verifyNativeTaskRunMetadata(s.Workspace,s.Config.SharedServerEnabled,x,meta,taskID,note)

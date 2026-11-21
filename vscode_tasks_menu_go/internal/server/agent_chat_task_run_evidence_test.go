@@ -3,7 +3,6 @@ package server
 import (
  "net/http"
  "os"
- "path/filepath"
  "runtime"
  "strings"
  "testing"
@@ -122,7 +121,5 @@ func TestTaskPlanAPIAdoptsActualSuccessfulTaskRunWithoutProviderOrPatch(t *testi
   t.Fatal("Task execution proof was lost across store reopening")
  }
  // Another Task ID cannot silently replace the accepted exact session.
- noEvidence:=step.Evidence[0]
- if noEvidence.Kind!="task_run"{t.Fatal("source was mislabeled as AI/manual evidence")}
- _=filepath.Base(s.Workspace)
+ if step.Evidence[0].Kind!="task_run"{t.Fatal("source was mislabeled as AI/manual evidence")}
 }
