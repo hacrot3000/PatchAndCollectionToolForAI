@@ -7,6 +7,7 @@ import (
  "fmt"
  "net/http"
  "net/http/httptest"
+ "time"
 
  "bletonfc/vscode_tasks_menu/internal/agentchat"
 )
@@ -59,7 +60,12 @@ func (s *Server) autoContinueTaskPlanOne(ctx context.Context,store *agentchat.St
   !current.TaskPlan.AutoContinue{return}
  p:=current.TaskPlan
  after:=agentchat.VerifiedWorkSignature(current)
- if after==before {
+ // A verified read or Patch may have been adopted by the background
+ // reconciler between scheduled turns. Compare to the previous durable
+ // signature, not only the state immediately before this model call.
+ reference:=p.LastWorkSignature
+ if p.LastContinuationKey==""{reference=before}
+ if after==reference {
   p.NoProgressTurns++
  }else{
   p.NoProgressTurns=0
@@ -75,6 +81,6 @@ func (s *Server) autoContinueTaskPlanOne(ctx context.Context,store *agentchat.St
  }else{
   current.AppendEvent("plan_continued",current.Status,"",step.ID)
  }
- p.UpdatedAt=current.UpdatedAt
+ p.UpdatedAt=time.Now().UTC()
  _,_=store.Save(current,current.Revision)
 }
