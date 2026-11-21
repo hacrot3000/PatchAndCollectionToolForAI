@@ -37,9 +37,7 @@ func TestRecentCollectionsSelectedBySafeTokenBudgetAndOlderEvidenceSummarized(t 
   id:=fmt.Sprintf("read-%d",i)
   path:=fmt.Sprintf("src/%02d/module.php",i)
   history=append(history,agentchat.HistoryItem{Type:"function_call",CallID:id,Name:"taskdeck_collect_workspace",Arguments:fmt.Sprintf(`{"actions":[{"type":"read","path":%q}]}`,path)},
-   agentchat.HistoryItem{Type:"function_call_output",CallID:id,Content:fmt.Sprintf(`{"results":[{"files":[{"path":%q,"content":%q}]}]}`,path,strings.Repeat("<?php
-function f() {}
-",190))})
+   agentchat.HistoryItem{Type:"function_call_output",CallID:id,Content:fmt.Sprintf(`{"results":[{"files":[{"path":%q,"content":%q}]}]}`,path,strings.Repeat("<?php\nfunction f() {}\n",190))})
  }
  original:=history[2].Content
  next:=[]agentchat.HistoryItem{{Type:"user",Content:"Continue task; do not stop"}}
