@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"sort"
 	"sync"
 	"time"
 
@@ -264,44 +265,96 @@ func (s *Server) autoFeedbackOne(ctx context.Context, store *agentchat.Store, id
 // An AutoFeedback turn may run hundreds of Collections or await an unlimited
 // provider retry for hours or days. Never hold the sole scheduler goroutine
 // inside that turn: other conversations must still be reconciled and resumed.
+
 const agentAutoFeedbackWorkerLimit = 4
 
+// Keep process-local fairness cursors bounded even if TaskDeck opens many
+// workspaces over multiple days. This is not a distributed scheduler lease.
+const maxAgentAutoFeedbackCursorScopes = 128
+
 type agentAutoFeedbackWorkerPool struct {
-	mu sync.Mutex
-	active map[string]struct{}
+ mu sync.Mutex
+ active map[string]struct{}
+ lastAdmitted map[string]string
+ cursorOrder []string
 }
 
 var agentAutoFeedbackWorkers = agentAutoFeedbackWorkerPool{active: map[string]struct{}{}}
 
 func (p *agentAutoFeedbackWorkerPool) acquire(key string) bool {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	if _, exists := p.active[key]; exists || len(p.active) >= agentAutoFeedbackWorkerLimit { return false }
-	p.active[key] = struct{}{}
-	return true
+ p.mu.Lock()
+ defer p.mu.Unlock()
+ if p.active==nil{p.active=map[string]struct{}{}}
+ if _,exists:=p.active[key];exists||len(p.active)>=agentAutoFeedbackWorkerLimit{return false}
+ p.active[key]=struct{}{}
+ return true
 }
+
 func (p *agentAutoFeedbackWorkerPool) release(key string) {
-	p.mu.Lock()
-	delete(p.active, key)
-	p.mu.Unlock()
+ p.mu.Lock()
+ delete(p.active,key)
+ p.mu.Unlock()
+}
+
+// acquireFairBatch selects ready sessions in deterministic round-robin order
+// rather than Store.List's newest-updated-first order. A chat whose provider
+// keeps updating its journal cannot permanently outrank a quieter chat.
+// Reservation, duplicate protection, worker limit and cursor movement are
+// one atomic operation. Nothing here grants provider egress or repeats Patch.
+func (p *agentAutoFeedbackWorkerPool) acquireFairBatch(scope string,candidates []string)[]string{
+ if scope==""||len(candidates)==0{return nil}
+ ids:=append([]string(nil),candidates...)
+ sort.Strings(ids)
+ p.mu.Lock()
+ defer p.mu.Unlock()
+ if p.active==nil{p.active=map[string]struct{}{}}
+ if p.lastAdmitted==nil{p.lastAdmitted=map[string]string{}}
+ last:=p.lastAdmitted[scope]
+ first:=sort.Search(len(ids),func(i int)bool{return ids[i]>last})
+ reserved:=make([]string,0,agentAutoFeedbackWorkerLimit)
+ for i:=0;i<len(ids)&&len(p.active)<agentAutoFeedbackWorkerLimit;i++{
+  id:=ids[(first+i)%len(ids)]
+  key:=scope+":"+id
+  if _,running:=p.active[key];running{continue}
+  p.active[key]=struct{}{}
+  reserved=append(reserved,id)
+  if _,known:=p.lastAdmitted[scope];!known{
+   if len(p.cursorOrder)>=maxAgentAutoFeedbackCursorScopes{
+    oldest:=p.cursorOrder[0]
+    delete(p.lastAdmitted,oldest)
+    p.cursorOrder=p.cursorOrder[1:]
+   }
+   p.cursorOrder=append(p.cursorOrder,scope)
+  }
+  p.lastAdmitted[scope]=id
+ }
+ return reserved
 }
 
 func (s *Server) scheduleAgentAutoFeedback(ctx context.Context) {
-	if s == nil || s.Workspace == "" || ctx.Err() != nil { return }
-	store, err := s.agentChatStore()
-	if err != nil { return }
-	sessions, err := store.List("local")
-	if err != nil { return }
-	for _, sess := range sessions {
-		if ctx.Err() != nil { return }
-		if !agentAutoFeedbackNeedsWork(sess) { continue }
-		key := aiWorkspaceHash(s.Workspace) + ":local:" + sess.ID
-		if !agentAutoFeedbackWorkers.acquire(key) { continue }
-		go func(id, key string) {
-			defer agentAutoFeedbackWorkers.release(key)
-			s.processAgentAutoFeedbackSession(ctx, store, id)
-		}(sess.ID, key)
-	}
+ if s==nil||s.Workspace==""||ctx.Err()!=nil{return}
+ store,err:=s.agentChatStore()
+ if err!=nil{return}
+ sessions,err:=store.List("local")
+ if err!=nil{return}
+ eligible:=make([]string,0,len(sessions))
+ for _,sess:=range sessions{
+  if ctx.Err()!=nil{return}
+  if agentAutoFeedbackNeedsWork(sess){eligible=append(eligible,sess.ID)}
+ }
+ scope:=aiWorkspaceHash(s.Workspace)+":local"
+ reserved:=agentAutoFeedbackWorkers.acquireFairBatch(scope,eligible)
+ for _,id:=range reserved{
+  key:=scope+":"+id
+  if ctx.Err()!=nil{
+   agentAutoFeedbackWorkers.release(key)
+   continue
+  }
+  go func(id,key string){
+   defer agentAutoFeedbackWorkers.release(key)
+   s.processAgentAutoFeedbackSession(ctx,store,id)
+  }(id,key)
+ }
 }
 
 // startAgentAutoFeedback keeps polling even if another session's verified
