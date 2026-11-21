@@ -5,6 +5,7 @@ import (
  "encoding/json"
  "strings"
  "testing"
+ "time"
 
  "bletonfc/vscode_tasks_menu/internal/agentchat"
 )
@@ -157,4 +158,34 @@ func TestAgentStopCancelsDurablePreparedRunBeforeEgress(t *testing.T){
  }
  s.processAgentAutoFeedbackSession(context.Background(),store,id)
  if calls!=0{t.Fatal("stopped prepared provider request was replayed")}
+}
+
+func TestAgentRunningProviderHeartbeatUpdatesLiveHandoff(t *testing.T){
+ s,id:=newAgentConversationFixture(t,"stateless")
+ store,err:=s.agentChatStore();if err!=nil{t.Fatal(err)}
+ x,err:=store.Get(id,"local");if err!=nil{t.Fatal(err)}
+ p:=agentProviderFixture()
+ x.Status="requesting_ai"
+ x.History=append(x.History,agentchat.HistoryItem{Type:"user",Content:"Long research requiring hours"})
+ payload:=[]byte(`{"model":"model","input":"Long research"}`)
+ if err=prepareAgentProviderRun(store,&x,"message","",p,p.Models[0],payload);err!=nil{t.Fatal(err)}
+ x,err=store.Save(x,x.Revision);if err!=nil{t.Fatal(err)}
+ if err=markAgentProviderSending(store,&x);err!=nil{t.Fatal(err)}
+ revision:=x.Revision
+ ctx,cancel:=context.WithCancel(context.Background())
+ stop:=startAgentProviderHeartbeat(ctx,store,"local",id)
+ defer cancel()
+ defer stop()
+ found:=false
+ deadline:=time.Now().Add(900*time.Millisecond)
+ for time.Now().Before(deadline){
+  content,_,e:=store.Handoff(id,"local")
+  if e==nil&&strings.Contains(content,"Last observed provider worker heartbeat"){
+   found=true;break
+  }
+  time.Sleep(15*time.Millisecond)
+ }
+ if !found{t.Fatal("live provider worker did not provide owner-scoped heartbeat")}
+ fresh,err:=store.Get(id,"local");if err!=nil{t.Fatal(err)}
+ if fresh.Revision!=revision{t.Fatal("heartbeat invalidated running provider CAS")}
 }
