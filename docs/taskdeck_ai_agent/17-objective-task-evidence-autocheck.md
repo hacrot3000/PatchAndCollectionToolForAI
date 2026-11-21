@@ -25,6 +25,7 @@ PR #162 introduces `internal/agentchat/task_evidence_validate.go` and updates ma
 - `Task plan → Enable exact-proof auto-check` presents a separate confirmation. The owner may later remove a rule before the step is accepted. Rules cannot silently grant Auto Patch or provider network permission.
 - The scheduler checks eligible rules after normal native Patch reconciliation / verified feedback, then before any next AI continuation. It records successful proofs **once** using the normal session CAS, without sending another provider request or executing a Patch. It **does not** automatically set the overall Task plan to completed.
 - Rules may be configured after evidence was already moved to a private integrity-checked Collection/Patch archive; in that case API verifies the exact old receipt immediately. No archived source content is sent to the model as part of verification.
+- Each rule stores its last-inspected Collection/Patch archive generation. If a long provider turn archives the exact tool receipt before the scheduler polls, the changed archive counter wakes one recheck. Absent evidence does not trigger an unbounded periodic archive scan.
 
 ## API examples
 
@@ -67,7 +68,7 @@ The user must bind **the actual exact call ID**; a name, file path or the model'
 
 ## Testing
 
-New unit tests reject `FAIL`, `PREFLIGHT_FAIL`, `INCOMPLETE`, nonzero RC, nested command failure/timeout, unparseable Patch result, mismatched native run ID, missing/failed/empty Collection responses, partially paged file reads, incorrect paths and unsafe rules. Server integration tests cover owner consent, durable pending rules, automatic acceptance of an exact successful native Patch/Collection result, and once-only transition with the whole plan left open.
+New unit tests reject `FAIL`, `PREFLIGHT_FAIL`, `INCOMPLETE`, nonzero RC, nested command failure/timeout, unparseable Patch result, mismatched native run ID, missing/failed/empty Collection responses, partially paged file reads, incorrect paths and unsafe rules. Server integration tests cover owner consent, durable pending rules, automatic acceptance of an exact successful native Patch/Collection result, and once-only transition with the whole plan left open. Another test generates **28 Patch and 160 Collection calls**, forces both archive types, then validates the old exact receipts without replay.
 
 **CI:** record final actual commit and workflow outcomes below before merge.
 
