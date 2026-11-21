@@ -2,6 +2,13 @@
 
 Audit date: **2026-11-21**. Source of truth: `hacrot3000/PatchAndCollectionToolForAI`, current `main` (audited at `3031e9d3b00ecde0998deb8ec029d6817ca50066`) plus the fixes in this audit branch.
 
+## Status update — 2026-11-21 (PRs #160–#161)
+
+- **R-02 partially mitigated by PR #160:** TaskDeck now records exact prepared provider payloads and a durable `PREPARED → SENDING` egress boundary. It can autonomously resume a previously unsent, checksummed `PREPARED` request after restart. **SENDING/UNKNOWN remain non-replayable** until provider acknowledgement is authoritative.
+- **R-08 partially mitigated by PR #161:** a canonical, owner-edited plan tracks up to 128 acceptance-gated milestones, tool/attested evidence, progress and completion independent from an AI turn. User-opted-in Auto continue invokes the existing native approval/idempotent provider paths and halts after repeated model-only nonprogress. **It does not independently evaluate semantic acceptance or mark milestones complete without trusted evidence.**
+- **R-05 partially mitigated by PR #161:** provider admission failures before network egress now use durable exponential retry-after rather than a three-second polling loop. Post-egress errors remain subject to the acknowledged/unknown recovery boundary.
+- **Handoff and CI:** see `docs/taskdeck_ai_agent/16-durable-task-plan-orchestration.md`; PR #161 Agent Chat protocol core PASS. Further research still required for authoritative provider acknowledgement and multi-day fairness.
+
 ## Status update — 2026-11-21 (PR #158)
 
 The original risk table below is a historical baseline as of the first audit. Changes landed subsequently in [PR #158](https://github.com/hacrot3000/PatchAndCollectionToolForAI/pull/158):
