@@ -182,6 +182,7 @@ type Session struct {
 	AutoFeedbackUntil *time.Time       `json:"auto_feedback_until,omitempty"`
 	Status            string           `json:"status"`
 	ProviderRun       *ProviderRun     `json:"provider_run,omitempty"`
+	TaskPlan          *TaskPlan        `json:"task_plan,omitempty"`
 	History           []HistoryItem    `json:"history"`
 	HistoryArchiveParts uint64 `json:"history_archive_parts,omitempty"`
 	ArchivedHistoryItems uint64 `json:"archived_history_items,omitempty"`
@@ -293,6 +294,7 @@ func (s *Store) withLock(fn func() error) error {
 }
 func validateSession(x Session) error {
 	if !validProviderRun(x.ProviderRun) {return ErrInvalidSession}
+	if err:=ValidateTaskPlan(x.TaskPlan);err!=nil{return err}
 	if x.RetryMode != "" && x.RetryMode != RetryOff &&
 		x.RetryMode != RetryLimited && x.RetryMode != RetryUnlimited {
 		return ErrInvalidSession
