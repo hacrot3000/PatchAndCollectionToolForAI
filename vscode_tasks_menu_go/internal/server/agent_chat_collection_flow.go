@@ -250,12 +250,18 @@ func (s *Server) agentChatRunCollection(
 		x.History = append(x.History, next)
 		x.Status = "requesting_ai"
 		x.AppendEvent("collect_observed", "requesting_ai", next.CallID, "")
+		if err=prepareAgentProviderRun(store,x,"collection",next.CallID,provider,model,payload);err!=nil{
+			return result,clearProviderRefs,&agentCollectionLocalError{Stage:"persist_prepared",Round:round+1,Cause:err}
+		}
 		*x, err = store.Save(*x, x.Revision)
 		if err != nil {
 			return result, clearProviderRefs, &agentCollectionLocalError{Stage: "journal_write", Round: round+1, Cause: err}
 		}
 		if ctx.Err() != nil {
 			return result, clearProviderRefs, &agentCollectionLocalError{Stage: "cancelled_before_provider_request", Round: round+1, Cause: ctx.Err()}
+		}
+		if err=markAgentProviderSending(store,x);err!=nil{
+			return result,clearProviderRefs,&agentCollectionLocalError{Stage:"persist_sending",Round:round+1,Cause:err}
 		}
 		// A slow inspection round must not exhaust the next provider request.
 		// The parent is the cancelable, multi-round turn context; each call
@@ -264,10 +270,12 @@ func (s *Server) agentChatRunCollection(
 		var traceID string
 		result, callErr, traceID = s.agentChatCallForOwner(ctx, x.Owner, x.ID, provider, key, payload)
 		if callErr != nil {
+			markAgentProviderOutcome(x,"unknown")
 			s.recordAgentDebugEvent(x.Owner, x.ID, next.CallID, "collection", "collection.continuation_failed",
 				"COLLECTION_PROVIDER_FAILED", fmt.Sprintf("Collection round %d provider continuation failed; see trace %s", round+1, traceID))
 			return result, clearProviderRefs, &agentCollectionProviderError{Round: round+1, TraceID: traceID, Cause: callErr}
 		}
+		markAgentProviderOutcome(x,"acknowledged")
 	}
 }
 
