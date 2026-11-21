@@ -24,7 +24,17 @@ func (s *Server) autoCheckTaskPlanOne(ctx context.Context,store *agentchat.Store
   step:=&x.TaskPlan.Steps[i]
   if step.AutoCheck==nil||step.Status=="done"{continue}
   evidence,e:=agentchat.VerifyArchivedTaskAutoCheck(store,x,step.AutoCheck)
-  if e!=nil{continue}
+  if e!=nil{
+   // The rule remains pending; record which archive generations were
+   // already searched so an unmatched proof does not spin forever.
+   if step.AutoCheck.CheckedHistoryParts!=x.HistoryArchiveParts||
+    step.AutoCheck.CheckedPatchParts!=x.PatchArchiveParts {
+    step.AutoCheck.CheckedHistoryParts=x.HistoryArchiveParts
+    step.AutoCheck.CheckedPatchParts=x.PatchArchiveParts
+    changed=true
+   }
+   continue
+  }
   if e:=agentchat.UpdateTaskPlanStep(&x,step.ID,"done",&evidence);e!=nil{continue}
   x.AppendEvent("plan_proof_verified",x.Status,step.AutoCheck.CallID,step.ID)
   changed=true
