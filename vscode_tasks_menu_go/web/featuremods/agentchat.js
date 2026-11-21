@@ -2095,17 +2095,24 @@ function renderAgentTaskPlan(data){
     const blocked=agentButton('Blocked',()=>agentTaskPlanAction('set_step',{step_id:step.id,status:'blocked'}).catch(showAgentError));
     buttons.append(active,blocked);
     const kind=agentEl('select');
-    for(const [key,label] of [['manual','User acceptance'],['patch','Native Patch receipt'],['collection','Collection evidence']]){
+    for(const [key,label] of [['manual','User acceptance'],['patch','Native Patch receipt'],['collection','Collection evidence'],['task_run','Verified Task run (exit 0)']]){
      kind.append(agentOption(key,label));
     }
-    const ref=agentEl('input');ref.placeholder='Tool call ID (for Patch or Collection)';
+    const ref=agentEl('input');ref.placeholder='Tool call ID / Task session ID';
+    const taskID=agentEl('input');taskID.type='number';taskID.min='1';taskID.placeholder='Exact Task ID';
+    taskID.style.display='none';
+    kind.addEventListener('change',()=>{taskID.style.display=kind.value==='task_run'?'':'none';});
     const note=agentEl('input');note.placeholder='Acceptance evidence note (required for manual)';
-    const done=agentButton('Mark done',()=>agentTaskPlanAction('set_step',{
-     step_id:step.id,status:'done',evidence_kind:kind.value,
-     evidence_ref:kind.value==='manual'?'':ref.value.trim(),
-     evidence_note:note.value.trim(),
-    }).catch(showAgentError));
-    row.append(kind,ref,note);
+    const done=agentButton('Mark done',()=>{
+     if(kind.value==='task_run'&&!window.confirm('This confirms only that the exact TaskDeck Task run exited with code 0. Verify that the executed Task and its tests meet this milestone. Continue?'))return;
+     agentTaskPlanAction('set_step',{
+      step_id:step.id,status:'done',evidence_kind:kind.value,
+      evidence_ref:kind.value==='manual'?'':ref.value.trim(),
+      evidence_task_id:kind.value==='task_run'?Number(taskID.value):0,
+      evidence_note:note.value.trim(),
+     }).catch(showAgentError);
+    });
+    row.append(kind,ref,taskID,note);
     buttons.append(done);
     // Objective auto-verification is explicit per milestone and exact call.
     if(step.auto_check){

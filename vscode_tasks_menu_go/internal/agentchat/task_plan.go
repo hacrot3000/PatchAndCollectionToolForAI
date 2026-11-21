@@ -18,7 +18,7 @@ const (
 var taskPlanStepIDPattern=regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$`)
 
 type TaskPlanEvidence struct {
- Kind string `json:"kind"` // patch, collection or manual
+ Kind string `json:"kind"` // patch, collection, task_run or manual
  Ref string `json:"ref,omitempty"`
  Digest string `json:"digest,omitempty"`
  Note string `json:"note,omitempty"`
@@ -73,7 +73,7 @@ func ValidateTaskPlan(p *TaskPlan)error{
   switch step.Status{case "pending","active","blocked","done":default:return ErrInvalidSession}
   if step.Status=="done"&&len(step.Evidence)==0{return ErrInvalidSession}
   for _,e:=range step.Evidence{
-   switch e.Kind{case "patch","collection","manual":default:return ErrInvalidSession}
+   switch e.Kind{case "patch","collection","task_run","manual":default:return ErrInvalidSession}
    if len(e.Ref)>256||len(e.Note)>512||len(e.Digest)>64{return ErrInvalidSession}
    if e.Kind=="manual" {
     if strings.TrimSpace(e.Note)==""||e.Ref!=""||e.Digest!=""{return ErrInvalidSession}

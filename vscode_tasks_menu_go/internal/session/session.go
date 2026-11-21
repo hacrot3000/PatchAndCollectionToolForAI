@@ -3,6 +3,7 @@ package session
 import (
 	"bufio"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -29,6 +30,9 @@ type Metadata struct {
 	Label           string `json:"label"`
 	Title           string `json:"title,omitempty"`
 	CommandPreview  string `json:"command_preview"`
+	// SHA-256 of the actual launched command, argv and working directory.
+	// Unlike the human-facing preview, this binds Task evidence to execution.
+	CommandSHA256   string `json:"command_sha256,omitempty"`
 	Cwd             string `json:"cwd"`
 	TargetType      string `json:"target_type,omitempty"`
 	TargetProfileID string `json:"target_profile_id,omitempty"`
@@ -139,7 +143,7 @@ func (m *Manager) Start(spec tasks.Execution) (Metadata, error) {
 		meta: Metadata{
 			ID: id, TaskID: spec.TaskID, Kind: spec.SessionKind,
 			OwnerUserID: spec.OwnerUserID, ProjectID: spec.ProjectID,
-			Label: spec.Label, CommandPreview: spec.Preview, Cwd: spec.Cwd,
+			Label: spec.Label, CommandPreview: spec.Preview, CommandSHA256: executionCommandSHA256(spec), Cwd: spec.Cwd,
 			TargetType: spec.TargetType, TargetProfileID: spec.TargetProfileID,
 			Status: "running", StartedAt: time.Now().Format(time.RFC3339),
 		},
@@ -927,4 +931,18 @@ func randomID() (string, error) {
 		return "", err
 	}
 	return hex.EncodeToString(raw[:]), nil
+}
+
+
+// executionCommandSHA256 binds machine-produced Task evidence to the argv
+// actually passed to exec.Command, rather than trusting a preview or log.
+// Do not include environment values: they may contain credentials.
+func executionCommandSHA256(spec tasks.Execution) string {
+ payload, _ := json.Marshal(struct {
+  Command string `json:"command"`
+  Args []string `json:"args"`
+  Cwd string `json:"cwd"`
+ }{Command:spec.Command,Args:spec.Args,Cwd:spec.Cwd})
+ sum:=sha256.Sum256(payload)
+ return hex.EncodeToString(sum[:])
 }
