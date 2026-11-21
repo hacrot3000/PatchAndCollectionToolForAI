@@ -70,7 +70,7 @@ func validateTaskCollectionSuccess(content string) error {
 }
 func hasTaskEvidenceError(raw json.RawMessage)bool{
  v:=strings.TrimSpace(string(raw))
- return v!=""&&v!="null"&&v!="false"&&v!=""""
+ return v!=""&&v!="null"&&v!="false"&&v!=string([]byte{34,34})
 }
 
 // For automatic read verification the user supplies the exact expected
