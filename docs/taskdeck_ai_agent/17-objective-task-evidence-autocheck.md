@@ -86,3 +86,13 @@ New unit tests reject `FAIL`, `PREFLIGHT_FAIL`, `INCOMPLETE`, nonzero RC, nested
 2. Check actual final CI results. Do not merge failing code.
 3. Continue with structured external test receipts and optional reviewed evidence proposal protocol.
 4. Preserve exact provider/Native Patch egress boundary and full canonical history; never replay a completed or ambiguous Patch.
+
+## Completion record — 2026-11-21
+
+- **Merged:** [PR #162](https://github.com/hacrot3000/PatchAndCollectionToolForAI/pull/162).
+- **Merge commit:** `90a5ca769857004e23db0433ad3103251e7c56a9`.
+- **Final functional+docs head validated:** `fad665f2f311f3f239079c50dc718ce40503fe11`.
+- **Agent Chat protocol core CI:** **PASS**, including tests for failed native Patch/Collection proof rejection, exact-call Auto-check, owner consent, once-only status update, cross-archive receipt verification (28 Patch / 160 Collection records) and existing Agent regressions.
+- **Remote Agent (Go) / Remote Portal (PHP):** Still running / pending on final CI head at the time of this record. Do not claim either passed without final evidence.
+- **Safety:** This feature performs no extra provider egress and no native Patch replay. Automatic milestone acceptance is restricted to explicitly user-configured objective rules, and a machine-verified Patch wrapper PASS is not semantic end-to-end acceptance. Provider SENDING/UNKNOWN remains non-replayable.
+- **Next recommended focus:** Provide structured, independently verifiable test receipts for functional acceptance, then investigate provider-aware acknowledgement reconciliation where supported. Keep a per-response handoff current, and never infer task completion from a model answer.
