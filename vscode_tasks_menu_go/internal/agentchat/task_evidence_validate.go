@@ -4,6 +4,7 @@ import (
  "encoding/json"
  "errors"
  "fmt"
+ "strconv"
  "strings"
 )
 
@@ -86,6 +87,8 @@ func validateTaskCompleteRead(content,path string)error{
    OutputTruncated bool `json:"output_truncated"`
    Files []struct{
     Path string `json:"path"`
+    StartLine string `json:"start_line"`
+    TotalLines string `json:"total_lines"`
     Content *string `json:"content"`
     Error string `json:"error"`
     Truncated string `json:"truncated"`
@@ -100,8 +103,14 @@ func validateTaskCompleteRead(content,path string)error{
  for _,action:=range envelope.Results{
   if action.Type!="read"||action.OutputTruncated{continue}
   for _,file:=range action.Files{
+   // A final non-truncated page that STARTED midway through a file
+   // is not a full-file read. Require native page metadata even for
+   // a one-line/empty file rather than trusting omitted fields.
+   total,err:=strconv.Atoi(file.TotalLines)
+   if err!=nil||total<0||file.StartLine!="1" {continue}
    if file.Path!=path||file.Content==nil||file.Error!=""||
-    file.Truncated=="true"||file.ContentTruncated=="true"||
+    file.Truncated!="false"||
+    (file.ContentTruncated!=""&&file.ContentTruncated!="false")||
     file.NextLine!=""{continue}
    return nil
   }
