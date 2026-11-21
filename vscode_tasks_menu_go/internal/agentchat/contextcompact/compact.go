@@ -118,8 +118,7 @@ func collectionSummary(call,output agentchat.HistoryItem)string{
    for _,f:=range r.Files {
     if len(evidence)>=10 {break}
     p:=truncate(f.Path,110)
-    if f.Error!="" {p+=" (read error)"}
-    else if f.Content!=""{
+    if f.Error!="" {p+=" (read error)"} else if f.Content!=""{
      first:=strings.TrimSpace(strings.SplitN(f.Content,"\n",2)[0])
      if first!=""{p+=" (first line: "+truncate(first,64)+")"}
     }
