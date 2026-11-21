@@ -167,13 +167,8 @@ func (s *Server) agentDeliverToolResult(ctx context.Context, store *agentchat.St
 		return agentDeliverResult{}, agentContinueError{429, "AI request rate limit exceeded"}
 	}
 	defer releaseQuota()
-	if len(x.History) > 200 {
-		compacted := agentchat.CompactHistory(x.History, agentchat.CompactionConfig{KeepTail: 120, MaxDropped: 120})
-		if compacted.Dropped == 0 {
-			return agentDeliverResult{}, agentContinueError{413, "agent context limit reached; start a new session"}
-		}
-		x.History = compacted.History
-	}
+	// Provider context is compacted independently by contextcompact.
+	// Never destroy verified canonical source evidence to reduce request size.
 	output := strings.TrimSpace(call.Result)
 	if output == "" {
 		return agentDeliverResult{}, agentContinueError{409, "tool result is empty"}
