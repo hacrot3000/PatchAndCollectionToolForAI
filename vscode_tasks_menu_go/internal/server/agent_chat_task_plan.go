@@ -113,6 +113,15 @@ func (s *Server) agentChatTaskPlanAPI(w http.ResponseWriter,r *http.Request,id s
    }
    if x.TaskPlan.State!="active"{http.Error(w,"resume plan before enabling automatic continuation",409);return}
    if agentchat.TaskPlanNext(x.TaskPlan)==nil{http.Error(w,"no actionable plan step remains",409);return}
+   if x.ProviderRun!=nil && (x.ProviderRun.Phase=="unknown"||x.ProviderRun.Phase=="sending"){
+    http.Error(w,"resolve ambiguous provider acknowledgement before enabling Auto continue",409);return
+   }
+   for _,call:=range x.ToolCalls{
+    if call.Status=="unknown"||call.FeedbackStatus=="unknown"||
+     call.FeedbackStatus=="sending"{
+     http.Error(w,"resolve ambiguous Native Patch/feedback before enabling Auto continue",409);return
+    }
+   }
   }
   x.TaskPlan.AutoContinue=req.Enabled
   x.TaskPlan.NoProgressTurns=0
