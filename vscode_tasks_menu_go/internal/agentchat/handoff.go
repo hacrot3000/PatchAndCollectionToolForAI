@@ -47,6 +47,25 @@ func HandoffMarkdown(x Session) string {
   break
  }
  if !foundGoal {b.WriteString("Original user goal is not available in active history; inspect the archived user transcript before assuming completion.\n\n")}
+ if x.TaskPlan!=nil{
+  plan:=x.TaskPlan
+  done,total:=TaskPlanProgress(plan)
+  fmt.Fprintf(&b,"## Durable task plan (%d/%d)\n\nGoal: %s\nState: %s; automatic continuation: %t; no-progress turns: %d\n\n",
+   done,total,handoffTrim(plan.Goal,1300),plan.State,plan.AutoContinue,plan.NoProgressTurns)
+  for _,step:=range plan.Steps{
+   fmt.Fprintf(&b,"- [%s] %s — %s; acceptance: %s\n",
+    step.Status,handoffTrim(step.ID,60),handoffTrim(step.Title,230),handoffTrim(step.Acceptance,580))
+   for _,ev:=range step.Evidence{
+    fmt.Fprintf(&b,"  - %s evidence: ref=%s digest=%s note=%s\n",
+     ev.Kind,handoffTrim(ev.Ref,120),handoffTrim(ev.Digest,64),handoffTrim(ev.Note,300))
+   }
+  }
+  if next:=TaskPlanNext(plan);next!=nil{
+   fmt.Fprintf(&b,"\nNext actionable milestone: %s — %s. Do not infer completion from the last assistant reply.\n\n",next.ID,next.Acceptance)
+  } else if !TaskPlanAllDone(plan) {
+   b.WriteString("\nNo actionable milestone remains; blocked steps require a user decision.\n\n")
+  }
+ }
  b.WriteString("## Recent verified progress\n\n")
  count:=0
  for i:=len(x.History)-1;i>=0 && count<9;i-- {
