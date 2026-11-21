@@ -3,7 +3,6 @@ package server
 import (
  "context"
  "encoding/json"
- "os"
  "strings"
  "testing"
 
@@ -41,20 +40,14 @@ func TestAgentPreparedProviderRunResumesExactlyOnceAfterRestart(t *testing.T){
  if !strings.Contains(finished.History[len(finished.History)-1].Content,"Task checkpoint ready"){
   t.Fatal("resumed provider response was not saved")
  }
- if _,err=os.Stat(storeProviderRunPathForTest(finished,store));!os.IsNotExist(err){
-  t.Fatal("post-acknowledgement provider payload retained on disk")
+ if _,_,err=store.PreparedProviderPayload(id,"local");err!=agentchat.ErrInvalidSession{
+  t.Fatal("completed provider run remained replayable")
  }
  // Old PREPARED request is no longer schedulable; the provider must never
  // receive a second copy on subsequent background scheduler ticks.
  s.processAgentAutoFeedbackSession(context.Background(),store,id)
  if counts!=1{t.Fatal("completed provider run was replayed")}
 }
-func storeProviderRunPathForTest(x agentchat.Session,store *agentchat.Store)string{
- // The private sidecar is not part of the public API; its absence is also
- // confirmed by the source-store retrieval phase being non-PREPARED.
- return ""
-}
-
 func TestAgentSendingRunRestartBecomesAmbiguousWithoutProviderReplay(t *testing.T){
  s,id:=newAgentConversationFixture(t,"stateless")
  store,err:=s.agentChatStore();if err!=nil{t.Fatal(err)}
