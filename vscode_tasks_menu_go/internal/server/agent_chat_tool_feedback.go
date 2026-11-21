@@ -209,12 +209,15 @@ func (s *Server) agentDeliverToolResult(ctx context.Context, store *agentchat.St
 	x.ToolCalls[idx].FeedbackStatus = "prepared"
 	x.Status = "requesting_ai"
 	x.AppendEvent("feedback_prepared", "requesting_ai", call.CallID, "")
+	if err=prepareAgentProviderRun(store,&x,"feedback",call.CallID,p,model,payload);err!=nil{
+		return agentDeliverResult{},agentContinueError{409,"cannot persist prepared provider feedback"}
+	}
 	x, err = store.Save(x, x.Revision)
 	if err != nil {
 		return agentDeliverResult{}, agentContinueError{409, "cannot persist once-only tool output"}
 	}
 	x.ToolCalls[idx].FeedbackStatus = "sending"
-	if x, err = store.Save(x, x.Revision); err != nil {
+	if err=markAgentProviderSending(store,&x); err != nil {
 		return agentDeliverResult{}, agentContinueError{409, "cannot record tool-output delivery attempt"}
 	}
 	if !consent {
@@ -223,6 +226,7 @@ func (s *Server) agentDeliverToolResult(ctx context.Context, store *agentchat.St
 		x.ToolCalls[idx].FeedbackStatus = ""
 		x.History = x.History[:len(x.History)-1]
 		x.ToolCalls[idx].FeedbackSent = false
+		markAgentProviderOutcome(&x,"blocked")
 		x.Status = "waiting_tool"
 		_, _ = store.Save(x, x.Revision)
 		return agentDeliverResult{}, agentContinueError{403, "explicit external-provider consent is required"}
