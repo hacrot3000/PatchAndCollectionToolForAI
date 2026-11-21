@@ -180,7 +180,7 @@ func TestAgentRunningProviderHeartbeatUpdatesLiveHandoff(t *testing.T){
  deadline:=time.Now().Add(900*time.Millisecond)
  for time.Now().Before(deadline){
   content,_,e:=store.Handoff(id,"local")
-  if e==nil&&strings.Contains(content,"Last observed provider worker heartbeat"){
+  if e==nil&&strings.Contains(content,"Provider worker heartbeat"){
    found=true;break
   }
   time.Sleep(15*time.Millisecond)
