@@ -29,6 +29,7 @@ type TaskPlanStep struct {
  Acceptance string `json:"acceptance"`
  Status string `json:"status"` // pending, active, blocked, done
  Evidence []TaskPlanEvidence `json:"evidence,omitempty"`
+ AutoCheck *TaskAutoCheck `json:"auto_check,omitempty"`
  UpdatedAt time.Time `json:"updated_at,omitempty"`
 }
 type TaskPlan struct {
@@ -68,6 +69,7 @@ func ValidateTaskPlan(p *TaskPlan)error{
    len(step.Acceptance)==0||len(step.Acceptance)>600||strings.TrimSpace(step.Acceptance)==""||
    len(step.Evidence)>MaxTaskPlanEvidence{return ErrInvalidSession}
   ids[step.ID]=true
+  if err:=ValidateTaskAutoCheck(step.AutoCheck);err!=nil{return err}
   switch step.Status{case "pending","active","blocked","done":default:return ErrInvalidSession}
   if step.Status=="done"&&len(step.Evidence)==0{return ErrInvalidSession}
   for _,e:=range step.Evidence{
