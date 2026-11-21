@@ -93,7 +93,7 @@ func (s *Server) agentChatTaskPlanAPI(w http.ResponseWriter,r *http.Request,id s
   if x.TaskPlan==nil{http.Error(w,"create a task plan first",409);return}
   var proof *agentchat.TaskPlanEvidence
   if req.Status=="done"{
-   verified,e:=agentchat.VerifyTaskPlanEvidence(x,req.EvidenceKind,req.EvidenceRef,req.EvidenceNote)
+   verified,e:=agentchat.VerifyArchivedTaskPlanEvidence(store,x,req.EvidenceKind,req.EvidenceRef,req.EvidenceNote)
    if e!=nil{http.Error(w,"completion evidence not verified: "+e.Error(),409);return}
    proof=&verified
   }
@@ -112,6 +112,7 @@ func (s *Server) agentChatTaskPlanAPI(w http.ResponseWriter,r *http.Request,id s
     http.Error(w,"automatic plan continuation is local-owner only",403);return
    }
    if x.TaskPlan.State!="active"{http.Error(w,"resume plan before enabling automatic continuation",409);return}
+   if agentchat.TaskPlanNext(x.TaskPlan)==nil{http.Error(w,"no actionable plan step remains",409);return}
   }
   x.TaskPlan.AutoContinue=req.Enabled
   x.TaskPlan.NoProgressTurns=0
