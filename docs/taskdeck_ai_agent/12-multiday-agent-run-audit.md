@@ -2,6 +2,13 @@
 
 Audit date: **2026-11-21**. Source of truth: `hacrot3000/PatchAndCollectionToolForAI`, current `main` (audited at `3031e9d3b00ecde0998deb8ec029d6817ca50066`) plus the fixes in this audit branch.
 
+## Status update — 2026-11-21 (PR #162)
+
+- **P0 false milestone completion closed for tool evidence:** The task planner no longer accepts an acknowledged Native Patch with FAIL/PREFLIGHT_FAIL/INCOMPLETE or an error-bearing Collection as successful evidence. Explicit native PASS and successful Collection observations are required; an independent test run remains a separate criterion.
+- **Objective Auto-check added:** a user-scoped, revision-fenced, explicitly approved exact `call_id` rule can automatically accept a narrowly machine-verifiable PASS Patch wrapper or complete, error-free file read. The tool's actual owner-scoped canonical/archived receipt is checked; no extra provider request or native re-execution is performed.
+- **Archive-heavy continuity improved:** each rule tracks its last-inspected Collection/Patch archive generation. A new archive segment wakes one re-evaluation, preventing missed evidence without creating a continuous disk-scan loop.
+- **Still P0:** Semantic functional test verification, provider authoritative acknowledgement for SENDING/UNKNOWN, and durable fair multi-day worker scheduling. See [handoff 17](17-objective-task-evidence-autocheck.md) and [PR #162](https://github.com/hacrot3000/PatchAndCollectionToolForAI/pull/162) (merged as `90a5ca769857004e23db0433ad3103251e7c56a9`).
+
 ## Status update — 2026-11-21 (PRs #160–#161)
 
 - **R-02 partially mitigated by PR #160:** TaskDeck now records exact prepared provider payloads and a durable `PREPARED → SENDING` egress boundary. It can autonomously resume a previously unsent, checksummed `PREPARED` request after restart. **SENDING/UNKNOWN remain non-replayable** until provider acknowledgement is authoritative.
