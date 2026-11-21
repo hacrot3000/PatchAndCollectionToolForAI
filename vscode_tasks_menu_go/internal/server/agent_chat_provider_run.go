@@ -39,6 +39,9 @@ func markAgentProviderSending(store *agentchat.Store,x *agentchat.Session)error{
  saved,err:=store.Save(*x,x.Revision)
  if err!=nil{return err}
  *x=saved
+ // The exact payload is needed only while PREPARED. Once the durable
+ // SENDING record exists, retaining it cannot help restart recovery.
+ _=store.DeleteProviderPayload(x.ID)
  return nil
 }
 func markAgentProviderOutcome(x *agentchat.Session,phase string){
