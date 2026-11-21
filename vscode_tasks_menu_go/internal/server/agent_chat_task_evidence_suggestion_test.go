@@ -1,6 +1,7 @@
 package server
 
 import (
+ "context"
  "net/http"
  "strings"
  "testing"
@@ -53,5 +54,22 @@ func TestModelSuggestedEvidenceRequiresOwnerRuleConsentAndNativeProof(t *testing
  y,err:=reopened.Get(id,"local");if err!=nil{t.Fatal(err)}
  if len(y.TaskPlan.Suggestions)!=1||y.TaskPlan.Suggestions[0].TurnID!="resp-suggested-1"{
   t.Fatal("model-suggested pointer did not survive durable journal reopen")
+ }
+ // Only a later VERIFIED exact tool observation can now satisfy the
+ // owner-authorized rule. The suggestion itself did not execute anything.
+ y.History=append(y.History,
+  agentchat.HistoryItem{Type:"function_call",Name:"taskdeck_collect_workspace",
+   CallID:"collect-proposed",Arguments:`{"actions":[{"type":"read","path":"src/main.go"}]}`},
+  agentchat.HistoryItem{Type:"function_call_output",CallID:"collect-proposed",
+   Content:`{"results":[{"type":"read","files":[{"path":"src/main.go","start_line":"1","total_lines":"1","truncated":"false","content":"package main"}]}]}`},
+ )
+ y.Status="completed"
+ y,err=store.Save(y,y.Revision);if err!=nil{t.Fatal(err)}
+ s.processAgentAutoFeedbackSession(context.Background(),store,id)
+ proved,err:=store.Get(id,"local");if err!=nil{t.Fatal(err)}
+ if proved.TaskPlan.Steps[0].Status!="done"||len(proved.TaskPlan.Steps[0].Evidence)!=1||
+  proved.TaskPlan.Steps[0].Evidence[0].Ref!="collect-proposed"||
+  proved.TaskPlan.State=="completed"{
+  t.Fatalf("owner-approved exact canonical tool evidence was not adopted safely: %+v",proved.TaskPlan)
  }
 }
