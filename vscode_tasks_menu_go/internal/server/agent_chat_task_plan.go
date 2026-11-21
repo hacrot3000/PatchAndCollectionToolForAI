@@ -123,6 +123,10 @@ func (s *Server) agentChatTaskPlanAPI(w http.ResponseWriter,r *http.Request,id s
    if err:=agentchat.ValidateTaskAutoCheck(rule);err!=nil{
     http.Error(w,"invalid automatic evidence rule",400);return
    }
+   // Baseline archive generations before accepting the rule. Future
+   // compaction will wake the worker if the exact receipt moved to disk.
+   rule.CheckedHistoryParts=x.HistoryArchiveParts
+   rule.CheckedPatchParts=x.PatchArchiveParts
    step.AutoCheck=rule
    step.UpdatedAt=now
    // A historical native receipt may already be in an archived segment.
