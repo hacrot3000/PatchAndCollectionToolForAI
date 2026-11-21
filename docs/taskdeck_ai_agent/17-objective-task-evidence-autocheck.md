@@ -166,3 +166,15 @@ This iteration addresses the exact Handoff 17 P1 item: user-reviewed binding of 
 - Task plan displays these hints next to the unchanged native proof rule editor. Clicking `Review suggested proof` only fills the local editor controls. The existing `Enable exact-proof auto-check` action still requires a separate click, explicit owner confirmation, revision CAS and the owner-scoped real receipt check. No suggested hint can directly create an Auto-check rule or mark `done`.
 - Historical/reopened journals retain the hints while recent ones can roll off at the defined cap. The plan can still finish only when actual verified evidence or separately user-attested acceptance satisfies every milestone. Suggestion messages must never count as verified work for the no-progress guard.
 - Regression tests cover valid provider-sourced suggestion, invalid or invented call ID, missing consent, unknown step, unsupported kind, malformed/extra fields, duplicate and bounded history, and persistence after reopening. Record exact merged commit and CI outcome in the completion addendum.
+
+
+## Completion addendum — 2026-11-21 · PR #165 (reviewed AI evidence pointers)
+
+- **Merged PR:** [#165](https://github.com/hacrot3000/PatchAndCollectionToolForAI/pull/165).
+- **Merge commit on main:** `7f70e785d624675d7d61df3e9d7dc0da93b48459`.
+- **Final validated PR HEAD:** `773d53c12bbfbea2cd4fe7e2a72f8f5d638ecb52`.
+- **CI on exact PR HEAD:** Agent Chat protocol core **PASS twice**, Remote Portal (PHP) **PASS**; Remote Agent (Go) still **in progress at merge**, not claimed successful.
+- **Implemented:** when the provider itself sends a bounded `taskdeck-evidence-suggestion` fenced JSON block, TaskDeck captures its exact `step_id`, `kind`, `call_id`, optional `path`, actual model turn ID, source SHA-256 and time. Only `patch_pass` or `full_file_read` hints are allowed. Maximum eight untrusted suggestions retained in the canonical Task plan. Malformed, duplicate, unknown-step and unsafe-path suggestions are rejected, and suggestions survive journal restart and appear in the per-revision handoff.
+- **User control:** `Task plan → Review suggested proof` fills the existing editor but **does not** change the canonical rule. A separate `Enable exact-proof auto-check` confirmation still requires owner authorization/revision CAS; only an actual verified native result can mark the step `done`. No automatic provider calls, Patch execution or complete-plan acceptance were introduced.
+- **Regressions:** true provider-result origin, spoofed user text ignored, no-consent rejection, absent receipt stays pending, subsequent canonical Collection proof succeeds once, no automatic whole-plan completion, malformed/extra fields, invalid paths, duplicates/bounds and durable handoff inclusion.
+- **Not completed by #165:** independent semantic test-suite/coverage validation, retained executable proof after native Task session eviction, authoritative provider SENDING/UNKNOWN reconciliation, cross-daemon fairness and long-running queue/resource limits. Do not infer any of those outcomes from these advisory model pointers.
