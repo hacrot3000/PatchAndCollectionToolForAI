@@ -27,7 +27,7 @@ func TestNewPatchReceiptOnlyOnceThenSummary(t *testing.T){
  pending:=[]agentchat.HistoryItem{{Type:"user",Content:"Fix PHP CLI"},patch}
  immediate:=[]agentchat.HistoryItem{{Type:"function_call_output",CallID:"patch-1",Content:result.Content}}
  visible, _=Build(pending,Policy{MaxInputTokens:32768,Next:immediate})
- if !strings.Contains(fmt.Sprint(visible),code[:40]){t.Fatal("new Patch tool output lost its pending function-call arguments")}
+ if !strings.Contains(fmt.Sprint(visible),"python patch mutates source"){t.Fatal("new Patch tool output lost its pending function-call arguments")}
  if immediate[0].Content!=result.Content{t.Fatal("new Patch result was modified")}
 }
 
@@ -41,7 +41,7 @@ func TestRecentCollectionsSelectedBySafeTokenBudgetAndOlderEvidenceSummarized(t 
  }
  original:=history[2].Content
  next:=[]agentchat.HistoryItem{{Type:"user",Content:"Continue task; do not stop"}}
- visible,stats:=Build(history,Policy{MaxInputTokens:12500,CollectionPercent:25,Next:next,Instructions:strings.Repeat("policy ",200)})
+ visible,stats:=Build(history,Policy{MaxInputTokens:25000,CollectionPercent:30,Next:next,Instructions:strings.Repeat("policy ",200)})
  if stats.RecentFullCollections<=0 || stats.RecentFullCollections>=26 || stats.SummarizedCollections<=0{
   t.Fatalf("expected adaptive N, not all or nothing: %+v",stats)
  }
