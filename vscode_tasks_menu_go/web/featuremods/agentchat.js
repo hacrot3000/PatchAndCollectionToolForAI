@@ -2025,7 +2025,7 @@ function renderAgentTaskPlan(data){
   const rows=agentEl('textarea','agentchat-taskplan-input');
   rows.placeholder='One step per line: step-id | title | acceptance criteria';
   rows.style.minHeight='110px';
-  const create=agentButton('Create plan',()=>async function(){
+  const create=agentButton('Create plan',()=>{(async()=>{
    const steps=rows.value.split(/\r?\n/).map(s=>s.trim()).filter(Boolean).map(s=>{
     const parts=s.split('|').map(v=>v.trim());
     if(parts.length!==3||!parts.every(Boolean))throw new Error('Each step must have ID | title | acceptance criteria.');
@@ -2033,7 +2033,7 @@ function renderAgentTaskPlan(data){
    });
    if(!goal.value.trim()||!steps.length)throw new Error('Enter the overall goal and at least one step.');
    await agentTaskPlanAction('create',{goal:goal.value.trim(),steps});
-  }().catch(showAgentError));
+  })().catch(showAgentError);});
   agentTaskPlanBody.append(agentEl('strong','','New durable task plan'),goal,rows,create);
   return;
  }
@@ -2045,14 +2045,14 @@ function renderAgentTaskPlan(data){
   const pause=agentButton(isPaused?'Resume plan':'Pause plan',()=>agentTaskPlanAction(isPaused?'resume':'pause').catch(showAgentError));
   actions.append(pause);
   if(!isPaused){
-   const auto=agentButton('Auto continue: '+(plan.auto_continue?'ON':'OFF'),()=>async function(){
+   const auto=agentButton('Auto continue: '+(plan.auto_continue?'ON':'OFF'),()=>{(async()=>{
     const enabled=!plan.auto_continue;
     if(enabled&&!window.confirm(
      'Allow TaskDeck to send further AI requests for this unfinished plan automatically? '+
      'Provider usage may be billed repeatedly. Native Patch still requires the existing approval settings; '+
      'ambiguous provider feedback is never replayed. Stop/Disable Auto continue at any time.'))return;
     await agentTaskPlanAction('set_auto_continue',{enabled,confirm_external:enabled});
-   }().catch(showAgentError));
+   })().catch(showAgentError);});
    auto.setAttribute('aria-pressed',String(Boolean(plan.auto_continue)));
    actions.append(auto);
   }
