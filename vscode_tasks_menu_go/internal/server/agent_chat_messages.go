@@ -358,15 +358,9 @@ func (s *Server) agentChatMessageAPI(w http.ResponseWriter, r *http.Request, id 
 	// Conversations mode is only trusted with verified evidence for this exact
 	// endpoint/model. Otherwise replay canonical history statelessly; the stored
 	// session mode stays immutable for audit and a later verified retry.
-	mode := session.Mode
+	mode := agentContextRequestMode(session,p.APIType,s.agentConversationCapabilityVerified(owner,p,model))
+	agentClearProviderRefsForStateless(&session,mode)
 	conversationID := session.ConversationID
-	if p.APIType == "chat_completions" {
-		mode = agentchat.Stateless
-		conversationID = ""
-	} else if mode == agentchat.Conversation && !s.agentConversationCapabilityVerified(owner, p, model) {
-		mode = agentchat.Stateless
-		conversationID = ""
-	}
 	payload, err := agentchat.BuildResponsesRequest(agentchat.RequestConfig{
 		Model: session.ModelID, Instructions: instructions, Mode: mode,
 		PreviousResponseID: session.PreviousResponseID, ConversationID: conversationID,
@@ -475,7 +469,7 @@ func (s *Server) agentChatMessageAPI(w http.ResponseWriter, r *http.Request, id 
 		return
 	}
 	appendAgentProviderResult(&session, result, patchToolAvailable)
-	if statelessCollection {
+	if mode==agentchat.Stateless || statelessCollection {
 		// The last Collection response was not persisted provider-side.
 		// Preserve local audit history without an unusable stateful reference.
 		session.PreviousResponseID = ""
