@@ -52,6 +52,10 @@ func HandoffMarkdown(x Session) string {
   done,total:=TaskPlanProgress(plan)
   fmt.Fprintf(&b,"## Durable task plan (%d/%d)\n\nGoal: %s\nState: %s; automatic continuation: %t; no-progress turns: %d\n\n",
    done,total,handoffTrim(plan.Goal,1300),plan.State,plan.AutoContinue,plan.NoProgressTurns)
+  if plan.NextRetryAt!=nil{
+   fmt.Fprintf(&b,"Automatic continuation deferred until: %s (consecutive admission delays: %d; no provider egress confirmed by this wait).\n\n",
+    plan.NextRetryAt.UTC().Format(time.RFC3339),plan.RetryStreak)
+  }
   for _,step:=range plan.Steps{
    fmt.Fprintf(&b,"- [%s] %s — %s; acceptance: %s\n",
     step.Status,handoffTrim(step.ID,60),handoffTrim(step.Title,230),handoffTrim(step.Acceptance,580))
