@@ -63,6 +63,11 @@ func HandoffMarkdown(x Session) string {
     fmt.Fprintf(&b,"  - Owner-bound expected test command: Task %d, SHA-256 %s, bound at %s; a NEW native Task run must match (not proof of test coverage).\n",
      g.TaskID,handoffTrim(g.CommandSHA256,64),g.BoundAt.UTC().Format(time.RFC3339))
    }
+   if required:=step.GoTestRequirements;required!=nil{
+    fmt.Fprintf(&b,"  - Owner-bound required Go tests in package %s (bound at %s; ALL required): %s. Test names must match one NEW successful native go test -json execution; not a coverage claim.\n",
+     handoffTrim(required.Package,200),required.BoundAt.UTC().Format(time.RFC3339),
+     handoffTrim(strings.Join(required.Tests,", "),800))
+   }
    for _,ev:=range step.Evidence{
     fmt.Fprintf(&b,"  - %s evidence: ref=%s digest=%s note=%s\n",
      ev.Kind,handoffTrim(ev.Ref,120),handoffTrim(ev.Digest,64),handoffTrim(ev.Note,300))

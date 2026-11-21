@@ -2095,7 +2095,7 @@ function renderAgentTaskPlan(data){
     const blocked=agentButton('Blocked',()=>agentTaskPlanAction('set_step',{step_id:step.id,status:'blocked'}).catch(showAgentError));
     buttons.append(active,blocked);
     const kind=agentEl('select');
-    for(const [key,label] of [['manual','User acceptance'],['patch','Native Patch receipt'],['collection','Collection evidence'],['task_run','Verified Task run (exit 0)'],['go_test_case','Verified Go test -json (named test)']]){
+    for(const [key,label] of [['manual','User acceptance'],['patch','Native Patch receipt'],['collection','Collection evidence'],['task_run','Verified Task run (exit 0)'],['go_test_case','Verified Go test -json (named test)'],['go_test_suite','Verified locked Go test checklist (all required)']]){
      kind.append(agentOption(key,label));
     }
     const ref=agentEl('input');ref.placeholder='Tool call ID / Task session ID';
@@ -2105,19 +2105,20 @@ function renderAgentTaskPlan(data){
     const goTest=agentEl('input');goTest.placeholder='Exact named test (e.g. TestFeature)';
     goPkg.style.display='none';goTest.style.display='none';
     kind.addEventListener('change',()=>{
-     taskID.style.display=['task_run','go_test_case'].includes(kind.value)?'':'none';
+     taskID.style.display=['task_run','go_test_case','go_test_suite'].includes(kind.value)?'':'none';
      goPkg.style.display=kind.value==='go_test_case'?'':'none';
      goTest.style.display=kind.value==='go_test_case'?'':'none';
     });
     const note=agentEl('input');note.placeholder='Acceptance evidence note (required for manual)';
     const done=agentButton('Mark done',()=>{
      if(kind.value==='task_run'&&!window.confirm('This confirms only that the exact TaskDeck Task run exited with code 0. Verify that the executed Task and its tests meet this milestone. Continue?'))return;
+     if(kind.value==='go_test_suite'&&!window.confirm('Verify ALL Go tests locked in this milestone from ONE NEW, COMPLETE native go test -json run? Any missing/skipped/failed required test blocks acceptance. This does not establish semantic coverage. Continue?'))return;
      if(kind.value==='go_test_case'&&!window.confirm(
       'Verify this exact Go test from COMPLETE native go test -json output? This requires a user-bound expected command and an available native session. A passing test is not proof of overall coverage. Continue?'))return;
      agentTaskPlanAction('set_step',{
       step_id:step.id,status:'done',evidence_kind:kind.value,
       evidence_ref:kind.value==='manual'?'':ref.value.trim(),
-      evidence_task_id:['task_run','go_test_case'].includes(kind.value)?Number(taskID.value):0,
+      evidence_task_id:['task_run','go_test_case','go_test_suite'].includes(kind.value)?Number(taskID.value):0,
       evidence_go_package:kind.value==='go_test_case'?goPkg.value.trim():'',
       evidence_go_test:kind.value==='go_test_case'?goTest.value.trim():'',
       evidence_note:note.value.trim(),
@@ -2159,6 +2160,41 @@ function renderAgentTaskPlan(data){
       'Optional: copy the executed command SHA-256 from Task Run History, lock it here, then run the Task AGAIN.'),
       expectedTask,expectedHash);
      buttons.append(lock);
+    }
+    // A user-predeclared test checklist prevents choosing convenient passing
+    // tests only after seeing a run. Native evidence remains required.
+    if(step.go_test_requirements){
+     const req=step.go_test_requirements;
+     row.append(agentEl('span','',
+      'Required Go tests (locked '+req.bound_at+'): '+req.package+
+      ' · '+req.tests.join(', ')+'. All must RUN/PASS in one new native run.'));
+     buttons.append(agentButton('Remove required Go tests',()=>{
+      if(!window.confirm('Remove the user-locked Go test checklist for this unfinished milestone? After removal, weaker evidence types become available again.'))return;
+      agentTaskPlanAction('set_go_test_requirements',{step_id:step.id,
+       enabled:false,confirm_go_tests:true}).catch(showAgentError);
+     }));
+    }else if(step.task_command_guard){
+     const pkg=agentEl('input');
+     pkg.placeholder='Expected Go package import path';
+     const tests=agentEl('textarea');
+     tests.rows=3;
+     tests.placeholder='One required TestName or TestName/subtest per line (1–16)';
+     const lockTests=agentButton('Lock required Go tests',()=>{
+      const names=tests.value.split(/\r?\n/).map(x=>x.trim()).filter(Boolean);
+      if(!pkg.value.trim()||names.length<1||names.length>16||new Set(names).size!==names.length){
+       showAgentError(new Error('Enter one Go package and 1–16 unique exact test names.'));
+       return;
+      }
+      if(!window.confirm('Bind '+names.length+' exact required Go test(s) in '+pkg.value.trim()+
+       ' to this milestone? You must run the Task AGAIN after this confirmation. Every test must PASS in one complete native go test -json run. No semantic coverage is inferred.'))return;
+      agentTaskPlanAction('set_go_test_requirements',{
+       step_id:step.id,enabled:true,confirm_go_tests:true,
+       evidence_go_package:pkg.value.trim(),required_go_tests:names,
+      }).catch(showAgentError);
+     });
+     row.append(agentEl('span','',
+      'Optional required Go test checklist: bind exact test names BEFORE the next run. Exit-zero or single-test evidence cannot replace an active checklist.'),pkg,tests);
+     buttons.append(lockTests);
     }
     // Objective auto-verification is explicit per milestone and exact call.
     if(step.auto_check){

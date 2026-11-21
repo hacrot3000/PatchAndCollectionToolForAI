@@ -9,6 +9,7 @@ import (
  "fmt"
  "regexp"
  "strings"
+ "time"
 
  "bletonfc/vscode_tasks_menu/internal/agentchat"
 )
@@ -126,4 +127,57 @@ func (s *Server) verifyNativeGoTestCaseEvidence(x agentchat.Session,
  if len(evidenceNote)>512{return agentchat.TaskPlanEvidence{},errors.New("Go test evidence note too long")}
  return agentchat.TaskPlanEvidence{Kind:"go_test_case",Ref:ref,
   Digest:hex.EncodeToString(digest[:]),Note:evidenceNote},nil
+}
+
+// verifyNativeGoTestSuiteEvidence checks an OWNER-PREDECLARED list, not tests
+// chosen opportunistically after viewing a successful Task. All tests must
+// run and pass in the same full, live native go test -json execution.
+func (s *Server) verifyNativeGoTestSuiteEvidence(x agentchat.Session,
+ ref string,taskID int,stepID,note string)(agentchat.TaskPlanEvidence,error){
+ if x.TaskPlan==nil||s==nil||s.Sessions==nil{return agentchat.TaskPlanEvidence{},errors.New("native Go test suite unavailable")}
+ var required *agentchat.TaskGoTestRequirements
+ for _,step:=range x.TaskPlan.Steps{
+  if step.ID==stepID{required=step.GoTestRequirements;break}
+ }
+ if required==nil||agentchat.ValidateTaskGoTestRequirements(required)!=nil{
+  return agentchat.TaskPlanEvidence{},errors.New("bind the expected Go package and named tests before the native Task run")
+ }
+ // The single-test verifier already enforces the native command and Task
+ // guard, successful exit, owner/project scope, output completeness and
+ // exact RUN/PASS plus package PASS for the first named test.
+ first,err:=s.verifyNativeGoTestCaseEvidence(x,ref,taskID,stepID,required.Package,required.Tests[0],"")
+ if err!=nil{return agentchat.TaskPlanEvidence{},err}
+ meta,ok:=s.Sessions.Metadata(ref)
+ if !ok||meta.ID!=ref{return agentchat.TaskPlanEvidence{},errors.New("native Go Task was evicted")}
+ start,err:=time.Parse(time.RFC3339,meta.StartedAt)
+ if err!=nil||!start.After(required.BoundAt.Truncate(time.Second)){
+  return agentchat.TaskPlanEvidence{},errors.New("native Go test Task must start after the required test list was bound")
+ }
+ output,_,cancel,err:=s.Sessions.Subscribe(ref)
+ if err!=nil{return agentchat.TaskPlanEvidence{},errors.New("cannot retrieve complete native test output")}
+ defer cancel()
+ if meta.OutputBytes<=0||meta.OutputBytes!=meta.RetainedBytes||
+  int64(len(output))!=meta.OutputBytes||len(output)>maxNativeGoTestOutput{
+  return agentchat.TaskPlanEvidence{},errors.New("native Go test output was truncated or unavailable")
+ }
+ for _,name:=range required.Tests[1:]{
+  if err:=verifyNamedGoTestJSON(output,required.Package,name);err!=nil{
+   return agentchat.TaskPlanEvidence{},fmt.Errorf("required Go test %s: %w",name,err)
+  }
+ }
+ identity:=struct{
+  Version int
+  FirstNativeProofDigest string
+  Package string
+  Tests []string
+  RequiredAt time.Time
+ }{1,first.Digest,required.Package,required.Tests,required.BoundAt}
+ encoded,err:=json.Marshal(identity)
+ if err!=nil{return agentchat.TaskPlanEvidence{},err}
+ sum:=sha256.Sum256(encoded)
+ evidenceNote:=fmt.Sprintf("Verified ALL %d owner-bound named Go tests in %s with package PASS from one complete native go test -json run; not a semantic coverage claim",
+  len(required.Tests),required.Package)
+ if strings.TrimSpace(note)!=""{evidenceNote+="; user note: "+strings.TrimSpace(note)}
+ if len(evidenceNote)>512{return agentchat.TaskPlanEvidence{},errors.New("Go test suite evidence note is too long")}
+ return agentchat.TaskPlanEvidence{Kind:"go_test_suite",Ref:ref,Digest:hex.EncodeToString(sum[:]),Note:evidenceNote},nil
 }
