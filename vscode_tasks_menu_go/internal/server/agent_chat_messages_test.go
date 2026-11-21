@@ -319,7 +319,9 @@ func TestAgentChatConversationModeFallsBackUntilVerified(t *testing.T) {
 	if w.Code != 200 {
 		t.Fatalf("fallback turn failed: %d %s", w.Code, w.Body)
 	}
-	// Once verified, the same stored mode may use the conversation ID.
+	// A Conversation ID returned to an UNVERIFIED stateless fallback is not a
+	// trustworthy provider-side chain. Later capability verification must NOT
+	// adopt that old ID; the request safely replays local history instead.
 	p := agentProviderFixture()
 	caps, err := s.agentChatCapabilities()
 	if err != nil {
@@ -361,8 +363,8 @@ func TestAgentChatConversationModeFallsBackUntilVerified(t *testing.T) {
 	if w.Code != 200 {
 		t.Fatalf("verified conversation turn failed: %d %s", w.Code, w.Body)
 	}
-	if !seenConversation {
-		t.Fatal("verified conversation ID was not reused")
+	if seenConversation {
+		t.Fatal("unverified stateless conversation ID was incorrectly adopted after capability verification")
 	}
 }
 

@@ -551,6 +551,10 @@ func (s *Store) Save(x Session, expectedRevision uint64) (Session, error) {
 		if e = os.Rename(temp.Name(), s.file(x.ID)); e != nil {
 			return e
 		}
+		// Do not fail or accidentally repeat a provider/native operation if
+		// this derived handoff write fails after the canonical commit.
+		// Handoff() can regenerate it from the journal on demand.
+		_ = s.writeHandoffLocked(x)
 		saved = x
 		return nil
 	})
@@ -588,6 +592,7 @@ func (s *Store) Delete(id, owner string, expectedRevision uint64) error {
 			return errors.New("conversation contains an active or unresolved Patch operation")
 		}
 		if err:=os.Remove(s.file(id));err!=nil{return err}
+		if err:=os.Remove(s.handoffFile(id));err!=nil&&!os.IsNotExist(err){return err}
 		for _,part:=range s.historyArchiveSequences(x){
    if err:=os.Remove(s.historyArchivePath(id,part));err!=nil&&!os.IsNotExist(err){return err}
   }

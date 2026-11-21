@@ -216,15 +216,16 @@ func (s *Server) agentChatRunCollection(
 			clearProviderRefs = true
 		}
 		mode := x.Mode
-		if mode == agentchat.Conversation && !s.agentConversationCapabilityVerified(x.Owner, provider, model) {
-			forceStateless = true
+		if agentContextNeedsRebase(*x) || (mode==agentchat.Conversation && !s.agentConversationCapabilityVerified(x.Owner,provider,model)){
+			forceStateless=true
+			clearProviderRefs=true
 		}
 		if forceStateless {
 			mode = agentchat.Stateless
 			// Retain canonical local history, but don't manufacture provider
 			// state references for requests sent with store:false.
 			x.PreviousResponseID = ""
-			if clearProviderRefs { x.ConversationID = "" }
+			x.ConversationID = ""
 		} else if mode == agentchat.PreviousResponse {
 			x.PreviousResponseID = result.ResponseID
 		} else if mode == agentchat.Conversation {
