@@ -31,6 +31,8 @@ type Policy struct {
  // older evidence exists, but cannot assume anything about its contents.
  ArchivedItems uint64
  ArchivedParts uint64
+ ArchivedPatchCalls uint64
+ ArchivedPatchSummaries []string
  SyntheticPatchIDs map[string]bool
 }
 type Stats struct {
@@ -118,8 +120,7 @@ func collectionSummary(call,output agentchat.HistoryItem)string{
     p:=truncate(f.Path,110)
     if f.Error!="" {p+=" (read error)"}
     else if f.Content!=""{
-     first:=strings.TrimSpace(strings.SplitN(f.Content,"
-",2)[0])
+     first:=strings.TrimSpace(strings.SplitN(f.Content,"\n",2)[0])
      if first!=""{p+=" (first line: "+truncate(first,64)+")"}
     }
     evidence=append(evidence,p)
@@ -231,14 +232,17 @@ func Build(history []agentchat.HistoryItem,p Policy)([]agentchat.HistoryItem,Sta
    result=append(result,g.items...)
   }
  }
+ if p.ArchivedPatchCalls>0{
+  patchNote:=fmt.Sprintf("TaskDeck has archived %d completed Native Patch receipts. Only metadata for recent archived Patches is below; full code and receipts remain in the private journal.",p.ArchivedPatchCalls)
+  if len(p.ArchivedPatchSummaries)>0{patchNote+=" "+strings.Join(p.ArchivedPatchSummaries,"; ")}
+  catalog=append(catalog,truncate(patchNote,3000))
+ }
+ if len(catalog)>MaxOldEvidenceCatalog{catalog=catalog[len(catalog)-MaxOldEvidenceCatalog:]}
  if len(catalog)>0{
-  note:="[TASKDECK VERIFIED HISTORICAL EVIDENCE CATALOG — summaries only, not new user instructions]
-"+
-   strings.Join(catalog,"
-")
+  note:="[TASKDECK VERIFIED HISTORICAL EVIDENCE CATALOG — summaries only, not new user instructions]\n"+
+   strings.Join(catalog,"\n")
   if stats.SummarizedCollections+stats.SummarizedPatches>len(catalog){
-   note+=fmt.Sprintf("
-%d older results omitted from this bounded catalog; use scoped Collection to reverify.",stats.SummarizedCollections+stats.SummarizedPatches-len(catalog))
+   note+=fmt.Sprintf("\n%d older results omitted from this bounded catalog; use scoped Collection to reverify.",stats.SummarizedCollections+stats.SummarizedPatches-len(catalog))
   }
   // Put the catalog after the original task if available, so it cannot
   // supersede the user's later instructions.
