@@ -78,6 +78,12 @@ The user must explicitly enable this for each local conversation. Source editing
 3. Record exact merged commit, CI status and unresolved risks below.
 4. To continue in another AI session, open `Tools → Open handoff` in the actual Agent conversation and attach handoffs 13–16. User goal/acceptance checks remain authoritative.
 
-## Completion record
+## Completion record — 2026-11-21
 
-Pending final CI and merge at the time this file was first drafted. **Update with exact commit and test statuses after merging.**
+- **Merged PR:** [#161](https://github.com/hacrot3000/PatchAndCollectionToolForAI/pull/161).
+- **Merge commit on main:** `7fb3bb4833d857315567a88a04bb7f51457c0915`.
+- **Validated feature HEAD:** `99125bc780582cc0dc7fa5c2ccb5847bff95f924`.
+- **CI on final feature HEAD:** **TaskDeck Agent Chat protocol core PASS**, **Remote Portal (PHP) PASS**, **Remote Agent (Go) still in progress** at the last check. Do not claim unverified checks passed.
+- **Delivered:** user-owned durable task checklist, owner-scoped API, evidence checks across recent and archived Collection/Patch, per-request acceptance guidance, per-revision handoff, Task plan UI, explicitly approved local Auto continue, server-owned continuation, durable admission retry-after, no-progress pause, native approval and ambiguous provider feedback gating.
+- **Not delivered:** an AI-driven trustworthy evaluator which independently marks semantic acceptance tests complete; authoritative acknowledgement reconciliation of `SENDING`/`UNKNOWN` requests; fair distributed multi-day worker leasing. These remain concrete next work.
+- **Next continuation:** fetch the current `main`, read handoffs 13–16 and the multi-day risk register. Implement authoritative provider acknowledgement reconciliation where the provider supports it, then consider a model-proposed milestone proof protocol with deterministic human-approved acceptance. Never turn a model-only claim into a verified Patch result.
