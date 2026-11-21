@@ -82,6 +82,16 @@ func TestAgentTaskPlanAPIRequiresNativeOrExplicitManualEvidence(t *testing.T){
  handoff,_,err:=store.Handoff(id,"local")
  if err!=nil||!strings.Contains(handoff,"Durable task plan (2/2)")||
   !strings.Contains(handoff,"patch-proof"){t.Fatalf("handoff does not contain milestone proof: %v %s",err,handoff)}
+ cannotEdit:=invokeAI(t,s.agentChatSessionItemAPI,http.MethodPost,path,map[string]any{
+  "action":"set_step","expected_revision":x.Revision,"step_id":"repair","status":"pending",
+ })
+ if cannotEdit.Code!=409{t.Fatal("completed plan was silently editable")}
+ reopened:=invokeAI(t,s.agentChatSessionItemAPI,http.MethodPost,path,map[string]any{
+  "action":"reopen","expected_revision":x.Revision,
+ })
+ if reopened.Code!=200{t.Fatalf("explicit plan reopen refused: %d %s",reopened.Code,reopened.Body)}
+ x,err=store.Get(id,"local");if err!=nil{t.Fatal(err)}
+ if x.TaskPlan.State!="paused"||x.TaskPlan.AutoContinue{t.Fatal("reopened plan did not become paused")}
 }
 
 func TestAgentAutoTaskPlanContinuationStallsWithoutVerifiedWork(t *testing.T){
