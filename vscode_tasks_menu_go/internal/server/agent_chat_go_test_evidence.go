@@ -19,7 +19,28 @@ import (
 const maxNativeGoTestOutput = 2 << 20
 
 var goTestPackagePattern=regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9_./-]{0,199}$`)
-var goNamedTestPattern=regexp.MustCompile(`^Test[A-Za-z0-9_]+(?:/[A-Za-z0-9_=.,-]+)*$`)
+var goNamedTestPattern=regexp.MustCompile(`^Test[A-Za-z0-9_]+(/[A-Za-z0-9_=.,-]+)*package server
+
+import (
+ "bytes"
+ "crypto/sha256"
+ "encoding/hex"
+ "encoding/json"
+ "errors"
+ "fmt"
+ "regexp"
+ "strings"
+
+ "bletonfc/vscode_tasks_menu/internal/agentchat"
+)
+
+// This is a narrowly scoped structured test result, not a generic test-suite
+// coverage claim. Native go test -json wraps test stdout inside JSON events;
+// plain shell log text can never activate this verifier.
+const maxNativeGoTestOutput = 2 << 20
+
+var goTestPackagePattern=regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9_./-]{0,199}$`)
+var goNamedTestPattern=)
 
 type nativeGoTestEvent struct {
  Action string `json:"Action"`
