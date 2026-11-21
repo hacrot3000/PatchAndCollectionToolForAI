@@ -35,6 +35,7 @@ func (s *Server) agentChatTaskPlanAPI(w http.ResponseWriter,r *http.Request,id s
   EvidenceKind string `json:"evidence_kind,omitempty"`
   EvidenceRef string `json:"evidence_ref,omitempty"`
   EvidenceNote string `json:"evidence_note,omitempty"`
+  EvidenceTaskID int `json:"evidence_task_id,omitempty"`
   Enabled bool `json:"enabled,omitempty"`
   ConfirmExternal bool `json:"confirm_external,omitempty"`
   ConfirmAutoAccept bool `json:"confirm_auto_accept,omitempty"`
@@ -98,7 +99,13 @@ func (s *Server) agentChatTaskPlanAPI(w http.ResponseWriter,r *http.Request,id s
   if x.TaskPlan.State=="completed"{http.Error(w,"reopen the completed plan explicitly before editing evidence",409);return}
   var proof *agentchat.TaskPlanEvidence
   if req.Status=="done"{
-   verified,e:=agentchat.VerifyArchivedTaskPlanEvidence(store,x,req.EvidenceKind,req.EvidenceRef,req.EvidenceNote)
+   var verified agentchat.TaskPlanEvidence
+   var e error
+   if req.EvidenceKind=="task_run"{
+    verified,e=s.verifyNativeTaskRunEvidence(x,req.EvidenceRef,req.EvidenceTaskID,req.EvidenceNote)
+   }else{
+    verified,e=agentchat.VerifyArchivedTaskPlanEvidence(store,x,req.EvidenceKind,req.EvidenceRef,req.EvidenceNote)
+   }
    if e!=nil{http.Error(w,"completion evidence not verified: "+e.Error(),409);return}
    proof=&verified
   }
