@@ -5,6 +5,7 @@ import (
  "strings"
  "fmt"
  "testing"
+ "time"
 )
 
 func TestDurableTaskPlanRequiresEvidenceAndPreservesOriginalGoal(t *testing.T){
@@ -121,4 +122,47 @@ func TestTaskPlanEvidenceLooksUpOldArchivedCollectionsAndPatches(t *testing.T){
  if _,err=VerifyArchivedTaskPlanEvidence(store,x,"patch","invented","");err==nil{
   t.Fatal("fabricated old Patch passed archived proof lookup")
  }
+}
+
+func TestOwnerBoundRequiredGoTestsPlanValidation(t *testing.T){
+ now:=time.Now().UTC()
+ p,err:=NewTaskPlan("Check all selected Go tests",[]TaskPlanStep{
+  {ID:"tests",Title:"Verify Go test suite",Acceptance:"All required test names must be observed"},
+ })
+ if err!=nil{t.Fatal(err)}
+ guard:=&TaskCommandGuard{TaskID:9,CommandSHA256:strings.Repeat("a",64),BoundAt:now.Add(-time.Minute)}
+ req:=&TaskGoTestRequirements{Package:"example.com/verified",Tests:[]string{"TestOne","TestTwo","TestNested/child"},BoundAt:now}
+ p.Steps[0].TaskCommandGuard=guard
+ p.Steps[0].GoTestRequirements=req
+ if err:=ValidateTaskPlan(p);err!=nil{t.Fatalf("valid owner-required Go checklist rejected: %v",err)}
+ duplicate:=*req
+ duplicate.Tests=[]string{"TestOne","TestOne"}
+ p.Steps[0].GoTestRequirements=&duplicate
+ if err:=ValidateTaskPlan(p);err==nil{t.Fatal("duplicate expected Go test name was allowed")}
+ p.Steps[0].GoTestRequirements=req
+ invalidPackage:=*req
+ invalidPackage.Package="../outside"
+ p.Steps[0].GoTestRequirements=&invalidPackage
+ if err:=ValidateTaskPlan(p);err==nil{t.Fatal("invalid package path accepted")}
+ p.Steps[0].GoTestRequirements=req
+ invalidTest:=*req
+ invalidTest.Tests=[]string{"TestOne","NotATest"}
+ p.Steps[0].GoTestRequirements=&invalidTest
+ if err:=ValidateTaskPlan(p);err==nil{t.Fatal("non-Go-test name accepted")}
+ p.Steps[0].GoTestRequirements=req
+ tooMany:=*req
+ tooMany.Tests=make([]string,0,MaxTaskGoRequiredTests+1)
+ for i:=0;i<MaxTaskGoRequiredTests+1;i++{tooMany.Tests=append(tooMany.Tests,fmt.Sprintf("TestCase%d",i))}
+ p.Steps[0].GoTestRequirements=&tooMany
+ if err:=ValidateTaskPlan(p);err==nil{t.Fatal("unbounded required Go tests accepted")}
+ p.Steps[0].GoTestRequirements=req
+ p.Steps[0].TaskCommandGuard=nil
+ if err:=ValidateTaskPlan(p);err==nil{t.Fatal("test requirements accepted without user-bound command guard")}
+ p.Steps[0].TaskCommandGuard=guard
+ stale:=*req
+ stale.BoundAt=guard.BoundAt.Add(-time.Second)
+ p.Steps[0].GoTestRequirements=&stale
+ if err:=ValidateTaskPlan(p);err==nil{t.Fatal("tests bound before command guard accepted")}
+ p.Steps[0].GoTestRequirements=req
+ if err:=ValidateTaskPlan(p);err!=nil{t.Fatalf("valid checklist did not survive restoration: %v",err)}
 }
