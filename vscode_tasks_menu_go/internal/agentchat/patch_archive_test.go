@@ -4,12 +4,13 @@ import (
  "errors"
  "fmt"
  "os"
+ "path/filepath"
  "strings"
  "testing"
 )
 
 func TestPatchReceiptsOverThirtyTwoRemainDurableWithoutReexecution(t *testing.T){
- dir:=t.TempDir()
+ dir:=filepath.Join(t.TempDir(),"private","agent")
  store,err:=NewStore(dir);if err!=nil{t.Fatal(err)}
  x,err:=NewSession("local","/workspace/test","project-uuid","provider","model",Stateless)
  if err!=nil{t.Fatal(err)}
@@ -59,7 +60,7 @@ func TestPatchReceiptsOverThirtyTwoRemainDurableWithoutReexecution(t *testing.T)
  }
 }
 func TestUnresolvedPatchIntentIsNotArchived(t *testing.T){
- store,err:=NewStore(t.TempDir());if err!=nil{t.Fatal(err)}
+ store,err:=NewStore(filepath.Join(t.TempDir(),"private","agent"));if err!=nil{t.Fatal(err)}
  x,err:=NewSession("local","/workspace/test","project-uuid","provider","model",Stateless)
  if err!=nil{t.Fatal(err)}
  x.History=append(x.History,HistoryItem{Type:"user",Content:"Original plan"})
