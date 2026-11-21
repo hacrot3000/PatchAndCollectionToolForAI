@@ -132,3 +132,29 @@ func TestAgentPreparedPatchFeedbackResumesOnlyOriginalReceipt(t *testing.T){
  s.processAgentAutoFeedbackSession(context.Background(),store,id)
  if requests!=1{t.Fatal("verified old patch result resent")}
 }
+
+func TestAgentStopCancelsDurablePreparedRunBeforeEgress(t *testing.T){
+ s,id:=newAgentConversationFixture(t,"stateless")
+ store,err:=s.agentChatStore();if err!=nil{t.Fatal(err)}
+ x,err:=store.Get(id,"local");if err!=nil{t.Fatal(err)}
+ p:=agentProviderFixture()
+ x.Status="requesting_ai"
+ x.History=append(x.History,agentchat.HistoryItem{Type:"user",Content:"Long-running research"})
+ payload:=[]byte(`{"model":"model","input":"research"}`)
+ if err=prepareAgentProviderRun(store,&x,"message","",p,p.Models[0],payload);err!=nil{t.Fatal(err)}
+ x,err=store.Save(x,x.Revision);if err!=nil{t.Fatal(err)}
+ w:=invokeAI(t,s.agentChatSessionItemAPI,"POST","/api/agent/sessions/"+id+"/cancel",nil)
+ if w.Code!=200||!strings.Contains(w.Body.String(),`"cancelled":true`){
+  t.Fatalf("Stop did not cancel PREPARED intent: %d %s",w.Code,w.Body)
+ }
+ fresh,err:=store.Get(id,"local");if err!=nil{t.Fatal(err)}
+ if fresh.Status!="cancelled"||fresh.ProviderRun.Phase!="blocked"{
+  t.Fatalf("stopped request is still eligible for provider egress: %+v",fresh.ProviderRun)
+ }
+ calls:=0
+ s.AgentChatCall=func(_ context.Context,_ agentchat.ProviderConfig,_ string,_ []byte)(agentchat.ResponsesResult,error){
+  calls++;return agentchat.ResponsesResult{},nil
+ }
+ s.processAgentAutoFeedbackSession(context.Background(),store,id)
+ if calls!=0{t.Fatal("stopped prepared provider request was replayed")}
+}
