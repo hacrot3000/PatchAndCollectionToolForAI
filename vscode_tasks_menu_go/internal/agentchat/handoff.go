@@ -56,6 +56,9 @@ func HandoffMarkdown(x Session) string {
    fmt.Fprintf(&b,"Automatic continuation deferred until: %s (consecutive admission delays: %d; no provider egress confirmed by this wait).\n\n",
     plan.NextRetryAt.UTC().Format(time.RFC3339),plan.RetryStreak)
   }
+  if len(plan.Steps)>compactHandoffPlanThreshold{
+   appendCompactTaskPlanHandoff(&b,x.ID,plan)
+  }else{
   for _,step:=range plan.Steps{
    fmt.Fprintf(&b,"- [%s] %s — %s; acceptance: %s\n",
     step.Status,handoffTrim(step.ID,60),handoffTrim(step.Title,230),handoffTrim(step.Acceptance,580))
@@ -72,6 +75,7 @@ func HandoffMarkdown(x Session) string {
     fmt.Fprintf(&b,"  - %s evidence: ref=%s digest=%s note=%s\n",
      ev.Kind,handoffTrim(ev.Ref,120),handoffTrim(ev.Digest,64),handoffTrim(ev.Note,300))
    }
+  }
   }
   if len(plan.Suggestions)>0{
    b.WriteString("\n## Model-suggested evidence pointers (UNTRUSTED; not acceptance)\n\n")
