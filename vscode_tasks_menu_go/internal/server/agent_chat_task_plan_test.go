@@ -6,6 +6,7 @@ import (
  "net/http"
  "strings"
  "testing"
+ "time"
 
  "bletonfc/vscode_tasks_menu/internal/agentchat"
 )
@@ -132,4 +133,40 @@ func TestAgentAutoPlanNeverReplaysAmbiguousProviderTurn(t *testing.T){
  x.ProviderRun=nil
  x.ToolCalls=[]agentchat.ToolCallRecord{{Status:"done",FeedbackSent:true,FeedbackStatus:"unknown"}}
  if agentchat.TaskPlanAutoContinueCandidate(x){t.Fatal("unknown Patch feedback was bypassed")}
+}
+
+func TestAgentTaskPlanAdmissionBackoffPersistsWithoutProviderEgress(t *testing.T){
+ s,id:=newAgentConversationFixture(t,"stateless")
+ store,err:=s.agentChatStore();if err!=nil{t.Fatal(err)}
+ x,err:=store.Get(id,"local");if err!=nil{t.Fatal(err)}
+ x.TaskPlan,err=agentchat.NewTaskPlan("Continue a large task",[]agentchat.TaskPlanStep{
+  {ID:"step1",Title:"Finish research",Acceptance:"Verified Collection evidence"},
+ })
+ if err!=nil{t.Fatal(err)}
+ x.TaskPlan.AutoContinue=true
+ x.Status="completed"
+ x,err=store.Save(x,x.Revision);if err!=nil{t.Fatal(err)}
+ s.deferTaskPlanAdmission(store,id,http.StatusTooManyRequests)
+ got,err:=store.Get(id,"local");if err!=nil{t.Fatal(err)}
+ if got.TaskPlan.RetryStreak!=1||got.TaskPlan.NextRetryAt==nil||
+  time.Until(*got.TaskPlan.NextRetryAt)<=0||
+  agentchat.TaskPlanAutoContinueCandidate(got){
+  t.Fatalf("rate admission did not persist a safe wait: %+v",got.TaskPlan)
+ }
+ // A fresh Store represents daemon reinitialization: the backoff is
+ // persisted in the session, not dependent on an in-memory timer.
+ reopened,err:=s.agentChatStore();if err!=nil{t.Fatal(err)}
+ afterRestart,err:=reopened.Get(id,"local");if err!=nil{t.Fatal(err)}
+ if afterRestart.TaskPlan.NextRetryAt==nil||
+  agentchat.TaskPlanAutoContinueCandidate(afterRestart){
+  t.Fatal("restart forgot retry-after and would hammer provider")
+ }
+ // A permanently invalid provider request pauses, but never marks
+ // the user's unfinished task complete.
+ s.deferTaskPlanAdmission(store,id,http.StatusRequestEntityTooLarge)
+ blocked,err:=store.Get(id,"local");if err!=nil{t.Fatal(err)}
+ if blocked.TaskPlan.State!="paused"||blocked.TaskPlan.AutoContinue||
+  agentchat.TaskPlanAllDone(blocked.TaskPlan) {
+  t.Fatalf("permanent request error silently finished plan: %+v",blocked.TaskPlan)
+ }
 }
