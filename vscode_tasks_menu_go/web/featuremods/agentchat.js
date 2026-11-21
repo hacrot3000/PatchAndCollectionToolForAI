@@ -2095,24 +2095,35 @@ function renderAgentTaskPlan(data){
     const blocked=agentButton('Blocked',()=>agentTaskPlanAction('set_step',{step_id:step.id,status:'blocked'}).catch(showAgentError));
     buttons.append(active,blocked);
     const kind=agentEl('select');
-    for(const [key,label] of [['manual','User acceptance'],['patch','Native Patch receipt'],['collection','Collection evidence'],['task_run','Verified Task run (exit 0)']]){
+    for(const [key,label] of [['manual','User acceptance'],['patch','Native Patch receipt'],['collection','Collection evidence'],['task_run','Verified Task run (exit 0)'],['go_test_case','Verified Go test -json (named test)']]){
      kind.append(agentOption(key,label));
     }
     const ref=agentEl('input');ref.placeholder='Tool call ID / Task session ID';
     const taskID=agentEl('input');taskID.type='number';taskID.min='1';taskID.placeholder='Exact Task ID';
     taskID.style.display='none';
-    kind.addEventListener('change',()=>{taskID.style.display=kind.value==='task_run'?'':'none';});
+    const goPkg=agentEl('input');goPkg.placeholder='Go package import path (e.g. example.com/module/pkg)';
+    const goTest=agentEl('input');goTest.placeholder='Exact named test (e.g. TestFeature)';
+    goPkg.style.display='none';goTest.style.display='none';
+    kind.addEventListener('change',()=>{
+     taskID.style.display=['task_run','go_test_case'].includes(kind.value)?'':'none';
+     goPkg.style.display=kind.value==='go_test_case'?'':'none';
+     goTest.style.display=kind.value==='go_test_case'?'':'none';
+    });
     const note=agentEl('input');note.placeholder='Acceptance evidence note (required for manual)';
     const done=agentButton('Mark done',()=>{
      if(kind.value==='task_run'&&!window.confirm('This confirms only that the exact TaskDeck Task run exited with code 0. Verify that the executed Task and its tests meet this milestone. Continue?'))return;
+     if(kind.value==='go_test_case'&&!window.confirm(
+      'Verify this exact Go test from COMPLETE native go test -json output? This requires a user-bound expected command and an available native session. A passing test is not proof of overall coverage. Continue?'))return;
      agentTaskPlanAction('set_step',{
       step_id:step.id,status:'done',evidence_kind:kind.value,
       evidence_ref:kind.value==='manual'?'':ref.value.trim(),
-      evidence_task_id:kind.value==='task_run'?Number(taskID.value):0,
+      evidence_task_id:['task_run','go_test_case'].includes(kind.value)?Number(taskID.value):0,
+      evidence_go_package:kind.value==='go_test_case'?goPkg.value.trim():'',
+      evidence_go_test:kind.value==='go_test_case'?goTest.value.trim():'',
       evidence_note:note.value.trim(),
      }).catch(showAgentError);
     });
-    row.append(kind,ref,taskID,note);
+    row.append(kind,ref,taskID,goPkg,goTest,note);
     buttons.append(done);
     // Optional owner-controlled expected command, not proof of coverage.
     if(step.task_command_guard){
