@@ -597,18 +597,24 @@ func (s *Store) List(owner string) ([]Session, error) {
 		if e != nil {
 			return e
 		}
-		if len(entries) > 1024 {
-			return fmt.Errorf("too many agent session files")
-		}
+		// Archive segments have names like <session>.history.<N>.json.
+		// Multi-day Collection sessions can legitimately produce thousands of
+		// those files. Count actual session journals, not unrelated private
+		// history segments, against the session-list admission limit.
 		out := make([]Session, 0)
+		sessionFiles := 0
 		for _, entry := range entries {
 			name := entry.Name()
 			if !strings.HasSuffix(name, ".json") {
 				continue
 			}
 			id := strings.TrimSuffix(name, ".json")
-			if !validID(id) {
+			if !validID(id) || !entry.Type().IsRegular() {
 				continue
+			}
+			sessionFiles++
+			if sessionFiles > 1024 {
+				return fmt.Errorf("too many agent session journals")
 			}
 			x, e := s.readLocked(id)
 			if e != nil {

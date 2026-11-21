@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"time"
 
 	"bletonfc/vscode_tasks_menu/internal/agentchat"
@@ -76,28 +77,44 @@ func (s *Server) runAgentAutoFeedback(ctx context.Context) {
 	if err != nil {
 		return
 	}
-	for i, sess := range sessions {
-		if i >= 32 || ctx.Err() != nil {
-			return
-		}
-		if sess.Owner != "local" {
-			continue
-		}
-		// An explicit local per-conversation Auto Patch grant is sufficient to
-		// invoke the SAME native approval gateway; there is no second executor.
-		s.autoPatchOne(ctx, store, sess.ID)
-		// Reconcile running native jobs in the background. GUI polling is not
-		// required for final-state adoption or automatic feedback.
-		s.reconcileAgentSession(ctx, store, sess.ID)
-		fresh, err := store.Get(sess.ID, "local")
-		if err != nil {
-			continue
-		}
-		if _, ok := agentAutoFeedbackCandidate(fresh); !ok {
-			continue
-		}
-		s.autoFeedbackOne(ctx, store, sess.ID)
+	for _, sess := range sessions {
+		if ctx.Err() != nil { return }
+		if sess.Owner != "local" || sess.Archived || !agentAutoFeedbackNeedsWork(sess) { continue }
+		s.processAgentAutoFeedbackSession(ctx, store, sess.ID)
 	}
+}
+
+// processAgentAutoFeedbackSession remains synchronous for the single-pass
+// reconciler and tests. The live scheduler runs this behind a bounded,
+// per-session worker guard so one multi-day AI continuation cannot starve
+// all other conversations.
+func (s *Server) processAgentAutoFeedbackSession(ctx context.Context, store *agentchat.Store, id string) {
+	if ctx.Err() != nil { return }
+	// Auto Patch uses exactly the existing revision-fenced native approval
+	// gateway; it must not reexecute an ambiguous native Patch.
+	s.autoPatchOne(ctx, store, id)
+	// Adopt verified native final results without requiring a browser poll.
+	s.reconcileAgentSession(ctx, store, id)
+	fresh, err := store.Get(id, "local")
+	if err != nil { return }
+	if _, ok := agentAutoFeedbackCandidate(fresh); ok {
+		s.autoFeedbackOne(ctx, store, id)
+	}
+}
+
+func agentAutoFeedbackNeedsWork(x agentchat.Session) bool {
+	if x.Owner != "local" || x.Archived { return false }
+	if _, ok := agentAutoPatchCandidate(x); ok { return true }
+	if _, ok := agentAutoFeedbackCandidate(x); ok { return true }
+	// A native operation can finish while the GUI is closed; it still
+	// requires reconciliation, even when auto-feedback was not selected.
+	for _, call := range x.ToolCalls {
+		switch call.Status {
+		case "running", "unknown", "dispatching":
+			return true
+		}
+	}
+	return false
 }
 
 // Auto Patch performs a single exact-call approval under the existing native
@@ -232,7 +249,52 @@ func (s *Server) autoFeedbackOne(ctx context.Context, store *agentchat.Store, id
 	}
 }
 
-// startAgentAutoFeedback runs the bounded scheduler until the context ends.
+// An AutoFeedback turn may run hundreds of Collections or await an unlimited
+// provider retry for hours or days. Never hold the sole scheduler goroutine
+// inside that turn: other conversations must still be reconciled and resumed.
+const agentAutoFeedbackWorkerLimit = 4
+
+type agentAutoFeedbackWorkerPool struct {
+	mu sync.Mutex
+	active map[string]struct{}
+}
+
+var agentAutoFeedbackWorkers = agentAutoFeedbackWorkerPool{active: map[string]struct{}{}}
+
+func (p *agentAutoFeedbackWorkerPool) acquire(key string) bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if _, exists := p.active[key]; exists || len(p.active) >= agentAutoFeedbackWorkerLimit { return false }
+	p.active[key] = struct{}{}
+	return true
+}
+func (p *agentAutoFeedbackWorkerPool) release(key string) {
+	p.mu.Lock()
+	delete(p.active, key)
+	p.mu.Unlock()
+}
+
+func (s *Server) scheduleAgentAutoFeedback(ctx context.Context) {
+	if s == nil || s.Workspace == "" || ctx.Err() != nil { return }
+	store, err := s.agentChatStore()
+	if err != nil { return }
+	sessions, err := store.List("local")
+	if err != nil { return }
+	for _, sess := range sessions {
+		if ctx.Err() != nil { return }
+		if !agentAutoFeedbackNeedsWork(sess) { continue }
+		key := aiWorkspaceHash(s.Workspace) + ":local:" + sess.ID
+		if !agentAutoFeedbackWorkers.acquire(key) { continue }
+		go func(id, key string) {
+			defer agentAutoFeedbackWorkers.release(key)
+			s.processAgentAutoFeedbackSession(ctx, store, id)
+		}(sess.ID, key)
+	}
+}
+
+// startAgentAutoFeedback keeps polling even if another session's verified
+// Patch feedback is awaiting hours of read-only Collection work. Worker
+// concurrency is bounded and duplicate scheduling is forbidden.
 func (s *Server) startAgentAutoFeedback(ctx context.Context) {
 	ticker := time.NewTicker(agentAutoFeedbackPoll)
 	defer ticker.Stop()
@@ -241,7 +303,7 @@ func (s *Server) startAgentAutoFeedback(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			s.runAgentAutoFeedback(ctx)
+			s.scheduleAgentAutoFeedback(ctx)
 		}
 	}
 }

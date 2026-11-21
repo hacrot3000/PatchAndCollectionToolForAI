@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -298,4 +299,46 @@ func (f *fakeAutoFeedbackNative) Metadata(id string) (session.Metadata, bool) {
 		return session.Metadata{}, false
 	}
 	return f.meta, true
+}
+
+func TestAgentAutoFeedbackWorkerPoolDoesNotStarveOtherConversations(t *testing.T) {
+	pool := agentAutoFeedbackWorkerPool{active: map[string]struct{}{}}
+	for i := 0; i < agentAutoFeedbackWorkerLimit; i++ {
+		if !pool.acquire(fmt.Sprintf("workspace:session-%d", i)) {
+			t.Fatalf("independent session %d did not acquire a background worker", i)
+		}
+	}
+	if pool.acquire("workspace:session-0") {
+		t.Fatal("same session scheduled twice during long-running continuation")
+	}
+	if pool.acquire("workspace:session-extra") {
+		t.Fatal("background worker limit was bypassed")
+	}
+	pool.release("workspace:session-1")
+	if !pool.acquire("workspace:session-extra") {
+		t.Fatal("queued session was not admitted when a background slot became free")
+	}
+	pool.release("workspace:session-extra")
+	if !pool.acquire("workspace:session-1") {
+		t.Fatal("released worker was not reusable")
+	}
+}
+
+func TestAgentAutoFeedbackNeedsWorkRecognizesLongRunningNativeAndPendingAutomation(t *testing.T) {
+	x := agentchat.Session{Owner:"local",Status:"waiting_tool"}
+	if agentAutoFeedbackNeedsWork(x) {t.Fatal("idle session incorrectly occupies background worker")}
+	x.ToolCalls=[]agentchat.ToolCallRecord{{Status:"running"}}
+	if !agentAutoFeedbackNeedsWork(x) {t.Fatal("running native patch must be reconciled without browser")}
+	x.ToolCalls[0].Status="pending"
+	if agentAutoFeedbackNeedsWork(x) {t.Fatal("pending patch without AutoPatch grant is not autonomous")}
+	x.AutoPatch=true
+	if !agentAutoFeedbackNeedsWork(x) {t.Fatal("authorized pending Patch should resume")}
+	x.AutoPatch=false
+	x.ToolCalls[0].Status="done"
+	x.ToolCalls[0].Result=`{"status":"PASS"}`
+	x.AutoFeedback=true
+	x.AutoFeedbackPersistent=true
+	if !agentAutoFeedbackNeedsWork(x) {t.Fatal("verified result with persistent auto-feedback should resume")}
+	x.Archived=true
+	if agentAutoFeedbackNeedsWork(x) {t.Fatal("archived session must never be resumed")}
 }

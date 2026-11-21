@@ -93,10 +93,11 @@ func (s *Server) agentReconcilePendingOnStartup(ctx context.Context) {
 	if err != nil {
 		return
 	}
-	for i, sess := range sessions {
-		if i >= 64 || ctx.Err() != nil {
-			return
-		}
+	// A project with long-running work may have many more than 64 sessions.
+	// Startup reconciliation is read-only native evidence inspection: do not
+	// silently skip older sessions merely because they are beyond a fixed index.
+	for _, sess := range sessions {
+		if ctx.Err() != nil { return }
 		changed := false
 		for j, record := range sess.ToolCalls {
 			if record.Status != "running" || record.PatchSessionID == "" {
