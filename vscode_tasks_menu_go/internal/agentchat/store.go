@@ -596,6 +596,7 @@ func (s *Store) Delete(id, owner string, expectedRevision uint64) error {
 		if err:=os.Remove(s.file(id));err!=nil{return err}
 		if err:=os.Remove(s.handoffFile(id));err!=nil&&!os.IsNotExist(err){return err}
 		if err:=os.Remove(s.providerRunFile(id));err!=nil&&!os.IsNotExist(err){return err}
+		if err:=os.Remove(s.providerHeartbeatFile(id));err!=nil&&!os.IsNotExist(err){return err}
 		for _,part:=range s.historyArchiveSequences(x){
    if err:=os.Remove(s.historyArchivePath(id,part));err!=nil&&!os.IsNotExist(err){return err}
   }
