@@ -36,6 +36,8 @@ func (s *Server) agentChatTaskPlanAPI(w http.ResponseWriter,r *http.Request,id s
   EvidenceRef string `json:"evidence_ref,omitempty"`
   EvidenceNote string `json:"evidence_note,omitempty"`
   EvidenceTaskID int `json:"evidence_task_id,omitempty"`
+  EvidenceGoPackage string `json:"evidence_go_package,omitempty"`
+  EvidenceGoTest string `json:"evidence_go_test,omitempty"`
   ExpectedCommandSHA256 string `json:"expected_command_sha256,omitempty"`
   ConfirmCommandGuard bool `json:"confirm_command_guard,omitempty"`
   Enabled bool `json:"enabled,omitempty"`
@@ -105,6 +107,9 @@ func (s *Server) agentChatTaskPlanAPI(w http.ResponseWriter,r *http.Request,id s
    var e error
    if req.EvidenceKind=="task_run"{
     verified,e=s.verifyNativeTaskRunEvidence(x,req.EvidenceRef,req.EvidenceTaskID,req.EvidenceNote,req.StepID)
+   }else if req.EvidenceKind=="go_test_case"{
+    verified,e=s.verifyNativeGoTestCaseEvidence(x,req.EvidenceRef,req.EvidenceTaskID,
+      req.StepID,req.EvidenceGoPackage,req.EvidenceGoTest,req.EvidenceNote)
    }else{
     verified,e=agentchat.VerifyArchivedTaskPlanEvidence(store,x,req.EvidenceKind,req.EvidenceRef,req.EvidenceNote)
    }

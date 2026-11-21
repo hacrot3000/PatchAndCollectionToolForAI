@@ -33,6 +33,13 @@ type Metadata struct {
 	// SHA-256 of the actual launched command, argv and working directory.
 	// Unlike the human-facing preview, this binds Task evidence to execution.
 	CommandSHA256   string `json:"command_sha256,omitempty"`
+    // OutputBytes is the total native PTY output, including discarded bytes.
+    // RetainedBytes is the exact currently available scrollback length.
+    // A structured test proof needs both to match, preventing tail-only proof.
+    OutputBytes    int64 `json:"output_bytes,omitempty"`
+    RetainedBytes  int64 `json:"retained_bytes,omitempty"`
+    // TestRunner is derived from exec.Command's launched argv, not Preview.
+    TestRunner string `json:"test_runner,omitempty"`
 	Cwd             string `json:"cwd"`
 	TargetType      string `json:"target_type,omitempty"`
 	TargetProfileID string `json:"target_profile_id,omitempty"`
@@ -143,7 +150,7 @@ func (m *Manager) Start(spec tasks.Execution) (Metadata, error) {
 		meta: Metadata{
 			ID: id, TaskID: spec.TaskID, Kind: spec.SessionKind,
 			OwnerUserID: spec.OwnerUserID, ProjectID: spec.ProjectID,
-			Label: spec.Label, CommandPreview: spec.Preview, CommandSHA256: executionCommandSHA256(spec), Cwd: spec.Cwd,
+			Label: spec.Label, CommandPreview: spec.Preview, CommandSHA256: executionCommandSHA256(spec), TestRunner: nativeTestRunner(spec), Cwd: spec.Cwd,
 			TargetType: spec.TargetType, TargetProfileID: spec.TargetProfileID,
 			Status: "running", StartedAt: time.Now().Format(time.RFC3339),
 		},
@@ -855,9 +862,12 @@ func (m *Manager) Subscribe(id string) ([]byte, <-chan []byte, func(), error) {
 }
 
 func (s *managedSession) metadata() Metadata {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.meta
+ s.mu.Lock()
+ defer s.mu.Unlock()
+ meta:=s.meta
+ meta.OutputBytes=s.outputTotal
+ meta.RetainedBytes=int64(len(s.scrollback))
+ return meta
 }
 
 func (s *managedSession) readLoop() {
@@ -945,4 +955,18 @@ func executionCommandSHA256(spec tasks.Execution) string {
  }{Command:spec.Command,Args:spec.Args,Cwd:spec.Cwd})
  sum:=sha256.Sum256(payload)
  return hex.EncodeToString(sum[:])
+}
+
+
+// nativeTestRunner identifies a narrowly supported structured test format from
+// the real program/arguments passed into exec.Command. No untrusted human
+// preview, browser log or model response can set this field.
+func nativeTestRunner(spec tasks.Execution) string {
+ bin:=strings.ToLower(filepath.Base(spec.Command))
+ if bin!="go"&&bin!="go.exe"{return ""}
+ if len(spec.Args)<2||spec.Args[0]!="test"{return ""}
+ for _,arg:=range spec.Args[1:]{
+  if arg=="-json"||arg=="-json=true"{return "go_test_json"}
+ }
+ return ""
 }
