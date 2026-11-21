@@ -131,6 +131,11 @@ func (s *Server) agentDeliverToolResult(ctx context.Context, store *agentchat.St
 	if call.FeedbackSent {
 		return agentDeliverResult{}, agentContinueError{409, "tool result not pending"}
 	}
+	// Consent must precede both the PREPARED journal and SENDING fence.
+	// A denied request never creates a replayable provider intent.
+	if !consent {
+		return agentDeliverResult{},agentContinueError{403,"explicit external-provider consent is required"}
+	}
 	if _, found := findAgentToolCall(x.History, call.CallID); !found {
 		return agentDeliverResult{}, agentContinueError{409, "source tool call not in transcript"}
 	}
@@ -220,17 +225,7 @@ func (s *Server) agentDeliverToolResult(ctx context.Context, store *agentchat.St
 	if err=markAgentProviderSending(store,&x); err != nil {
 		return agentDeliverResult{}, agentContinueError{409, "cannot record tool-output delivery attempt"}
 	}
-	if !consent {
-		// The scheduler must never send without a recorded user grant. Restore the
-		// pending state so a later explicit continuation remains possible.
-		x.ToolCalls[idx].FeedbackStatus = ""
-		x.History = x.History[:len(x.History)-1]
-		x.ToolCalls[idx].FeedbackSent = false
-		markAgentProviderOutcome(&x,"blocked")
-		x.Status = "waiting_tool"
-		_, _ = store.Save(x, x.Revision)
-		return agentDeliverResult{}, agentContinueError{403, "explicit external-provider consent is required"}
-	}
+
 	// The Patch feedback may trigger several read-only Collection turns.
 	// Keep one cancelable multi-call scope alive across the whole sequence;
 	// the provider's individual request deadline remains 60 seconds.
