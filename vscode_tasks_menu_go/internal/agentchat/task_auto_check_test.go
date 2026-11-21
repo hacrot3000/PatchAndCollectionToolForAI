@@ -2,6 +2,8 @@ package agentchat
 
 import (
  "strings"
+ "fmt"
+ "path/filepath"
  "testing"
 )
 
@@ -100,4 +102,58 @@ func TestAutoRulesRequireExactOwnerSpecifiedCallAndSafePath(t *testing.T){
  }
  good:=&TaskAutoCheck{Kind:"full_file_read",CallID:"collect-123",Path:"src/main.go"}
  if err:=ValidateTaskAutoCheck(good);err!=nil{t.Fatalf("safe exact rule rejected: %v",err)}
+}
+
+func TestAutoCheckVerifiedOldReceiptsAfterCollectionAndPatchArchival(t *testing.T){
+ store,err:=NewStore(filepath.Join(t.TempDir(),"private","agent"))
+ if err!=nil{t.Fatal(err)}
+ x,err:=NewSession("local","/verified-project","project-id","provider","model",Stateless)
+ if err!=nil{t.Fatal(err)}
+ x.TaskPlan,err=NewTaskPlan("Verify archived evidence",[]TaskPlanStep{
+  {ID:"patch",Title:"Patch wrapper applied",Acceptance:"Native PASS"},
+  {ID:"file",Title:"Read target file",Acceptance:"Complete full read"},
+ })
+ if err!=nil{t.Fatal(err)}
+ x.TaskPlan.Steps[0].AutoCheck=&TaskAutoCheck{Kind:"patch_pass",CallID:"patch-0"}
+ x.TaskPlan.Steps[1].AutoCheck=&TaskAutoCheck{Kind:"full_file_read",CallID:"read-0",Path:"src/main.go"}
+ x.History=append(x.History,HistoryItem{Type:"user",Content:"Original task"})
+ x,err=store.Save(x,0);if err!=nil{t.Fatal(err)}
+ for i:=0;i<28;i++{
+  id:=fmt.Sprintf("patch-%d",i)
+  run:=fmt.Sprintf("native-run-%d",i)
+  result:=fmt.Sprintf(`{"status":"PASS","run_id":"%s","rc":0}`,run)
+  x.History=append(x.History,
+   HistoryItem{Type:"function_call",Name:"taskdeck_submit_patch",CallID:id,Arguments:`{"name":"verified patch"}`},
+   HistoryItem{Type:"function_call_output",CallID:id,Content:result})
+  x.ToolCalls=append(x.ToolCalls,ToolCallRecord{
+   CallID:id,Name:"taskdeck_submit_patch",Status:"done",
+   FeedbackSent:true,FeedbackStatus:"acknowledged",
+   RunID:run,PatchSessionID:"native-session",
+   PackageSHA256:strings.Repeat("a",64),PackageSize:100,Result:result,
+  })
+ }
+ for i:=0;i<160;i++{
+  id:=fmt.Sprintf("read-%d",i)
+  x.History=append(x.History,
+   HistoryItem{Type:"function_call",Name:"taskdeck_collect_workspace",CallID:id,
+    Arguments:`{"actions":[{"type":"read","path":"src/main.go"}]}`},
+   HistoryItem{Type:"function_call_output",CallID:id,
+    Content:`{"results":[{"type":"read","files":[{"path":"src/main.go","content":"package main"}]}]}`},
+  )
+ }
+ x.Status="completed"
+ x,err=store.Save(x,x.Revision)
+ if err!=nil{t.Fatalf("archive-heavy evidence journal did not save: %v",err)}
+ if x.PatchArchiveParts==0||x.HistoryArchiveParts==0{t.Fatalf("test did not archive proof: %+v",x)}
+ if !TaskAutoCheckReady(x){t.Fatal("new archive generations did not wake exact-proof scheduler")}
+ for i:=range x.TaskPlan.Steps{
+  rule:=x.TaskPlan.Steps[i].AutoCheck
+  proof,err:=VerifyArchivedTaskAutoCheck(store,x,rule)
+  if err!=nil{t.Fatalf("archived proof %s invalid: %v",rule.CallID,err)}
+  if proof.Ref!=rule.CallID||proof.Digest==""{t.Fatal("archived tool receipt provenance missing")}
+  x.TaskPlan.Steps[i].Status="done"
+  x.TaskPlan.Steps[i].Evidence=[]TaskPlanEvidence{proof}
+ }
+ x,err=store.Save(x,x.Revision)
+ if err!=nil{t.Fatalf("archived auto-verification could not be persisted: %v",err)}
 }
