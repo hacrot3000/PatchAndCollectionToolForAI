@@ -6,6 +6,7 @@ import (
  "fmt"
  "path"
  "strings"
+ "unicode"
 )
 
 // AutoCheck is explicitly selected by the owner for ONE immutable tool call.
@@ -30,7 +31,8 @@ func ValidateTaskAutoCheck(rule *TaskAutoCheck) error{
   if len(rule.Path)==0||len(rule.Path)>512||path.IsAbs(rule.Path)||
    path.Clean(rule.Path)!=rule.Path||rule.Path=="."||
    rule.Path==".."||strings.HasPrefix(rule.Path,"../")||
-   strings.ContainsAny(rule.Path,"\\\r\n\x00"){return ErrInvalidSession}
+   strings.ContainsAny(rule.Path,"\\\r\n\x00")||
+   strings.IndexFunc(rule.Path,unicode.IsControl)>=0{return ErrInvalidSession}
  default:return ErrInvalidSession
  }
  return nil
