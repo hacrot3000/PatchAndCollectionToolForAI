@@ -19,8 +19,7 @@ func exampleAutoCollectionRead() []HistoryItem {
   {Type:"function_call",Name:"taskdeck_collect_workspace",CallID:"collect-123",
    Arguments:`{"actions":[{"type":"read","path":"src/main.go","start_line":1,"max_lines":200}]}`},
   {Type:"function_call_output",CallID:"collect-123",
-   Content:`{"results":[{"type":"read","files":[{"path":"src/main.go","content":"package main
-"}]}]}`},
+   Content:`{"results":[{"type":"read","files":[{"path":"src/main.go","content":"package main"}]}]}`},
  }
 }
 func TestTaskPlanCannotAcceptFailedNativePatchAsCompleted(t *testing.T){
