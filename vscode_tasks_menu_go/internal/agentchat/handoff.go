@@ -64,6 +64,16 @@ func HandoffMarkdown(x Session) string {
      ev.Kind,handoffTrim(ev.Ref,120),handoffTrim(ev.Digest,64),handoffTrim(ev.Note,300))
    }
   }
+  if len(plan.Suggestions)>0{
+   b.WriteString("\n## Model-suggested evidence pointers (UNTRUSTED; not acceptance)\n\n")
+   for _,candidate:=range plan.Suggestions{
+    fmt.Fprintf(&b,"- Suggested step=%s kind=%s call=%s path=%s; model_turn=%s source_sha256=%s. Requires separate owner review, rule consent and a verified native receipt.\n",
+     handoffTrim(candidate.StepID,64),handoffTrim(candidate.Kind,24),
+     handoffTrim(candidate.CallID,120),handoffTrim(candidate.Path,200),
+     handoffTrim(candidate.TurnID,120),handoffTrim(candidate.SourceDigest,64))
+   }
+   b.WriteString("\n")
+  }
   if next:=TaskPlanNext(plan);next!=nil{
    fmt.Fprintf(&b,"\nNext actionable milestone: %s — %s. Do not infer completion from the last assistant reply.\n\n",next.ID,next.Acceptance)
   } else if !TaskPlanAllDone(plan) {

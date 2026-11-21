@@ -56,3 +56,21 @@ func TestHandoffInterruptDoesNotAuthorizeDuplicatePatch(t *testing.T){
   !strings.Contains(out,"Never automatically resend ambiguous Patch feedback")||
   !strings.Contains(out,"run-1"){t.Fatalf("unsafe or incomplete recovery instructions: %s",out)}
 }
+
+func TestHandoffShowsUntrustedModelSuggestionWithoutGrantingCompletion(t *testing.T){
+ p,err:=NewTaskPlan("Fix source",[]TaskPlanStep{
+  {ID:"verify",Title:"Verify",Acceptance:"Check full source read"},
+ })
+ if err!=nil{t.Fatal(err)}
+ x:=Session{ID:"s1",ProjectID:"project",Status:"completed",TaskPlan:p}
+ CaptureTaskEvidenceSuggestion(&x,"resp-1",suggestionText("verify","full_file_read","collect-42","src/main.go"))
+ handoff:=HandoffMarkdown(x)
+ for _,needle:=range []string{"Model-suggested evidence pointers","UNTRUSTED",
+  "collect-42","resp-1","Requires separate owner review"}{
+  if !strings.Contains(handoff,needle){t.Fatalf("handoff omitted %q:\n%s",needle,handoff)}
+ }
+ if TaskPlanAllDone(x.TaskPlan)||x.TaskPlan.Steps[0].Status=="done"||
+  x.TaskPlan.Steps[0].AutoCheck!=nil{
+  t.Fatal("handoff suggestion became accepted milestone")
+ }
+}
