@@ -3,8 +3,6 @@ package server
 import (
  "context"
  "encoding/json"
- "errors"
- "time"
 
  "bletonfc/vscode_tasks_menu/internal/agentchat"
  "bletonfc/vscode_tasks_menu/internal/patchtool"
@@ -150,8 +148,3 @@ func (s *Server) resumePreparedAgentProviderRun(ctx context.Context,store *agent
  }
  return true
 }
-
-// In-process workers use existing session locks. This timestamp is a short
-// refresh hint for monitoring; it is never evidence of provider acknowledgement.
-var _=time.Now
-var _=errors.Is
