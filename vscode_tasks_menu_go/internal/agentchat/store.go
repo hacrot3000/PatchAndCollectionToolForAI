@@ -183,6 +183,7 @@ type Session struct {
 	Status            string           `json:"status"`
 	ProviderRun       *ProviderRun     `json:"provider_run,omitempty"`
 	TaskPlan          *TaskPlan        `json:"task_plan,omitempty"`
+ TaskPlanSegments []TaskPlanSegmentRef `json:"task_plan_segments,omitempty"`
 	History           []HistoryItem    `json:"history"`
 	HistoryArchiveParts uint64 `json:"history_archive_parts,omitempty"`
 	ArchivedHistoryItems uint64 `json:"archived_history_items,omitempty"`
@@ -465,6 +466,7 @@ func (s *Store) readLocked(id string) (Session, error) {
 			x.Target = "local"
 		}
 	}
+	if err=s.loadTaskPlanSegments(&x);err!=nil{return Session{},err}
 	if err = validateSession(x); err != nil {
 		return Session{}, err
 	}
@@ -523,9 +525,21 @@ func (s *Store) Save(x Session, expectedRevision uint64) (Session, error) {
 		if err:=s.archivePatchHistory(&x);err!=nil{return err}
         if err:=s.archiveCollectionHistory(&x);err!=nil{return err}
 		if err:=validateSession(x);err!=nil{return err}
+		// Immutable plan parts must be durable BEFORE the referencing session
+		// journal is atomically renamed. CAS and owner checks are complete.
+		var old *Session
+		if e==nil{old=&existing}
+		if err:=s.stageTaskPlanSegments(&x,old,expectedRevision+1);err!=nil{return err}
 		x.Revision = expectedRevision + 1
 		x.UpdatedAt = time.Now().UTC()
-		raw, e := json.Marshal(x)
+		// Persist the compact manifest, never duplicate segment-backed steps.
+		onDisk:=x
+		if len(x.TaskPlanSegments)>0{
+			planMeta:=*x.TaskPlan
+			planMeta.Steps=nil
+			onDisk.TaskPlan=&planMeta
+		}
+		raw, e := json.Marshal(onDisk)
 		if e != nil {
 			return e
 		}
@@ -559,6 +573,9 @@ func (s *Store) Save(x Session, expectedRevision uint64) (Session, error) {
 		// this derived handoff write fails after the canonical commit.
 		// Handoff() can regenerate it from the journal on demand.
 		_ = s.writeHandoffLocked(x)
+		// Remove only old parts no longer referenced by the committed
+		// journal. A crash may leave unreferenced new parts, never lost data.
+		if e==nil{s.cleanupTaskPlanSegments(existing.TaskPlanSegments,x.TaskPlanSegments,x.ID)}
 		saved = x
 		return nil
 	})
@@ -599,6 +616,9 @@ func (s *Store) Delete(id, owner string, expectedRevision uint64) error {
 		if err:=os.Remove(s.handoffFile(id));err!=nil&&!os.IsNotExist(err){return err}
 		if err:=os.Remove(s.providerRunFile(id));err!=nil&&!os.IsNotExist(err){return err}
 		if err:=os.Remove(s.providerHeartbeatFile(id));err!=nil&&!os.IsNotExist(err){return err}
+  for _,ref:=range x.TaskPlanSegments{
+   if err:=os.Remove(s.taskPlanSegmentPath(id,ref));err!=nil&&!os.IsNotExist(err){return err}
+  }
 		for _,part:=range s.historyArchiveSequences(x){
    if err:=os.Remove(s.historyArchivePath(id,part));err!=nil&&!os.IsNotExist(err){return err}
   }
