@@ -11,7 +11,8 @@ import (
 )
 
 const (
- MaxTaskPlanSteps=128
+ MaxTaskPlanSteps=1024
+ MaxInlineTaskPlanSteps=128
  MaxTaskPlanGoalBytes=4096
  MaxTaskPlanEvidence=12
  MaxTaskPlanSuggestions=8
