@@ -61,17 +61,8 @@ func (s *Store) loadTaskPlanSegments(x *Session)error{
   }
   // Each segment except the final must be a full page. Prevent splicing.
   if i<len(x.TaskPlanSegments)-1&&ref.Count!=taskPlanSegmentSize{return ErrInvalidSession}
-  path:=s.taskPlanSegmentPath(x.ID,ref)
-  info,err:=os.Lstat(path)
-  if err!=nil{return fmt.Errorf("missing Task plan segment: %w",err)}
-  if !info.Mode().IsRegular()||info.Mode().Perm()&0077!=0||
-   info.Size()==0||info.Size()>taskPlanSegmentBytesLimit{return ErrInvalidSession}
-  raw,err:=os.ReadFile(path);if err!=nil{return err}
-  if int64(len(raw))!=info.Size(){return ErrInvalidSession}
-  sum:=sha256.Sum256(raw)
-  if hex.EncodeToString(sum[:])!=ref.SHA256{return errors.New("Task plan segment digest mismatch")}
-  var part []TaskPlanStep
-  if json.Unmarshal(raw,&part)!=nil||len(part)!=ref.Count{return ErrInvalidSession}
+  part,err:=s.readVerifiedTaskPlanSegment(x.ID,ref)
+  if err!=nil{return err}
   steps=append(steps,part...)
  }
  if len(steps)<=MaxInlineTaskPlanSteps||len(steps)>MaxTaskPlanSteps{return ErrInvalidSession}
@@ -134,4 +125,19 @@ func (s *Store) cleanupTaskPlanSegments(old,current []TaskPlanSegmentRef,id stri
   p:=s.taskPlanSegmentPath(id,ref)
   if !retained[p]{_ =os.Remove(p)}
  }
+}
+
+func (s *Store) readVerifiedTaskPlanSegment(id string,ref TaskPlanSegmentRef)([]TaskPlanStep,error){
+  path:=s.taskPlanSegmentPath(id,ref)
+  info,err:=os.Lstat(path)
+  if err!=nil{return nil,fmt.Errorf("missing Task plan segment: %w",err)}
+  if !info.Mode().IsRegular()||info.Mode().Perm()&0077!=0||
+   info.Size()==0||info.Size()>taskPlanSegmentBytesLimit{return nil,ErrInvalidSession}
+  raw,err:=os.ReadFile(path);if err!=nil{return nil,err}
+  if int64(len(raw))!=info.Size(){return nil,ErrInvalidSession}
+  sum:=sha256.Sum256(raw)
+  if hex.EncodeToString(sum[:])!=ref.SHA256{return nil,errors.New("Task plan segment digest mismatch")}
+  var part []TaskPlanStep
+  if json.Unmarshal(raw,&part)!=nil||len(part)!=ref.Count{return nil,ErrInvalidSession}
+  return part,nil
 }

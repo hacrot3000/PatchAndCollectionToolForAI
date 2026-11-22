@@ -433,7 +433,7 @@ func validateSession(x Session) error {
 	}
 	return nil
 }
-func (s *Store) readLocked(id string) (Session, error) {
+func (s *Store) readSessionManifestLocked(id string) (Session, error) {
 	if !validID(id) {
 		return Session{}, ErrNotFound
 	}
@@ -466,12 +466,16 @@ func (s *Store) readLocked(id string) (Session, error) {
 			x.Target = "local"
 		}
 	}
-	if err=s.loadTaskPlanSegments(&x);err!=nil{return Session{},err}
-	if err = validateSession(x); err != nil {
-		return Session{}, err
-	}
 	return x, nil
 }
+func (s *Store) readLocked(id string) (Session, error) {
+ x,err:=s.readSessionManifestLocked(id)
+ if err!=nil{return Session{},err}
+ if err=s.loadTaskPlanSegments(&x);err!=nil{return Session{},err}
+ if err=validateSession(x);err!=nil{return Session{},err}
+ return x,nil
+}
+
 func (s *Store) Get(id, owner string) (Session, error) {
 	var out Session
 	err := s.withLock(func() error {

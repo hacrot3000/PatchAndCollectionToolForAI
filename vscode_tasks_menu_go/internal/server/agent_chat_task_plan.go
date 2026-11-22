@@ -71,19 +71,10 @@ func (s *Server) agentChatTaskPlanAPI(w http.ResponseWriter,r *http.Request,id s
  defer release()
  store,err:=s.agentChatStore()
  if err!=nil{http.Error(w,"session journal unavailable",500);return}
- x,err:=store.Get(id,owner)
- if errors.Is(err,agentchat.ErrNotFound){http.Error(w,"session not found",404);return}
- if err!=nil{http.Error(w,"session journal unavailable",500);return}
- if x.Workspace!=s.Workspace{http.Error(w,"workspace mismatch",403);return}
+ // Paged GET uses Store.TaskPlanPage's bounded memory representation. It
+ // validates every referenced segment SHA before reporting global progress
+ // and avoids materializing the complete 1,024-step Task plan.
  if r.Method==http.MethodGet{
-  done,total:=agentchat.TaskPlanProgress(x.TaskPlan)
-  result:=map[string]any{
-   "session_id":id,"revision":x.Revision,"plan":x.TaskPlan,
-   "done":done,"total":total,"all_done":agentchat.TaskPlanAllDone(x.TaskPlan),
-   "completed":x.TaskPlan!=nil&&x.TaskPlan.State=="completed",
-  }
-  // Existing unpaginated callers retain the complete plan. Paging creates
-  // only a response copy, never a truncated journal or independent edits.
   q:=r.URL.Query()
   _,hasLimit:=q["limit"]
   _,hasOffset:=q["offset"]
@@ -106,22 +97,27 @@ func (s *Server) agentChatTaskPlanAPI(w http.ResponseWriter,r *http.Request,id s
     }
     offset=value
    }
-   count:=0
-   if x.TaskPlan!=nil{count=len(x.TaskPlan.Steps)}
-   if offset>count{
+   page,e:=store.TaskPlanPage(id,owner,offset,limit)
+   if errors.Is(e,agentchat.ErrNotFound){http.Error(w,"session not found",404);return}
+   if errors.Is(e,agentchat.ErrTaskPlanPageOutOfRange){
     http.Error(w,"task plan page offset exceeds plan length",400);return
    }
-   end:=offset+limit
-   if end>count{end=count}
-   if x.TaskPlan!=nil{
-    pagePlan:=*x.TaskPlan
-    pagePlan.Steps=append([]agentchat.TaskPlanStep{},x.TaskPlan.Steps[offset:end]...)
-    result["plan"]=&pagePlan
-   }
-   result["page"]=map[string]any{
-    "offset":offset,"limit":limit,"total_steps":count,
-    "has_next":end<count,
-   }
+   if e!=nil{http.Error(w,"session journal unavailable",500);return}
+   w.Header().Set("Cache-Control","no-store")
+   writeJSON(w,200,page)
+   return
+  }
+ }
+ x,err:=store.Get(id,owner)
+ if errors.Is(err,agentchat.ErrNotFound){http.Error(w,"session not found",404);return}
+ if err!=nil{http.Error(w,"session journal unavailable",500);return}
+ if x.Workspace!=s.Workspace{http.Error(w,"workspace mismatch",403);return}
+ if r.Method==http.MethodGet{
+  done,total:=agentchat.TaskPlanProgress(x.TaskPlan)
+  result:=map[string]any{
+   "session_id":id,"revision":x.Revision,"plan":x.TaskPlan,
+   "done":done,"total":total,"all_done":agentchat.TaskPlanAllDone(x.TaskPlan),
+   "completed":x.TaskPlan!=nil&&x.TaskPlan.State=="completed",
   }
   w.Header().Set("Cache-Control","no-store")
   writeJSON(w,200,result)
