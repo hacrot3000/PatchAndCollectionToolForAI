@@ -29,7 +29,10 @@ const (
 	agentCoordinationMigrationComplete  = "complete"
 	// policyVersion changes when ownership/quarantine rules change. A marker
 	// with an older policy is never silently reused.
-	agentCoordinationMigrationPolicyVersion = 3
+	agentCoordinationMigrationPolicyVersion  = 4
+	agentCoordinationMigrationSourceLegacy   = "legacy-v1"
+	agentCoordinationMigrationSourceV2Repair = "v2-repair"
+	agentCoordinationPlanFile                = "migration-plan.json"
 )
 
 // agentCoordinationUnclaimedRecord is one legacy record that could not be
@@ -63,6 +66,8 @@ type agentCoordinationMigrationState struct {
 	UnclaimedSHA256 string    `json:"unclaimed_sha256,omitempty"`
 	SharedMode      bool      `json:"shared_mode"`
 	PolicyVersion   int       `json:"policy_version"`
+	Source          string    `json:"source"`
+	PlanSHA256      string    `json:"plan_sha256,omitempty"`
 	UpdatedAt       time.Time `json:"updated_at"`
 }
 
@@ -145,6 +150,11 @@ func (s *Server) migrateLegacyCoordinationJournalLocked(legacyPath, hubPath, own
 		if marker.Status != agentCoordinationMigrationPreparing {
 			return errors.New("invalid coordination migration marker status")
 		}
+		if marker.Source == agentCoordinationMigrationSourceV2Repair {
+			// A repair marker must replay from its durable plan. Rebuilding
+			// from legacy would discard records created after the old migration.
+			return s.replayCoordinationRepairPlan(hubPath, owner, marker)
+		}
 	}
 
 	plan, err := s.buildAgentCoordinationMigration(source, owner, hubPath)
@@ -170,7 +180,8 @@ func (s *Server) migrateLegacyCoordinationJournalLocked(legacyPath, hubPath, own
 		marker = &agentCoordinationMigrationState{
 			Version: 1, Owner: owner, LegacySHA256: legacyDigest,
 			Status: agentCoordinationMigrationPreparing, SharedMode: s.Config.SharedServerEnabled,
-			PolicyVersion: agentCoordinationMigrationPolicyVersion, UpdatedAt: time.Now().UTC(),
+			PolicyVersion: agentCoordinationMigrationPolicyVersion,
+			Source:        agentCoordinationMigrationSourceLegacy, UpdatedAt: time.Now().UTC(),
 		}
 	}
 	marker.UnclaimedSHA256 = unclaimedDigest
@@ -238,6 +249,16 @@ func (s *Server) adoptUnmarkedCoordinationMigration(legacyPath, hubPath, owner s
 	}
 	unclaimedBody := append(append([]byte(nil), plan.unclaimedBody...), '\n')
 	hubBody := append(append([]byte(nil), plan.hubBody...), '\n')
+	repairPlan := agentCoordinationRepairPlan{
+		Version: 1, Owner: owner, SourceJournalSHA256: sha256Hex(body),
+		HubBody: hubBody, UnclaimedBody: unclaimedBody,
+		SharedMode: s.Config.SharedServerEnabled, PolicyVersion: agentCoordinationMigrationPolicyVersion,
+	}
+	planBody := mustMigrationJSON(repairPlan)
+	planDigest := sha256Hex(planBody)
+	if err := writeAgentCoordinationFileAtomic(agentCoordinationRepairPlanPath(hubPath), planBody, 0600); err != nil {
+		return false, err
+	}
 	source, err := os.ReadFile(legacyPath)
 	if err != nil {
 		return false, err
@@ -246,12 +267,17 @@ func (s *Server) adoptUnmarkedCoordinationMigration(legacyPath, hubPath, owner s
 		Version: 1, Owner: owner, LegacySHA256: sha256Hex(source),
 		Status: agentCoordinationMigrationPreparing, HubSHA256: sha256Hex(hubBody),
 		UnclaimedSHA256: sha256Hex(unclaimedBody), SharedMode: s.Config.SharedServerEnabled,
-		PolicyVersion: agentCoordinationMigrationPolicyVersion, UpdatedAt: time.Now().UTC(),
+		PolicyVersion: agentCoordinationMigrationPolicyVersion,
+		Source:        agentCoordinationMigrationSourceV2Repair, PlanSHA256: planDigest,
+		UpdatedAt: time.Now().UTC(),
 	}
 	if len(plan.unclaimed.Records) == 0 {
 		marker.UnclaimedSHA256 = ""
 	}
 	if err := writeAgentCoordinationFileAtomic(agentCoordinationMigrationPath(hubPath), mustMigrationJSON(marker), 0600); err != nil {
+		return false, err
+	}
+	if err := coordinatorMigrationInjectFault("repair-after-marker"); err != nil {
 		return false, err
 	}
 	// Quarantine is never deleted during repair: old unverified records stay
@@ -266,11 +292,79 @@ func (s *Server) adoptUnmarkedCoordinationMigration(legacyPath, hubPath, owner s
 	return true, writeAgentCoordinationFileAtomic(agentCoordinationMigrationPath(hubPath), mustMigrationJSON(marker), 0600)
 }
 
+// coordinatorMigrationFaultStep returns an optional test fault step. It is
+// read from the environment so crash injection does not require a test-only
+// export in production code.
+func coordinatorMigrationFaultStep() string {
+	return os.Getenv("TASKDECK_TEST_COORDINATION_FAULT_STEP")
+}
+
+func coordinatorMigrationInjectFault(step string) error {
+	if coordinatorMigrationFaultStep() == step {
+		return fmt.Errorf("injected coordination migration fault at %s", step)
+	}
+	return nil
+}
+
+// agentCoordinationRepairPlan is the durable, checksummed output of a v2
+// repair. A crash after the preparing marker replays from this plan instead of
+// rebuilding from the legacy journal, which would lose post-migration records.
+type agentCoordinationRepairPlan struct {
+	Version             int    `json:"version"`
+	Owner               string `json:"owner"`
+	SourceJournalSHA256 string `json:"source_journal_sha256"`
+	HubBody             []byte `json:"hub_body"`
+	UnclaimedBody       []byte `json:"unclaimed_body"`
+	SharedMode          bool   `json:"shared_mode"`
+	PolicyVersion       int    `json:"policy_version"`
+}
+
+func agentCoordinationRepairPlanPath(hubPath string) string {
+	return filepath.Join(filepath.Dir(hubPath), agentCoordinationPlanFile)
+}
+
+// replayCoordinationRepairPlan finishes a repair after a crash. It fails closed
+// when the plan is missing or its checksum/metadata does not match the marker.
+func (s *Server) replayCoordinationRepairPlan(hubPath, owner string, marker *agentCoordinationMigrationState) error {
+	planPath := agentCoordinationRepairPlanPath(hubPath)
+	body, err := os.ReadFile(planPath)
+	if err != nil {
+		return fmt.Errorf("coordination repair plan is unavailable: %w", err)
+	}
+	if sha256Hex(body) != marker.PlanSHA256 {
+		return errors.New("coordination repair plan checksum mismatch")
+	}
+	var plan agentCoordinationRepairPlan
+	if json.Unmarshal(body, &plan) != nil || plan.Version != 1 || plan.Owner != owner ||
+		plan.SharedMode != marker.SharedMode || plan.PolicyVersion != marker.PolicyVersion {
+		return errors.New("coordination repair plan metadata mismatch")
+	}
+	if sha256Hex(plan.HubBody) != marker.HubSHA256 {
+		return errors.New("coordination repair plan hub checksum mismatch")
+	}
+	if marker.UnclaimedSHA256 != "" && sha256Hex(plan.UnclaimedBody) != marker.UnclaimedSHA256 {
+		return errors.New("coordination repair plan quarantine checksum mismatch")
+	}
+	if len(plan.UnclaimedBody) > 0 {
+		if err := writeAgentCoordinationFileAtomic(agentCoordinationUnclaimedPath(hubPath), append(append([]byte(nil), plan.UnclaimedBody...), '\n'), 0600); err != nil {
+			return err
+		}
+	}
+	if err := writeAgentCoordinationFileAtomic(hubPath, append(append([]byte(nil), plan.HubBody...), '\n'), 0600); err != nil {
+		return err
+	}
+	marker.Status = agentCoordinationMigrationComplete
+	return writeAgentCoordinationFileAtomic(agentCoordinationMigrationPath(hubPath), mustMigrationJSON(marker), 0600)
+}
+
 // backupUnmarkedCoordinationJournal keeps the exact pre-repair bytes. The
 // backup lives next to the owner journal and is never used as migration input.
 func (s *Server) backupUnmarkedCoordinationJournal(hubPath string, body []byte) error {
 	backup := filepath.Join(filepath.Dir(hubPath), "coordination.unmarked-backup.json")
-	if _, err := os.Stat(backup); err == nil {
+	if info, err := os.Stat(backup); err == nil {
+		if !info.Mode().IsRegular() {
+			return errors.New("coordination backup path is not a regular file")
+		}
 		return nil
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return err
@@ -360,20 +454,27 @@ func (s *Server) buildAgentCoordinationMigrationFromRecords(owner string, source
 		group, _ := event["group_id"].(string)
 		conversation, _ := event["conversation_id"].(string)
 		actor, _ := event["actor"].(string)
-		// CoordinationEvent has no owner_principal field. Do not quarantine a
-		// valid event just because that optional field is absent. Actor alone
-		// is not authority: only group/conversation ownership or an explicit
-		// foreign principal can decide. Unknown scope stays in the journal.
-		if !sharedScope || principal == owner || group != "" && ownerGroups[group] || conversation != "" && ownerConversations[conversation] {
+		// Explicit principal takes precedence. Actor is never treated as
+		// ownership evidence. A shared-server event without a verifiable
+		// group/conversation scope is quarantined, not served as verified.
+		if !sharedScope {
 			ownedEvents = append(ownedEvents, raw)
 			continue
 		}
-		if principal != "" && principal != owner {
-			quarantine("event", eventQuarantineKey(event, index), "event belongs to another principal", event)
+		if principal != "" {
+			if principal == owner {
+				ownedEvents = append(ownedEvents, raw)
+			} else {
+				quarantine("event", eventQuarantineKey(event, index), "event belongs to another principal", event)
+			}
 			continue
 		}
+		if group != "" && ownerGroups[group] || conversation != "" && ownerConversations[conversation] {
+			ownedEvents = append(ownedEvents, raw)
+			continue
+		}
+		quarantine("event", eventQuarantineKey(event, index), "event has no verifiable owner scope", event)
 		_ = actor
-		ownedEvents = append(ownedEvents, raw)
 	}
 	migrated["events"] = ownedEvents
 	maxEventSeq := sourceEventSeq
@@ -785,7 +886,10 @@ func (s *Server) backupAgentCoordinationUnclaimed(hubPath string) error {
 		return err
 	}
 	backup := filepath.Join(filepath.Dir(hubPath), "unclaimed.unmarked-backup.json")
-	if _, err := os.Stat(backup); err == nil {
+	if info, err := os.Stat(backup); err == nil {
+		if !info.Mode().IsRegular() {
+			return errors.New("coordination quarantine backup path is not a regular file")
+		}
 		return nil
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return err

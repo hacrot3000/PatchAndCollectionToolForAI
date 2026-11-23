@@ -565,3 +565,9 @@ Các quy tắc bắt buộc: streaming/out-of-order theo run ID; UI badge messag
 - Multi-process test dùng 4 helper (2 owner × 2 process) chạy đồng thời, cùng `SharedServerEnabled` và workspace binding; kiểm tra isolation Alice/Bob, quarantine scope và marker policy. Bằng chứng: `TestConcurrentMigrationAcrossProcesses`.
 - In-process lock dùng chung theo canonical journal path trên mọi nền tảng; `agentrun` build OK cho Windows (agentrun package), Linux arm64. Windows/darwin full server build vẫn bị lỗi pre-existing của pty/dbprofile/macOS safeio.
 - Native Patch/provider regression liên quan chạy PASS: `TestAgentRunNativePatchRoundTripExecutesOnceAcrossRestart`, `TestComposerRunCanOverlapGPTRunRetryAndStopIndependently`, recovery real-kill tests.
+
+## P0 close-out (2026-11-23, baseline `dc073d6b`)
+
+- Coordination v2 repair now writes a checksummed durable plan (`migration-plan.json`) before the preparing marker; a crash replays from that plan, never from legacy. `TestPreparingRepairMarkerReplaysPlan` proves a v2-only record survives; `TestV2RepairRecoversFromWriteFaults` covers every write step and fail-closed checksum mismatch.
+- Event ownership now checks explicit `owner_principal` first; foreign and unverifiable events are quarantined on shared servers, Actor is not authority, high-watermark `event_seq` is preserved. `TestEventOwnershipExplicitPrincipalWins` and `TestUnmarkedJournalRepairPreservesEventCursor` PASS.
+- Review checkpoint validation: build, vet, focused race, 4-process test, Node 10/10, Native Patch/provider regression PASS. Full server suite is not claimed PASS; prior baseline failures remain.

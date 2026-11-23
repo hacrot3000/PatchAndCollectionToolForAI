@@ -33,6 +33,9 @@ func TestCoordinationMigrationRecoversFromWriteFaults(t *testing.T) {
 			case "quarantine":
 				blocked = agentCoordinationUnclaimedPath(hubPath)
 			case "hub":
+				if err := removeIfExists(hubPath); err != nil {
+					t.Fatal(err)
+				}
 				blocked = hubPath
 			}
 			if err := os.Mkdir(blocked, 0700); err != nil {
@@ -702,5 +705,211 @@ func TestFirstMigrationBlocksReadersUntilJournalIsComplete(t *testing.T) {
 		t.Fatalf("reader failed after migration: %v", err)
 	case <-time.After(10 * time.Second):
 		t.Fatal("reader did not complete after migration released the lock")
+	}
+}
+
+// TestEventOwnershipExplicitPrincipalWins verifies precedence and that an
+// unverified Actor cannot claim ownership of an event.
+func TestEventOwnershipExplicitPrincipalWins(t *testing.T) {
+	s, _, groups, _ := agentLegacyCoordinationFixture(t)
+	hubPath := agentOwnerHubPath(t, s, "user:alice")
+	if _, err := s.agentCoordinationHub("user:alice"); err != nil {
+		t.Fatal(err)
+	}
+	var state map[string]any
+	body, err := os.ReadFile(hubPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(body, &state); err != nil {
+		t.Fatal(err)
+	}
+	aliceGroup := groups["user:alice"].ID
+	state["events"] = []any{
+		map[string]any{"sequence": 1, "id": "evt-conflict", "kind": "conflict", "owner_principal": "user:bob", "actor": "user:alice", "group_id": aliceGroup, "summary": "SECRET_CONFLICT", "occurred_at": time.Now().UTC()},
+		map[string]any{"sequence": 2, "id": "evt-unknown", "kind": "unknown", "actor": "user:alice", "summary": "SECRET_UNKNOWN", "occurred_at": time.Now().UTC()},
+		map[string]any{"sequence": 3, "id": "evt-valid", "kind": "valid", "owner_principal": "user:alice", "actor": "user:bob", "summary": "owned event", "occurred_at": time.Now().UTC()},
+	}
+	state["event_seq"] = 3
+	modified, err := json.Marshal(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(hubPath, append(modified, '\n'), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(agentCoordinationMigrationPath(hubPath)); err != nil {
+		t.Fatal(err)
+	}
+	hub, err := s.agentCoordinationHub("user:alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	events, err := hub.Events(0, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 1 || events[0].ID != "evt-valid" {
+		t.Fatalf("event ownership resolution failed: %+v", events)
+	}
+	unclaimed, err := s.agentCoordinationUnclaimedRecords(hubPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reasons := map[string]string{}
+	for _, record := range unclaimed {
+		if record.Kind == "event" {
+			reasons[record.Key] = record.Reason
+		}
+	}
+	if !strings.Contains(reasons["event:evt-conflict"], "another principal") || !strings.Contains(reasons["event:evt-unknown"], "no verifiable") {
+		t.Fatalf("foreign/unknown events were not quarantined with correct reasons: %+v", reasons)
+	}
+}
+
+// TestV2RepairRecoversFromWriteFaults injects failures at every durable step
+// of a v2 repair and verifies replay from the saved plan.
+func TestV2RepairRecoversFromWriteFaults(t *testing.T) {
+	for _, step := range []string{"backup", "plan", "marker", "quarantine", "hub", "complete"} {
+		t.Run(step, func(t *testing.T) {
+			s, _, _, _ := agentLegacyCoordinationFixture(t)
+			hubPath := agentOwnerHubPath(t, s, "user:alice")
+			if _, err := s.agentCoordinationHub("user:alice"); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Remove(agentCoordinationMigrationPath(hubPath)); err != nil {
+				t.Fatal(err)
+			}
+			dir := filepath.Dir(hubPath)
+			for _, path := range []string{
+				filepath.Join(dir, "coordination.unmarked-backup.json"),
+				filepath.Join(dir, "unclaimed.unmarked-backup.json"),
+				agentCoordinationRepairPlanPath(hubPath),
+			} {
+				if err := removeIfExists(path); err != nil {
+					t.Fatal(err)
+				}
+			}
+			var blocked string
+			switch step {
+			case "backup":
+				blocked = filepath.Join(dir, "coordination.unmarked-backup.json")
+			case "plan":
+				blocked = agentCoordinationRepairPlanPath(hubPath)
+			case "marker":
+				blocked = agentCoordinationMigrationPath(hubPath)
+			case "quarantine":
+				// Keep old quarantine content so the replayed plan has records.
+				seed := mustMigrationJSON(agentCoordinationUnclaimed{Version: 1, Owner: "user:alice", Records: []agentCoordinationUnclaimedRecord{{Kind: "contract", Key: "seed", Reason: "unverified", Record: map[string]any{"key": "seed"}}}})
+				if err := os.WriteFile(agentCoordinationUnclaimedPath(hubPath), seed, 0600); err != nil {
+					t.Fatal(err)
+				}
+				blocked = filepath.Join(dir, "unclaimed.unmarked-backup.json")
+			case "hub":
+				if err := removeIfExists(hubPath); err != nil {
+					t.Fatal(err)
+				}
+				blocked = hubPath
+			case "complete":
+				// Let the first repair finish, then corrupt only the final
+				// marker write by removing the plan after the hub is committed.
+				if _, err := s.agentCoordinationHub("user:alice"); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Remove(agentCoordinationRepairPlanPath(hubPath)); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(agentCoordinationMigrationPath(hubPath), []byte(`{"version":1,"owner":"user:alice","legacy_sha256":"x","status":"preparing","source":"v2-repair","plan_sha256":"missing","shared_mode":true,"policy_version":4}`), 0600); err != nil {
+					t.Fatal(err)
+				}
+				if _, err := s.agentCoordinationHub("user:alice"); err == nil {
+					t.Fatal("missing repair plan did not fail closed")
+				}
+				return
+			}
+			if err := os.Mkdir(blocked, 0700); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := s.agentCoordinationHub("user:alice"); err == nil {
+				t.Fatalf("%s fault did not fail the repair", step)
+			}
+			if err := os.Remove(blocked); err != nil {
+				t.Fatal(err)
+			}
+			// Restart must replay or rebuild and finish consistently.
+			if _, err := s.agentCoordinationHub("user:alice"); err != nil {
+				t.Fatalf("restart after %s fault: %v", step, err)
+			}
+			marker, err := loadAgentCoordinationMigration(agentCoordinationMigrationPath(hubPath))
+			if err != nil || marker == nil || marker.Status != agentCoordinationMigrationComplete {
+				t.Fatalf("marker not complete after %s fault: %+v %v", step, marker, err)
+			}
+			if step != "hub" && (marker.Source != agentCoordinationMigrationSourceV2Repair || marker.PlanSHA256 == "") {
+				t.Fatalf("repair marker lost plan binding after %s fault: %+v", step, marker)
+			}
+			for i := 0; i < 2; i++ {
+				if _, err := s.agentCoordinationHub("user:alice"); err != nil {
+					t.Fatalf("idempotent re-run %d after %s fault: %v", i, step, err)
+				}
+			}
+			hub, err := s.agentCoordinationHub("user:alice")
+			if err != nil {
+				t.Fatal(err)
+			}
+			peers, err := hub.Peers("")
+			if err != nil || len(peers) == 0 {
+				t.Fatalf("replay after %s fault lost peers: %+v %v", step, peers, err)
+			}
+			unclaimed, err := s.agentCoordinationUnclaimedRecords(hubPath)
+			if err != nil || len(unclaimed) == 0 {
+				t.Fatalf("replay after %s fault lost quarantine: %+v %v", step, unclaimed, err)
+			}
+		})
+	}
+}
+
+// TestPreparingRepairMarkerReplaysPlan verifies that a crash after a repair
+// marker is written replays from the durable plan, never from legacy.
+func TestPreparingRepairMarkerReplaysPlan(t *testing.T) {
+	s, conversations, groups, _ := agentLegacyCoordinationFixture(t)
+	hubPath := agentOwnerHubPath(t, s, "user:alice")
+	hub, err := s.agentCoordinationHub("user:alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := hub.UpsertPeer(agentrun.Peer{ConversationID: conversations["user:alice"].ID, GroupID: groups["user:alice"].ID, Status: agentrun.PeerRunning, Summary: "only-in-v2"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := removeIfExists(agentCoordinationMigrationPath(hubPath)); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("TASKDECK_TEST_COORDINATION_FAULT_STEP", "repair-after-marker")
+	if _, err := s.agentCoordinationHub("user:alice"); err == nil {
+		t.Fatal("repair did not fail at the injected step")
+	}
+	t.Setenv("TASKDECK_TEST_COORDINATION_FAULT_STEP", "")
+	marker, err := loadAgentCoordinationMigration(agentCoordinationMigrationPath(hubPath))
+	if err != nil || marker == nil || marker.Status != agentCoordinationMigrationPreparing || marker.Source != agentCoordinationMigrationSourceV2Repair || marker.PlanSHA256 == "" {
+		t.Fatalf("preparing repair marker missing: %+v %v", marker, err)
+	}
+	if _, err := s.agentCoordinationHub("user:alice"); err != nil {
+		t.Fatalf("replay failed: %v", err)
+	}
+	hub, err = s.agentCoordinationHub("user:alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	peers, err := hub.Peers("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, peer := range peers {
+		if peer.Summary == "only-in-v2" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("replay from legacy lost the v2-only record: %+v", peers)
 	}
 }

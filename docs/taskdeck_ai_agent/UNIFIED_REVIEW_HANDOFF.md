@@ -306,3 +306,9 @@ Tests and documentation:
 - `docs/taskdeck_ai_agent/UNIFIED_REVIEW_HANDOFF.md`
 
 No Provider Router/Adapter implementation file was changed in this pass. Nothing was staged, committed, pushed, merged or force-pushed.
+
+## P0 close-out (2026-11-23, baseline `dc073d6b`)
+
+- Coordination v2 repair now writes a checksummed durable plan (`migration-plan.json`) before the preparing marker; a crash replays from that plan, never from legacy. `TestPreparingRepairMarkerReplaysPlan` proves a v2-only record survives; `TestV2RepairRecoversFromWriteFaults` covers every write step and fail-closed checksum mismatch.
+- Event ownership now checks explicit `owner_principal` first; foreign and unverifiable events are quarantined on shared servers, Actor is not authority, high-watermark `event_seq` is preserved. `TestEventOwnershipExplicitPrincipalWins` and `TestUnmarkedJournalRepairPreservesEventCursor` PASS.
+- Review checkpoint validation: build, vet, focused race, 4-process test, Node 10/10, Native Patch/provider regression PASS. Full server suite is not claimed PASS; prior baseline failures remain.
