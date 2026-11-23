@@ -42,7 +42,7 @@ func TestTurnDispositionStrictModelMetadata(t *testing.T){
 }
 func TestTurnDispositionUnknownDoesNotGrantContinuation(t *testing.T){
  x:=Session{Owner:"local",Status:"completed",AutoContinueText:true}
- RecordTurnDisposition(&x,"Generic answer with no unfinished task marker.")
+ RecordTurnDisposition(&x,"Here is the technical information you requested.")
  if StandaloneAutoContinueCandidate(x){t.Fatal("unconfirmed work automatically resumed")}
  RecordTurnDisposition(&x,"Task complete: all work done.")
  if StandaloneAutoContinueCandidate(x){t.Fatal("completion claim automatically resumed")}
