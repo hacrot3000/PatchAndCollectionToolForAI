@@ -257,7 +257,11 @@ func (s *Server) agentDeliverToolResult(ctx context.Context, store *agentchat.St
 	// Persist output and mark delivered BEFORE crossing the network; a timeout
 	// cannot result in accidental duplicate tool output or patch replay.
 	x.History = append(x.History, next...)
+    // Store.Save may archive older acknowledged Patch records and shift slice
+    // indexes. Use call IDs as the stable identity across the journal CAS.
+    feedbackIDs:=make([]string,0,len(indices))
     for _,i:=range indices{
+        feedbackIDs=append(feedbackIDs,x.ToolCalls[i].CallID)
         x.ToolCalls[i].FeedbackSent=true
         x.ToolCalls[i].FeedbackStatus="prepared"
     }
@@ -267,10 +271,20 @@ func (s *Server) agentDeliverToolResult(ctx context.Context, store *agentchat.St
 		return agentDeliverResult{},agentContinueError{409,"cannot persist prepared provider feedback"}
 	}
 	x, err = store.Save(x, x.Revision)
-	if err != nil {
-		return agentDeliverResult{}, agentContinueError{409, "cannot persist once-only tool output"}
-	}
-for _,i:=range indices{x.ToolCalls[i].FeedbackStatus="sending"}
+    if err != nil {
+        return agentDeliverResult{}, agentContinueError{409, "cannot persist once-only tool output"}
+    }
+    indices=indices[:0]
+    for i,stored:=range x.ToolCalls{
+        for _,id:=range feedbackIDs{
+            if stored.CallID==id{indices=append(indices,i);break}
+        }
+    }
+    // Never cross the provider egress boundary with a missing receipt.
+    if len(indices)!=len(feedbackIDs){
+        return agentDeliverResult{},agentContinueError{409,"prepared tool rejection receipt missing after archive"}
+    }
+    for _,i:=range indices{x.ToolCalls[i].FeedbackStatus="sending"}
 	if err=markAgentProviderSending(store,&x); err != nil {
 		return agentDeliverResult{}, agentContinueError{409, "cannot record tool-output delivery attempt"}
 	}
