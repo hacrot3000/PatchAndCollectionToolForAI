@@ -95,7 +95,10 @@ func (b CanonicalProviderPayloadBuilder) Build(spec RunSpec, provider ProviderCo
 			return nil, errors.New("run snapshot does not contain its submitted user turn")
 		}
 		options.History = append([]HistoryItem(nil), history[:userTurn]...)
-		options.Next = []HistoryItem{history[userTurn]}
+		// A continuation must replay the original user request and every later
+		// canonical item (assistant tool call and matching tool output included).
+		// Sending only the user item silently drops Native Patch results.
+		options.Next = append([]HistoryItem(nil), history[userTurn:]...)
 	} else {
 		options.History = append([]HistoryItem(nil), history...)
 	}

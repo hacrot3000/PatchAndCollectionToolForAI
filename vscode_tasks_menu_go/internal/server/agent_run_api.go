@@ -36,6 +36,16 @@ func (e ownerBoundRunExecutor) Cancel(ctx context.Context, spec agentchat.RunSpe
 
 var safeAgentRunID = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$`)
 
+func (s *Server) agentRunJournalDir(owner string) (string, error) {
+	ownerWorkspace := s.agentOwnerWorkspace()
+	privatePath, err := aiPrivatePath(ownerWorkspace)
+	if err != nil {
+		return "", err
+	}
+	ownerHash := aiWorkspaceHash(ownerWorkspace) + "-" + aiOwnerHash(owner)
+	return filepath.Join(filepath.Dir(privatePath), "agent-runs-"+ownerHash), nil
+}
+
 func (s *Server) agentRunManager(owner string) (*agentrun.Manager, error) {
 	s.agentRunManagersMu.Lock()
 	defer s.agentRunManagersMu.Unlock()
@@ -45,12 +55,10 @@ func (s *Server) agentRunManager(owner string) (*agentrun.Manager, error) {
 	if manager := s.agentRunManagers[owner]; manager != nil {
 		return manager, nil
 	}
-	ownerWorkspace := s.agentOwnerWorkspace()
-	privatePath, err := aiPrivatePath(ownerWorkspace)
+	runDir, err := s.agentRunJournalDir(owner)
 	if err != nil {
 		return nil, err
 	}
-	ownerHash := aiWorkspaceHash(ownerWorkspace) + "-" + aiOwnerHash(owner)
 	executor := s.AgentRunExecutor
 	if executor == nil {
 		executor, err = s.NewAgentRunProviderExecutor(owner)
@@ -60,7 +68,7 @@ func (s *Server) agentRunManager(owner string) (*agentrun.Manager, error) {
 	} else {
 		executor = ownerBoundRunExecutor{owner: owner, base: executor}
 	}
-	manager, err := agentrun.NewManager(filepath.Join(filepath.Dir(privatePath), "agent-runs-"+ownerHash), agentrun.MaxConcurrentRuns, executor)
+	manager, err := agentrun.NewManager(runDir, agentrun.MaxConcurrentRuns, executor)
 	if err != nil {
 		return nil, err
 	}

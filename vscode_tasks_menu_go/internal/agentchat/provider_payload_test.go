@@ -48,6 +48,43 @@ func TestCanonicalPayloadBuilderMapsHistoryAndDropsOpaqueSessionState(t *testing
 	}
 }
 
+func TestCanonicalPayloadBuilderReplaysToolContinuationForBothProviderAPIs(t *testing.T) {
+	history := []HistoryItem{
+		{Type: "assistant", Content: "prior context"},
+		{Type: "user", Content: "make the requested change", ParentTurnID: "turn-1"},
+		{Type: "function_call", CallID: "call-native-1", Name: "taskdeck_submit_patch", Arguments: `{"name":"change","patch_python":"print(1)"}`},
+		{Type: "function_call_output", CallID: "call-native-1", Content: "Native Patch PASS: changed one file"},
+	}
+	for _, apiType := range []string{"responses", "chat_completions"} {
+		t.Run(apiType, func(t *testing.T) {
+			builder := CanonicalProviderPayloadBuilder{Options: fixedPromptOptions{config: RequestConfig{Instructions: "Task policy"}}}
+			provider := ProviderConfig{ID: "gpt", APIType: apiType, Models: []ModelConfig{{ID: "gpt-model", ToolCalling: true}}}
+			spec := runSpecFor("gpt", "gpt-model", "run-continuation")
+			spec.ParentTurnID = "turn-1"
+			body, err := builder.Build(spec, provider, provider.Models[0], history)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var payload struct {
+				Input    []map[string]any `json:"input"`
+				Messages []map[string]any `json:"messages"`
+			}
+			if err := json.Unmarshal(body, &payload); err != nil {
+				t.Fatal(err)
+			}
+			if apiType == "responses" {
+				if len(payload.Input) != 4 || payload.Input[1]["role"] != "user" || payload.Input[2]["call_id"] != "call-native-1" || payload.Input[3]["call_id"] != "call-native-1" || payload.Input[3]["output"] != "Native Patch PASS: changed one file" {
+					t.Fatalf("Responses continuation omitted/reordered canonical tool history: %s", body)
+				}
+				return
+			}
+			if len(payload.Messages) != 5 || payload.Messages[2]["role"] != "user" || payload.Messages[3]["role"] != "assistant" || payload.Messages[4]["role"] != "tool" || payload.Messages[4]["tool_call_id"] != "call-native-1" || payload.Messages[4]["content"] != "Native Patch PASS: changed one file" {
+				t.Fatalf("Chat Completions continuation omitted/reordered canonical tool history: %s", body)
+			}
+		})
+	}
+}
+
 func TestCanonicalPayloadBuilderRefusesToSilentlyExceedModelInputBudget(t *testing.T) {
 	builder := CanonicalProviderPayloadBuilder{Options: fixedPromptOptions{config: RequestConfig{
 		Instructions: "Long system context", Next: []HistoryItem{{Type: "user", Content: "a prompt"}},

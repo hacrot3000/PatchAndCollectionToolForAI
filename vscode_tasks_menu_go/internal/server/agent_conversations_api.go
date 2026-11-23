@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"bletonfc/vscode_tasks_menu/internal/agentchat"
+	"bletonfc/vscode_tasks_menu/internal/agentrun"
 	"bletonfc/vscode_tasks_menu/internal/identity"
 	"bletonfc/vscode_tasks_menu/internal/patchtool"
 )
@@ -96,19 +97,31 @@ func (s *Server) agentConversationsAPI(w http.ResponseWriter, r *http.Request) {
 		session.Title = strings.TrimSpace(request.Title)
 		session.ConversationID = session.ID
 		session.ReasoningEffort = request.ReasoningEffort
+		var groupRegistry *agentrun.ConversationRegistry
+		var ownerWorkspaceID string
+		if request.GroupID != "" {
+			groupRegistry, err = s.agentConversationRegistry()
+			if err != nil {
+				http.Error(w, "conversation group registry unavailable", 500)
+				return
+			}
+			ownerWorkspaceID, err = agentrunWorkspaceID(s)
+			if err != nil {
+				http.Error(w, "owner workspace is unavailable", 409)
+				return
+			}
+			if _, err := groupRegistry.AddMember(request.GroupID, ownerWorkspaceID, project.ID, session.ID); err != nil {
+				http.Error(w, "conversation group membership rejected", 409)
+				return
+			}
+		}
 		saved, err := store.Save(session, 0)
 		if err != nil {
+			if groupRegistry != nil {
+				_, _ = groupRegistry.RemoveMember(request.GroupID, ownerWorkspaceID, project.ID, session.ID)
+			}
 			http.Error(w, "cannot persist conversation", 500)
 			return
-		}
-		if request.GroupID != "" {
-			registry, err := s.agentConversationRegistry()
-			if err == nil {
-				ownerWorkspaceID, idErr := agentrunWorkspaceID(s)
-				if idErr == nil {
-					_, _ = registry.AddMember(request.GroupID, ownerWorkspaceID, project.ID, saved.ID)
-				}
-			}
 		}
 		w.Header().Set("Cache-Control", "no-store")
 		writeJSON(w, http.StatusCreated, map[string]any{"conversation": saved})

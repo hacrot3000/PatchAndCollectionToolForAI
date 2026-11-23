@@ -11,50 +11,92 @@ import (
 
 func (m *Manager) file(runID string) string { return filepath.Join(m.dir, runID+".json") }
 
-func (m *Manager) load() error {
-	entries, err := os.ReadDir(m.dir)
+// ReadRecords returns the durable run journal without opening a Manager or
+// starting workers. Active records from a prior process are presented as
+// interrupted so callers never treat stale execution as live.
+func ReadRecords(dir string) ([]Record, error) {
+	records, err := readRunRecords(dir)
 	if err != nil {
-		return err
+		return nil, err
 	}
+	for i := range records {
+		if records[i].Status == Running || records[i].Status == WaitingTool {
+			markInterrupted(&records[i])
+		}
+	}
+	return records, nil
+}
+
+func readRunRecords(dir string) ([]Record, error) {
+	if dir == "" || !filepath.IsAbs(dir) {
+		return nil, errors.New("absolute run journal directory required")
+	}
+	info, err := os.Lstat(dir)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm()&0077 != 0 {
+		return nil, errors.New("unsafe run journal directory")
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, err
+	}
+	records := make([]Record, 0, len(entries))
 	for _, entry := range entries {
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
 			continue
 		}
-		path := filepath.Join(m.dir, entry.Name())
+		path := filepath.Join(dir, entry.Name())
 		info, err := os.Lstat(path)
 		if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm()&0077 != 0 || info.Size() > 8<<20 {
-			return errors.New("unsafe run journal record")
+			return nil, errors.New("unsafe run journal record")
 		}
 		body, err := os.ReadFile(path)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		var record Record
 		if err := json.Unmarshal(body, &record); err != nil {
-			return errors.New("invalid run journal record")
+			return nil, errors.New("invalid run journal record")
 		}
 		if err := record.Spec.Validate(); err != nil || filepath.Base(path) != record.Spec.RunID+".json" {
-			return errors.New("invalid run journal binding")
+			return nil, errors.New("invalid run journal binding")
 		}
 		switch record.Status {
 		case Queued, Running, WaitingTool, Completed, Failed, Stopped, Interrupted:
 		default:
-			return errors.New("invalid run status")
+			return nil, errors.New("invalid run status")
 		}
+		records = append(records, record)
+		if len(records) > maxStoredRuns {
+			return nil, errors.New("run journal exceeds capacity")
+		}
+	}
+	return records, nil
+}
+
+func markInterrupted(record *Record) {
+	record.Status = Interrupted
+	record.RetrySafe = false
+	record.LastError = "TaskDeck restarted while run was active; inspect side effects before explicit resume"
+	now := time.Now().UTC()
+	record.UpdatedAt, record.FinishedAt = now, &now
+}
+
+func (m *Manager) load() error {
+	records, err := readRunRecords(m.dir)
+	if err != nil {
+		return err
+	}
+	for _, record := range records {
 		if record.Status == Running || record.Status == WaitingTool {
-			record.Status = Interrupted
-			record.RetrySafe = false
-			record.LastError = "TaskDeck restarted while run was active; inspect side effects before explicit resume"
-			now := time.Now().UTC()
-			record.UpdatedAt, record.FinishedAt = now, &now
+			markInterrupted(&record)
 			if err := m.saveLocked(record); err != nil {
 				return err
 			}
 		}
 		m.runs[record.Spec.RunID] = record
-		if len(m.runs) > maxStoredRuns {
-			return errors.New("run journal exceeds capacity")
-		}
 	}
 	return nil
 }

@@ -289,12 +289,38 @@ func (r *ConversationRegistry) SharedSnapshotFor(forkedConversationID string, so
 	if fork.ForkTurnID == "" {
 		return append([]agentchat.HistoryItem(nil), source...), true
 	}
-	prefix := make([]agentchat.HistoryItem, 0, len(source))
-	for _, item := range source {
-		if item.ParentTurnID == fork.ForkTurnID {
-			break
-		}
-		prefix = append(prefix, item)
+	prefix, err := ForkHistoryThroughTurn(source, fork.ForkTurnID)
+	if err != nil {
+		return nil, false
 	}
 	return prefix, true
+}
+
+// ForkHistoryThroughTurn returns the ancestor prefix through the selected turn.
+func ForkHistoryThroughTurn(source []agentchat.HistoryItem, forkTurnID string) ([]agentchat.HistoryItem, error) {
+	if forkTurnID == "" {
+		return append([]agentchat.HistoryItem(nil), source...), nil
+	}
+	targetEnd := -1
+	for i, item := range source {
+		if item.OriginRunID == forkTurnID {
+			targetEnd = i
+		}
+	}
+	if targetEnd < 0 {
+		for i, item := range source {
+			if item.ParentTurnID == forkTurnID {
+				return append([]agentchat.HistoryItem(nil), source[:i]...), nil
+			}
+		}
+		return nil, errors.New("fork turn is not present in source history")
+	}
+	end := len(source)
+	for i := targetEnd + 1; i < len(source); i++ {
+		if source[i].ParentTurnID == forkTurnID || source[i].OriginRunID != "" && source[i].OriginRunID != forkTurnID {
+			end = i
+			break
+		}
+	}
+	return append([]agentchat.HistoryItem(nil), source[:end]...), nil
 }

@@ -205,16 +205,24 @@ func (s *Server) ForkConversation(owner, sourceID, forkTurnID string) (agentchat
 	fork.RetryMode = source.RetryMode
 	fork.ConversationID = fork.ID
 	fork.Status = "created"
-	prefix, ok := registry.SharedSnapshotFor(fork.ID, source.History)
+	runRecords, err := s.completedAgentRuns(owner, sourceID)
+	if err != nil {
+		return agentchat.Session{}, err
+	}
+	sourceHistory := completedAgentRunHistory(source.History, runRecords, sourceID)
+	if _, err := agentrun.ForkHistoryThroughTurn(sourceHistory, forkTurnID); err != nil {
+		return agentchat.Session{}, err
+	}
+	if _, err := registry.RecordFork(fork.ID, sourceID, forkTurnID, ""); err != nil {
+		return agentchat.Session{}, err
+	}
+	prefix, ok := registry.SharedSnapshotFor(fork.ID, sourceHistory)
 	if !ok {
-		prefix = append([]agentchat.HistoryItem(nil), source.History...)
+		return agentchat.Session{}, errors.New("fork boundary is not present in source history")
 	}
 	fork.History = prefix
 	saved, err := store.Save(fork, 0)
 	if err != nil {
-		return agentchat.Session{}, err
-	}
-	if _, err := registry.RecordFork(saved.ID, sourceID, forkTurnID, ""); err != nil {
 		return agentchat.Session{}, err
 	}
 	return saved, nil

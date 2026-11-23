@@ -125,22 +125,31 @@ func latestAgentRunID(records []agentrun.Record, conversationID string) string {
 	return latest.Spec.RunID
 }
 
-func (s *Server) completedAgentRuns(owner, conversationID string) []agentrun.Record {
+func (s *Server) completedAgentRuns(owner, conversationID string) ([]agentrun.Record, error) {
 	if s == nil {
-		return nil
+		return nil, nil
 	}
 	s.agentRunManagersMu.Lock()
 	manager := s.agentRunManagers[owner]
 	s.agentRunManagersMu.Unlock()
-	if manager == nil {
-		return nil
+	var records []agentrun.Record
+	if manager != nil {
+		records = manager.List()
+	} else {
+		runDir, err := s.agentRunJournalDir(owner)
+		if err != nil {
+			return nil, err
+		}
+		records, err = agentrun.ReadRecords(runDir)
+		if err != nil {
+			return nil, err
+		}
 	}
-	records := manager.List()
 	filtered := make([]agentrun.Record, 0, len(records))
 	for _, record := range records {
 		if record.Spec.ConversationID == conversationID {
 			filtered = append(filtered, record)
 		}
 	}
-	return filtered
+	return filtered, nil
 }

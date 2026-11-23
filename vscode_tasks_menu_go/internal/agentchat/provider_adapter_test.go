@@ -132,19 +132,20 @@ func TestConfiguredProviderAdapterPublishesStreamDeltasBeforeCompletion(t *testi
 	if err := adapter.Execute(context.Background(), spec, nil, sink); err != nil {
 		t.Fatal(err)
 	}
-	if len(sink.events) != 4 || string(sink.events[0].Payload) != "hel" || string(sink.events[1].Payload) != "lo" ||
+	if len(sink.events) != 6 || string(sink.events[0].Payload) != "hel" || string(sink.events[1].Payload) != "lo" ||
 		sink.events[0].Type != RunEventTextDelta || sink.events[1].Type != RunEventTextDelta ||
-		sink.events[2].Type != RunEventToolCall {
-		t.Fatalf("stream deltas were not published as they arrived: %+v", sink.events)
+		sink.events[2].Type != RunEventToolCallDelta || sink.events[3].Type != RunEventToolCallDelta ||
+		sink.events[4].Type != RunEventToolCall {
+		t.Fatalf("stream deltas/final tool call were not published in order: %+v", sink.events)
 	}
 	var call FunctionCall
-	if err := json.Unmarshal(sink.events[2].Payload, &call); err != nil {
+	if err := json.Unmarshal(sink.events[4].Payload, &call); err != nil {
 		t.Fatal(err)
 	}
 	if call.CallID != "call-1" || call.Name != "taskdeck_collect_workspace" || !json.Valid([]byte(call.Arguments)) {
 		t.Fatalf("streamed tool call was not normalized: %+v", call)
 	}
-	if sink.events[3].Type != RunEventUsage {
+	if sink.events[5].Type != RunEventUsage {
 		t.Fatalf("usage event missing after tool call: %+v", sink.events)
 	}
 }

@@ -70,6 +70,7 @@ func (s *Server) agentCoordinationAPI(w http.ResponseWriter, r *http.Request) {
 		r.Body = http.MaxBytesReader(w, r.Body, 16<<10)
 		var request struct {
 			Kind             string               `json:"kind"`
+			MessageKind      string               `json:"message_kind,omitempty"`
 			ConversationID   string               `json:"conversation_id"`
 			GroupID          string               `json:"group_id,omitempty"`
 			ToConversationID string               `json:"to_conversation_id,omitempty"`
@@ -105,7 +106,11 @@ func (s *Server) agentCoordinationAPI(w http.ResponseWriter, r *http.Request) {
 			}
 			writeJSON(w, 200, map[string]any{"peer": peer})
 		case "peer_message":
-			message, err := hub.PostPeerMessage(agentrun.PeerMessage{GroupID: request.GroupID, FromConversation: request.ConversationID, ToConversation: request.ToConversationID, Kind: request.Kind, Body: request.Body, CorrelationID: request.CorrelationID})
+			messageKind := request.MessageKind
+			if messageKind == "" {
+				messageKind = "ask"
+			}
+			message, err := hub.PostPeerMessage(agentrun.PeerMessage{GroupID: request.GroupID, FromConversation: request.ConversationID, ToConversation: request.ToConversationID, Kind: messageKind, Body: request.Body, CorrelationID: request.CorrelationID})
 			if err != nil {
 				http.Error(w, "peer message rejected", 400)
 				return

@@ -155,6 +155,9 @@ func (o serverAgentRunPromptOptions) Options(spec agentchat.RunSpec, provider ag
 	if err != nil {
 		return agentchat.RequestConfig{}, err
 	}
+	if err := verifyAgentRunWorkspacePackSnapshot(inputs.Snapshot.SourceRefs, agentRunWorkspacePackRef(pack.TextContent)); err != nil {
+		return agentchat.RequestConfig{}, err
+	}
 	policy := inputs.Snapshot.Policy
 	if policy == nil {
 		return agentchat.RequestConfig{}, errors.New("context snapshot is missing pinned prompt policy")

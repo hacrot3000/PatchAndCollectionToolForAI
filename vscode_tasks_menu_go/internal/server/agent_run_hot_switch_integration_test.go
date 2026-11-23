@@ -13,6 +13,7 @@ import (
 
 	"bletonfc/vscode_tasks_menu/internal/agentchat"
 	"bletonfc/vscode_tasks_menu/internal/agentrun"
+	"bletonfc/vscode_tasks_menu/internal/patchtool"
 )
 
 type hotSwitchRunExecutor struct {
@@ -57,6 +58,13 @@ func (e *hotSwitchRunExecutor) Cancel(_ context.Context, spec agentchat.RunSpec)
 
 func TestComposerRunCanOverlapGPTRunRetryAndStopIndependently(t *testing.T) {
 	s, session, _ := prepareRunAPIServer(t, false)
+	projectIdentity, err := patchtool.ReadProjectIdentity(s.Workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.AgentChatPack = func(string, string) (patchtool.AIPackResult, error) {
+		return patchtool.AIPackResult{TextContent: "pinned test workspace pack", ProjectIdentity: projectIdentity}, nil
+	}
 	composer := agentchat.ProviderConfig{ID: "composer", Name: "Composer", APIType: "responses", BaseURL: "https://composer.example.test/v1",
 		Models: []agentchat.ModelConfig{{ID: "composer-2.5", Name: "Composer 2.5"}}}
 	gpt := agentchat.ProviderConfig{ID: "gpt", Name: "GPT", APIType: "responses", BaseURL: "https://gpt.example.test/v1",

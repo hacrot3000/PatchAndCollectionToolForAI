@@ -83,6 +83,11 @@ func (s *Server) agentContextSnapshotAPI(w http.ResponseWriter, r *http.Request)
 	if executionWorkspaceID == "" {
 		executionWorkspaceID = ownerWorkspaceID
 	}
+	if executionWorkspaceID != ownerWorkspaceID && (request.ProviderID == "" || request.ModelID == "" || request.RunID == "") {
+		http.Error(w, "provider, model, and run ID are required to pin an execution workspace", 400)
+		return
+	}
+	executionWorkspacePath := s.Workspace
 	providerConfigVersion := ""
 	credentialFingerprint := ""
 	if request.ProviderID != "" || request.ModelID != "" {
@@ -131,9 +136,14 @@ func (s *Server) agentContextSnapshotAPI(w http.ResponseWriter, r *http.Request)
 				http.Error(w, "execution workspace is not authorized for this provider-bound snapshot", 403)
 				return
 			}
+			executionWorkspacePath = binding.WorktreePath
 		}
 	}
-	runRecords := s.completedAgentRuns(owner, request.ConversationID)
+	runRecords, err := s.completedAgentRuns(owner, request.ConversationID)
+	if err != nil {
+		http.Error(w, "Agent Run history is unavailable", 503)
+		return
+	}
 	history := append([]agentchat.HistoryItem(nil), session.History...)
 	history = completedAgentRunHistory(history, runRecords, request.ConversationID)
 	parentTurnID := "turn-" + session.ID + "-" + strconv.FormatUint(session.Revision, 10)
@@ -160,6 +170,16 @@ func (s *Server) agentContextSnapshotAPI(w http.ResponseWriter, r *http.Request)
 		http.Error(w, "context snapshot storage unavailable", 500)
 		return
 	}
+	sourceRefs := []string(nil)
+	workspacePackRef := ""
+	if providerConfigVersion != "" {
+		workspacePackRef, err = agentRunWorkspacePackSourceRef(executionWorkspacePath, session.ProjectID, s.AgentChatPack)
+		if err != nil {
+			http.Error(w, "execution workspace context could not be pinned", 409)
+			return
+		}
+		sourceRefs = append(sourceRefs, workspacePackRef)
+	}
 	retryMode := session.RetryMode
 	if retryMode == "" {
 		retryMode = agentchat.RetryOff
@@ -180,7 +200,7 @@ func (s *Server) agentContextSnapshotAPI(w http.ResponseWriter, r *http.Request)
 			ExcludedPendingRunIDs: strings.Join(excludedPendingRuns, ","), RetryMode: retryMode,
 		}
 	}
-	snapshot, err := store.CreateWithPolicy(ownerWorkspaceID, request.ConversationID, session.ProjectID, history, nil, policy)
+	snapshot, err := store.CreateWithPolicy(ownerWorkspaceID, request.ConversationID, session.ProjectID, history, sourceRefs, policy)
 	if err != nil {
 		http.Error(w, "cannot persist context snapshot", 413)
 		return
@@ -190,11 +210,12 @@ func (s *Server) agentContextSnapshotAPI(w http.ResponseWriter, r *http.Request)
 		"context_snapshot_id": snapshot.ID, "payload_sha256": snapshot.PayloadSHA256,
 		"history_items": len(snapshot.History), "created_at": snapshot.CreatedAt,
 		"parent_turn_id": parentTurnID, "excluded_pending_run_ids": excludedPendingRuns,
-		"owner_workspace_id": ownerWorkspaceID, "execution_workspace_id": ownerWorkspaceID,
+		"owner_workspace_id": ownerWorkspaceID, "execution_workspace_id": executionWorkspaceID,
 		"project_id": session.ProjectID, "retry_mode": retryMode,
 		"reasoning_effort": session.ReasoningEffort, "execution_enabled": false,
 	}
 	if providerConfigVersion != "" {
+		response["execution_workspace_pack_sha256"] = strings.TrimPrefix(workspacePackRef, agentRunWorkspacePackRefPrefix)
 		response["run_binding"] = policy.RunBinding
 		response["provider_config_version"] = providerConfigVersion
 		response["credential_fingerprint"] = credentialFingerprint

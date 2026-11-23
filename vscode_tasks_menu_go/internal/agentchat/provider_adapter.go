@@ -209,6 +209,8 @@ func (a ConfiguredProviderAdapter) invokeWithRetry(ctx context.Context, spec Run
 		callCtx, cancel := context.WithTimeout(ctx, requestTimeout)
 		streamedText := false
 		accumulator := newToolCallAccumulator()
+		streamedCalls := make(map[string]FunctionCall)
+		streamedCallIDs := make([]string, 0, 1)
 		publishedCalls := make(map[string]bool)
 		var onStreamEvent func(StreamEvent) error
 		if sink != nil {
@@ -223,15 +225,24 @@ func (a ConfiguredProviderAdapter) invokeWithRetry(ctx context.Context, spec Run
 				case "tool.call.delta", "response.function_call_arguments.delta",
 					"response.output_item.added", "response.output_item.done":
 					call, complete := accumulator.add(event)
-					if !complete {
-						return nil
+					delta, marshalErr := json.Marshal(struct {
+						CallID    string `json:"call_id"`
+						Name      string `json:"name,omitempty"`
+						Arguments string `json:"arguments,omitempty"`
+					}{event.CallID, event.CallName, event.Arguments})
+					if marshalErr != nil {
+						return marshalErr
 					}
-					encoded, err := json.Marshal(call)
-					if err != nil {
-						return err
+					if publishErr := publishRunEvent(callCtx, sink, RunEventToolCallDelta, delta); publishErr != nil {
+						return publishErr
 					}
-					publishedCalls[call.CallID] = true
-					return publishRunEvent(callCtx, sink, RunEventToolCall, encoded)
+					if complete {
+						if _, exists := streamedCalls[call.CallID]; !exists {
+							streamedCallIDs = append(streamedCallIDs, call.CallID)
+						}
+						streamedCalls[call.CallID] = call
+					}
+					return nil
 				default:
 					return nil
 				}
@@ -245,6 +256,17 @@ func (a ConfiguredProviderAdapter) invokeWithRetry(ctx context.Context, spec Run
 			result, err = a.Invoker.Invoke(callCtx, resolved.Config, resolved.Credential, payload)
 		}
 		cancel()
+		if err == nil && len(streamedCalls) > 0 {
+			seen := make(map[string]bool, len(result.Calls))
+			for _, call := range result.Calls {
+				seen[call.CallID] = true
+			}
+			for _, callID := range streamedCallIDs {
+				if !seen[callID] {
+					result.Calls = append(result.Calls, streamedCalls[callID])
+				}
+			}
+		}
 		if err == nil || !runProviderRetryAllowed(spec.RetryMode, attempt, err) {
 			return result, streamedText, publishedCalls, err
 		}

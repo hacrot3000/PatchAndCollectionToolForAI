@@ -5,3 +5,6 @@ deploy/docker/.env
 **/.vscode/vscode_tasks_menu.ini
 
 .lh/
+
+
+*/__pycache__/*

@@ -84,6 +84,50 @@ func TestConfiguredAdapterRetriesIncompleteProviderStream(t *testing.T) {
 	}
 }
 
+type toolCallStreamRetryInvoker struct{ calls int }
+
+func (i *toolCallStreamRetryInvoker) Invoke(context.Context, ProviderConfig, string, []byte) (ResponsesResult, error) {
+	return ResponsesResult{}, errors.New("unexpected non-stream invocation")
+}
+
+func (i *toolCallStreamRetryInvoker) InvokeStream(_ context.Context, _ ProviderConfig, _ string, _ []byte, emit func(StreamEvent) error) (ResponsesResult, error) {
+	i.calls++
+	for _, event := range []StreamEvent{
+		{Type: "tool.call.delta", CallID: "call-retry", CallName: "taskdeck_submit_patch", Arguments: `{"name":"p","patch_python":"print(1)"}`},
+	} {
+		if err := emit(event); err != nil {
+			return ResponsesResult{}, err
+		}
+	}
+	if i.calls == 1 {
+		return ResponsesResult{}, io.ErrUnexpectedEOF
+	}
+	return ResponsesResult{Calls: []FunctionCall{{CallID: "call-retry", Name: "taskdeck_submit_patch", Arguments: `{"name":"p","patch_python":"print(1)"}`}}}, nil
+}
+
+func TestStreamedToolCallIsNotPublishedUntilSuccessfulRetryCompletes(t *testing.T) {
+	provider := ProviderConfig{ID: "gpt", APIType: "responses", Stream: true, Models: []ModelConfig{{ID: "gpt-model", ToolCalling: true}}}
+	resolver := &fakeProviderResolver{resolved: ResolvedProvider{Config: provider, ConfigVersion: "cfg-v1", Credential: "key", StreamingVerified: true}}
+	invoker := &toolCallStreamRetryInvoker{}
+	adapter := ConfiguredProviderAdapter{ProviderID: "gpt", Resolver: resolver, Builder: &fakePayloadBuilder{}, Invoker: invoker,
+		Wait: func(context.Context, time.Duration) error { return nil }}
+	spec := runSpecFor("gpt", "gpt-model", "run-tool-stream-retry")
+	spec.ProviderConfigVersion, spec.RetryMode = "cfg-v1", RetryLimited
+	sink := &fixedProviderSink{}
+	if err := adapter.Execute(context.Background(), spec, nil, sink); err != nil {
+		t.Fatal(err)
+	}
+	count := 0
+	for _, event := range sink.events {
+		if event.Type == RunEventToolCall {
+			count++
+		}
+	}
+	if invoker.calls != 2 || count != 1 {
+		t.Fatalf("tool call should publish once after successful stream completion: attempts=%d tool events=%d events=%+v", invoker.calls, count, sink.events)
+	}
+}
+
 func TestConfiguredAdapterLimitedRetryCapsAtFiveAndOffNeverRetries(t *testing.T) {
 	provider := ProviderConfig{ID: "gpt", APIType: "responses", Models: []ModelConfig{{ID: "gpt-model"}}}
 	resolver := &fakeProviderResolver{resolved: ResolvedProvider{Config: provider, ConfigVersion: "cfg-v1", Credential: "key"}}

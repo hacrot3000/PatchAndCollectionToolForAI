@@ -24,10 +24,12 @@ type providerToolCallInvoker struct {
 	calls       atomic.Int32
 	patchPython string
 	toolSchemas []string
+	payloads    [][]byte
 }
 
 func (i *providerToolCallInvoker) Invoke(_ context.Context, _ agentchat.ProviderConfig, _ string, payload []byte) (agentchat.ResponsesResult, error) {
 	i.calls.Add(1)
+	i.payloads = append(i.payloads, append([]byte(nil), payload...))
 	i.recordTools(payload)
 	if i.calls.Load() == 1 {
 		arguments, err := json.Marshal(map[string]string{"name": "provider patch", "patch_python": i.patchPython})
@@ -100,8 +102,12 @@ func providerToolRunFixture(t *testing.T, runID string) (*Server, string, *provi
 	if err != nil {
 		t.Fatal(err)
 	}
+	packRef, err := agentRunWorkspacePackSourceRef(s.Workspace, session.ProjectID, s.AgentChatPack)
+	if err != nil {
+		t.Fatal(err)
+	}
 	snapshot, err := snapshotStore.CreateWithPolicy(ownerID, sessionID, session.ProjectID,
-		[]agentchat.HistoryItem{{Type: "user", Content: "propose the reviewed patch", ParentTurnID: parentTurnID}}, nil,
+		[]agentchat.HistoryItem{{Type: "user", Content: "propose the reviewed patch", ParentTurnID: parentTurnID}}, []string{packRef},
 		&agentrun.ContextSnapshotPolicy{
 			SystemInstructions: "Pinned Agent Run system policy.", RetryMode: agentchat.RetryOff,
 			RunBinding: &agentrun.RunBindingSnapshot{RunID: runID, ConversationID: sessionID,
@@ -239,6 +245,27 @@ func TestProviderToolCallExecutesNativePatchOnceAndContinuesWithToolResult(t *te
 	}
 	if invoker.calls.Load() != 2 {
 		t.Fatalf("expected exactly one follow-up provider request, got %d", invoker.calls.Load())
+	}
+	if len(invoker.payloads) != 2 {
+		t.Fatalf("captured %d provider payloads, want initial and continuation", len(invoker.payloads))
+	}
+	var continuation struct {
+		Input []struct {
+			Role    string `json:"role"`
+			Type    string `json:"type"`
+			Content string `json:"content"`
+			Output  string `json:"output"`
+			CallID  string `json:"call_id"`
+		} `json:"input"`
+	}
+	if err := json.Unmarshal(invoker.payloads[1], &continuation); err != nil {
+		t.Fatalf("decode actual continuation provider payload: %v", err)
+	}
+	if len(continuation.Input) != 3 || continuation.Input[0].Role != "user" ||
+		continuation.Input[1].Type != "function_call" || continuation.Input[1].CallID != "provider-call-1" ||
+		continuation.Input[2].Type != "function_call_output" || continuation.Input[2].CallID != "provider-call-1" ||
+		!strings.Contains(continuation.Input[2].Output, "PASS") {
+		t.Fatalf("second provider request omitted/reordered the Native Patch result: %s", invoker.payloads[1])
 	}
 	if !strings.Contains(record.History[len(record.History)-1].Content, "PASS") {
 		t.Fatalf("tool result did not carry the native outcome: %+v", record.History[len(record.History)-1])

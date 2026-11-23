@@ -41,6 +41,16 @@ func TestRunPromptUsesPinnedSnapshotAndExecutionWorkspacePack(t *testing.T) {
 	credentialFingerprint := agentchat.RunCredentialFingerprint([]byte("TEST-KEY"))
 	parentTurnID := "turn-" + sessionID + "-revision"
 	history := []agentchat.HistoryItem{{Type: "user", Content: "Inspect the pinned context", ParentTurnID: parentTurnID}}
+	var packedWorkspace string
+	packText := "PINNED EXECUTION WORKSPACE PACK"
+	s.AgentChatPack = func(workspace, _ string) (patchtool.AIPackResult, error) {
+		packedWorkspace = workspace
+		return patchtool.AIPackResult{TextContent: packText, ProjectIdentity: patchtool.ProjectIdentity{ID: session.ProjectID, Key: "project"}}, nil
+	}
+	packRef, err := agentRunWorkspacePackSourceRef(s.Workspace, session.ProjectID, s.AgentChatPack)
+	if err != nil {
+		t.Fatal(err)
+	}
 	snapshots, err := s.agentContextSnapshotStore("local")
 	if err != nil {
 		t.Fatal(err)
@@ -53,14 +63,9 @@ func TestRunPromptUsesPinnedSnapshotAndExecutionWorkspacePack(t *testing.T) {
 			ProviderID: provider.ID, ModelID: model.ID, ProviderConfigVersion: version,
 			CredentialFingerprint: credentialFingerprint, RetryMode: agentchat.RetryOff},
 	}
-	snapshot, err := snapshots.CreateWithPolicy(ownerWorkspaceID, sessionID, session.ProjectID, history, nil, snapshotPolicy)
+	snapshot, err := snapshots.CreateWithPolicy(ownerWorkspaceID, sessionID, session.ProjectID, history, []string{packRef}, snapshotPolicy)
 	if err != nil {
 		t.Fatal(err)
-	}
-	var packedWorkspace string
-	s.AgentChatPack = func(workspace, _ string) (patchtool.AIPackResult, error) {
-		packedWorkspace = workspace
-		return patchtool.AIPackResult{TextContent: "PINNED EXECUTION WORKSPACE PACK", ProjectIdentity: patchtool.ProjectIdentity{ID: session.ProjectID, Key: "project"}}, nil
 	}
 	spec := agentchat.RunSpec{
 		RunID: "run-prompt", ConversationID: sessionID, OwnerWorkspaceID: ownerWorkspaceID,
@@ -104,6 +109,10 @@ func TestRunPromptUsesPinnedSnapshotAndExecutionWorkspacePack(t *testing.T) {
 	if strings.Contains(string(encoded), "TEST-KEY") {
 		t.Fatal("provider credential leaked into the request body")
 	}
+	packText = "DRIFTED EXECUTION WORKSPACE PACK"
+	if _, err := options.Options(spec, provider, model); err == nil || !strings.Contains(err.Error(), "changed after the run snapshot") {
+		t.Fatalf("workspace-pack drift was not rejected against the confirmed snapshot: %v", err)
+	}
 }
 
 func TestRunPromptAdvertisesPatchToolOnlyWithCapabilityAndScope(t *testing.T) {
@@ -133,11 +142,15 @@ func TestRunPromptAdvertisesPatchToolOnlyWithCapabilityAndScope(t *testing.T) {
 	credentialFingerprint := agentchat.RunCredentialFingerprint([]byte("TEST-KEY"))
 	parentTurnID := "turn-" + sessionID + "-tools"
 	history := []agentchat.HistoryItem{{Type: "user", Content: "Propose the reviewed patch", ParentTurnID: parentTurnID}}
+	packRef, err := agentRunWorkspacePackSourceRef(s.Workspace, session.ProjectID, s.AgentChatPack)
+	if err != nil {
+		t.Fatal(err)
+	}
 	snapshots, err := s.agentContextSnapshotStore("local")
 	if err != nil {
 		t.Fatal(err)
 	}
-	snapshot, err := snapshots.CreateWithPolicy(ownerWorkspaceID, sessionID, session.ProjectID, history, nil, &agentrun.ContextSnapshotPolicy{
+	snapshot, err := snapshots.CreateWithPolicy(ownerWorkspaceID, sessionID, session.ProjectID, history, []string{packRef}, &agentrun.ContextSnapshotPolicy{
 		SystemInstructions: "Pinned Agent Run system policy.", RetryMode: agentchat.RetryOff,
 		RunBinding: &agentrun.RunBindingSnapshot{RunID: "run-tools", ConversationID: sessionID,
 			OwnerWorkspaceID: ownerWorkspaceID, ExecutionWorkspaceID: ownerWorkspaceID, ParentTurnID: parentTurnID,

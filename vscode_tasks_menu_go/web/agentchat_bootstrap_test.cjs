@@ -1066,6 +1066,8 @@ console.log('PASS: safe Markdown, syntax-highlighted PHP/Python, per-block Copy,
    {id:'gpt',name:'GPT',has_api_key:true,api_type:'responses',base_url:'https://gpt.example/v1',models:[{id:'gpt-6.1-sol',name:'GPT 6.1'}]},
   ];
   const runRequests=[],apiCalls=[];let acceptedRun=null,continuedRun=null;
+  let nativeTool={call_id:'provider-call-ui',name:'taskdeck_submit_patch',status:'pending',arguments_sha256:'abc',result:''};
+  let nativeRunRecord=null;
   const composerRun={spec:{run_id:'run-101',conversation_id:hotSession.id,provider_id:'composer',model_id:'composer-2.5',
    provider_config_version:'composer-config',credential_fingerprint:'composer-credential',context_snapshot_id:'snapshot-101',
    attempt_id:'run-101-a1',idempotency_key:'request-101',retry_mode:'limited'},status:'running',attempt:1,retry_safe:false,
@@ -1075,6 +1077,9 @@ console.log('PASS: safe Markdown, syntax-highlighted PHP/Python, per-block Copy,
   context.TaskMenuApp.jsonFetch=async(url,opts={})=>{
    apiCalls.push(url);
    if(url==='/api/agent/runs'&&!opts.method)return {runs:allRuns.slice(),max_concurrent:5};
+   if(url==='/api/agent/sessions/'+hotSession.id&&!opts.method)return {session:{tool_calls:[nativeTool]}};
+   if(url.endsWith('/tools/provider-call-ui/decision')){apiCalls.push('patch-decision');nativeTool={...nativeTool,status:'queued'};return {status:'queued'};}
+   if(url.endsWith('/tools/provider-call-ui/continue')){apiCalls.push('patch-continue');nativeTool={...nativeTool,status:'done',queue_path:'queue/item.json',result:'Native Patch PASS'};if(nativeRunRecord)nativeRunRecord.status='completed';return {status:'completed'};}
    if(url==='/api/agent/context-snapshots'){
     const request=JSON.parse(opts.body);
     assert.equal(request.conversation_id,hotSession.id);
@@ -1167,6 +1172,32 @@ console.log('PASS: safe Markdown, syntax-highlighted PHP/Python, per-block Copy,
   assert.equal(laterRun.spec.context_snapshot_id,runRequests[1].spec.context_snapshot_id);
   assert.ok(allRuns.some(run=>run.spec.run_id===hotRun.spec.run_id&&run.spec.provider_id==='gpt'),
     'GPT run remains in persisted conversation run history');
-  console.log('PASS: Composer #101 and GPT #102 stream separately; later requests preserve the hot-switched history path');
+  nativeRunRecord={spec:{run_id:'run-native-ui',conversation_id:hotSession.id,provider_id:'gpt',model_id:'gpt-6.1-sol'},
+   status:'waiting_tool',created_at:new Date().toISOString(),history:[
+    {type:'user',content:'Propose a patch'},
+    {type:'function_call',call_id:'provider-call-ui',name:'taskdeck_submit_patch',arguments:JSON.stringify({name:'reviewed patch',patch_python:'print("review this")'})}
+   ],events:[]};
+  allRuns.push(nativeRunRecord);
+  await vm.runInNewContext('agentRunUI.refresh()',context);
+  let nativeCard=runCards().find(node=>node.dataset.runId==='run-native-ui');
+  assert.ok(nodeText(nativeCard).includes('print("review this")'),'run card shows the exact patch source for review');
+  const approvePatch=find(nativeCard,node=>node.tagName==='button'&&node.textContent==='Approve Patch');
+  const continuePatch=find(nativeCard,node=>node.tagName==='button'&&node.textContent==='Get existing result / Continue');
+  assert.ok(approvePatch&&continuePatch,'waiting_tool exposes explicit approval and result-continuation actions');
+  await approvePatch.onclick();
+  assert.ok(apiCalls.includes('patch-decision'),'approval uses PLAN 01 Native Patch decision API');
+  nativeCard=runCards().find(node=>node.dataset.runId==='run-native-ui');
+  const continueAfterApproval=find(nativeCard,node=>node.tagName==='button'&&node.textContent==='Get existing result / Continue');
+  await continueAfterApproval.onclick();
+  assert.ok(apiCalls.includes('patch-continue'),'continuation retrieves/reconciles the existing Native Patch result');
+  nativeCard=runCards().find(node=>node.dataset.runId==='run-native-ui');
+  assert.ok(nodeText(nativeCard).includes('Native Patch PASS'),'run card displays the reconciled native result');
+  nativeTool={...nativeTool,status:'unknown'};nativeRunRecord.status='waiting_tool';
+  await vm.runInNewContext('agentRunUI.refresh()',context);
+  nativeCard=runCards().find(node=>node.dataset.runId==='run-native-ui');
+  assert.ok(nodeText(nativeCard).includes('status is uncertain'),'unknown Patch state is presented as uncertain, not failed or complete');
+  assert.equal(Boolean(find(nativeCard,node=>node.tagName==='button'&&node.textContent==='Approve Patch')),false,
+    'uncertain Patch state never exposes a fresh approval/re-execution action');
+  console.log('PASS: Composer #101 and GPT #102 stream separately; run cards support Native Patch review, approval, and continuation');
 
 })().catch(error => { console.error(error); process.exitCode = 1; });

@@ -4,7 +4,7 @@
  const encoder=()=>new TextEncoder();
  if(root.document&&(!root.document.getElementById||!root.document.getElementById('agentchat-run-ui-style'))){ 
   const style=root.document.createElement('style');style.id='agentchat-run-ui-style';
-  style.textContent='.agentchat-provider-selector{display:flex;align-items:flex-end;gap:8px;flex-wrap:wrap}.agentchat-provider-selector label{display:flex;flex-direction:column;gap:3px;font-size:11px}.agentchat-run-list{display:flex;flex-direction:column;gap:7px;max-height:34vh;overflow:auto;padding:5px 9px}.agentchat-run-list:empty{display:none}.agentchat-run-heading{font-size:11px;font-weight:650;opacity:.8}.agentchat-run-status{font-size:11px;opacity:.75}.agentchat-run-card{border:1px solid #46566b;border-radius:7px;padding:7px;display:grid;gap:5px;font-size:11px}.agentchat-run-card-header{display:flex;align-items:center;gap:8px}.agentchat-run-card-header strong{flex:1}.agentchat-run-prompt,.agentchat-run-output,.agentchat-run-tool{margin:0;white-space:pre-wrap;overflow-wrap:anywhere;max-height:150px;overflow:auto;font:11px/1.4 ui-monospace,monospace}.agentchat-run-output:empty{display:none}.agentchat-run-error{color:#ffb1ae}.agentchat-run-actions{display:flex;gap:5px}.agentchat-run-actions button{font-size:11px;padding:4px 7px}';
+  style.textContent='.agentchat-provider-selector{display:flex;align-items:flex-end;gap:8px;flex-wrap:wrap}.agentchat-provider-selector label{display:flex;flex-direction:column;gap:3px;font-size:11px}.agentchat-run-list{display:flex;flex-direction:column;gap:7px;max-height:34vh;overflow:auto;padding:5px 9px}.agentchat-run-list:empty{display:none}.agentchat-run-heading{font-size:11px;font-weight:650;opacity:.8}.agentchat-run-status{font-size:11px;opacity:.75}.agentchat-run-card{border:1px solid #46566b;border-radius:7px;padding:7px;display:grid;gap:5px;font-size:11px}.agentchat-run-card-header{display:flex;align-items:center;gap:8px}.agentchat-run-card-header strong{flex:1}.agentchat-run-prompt,.agentchat-run-output,.agentchat-run-tool{margin:0;white-space:pre-wrap;overflow-wrap:anywhere;max-height:150px;overflow:auto;font:11px/1.4 ui-monospace,monospace}.agentchat-run-output:empty{display:none}.agentchat-run-error{color:#ffb1ae}.agentchat-run-actions{display:flex;gap:5px}.agentchat-run-actions button{font-size:11px;padding:4px 7px}.agentchat-run-info{font-size:11px;opacity:.85}.agentchat-run-patch{border-left:3px solid #d6a94b;padding:6px}.agentchat-run-warning{color:#ffc66d;font-weight:600}';
   root.document.head.append(style);
  }
  function decodePayload(value){
@@ -53,9 +53,9 @@
   if(!selectorMount||!runsMount)throw new Error('Agent Run UI mount points are required.');
   selectorMount.append(selector.element);
   const status=doc.createElement('div');status.className='agentchat-run-status';status.setAttribute('role','status');
-  const heading=doc.createElement('div');heading.className='agentchat-run-heading';heading.textContent='Runs · concurrent requests are text-only; Native Patch stays in session chat';
+  const heading=doc.createElement('div');heading.className='agentchat-run-heading';heading.textContent='Runs · provider requests and Native Patch approvals';
   runsMount.append(heading,status);
-  let providers=[],currentSession=null,runs=[],timer=0,loading=false;
+  let providers=[],currentSession=null,runs=[],toolCalls=[],toolCallLoadError='',timer=0,loading=false;
   const pendingSpecs=new Map(),attemptedRunIDs=new Set();
   const preferencePrefix='taskdeck.agent.next-provider.v1.';
   function onSelectionChange(value){
@@ -98,6 +98,38 @@
    }
    return {output,toolText,error};
   }
+  function appendNativePatch(card,run,call){
+   const details=doc.createElement('section');details.className='agentchat-run-patch';
+   const title=doc.createElement('strong');title.textContent='Native Patch · '+String(call.status||'unknown').toUpperCase();details.append(title);
+   const historyCall=(run.history||[]).find(item=>item.type==='function_call'&&item.call_id===call.call_id);
+   if(historyCall){
+    const label=doc.createElement('div');label.textContent='Tool: '+String(historyCall.name||'unknown')+' · Call ID: '+String(call.call_id);details.append(label);
+    let args={};try{args=JSON.parse(historyCall.arguments||'{}');}catch{}
+    if(args.name){const name=doc.createElement('div');name.textContent='Patch: '+String(args.name);details.append(name);}
+    if(args.patch_python){const patch=doc.createElement('pre');patch.className='agentchat-run-tool';patch.textContent=String(args.patch_python);details.append(patch);}
+   }else{
+    const missing=doc.createElement('div');missing.className='agentchat-run-warning';missing.textContent='Tool arguments are unavailable in run history; review server-side record before acting.';details.append(missing);
+   }
+   if(call.queue_path){const queue=doc.createElement('div');queue.className='agentchat-run-info';queue.textContent='Native queue: '+String(call.queue_path);details.append(queue);}
+   if(call.result){const result=doc.createElement('pre');result.className='agentchat-run-tool';result.textContent='Native result:\n'+String(call.result);details.append(result);}
+   if(['unknown','dispatching','running','queuing','queued'].includes(call.status)){
+    const warning=doc.createElement('div');warning.className='agentchat-run-warning';warning.textContent=call.status==='unknown'?'Patch status is uncertain. Do not re-apply; retrieve/reconcile the existing native result first.':'Patch is in the native queue or execution state. Reconcile the existing result before retrying.';details.append(warning);
+   }
+   const controls=doc.createElement('div');controls.className='agentchat-run-actions';
+   if(call.status==='pending'){
+    for(const action of ['approve','reject']){
+     const button=doc.createElement('button');button.type='button';button.textContent=action==='approve'?'Approve Patch':'Reject';
+     button.onclick=()=>decideTool(run.spec.run_id,call.call_id,action).catch(showError);controls.append(button);
+    }
+   }
+   if(run.status==='waiting_tool'){
+    const proceed=doc.createElement('button');proceed.type='button';proceed.textContent='Get existing result / Continue';
+    proceed.title='Reconcile the current Native Patch result and continue this same run; does not re-apply the Patch.';
+    proceed.onclick=()=>continueTool(run.spec.run_id,call.call_id).catch(showError);controls.append(proceed);
+   }
+   if(controls.children.length)details.append(controls);
+   card.append(details);
+  }
   function render(){
    runsMount.replaceChildren(heading,status);
    const scoped=runs.filter(run=>run.spec?.conversation_id===currentSession?.id)
@@ -123,8 +155,16 @@
     }
     if(events.toolText){
      const tool=doc.createElement('pre');tool.className='agentchat-run-tool';
-     tool.textContent='Tool request was recorded by this run; no Patch/tool side effect is executed by this UI.\n'+events.toolText;
+     tool.textContent='Tool request recorded by provider.\n'+events.toolText;
      card.append(tool);
+    }
+    const runCallIDs=new Set((run.history||[]).filter(item=>item.type==='function_call').map(item=>item.call_id));
+    const nativeCalls=toolCalls.filter(call=>runCallIDs.has(call.call_id));
+    for(const call of nativeCalls)appendNativePatch(card,run,call);
+    if(run.status==='waiting_tool'&&!nativeCalls.length){
+     const warning=doc.createElement('div');warning.className='agentchat-run-warning';
+     warning.textContent=toolCallLoadError||'Run is waiting for a tool, but its Native Patch record could not be loaded. Refresh/reconcile before retrying.';card.append(warning);
+     const proceed=doc.createElement('button');proceed.type='button';proceed.textContent='Get existing result / Continue';proceed.onclick=()=>continueTool(run.spec.run_id,runCallIDs.values().next().value).catch(showError);card.append(proceed);
     }
     if(events.error){const failure=doc.createElement('div');failure.className='agentchat-run-error';failure.textContent=events.error;card.append(failure);}
     const actions=doc.createElement('div');actions.className='agentchat-run-actions';
@@ -144,12 +184,30 @@
    }
   }
   function showError(error){status.textContent='Run error: '+String(error?.message||error);}
+  async function decideTool(runID,callID,action){
+   const body={action};if(action==='approve')body.confirm_execution=true;
+   await options.jsonFetch('/api/agent/runs/'+encodeURIComponent(runID)+'/tools/'+encodeURIComponent(callID)+'/decision',{
+    method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+   await refresh();
+  }
+  async function continueTool(runID,callID){
+   if(!callID)throw new Error('Run has no recorded tool call ID to reconcile.');
+   await options.jsonFetch('/api/agent/runs/'+encodeURIComponent(runID)+'/tools/'+encodeURIComponent(callID)+'/continue',{
+    method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
+   await refresh();
+  }
   async function refresh(){
    if(!currentSession||loading)return;
    loading=true;
    try{
     const data=await options.jsonFetch('/api/agent/runs');
-    runs=Array.isArray(data.runs)?data.runs:[];render();
+    runs=Array.isArray(data.runs)?data.runs:[];
+    try{
+     const sessionData=await options.jsonFetch('/api/agent/sessions/'+encodeURIComponent(currentSession.id));
+     toolCalls=Array.isArray(sessionData.session?.tool_calls)?sessionData.session.tool_calls:[];
+     toolCallLoadError='';
+    }catch(error){toolCalls=[];toolCallLoadError='Native Patch ledger unavailable: '+String(error?.message||error);}
+    render();
    }catch(error){showError(error);}
    finally{loading=false;}
    const hasActive=runs.some(run=>run.spec?.conversation_id===currentSession?.id&&activeStatuses.has(run.status));
@@ -159,7 +217,7 @@
   async function selectConversation(session){
    currentSession=session||null;stopPolling();
    if(currentSession){selector.update(providers,preferenceFor(currentSession));await refresh();}
-   else{runs=[];render();}
+   else{runs=[];toolCalls=[];toolCallLoadError='';render();}
   }
   async function submit(session,message,attachments,requestID){
    if(!session?.id)throw new Error('Select a conversation before sending an Agent Run.');
