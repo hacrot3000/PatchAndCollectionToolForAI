@@ -8,6 +8,9 @@ const agentCSS=document.createElement('style');
 agentCSS.textContent=[
 '.agentchat-overlay{display:none;min-width:0;min-height:0;overflow:hidden;background:#141c27;color:#e6eef9;border:1px solid #55657a}',
 '.agentchat-overlay.visible{display:flex}',
+'.agentchat-provider-egress-review{display:flex;flex-direction:column;gap:5px;padding:9px 12px;background:#312a20;border-bottom:1px solid #9c8155;color:#f4e9cf;font-size:12px}',
+'.agentchat-provider-egress-review[hidden]{display:none}',
+'.agentchat-provider-egress-review button{align-self:flex-start}',
 '.agentchat-window{display:flex;flex:1;min-width:0;min-height:0;flex-direction:column;overflow:hidden}',
 '.agentchat-toolbar{position:relative;z-index:20;min-height:44px;padding:5px 7px;display:flex;align-items:center;gap:5px;border-bottom:1px solid #35445c;flex-wrap:nowrap}',
 '.agentchat-toolbar strong{font-size:13px;white-space:nowrap}',
@@ -305,6 +308,11 @@ let agentPatchSyncInFlight=new Set();
 // Transient phases are one row per conversation, separate from canonical
 // history. The user's just-submitted text is visible before any network await.
 const agentLiveTurns=new Map();
+const agentProviderEgressNotice=agentEl('section','agentchat-provider-egress-review');
+agentProviderEgressNotice.hidden=true;
+agentProviderEgressNotice.setAttribute('role','status');
+agentProviderEgressNotice.setAttribute('aria-live','polite');
+let agentProviderReviewKey='';
 const agentLiveRow=agentEl('div','agentchat-live-status');
 const agentLiveSpinner=agentEl('span','agentchat-live-spinner');
 agentLiveSpinner.setAttribute('aria-hidden','true');
@@ -460,7 +468,7 @@ const agentHeaderGroups=[conversationGroup,automationGroup,toolsGroup,layoutGrou
 for(const group of agentHeaderGroups)toolbarActions.append(group);
 heading.append(title,toolbarActions,moreButton,close,moreMenu);
 actionLine.append(status,cancel,send);composer.append(attachToggle,prompt,actionLine);
-main.append(tabbar,toolNotice,transcript,agentExecutionPanel,agentTaskPlanPanel,composer,attachPopup);layout.append(main);
+main.append(tabbar,toolNotice,agentProviderEgressNotice,transcript,agentExecutionPanel,agentTaskPlanPanel,composer,attachPopup);layout.append(main);
 const footer=agentEl('div','agentchat-info','Agent automation is configured per conversation. Native Patch results are verified before being sent to AI.');
 windowBox.append(heading,viewTabs,layout,debugPanel,footer);root.append(windowBox);
 const agentToolbarItems=agentHeaderGroups;
@@ -1094,6 +1102,32 @@ function agentScrollToLatest(sessionID){
   if(agentActive===sessionID&&agentAtLatest())transcript.scrollTop=transcript.scrollHeight;
  });
 }
+// The journal's SENDING/UNKNOWN phase is NOT provider acknowledgement.
+// Never offer a retry button based on this read-only diagnostic.
+function renderAgentProviderEgressReview(session,review){
+ const ambiguous=Boolean(review?.requires_reconciliation)&&
+  (review.phase==='sending'||review.phase==='unknown')&&
+  review.automatic_replay_allowed===false;
+ const key=ambiguous?
+  [session?.id,review.run_id,review.phase,review.payload_sha256].join('|'):'';
+ if(key===agentProviderReviewKey)return;
+ agentProviderReviewKey=key;
+ agentProviderEgressNotice.replaceChildren();
+ if(!ambiguous){agentProviderEgressNotice.hidden=true;return;}
+ const heading=review.phase==='unknown'?
+  'Provider acknowledgement UNKNOWN':'Provider request SENDING — not yet confirmed';
+ const identity='Run '+String(review.run_id||'unknown')+
+  ' · '+String(review.kind||'request')+
+  ' · payload SHA-256 '+String(review.payload_sha256||'unavailable').slice(0,16)+'…';
+ const handoff=agentButton('Open handoff',()=>agentHandoffButton.click());
+ agentProviderEgressNotice.append(
+  agentEl('strong','',heading),
+  agentEl('div','',identity),
+  agentEl('div','',String(review.guidance||'Inspect the provider and TaskDeck handoff before any manual decision.')),
+  handoff
+ );
+ agentProviderEgressNotice.hidden=false;
+}
 function displayAgentSession(session){
  if(!session){
   closeAgentAttachmentsPopup();
@@ -1105,6 +1139,7 @@ function displayAgentSession(session){
    agentRenderedToolVersions.clear();
   }
   agentCurrentSession=null;
+  renderAgentProviderEgressReview(null,null);
   toolNotice.hidden=true;
   if(!transcript.children.length)transcript.append(agentEl('p','','Create or select a session to begin.'));
   return;
@@ -1298,6 +1333,7 @@ async function selectAgentSession(id){
  if(generation!==agentSelectGeneration)return null;
  const sess=data.session;
  sess.retry_runtime=data.retry_runtime||null;
+ renderAgentProviderEgressReview(sess,data.provider_review||null);
  if(switched||agentToolNoticeKey!==data.patch_tool_status+':'+(sess.auto_patch?'auto':'manual')){
   toolNotice.replaceChildren();
   const toolStatus=data.patch_tool_status;

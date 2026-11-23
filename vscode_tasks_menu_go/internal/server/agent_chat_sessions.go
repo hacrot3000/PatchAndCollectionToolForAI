@@ -310,6 +310,7 @@ func (s *Server) agentChatSessionItemAPI(w http.ResponseWriter, r *http.Request)
 	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, http.StatusOK, map[string]any{"session": item, "execution_enabled": false,
 		"retry_runtime": agentRetrySnapshot(s.Workspace,aiPlanOwner(r),id),
+		"provider_review": agentchat.ProviderEgressReviewForSession(item),
 		"patch_tool_status": s.agentPatchToolStatus(aiPlanOwner(r), item.ProviderID, item.ModelID)})
 }
 
