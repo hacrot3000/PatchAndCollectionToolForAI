@@ -503,6 +503,7 @@ func newProviderRequest(ctx context.Context, endpoint, key string, body []byte) 
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+key)
+	applyProviderClientRequestID(req)
 	return req, nil
 }
 
