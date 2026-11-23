@@ -93,10 +93,11 @@ func TestAgentStandaloneContinuationRespectsNativeAndProviderFences(t *testing.T
  x.Status="completed"
  x.ToolCalls=[]agentchat.ToolCallRecord{{CallID:"pending-result",Name:"taskdeck_submit_patch",
   Status:"done",FeedbackStatus:"unknown"}}
- _,err=store.Save(x,x.Revision);if err!=nil{t.Fatal(err)}
- s.autoContinueConversationOne(context.Background(),store,id)
- if calls!=0{t.Fatal("unresolved tool feedback was replayed")}
+ // A manufactured final receipt is not a valid canonical Store record;
+ // check the scheduler's pure safety predicate, not Store.Save.
+ if agentchat.StandaloneAutoContinueCandidate(x){t.Fatal("unresolved tool feedback was replayed")}
  x.ToolCalls=nil
+ if calls!=0{t.Fatal("unresolved tool unexpectedly sent provider data")}
  x.ProviderRun=&agentchat.ProviderRun{Phase:"unknown"}
  if agentchat.StandaloneAutoContinueCandidate(x){t.Fatal("ambiguous provider outcome bypassed")}
 }
