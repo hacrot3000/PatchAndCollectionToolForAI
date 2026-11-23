@@ -315,11 +315,17 @@ func (s *Server) agentChatSessionItemAPI(w http.ResponseWriter, r *http.Request)
 		if h,e:=store.LatestProviderHeartbeat(id,aiPlanOwner(r));e==nil {heartbeat=&h}
 	}
 	review:=agentchat.ProviderEgressReviewWithLiveness(item,heartbeat,time.Now().UTC())
+ // Provider attempts contain ONLY pre-send ID/digest/time hints, never model
+ // text, credentials or an assertion that any network request arrived.
+ // If the sidecar is damaged, explicitly surface an integrity warning.
+ attempts,attemptErr:=store.ProviderAttempts(id,aiPlanOwner(r))
 	// The API currently exposes a transcript only to its authenticated owner.
 	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, http.StatusOK, map[string]any{"session": item, "execution_enabled": false,
 		"retry_runtime": agentRetrySnapshot(s.Workspace,aiPlanOwner(r),id),
 		"provider_review": review,
+  "provider_attempts":attempts,
+  "provider_attempts_integrity_error":attemptErr!=nil,
 		"patch_tool_status": s.agentPatchToolStatus(aiPlanOwner(r), item.ProviderID, item.ModelID)})
 }
 
