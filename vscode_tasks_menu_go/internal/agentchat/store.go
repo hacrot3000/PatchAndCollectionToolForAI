@@ -222,6 +222,10 @@ type Store struct {
 	scoped    bool
 	workspace string
 	projectID string
+	// Test-only fault injection. Production stores always leave this nil.
+	// It runs after an immutable-page status edit commits the authoritative
+	// journal but before post-commit cleanup, while withLock is still held.
+	afterSegmentStatusJournalCommit func()
 }
 
 func NewStore(dir string) (*Store, error) {
