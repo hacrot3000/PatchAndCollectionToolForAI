@@ -132,3 +132,25 @@ func TestProviderClientRequestIDHeaderOnlyForOfficialOpenAIHosts(t *testing.T){
   t.Fatal("malformed non-ASCII request ID was emitted")
  }
 }
+
+func TestProviderAttemptFirstPayloadAndPrivateModeAreMandatory(t *testing.T){
+ store,x,payload:=sendingAttemptFixture(t)
+ other:=[]byte(`{"model":"m","input":"changed after PREPARED"}`)
+ if _,err:=store.RecordProviderAttempt(x.ID,"local",x.ProviderRun.ID,1,other,true);
+  !errors.Is(err,ErrInvalidSession){
+  t.Fatalf("first provider attempt drifted from canonical payload: %v",err)
+ }
+ if audit,err:=store.ProviderAttempts(x.ID,"local");err!=nil||audit!=nil{
+  t.Fatalf("rejected first attempt created a journal hint: %v %+v",err,audit)
+ }
+ if _,err:=store.RecordProviderAttempt(x.ID,"local",x.ProviderRun.ID,1,payload,true);err!=nil{t.Fatal(err)}
+ file:=store.providerAttemptsPath(x.ID)
+ if err:=os.Chmod(file,0644);err!=nil{t.Fatal(err)}
+ if _,err:=store.ProviderAttempts(x.ID,"local");!errors.Is(err,ErrInvalidSession){
+  t.Fatalf("world/group-readable attempt metadata was exposed: %v",err)
+ }
+ if _,err:=store.RecordProviderAttempt(x.ID,"local",x.ProviderRun.ID,2,payload,true);
+  !errors.Is(err,ErrInvalidSession){
+  t.Fatalf("insecure on-disk audit allowed another network attempt: %v",err)
+ }
+}
