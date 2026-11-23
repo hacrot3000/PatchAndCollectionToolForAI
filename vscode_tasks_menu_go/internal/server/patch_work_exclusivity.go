@@ -107,8 +107,10 @@ func (s *Server) startAgentNativeCollectDirect(spec tasks.Execution) (session.Me
    if st,e:=provider.ProtocolState(meta.ID);e==nil{
     for _,item:=range st.Items{
      status:=strings.ToUpper(strings.TrimSpace(item.Status))
-     if status=="RUNNING"||status=="PASS"||status=="FAIL"||
-      status=="INCOMPLETE"||status=="PREFLIGHT_FAIL"{
+     // Completed protocol rows are historical evidence, not a worker
+     // currently mutating source. An already approved but unstarted PATCH
+     // in a queue must not block a read-only direct COLLECT.
+     if status=="RUNNING"{
       kind:=strings.ToUpper(strings.TrimSpace(item.Kind))
       if kind=="PATCH"||kind=="COLLECT"{runningKind=kind;break}
      }
