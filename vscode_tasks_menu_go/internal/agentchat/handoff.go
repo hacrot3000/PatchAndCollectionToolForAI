@@ -71,6 +71,22 @@ func HandoffMarkdown(x Session) string {
      handoffTrim(required.Package,200),required.BoundAt.UTC().Format(time.RFC3339),
      handoffTrim(strings.Join(required.Tests,", "),800))
    }
+   if len(step.AcceptanceCriteria)>0{
+    reviewed:=0
+    for _,criterion:=range step.AcceptanceCriteria{
+     if criterion.ReviewedAt!=nil{reviewed++}
+    }
+    fmt.Fprintf(&b,"  - OWNER acceptance coverage: %d/%d criteria explicitly reviewed (human attestation, NOT automatic semantic proof).\n",
+     reviewed,len(step.AcceptanceCriteria))
+    for _,criterion:=range step.AcceptanceCriteria{
+     state:="awaiting owner review"
+     if criterion.ReviewedAt!=nil{state="owner-reviewed "+criterion.ReviewedAt.UTC().Format(time.RFC3339)}
+     fmt.Fprintf(&b,"    - %s: %s; test mapping=%s; %s; owner note=%s\n",
+      handoffTrim(criterion.ID,64),handoffTrim(criterion.Description,300),
+      handoffTrim(strings.Join(criterion.RequiredTests,", "),250),
+      state,handoffTrim(criterion.ReviewNote,250))
+    }
+   }
    for _,ev:=range step.Evidence{
     fmt.Fprintf(&b,"  - %s evidence: ref=%s digest=%s note=%s\n",
      ev.Kind,handoffTrim(ev.Ref,120),handoffTrim(ev.Digest,64),handoffTrim(ev.Note,300))

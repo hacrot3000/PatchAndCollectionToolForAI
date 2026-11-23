@@ -413,10 +413,12 @@ func (s *Server) agentChatTaskPlanAPI(w http.ResponseWriter,r *http.Request,id s
    // A historical native receipt may already be in an archived segment.
    // A checked, immutable result can be recorded immediately; otherwise the
    // background scheduler examines this exact rule after future tool work.
-   if evidence,err:=agentchat.VerifyArchivedTaskAutoCheck(store,x,rule);err==nil{
+   if agentchat.TaskPlanStepCriteriaReviewed(*step) {
+    if evidence,err:=agentchat.VerifyArchivedTaskAutoCheck(store,x,rule);err==nil{
     if err:=agentchat.UpdateTaskPlanStep(&x,step.ID,"done",&evidence);err!=nil{
      http.Error(w,"could not persist verified evidence",409);return
     }
+   }
    }
    break
   }
