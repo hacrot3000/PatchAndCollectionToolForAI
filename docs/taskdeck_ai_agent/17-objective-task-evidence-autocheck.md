@@ -543,3 +543,12 @@ This is a bounded follow-up to the **strong forced-crash testing** and **operato
 - **Regression:** the actual Agent Chat bootstrap module test exercises dismissal, repeated polling, UNKNOWN escalation, new Run ID and cross-session isolation without any provider request. The Go integration test exercises a real terminated writer instead of only constructing an orphan in-process.
 - **Scope caveat:** this proves the **pre-commit** page-staging crash window only, not every possible process-kill point or durability after disk/controller failure. Authentic provider-side acknowledgement lookup, durable multi-daemon scheduling and direct segment-level proof-verified `done` remain open.
 - **Validation:** record the exact PR, HEAD and CI outcomes after running them. Do not claim these regressions passed merely because the changes were committed.
+
+## Completion addendum — 2026-11-23 · PR #182 (real crash barrier and dismissible review)
+
+- **Merged PR:** [#182](https://github.com/hacrot3000/PatchAndCollectionToolForAI/pull/182).
+- **Squash merge commit on main:** `94212e743c28ef62ae9cf48d3356d6161642236f`.
+- **Exact validated PR HEAD:** `c1353dd383369b5a59b3f0ec76a20bc2a5d41b34`.
+- **CI on exact PR HEAD:** TaskDeck Agent Chat protocol core **PASS**, including `go test -race ./internal/agentchat/...` and the real child-process crash test, server Agent Chat tests, JS syntax/bootstrap regressions and `go vet`. TaskDeck Remote Agent (Go) **still in progress at merge**, not claimed successful.
+- **Delivered:** actual OS-killed staging child and restart recovery regression; proof that pre-journal-commit page creation neither alters canonical journal/evidence nor results in adoption of uncommitted steps, while orphan cleanup leaves every committed page intact. Agent Chat now has a visible `Dismiss warning` control for the current ambiguous provider run; dismissal is scoped to exact session/run/phase/payload in browser memory, with new or escalated warnings still shown and no provider replay permission.
+- **Remaining:** the forced-kill test covers one pre-commit boundary only, not a complete fault-injection matrix. Provider-specific authoritative delivery/ack reconciliation, durable cross-daemon leases, direct segment-level verified `done` writes and full semantic acceptance automation remain incomplete. None of them is inferred from this PR's green test results.
