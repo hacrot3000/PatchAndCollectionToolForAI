@@ -435,3 +435,15 @@ This iteration closes only the **predeclared finite named-test checklist** porti
 - **No-side-effect invalid request:** duplicate, negative, empty, oversized and out-of-range paging parameters are rejected with HTTP 400 **before any journal mutation or provider/native operation**. A paged Create is allowed at offset 0 with an empty initial plan, and a paged Add Step can use a current valid offset. Completion is never inferred from a single page.
 - **Tests:** 1,024 milestones with a verified owner-accepted step; server returns 24 or 16 last-page rows after real pause/resume while preserving global progress and evidence, canonical unpaged GET still exposes all 1,024 and unpaged POST still sends full steps for old clients; malformed and out-of-range POST offsets/limits do not change revision or plan state; creating a first plan through the paged API works.
 - **Limits:** full-plan mutation logic still hydrates all 1,024 milestones and persists the canonical manifest under revision CAS. This is an **HTTP/UI response optimization**, not the outstanding segment-level direct write API. All owner authorization, Native Patch evidence and `SENDING/UNKNOWN` no-replay safety remain unchanged.
+
+
+## Completion addendum — 2026-11-23 · PR #177 (bounded POST plan responses)
+
+- **Merged PR:** [#177](https://github.com/hacrot3000/PatchAndCollectionToolForAI/pull/177).
+- **Merge commit on main:** `29f1f84a6d45b80bde22ed98c7036fd2e2324f95`.
+- **Validated exact final feature HEAD:** `aa11a6ebc2303784115eeec38359498f81072ef7`.
+- **CI on final HEAD:** Agent Chat core **PASS**; Remote Portal PHP validation **PASS**; Remote Agent Go **still in progress at merge**, not claimed successful.
+- **Delivered:** new opt-in `POST /plan?offset=N&limit=M` projections (default 24, max 32), returning just selected rows while canonical owner/project-scoped, revision-CAS mutation and the full-plan `done`, `total`, `all_done`, `completed` and `revision` remain unchanged. Invalid, duplicated, empty, negative, oversized or out-of-range paging parameters receive HTTP 400 **before** updating the journal. Existing clients without paging query get exactly the old full-plan POST response.
+- **Browser:** the Task plan editor now renders the bounded acknowledged POST result directly and avoids a second GET after every edit. It continues to use the whole-plan server-computed `all_done` to offer completion; a completed page alone is not accepted as completed task.
+- **Regression:** 1,024-step real session with verified owner acceptance, paged pause and last-page pause returning only 24/16 rows, old unpaged POST/GET returning all 1,024, global totals/evidence preserved, malformed POST paging leaves revision/state unchanged, and first plan can be created by a paginated POST.
+- **Remaining scope:** this is **response-size and redundant-I/O optimization**, not segmented write-side CAS updates. POST still hydrates the complete 1,024-step plan before mutation. Provider `SENDING/UNKNOWN` authoritative reconciliation, multi-daemon coordination, owner-defined semantic acceptance coverage and direct per-page writes are not declared complete.
