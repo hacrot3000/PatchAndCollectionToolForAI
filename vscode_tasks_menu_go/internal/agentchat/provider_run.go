@@ -80,7 +80,11 @@ func (s *Store) StageProviderPayload(x Session,payload []byte)error{
   if _,err=f.Write(encoded);err!=nil{f.Close();return err}
   if err=f.Sync();err!=nil{f.Close();return err}
   if err=f.Close();err!=nil{return err}
-  return os.Rename(f.Name(),s.providerRunFile(x.ID))
+  if err=os.Rename(f.Name(),s.providerRunFile(x.ID));err!=nil{return err}
+  // The PREPARED reference is committed separately in the session journal.
+  // This exact checksummed payload's filename must survive a sudden crash
+  // BEFORE that journal can declare it safely replayable.
+  return s.syncDirectory()
  })
 }
 
