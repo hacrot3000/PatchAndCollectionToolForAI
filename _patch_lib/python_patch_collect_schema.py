@@ -424,3 +424,50 @@ def validate_request_data(data: Any) -> dict[str, Any]:
         "actions": normalized_actions,
         "limits": limits,
     }
+
+
+def _validate_stdin_cli(argv: list[str] | None = None) -> int:
+    """Use the EXACT native COLLECT schema before an Agent request is queued.
+
+    Read-only, no source inspection and no queue mutation. The same
+    validate_request_data() runs again inside the ordinary Python collector.
+    A failed request is never turned into a diagnostic ZIP in patchs/.
+    """
+    import argparse
+    import sys
+
+    parser = argparse.ArgumentParser(description="Native COLLECT schema-only preflight")
+    parser.add_argument("--project-root", required=True)
+    parser.add_argument("--validate-stdin", action="store_true", required=True)
+    args = parser.parse_args(argv)
+    try:
+        from python_patch_project_state import load_project_config
+
+        raw = sys.stdin.buffer.read((256 << 10) + 1)
+        if not raw or len(raw) > (256 << 10):
+            raise CollectSchemaError("COLLECT JSON must contain 1..262144 bytes")
+
+        def reject_duplicate(pairs):
+            value = {}
+            for name, element in pairs:
+                if name in value:
+                    raise CollectSchemaError(f"duplicate JSON key: {name}")
+                value[name] = element
+            return value
+
+        source = json.loads(raw.decode("utf-8"), object_pairs_hook=reject_duplicate)
+        normalized = validate_request_data(source)
+        from pathlib import Path
+        project = load_project_config(Path(args.project_root).resolve()).get("project")
+        active = {k: project.get(k) for k in ("key", "id")} if isinstance(project, dict) else {}
+        if normalized.get("project") != active:
+            raise CollectSchemaError("project.key/project.id do not match the active workspace")
+    except (ValueError, UnicodeError, OSError, KeyError, TypeError) as exc:
+        print("COLLECT_SCHEMA_INVALID: " + str(exc)[:1000], file=sys.stderr)
+        return 2
+    print("COLLECT_SCHEMA_VALID")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(_validate_stdin_cli())

@@ -109,3 +109,39 @@ malformed raw JSON and a wrong-project STOP.
 This does **not** mean that `auto-send ON` automatically continues every
 completed task. It is the native Collection handoff, not that UI switch,
 which must execute and return a result before the provider answers.
+
+
+## 2026-11-23: Agent automatic recovery for invalid COLLECT and stale native Queue selection
+
+A real multi-step Agent session produced diagnostic-only `COLLECT INVALID` entries for
+`read`, empty `git.operations`, and empty `pack.paths`. The original native
+queue-selection bridge then collided with earlier approved PATCH/invalid queue
+rows and the model stopped rather than inspecting the next source file.
+
+The Agent path now validates each model's COLLECT JSON with **the bundled,
+read-only Python `validate_request_data` CLI**, including the project's exact
+key/ID from the existing local config, before it creates a request ZIP. Invalid
+arguments are delivered to the same conversation as a
+`COLLECT_SCHEMA_INVALID` tool observation; the model should repair the
+*original supplied JSON* and request another native COLLECT without guessing
+paths or identities. No rejected JSON is published to the manual queue.
+
+Valid requests still use the **identical Python Patch Tool COLLECT** engine and
+request ZIP/History/result ZIP/TXT workflow. The Agent launches the direct native
+worker via the same `patchCollectExecution` factory used for manual Parallel
+COLLECT, not a second Go reader and not an interactive queue-selection session.
+A queued but unselected/approved PATCH or an older COLLECT INVALID diagnostic
+does not block a separate read-only COLLECT. An actually RUNNING PATCH is still
+protected by the shared work-kind admission gate.
+
+All prior invalid ZIPs remain untouched for operator audit. They are not
+silently deleted, overwritten, repaired, or replayed. An unverified PATCH state
+never becomes an automatic PATCH retry. Native feedback is bound to exact
+run ID + request ZIP name + item index. Stop still cancels the active Agent
+worker; read-only COLLECT partial rc=3 ZIP/TXT is reported as incomplete,
+not mistaken for empty evidence. A provider retry policy remains independent.
+
+The feature tests validate three rejected shapes and a valid overview against
+the true Python schema without creating any queue item, exact project identity
+mismatch, the native CLI router and manual direct-worker factory. Live testing
+against the user's specific historical workspace remains a separate step.

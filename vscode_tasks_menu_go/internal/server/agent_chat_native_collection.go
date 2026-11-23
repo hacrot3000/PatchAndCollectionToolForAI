@@ -4,6 +4,8 @@ import (
  "archive/zip"
  "bytes"
  "context"
+ "crypto/rand"
+ "encoding/hex"
  "encoding/json"
  "errors"
  "fmt"
@@ -11,12 +13,14 @@ import (
  "net/http"
  "net/http/httptest"
  "os"
+ "os/exec"
  "path/filepath"
  "strings"
  "time"
 
  "bletonfc/vscode_tasks_menu/internal/patchtool"
  "bletonfc/vscode_tasks_menu/internal/session"
+ "bletonfc/vscode_tasks_menu/internal/tasks"
 )
 
 // Native COLLECT is the ONLY production Collection executor for Agent Chat.
@@ -253,25 +257,79 @@ func agentNativeCollectionObservation(root string,identity patchtool.ProjectIden
  return string(body)
 }
 
+// Native schema preflight is the SAME Python validate_request_data() that
+// the COLLECT engine uses. Do not reproduce the Python rules in Go. The
+// preflight reads JSON on stdin; a schema error cannot litter patchs/ with an
+// unselectable COLLECT INVALID ZIP.
+type agentNativeCollectValidationError struct{ Detail string }
+func(e *agentNativeCollectValidationError)Error()string{return "COLLECT_SCHEMA_INVALID: "+e.Detail}
+
+func(s *Server)agentPrevalidateNativeCollect(ctx context.Context,request []byte)error{
+ executable,err:=os.Executable()
+ if err!=nil{return fmt.Errorf("locate TaskDeck native runtime: %w",err)}
+ runtimeSpec,err:=patchtool.Resolve(s.Workspace,executable)
+ if err!=nil{return fmt.Errorf("resolve native COLLECT schema runtime: %w",err)}
+ if runtimeSpec.Kind==patchtool.KindLegacyLauncher{
+  return errors.New("native COLLECT schema preflight unavailable in legacy runtime; upgrade bundled Patch Tool rather than queuing an unvalidated Agent ZIP")
+ }
+ command,argv,err:=runtimeSpec.Command(s.Workspace,[]string{"validate-collect"})
+ if err!=nil{return err}
+ limitCtx,cancel:=context.WithTimeout(ctx,15*time.Second)
+ defer cancel()
+ cmd:=exec.CommandContext(limitCtx,command,argv...)
+ cmd.Dir=s.Workspace
+ cmd.Stdin=bytes.NewReader(request)
+ cmd.Stdout=io.Discard
+ var errorText bytes.Buffer
+ cmd.Stderr=&errorText
+ if err=cmd.Run();err!=nil{
+  if e:=limitCtx.Err();e!=nil{return fmt.Errorf("native COLLECT schema preflight timed out or cancelled: %w",e)}
+  msg:=scrubAIContext(strings.TrimSpace(errorText.String()),900)
+  if msg==""{msg=err.Error()}
+  var exit *exec.ExitError
+  if errors.As(err,&exit)&&exit.ExitCode()==2&&strings.Contains(msg,"COLLECT_SCHEMA_INVALID:"){
+   return &agentNativeCollectValidationError{Detail:strings.TrimSpace(strings.TrimPrefix(msg,"COLLECT_SCHEMA_INVALID:"))}
+  }
+  return fmt.Errorf("native COLLECT schema preflight unavailable: %s",msg)
+ }
+ return nil
+}
+
 // One native run per one model tool call, with exact queue-name/index/run
-// binding. No independent Go source reader, no re-execution on failure.
+// binding. Use the SAME direct Python COLLECT worker as the manual Patch Tool
+// Parallel COLLECT action, with its normal History, ZIP/TXT and event protocol.
+// This avoids an interactive queue-selection prompt, which may contain old
+// approved PATCHes or diagnostic-only COLLECT INVALID rows.
+
 func (s *Server) agentRunNativeCollection(ctx context.Context,owner string,request []byte,identity patchtool.ProjectIdentity)(string,error){
  if s.Config.SharedServerEnabled||owner!="local" {
   return "",errors.New("native Agent COLLECT requires an authorized local workspace; shared-server execution is not enabled")
  }
  if s.Sessions==nil{return "",errors.New("native Patch Tool session service unavailable")}
  if ctx.Err()!=nil{return "",ctx.Err()}
+ // Validate with the authoritative installed Python schema BEFORE
+ // publishing an Agent-generated ZIP. Invalid actions become AI feedback
+ // rather than accumulating in the shared manual Patch Tool queue.
+ if err:=s.agentPrevalidateNativeCollect(ctx,request);err!=nil{return "",err}
  receipt,err:=s.agentQueueNativeCollection(ctx,request)
  if err!=nil{return "",err}
- req:=httptest.NewRequest(http.MethodPost,"/api/sessions",nil).WithContext(ctx)
- nativeID,err:=s.agentStartNativePatch(req)
- if err!=nil{return "",fmt.Errorf("COLLECT queued as %s but native session failed to start: %w",receipt.QueuePath,err)}
+ spec,err:=patchCollectExecution(s.Workspace,receipt.Name)
+ if err!=nil{return "",fmt.Errorf("native COLLECT worker unavailable for %s: %w",receipt.Name,err)}
+ // Manual direct workers report an exact item index. Give this Agent run a
+ // cryptographically distinct run_id so only its own final event is accepted.
+ var nonce [12]byte
+ if _,err=rand.Read(nonce[:]);err!=nil{return "",err}
+ expectedRunID:="agent_collect_"+hex.EncodeToString(nonce[:])
+ if err=tasks.ApplyEnvironmentOverrides(&spec,map[string]string{
+  "TASKDECK_PATCH_PROGRESS_RUN_ID":expectedRunID,
+ });err!=nil{return "",err}
+ meta,err:=s.startAgentNativeCollectDirect(spec)
+ if err!=nil{return "",fmt.Errorf("native COLLECT not started for %s: %w",receipt.Name,err)}
+ nativeID:=meta.ID
  defer func(){
-  // Cancellation also works while waiting for the native queue prompt.
-  if ctx.Err()!=nil { _=s.Sessions.Stop(nativeID) }
+  if ctx.Err()!=nil {_=s.Sessions.Stop(nativeID)}
  }()
- _,index,err:=s.agentSelectNativeQueue(ctx,req,nativeID,receipt.Name,"COLLECT")
- if err!=nil{return "",fmt.Errorf("native COLLECT session %s could not select %s; inspect existing queue, no automatic rerun: %w",nativeID,receipt.Name,err)}
+ const index=1
  provider,ok:=s.Sessions.(session.ProtocolStateProvider)
  if !ok{return "",errors.New("native COLLECT protocol state is unavailable")}
  ticker:=time.NewTicker(300*time.Millisecond)
@@ -289,6 +347,8 @@ func (s *Server) agentRunNativeCollection(ctx context.Context,owner string,reque
   state,e:=provider.ProtocolState(nativeID)
   if e==nil{
    final,found=agentNativeCollectionFinalItem(state,receipt.Name,index)
+   // Reject unrelated or stale event reports, even in the same session.
+   if found&&final.RunID!=expectedRunID{found=false}
    if found {
     if finalSeenAt.IsZero(){finalSeenAt=time.Now()}
     z,t:=agentNativeCollectionArtifacts(state,final)

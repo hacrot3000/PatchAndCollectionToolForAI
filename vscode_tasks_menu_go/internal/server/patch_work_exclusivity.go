@@ -8,6 +8,7 @@ import (
  "sync"
 
  "bletonfc/vscode_tasks_menu/internal/session"
+ "bletonfc/vscode_tasks_menu/internal/tasks"
 )
 
 // A process-wide gate serializes admission decisions, but not the workers.
@@ -79,4 +80,52 @@ func (s *Server) reservePatchWorkKind(sessionID, kind string) (func(), error) {
  }
  patchWorkReserved[sessionID]=normalized
  return patchWorkAdmission.Unlock,nil
+}
+
+
+// startAgentNativeCollectDirect is the same Python direct COLLECT worker used
+// by the manual Parallel COLLECT action. Its admission decision and Start are
+// atomic against native PATCH selection. Pending/unselected PATCH packages and
+// diagnostic COLLECT INVALID queue rows are not executing PATCHes and must not
+// block an independent, read-only Agent COLLECT.
+func (s *Server) startAgentNativeCollectDirect(spec tasks.Execution) (session.Metadata,error) {
+ patchWorkAdmission.Lock()
+ defer patchWorkAdmission.Unlock()
+ if s.Sessions==nil {return session.Metadata{},fmt.Errorf("native Patch session service unavailable")}
+ provider,_:=s.Sessions.(session.ProtocolStateProvider)
+ for _,meta:=range s.Sessions.List(){
+  if !strings.EqualFold(meta.Status,"running") ||
+   filepath.Clean(meta.Cwd)!=filepath.Clean(s.Workspace) ||
+   (!strings.HasPrefix(meta.Label,"Patch Tool")&&!strings.EqualFold(meta.Kind,"patch")) {
+   continue
+  }
+  runningKind:=patchWorkReserved[meta.ID]
+  if runningKind==""&&strings.HasPrefix(meta.Label,"Patch Tool · COLLECT ·"){
+   runningKind="COLLECT"
+  }
+  if runningKind==""&&provider!=nil {
+   if st,e:=provider.ProtocolState(meta.ID);e==nil{
+    for _,item:=range st.Items{
+     status:=strings.ToUpper(strings.TrimSpace(item.Status))
+     // Completed protocol rows are historical evidence, not a worker
+     // currently mutating source. An already approved but unstarted PATCH
+     // in a queue must not block a read-only direct COLLECT.
+     if status=="RUNNING"{
+      kind:=strings.ToUpper(strings.TrimSpace(item.Kind))
+      if kind=="PATCH"||kind=="COLLECT"{runningKind=kind;break}
+     }
+    }
+    if runningKind==""&&st.Progress!=nil&&st.Progress.Scope=="collect"{
+     runningKind="COLLECT"
+    }
+   }
+  }
+  if runningKind=="PATCH"{
+   return session.Metadata{},fmt.Errorf("PATCH_IN_PROGRESS: native PATCH execution must finish before an Agent COLLECT starts")
+  }
+ }
+ meta,err:=s.Sessions.Start(spec)
+ if err!=nil{return session.Metadata{},err}
+ patchWorkReserved[meta.ID]="COLLECT"
+ return meta,nil
 }
