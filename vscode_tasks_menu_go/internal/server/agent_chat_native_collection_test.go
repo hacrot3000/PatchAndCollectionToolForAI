@@ -27,15 +27,21 @@ func TestAgentNativeCollectionRequestUsesOriginalSchemaAndIdentity(t *testing.T)
  if actions[0].(map[string]any)["type"]!="decompile"||actions[0].(map[string]any)["address"]!="0x21E551A"{
   t.Fatalf("native-specific decompile arguments were lost: %+v",actions)
  }
- if _,ok:=agentNativeCollectionTextRequest(request,identity);ok{
+ if _,ok,err:=agentNativeCollectionTextRequest(request,identity);ok||err!=nil{
   t.Fatal("text fallback accepted COLLECT without explicit identity")
  }
  wrong:=`{"project":{"key":"foreign","id":"4fb18d97-cbc2-433b-8234-538b32ed0189"},"actions":[{"type":"search","query":"hello"}]}`
  if _,err:=agentNativeCollectionRequest(wrong,identity,false);err==nil{t.Fatal("foreign native request was accepted")}
  if _,err:=agentNativeCollectionRequest(wrong,identity,true);err==nil{t.Fatal("foreign text request was accepted")}
  native:=`{"project":{"key":"server-patching","id":"4fb18d97-cbc2-433b-8234-538b32ed0189"},"actions":[{"type":"symbol","path":"src/code.c","symbol":"main"}]}`
- if _,ok:=agentNativeCollectionTextRequest(native,identity);!ok{t.Fatal("valid native text COLLECT was rejected")}
- if _,ok:=agentNativeCollectionTextRequest("please execute "+native,identity);ok{t.Fatal("prose embedded request was accepted")}
+ if _,ok,err:=agentNativeCollectionTextRequest(native,identity);!ok||err!=nil{t.Fatal("valid native text COLLECT was rejected")}
+ if _,ok,err:=agentNativeCollectionTextRequest("please execute "+native,identity);ok||err!=nil{t.Fatal("prose embedded request was accepted")}
+ if _,recognized,err:=agentNativeCollectionTextRequest(`{"project":{"key":"server-patching","id":"4fb18d97-cbc2-433b-8234-538b32ed0189"},"actions":{}}`,identity);!recognized||err==nil{
+  t.Fatal("malformed standalone Collection JSON was silently treated as final chat response")
+ }
+ if _,recognized,err:=agentNativeCollectionTextRequest(`{"project":{"key":"foreign","id":"4fb18d97-cbc2-433b-8234-538b32ed0189"},"actions":[{"type":"search","query":"x"}]}`,identity);!recognized||err==nil{
+  t.Fatal("foreign Collection request must be recognized and rejected visibly")
+ }
 }
 
 func writeAgentNativeCollectionArtifacts(t *testing.T,root,stem,status string,identity patchtool.ProjectIdentity)(string,string){
