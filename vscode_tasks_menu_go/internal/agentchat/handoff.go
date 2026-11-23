@@ -109,6 +109,17 @@ func HandoffMarkdown(x Session) string {
    b.WriteString("\nNo actionable milestone remains; blocked steps require a user decision.\n\n")
   }
  }
+ if x.Continuation!=nil{
+  c:=x.Continuation
+  fmt.Fprintf(&b,"## Last assistant-turn continuation advisory (not acceptance)\n\nDisposition: %s; reason: %s; automatic continuation (without plan): %t\n",
+   handoffTrim(c.Disposition,32),handoffTrim(c.Reason,120),x.AutoContinueText&&x.TaskPlan==nil)
+  fmt.Fprintf(&b,"Next proposed action: %s\nCheckpoint path (UNVERIFIED): %s\nResponse SHA-256: %s; action signature: %s; repeated advice: %d; no-verified-work turns: %d\n\n",
+   handoffTrim(c.NextAction,500),handoffTrim(c.CheckpointPath,240),
+   c.ResponseDigest,c.ProgressSignature,c.RepeatedTurns,c.NoProgressTurns)
+  if c.NextRetryAt!=nil{
+   fmt.Fprintf(&b,"Continuation admission deferred until: %s\n\n",c.NextRetryAt.UTC().Format(time.RFC3339))
+  }
+ }
  b.WriteString("## Recent verified progress\n\n")
  count:=0
  for i:=len(x.History)-1;i>=0 && count<9;i-- {

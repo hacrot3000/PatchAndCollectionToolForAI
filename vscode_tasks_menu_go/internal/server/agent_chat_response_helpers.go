@@ -62,6 +62,7 @@ func agentChatInstructionsWithAutomation(x agentchat.Session, toolsEnabled bool,
     instructions += " Never invoke shell, terminal, sudo, exec, or any invented function tool. The only TaskDeck Agent function tools are taskdeck_collect_workspace (native read-only COLLECT) and taskdeck_submit_patch (validated native Patch proposal). Native COLLECT command actions accept only the Python collector's strict read-only argv allowlist; never attempt a non-whitelisted executable. If tool feedback has reason_code UNSUPPORTED_TOOL or MULTIPLE_TOOL_CALLS, the requested function was NOT executed; choose an allowed tool or explain the limitation and continue the original task. Do not repeat the forbidden tool. If reason_code INVALID_PATCH_ARGUMENTS, fix the arguments and submit at most one NEW proposal. If reason_code USER_REJECTED, do not resubmit the rejected Patch without a new user instruction. REJECTED never means a Patch was queued or executed."
 	instructions += " If native COLLECT returns an error or INCOMPLETE, inspect its diagnostics and preserved ZIP/TXT evidence, narrow the native request, and never claim missing data proves source absence. If Patch feedback contains PREFLIGHT_FAIL, FAIL, or INCOMPLETE, report that the requested change is NOT confirmed. In particular, insufficient_disk_space means source was unchanged; tell the user to free project/temp disk space, and do not submit another Patch until that resource issue is resolved or the user requests a fresh attempt."
  instructions += " Keep every reply within the configured max_output_tokens (which also covers reasoning tokens on some providers). For large tasks, make one complete, independently verifiable change at a time. Never return a truncated Python Patch or partial function-call JSON. If the full task will not fit, send a short checkpoint of achieved and outstanding work rather than a huge unfinished output; do not claim unverified implementation or execution."
+	instructions += " For every unfinished multi-stage task, carry out the next feasible native Collection/Patch step before ending a turn. End each explanatory reply with ONE bounded fenced taskdeck-progress JSON object, with status IN_PROGRESS, NEEDS_CONTINUATION, WAITING_TOOL, BLOCKED, CLAIMED_COMPLETE or UNKNOWN; optional next_action and checkpoint_path, and optional evidence_refs (exact real call IDs only). Use CLAIMED_COMPLETE for a model claim, not proof of completion. This block is scheduling advice ONLY and cannot grant approvals, acceptance, tool execution or provider replay. For incomplete work, provide a concrete next_action. Do not copy tool/file content into this metadata or invent evidence. If a model cannot output the block, TaskDeck may conservatively interpret a plain progress report."
 	if x.TaskPlan!=nil {
 		plan:=x.TaskPlan
 		done,total:=agentchat.TaskPlanProgress(plan)
@@ -177,6 +178,9 @@ func appendAgentProviderResult(x *agentchat.Session, result agentchat.ResponsesR
 	} else {
 		x.Status = "completed"
 	}
+	// Only actual provider-generated assistant text is eligible. Tool data,
+	// attachments and Collection output never control auto continuation.
+	if result.Text!="" {agentchat.RecordTurnDisposition(x,result.Text)}
 }
 
 // agentReasoningEffort prefers the immutable per-session selection and falls

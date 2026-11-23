@@ -30,7 +30,7 @@ func (s *Server) agentChatAutomationAPI(w http.ResponseWriter, r *http.Request, 
 	if err := dec.Decode(&req); err != nil { http.Error(w, "invalid automation settings",400);return }
 	var extra any
 	if err := dec.Decode(&extra); !errors.Is(err,io.EOF) { http.Error(w,"exactly one automation setting required",400);return }
-	if req.Option!="patch" && req.Option!="collection" && req.Option!="feedback" {
+	if req.Option!="patch" && req.Option!="collection" && req.Option!="feedback" && req.Option!="continue" {
 		http.Error(w,"unknown automation setting",400);return
 	}
 	if req.Option=="patch" && req.Enabled {
@@ -44,7 +44,11 @@ func (s *Server) agentChatAutomationAPI(w http.ResponseWriter, r *http.Request, 
 		}
 		if !s.requireSharedActionPermission(w,r,identity.PermissionPatchRun,"agent.auto_patch_setting",id) {return}
 	}
-	if req.Option=="feedback" && req.Enabled && !req.ConfirmExternal {
+	if req.Option=="continue" && req.Enabled &&
+  (s.Config.SharedServerEnabled||aiPlanOwner(r)!="local"||!req.ConfirmExternal){
+  http.Error(w,"explicit local-owner provider consent required for standalone continuation",403);return
+ }
+ if req.Option=="feedback" && req.Enabled && !req.ConfirmExternal {
 		http.Error(w,"explicit provider sharing authorization required",403);return
 	}
 	owner:=aiPlanOwner(r)
@@ -59,7 +63,19 @@ func (s *Server) agentChatAutomationAPI(w http.ResponseWriter, r *http.Request, 
 	if x.Workspace!=s.Workspace || x.Revision!=req.ExpectedRevision {
 		http.Error(w,"stale or different workspace",409);return
 	}
-	switch req.Option {
+	if req.Option=="continue" && req.Enabled && x.TaskPlan!=nil{
+  http.Error(w,"use Task plan Auto continue when a plan exists",409);return
+ }
+ switch req.Option {
+ case "continue":
+  x.AutoContinueText=req.Enabled
+  if req.Enabled && x.Continuation!=nil{
+   x.Continuation.NoProgressTurns=0
+   x.Continuation.LastWorkSignature=""
+   x.Continuation.LastContinuationKey=""
+   x.Continuation.NextRetryAt=nil
+   x.Continuation.RetryStreak=0
+  }
 	case "patch":
 		x.AutoPatch=req.Enabled
 	case "collection":
