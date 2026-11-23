@@ -664,7 +664,7 @@ func (s *Store) Save(x Session, expectedRevision uint64) (Session, error) {
 // NOT advance the turn revision or touch history, tools, provider run, or
 // approvals. Save preserves this latest title during any later in-flight
 // model write. Never use Save for this metadata-only operation.
-func (s *Store) Rename(id, owner, title string) (Session, error) {
+func (s *Store) Rename(id, owner, title string, observedRevision uint64) (Session, error) {
  title = strings.TrimSpace(title)
  if title == "" || len(title) > 120 {
   return Session{}, ErrInvalidSession
@@ -674,6 +674,9 @@ func (s *Store) Rename(id, owner, title string) (Session, error) {
   x, e := s.readLocked(id)
   if e != nil { return e }
   if x.Owner != owner || !s.matchesProject(x) { return ErrNotFound }
+  // A revision that is already older is normal while the Agent works;
+  // a future revision is impossible and must not be accepted as metadata.
+  if observedRevision > x.Revision { return ErrStaleRevision }
   if x.Title == title { updated = x; return nil }
   x.Title = title
   if err := validateSession(x); err != nil { return err }
