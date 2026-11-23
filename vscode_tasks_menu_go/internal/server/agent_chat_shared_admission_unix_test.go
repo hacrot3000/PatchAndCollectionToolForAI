@@ -159,6 +159,7 @@ func TestAgentSharedCapacityFailsClosedOnUnsafeLease(t *testing.T){
  if ok{release();t.Fatal("symlinked global capacity lock was allowed")}
  if err=os.Remove(bad);err!=nil{t.Fatal(err)}
  if err=os.WriteFile(bad,[]byte("unsafe"),0644);err!=nil{t.Fatal(err)}
+ if err=os.Chmod(bad,0644);err!=nil{t.Fatal(err)}
  ctx,cancel=context.WithTimeout(context.Background(),120*time.Millisecond)
  release,ok=acquireAgentProviderSlot(ctx,"owner-A")
  cancel()
