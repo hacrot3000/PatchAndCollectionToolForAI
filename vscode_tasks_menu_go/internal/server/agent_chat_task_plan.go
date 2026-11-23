@@ -142,8 +142,8 @@ func (s *Server) agentChatTaskPlanAPI(w http.ResponseWriter,r *http.Request,id s
    return
   }
  }
- // Only the explicitly confirmed, owner-owned acceptance edits and
- // verified status/done transitions use the bounded 32-step CAS writer.
+ // Only owner-confirmed acceptance/Go binding edits and verified
+ // status/done transitions use the bounded 32-step CAS writer.
  // Native Task/Go proof and all unpaged/inline operations retain the full
  // validator path below. The Store itself validates ALL offscreen pages.
  eligiblePagedStep:=req.Action=="set_step"&&
@@ -152,7 +152,10 @@ func (s *Server) agentChatTaskPlanAPI(w http.ResponseWriter,r *http.Request,id s
     req.EvidenceKind=="patch"||req.EvidenceKind=="collection")))
  eligiblePagedAcceptance:=req.Action=="set_acceptance_criteria"||
   req.Action=="review_acceptance_criterion"
- if r.Method==http.MethodPost&&postPaged&&(eligiblePagedStep||eligiblePagedAcceptance){
+ eligiblePagedGoBinding:=req.Action=="set_task_command_guard"||
+  req.Action=="set_go_test_requirements"
+ if r.Method==http.MethodPost&&postPaged&&
+  (eligiblePagedStep||eligiblePagedAcceptance||eligiblePagedGoBinding){
   var page agentchat.TaskPlanPageResult
   var e error
   switch req.Action{
@@ -192,6 +195,20 @@ func (s *Server) agentChatTaskPlanAPI(w http.ResponseWriter,r *http.Request,id s
    page,e=store.ReviewSegmentTaskPlanAcceptanceCriterion(
     id,owner,req.ExpectedRevision,req.StepID,
     req.CriterionID,note,postOffset,postLimit)
+  case "set_task_command_guard":
+   if !req.ConfirmCommandGuard{
+    http.Error(w,"explicit owner confirmation required",403);return
+   }
+   page,e=store.SetSegmentTaskPlanCommandGuard(
+    id,owner,req.ExpectedRevision,req.StepID,req.Enabled,
+    req.EvidenceTaskID,req.ExpectedCommandSHA256,postOffset,postLimit)
+  case "set_go_test_requirements":
+   if !req.ConfirmGoTests{
+    http.Error(w,"explicit owner confirmation required for expected Go tests",403);return
+   }
+   page,e=store.SetSegmentTaskPlanGoTestRequirements(
+    id,owner,req.ExpectedRevision,req.StepID,req.Enabled,
+    req.EvidenceGoPackage,req.RequiredGoTests,postOffset,postLimit)
   }
   if e==nil{
    w.Header().Set("Cache-Control","no-store")
@@ -217,7 +234,13 @@ func (s *Server) agentChatTaskPlanAPI(w http.ResponseWriter,r *http.Request,id s
    case errors.Is(e,agentchat.ErrTaskPlanCriterionNotFound):
     http.Error(w,"unknown acceptance criterion for milestone",404)
    case errors.Is(e,agentchat.ErrTaskPlanAcceptanceLocked):
-    http.Error(w,"reopen accepted milestone before editing acceptance criteria",409)
+    http.Error(w,"reopen accepted milestone before editing acceptance criteria or Go test bindings",409)
+   case errors.Is(e,agentchat.ErrTaskPlanGoBindingInvalid):
+    http.Error(w,"invalid expected native command SHA-256, Task ID or required Go tests",400)
+   case errors.Is(e,agentchat.ErrTaskPlanGoBindingConflict):
+    http.Error(w,"remove dependent expected Go tests and owner acceptance matrix explicitly before changing binding",409)
+   case errors.Is(e,agentchat.ErrTaskPlanGoBindingMissing):
+    http.Error(w,"lock the expected native test command before selecting required tests",409)
    default:
     http.Error(w,"unable to persist task plan",409)
    }
