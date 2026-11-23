@@ -32,7 +32,7 @@ func TestAgentChatUIHasNoExecutionAndWiresProviderSessions(t *testing.T) {
 		"Check native Patch status",
 		"/execution",
 		"/pack-preview",
-		"+ Text file",
+		"+ File",
 		"/automation",
 		"Delete conversation",
 		"Auto apply Patch",
@@ -55,7 +55,7 @@ func TestAgentChatUIHasNoExecutionAndWiresProviderSessions(t *testing.T) {
 		"normalizeStagedAttachments",
 		"agentPendingAttachments",
 		"editorSelectionContexts",
-		"project_file_snapshot",
+		"project_file_summary",
 		"view.dirty?'unsaved_editor_buffer':'editor_buffer'",
 		"/api/agent/task-manifests/validate",
 		"Planning only",
@@ -83,6 +83,13 @@ func TestAgentChatUIHasNoExecutionAndWiresProviderSessions(t *testing.T) {
 		if !strings.Contains(js, needle) {
 			t.Errorf("Agent Chat UI lacks %q", needle)
 		}
+	}
+	// The Attachment Compactor replaces the raw full-file snapshot path.
+	// Ensure the UI stages the verified bounded source outline, while exact
+	// editor selections remain an independently capped quotation.
+	if !strings.Contains(js,"content_source:'project_file_summary'") ||
+		!strings.Contains(js,"compacted:true") {
+		t.Error("Agent Chat must stage bounded project-file summaries, not full-file snapshots")
 	}
 	for _, otherPath := range []string{"featuremods/projectfileactions.js", "featuremods/tabcontext.js", "featuremods/editor.js", "featuremods/markdownpreview.js", "featuremods/structuredview.js"} {
 		b, err := webassets.Files.ReadFile(otherPath)
