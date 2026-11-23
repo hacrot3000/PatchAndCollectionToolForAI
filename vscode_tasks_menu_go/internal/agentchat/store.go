@@ -649,6 +649,9 @@ func (s *Store) Delete(id, owner string, expectedRevision uint64) error {
 		if err:=os.Remove(s.file(id));err!=nil{return err}
 		if err:=os.Remove(s.handoffFile(id));err!=nil&&!os.IsNotExist(err){return err}
 		if err:=os.Remove(s.providerRunFile(id));err!=nil&&!os.IsNotExist(err){return err}
+        // Attempt IDs contain only metadata, but leaving an orphan owner
+        // support ledger after explicit session deletion is still incorrect.
+        if err:=os.Remove(s.providerAttemptsPath(id));err!=nil&&!os.IsNotExist(err){return err}
 		if err:=os.Remove(s.providerHeartbeatFile(id));err!=nil&&!os.IsNotExist(err){return err}
   for _,ref:=range x.TaskPlanSegments{
    if err:=os.Remove(s.taskPlanSegmentPath(id,ref));err!=nil&&!os.IsNotExist(err){return err}
@@ -659,7 +662,9 @@ func (s *Store) Delete(id, owner string, expectedRevision uint64) error {
   for part:=uint64(1);part<=x.PatchArchiveParts;part++{
    if err:=os.Remove(s.patchArchivePath(id,part));err!=nil&&!os.IsNotExist(err){return err}
   }
-		return nil
+        // Commit directory-entry removals before reporting completed owner
+        // deletion. Failure is uncertain, never a reason to replay egress.
+        return s.syncDirectory()
 	})
 }
 
