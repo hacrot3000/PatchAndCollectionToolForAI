@@ -313,6 +313,8 @@ agentProviderEgressNotice.hidden=true;
 agentProviderEgressNotice.setAttribute('role','status');
 agentProviderEgressNotice.setAttribute('aria-live','polite');
 let agentProviderReviewKey='';
+ // UI-only suppression: never update the provider egress journal or its safety gate.
+ const agentDismissedProviderReviews=new Set();
 const agentLiveRow=agentEl('div','agentchat-live-status');
 const agentLiveSpinner=agentEl('span','agentchat-live-spinner');
 agentLiveSpinner.setAttribute('aria-hidden','true');
@@ -1114,17 +1116,31 @@ function renderAgentProviderEgressReview(session,review){
  agentProviderReviewKey=key;
  agentProviderEgressNotice.replaceChildren();
  if(!ambiguous){agentProviderEgressNotice.hidden=true;return;}
+ if(agentDismissedProviderReviews.has(key)){
+  agentProviderEgressNotice.hidden=true;
+  return;
+ }
  const heading=review.phase==='unknown'?
   'Provider acknowledgement UNKNOWN':'Provider request SENDING — not yet confirmed';
  const identity='Run '+String(review.run_id||'unknown')+
   ' · '+String(review.kind||'request')+
   ' · payload SHA-256 '+String(review.payload_sha256||'unavailable').slice(0,16)+'…';
  const handoff=agentButton('Open handoff',()=>agentHandoffButton.click());
+ const dismiss=agentButton('Dismiss warning',()=>{
+  // A dismissal applies only to this session/run/phase/payload identity.
+  // A new run or a change from SENDING to UNKNOWN must be shown again.
+  agentDismissedProviderReviews.add(key);
+  if(agentDismissedProviderReviews.size>64){
+   agentDismissedProviderReviews.delete(agentDismissedProviderReviews.values().next().value);
+  }
+  if(agentProviderReviewKey===key)agentProviderEgressNotice.hidden=true;
+ });
+ dismiss.setAttribute('aria-label','Dismiss provider warning without resolving the request');
  agentProviderEgressNotice.append(
   agentEl('strong','',heading),
   agentEl('div','',identity),
   agentEl('div','',String(review.guidance||'Inspect the provider and TaskDeck handoff before any manual decision.')),
-  handoff
+  handoff,dismiss
  );
  agentProviderEgressNotice.hidden=false;
 }
