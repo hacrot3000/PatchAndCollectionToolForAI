@@ -22,6 +22,32 @@ func (s *Server) agentChatTaskPlanAPI(w http.ResponseWriter,r *http.Request,id s
  if r.Method!=http.MethodGet && r.Method!=http.MethodPost{
   http.Error(w,"method not allowed",http.StatusMethodNotAllowed);return
  }
+ // Optional POST-only pagination is parsed before mutation. Unpaged
+ // clients still receive the original complete canonical plan.
+ postOffset,postLimit,postPaged:=0,defaultAgentTaskPlanPageSize,false
+ if r.Method==http.MethodPost {
+  q:=r.URL.Query()
+  _,hasOffset:=q["offset"]
+  _,hasLimit:=q["limit"]
+  postPaged=hasOffset||hasLimit
+  if postPaged {
+   if len(q["offset"])>1||len(q["limit"])>1 {
+    http.Error(w,"duplicate pagination parameter",400);return
+   }
+   if hasOffset {
+    n,e:=strconv.Atoi(q.Get("offset"))
+    if e!=nil||n<0{http.Error(w,"invalid task plan page offset",400);return}
+    postOffset=n
+   }
+   if hasLimit {
+    n,e:=strconv.Atoi(q.Get("limit"))
+    if e!=nil||n<1||n>maxAgentTaskPlanPageSize{
+     http.Error(w,"invalid task plan page limit",400);return
+    }
+    postLimit=n
+   }
+  }
+ }
  owner:=aiPlanOwner(r)
  var req struct {
   Action string `json:"action"`
@@ -112,6 +138,14 @@ func (s *Server) agentChatTaskPlanAPI(w http.ResponseWriter,r *http.Request,id s
  if errors.Is(err,agentchat.ErrNotFound){http.Error(w,"session not found",404);return}
  if err!=nil{http.Error(w,"session journal unavailable",500);return}
  if x.Workspace!=s.Workspace{http.Error(w,"workspace mismatch",403);return}
+ if r.Method==http.MethodPost && postPaged {
+  // Any out-of-range response page is rejected before the CAS mutation.
+  total:=0
+  if x.TaskPlan!=nil{total=len(x.TaskPlan.Steps)}
+  if postOffset>total{
+   http.Error(w,"task plan page offset exceeds plan length",400);return
+  }
+ }
  if r.Method==http.MethodGet{
   done,total:=agentchat.TaskPlanProgress(x.TaskPlan)
   result:=map[string]any{
@@ -354,9 +388,23 @@ func (s *Server) agentChatTaskPlanAPI(w http.ResponseWriter,r *http.Request,id s
  if errors.Is(err,agentchat.ErrStaleRevision){http.Error(w,"stale task plan revision",409);return}
  if err!=nil{http.Error(w,"unable to persist task plan",409);return}
  done,total:=agentchat.TaskPlanProgress(x.TaskPlan)
- w.Header().Set("Cache-Control","no-store")
- writeJSON(w,200,map[string]any{"session_id":id,"revision":x.Revision,
+ response:=map[string]any{"session_id":id,"revision":x.Revision,
   "plan":x.TaskPlan,"done":done,"total":total,
   "all_done":agentchat.TaskPlanAllDone(x.TaskPlan),
-  "completed":x.TaskPlan!=nil&&x.TaskPlan.State=="completed"})
+  "completed":x.TaskPlan!=nil&&x.TaskPlan.State=="completed"}
+ if postPaged {
+  end:=postOffset+postLimit
+  if end>total{end=total}
+  if x.TaskPlan!=nil{
+   page:=*x.TaskPlan
+   page.Steps=append([]agentchat.TaskPlanStep{},x.TaskPlan.Steps[postOffset:end]...)
+   response["plan"]=&page
+  }
+  response["page"]=map[string]any{
+   "offset":postOffset,"limit":postLimit,"total_steps":total,
+   "has_next":end<total,
+  }
+ }
+ w.Header().Set("Cache-Control","no-store")
+ writeJSON(w,200,response)
 }
