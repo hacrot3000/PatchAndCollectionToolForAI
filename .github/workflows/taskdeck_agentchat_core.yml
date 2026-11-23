@@ -15,7 +15,11 @@ on:
       - 'vscode_tasks_menu_go/web/featuremods/menus.js'
       - 'vscode_tasks_menu_go/internal/server/agent_chat_*'
       - 'vscode_tasks_menu_go/internal/server/server.go'
+      - 'vscode_tasks_menu_go/internal/server/patch_work_exclusivity.go'
       - 'vscode_tasks_menu_go/internal/server/shared_authorization.go'
+      - 'python_patch_entry.py'
+      - '_patch_lib/python_patch_collect_schema.py'
+      - 'test_agent_collect_preflight.py'
       - '.github/workflows/taskdeck_agentchat_core.yml'
   pull_request:
     paths:
@@ -31,7 +35,11 @@ on:
       - 'vscode_tasks_menu_go/web/featuremods/menus.js'
       - 'vscode_tasks_menu_go/internal/server/agent_chat_*'
       - 'vscode_tasks_menu_go/internal/server/server.go'
+      - 'vscode_tasks_menu_go/internal/server/patch_work_exclusivity.go'
       - 'vscode_tasks_menu_go/internal/server/shared_authorization.go'
+      - 'python_patch_entry.py'
+      - '_patch_lib/python_patch_collect_schema.py'
+      - 'test_agent_collect_preflight.py'
       - '.github/workflows/taskdeck_agentchat_core.yml'
   workflow_dispatch:
 
@@ -62,6 +70,11 @@ jobs:
           node web/terminalchatcontext_test.cjs
           node web/agentchat_bootstrap_test.cjs
           node test_ai_smart_terminal.cjs
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Test canonical Python COLLECT schema preflight (no queue side effects)
+        run: python test_agent_collect_preflight.py
       - name: Cross-compile Agent state filesystem guard for macOS
         working-directory: vscode_tasks_menu_go
         run: |
