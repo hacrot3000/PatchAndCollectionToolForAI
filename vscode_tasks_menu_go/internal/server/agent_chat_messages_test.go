@@ -76,6 +76,9 @@ func newAgentConversationFixture(t *testing.T, mode string) (*Server, string) {
 	s.AgentCollectionCall=func(root string, project patchtool.ProjectIdentity, raw []byte) string {
 	 var args agentCollectionArguments
 	 if err:=json.Unmarshal(raw,&args);err!=nil {return `{"error":{"code":"MOCK_REQUEST_INVALID"}}`}
+	 for _,action:=range args.Actions {
+	  if action.Type=="write"{return `{"error":{"code":"NATIVE_COLLECTION_SCHEMA_REJECTED","message":"Python COLLECT schema forbids write actions","retry_allowed":true}}`}
+	 }
 	 return executeAgentCollection(root,project,args)
 	}
 	return s, view.Session.ID
