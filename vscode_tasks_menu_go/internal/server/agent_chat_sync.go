@@ -109,8 +109,8 @@ func (s *Server) agentReconcileOneStartupSession(ctx context.Context,store *agen
  if err!=nil||sess.Workspace!=s.Workspace{return}
  if ctx.Err()!=nil{return}
 	changed := false
-	// Provider turns are process-owned, so a requesting_ai journal loaded
-	// at daemon startup has no live provider worker. Do not leave it stuck
+	// The per-session lease proves no other local daemon currently owns
+	// this turn. A crashed worker may leave requesting_ai SENDING behind. Do not leave it stuck
 	// forever and do not blindly replay an ambiguous provider request.
 	if sess.Status=="requesting_ai" {
 		if sess.ProviderRun!=nil && sess.ProviderRun.Phase=="prepared" {
@@ -132,7 +132,7 @@ func (s *Server) agentReconcileOneStartupSession(ctx context.Context,store *agen
 	}
 	for j, record := range sess.ToolCalls {
 		if s.Sessions == nil || record.Status != "running" || record.PatchSessionID == "" {
-			continue
+			return
 		}
 		// Persisting after disconnect must not extend an expired approval
 		// or bypass owner/project checks; reconciliation only reads state.
@@ -145,12 +145,11 @@ func (s *Server) agentReconcileOneStartupSession(ctx context.Context,store *agen
 		}
 	}
 	if !changed {
-		continue
+		return
 	}
 	if _, err := store.Save(sess, sess.Revision); err != nil {
-		// A concurrent writer owns the newer revision; leave it to the
-		// authoritative /sync path rather than overwriting.
-		continue
+		// Any concurrent newer revision stays authoritative.
+		return
 	}
 }
 
