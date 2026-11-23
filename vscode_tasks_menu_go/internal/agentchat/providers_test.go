@@ -187,3 +187,14 @@ func TestProviderResponseParseRetryClassification(t *testing.T) {
   }
  }
 }
+
+func TestIncompleteOutputRetainsReasonAndUsageForSafeDiagnostics(t *testing.T){
+ raw:=[]byte(`{"id":"r1","status":"incomplete","incomplete_details":{"reason":"max_output_tokens"},"usage":{"input_tokens":1000,"output_tokens":4096},"output":[{"type":"function_call","call_id":"untrusted","name":"taskdeck_submit_patch","arguments":"{}"}]}`)
+ pe:=classifyProviderResponseParseError(raw,fmt.Errorf("incomplete response"))
+ if pe.Code!="RESPONSE_INCOMPLETE"||pe.ProviderErrorCode!="max_output_tokens"||pe.OutputTokensUsed!=4096||!pe.Retryable{
+  t.Fatalf("incomplete response not classified for bounded retry: %+v",pe)
+ }
+ if _,err:=ParseResponsesResult(raw);err==nil{
+  t.Fatal("incomplete provider tool output must never be accepted")
+ }
+}

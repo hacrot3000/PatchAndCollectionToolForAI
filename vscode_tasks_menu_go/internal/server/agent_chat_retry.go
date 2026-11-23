@@ -7,6 +7,8 @@ import (
  "io"
  "net/http"
  "net/url"
+ "strings"
+ "strconv"
  "sync"
  "time"
 
@@ -93,37 +95,62 @@ func agentRetryCode(err error)string{
  if errors.Is(err,context.DeadlineExceeded){return "PROVIDER_TIMEOUT"}
  return "TRANSIENT_TRANSPORT_FAILURE"
 }
-// An incomplete max_output_tokens response requires a larger output budget,
-// not an infinite loop of byte-identical requests. History and tool inputs
-// remain unchanged; the ceiling is the selected model's configured maximum.
-func agentRetryLargerOutputPayload(payload []byte,p agentchat.ProviderConfig)([]byte,bool){
+// A model may exhaust max_output_tokens on a large task, including hidden
+// reasoning. On the FIRST such error, retry ONCE (only when retries are opted
+// in) with both more headroom and a succinct, explicit completion budget.
+// No untrusted partial output is inserted into history, no tool call from an
+// incomplete response is executed, and the durable canonical payload is kept.
+// The next incomplete error is terminal EVEN for RetryUnlimited: rerunning
+// the same enormous task indefinitely wastes tokens and never makes progress.
+const agentIncompleteRecoveryNote = "\nOUTPUT-BOUND RECOVERY (prior provider response hit max_output_tokens): " +
+ "This is a fresh response. No partial output or tool call from the previous attempt was accepted or executed. " +
+ "Use your remaining output budget sparingly. Complete ONE small, verifiable part of the original task per response. " +
+ "If all work cannot fit, provide a concise checkpoint listing completed and remaining work. " +
+ "If using a function tool, submit ONE complete, valid function call or a smaller complete Patch; " +
+ "NEVER truncate Python, JSON or tool arguments, and never claim unverified execution. " +
+ "Do not dump large source files or repeat prior evidence; stay within max_output_tokens."
+
+func agentRetryConstrainedOutputPayload(payload []byte,p agentchat.ProviderConfig)([]byte,int,bool){
  var req map[string]json.RawMessage
- if json.Unmarshal(payload,&req)!=nil{return nil,false}
+ if json.Unmarshal(payload,&req)!=nil||req==nil{return nil,0,false}
  var current int
  var modelID string
  if json.Unmarshal(req["max_output_tokens"],&current)!=nil||current<=0||
-  json.Unmarshal(req["model"],&modelID)!=nil{return nil,false}
+  json.Unmarshal(req["model"],&modelID)!=nil||modelID==""{return nil,0,false}
+ var instructions string
+ if raw,exists:=req["instructions"];exists&&json.Unmarshal(raw,&instructions)!=nil{return nil,0,false}
+ if strings.Contains(instructions,"OUTPUT-BOUND RECOVERY"){return nil,0,false}
+ if len(instructions)+len(agentIncompleteRecoveryNote)>(1<<20){return nil,0,false}
  cap:=32768
- for _,m:=range p.Models {
-  if m.ID==modelID{if m.MaxOutputTokens>0{cap=m.MaxOutputTokens};break}
+ for _,m:=range p.Models{
+  if m.ID==modelID{
+   if m.MaxOutputTokens>0{cap=m.MaxOutputTokens}
+   break
+  }
  }
  if cap>200000{cap=200000}
- if current>=cap{return nil,false}
- next:=current*2
- if next>cap{next=cap}
+ if current>cap{cap=current}
+ next:=current
+ if current<cap{
+  next=current*2
+  if next>cap{next=cap}
+ }
  req["max_output_tokens"],_=json.Marshal(next)
+ req["instructions"],_=json.Marshal(instructions+agentIncompleteRecoveryNote)
  b,err:=json.Marshal(req)
- return b,err==nil
+ if err!=nil||len(b)>4<<20{return nil,0,false}
+ return b,next,true
 }
 
 // agentChatProviderWithRetry runs one 600-second-scoped provider attempt at a
 // time. A limited retry means ONE initial attempt + FIVE retries 10s apart.
-// An unlimited retry stops only on success, explicit Stop or daemon shutdown.
-// The same model request bytes are used for all retries; no Patch execution
-// or verified tool-result egress is replayed by this helper itself.
+// Unlimited transport retries stop on success, Stop or shutdown. A repeated
+// max_output_tokens error is different: at most one guided recovery request
+// is allowed, even in unlimited mode. Native Patch execution is NEVER replayed.
 func (s *Server) agentChatProviderWithRetry(ctx context.Context,owner,sessionID string,p agentchat.ProviderConfig,key string,payload []byte)(agentchat.ResponsesResult,error,string){
  mode:=agentRetryModeForSession(s,owner,sessionID)
  replayPayload:=payload
+ incompleteRecoverySent:=false
  // The durable SENDING journal is the only origin of correlation data.
  // Direct capability probes and legacy tests without a live egress marker
  // keep using the existing transport without manufacturing a fake receipt.
@@ -174,9 +201,17 @@ func (s *Server) agentChatProviderWithRetry(ctx context.Context,owner,sessionID 
   }
   var pe *agentchat.ProviderError
   if errors.As(err,&pe)&&pe.Code=="RESPONSE_INCOMPLETE"&&pe.ProviderErrorCode=="max_output_tokens"{
-   expanded,ok:=agentRetryLargerOutputPayload(replayPayload,p)
+   if incompleteRecoverySent{
+    pe.Retryable=false
+    pe.Message="Provider exhausted max_output_tokens again after one bounded recovery attempt; split the task into smaller steps or check the model output limit"
+    s.recordAgentDebugEvent(owner,sessionID,"","provider_retry","output_budget.exhausted","RESPONSE_INCOMPLETE",pe.Message)
+    return result,err,trace
+   }
+   constrained,nextLimit,ok:=agentRetryConstrainedOutputPayload(replayPayload,p)
    if !ok{return result,err,trace}
-   replayPayload=expanded
+   replayPayload=constrained
+   incompleteRecoverySent=true
+   s.recordAgentDebugEvent(owner,sessionID,"","provider_retry","output_budget.recovery","","Retrying one bounded response with output budget "+strconv.Itoa(nextLimit)+" and concise completion guidance; no incomplete tool result was executed")
   }
   next:=time.Now().UTC().Add(agentRetryDelay)
   agentRetryPublish(s.Workspace,owner,sessionID,agentRetryProgress{

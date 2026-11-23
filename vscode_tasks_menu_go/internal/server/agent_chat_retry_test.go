@@ -6,6 +6,7 @@ import (
  "encoding/json"
  "net/http"
  "testing"
+ "strings"
  "time"
 
  "bletonfc/vscode_tasks_menu/internal/agentchat"
@@ -137,6 +138,7 @@ func TestAgentUnlimitedRetriesIncompleteByExpandingOutputBudget(t *testing.T){
   expected:=4096
   if calls==2{expected=8192}
   if request.Model!="model"||request.Limit!=expected{t.Fatalf("unexpected retry payload: %+v",request)}
+  if calls==2&&!strings.Contains(string(payload),"OUTPUT-BOUND RECOVERY"){t.Fatalf("guided retry instructions missing from payload")}
   if calls==1{return agentchat.ResponsesResult{},&agentchat.ProviderError{Code:"RESPONSE_INCOMPLETE",ProviderErrorCode:"max_output_tokens",Retryable:true}}
   return agentchat.ResponsesResult{ResponseID:"done",Text:"Recovered"},nil
  }
@@ -154,12 +156,14 @@ func TestAgentUnlimitedStopsAtConfiguredOutputCap(t *testing.T){
  x.RetryMode=agentchat.RetryUnlimited
  if _,err=store.Save(x,x.Revision);err!=nil{t.Fatal(err)}
  calls:=0
- s.AgentChatCall=func(_ context.Context,_ agentchat.ProviderConfig,_ string,_ []byte)(agentchat.ResponsesResult,error){
+ s.AgentChatCall=func(_ context.Context,_ agentchat.ProviderConfig,_ string,payload []byte)(agentchat.ResponsesResult,error){
   calls++
+  if calls==2&&!strings.Contains(string(payload),"OUTPUT-BOUND RECOVERY"){t.Fatal("recovery request must have explicit bounded-output guidance")}
+  if calls>2{t.Fatalf("identical max_output_tokens failure retried indefinitely: %d",calls)}
   return agentchat.ResponsesResult{},&agentchat.ProviderError{Code:"RESPONSE_INCOMPLETE",ProviderErrorCode:"max_output_tokens",Retryable:true}
  }
  _,err,_=s.agentChatCallForOwner(context.Background(),"local",id,
   agentchat.ProviderConfig{ID:"fake",Models:[]agentchat.ModelConfig{{ID:"model",MaxOutputTokens:4096}}},
   "key",[]byte(`{"model":"model","max_output_tokens":4096}`))
- if err==nil||calls!=1{t.Fatalf("hard output cap must stop: calls=%d err=%v",calls,err)}
+ if err==nil||calls!=2{t.Fatalf("hard output cap must stop after one guided recovery: calls=%d err=%v",calls,err)}
 }

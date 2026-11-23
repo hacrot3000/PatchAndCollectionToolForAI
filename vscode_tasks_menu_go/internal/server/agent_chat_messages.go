@@ -365,10 +365,8 @@ func (s *Server) agentChatMessageAPI(w http.ResponseWriter, r *http.Request, id 
 		patchToolAvailable = s.agentChatEnsureTools(r.Context(), owner, p, model, string(secret))
 	}
 	instructions := agentChatInstructionsWithAutomation(session, patchToolAvailable, identity.Key)
-	limit := 4096
-	if model.MaxOutputTokens > 0 && model.MaxOutputTokens < limit {
-		limit = model.MaxOutputTokens
-	}
+	reasoning:=agentProviderReasoningEffort(p,session.ReasoningEffort,model)
+	limit := agentInitialOutputBudget(model,reasoning,patchToolAvailable)
 	// Conversations mode is only trusted with verified evidence for this exact
 	// endpoint/model. Otherwise replay canonical history statelessly; the stored
 	// session mode stays immutable for audit and a later verified retry.
@@ -379,7 +377,7 @@ func (s *Server) agentChatMessageAPI(w http.ResponseWriter, r *http.Request, id 
 		Model: session.ModelID, Instructions: instructions, Mode: mode,
 		PreviousResponseID: session.PreviousResponseID, ConversationID: conversationID,
 		History: agentContextForRequest(session, model, instructions, []agentchat.HistoryItem{next}), Next: []agentchat.HistoryItem{next}, MaxOutputTokens: limit,
-		ReasoningEffort: agentProviderReasoningEffort(p, session.ReasoningEffort, model),
+		ReasoningEffort: reasoning,
 		EnablePatchTool: patchToolAvailable, EnableCollectionTool: patchToolAvailable,
 	})
 	if err != nil {

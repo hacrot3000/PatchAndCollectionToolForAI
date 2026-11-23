@@ -288,16 +288,14 @@ func (s *Server) agentChatRunCollection(
 			x.ConversationID = result.ConversationID
 		}
 		conversationID := x.ConversationID
-		limit := 4096
-		if model.MaxOutputTokens > 0 && model.MaxOutputTokens < limit {
-			limit = model.MaxOutputTokens
-		}
+		reasoning:=agentProviderReasoningEffort(provider,x.ReasoningEffort,model)
+		limit := agentInitialOutputBudget(model,reasoning,toolAvailable)
 		payload, err := agentchat.BuildResponsesRequest(agentchat.RequestConfig{
 			Model: x.ModelID, Instructions: agentChatInstructionsWithAutomation(*x, toolAvailable, identity.Key),
 			Mode: mode, PreviousResponseID: x.PreviousResponseID, ConversationID: conversationID,
 			History: agentContextForRequest(*x, model, agentChatInstructionsWithAutomation(*x, toolAvailable, identity.Key), []agentchat.HistoryItem{next}), Next: []agentchat.HistoryItem{next},
 			MaxOutputTokens: limit,
-			ReasoningEffort: agentProviderReasoningEffort(provider, x.ReasoningEffort, model),
+			ReasoningEffort: reasoning,
 			EnablePatchTool: toolAvailable, EnableCollectionTool: toolAvailable,
 		})
 		if err != nil {

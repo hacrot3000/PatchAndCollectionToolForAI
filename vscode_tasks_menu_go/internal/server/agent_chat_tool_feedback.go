@@ -235,11 +235,9 @@ func (s *Server) agentDeliverToolResult(ctx context.Context, store *agentchat.St
             next=append(next,agentchat.HistoryItem{Type:"function_call_output",CallID:sibling.CallID,Content:output})
         }
     }
-	limit := 4096
-	if model.MaxOutputTokens > 0 && model.MaxOutputTokens < limit {
-		limit = model.MaxOutputTokens
-	}
 	toolAvailable := model.ToolCalling && s.agentToolCapabilityVerified(owner, p, model)
+	reasoning:=agentProviderReasoningEffort(p,x.ReasoningEffort,model)
+	limit := agentInitialOutputBudget(model,reasoning,toolAvailable)
 	mode := agentContextRequestMode(x,p.APIType,s.agentConversationCapabilityVerified(owner,p,model))
 	if call.TextFallback {mode=agentchat.Stateless}
 	agentClearProviderRefsForStateless(&x,mode)
@@ -248,7 +246,7 @@ func (s *Server) agentDeliverToolResult(ctx context.Context, store *agentchat.St
 		Model: x.ModelID, Instructions: agentChatInstructionsWithAutomation(x, toolAvailable, identity.Key),
 		Mode: mode, PreviousResponseID: x.PreviousResponseID, ConversationID: conversationID,
 		History: agentContextForRequest(x, model, agentChatInstructionsWithAutomation(x, toolAvailable, identity.Key), next), Next: next,
-		MaxOutputTokens: limit, ReasoningEffort: agentProviderReasoningEffort(p, x.ReasoningEffort, model),
+		MaxOutputTokens: limit, ReasoningEffort: reasoning,
 		EnablePatchTool: toolAvailable, EnableCollectionTool: toolAvailable,
 	})
 	if err != nil {

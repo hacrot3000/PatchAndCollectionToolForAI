@@ -69,6 +69,10 @@ type ProviderError struct {
 	Message           string
 	ProviderErrorType string
 	ProviderErrorCode string
+	// OutputTokensUsed is provider-reported usage for a rejected/incomplete
+	// response, if present. Incomplete content must not be treated as a
+	// successful reply or as an executable native tool call.
+	OutputTokensUsed int
 	ProviderMessage   string
 	HTTPStatus        int
 	RetryAfter        string

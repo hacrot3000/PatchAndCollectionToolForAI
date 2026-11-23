@@ -541,6 +541,7 @@ func classifyProviderResponseParseError(raw []byte, cause error) *ProviderError 
   Status string `json:"status"`
   IncompleteDetails struct { Reason string `json:"reason"` } `json:"incomplete_details"`
   Error struct { Code string `json:"code"` } `json:"error"`
+  Usage struct { OutputTokens int `json:"output_tokens"` } `json:"usage"`
  }
  if json.Unmarshal(raw,&v)!=nil {return pe}
  switch v.Status {
@@ -549,6 +550,9 @@ func classifyProviderResponseParseError(raw []byte, cause error) *ProviderError 
   pe.Code,pe.ProviderErrorCode="RESPONSE_INCOMPLETE",reason
   pe.Message="Provider returned an incomplete response"
   if reason!=""{pe.Message+=" ("+reason+")"}
+  if v.Usage.OutputTokens>0 {
+    pe.OutputTokensUsed=v.Usage.OutputTokens
+  }
   switch reason {
   case "content_filter","context_length_exceeded","context_window_exceeded","invalid_request","insufficient_quota":
   default:pe.Retryable=true
@@ -624,6 +628,13 @@ func DoResponses(ctx context.Context, p ProviderConfig, key string, body []byte)
 		diagnostic.Event = "response.parse_error"
 		diagnostic.Code = pe.Code
 		diagnostic.SafeMessage = pe.Message
+		if pe.Code=="RESPONSE_INCOMPLETE"&&pe.ProviderErrorCode=="max_output_tokens" {
+			var requested struct {Limit int `json:"max_output_tokens"`}
+			_ = json.Unmarshal(body,&requested)
+			used:="unreported"
+			if pe.OutputTokensUsed>0{used=strconv.Itoa(pe.OutputTokensUsed)}
+			diagnostic.SafeMessage = fmt.Sprintf("Model output budget exhausted (max_output_tokens), requested=%d, used=%s. Incomplete tool proposals were rejected.",requested.Limit,used)
+		}
 		RecordProviderDiagnostic(ctx, diagnostic)
 		return ResponsesResult{}, pe
 	}

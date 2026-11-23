@@ -226,10 +226,10 @@ func (r *agentDebugRecorder) RecordProviderDiagnostic(ev agentchat.DiagnosticEve
 	if event.ResponseSHA256 == "" && len(ev.ResponseBody) > 0 {
 		event.ResponseSHA256 = agentchat.BodyDigest(ev.ResponseBody)
 	}
-	if ev.SafeMessage != "" && ev.HTTPStatus == 0 {
+	if ev.SafeMessage != "" && ev.HTTPStatus < 400 {
 		event.SafeMessage = agentchat.SafeProviderText(ev.SafeMessage)
 	}
-	if ev.HTTPStatus > 0 && ev.Level == "error" {
+	if ev.HTTPStatus >= 400 && ev.Level == "error" {
 		event.SafeMessage = "Provider returned an HTTP error; inspect bounded diagnostics"
 	}
 	if event.RequestBytes == 0 && len(ev.RequestBody) > 0 {
