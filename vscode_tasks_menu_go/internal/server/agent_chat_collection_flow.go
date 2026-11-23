@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -202,13 +203,22 @@ func (s *Server) agentChatRunCollection(
 			var nativeErr error
 			observed,nativeErr = s.agentRunNativeCollection(ctx,x.Owner,nativeRequest,identity)
 			if nativeErr!=nil {
+				code:="NATIVE_COLLECTION_FAILED"
+				message:="A native COLLECT did not provide verified evidence. Do not claim inspection succeeded. Inspect the native session; never automatically replay an ambiguous run."
+				retryAllowed:=false
+				var schemaErr *agentNativeCollectValidationError
+				if errors.As(nativeErr,&schemaErr){
+					code="COLLECT_SCHEMA_INVALID"
+					message="Schema-only preflight rejected the unexecuted request. Repair the ORIGINAL JSON arguments against the bundled COLLECT_ACTION_SCHEMA.json, preserve project identity and valid actions, then submit a distinct valid request. A new ZIP was NOT queued."
+					retryAllowed=true
+				}
 				x.AppendEvent("collect_native_failed","requesting_ai","",
 					scrubAIContext(nativeErr.Error(),450))
 				data,_:=json.Marshal(map[string]any{"project":identity,
-					"error":map[string]any{"code":"NATIVE_COLLECTION_FAILED",
+					"error":map[string]any{"code":code,
 					"message":scrubAIContext(nativeErr.Error(),700),
-					"retry_allowed":false,
-					"action":"Inspect the existing Patch Tool queue/History and native session; never reexecute an ambiguous Collection automatically."}})
+					"retry_allowed":retryAllowed,
+					"action":message}})
 				observed=string(data)
 			}
 		}
