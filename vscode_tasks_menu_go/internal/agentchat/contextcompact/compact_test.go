@@ -70,3 +70,65 @@ func TestUtf8SummariesAndArchiveCheckpoint(t *testing.T){
   t.Fatalf("UTF-8 or checkpoint lost: %s",s)
  }
 }
+
+func TestHistoricalOrphanPatchIsNotReplayedButAuditRemains(t *testing.T){
+ // Mirrors the real 2026-11-23 debug report: call_0354... appears at
+ // history index 3 with NO output; 81 subsequent history records include
+ // legitimate completed Patch/Collection exchanges. The provider rejected
+ // the old implementation with HTTP 400 "No tool output found".
+ orphanID:="call_03541687963626754fe4b9e1"
+ oldPatch:=agentchat.HistoryItem{Type:"function_call",CallID:orphanID,
+  Name:"taskdeck_submit_patch",Arguments:`{"name":"old-unfinished","patch_python":"print('never confirmed')"}`}
+ history:=[]agentchat.HistoryItem{
+  {Type:"user",Content:"Original task"},
+  {Type:"user",Content:"Continue"},
+  {Type:"user",Content:"Continue"},
+  oldPatch,
+  {Type:"user",Content:"Prior attempt interrupted; continue without reapplying"},
+ }
+ for i:=0;i<38;i++{
+  id:=fmt.Sprintf("collect-%d",i)
+  history=append(history,
+   agentchat.HistoryItem{Type:"function_call",CallID:id,Name:"taskdeck_collect_workspace",Arguments:`{"actions":[{"type":"search","query":"FBB"}]}`},
+   agentchat.HistoryItem{Type:"function_call_output",CallID:id,Content:`{"status":"INCOMPLETE","partial_evidence":true}`})
+ }
+ if len(history)!=81{t.Fatalf("fixture must reflect real 81-item context: %d",len(history))}
+ origArgs:=history[3].Arguments
+ next:=[]agentchat.HistoryItem{{Type:"user",Content:"Continue current task"}}
+ got,stats:=Build(history,Policy{MaxInputTokens:65536,Next:next})
+ all:=fmt.Sprint(got)
+ if strings.Contains(all,oldPatch.Arguments){t.Fatal("orphan Patch source replayed to model")}
+ if !strings.Contains(all,orphanID)||!strings.Contains(all,"UNRESOLVED historical tool call")||
+  !strings.Contains(all,"Execution status UNKNOWN"){
+  t.Fatalf("orphan Patch was silently discarded or falsely marked executed: %s",all)
+ }
+ for _,item:=range got{if item.Type=="function_call"&&item.CallID==orphanID{
+  t.Fatal("orphan function_call reached provider input; would trigger HTTP 400")
+ }}
+ if stats.BudgetExceeded{t.Fatalf("context compaction failed: %+v",stats)}
+ if history[3].Arguments!=origArgs||history[3].CallID!=orphanID{
+  t.Fatal("canonical audit history was mutated during context repair")
+ }
+}
+func TestOrphanOutputCompactedAndCurrentFeedbackRemainsExact(t *testing.T){
+ historical:=[]agentchat.HistoryItem{
+  {Type:"user",Content:"test"},
+  {Type:"function_call_output",CallID:"old-output",Content:`{"status":"PASS"}`},
+  {Type:"user",Content:"continue"},
+  {Type:"function_call",CallID:"pending-patch",Name:"taskdeck_submit_patch",
+   Arguments:`{"name":"new patch","patch_python":"print('ok')"}`},
+ }
+ next:=[]agentchat.HistoryItem{{Type:"function_call_output",CallID:"pending-patch",Content:`{"status":"FAIL","rc":3}`}}
+ got,_:=Build(historical,Policy{MaxInputTokens:32768,Next:next})
+ visible:=fmt.Sprint(got)
+ if !strings.Contains(visible,"UNPAIRED historical tool feedback"){
+  t.Fatalf("orphan output not catalogued: %s",visible)
+ }
+ for _,v:=range got {
+  if v.Type=="function_call_output"&&v.CallID=="old-output"{t.Fatal("orphan output reached provider")}
+ }
+ if got[len(got)-1].Type!="function_call"||got[len(got)-1].CallID!="pending-patch"{
+  t.Fatal("fresh pending Patch call was lost; next verified output cannot pair")
+ }
+ if next[0].Content!=`{"status":"FAIL","rc":3}`{t.Fatal("new verified Patch feedback modified")}
+}

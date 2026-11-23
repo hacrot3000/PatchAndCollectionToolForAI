@@ -157,3 +157,46 @@ func TestParseResponsesRefusesInvalidOrEmptyResults(t *testing.T) {
 		}
 	}
 }
+
+func TestStatelessProviderContextRejectsMissingToolOutputBeforeHTTP(t *testing.T){
+ orphan:=HistoryItem{Type:"function_call",CallID:"call_03541687963626754fe4b9e1",
+  Name:"taskdeck_submit_patch",Arguments:`{"name":"stale","patch_python":"print('unverified')"}`}
+ cfg:=RequestConfig{Model:"composer-2.5",Instructions:"TaskDeck policy",Mode:Stateless,
+  History:[]HistoryItem{{Type:"user",Content:"original"},orphan},
+  Next:[]HistoryItem{{Type:"user",Content:"continue"}}}
+ if _,err:=BuildResponsesRequest(cfg);err==nil||
+  !strings.Contains(err.Error(),"has no tool output"){
+  t.Fatalf("orphan Patch must fail locally before HTTP: %v",err)
+ }
+ cfg.History=[]HistoryItem{{Type:"user",Content:"original"},
+  {Type:"function_call_output",CallID:"not-a-call",Content:"PASS"}}
+ if _,err:=BuildResponsesRequest(cfg);err==nil||
+  !strings.Contains(err.Error(),"has no matching function call"){
+  t.Fatalf("orphan tool feedback must fail before provider HTTP: %v",err)
+ }
+}
+
+func TestStatelessProviderContextAllowsFreshOnceOnlyFeedback(t *testing.T){
+ call:=HistoryItem{Type:"function_call",CallID:"call_pending",Name:"taskdeck_submit_patch",
+  Arguments:`{"name":"valid","patch_python":"print('done')"}`}
+ output:=HistoryItem{Type:"function_call_output",CallID:call.CallID,
+  Content:`{"status":"FAIL","rc":1,"evidence":"stored once"}`}
+ cfg:=RequestConfig{Model:"composer-2.5",Instructions:"TaskDeck policy",Mode:Stateless,
+  History:[]HistoryItem{{Type:"user",Content:"original"},call},
+  Next:[]HistoryItem{output}}
+ req:=decodePayload(t,cfg)
+ input:=req["input"].([]any)
+ if len(input)!=3||input[1].(map[string]any)["call_id"]!=call.CallID||
+  input[2].(map[string]any)["output"]!=output.Content{
+  t.Fatalf("fresh once-only native Patch feedback was lost or modified: %#v",input)
+ }
+ // Stateful provider references need not carry the matching call again:
+ // only the new tool output is sent when server-side history was verified.
+ cfg.Mode=PreviousResponse
+ cfg.PreviousResponseID="resp_existing"
+ cfg.History=nil
+ req=decodePayload(t,cfg)
+ if len(req["input"].([]any))!=1||req["previous_response_id"]!="resp_existing"{
+  t.Fatalf("valid stateful feedback was blocked: %#v",req)
+ }
+}

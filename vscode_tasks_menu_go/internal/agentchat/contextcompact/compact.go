@@ -135,7 +135,25 @@ func collectionSummary(call,output agentchat.HistoryItem)string{
 func plainSummary(text string)string{
  return "Earlier Collection fallback evidence: "+truncate(strings.TrimSpace(text),240)+"; full evidence remains in TaskDeck history."
 }
-func groups(history []agentchat.HistoryItem,synthetic map[string]bool) []group{
+// An orphan is a historical tool call without verified feedback in the
+// canonical journal. Keep that journal untouched, but never replay an
+// unmatched function_call into a stateless Responses request. This is NOT a
+// synthetic tool result and never asserts that the Patch ran.
+func orphanCallSummary(call agentchat.HistoryItem)string{
+ label:=call.Name
+ if call.Name=="taskdeck_submit_patch"{label+=" ("+extractPatchName(call.Arguments)+")"}
+ return fmt.Sprintf("UNRESOLVED historical tool call %q, call_id=%s, arguments_hash=%s: no verified function_call_output exists in this provider-visible exchange. Execution status UNKNOWN. TaskDeck did not re-run the tool or invent feedback; inspect the original private Agent/Patch journal before retrying any side effect.",
+  truncate(label,130),truncate(call.CallID,100),digest(call.Arguments))
+}
+func orphanOutputSummary(out agentchat.HistoryItem)string{
+ return fmt.Sprintf("UNPAIRED historical tool feedback, call_id=%s, evidence_hash=%s. Original payload remains in TaskDeck journal; no executable call or result was fabricated.",
+  truncate(out.CallID,100),digest(out.Content))
+}
+func groups(history []agentchat.HistoryItem,synthetic map[string]bool,next []agentchat.HistoryItem) []group{
+ // Fresh once-only Patch/Collection feedback is delivered in Next, not yet
+ // persisted in History. Preserve exactly that pending call for this request.
+ awaiting:=map[string]bool{}
+ for _,n:=range next {if n.Type=="function_call_output"{awaiting[n.CallID]=true}}
  out:=make([]group,0,len(history))
  for i:=0;i<len(history);i++{
   a:=history[i]
@@ -153,9 +171,22 @@ func groups(history []agentchat.HistoryItem,synthetic map[string]bool) []group{
     g:=group{items:[]agentchat.HistoryItem{a,b},kind:kind,summary:summary}
     g.tokens=groupTokens(g.items);out=append(out,g);i++;continue
    }
-   // An unresolved call must remain byte-exact until its output is sent.
-   g:=group{items:[]agentchat.HistoryItem{a},kind:"pending",keep:true}
-   g.tokens=groupTokens(g.items);out=append(out,g);continue
+   if awaiting[a.CallID] {
+    g:=group{items:[]agentchat.HistoryItem{a},kind:"pending",keep:true}
+    g.tokens=groupTokens(g.items);out=append(out,g);continue
+   }
+   // A stale function call without its output is a legacy journal gap,
+   // not a provider-visible operation. Catalog it without forging output.
+   summary:=orphanCallSummary(a)
+   out=append(out,group{kind:"orphan",summary:summary,tokens:Tokens(summary)})
+   continue
+  }
+  if a.Type=="function_call_output" {
+   // Never replay a stray output without its matching function_call.
+   // Real live feedback is paired by the awaiting/Next logic above.
+   summary:=orphanOutputSummary(a)
+   out=append(out,group{kind:"orphan",summary:summary,tokens:Tokens(summary)})
+   continue
   }
   if a.Type=="user" && strings.HasPrefix(a.Content,"TaskDeck local read-only Collection tool returned this VERIFIED observation"){
    g:=group{items:[]agentchat.HistoryItem{a},kind:"fallback",summary:plainSummary(a.Content)}
@@ -182,7 +213,7 @@ func Build(history []agentchat.HistoryItem,p Policy)([]agentchat.HistoryItem,Sta
  overhead:=Tokens(p.Instructions)+nextTokens
  budget:=ceiling-overhead
  if budget<0{budget=0}
- gs:=groups(history,p.SyntheticPatchIDs)
+ gs:=groups(history,p.SyntheticPatchIDs,p.Next)
  stats:=Stats{CollectionBudgetTokens:ceiling*p.CollectionPercent/100,ArchivedItems:p.ArchivedItems}
  // Keep the original user goal and all unresolved model tool calls, plus
  // the latest human instructions. Older plain narration is supplementary.
@@ -221,6 +252,8 @@ func Build(history []agentchat.HistoryItem,p Policy)([]agentchat.HistoryItem,Sta
   case "collection","patch","fallback":
    if g.full{result=append(result,g.items...);continue}
    if g.kind=="collection"||g.kind=="fallback"{stats.SummarizedCollections++}else{stats.SummarizedPatches++}
+   if len(catalog)<MaxOldEvidenceCatalog{catalog=append(catalog,g.summary)}
+  case "orphan":
    if len(catalog)<MaxOldEvidenceCatalog{catalog=append(catalog,g.summary)}
   case "plain":
    if g.keep {result=append(result,g.items...)}
