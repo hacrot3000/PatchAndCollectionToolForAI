@@ -80,6 +80,7 @@ func TestAgentNativeCollectionPartialArtifactSurvivesFailedWrapperRC3(t *testing
  var denied map[string]any
  _=json.Unmarshal([]byte(agentNativeCollectionObservation(root,other,"native-session",item,gotZip,gotTxt)),&denied)
  if denied["evidence_verified"]==true{t.Fatal("cross-project Collection evidence was trusted")}
+ if denied["text_excerpt"]!=nil{t.Fatal("foreign native TXT source was leaked to Agent before identity verification")}
 }
 
 func TestAgentNativeCollectionArtifactSecurityAnd150MBSparseTXT(t *testing.T){
