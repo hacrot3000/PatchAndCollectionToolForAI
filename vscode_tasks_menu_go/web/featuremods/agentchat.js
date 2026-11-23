@@ -508,6 +508,37 @@ settingsActions.append(settingsPreset,saveProvider,testProvider,probeProvider,de
 settingsBox.append(settingsTitle,blockedIPNotice,settingsInfo,settingsPicker,settingsModel,settingsAPIType,providerEditor,keyLabel,apiKey,settingsStatus,settingsActions);
 settingsOverlay.append(settingsBox);document.body.append(settingsOverlay);
 
+// An in-app rename dialog is needed here: Firefox may suppress window.prompt()
+// after an awaited session GET (the older Conversation > Rename did that).
+// Bind to the chosen session ID, not whichever tab happens to be active later.
+const agentRenameOverlay=agentEl('div','agentchat-overlay agentchat-settings-overlay');
+const agentRenameBox=agentEl('section','agentchat-settings-box');
+agentRenameBox.setAttribute('role','dialog');
+agentRenameBox.setAttribute('aria-modal','true');
+agentRenameBox.setAttribute('aria-label','Rename AI conversation');
+const agentRenameHeading=agentEl('h2','','Rename conversation');
+const agentRenameInput=agentEl('input');
+agentRenameInput.type='text';agentRenameInput.maxLength=120;
+agentRenameInput.setAttribute('aria-label','Conversation name');
+agentRenameInput.placeholder='Conversation name';
+const agentRenameHint=agentEl('div','agentchat-info','A saved title appears in the open tab and the History menu. The AI model and chat history are unchanged.');
+const agentRenameError=agentEl('div','agentchat-info');
+agentRenameError.setAttribute('role','status');
+const agentRenameActions=agentEl('div','actions');
+const agentRenameSave=agentButton('Save name',()=>saveAgentRename().catch(showAgentError));
+const agentRenameCancel=agentButton('Cancel',()=>closeAgentRename());
+agentRenameActions.append(agentRenameSave,agentRenameCancel);
+agentRenameBox.append(agentRenameHeading,agentRenameInput,agentRenameHint,agentRenameError,agentRenameActions);
+agentRenameOverlay.append(agentRenameBox);document.body.append(agentRenameOverlay);
+let agentRenameTargetID=null;
+agentRenameInput.addEventListener('keydown',event=>{
+ if(event.key==='Enter'){event.preventDefault();saveAgentRename().catch(showAgentError);}
+ if(event.key==='Escape'){event.preventDefault();closeAgentRename();}
+});
+agentRenameOverlay.addEventListener('click',event=>{
+ if(event.target===agentRenameOverlay)closeAgentRename();
+});
+
 // F08.1 preview is planning-only: it validates Markdown and renders a DAG,
 // but has no persistence or execution action.
 const planOverlay=agentEl('div','agentchat-overlay agentchat-settings-overlay');
@@ -2801,33 +2832,61 @@ async function deleteAgentSession(id){
  else {displayAgentSession(null);renderAgentAutomationControls(null);}
  status.textContent='Conversation deleted.';
 }
+function closeAgentRename(){
+ agentRenameTargetID=null;
+ agentRenameOverlay.classList.remove('visible');
+ agentRenameSave.disabled=false;
+ agentRenameInput.disabled=false;
+}
 async function renameAgentSession(id=agentActive){
  if(!id)return;
- // Rename by immutable session ID; do not switch tabs or overwrite a draft
- // merely because the user renamed an item in the History menu.
- const data=await agentApp.jsonFetch('/api/agent/sessions/'+encodeURIComponent(id));
- const session=data.session;
- if(!session||session.id!==id)throw new Error('Conversation not found.');
- const next=window.prompt('Rename conversation (maximum 120 UTF-8 bytes)',session.title||session.model_id||'');
- if(next===null)return;
- const label=String(next).trim();
- if(!label)throw new Error('Enter a non-empty conversation name.');
- if(new TextEncoder().encode(label).length>120)throw new Error('Conversation name must be at most 120 UTF-8 bytes.');
- if(label===session.title)return;
- const result=await agentApp.jsonFetch('/api/agent/sessions/'+encodeURIComponent(id)+'/metadata',{
-  method:'PATCH',headers:{'Content-Type':'application/json'},
-  body:JSON.stringify({title:label,expected_revision:session.revision}),
- });
- const saved=result.session;
- if(saved?.id!==id||saved.title!==label)throw new Error('Server did not confirm the renamed conversation.');
- if(agentCurrentSession?.id===id)agentCurrentSession.title=saved.title;
- const cached=agentSessions.find(x=>x.id===id);
- if(cached){cached.title=saved.title;cached.revision=saved.revision;}
- updateAgentSessionRows();
- renderAgentTabs();
- // Reload the authoritative list without selecting a different conversation.
- await loadAgentSessions();
- status.textContent='Conversation renamed to "'+label+'".';
+ const cached=agentSessions.find(s=>s.id===id)||(agentCurrentSession?.id===id?agentCurrentSession:null);
+ if(!cached)throw new Error('Conversation not found. Refresh History and try again.');
+ agentRenameTargetID=id;
+ agentRenameInput.value=cached.title||cached.model_id||'';
+ agentRenameError.textContent='';
+ agentRenameSave.disabled=false;agentRenameInput.disabled=false;
+ agentRenameOverlay.classList.add('visible');
+ agentRenameInput.focus();agentRenameInput.select();
+}
+async function saveAgentRename(){
+ const id=agentRenameTargetID;
+ if(!id)return;
+ const label=agentRenameInput.value.trim();
+ if(!label){agentRenameError.textContent='Enter a conversation name.';agentRenameInput.focus();return;}
+ if(new TextEncoder().encode(label).length>120){
+  agentRenameError.textContent='Use a name of at most 120 UTF-8 bytes.';agentRenameInput.focus();return;
+ }
+ agentRenameSave.disabled=true;agentRenameInput.disabled=true;
+ agentRenameError.textContent='Saving name…';
+ try{
+  // Fetch the current revision AFTER the user explicitly saves, not before
+  // showing the dialog. Never switch conversation or overwrite editor drafts.
+  const data=await agentApp.jsonFetch('/api/agent/sessions/'+encodeURIComponent(id));
+  const session=data.session;
+  if(!session||session.id!==id)throw new Error('Conversation not found.');
+  if(session.title!==label){
+   const result=await agentApp.jsonFetch('/api/agent/sessions/'+encodeURIComponent(id)+'/metadata',{
+    method:'PATCH',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({title:label,expected_revision:session.revision}),
+   });
+   if(result.session?.id!==id||result.session.title!==label){
+    throw new Error('The server did not confirm the new conversation title.');
+   }
+  }
+  if(agentCurrentSession?.id===id)agentCurrentSession.title=label;
+  const cached=agentSessions.find(s=>s.id===id);
+  if(cached)cached.title=label;
+  updateAgentSessionRows();renderAgentTabs();
+  await loadAgentSessions();
+  closeAgentRename();
+  status.textContent='Renamed conversation: '+label;
+ }catch(error){
+  agentRenameError.textContent='Could not rename: '+String(error?.message||error)+
+   '. The conversation was not changed. If the AI is running, retry after it finishes.';
+ }finally{
+  agentRenameSave.disabled=false;agentRenameInput.disabled=false;
+ }
 }
 async function archiveAgentSession(){
  if(!agentActive)return;
@@ -3089,6 +3148,7 @@ window.addEventListener('keydown',e=>{
  else if(sessionList.classList.contains('open')){e.preventDefault();toggleAgentSessions(false);sessionMenuButton.focus();}
  else if(moreMenu.classList.contains('open')){e.preventDefault();toggleAgentMore(false);}
  else if(planOverlay.classList.contains('visible'))planOverlay.classList.remove('visible');
+ else if(agentRenameOverlay.classList.contains('visible'))closeAgentRename();
  else if(settingsOverlay.classList.contains('visible'))settingsOverlay.classList.remove('visible');
  else if(agentDock.expanded&&agentDock.autoHide){e.preventDefault();closeAgentPanel();}
 });
