@@ -49,6 +49,12 @@ type agentDebugEvent struct {
 	RetryAfter        string    `json:"retry_after,omitempty"`
 	ProviderRequestID string    `json:"provider_request_id,omitempty"`
 	DurationMS        int64     `json:"duration_ms,omitempty"`
+ DNSMS int64 `json:"dns_ms,omitempty"`
+ TCPMS int64 `json:"tcp_ms,omitempty"`
+ TLSMS int64 `json:"tls_ms,omitempty"`
+ UploadMS int64 `json:"upload_ms,omitempty"`
+ HeaderWaitMS int64 `json:"header_wait_ms,omitempty"`
+ TTFBMS int64 `json:"ttfb_ms,omitempty"`
 	RequestBytes      int       `json:"request_bytes,omitempty"`
 	ResponseBytes     int       `json:"response_bytes,omitempty"`
 	RequestSHA256     string    `json:"request_sha256,omitempty"`
@@ -209,7 +215,7 @@ func (r *agentDebugRecorder) RecordProviderDiagnostic(ev agentchat.DiagnosticEve
 	if trace == nil {
 		return
 	}
-	event := agentDebugEvent{TraceID: r.traceID, At: ev.At, Level: ev.Level, Stage: ev.Stage, Event: ev.Event, Code: ev.Code, Endpoint: sanitizeAgentEndpoint(ev.Endpoint), APIType: ev.APIType, ProviderID: ev.ProviderID, ModelID: ev.ModelID, HTTPStatus: ev.HTTPStatus, ContentType: safeHeaderValue(ev.ContentType), RetryAfter: safeHeaderValue(ev.RetryAfter), ProviderRequestID: safeHeaderValue(ev.ProviderRequestID), DurationMS: ev.Duration.Milliseconds(), RequestBytes: ev.RequestBytes, ResponseBytes: ev.ResponseBytes, RequestSHA256: ev.RequestSHA256, ResponseSHA256: ev.ResponseSHA256, Redacted: true, Truncated: ev.Truncated, ContextMode: ev.ContextMode, Reasoning: ev.Reasoning, HistoryItems: ev.HistoryItems, ToolCount: ev.ToolCount, Streaming: ev.Streaming}
+	event := agentDebugEvent{TraceID: r.traceID, At: ev.At, Level: ev.Level, Stage: ev.Stage, Event: ev.Event, Code: ev.Code, Endpoint: sanitizeAgentEndpoint(ev.Endpoint), APIType: ev.APIType, ProviderID: ev.ProviderID, ModelID: ev.ModelID, HTTPStatus: ev.HTTPStatus, ContentType: safeHeaderValue(ev.ContentType), RetryAfter: safeHeaderValue(ev.RetryAfter), ProviderRequestID: safeHeaderValue(ev.ProviderRequestID), DurationMS: ev.Duration.Milliseconds(), DNSMS:ev.Timing.DNSMS, TCPMS:ev.Timing.TCPMS, TLSMS:ev.Timing.TLSMS, UploadMS:ev.Timing.UploadMS, HeaderWaitMS:ev.Timing.HeaderWaitMS, TTFBMS:ev.Timing.TTFBMS, RequestBytes: ev.RequestBytes, ResponseBytes: ev.ResponseBytes, RequestSHA256: ev.RequestSHA256, ResponseSHA256: ev.ResponseSHA256, Redacted: true, Truncated: ev.Truncated, ContextMode: ev.ContextMode, Reasoning: ev.Reasoning, HistoryItems: ev.HistoryItems, ToolCount: ev.ToolCount, Streaming: ev.Streaming}
 	if ev.Event == "request.built" {
 		present := ev.APIKeyPresent
 		event.APIKeyPresent = &present

@@ -295,3 +295,14 @@ Bổ sung tests cho diagnostics/transport/error classification và browser smoke
 - Update [README](README.md), [F04](04-conversation-ui.md), [tài liệu dock 10](10-agent-chat-dock-panel-ui.md) và main handoff khi code thực sự triển khai.
 
 **Lệnh giao AI Coder:** “Thực hiện toàn bộ đặc tả này trên HEAD main mới nhất, cùng với UI dock theo tài liệu 10. Bắt buộc thu thông tin chẩn đoán từ backend (không phải console frontend giả), giải thích được FAILED và xem được dữ liệu request/response gốc khi chủ động bật RAW; viết test, commit và push main. Không dừng ở việc lập prompt hoặc kế hoạch.”
+
+
+## 2026-11-23 — 600-second provider timeout and HTTP phase diagnostics
+
+TaskDeck's Responses/Chat Completions request transport previously used a fixed 30-second `ResponseHeaderTimeout` even though the model could spend longer reasoning before sending a response. The retry coordinator and HTTP client also enforced 60 seconds per provider attempt. Those limits generated misleading `CONNECT_TIMEOUT` errors for providers that had already accepted a large request but had not returned headers.
+
+- Provider request deadline, overall HTTP client timeout and response-header timeout are now **600 seconds per attempt**. Short DNS/TCP dial (8s per address) and TLS handshake (10s) protection remains; Stop/cancellation and retry policy remain authoritative. Unlimited retries are not made automatic merely by this change.
+- HTTP trace diagnostics report `dns_ms`, `tcp_ms`, `tls_ms`, `upload_ms`, `header_wait_ms` and `ttfb_ms` where measurable. Incomplete phases can report elapsed so far; missing/zero phase metrics are not proof of an instantaneous phase. No IP addresses, raw headers, prompts or credentials are included in these new fields.
+- Classify HTTP header delays as `RESPONSE_HEADER_TIMEOUT`, overall timeouts as `REQUEST_TIMEOUT`, dial timeouts as `DIAL_TIMEOUT`, and distinguish TLS/DNS timeouts from other failures. These are diagnostics, **not** proof that the remote provider did not process a request.
+- The Responses SSE adapter now sets `stream:true` in its actual request body (in addition to the Accept header), without modifying the durable canonical request or the verified-streaming capability requirement. Never auto-enable an unverified SSE endpoint. Tests cover the streaming JSON flag, hardened network transport, 600-second limits, phase breakdown and error classification.
+- **Security decision:** Leave outbound HTTP proxies disabled, with pinned public or explicitly trusted CGNAT IPs, certificate checks and redirect protection. Do not silently enable arbitrary environment proxies to imitate an editor's behavior. Keep-alives remain disabled in the per-call short-lived client; enabling them without an owner-/provider-scoped connection pool does not improve reuse and could weaken DNS revalidation.

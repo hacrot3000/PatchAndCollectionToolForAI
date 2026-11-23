@@ -232,10 +232,11 @@ func doChatCompletionsWithClient(ctx context.Context, p ProviderConfig, key stri
 	}
 	RecordProviderDiagnostic(ctx, DiagnosticEvent{Level: "info", Stage: "provider_http", Event: "http.request", Endpoint: endpoint, APIType: p.APIType, ProviderID: p.ID, RequestBody: body, RequestBytes: len(body)})
 	started := time.Now()
+	req, timing := withProviderTiming(req)
 	resp, err := client.Do(req)
 	if err != nil {
 		code, message, ambiguous := classifyProviderTransportError(ctx, err)
-		RecordProviderDiagnostic(ctx, DiagnosticEvent{Level: "error", Stage: "provider_http", Event: "http.error", Code: code, SafeMessage: message, Endpoint: endpoint, APIType: p.APIType, ProviderID: p.ID, RequestBody: body, RequestBytes: len(body), Duration: time.Since(started)})
+		RecordProviderDiagnostic(ctx, DiagnosticEvent{Level: "error", Stage: "provider_http", Event: "http.error", Code: code, SafeMessage: message, Endpoint: endpoint, APIType: p.APIType, ProviderID: p.ID, RequestBody: body, RequestBytes: len(body), Duration: time.Since(started), Timing: timing.snapshot()})
 		return ResponsesResult{}, &ProviderError{Code: code, Stage: "provider_http", Message: message, Retryable: ambiguous, Ambiguous: ambiguous, BlockedSharedIP: blockedSharedIP(err)}
 	}
 	defer resp.Body.Close()
@@ -244,7 +245,7 @@ func doChatCompletionsWithClient(ctx context.Context, p ProviderConfig, key stri
 	if truncated {
 		raw = raw[:maxRequestBytes]
 	}
-	diagnostic := DiagnosticEvent{Level: "info", Stage: "provider_http", Event: "http.response", Endpoint: endpoint, APIType: p.APIType, ProviderID: p.ID, HTTPStatus: resp.StatusCode, ContentType: resp.Header.Get("Content-Type"), RetryAfter: resp.Header.Get("Retry-After"), ProviderRequestID: providerRequestID(resp.Header), ResponseBody: raw, RequestBytes: len(body), ResponseBytes: len(raw), RequestSHA256: BodyDigest(body), Truncated: truncated, Duration: time.Since(started)}
+	diagnostic := DiagnosticEvent{Level: "info", Stage: "provider_http", Event: "http.response", Endpoint: endpoint, APIType: p.APIType, ProviderID: p.ID, HTTPStatus: resp.StatusCode, ContentType: resp.Header.Get("Content-Type"), RetryAfter: resp.Header.Get("Retry-After"), ProviderRequestID: providerRequestID(resp.Header), ResponseBody: raw, RequestBytes: len(body), ResponseBytes: len(raw), RequestSHA256: BodyDigest(body), Truncated: truncated, Duration: time.Since(started), Timing: timing.snapshot()}
 	if resp.StatusCode != http.StatusOK {
 		pe := parseProviderHTTPError(resp.StatusCode, resp.Header.Get("Retry-After"), raw)
 		diagnostic.Level = "error"

@@ -24,6 +24,7 @@ type DiagnosticEvent struct {
 	ProviderID        string
 	ModelID           string
 	Duration          time.Duration
+ Timing ProviderTiming
 	RequestBody       []byte `json:"-"`
 	ResponseBody      []byte `json:"-"`
 	StreamFrame       []byte `json:"-"`

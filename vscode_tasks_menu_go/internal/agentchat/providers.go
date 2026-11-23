@@ -453,6 +453,11 @@ func (s *ProviderStore) Delete(owner, id string) error {
 	return os.Rename(temp.Name(), path)
 }
 
+// ProviderAttemptTimeout is the hard wall-clock limit per AI provider call.
+// It is aligned with the response header timeout, and cancel/Stop can end it
+// sooner. Unlimited retry remains cancelable and has a 10-second backoff.
+const ProviderAttemptTimeout = 600 * time.Second
+
 // newProviderClient pins DNS results to public IPs or explicitly trusted
 // shared-network addresses for this provider. Redirects and proxies are disabled.
 func newProviderClient(p ProviderConfig) *http.Client {
@@ -461,7 +466,7 @@ func newProviderClient(p ProviderConfig) *http.Client {
 	transport := &http.Transport{
 		Proxy:                 nil,
 		TLSHandshakeTimeout:   10 * time.Second,
-		ResponseHeaderTimeout: 30 * time.Second,
+		ResponseHeaderTimeout: ProviderAttemptTimeout,
 		DisableKeepAlives:     true,
 		DialContext: func(ctx context.Context, network, address string) (net.Conn, error) {
 			host, port, err := net.SplitHostPort(address)
@@ -476,7 +481,7 @@ func newProviderClient(p ProviderConfig) *http.Client {
 			}
 			ips, err := resolver.LookupIPAddr(ctx, host)
 			if err != nil {
-				return nil, errors.New("provider DNS lookup failed")
+				return nil, fmt.Errorf("provider DNS lookup failed: %w", err)
 			}
 			// Refuse the entire answer if any address is not allowed.
 			if err := validateProviderDNS(ips, p); err != nil {
@@ -493,7 +498,7 @@ func newProviderClient(p ProviderConfig) *http.Client {
 			return nil, fmt.Errorf("provider connection failed: %w", lastErr)
 		},
 	}
-	return &http.Client{Transport: transport, Timeout: 60 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return errors.New("provider redirect refused") }}
+	return &http.Client{Transport: transport, Timeout: ProviderAttemptTimeout, CheckRedirect: func(*http.Request, []*http.Request) error { return errors.New("provider redirect refused") }}
 }
 
 func newProviderRequest(ctx context.Context, endpoint, key string, body []byte) (*http.Request, error) {
@@ -574,12 +579,13 @@ func DoResponses(ctx context.Context, p ProviderConfig, key string, body []byte)
 	}
 	RecordProviderDiagnostic(ctx, DiagnosticEvent{Level: "info", Stage: "provider_http", Event: "http.request", Endpoint: endpoint, APIType: p.APIType, ProviderID: p.ID, RequestBody: body, RequestBytes: len(body)})
 	started := time.Now()
+	req, timing := withProviderTiming(req)
 	resp, err := client.Do(req)
 	if err != nil {
 		code, message, ambiguous := classifyProviderTransportError(ctx, err)
-		diagnostic := DiagnosticEvent{Level: "error", Stage: "provider_http", Event: "http.error", Code: code, SafeMessage: message, Endpoint: endpoint, APIType: p.APIType, ProviderID: p.ID, RequestBytes: len(body), RequestSHA256: BodyDigest(body), Duration: time.Since(started)}
+		diagnostic := DiagnosticEvent{Level: "error", Stage: "provider_http", Event: "http.error", Code: code, SafeMessage: message, Endpoint: endpoint, APIType: p.APIType, ProviderID: p.ID, RequestBytes: len(body), RequestSHA256: BodyDigest(body), Duration: time.Since(started), Timing: timing.snapshot()}
 		RecordProviderDiagnostic(ctx, diagnostic)
-		return ResponsesResult{}, &ProviderError{Code: code, Stage: "provider_http", Message: message, Retryable: code == "CONNECT_FAILED" || code == "REQUEST_TIMEOUT", Ambiguous: ambiguous, BlockedSharedIP: blockedSharedIP(err)}
+		return ResponsesResult{}, &ProviderError{Code: code, Stage: "provider_http", Message: message, Retryable: retryableProviderTransportCode(code), Ambiguous: ambiguous, BlockedSharedIP: blockedSharedIP(err)}
 	}
 	defer resp.Body.Close()
 	raw, readErr := io.ReadAll(io.LimitReader(resp.Body, maxRequestBytes+1))
@@ -587,7 +593,7 @@ func DoResponses(ctx context.Context, p ProviderConfig, key string, body []byte)
 	if truncated {
 		raw = raw[:maxRequestBytes]
 	}
-	diagnostic := DiagnosticEvent{Level: "info", Stage: "provider_http", Event: "http.response", Endpoint: endpoint, APIType: p.APIType, ProviderID: p.ID, HTTPStatus: resp.StatusCode, ContentType: resp.Header.Get("Content-Type"), RetryAfter: resp.Header.Get("Retry-After"), ProviderRequestID: providerRequestID(resp.Header), ResponseBody: raw, RequestBytes: len(body), ResponseBytes: len(raw), RequestSHA256: BodyDigest(body), Truncated: truncated, Duration: time.Since(started)}
+	diagnostic := DiagnosticEvent{Level: "info", Stage: "provider_http", Event: "http.response", Endpoint: endpoint, APIType: p.APIType, ProviderID: p.ID, HTTPStatus: resp.StatusCode, ContentType: resp.Header.Get("Content-Type"), RetryAfter: resp.Header.Get("Retry-After"), ProviderRequestID: providerRequestID(resp.Header), ResponseBody: raw, RequestBytes: len(body), ResponseBytes: len(raw), RequestSHA256: BodyDigest(body), Truncated: truncated, Duration: time.Since(started), Timing: timing.snapshot()}
 	if resp.StatusCode != http.StatusOK {
 		providerErr := parseProviderHTTPError(resp.StatusCode, resp.Header.Get("Retry-After"), raw)
 		diagnostic.Level = "error"
@@ -646,25 +652,67 @@ func classifyProviderPreflightError(err error) error {
 	return &ProviderError{Code: code, Stage: "request_validation", Message: message, Retryable: false, Ambiguous: false}
 }
 
+func retryableProviderTransportCode(code string) bool {
+	switch code {
+	case "DIAL_TIMEOUT", "DNS_LOOKUP_TIMEOUT", "TLS_TIMEOUT",
+		"RESPONSE_HEADER_TIMEOUT", "REQUEST_TIMEOUT", "CONNECT_FAILED":
+		return true
+	default:
+		return false
+	}
+}
+
+// classifyProviderTransportError differentiates the actual failed HTTP phase.
+// In particular, a slow model that has not produced response headers is NOT
+// a TCP connection failure. Never include raw URLs, credentials or remote
+// error text in the user-facing diagnostic.
 func classifyProviderTransportError(ctx context.Context, err error) (string, string, bool) {
 	if errors.Is(ctx.Err(), context.Canceled) {
 		return "REQUEST_CANCELLED", "Provider request was cancelled", true
 	}
 	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-		return "REQUEST_TIMEOUT", "Provider request timed out", true
+		return "REQUEST_TIMEOUT", "Provider request timed out after its deadline", true
 	}
 	text := strings.ToLower(err.Error())
-	if strings.Contains(text, "dns lookup") || strings.Contains(text, "no such host") {
+	if strings.Contains(text, "dns lookup failed") || strings.Contains(text, "no such host") {
 		return "DNS_LOOKUP_FAILED", "Provider DNS lookup failed", false
 	}
 	if strings.Contains(text, "private") || strings.Contains(text, "reserved") {
 		return "PRIVATE_IP_BLOCKED", "Provider endpoint resolved to a blocked address", false
 	}
+	if strings.Contains(text, "client.timeout exceeded") {
+		return "REQUEST_TIMEOUT", "Provider request exceeded the overall HTTP timeout", true
+	}
+	if strings.Contains(text, "timeout awaiting response headers") ||
+		strings.Contains(text, "awaiting headers") {
+		return "RESPONSE_HEADER_TIMEOUT", "Provider did not send response headers before timeout", true
+	}
+	if strings.Contains(text, "tls handshake timeout") {
+		return "TLS_TIMEOUT", "Provider TLS handshake timed out", true
+	}
+	var opErr *net.OpError
+	if errors.As(err, &opErr) && opErr.Op == "dial" {
+		if opErr.Timeout() {
+			return "DIAL_TIMEOUT", "Provider TCP connection timed out", true
+		}
+		return "CONNECT_FAILED", "Provider TCP connection failed", true
+	}
+	var dnsErr *net.DNSError
+	if errors.As(err, &dnsErr) {
+		if dnsErr.Timeout() {
+			return "DNS_LOOKUP_TIMEOUT", "Provider DNS lookup timed out", true
+		}
+		return "DNS_LOOKUP_FAILED", "Provider DNS lookup failed", false
+	}
 	if strings.Contains(text, "tls") || strings.Contains(text, "certificate") {
 		return "TLS_HANDSHAKE_FAILED", "Provider TLS handshake failed", false
 	}
+	var netErr net.Error
+	if errors.As(err, &netErr) && netErr.Timeout() {
+		return "REQUEST_TIMEOUT", "Provider request timed out", true
+	}
 	if strings.Contains(text, "timeout") || strings.Contains(text, "deadline") {
-		return "CONNECT_TIMEOUT", "Provider connection timed out", true
+		return "REQUEST_TIMEOUT", "Provider request timed out", true
 	}
 	return "CONNECT_FAILED", "Provider connection failed", true
 }

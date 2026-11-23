@@ -224,6 +224,21 @@ func parseSSEEvent(payload []byte) (StreamEvent, error) {
 	return ev, nil
 }
 
+// responsesStreamBody is pure: keep the durable canonical request untouched,
+// but send stream:true on the wire (the Accept header alone is insufficient).
+func responsesStreamBody(body []byte)([]byte,error){
+ var wire map[string]json.RawMessage
+ if err:=json.Unmarshal(body,&wire);err!=nil||wire==nil{
+  return nil,errors.New("invalid Responses stream request")
+ }
+ wire["stream"]=json.RawMessage("true")
+ encoded,err:=json.Marshal(wire)
+ if err!=nil||len(encoded)>maxRequestBytes{
+  return nil,errors.New("stream request payload exceeds limit")
+ }
+ return encoded,nil
+}
+
 // DoResponsesStream performs a Responses streaming request. It reuses the
 // hardened DNS/redirect policy, enforces per-event and total byte limits and
 // returns a result only after a completion event. Cancellation propagates via
@@ -232,6 +247,12 @@ func DoResponsesStream(ctx context.Context, p ProviderConfig, key string, body [
 	endpoint, err := validateProviderCall(p, key, body)
 	if err != nil {
 		return ResponsesResult{}, err
+	}
+	// Responses SSE requires the JSON stream flag, not just an Accept header.
+	// Only a separately capability-verified provider reaches this adapter.
+	body, err = responsesStreamBody(body)
+	if err != nil {
+		return ResponsesResult{}, classifyProviderPreflightError(err)
 	}
 	client := newProviderClient(p)
 	defer client.CloseIdleConnections()
@@ -242,10 +263,11 @@ func DoResponsesStream(ctx context.Context, p ProviderConfig, key string, body [
 	req.Header.Set("Accept", "text/event-stream")
 	RecordProviderDiagnostic(ctx, DiagnosticEvent{Level: "info", Stage: "provider_http", Event: "http.request", Endpoint: endpoint, APIType: p.APIType, ProviderID: p.ID, RequestBody: body, RequestBytes: len(body)})
 	started := time.Now()
+	req, timing := withProviderTiming(req)
 	resp, err := client.Do(req)
 	if err != nil {
 		code, message, ambiguous := classifyProviderTransportError(ctx, err)
-		RecordProviderDiagnostic(ctx, DiagnosticEvent{Level: "error", Stage: "provider_http", Event: "http.error", Code: code, SafeMessage: message, Endpoint: endpoint, APIType: p.APIType, ProviderID: p.ID, RequestBytes: len(body), RequestSHA256: BodyDigest(body), Duration: time.Since(started)})
+		RecordProviderDiagnostic(ctx, DiagnosticEvent{Level: "error", Stage: "provider_http", Event: "http.error", Code: code, SafeMessage: message, Endpoint: endpoint, APIType: p.APIType, ProviderID: p.ID, RequestBytes: len(body), RequestSHA256: BodyDigest(body), Duration: time.Since(started), Timing: timing.snapshot()})
 		return ResponsesResult{}, &ProviderError{Code: code, Stage: "provider_http", Message: message, Retryable: ambiguous, Ambiguous: ambiguous, BlockedSharedIP: blockedSharedIP(err)}
 	}
 	defer resp.Body.Close()
@@ -255,14 +277,14 @@ func DoResponsesStream(ctx context.Context, p ProviderConfig, key string, body [
 			raw = raw[:256<<10]
 		}
 		pe := parseProviderHTTPError(resp.StatusCode, resp.Header.Get("Retry-After"), raw)
-		RecordProviderDiagnostic(ctx, DiagnosticEvent{Level: "error", Stage: "provider_http", Event: "http.response", Code: pe.Code, Endpoint: endpoint, APIType: p.APIType, ProviderID: p.ID, HTTPStatus: resp.StatusCode, ContentType: resp.Header.Get("Content-Type"), RetryAfter: resp.Header.Get("Retry-After"), ProviderRequestID: providerRequestID(resp.Header), ResponseBody: raw, RequestBytes: len(body), RequestSHA256: BodyDigest(body), ResponseBytes: len(raw), Duration: time.Since(started)})
+		RecordProviderDiagnostic(ctx, DiagnosticEvent{Level: "error", Stage: "provider_http", Event: "http.response", Code: pe.Code, Endpoint: endpoint, APIType: p.APIType, ProviderID: p.ID, HTTPStatus: resp.StatusCode, ContentType: resp.Header.Get("Content-Type"), RetryAfter: resp.Header.Get("Retry-After"), ProviderRequestID: providerRequestID(resp.Header), ResponseBody: raw, RequestBytes: len(body), RequestSHA256: BodyDigest(body), ResponseBytes: len(raw), Duration: time.Since(started), Timing: timing.snapshot()})
 		return ResponsesResult{}, pe
 	}
 	if ct := strings.ToLower(resp.Header.Get("Content-Type")); !strings.HasPrefix(ct, "text/event-stream") {
-		RecordProviderDiagnostic(ctx, DiagnosticEvent{Level: "error", Stage: "provider_parse", Event: "sse.invalid_content_type", Code: "SSE_INVALID_CONTENT_TYPE", Endpoint: endpoint, APIType: p.APIType, ProviderID: p.ID, HTTPStatus: resp.StatusCode, ContentType: resp.Header.Get("Content-Type"), RequestBytes: len(body), RequestSHA256: BodyDigest(body), Duration: time.Since(started)})
+		RecordProviderDiagnostic(ctx, DiagnosticEvent{Level: "error", Stage: "provider_parse", Event: "sse.invalid_content_type", Code: "SSE_INVALID_CONTENT_TYPE", Endpoint: endpoint, APIType: p.APIType, ProviderID: p.ID, HTTPStatus: resp.StatusCode, ContentType: resp.Header.Get("Content-Type"), RequestBytes: len(body), RequestSHA256: BodyDigest(body), Duration: time.Since(started), Timing: timing.snapshot()})
 		return ResponsesResult{}, &ProviderError{Code: "SSE_INVALID_CONTENT_TYPE", Stage: "provider_parse", Message: "Provider did not return an event stream", HTTPStatus: resp.StatusCode}
 	}
-	RecordProviderDiagnostic(ctx, DiagnosticEvent{Level: "info", Stage: "provider_http", Event: "http.response", Endpoint: endpoint, APIType: p.APIType, ProviderID: p.ID, HTTPStatus: resp.StatusCode, ContentType: resp.Header.Get("Content-Type"), ProviderRequestID: providerRequestID(resp.Header), RequestBytes: len(body), RequestSHA256: BodyDigest(body), Duration: time.Since(started)})
+	RecordProviderDiagnostic(ctx, DiagnosticEvent{Level: "info", Stage: "provider_http", Event: "http.response", Endpoint: endpoint, APIType: p.APIType, ProviderID: p.ID, HTTPStatus: resp.StatusCode, ContentType: resp.Header.Get("Content-Type"), ProviderRequestID: providerRequestID(resp.Header), RequestBytes: len(body), RequestSHA256: BodyDigest(body), Duration: time.Since(started), Timing: timing.snapshot()})
 	acc := newStreamAccumulator()
 	reader := bufio.NewReaderSize(io.LimitReader(resp.Body, maxSSETotalBytes+1), 32<<10)
 	var data strings.Builder
