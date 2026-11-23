@@ -621,6 +621,39 @@ console.log('PASS: safe Markdown, syntax-highlighted PHP/Python, per-block Copy,
   // Multiple quotes selected at different times from one file occupy one
   // attachment and retain each range even with dirty UTF-8 editor buffers.
   vm.runInNewContext('agentPendingAttachments.splice(0);renderAgentAttachments()',context);
+  // A source file larger than 32 KiB must be compacted BEFORE staging. The
+  // frontend sends source only to the local TaskDeck summary API, not the AI.
+  let summaryCall=null;
+  const jsonBeforeCompaction=context.TaskMenuApp.jsonFetch;
+  context.TaskMenuApp.jsonFetch=async (url,options)=>{
+    assert.equal(url,'/api/project/attachment-summary');
+    summaryCall=JSON.parse(options.body);
+    return {name:'big.nim',kind:'source_outline',language:'Nim',
+      original_size:summaryCall.size,text:'FILE_NAME: big.nim\nFILE_PATH: src/big.nim\nL1-L2 [proc] proc keep*() ='};
+  };
+  const largeNim='proc keep*() =\n  discard\n'.repeat(1900);
+  assert.ok(Buffer.byteLength(largeNim)>32768);
+  const largeAttached=await context.TaskMenuAgentChat.stageContext({
+    kind:'file',name:'big.nim',mime:'text/plain',text:largeNim,
+    source:{path:'src/big.nim',content_source:'editor_buffer',dirty:false},
+  },{open:false});
+  assert.equal(largeAttached.ok,true,largeAttached.error);
+  assert.equal(summaryCall.name,'big.nim');
+  assert.equal(summaryCall.path,'src/big.nim');
+  assert.equal(summaryCall.source,largeNim);
+  const compacted=vm.runInNewContext('agentPendingAttachments[0]',context);
+  assert.equal(compacted.source.compacted,true);
+  assert.equal(compacted.source.original_size,Buffer.byteLength(largeNim));
+  assert.equal(compacted.source.language,'Nim');
+  assert.match(compacted.text,/L1-L2 \[proc\]/);
+  assert.doesNotMatch(compacted.text,/discard\nproc/);
+  vm.runInNewContext('agentPendingAttachments.splice(0);renderAgentAttachments()',context);
+  context.TaskMenuApp.jsonFetch=jsonBeforeCompaction;
+  assert.ok(source.includes('/api/project/attachment-summary?path='),
+    'Project Explorer large files must bypass old preview 32 KiB check');
+  assert.equal(source.includes('File is larger than 32 KiB; select a smaller range in the editor.'),false);
+  console.log('PASS: large Nim editor attachment is compacted locally before provider context');
+
   const quoteOne={kind:'file_selection',name:'main.go',mime:'text/plain',
     text:'alpha',quotes:[{start_line:1,start_column:1,end_line:1,end_column:6,text:'alpha'}],
     source:{path:'src/app/main.go',start_line:1,start_column:1,end_line:1,end_column:6,

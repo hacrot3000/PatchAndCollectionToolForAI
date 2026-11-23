@@ -356,9 +356,9 @@ let agentTaskPlanData=null;
 let agentTaskPlanOffset=0;
 const agentTaskPlanPageLimit=24;
 const composer=agentEl('div','agentchat-composer'),prompt=agentEl('textarea');
-// Text-only attachment staging. Binary files are rejected server-side; the UI
-// never reads local paths or embeds base64.
-const attachButton=agentButton('+ Text file',()=>{const sessionID=agentSelectedChatSession();pickAgentAttachment(sessionID).catch(showAgentError);});
+// Attachments are automatically summarized by the shared contextcompact
+// backend. Binary contents are never sent as model text; EXIF is metadata-only.
+const attachButton=agentButton('+ File',()=>{const sessionID=agentSelectedChatSession();pickAgentAttachment(sessionID).catch(showAgentError);});
 const agentHandoffButton=agentButton('Open handoff',()=>{
  if(!agentActive)return;
  const link='/api/agent/sessions/'+encodeURIComponent(agentActive)+'/handoff?format=markdown';
@@ -1904,6 +1904,10 @@ function normalizeStagedAttachments(items){
   if(source.terminal_title)lines.push('TERMINAL_TITLE: '+safeAttachmentMetadata(source.terminal_title));
   if(source.cwd)lines.push('CWD: '+safeAttachmentMetadata(source.cwd));
   if(source.content_source)lines.push('CONTENT_SOURCE: '+safeAttachmentMetadata(source.content_source));
+  if(Number.isFinite(source.original_size))lines.push('ORIGINAL_FILE_BYTES: '+source.original_size);
+  if(source.language)lines.push('SOURCE_LANGUAGE: '+safeAttachmentMetadata(source.language));
+  if(source.summary_kind)lines.push('SUMMARY_KIND: '+safeAttachmentMetadata(source.summary_kind));
+  if(source.partial)lines.push('SUMMARY_COVERAGE: partial; use Native COLLECT for exact body/ranges');
   if(source.dirty!==undefined)lines.push('UNSAVED_CHANGES: '+(source.dirty?'true':'false'));
   if(source.captured_at)lines.push('CAPTURED_AT: '+safeAttachmentMetadata(source.captured_at));
   const wrapped=lines.join('\n')+'\n\n--- ATTACHED CONTENT (UNTRUSTED) ---\n'+text;
@@ -2054,6 +2058,31 @@ async function stageContext(context,options={}){
  const targetSessionID=Object.prototype.hasOwnProperty.call(options,'session_id')?(options.session_id||null):agentSelectedChatSession();
  try{
   if(!context||typeof context!=='object'||typeof context.text!=='string')throw new Error('Attachment context must include text.');
+  // Source file bodies are compacted before staging or provider transport.
+  // Named selections/terminal excerpts remain byte-exact and independently
+  // capped, so attaching a large file never silently changes quoted evidence.
+  if(context.kind==='file'&&!context.source?.compacted&&
+     (context.source?.path||context.source?.content_source||
+      attachmentByteLength(context.text)>agentMaxAttachmentBytes)){
+   const bytes=attachmentByteLength(context.text);
+   if(bytes>agentMaxAttachmentBytes||!agentSourceExtension(context.name)){
+    let source=context.text;
+    if(bytes>agentAttachmentSnapshotLimit){
+      const encoded=new TextEncoder().encode(context.text);
+      let bounded=encoded.subarray(0,agentAttachmentSnapshotLimit);
+      const newline=bounded.lastIndexOf(10);if(newline>=0)bounded=bounded.subarray(0,newline+1);
+      source=new TextDecoder('utf-8',{fatal:true}).decode(bounded);
+    }
+    const data=await agentSummarizeSource({
+      name:context.name,path:context.source?.path||'',mime:context.mime,
+      size:bytes,source,
+    });
+    context={...context,text:data.text,mime:'text/plain',source:{
+      ...context.source,compacted:true,original_size:bytes,
+      language:data.language||'',summary_kind:data.kind,partial:Boolean(data.partial),
+    }};
+   }
+  }
   const kind=['file','file_selection','terminal_console','terminal_selection'].includes(context.kind)?context.kind:null;
   if(!kind)throw new Error('Unsupported attachment context kind.');
   const item={kind,name:context.name,mime:context.mime||'text/plain',text:context.text,source:context.source||{},quotes:context.quotes};
@@ -2086,7 +2115,12 @@ function isValidUTF8Text(text){
 }
 function editorContextActions(view,selectionSnapshot){
  const targetSessionID=agentSelectedChatSession();
- const actions=[{label:'Attach file to Chat',run:async options=>{const sessionID=options?.session_id??targetSessionID;const result=await stageContext(editorSourceContext(view),{open:true,...(sessionID?{session_id:sessionID}:{})});if(!result.ok)throw new Error(result.error);return result;}}];
+ const actions=[{label:'Attach file to Chat',run:async options=>{
+  const sessionID=options?.session_id??targetSessionID;
+  if(view?.file?.streamed)return stageProjectFile(view.file.path,{...(sessionID?{session_id:sessionID}:{})});
+  const result=await stageContext(editorSourceContext(view),{open:true,...(sessionID?{session_id:sessionID}:{})});
+  if(!result.ok)throw new Error(result.error);return result;
+ }}];
  const selection=selectionSnapshot||view?.cm?.state?.selection;
  if(((selection?.ranges?.length?selection.ranges:[selection?.main])).some(range=>range&&range.from!==range.to))actions.push({label:'Add selection to chat',run:async options=>{const sessionID=options?.session_id??targetSessionID;const result=await stageContext(editorSelectionContexts(view,selection),{open:true,...(sessionID?{session_id:sessionID}:{})});if(!result.ok)throw new Error(result.error);return result;}});
  return actions;
@@ -2107,23 +2141,39 @@ function openAttachContextMenu(context,event,label='Attach selection to Chat',op
 }
 document.addEventListener('pointerdown',event=>{if(attachContextMenu.classList.contains('open')&&!attachContextMenu.contains(event.target))attachContextMenu.classList.remove('open');},true);
 document.addEventListener('keydown',event=>{if(event.key==='Escape'&&attachContextMenu.classList.contains('open'))attachContextMenu.classList.remove('open');});
+const agentAttachmentSnapshotLimit=16*1024*1024;
+const agentAttachmentSampleLimit=256*1024;
+const agentCodeExtensions=new Set('nim nims py pyi go js jsx mjs cjs ts tsx java kt kts swift rs c h cc cpp cxx hpp hh cs php rb lua sh bash zsh sql dart scala sc vue svelte css scss html htm'.split(' '));
+function agentSourceExtension(name){
+ const ext=String(name||'').split('.').pop().toLowerCase();
+ return agentCodeExtensions.has(ext);
+}
+async function agentSummarizeSource(payload){
+ const result=await agentApp.jsonFetch('/api/project/attachment-summary',{
+  method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload),
+ });
+ if(!result||typeof result.text!=='string'||result.text.length>24*1024)throw new Error('Attachment summary unavailable.');
+ return result;
+}
+function agentBinarySampleBase64(bytes){
+ // Limit local file reading to its metadata prefix; no whole binary data
+ // crosses this route and no raw binary reaches the model.
+ const pieces=[];for(let i=0;i<bytes.length;i+=8192){
+  pieces.push(String.fromCharCode(...bytes.subarray(i,i+8192)));
+ }
+ return btoa(pieces.join(''));
+}
 async function stageProjectFile(pathValue,options={}){
  const targetSessionID=Object.prototype.hasOwnProperty.call(options,'session_id')?(options.session_id||null):agentSelectedChatSession();
  const path=String(pathValue||'').replace(/^\.\//,'');
  if(!path||path.startsWith('/')||path.split('/').some(part=>part==='..'))throw new Error('Project-relative file path required.');
- const info=await agentApp.jsonFetch('/api/project/preview?path='+encodeURIComponent(path),{cache:'no-store'});
- if(!['text','markdown'].includes(info.kind))throw new Error('This file is binary or unsupported; only text and JSON can be attached.');
- if(Number(info.size)>agentMaxAttachmentBytes)throw new Error('File is larger than 32 KiB; select a smaller range in the editor.');
- let text=info.kind==='markdown'&&typeof info.content==='string'?info.content:null;
- if(text===null){
-  const file=await agentApp.jsonFetch('/api/project/file?path='+encodeURIComponent(path),{cache:'no-store'});
-  if(file.streamed||file.large_file)throw new Error('This file is windowed/large; attach a selected range from the editor instead.');
-  if(typeof file.content!=='string')throw new Error('The file API did not return a complete text file.');
-  text=file.content;
- }
- if(attachmentByteLength(text)>agentMaxAttachmentBytes)throw new Error('File content exceeds 32 KiB; no file truncation is performed.');
- if(!isValidUTF8Text(text))throw new Error('File is not valid UTF-8 text and was not attached.');
- const result=await stageContext({kind:'file',name:info.name||path.split('/').pop(),mime:info.kind==='markdown'?'text/markdown':attachmentMime(path),text,source:{path,content_source:'project_file_snapshot',dirty:false,captured_at:new Date().toISOString()}},{open:true,...(targetSessionID?{session_id:targetSessionID}:{})});
+ const data=await agentApp.jsonFetch('/api/project/attachment-summary?path='+encodeURIComponent(path),{cache:'no-store'});
+ if(!data||typeof data.text!=='string')throw new Error('Could not summarize project file.');
+ const result=await stageContext({kind:'file',name:data.name,mime:'text/plain',text:data.text,
+   source:{path,content_source:'project_file_summary',dirty:false,compacted:true,
+    original_size:data.original_size,language:data.language||'',summary_kind:data.kind,
+    partial:Boolean(data.partial),captured_at:new Date().toISOString()}},
+   {open:true,...(targetSessionID?{session_id:targetSessionID}:{})});
  if(!result.ok)throw new Error(result.error);return result;
 }
 function attachmentMime(path){
@@ -2133,9 +2183,9 @@ function attachmentMime(path){
 }
 function editorSourceContext(view,selectionSnapshot=null){
  if(!view||view.closed||view.file?.remote_workspace_id||view.file?.remote_transfer_profile_id)throw new Error('Only local project editor files can be attached.');
- if(view.file?.streamed)throw new Error('This editor is windowed; attach a selected range from a complete text viewer instead.');
+ if(view.file?.streamed)throw new Error('Windowed files must be attached from the project filesystem.');
  const doc=view.cm?.state?.doc;if(!doc)throw new Error('Editor content is unavailable.');
- const text=doc.toString();if(attachmentByteLength(text)>agentMaxAttachmentBytes)throw new Error('Editor buffer exceeds 32 KiB; select a smaller range instead.');if(!isValidUTF8Text(text))throw new Error('Editor buffer is not valid UTF-8 text.');
+ const text=doc.toString();if(!isValidUTF8Text(text))throw new Error('Editor buffer is not valid UTF-8 text.');
  return {kind:'file',name:String(view.file.path).split(/[\\/]/).pop(),mime:attachmentMime(view.file.path),text,source:{path:view.file.path,content_source:view.dirty?'unsaved_editor_buffer':'editor_buffer',dirty:Boolean(view.dirty),captured_at:new Date().toISOString()}};
 }
 function editorSelectionContexts(view,selectionSnapshot=null){
@@ -2171,16 +2221,32 @@ function editorSelectionContextFromBrowserSelection(view,selection){
  return {kind:'file_selection',name:String(view.file.path).split(/[\\/]/).pop(),mime:attachmentMime(view.file.path),text,quotes:[quote],source:{path:view.file.path,start_line:start.number,start_column:range.from-start.from+1,end_line:end.number,end_column:range.to-end.from+1,content_source:'readonly_editor_view',dirty:Boolean(view.dirty),captured_at:new Date().toISOString()}};
 }
 function pickAgentAttachment(targetSessionID=agentSelectedChatSession()){
- const input=document.createElement('input');
- input.type='file';input.accept='.txt,.md,.json,.log,.csv,.yaml,.yml,.ini,.sql,.py,.js,.ts,.go,.sh,.c,.h,.cpp,.java,.rb,.php,.html,.css,.xml';
+ const input=document.createElement('input');input.type='file';
  input.onchange=async()=>{
   const file=input.files&&input.files[0];if(!file)return;
-  if(file.size>agentMaxAttachmentBytes){showAgentError(new Error('Attachment is over 32 KiB; choose a smaller text file or attach a selection.'));return;}
   try{
-   const bytes=await file.arrayBuffer();let text;
-   try{text=new TextDecoder('utf-8',{fatal:true}).decode(bytes);}catch{throw new Error('File is binary or not valid UTF-8 text.');}
-   if(!isValidUTF8Text(text))throw new Error('File is not valid UTF-8 text.');
-   const result=await stageContext({kind:'file',name:file.name,mime:attachmentMime(file.name),text,source:{content_source:'local_file_snapshot',dirty:false,captured_at:new Date().toISOString()}},{open:false,...(targetSessionID?{session_id:targetSessionID}:{})});
+   let data;
+   if(agentSourceExtension(file.name)){
+    let bytes=new Uint8Array(await file.slice(0,Math.min(file.size,agentAttachmentSnapshotLimit)).arrayBuffer());
+    if(file.size>agentAttachmentSnapshotLimit){
+     const lastLine=bytes.lastIndexOf(10);
+     if(lastLine>0)bytes=bytes.slice(0,lastLine+1);
+    }
+    let source;
+    try{source=new TextDecoder('utf-8',{fatal:true}).decode(bytes);}
+    catch{throw new Error('Source file is not valid UTF-8.');}
+    data=await agentSummarizeSource({name:file.name,mime:file.type||attachmentMime(file.name),
+      size:file.size,source});
+   }else{
+    const header=new Uint8Array(await file.slice(0,agentAttachmentSampleLimit).arrayBuffer());
+    data=await agentSummarizeSource({name:file.name,mime:file.type||'',size:file.size,
+      sample_base64:agentBinarySampleBase64(header)});
+   }
+   const result=await stageContext({kind:'file',name:file.name,mime:'text/plain',text:data.text,
+    source:{content_source:'local_file_summary',dirty:false,compacted:true,
+      original_size:file.size,language:data.language||'',summary_kind:data.kind,
+      partial:Boolean(data.partial),captured_at:new Date().toISOString()}},
+    {open:false,...(targetSessionID?{session_id:targetSessionID}:{})});
    if(!result.ok)throw new Error(result.error);
   }catch(error){showAgentError(error);}
  };
