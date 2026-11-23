@@ -377,7 +377,7 @@ const listedRename=find(sessionsList,node=>node.className==='rename'&&node.textC
 assert.ok(listedRename&&!listedRename.disabled,'an unresolved/running native PATCH must not block metadata-only Rename');
 vm.runInNewContext('agentActive="deleted-view-only";markAgentSessionBusy("deleted-view-only",true);renderAgentAutomationControls(agentSessions[0]);renameAgentSession("deleted-view-only")',context);
 const renameDialog=find(document.body,node=>node.attributes?.['aria-label']==='Rename AI conversation');
-assert.ok(renameDialog?.classList.contains('visible'),'rename must use a real in-app dialog, not a suppressed browser prompt');
+assert.ok(renameDialog?.parentElement?.classList.contains('visible'),'rename must use a real in-app dialog, not a suppressed browser prompt');
 const renameInput=find(renameDialog,node=>node.attributes?.['aria-label']==='Conversation name');
 assert.equal(renameInput?.value,'Old conversation','rename editor must use saved title even while Agent is busy');
 assert.equal(vm.runInNewContext('rename.disabled',context),false,'Conversation > Rename must stay enabled during an Agent turn');
