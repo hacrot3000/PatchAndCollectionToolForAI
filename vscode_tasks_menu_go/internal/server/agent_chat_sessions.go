@@ -306,11 +306,20 @@ func (s *Server) agentChatSessionItemAPI(w http.ResponseWriter, r *http.Request)
 		http.Error(w, "cannot read agent session", http.StatusInternalServerError)
 		return
 	}
+	// A normal in-flight SENDING request is not a reconciliation incident.
+	// Heartbeats are owner-checked liveness HINTS, never provider delivery
+	// evidence or authorization to replay a request. A missing or stale
+	// heartbeat eventually restores the warning.
+	var heartbeat *agentchat.ProviderHeartbeat
+	if item.ProviderRun!=nil && item.ProviderRun.Phase=="sending" && item.Status=="requesting_ai" {
+		if h,e:=store.LatestProviderHeartbeat(id,aiPlanOwner(r));e==nil {heartbeat=&h}
+	}
+	review:=agentchat.ProviderEgressReviewWithLiveness(item,heartbeat,time.Now().UTC())
 	// The API currently exposes a transcript only to its authenticated owner.
 	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, http.StatusOK, map[string]any{"session": item, "execution_enabled": false,
 		"retry_runtime": agentRetrySnapshot(s.Workspace,aiPlanOwner(r),id),
-		"provider_review": agentchat.ProviderEgressReviewForSession(item),
+		"provider_review": review,
 		"patch_tool_status": s.agentPatchToolStatus(aiPlanOwner(r), item.ProviderID, item.ModelID)})
 }
 

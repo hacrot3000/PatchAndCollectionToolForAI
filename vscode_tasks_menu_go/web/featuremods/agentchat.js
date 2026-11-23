@@ -858,12 +858,22 @@ function renderAgentTool(session,item){
   box.append(agentEl('span','','Unsupported tool request · not executed'));
   return box;
  }
- const state=record?.status||'blocked';
+ const state=record?.status||'rejected';
  box.append(agentEl('strong','',(record?.text_fallback?'Text-only Patch proposal':'Patch proposal')+' · '+state.toUpperCase()));
  let args=null;
  try{args=JSON.parse(item.arguments||'');}catch{}
  if(!record||!args||typeof args.patch_python!=='string'){
-  box.append(agentEl('p','agentchat-tool-summary','No valid approved Patch proposal is available.'));
+  const rejected=[...(session.events||[])].reverse().find(event=>
+   event.kind==='tool_proposal_rejected'&&event.call_id===item.call_id);
+  const reason=rejected?.detail||(!record?'No executable Patch proposal was registered.':'The saved Patch arguments are incomplete.');
+  box.append(agentEl('p','agentchat-tool-summary',
+   'Patch proposal rejected before approval or execution: '+reason));
+  if(item.arguments)box.append(detail(
+   'Inspect original rejected tool arguments (read-only)',
+   String(item.arguments),'rejected-arguments'));
+  box.append(agentEl('p','agentchat-tool-summary',
+   'No Patch was queued or executed. Ask AI to submit ONE valid taskdeck_submit_patch '+
+   'request with name and complete patch_python, then review the new proposal.'));
   return box;
  }
  box.append(detail('Review Python patch · '+String(args.name||'unnamed'),args.patch_python,'patch-code'));

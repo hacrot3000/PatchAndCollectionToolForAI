@@ -1180,6 +1180,26 @@ console.log('PASS: safe Markdown, syntax-highlighted PHP/Python, per-block Copy,
    const passedPatchCard=vm.runInNewContext('renderAgentTool('+JSON.stringify(passedPatch)+','+JSON.stringify(passedPatch.history[0])+')',context);
    assert.equal(Boolean(find(passedPatchCard,node=>node.tagName==='button'&&node.textContent==='Re-apply Patch then send to AI')),false,
      'successful Patch must not show reapply');
+   const rejectedTool={id:'rejected-patch',status:'tool_rejected',revision:22,
+     history:[{type:'function_call',call_id:'call_rejected_patch',name:'taskdeck_submit_patch',
+       arguments:JSON.stringify({patch_text:'not the required patch_python field'})}],
+     tool_calls:[],events:[{kind:'tool_proposal_rejected',status:'tool_rejected',
+       call_id:'call_rejected_patch',
+       detail:'invalid_patch_arguments: invalid patch function arguments'}]};
+   const rejectedCard=vm.runInNewContext('renderAgentTool('+
+     JSON.stringify(rejectedTool)+','+JSON.stringify(rejectedTool.history[0])+')',context);
+   assert.ok(find(rejectedCard,node=>node.textContent==='Patch proposal · REJECTED'),
+     'invalid Patch calls must be called rejected, not BLOCKED awaiting approval');
+   assert.ok(find(rejectedCard,node=>String(node.textContent||'').includes(
+     'invalid_patch_arguments: invalid patch function arguments')),
+     'owner should see the safe durable error reason for an unregistered Patch proposal');
+   assert.ok(find(rejectedCard,node=>node.tagName==='summary'&&
+      node.textContent.includes('Inspect original rejected tool arguments')),
+     'owner must be able to inspect exact rejected request without enabling execution');
+   assert.equal(Boolean(find(rejectedCard,node=>node.tagName==='button'&&
+      /approve|run|re-apply/i.test(node.textContent))),false,
+     'rejected Patch must never get an approval/execution action');
+   console.log('PASS: malformed provider Patch exposes diagnosis and read-only request, no approval');
    console.log('PASS: bounded/unlimited retry UI, single retry countdown and safe old-Patch recovery actions');
 
 
