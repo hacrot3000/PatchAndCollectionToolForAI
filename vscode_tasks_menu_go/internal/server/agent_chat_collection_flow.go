@@ -163,6 +163,11 @@ func (s *Server) agentChatRunCollection(
 				},
 			})
 			observed = string(data)
+		} else if lastReadSignature==string(nativeRequest)&&repeatedRead>=2 {
+			// Native COLLECT may scan a 150 MB file. Do not run the same
+			// unproductive read for a third time merely to learn it has not
+			// changed. The model can request a narrower native action instead.
+			observed = `{"error":{"code":"COLLECTION_NO_PROGRESS","message":"Repeated identical native Collection request; choose a targeted native search/file/range/symbol/decompile action.","retry_allowed":true}}`
 		} else if s.AgentCollectionCall != nil {
 			// Only tests install this mock. Production has exactly one Collection
 			// backend: the existing native Python Patch Tool runner/queue.
