@@ -263,8 +263,9 @@ INTERRUPTED --explicit retry--> new attempt (not a silent re-execute)
 
 - [ ] **MC-02 — Persistence, migration và recovery**
   - [ ] **MC-02.01 — Tạo storage bền vững**
-    - [x] **MC-02.01.01** Lưu conversation, message, run, run_attempt, context_group, membership và event checkpoint.
-      **Bằng chứng (2026-11-23):** `TestCoordinationMigrationRecoversFromWriteFaults`, `TestCoordinationMigrationIsIdempotent`, `TestLegacyCoordinationMigrationIsolatesTwoOwnersAndQuarantinesUnscopedRecords` PASS. Migration ghi marker durable trước output, temp file + fsync + atomic rename, phục hồi sau fault injection ở marker/quarantine/hub, không xóa legacy journal.
+    - [ ] **MC-02.01.01 — PARTIAL** Lưu conversation, message, run, run_attempt, context_group, membership và event checkpoint.
+      **Đã hoàn thành (2026-11-23):** `TestCoordinationMigrationRecoversFromWriteFaults`, `TestCoordinationMigrationIsIdempotent`, `TestLegacyCoordinationMigrationIsolatesTwoOwnersAndQuarantinesUnscopedRecords`, `TestConcurrentMigrationAcrossProcesses` PASS cho riêng coordination journal: marker durable, temp file + fsync + atomic rename, fault injection và cross-process lock.
+      **Chưa đủ bằng chứng:** Chưa có migration DB/table-level, foreign key/index, transaction rollback rehearsal cho toàn bộ conversation/message/run/event checkpoint. Không được coi là complete theo tiêu chí gốc.
       **Cách triển khai:** Thêm migration idempotent cho tables (groups, membership, conversations, messages, runs, run_attempts, snapshots, coordination_events); foreign key/index và versioning tương thích DB thật.  
       **Kiểm chứng / đầu ra:** Run migration 2 lần không lỗi; transaction rollback không để partial schema.
     - [ ] **MC-02.01.02** Lưu stream chunks/artifact references theo chính sách retention; đặt index theo group, conversation, run, time.  
@@ -277,16 +278,18 @@ INTERRUPTED --explicit retry--> new attempt (not a silent re-execute)
     - [ ] **MC-02.02.01** Chuyển conversation đơn hiện có thành conversation độc lập mặc định, giữ nguyên nội dung và thứ tự.  
       **Cách triển khai:** Viết migration đọc History legacy, map thành independent conversation; giữ message IDs/order nếu được, lưu legacy_id và migration version; tính năng dùng storage mới khi flag on.  
       **Kiểm chứng / đầu ra:** So sánh hash nội dung và số lượng trước/sau cho fixture lịch sử cũ.
-    - [x] **MC-02.02.02** Không sửa/xóa file History cũ trước khi backup và test migration/rollback.
-      **Bằng chứng (2026-11-23):** Migration coordination ghi `migration.json` (preparing/complete), quarantine `unclaimed.json`, không xoá `coordination.json` legacy. `TestCoordinationMigrationRecoversFromWriteFaults` chứng minh chạy lại sau mỗi điểm ghi; `TestCoordinationMigrationDoesNotTrustHubExistence` chứng minh file hub tồn tại không đủ để coi migration hoàn tất.
+    - [ ] **MC-02.02.02 — PARTIAL** Không sửa/xóa file History cũ trước khi backup và test migration/rollback.
+      **Đã hoàn thành (2026-11-23):** Coordination migration giữ legacy journal, backup `coordination.unmarked-backup.json` trước khi sửa journal cũ, `migration.json` preparing/complete, quarantine `unclaimed.json`. `TestCoordinationMigrationRecoversFromWriteFaults`, `TestUnmarkedJournalIsRepairedRecordByRecord`, `TestCoordinationMigrationDoesNotTrustHubExistence` PASS.
+      **Chưa đủ bằng chứng:** Chưa có backup/rollback rehearsal trên file History của chat; tiêu chí rollback toàn hệ thống chưa đạt.
       **Cách triển khai:** Backup trên đĩa có thể phục hồi; migration có dry-run, resume marker, atomic swap nếu phù hợp; document downgrade khi schema mới vẫn tồn tại.  
       **Kiểm chứng / đầu ra:** Chạy rollback rehearsal trên bản sao dữ liệu, không mất history gốc.
     - [ ] **MC-02.02.03** Bảo đảm opening old chat, search, copy/export vẫn hoạt động sau nâng cấp.  
       **Cách triển khai:** Kiểm tra UI truy vấn legacy và migrated history, search, copy, export; đảm bảo không sinh bản ghi kép khi migrate lại.  
       **Kiểm chứng / đầu ra:** Golden test và manual test trên dữ liệu nhiều vòng chat dài.
   - [ ] **MC-02.03 — Khôi phục khi mất kết nối hoặc restart**
-    - [x] **MC-02.03.01** Từ DB khôi phục danh sách conversation và trạng thái cuối cùng mà không chạy lặp tool/patch.
+    - [ ] **MC-02.03.01 — PARTIAL** Từ DB khôi phục danh sách conversation và trạng thái cuối cùng mà không chạy lặp tool/patch.
       **Bằng chứng (2026-11-23, bổ sung):** Real process-kill: `TestAgentRunRecoversAfterProcessKillWithoutReplayingSideEffects`, `TestAgentRunUncertainProviderResultRequiresReconciliation`, `TestAgentRunReloadAndRetryKeepsSingleProviderAttempt`, `TestAgentRunWaitingToolSurvivesRealProcessKill` (SIGKILL lúc `waiting_tool`). Clean Manager close + synthetic journal: `TestAgentRunWaitingToolSurvivesCleanManagerCloseAndSyntheticJournal` — KHÔNG tính là bằng chứng process-kill. Manager mới đánh dấu interrupted với `RetrySafe=false`, giữ pending call và không replay provider cho tới khi operator review.
+      **Chưa đủ bằng chứng:** Đã có real process-kill recovery cho run/journal nhưng chưa có đối soát Native Patch ledger tự động trước mọi retry trong DB-level recovery; chưa có chaos test restart giữa Patch thật.
       **Cách triển khai:** Khi server restart, rebuild run view từ DB/event log, truy vấn native patch status dựa operation_id trước khi báo interrupted; tuyệt đối không auto re-execute side effect không rõ trạng thái.  
       **Kiểm chứng / đầu ra:** Chaos test restart giữa patch: không tạo bản patch thứ hai.
     - [x] **MC-02.03.02** Đánh dấu run mất worker là interrupted; xác định rõ được resume/retry hay chỉ báo lỗi.

@@ -1,13 +1,18 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"bletonfc/vscode_tasks_menu/internal/agentchat"
 	"bletonfc/vscode_tasks_menu/internal/agentrun"
+	"bletonfc/vscode_tasks_menu/internal/identity"
 	"bletonfc/vscode_tasks_menu/internal/patchtool"
 )
 
@@ -382,5 +387,63 @@ func TestSharedGroupDoesNotTransferOwnershipInMigration(t *testing.T) {
 	}
 	if len(aliceUnclaimed) != 2 {
 		t.Fatalf("Alice's quarantine must keep the foreign records for review: %+v", aliceUnclaimed)
+	}
+}
+
+// TestQuarantineIsNotServedByCoordinationAPI verifies that ordinary owner
+// requests cannot read quarantined foreign records through the coordination
+// API, even when those records are stored in the owner's quarantine file.
+func TestQuarantineIsNotServedByCoordinationAPI(t *testing.T) {
+	s, conversations, groups, legacyPath := agentLegacyCoordinationFixture(t)
+	// Add a foreign contract that will be quarantined for both owners.
+	var legacy map[string]any
+	body, err := os.ReadFile(legacyPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(body, &legacy); err != nil {
+		t.Fatal(err)
+	}
+	contracts, _ := legacy["contracts"].(map[string]any)
+	contracts["foreign.secret.api"] = map[string]any{
+		"key": "foreign.secret.api", "owner_principal": "user:bob",
+		"owner_group": groups["user:bob"].ID, "signature": "SECRET_FOREIGN(): Result",
+		"revision": 1, "status": "planned",
+	}
+	legacy["contracts"] = contracts
+	modified, err := json.Marshal(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(legacyPath, append(modified, '\n'), 0600); err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodGet, "/api/agent/coordination?group_id="+groups["user:alice"].ID+"&conversation_id="+conversations["user:alice"].ID, nil)
+	principal := identity.Principal{
+		UserID: identity.ID("alice"), ProjectID: identity.ID(groups["user:alice"].ProjectID),
+		Permissions: map[string]bool{identity.PermissionSettingsRead: true},
+	}
+	request = request.WithContext(context.WithValue(request.Context(), sharedPrincipalContextKey{}, principal))
+	response := httptest.NewRecorder()
+	s.agentCoordinationAPI(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("coordination API: HTTP %d %s", response.Code, response.Body)
+	}
+	if strings.Contains(response.Body.String(), "SECRET_FOREIGN") || strings.Contains(response.Body.String(), "foreign.secret.api") {
+		t.Fatalf("quarantined foreign record was served to a regular user: %s", response.Body)
+	}
+	hubPath := agentOwnerHubPath(t, s, "user:alice")
+	unclaimed, err := s.agentCoordinationUnclaimedRecords(hubPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, record := range unclaimed {
+		if record.Key == "foreign.secret.api" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("foreign record was not retained in quarantine for administrator review")
 	}
 }

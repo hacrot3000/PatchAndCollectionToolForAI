@@ -552,3 +552,9 @@ Các quy tắc bắt buộc: streaming/out-of-order theo run ID; UI badge messag
 - Clean Manager close + synthetic journal reconstruction: `TestAgentRunWaitingToolSurvivesCleanManagerCloseAndSyntheticJournal` (không được ghi nhận là real process-kill).
 - Native Patch ledger persistence: `TestAgentRunNativePatchRoundTripExecutesOnceAcrossRestart` (ledger thật, Agent Run stop/restart; patch chạy thật nhưng không bị SIGKILL trong test này).
 - Native Patch execution thực sự bị gián đoạn: chưa có test kill tiến trình Python Patch; blocker nằm ở việc tách native session manager sang helper process riêng.
+
+## Cập nhật hardening 2026-11-23 (baseline `5c255dda`)
+
+- Coordination journal hiện dùng cùng một advisory file lock cho migration và mọi thao tác ghi hub, với in-process mutex trước file lock để tránh deadlock. Bằng chứng tự chạy: `TestConcurrentFirstMigrationKeepsSingleJournal`, `TestMigrationDoesNotOverwriteConcurrentHubUpdate`, `TestConcurrentMigrationAcrossProcesses` (race).
+- Các test real process-kill và Native Patch ledger ở mục trước vẫn giữ nguyên; không có test SIGKILL cho tiến trình Python Patch.
+- Checkbox persistence/rollback/recovery chi tiết được đối soát lại trong PLAN 01 (`PARTIAL`); không dùng coordination migration để thay thế bằng chứng DB rollback hay Native Patch reconciliation.

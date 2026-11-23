@@ -55,6 +55,53 @@ P1 — Recovery evidence:
 - Full server suite: results are recorded below; pre-existing UI source-contract failures remain outside this pass’s scope. No assertion was weakened or skipped to make the suite pass.
 
 
+
+## Final migration hardening pass (baseline `5c255dda`, 2026-11-23)
+
+This pass was executed and verified by this coder. Findings distinguished by "self-run" versus "reported in an earlier pass".
+
+### Confirmed bugs and fixes (self-run)
+
+- **P0.1 unmarked v2 journal:** `adoptUnmarkedCoordinationMigration()` previously adopted a journal solely on version 2 + `owner_id`. Replaced with record-level re-verification of peers, messages, contracts, artifacts and dependencies; unverifiable/foreign records are quarantined; valid records added after the earlier migration are preserved; the pre-repair journal is backed up to `coordination.unmarked-backup.json`; migration remains marker-driven, crash-recoverable and idempotent. Proof (self-run): `TestUnmarkedJournalIsRepairedRecordByRecord` under `go test -race`.
+- **P0.2 concurrency:** There was no server-level per-owner migration lock and the hub mutex did not cover cross-process writes. Both migration and every hub mutation now take the same exclusive advisory journal lock; the in-process mutex is acquired before the file lock to keep one lock order and avoid deadlock. Linux/macOS use `flock`; other platforms are explicitly limited to in-process exclusion. Proof (self-run): `TestConcurrentFirstMigrationKeepsSingleJournal`, `TestMigrationDoesNotOverwriteConcurrentHubUpdate`, `TestConcurrentMigrationAcrossProcesses`, all under `go test -race`.
+- **P1 quarantine access:** The quarantine has no HTTP endpoint; ordinary coordination responses never include its content. Added `TestQuarantineIsNotServedByCoordinationAPI` (self-run) proving foreign quarantined text is absent from a regular owner's API response while the record remains available for administrator review. Retention policy: keep quarantined records with reason and source key; no automatic deletion.
+- **P1 checkboxes:** MC-02.01.01, MC-02.02.02 and MC-02.03.01 were reverted to unchecked PARTIAL. Coordination migration tests are not proof of full DB persistence, chat-history rollback rehearsal, or Native Patch ledger reconciliation before every retry.
+
+### Files changed in this pass (self-run)
+
+- `vscode_tasks_menu_go/internal/server/agent_coordination_migration.go`
+- `vscode_tasks_menu_go/internal/agentrun/coordination.go`
+- `vscode_tasks_menu_go/internal/agentrun/coordination_lock_unix.go` (new)
+- `vscode_tasks_menu_go/internal/agentrun/coordination_lock_other.go` (new)
+- `vscode_tasks_menu_go/internal/server/agent_coordination_migration_crash_test.go`
+- `vscode_tasks_menu_go/internal/server/agent_coordination_migration_scope_test.go`
+- `01_MULTI_CONVERSATION_SHARED_CONTEXT_PLAN.md`
+- `02_AGENT_PROVIDER_HOT_SWITCH_PLAN.md`
+- `docs/taskdeck_ai_agent/UNIFIED_REVIEW_HANDOFF.md`
+
+### Validation self-run in this pass
+
+- PASS: `go build ./cmd/vscode_tasks_menu` (to `/tmp/taskdeck-build-check`), `go vet ./internal/agentrun ./internal/agentchat ./internal/server`.
+- PASS: `go test -race -count=1 ./internal/agentrun ./internal/server -run 'TestCoordination|TestLegacyCoordination|TestConcurrent|TestMigration|TestConversationGroup|TestSharedGroup'`.
+- PASS: `go test -race -count=1 ./internal/server -run 'TestUnmarkedJournalIsRepairedRecordByRecord|TestQuarantineIsNotServedByCoordinationAPI|TestConcurrentMigrationAcrossProcesses'`.
+- PASS: `node --test web/*_test.cjs` (10/10, from the preceding pass and re-run after the earlier changes; no web files changed in this hardening pass).
+- NOT RE-RUN in this pass: the full `go test ./internal/server -count=1` suite (24 known review-branch UI assertion failures) and Browser E2E / external provider smoke. These remain as recorded in §§2–6 of the previous pass.
+- BLOCKED: real Native Patch SIGKILL during execution remains unimplemented (needs a dedicated helper process owning the native session manager).
+
+### Integration preparation (self-run)
+
+- `git fetch origin` completed. `origin/main` is now `7ba9fc8e809118e0294a90080fe42c3a8577ae05`.
+- Merge base with review HEAD: `07fd54a534db573d2a89ef892c4283bc52aa612f`.
+- Divergence: review is 6 commits ahead, 110 commits behind `origin/main`.
+- 12 files changed on both sides: `agentchat/{chat_completions_stream,providers,responses,stream}.go`, `server/{agent_chat_sessions,agent_chat_sync,agent_chat_tool_feedback,agent_chat_tools,server,shared_authorization}.go`, `web/agentchat_bootstrap_test.cjs`, `web/featuremods/agentchat.js`.
+- Main-only areas to preserve: durable provider attempt correlation and retry/recovery, HTTP 499 handling, provider diagnostics, context compaction, native COLLECT/native Patch recovery, Agent Chat history/clipboard/attachment changes, shared filesystem refusal and directory fsync.
+- Proposed controlled integration: create `integration/taskdeck-review-main-20261123` from current `origin/main`, then transplant review-only commits/files in small batches: (1) agentrun group/coordination/migration foundation, (2) provider router/hot-switch and run API, (3) Agent Chat UI + Node contracts, (4) recovery/native Patch bridge. Keep main’s durable recovery and fsync implementations; resolve each of the 12 overlap files by semantic merge, not file replacement. Do not rebase, cherry-pick, force-push or merge into main without owner approval.
+- Post-integration regression list: full `go vet`, focused Agent Chat/run/group/coordination/migration/native Patch tests, `go test -race` on the same focused set, full server suite with named baseline comparison, Node `web/*_test.cjs`, real provider stub in isolated namespace, and Browser E2E once Playwright is available.
+
+### Status
+
+**NOT READY FOR INTEGRATION.** P0 items in this scope are fixed and self-verified, but the branch is 110 commits behind main with 12 overlap files, full suite has known pre-existing failures, and external/browser/Native-Patch-kill evidence remains blocked.
+
 ## 1. Baseline and Git state
 
 - Repository: `hacrot3000/PatchAndCollectionToolForAI`

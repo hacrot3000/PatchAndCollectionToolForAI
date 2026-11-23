@@ -10,9 +10,10 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strings"
+	"sync"
 	"time"
 
+	"bletonfc/vscode_tasks_menu/internal/agentrun"
 	"bletonfc/vscode_tasks_menu/internal/patchtool"
 )
 
@@ -70,6 +71,11 @@ func agentCoordinationMigrationPath(hubPath string) string {
 	return filepath.Join(filepath.Dir(hubPath), agentCoordinationMigrationFile)
 }
 
+// agentCoordinationMigrationLocks serializes migrations of the same owner
+// journal inside one process. The cross-process exclusion is provided by the
+// advisory journal lock; this mutex also covers platforms without flock.
+var agentCoordinationMigrationLocks sync.Map
+
 // migrateLegacyCoordinationJournal copies the pre-tenant coordination journal
 // into an owner-scoped journal. The legacy journal was shared by every shared
 // user, so only the records this owner can prove are copied; the legacy file
@@ -79,7 +85,38 @@ func agentCoordinationMigrationPath(hubPath string) string {
 // process dies at any step, the next call reads the marker, recomputes the
 // output from the untouched legacy journal and finishes the pending writes.
 // An existing coordination.json alone is not considered proof of completion.
+//
+// The whole migration runs while the owner journal is exclusively locked, so a
+// concurrent request can neither observe nor overwrite a half-migrated
+// journal.
 func (s *Server) migrateLegacyCoordinationJournal(legacyPath, hubPath, owner string) error {
+	unlockProcess, err := s.lockCoordinationMigration(hubPath)
+	if err != nil {
+		return err
+	}
+	defer unlockProcess()
+	return s.migrateLegacyCoordinationJournalLocked(legacyPath, hubPath, owner)
+}
+
+// lockCoordinationMigration serializes the migration of one owner journal
+// inside this process and takes the cross-process journal lock.
+func (s *Server) lockCoordinationMigration(hubPath string) (func(), error) {
+	key := filepath.Clean(hubPath)
+	value, _ := agentCoordinationMigrationLocks.LoadOrStore(key, &sync.Mutex{})
+	mutex := value.(*sync.Mutex)
+	mutex.Lock()
+	unlockJournal, err := agentrun.LockCoordinationJournal(hubPath)
+	if err != nil {
+		mutex.Unlock()
+		return nil, err
+	}
+	return func() {
+		unlockJournal()
+		mutex.Unlock()
+	}, nil
+}
+
+func (s *Server) migrateLegacyCoordinationJournalLocked(legacyPath, hubPath, owner string) error {
 	source, err := os.ReadFile(legacyPath)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil
@@ -123,7 +160,9 @@ func (s *Server) migrateLegacyCoordinationJournal(legacyPath, hubPath, owner str
 		// A journal written by an older build has no marker. Preserve it if it
 		// is a valid owner-scoped journal: later coordination updates must not
 		// be lost just because the marker was introduced after the fact.
-		if _, ok := s.adoptUnmarkedCoordinationMigration(hubPath, owner); ok {
+		if adopted, err := s.adoptUnmarkedCoordinationMigration(legacyPath, hubPath, owner); err != nil {
+			return err
+		} else if adopted {
 			return nil
 		}
 		marker = &agentCoordinationMigrationState{
@@ -155,55 +194,78 @@ func (s *Server) migrateLegacyCoordinationJournal(legacyPath, hubPath, owner str
 	return writeAgentCoordinationFileAtomic(markerPath, mustMigrationJSON(marker), 0600)
 }
 
-// adoptUnmarkedCoordinationMigration records a completion marker for a valid
-// owner-scoped journal created before markers existed. Invalid or foreign
-// journals are not adopted; the migration recomputes them from the legacy file.
-func (s *Server) adoptUnmarkedCoordinationMigration(hubPath, owner string) (*agentCoordinationMigrationState, bool) {
+// adoptUnmarkedCoordinationMigration repairs an owner-scoped journal that was
+// written before migration markers existed. A version/owner_id match is not
+// authority: every record is rechecked against the current owner evidence and
+// only verified records stay in the journal; foreign and unscoped records are
+// backed up and quarantined. Records added after the earlier migration are
+// preserved, including when they no longer exist in the legacy file.
+func (s *Server) adoptUnmarkedCoordinationMigration(legacyPath, hubPath, owner string) (bool, error) {
 	body, err := os.ReadFile(hubPath)
 	if err != nil || len(body) == 0 || len(body) > 8<<20 {
-		return nil, false
+		return false, nil
 	}
 	var state struct {
-		Version int    `json:"version"`
-		OwnerID string `json:"owner_id"`
+		Version   int            `json:"version"`
+		OwnerID   string         `json:"owner_id"`
+		Peers     map[string]any `json:"peers"`
+		Messages  []any          `json:"messages"`
+		Contracts map[string]any `json:"contracts"`
+		Artifacts map[string]any `json:"artifacts"`
+		Deps      map[string]any `json:"dependencies"`
+		Events    []any          `json:"events"`
 	}
 	if json.Unmarshal(body, &state) != nil || state.Version != 2 || state.OwnerID != owner {
-		return nil, false
+		return false, nil
+	}
+	plan, err := s.buildAgentCoordinationMigrationFromRecords(owner, state.Peers, state.Messages, state.Contracts, state.Artifacts, state.Deps, state.Events)
+	if err != nil {
+		return false, err
+	}
+	if err := s.backupUnmarkedCoordinationJournal(hubPath, body); err != nil {
+		return false, err
+	}
+	unclaimedBody := append(append([]byte(nil), plan.unclaimedBody...), '\n')
+	hubBody := append(append([]byte(nil), plan.hubBody...), '\n')
+	source, err := os.ReadFile(legacyPath)
+	if err != nil {
+		return false, err
 	}
 	marker := &agentCoordinationMigrationState{
-		Version: 1, Owner: owner, LegacySHA256: "",
-		Status: agentCoordinationMigrationComplete, HubSHA256: sha256Hex(body),
-		UpdatedAt: time.Now().UTC(),
+		Version: 1, Owner: owner, LegacySHA256: sha256Hex(source),
+		Status: agentCoordinationMigrationPreparing, HubSHA256: sha256Hex(hubBody),
+		UnclaimedSHA256: sha256Hex(unclaimedBody), UpdatedAt: time.Now().UTC(),
 	}
-	if unclaimedBody, err := os.ReadFile(agentCoordinationUnclaimedPath(hubPath)); err == nil {
-		marker.UnclaimedSHA256 = sha256Hex(unclaimedBody)
-	}
-	source, err := os.ReadFile(legacyCoordinationPathForHub(hubPath))
-	if err == nil {
-		marker.LegacySHA256 = sha256Hex(source)
-	}
-	if marker.LegacySHA256 == "" {
-		return nil, false
+	if len(plan.unclaimed.Records) == 0 {
+		marker.UnclaimedSHA256 = ""
 	}
 	if err := writeAgentCoordinationFileAtomic(agentCoordinationMigrationPath(hubPath), mustMigrationJSON(marker), 0600); err != nil {
-		return nil, false
+		return false, err
 	}
-	return marker, true
+	if len(plan.unclaimed.Records) == 0 {
+		if err := removeIfExists(agentCoordinationUnclaimedPath(hubPath)); err != nil {
+			return false, err
+		}
+	} else if err := writeAgentCoordinationFileAtomic(agentCoordinationUnclaimedPath(hubPath), unclaimedBody, 0600); err != nil {
+		return false, err
+	}
+	if err := writeAgentCoordinationFileAtomic(hubPath, hubBody, 0600); err != nil {
+		return false, err
+	}
+	marker.Status = agentCoordinationMigrationComplete
+	return true, writeAgentCoordinationFileAtomic(agentCoordinationMigrationPath(hubPath), mustMigrationJSON(marker), 0600)
 }
 
-// legacyCoordinationPathForHub derives the shared legacy journal path from an
-// owner-scoped hub directory name. It is only used for marker adoption.
-func legacyCoordinationPathForHub(hubPath string) string {
-	dir := filepath.Dir(hubPath)
-	name := filepath.Base(dir)
-	const prefix = "agent-coordination-"
-	const suffix = "-"
-	idx := strings.LastIndex(name, suffix)
-	if !strings.HasPrefix(name, prefix) || idx <= len(prefix) {
-		return ""
+// backupUnmarkedCoordinationJournal keeps the exact pre-repair bytes. The
+// backup lives next to the owner journal and is never used as migration input.
+func (s *Server) backupUnmarkedCoordinationJournal(hubPath string, body []byte) error {
+	backup := filepath.Join(filepath.Dir(hubPath), "coordination.unmarked-backup.json")
+	if _, err := os.Stat(backup); err == nil {
+		return nil
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return err
 	}
-	legacyDir := filepath.Join(filepath.Dir(dir), name[:idx])
-	return filepath.Join(legacyDir, "coordination.json")
+	return writeAgentCoordinationFileAtomic(backup, body, 0600)
 }
 
 type agentCoordinationMigrationPlan struct {
@@ -229,12 +291,17 @@ func (s *Server) buildAgentCoordinationMigration(source []byte, owner string) (a
 	if state.OwnerID != "" && state.OwnerID != owner {
 		return agentCoordinationMigrationPlan{}, errors.New("legacy coordination journal belongs to another owner")
 	}
+	return s.buildAgentCoordinationMigrationFromRecords(owner, state.Peers, state.Messages, state.Contracts, state.Artifacts, state.Deps, nil)
+}
+
+// buildAgentCoordinationMigrationFromRecords verifies ownership of every
+// record, regardless of whether it came from the legacy journal or from a v2
+// journal created by an older buggy migration.
+func (s *Server) buildAgentCoordinationMigrationFromRecords(owner string, sourcePeers map[string]any, sourceMessages []any, sourceContracts, sourceArtifacts, sourceDeps map[string]any, sourceEvents []any) (agentCoordinationMigrationPlan, error) {
 	ownerConversations, err := s.agentConversationIDsForOwner(owner)
 	if err != nil {
 		return agentCoordinationMigrationPlan{}, err
 	}
-	// OwnedGroups is verified from PrincipalOwner. AccessibleGroups (read
-	// grants and shared groups) is never used as ownership evidence.
 	ownerGroups, err := s.agentConversationGroupIDsForOwner(owner)
 	if err != nil {
 		return agentCoordinationMigrationPlan{}, err
@@ -247,7 +314,7 @@ func (s *Server) buildAgentCoordinationMigration(source []byte, owner string) (a
 		})
 	}
 	filtered := map[string]any{}
-	for key, value := range state.Peers {
+	for key, value := range sourcePeers {
 		peer, ok := value.(map[string]any)
 		if !ok {
 			continue
@@ -269,8 +336,32 @@ func (s *Server) buildAgentCoordinationMigration(source []byte, owner string) (a
 		"artifacts": map[string]any{}, "dependencies": map[string]any{},
 		"events": []any{},
 	}
-	owned := make([]any, 0, len(state.Messages))
-	for index, raw := range state.Messages {
+	// Events can contain payload text from other owners. During repair of a v2
+	// journal they are rechecked like any other record; legacy v1 journals do
+	// not carry events in the format migrated here.
+	ownedEvents := make([]any, 0, len(sourceEvents))
+	for index, raw := range sourceEvents {
+		event, isObject := raw.(map[string]any)
+		if !isObject {
+			continue
+		}
+		principal, _ := event["owner_principal"].(string)
+		group, _ := event["group_id"].(string)
+		conversation, _ := event["conversation_id"].(string)
+		if !sharedScope || principal == owner || group != "" && ownerGroups[group] || conversation != "" && ownerConversations[conversation] {
+			ownedEvents = append(ownedEvents, raw)
+			continue
+		}
+		reason := "event has no verified owner scope"
+		if principal != "" {
+			reason = "event belongs to another principal"
+		}
+		quarantine("event", "event-"+itoa(index), reason, event)
+	}
+	migrated["events"] = ownedEvents
+
+	owned := make([]any, 0, len(sourceMessages))
+	for index, raw := range sourceMessages {
 		message, isObject := raw.(map[string]any)
 		if !isObject {
 			continue
@@ -278,11 +369,16 @@ func (s *Server) buildAgentCoordinationMigration(source []byte, owner string) (a
 		from, _ := message["from_conversation"].(string)
 		to, _ := message["to_conversation"].(string)
 		group, _ := message["group_id"].(string)
+		principal, _ := message["owner_principal"].(string)
 		if !sharedScope {
 			owned = append(owned, raw)
 			continue
 		}
-		if ownerConversations[from] || ownerConversations[to] {
+		if principal != "" && principal != owner {
+			quarantine("message", "message-"+itoa(index), "message belongs to another principal", message)
+			continue
+		}
+		if principal == owner || ownerConversations[from] || ownerConversations[to] {
 			owned = append(owned, raw)
 			continue
 		}
@@ -295,7 +391,7 @@ func (s *Server) buildAgentCoordinationMigration(source []byte, owner string) (a
 	migrated["messages"] = owned
 
 	ownedContracts := map[string]any{}
-	for key, raw := range state.Contracts {
+	for key, raw := range sourceContracts {
 		contract, isObject := raw.(map[string]any)
 		if !isObject {
 			continue
@@ -310,13 +406,7 @@ func (s *Server) buildAgentCoordinationMigration(source []byte, owner string) (a
 			quarantine("contract", key, "contract belongs to another principal", contract)
 			continue
 		}
-		if principal == owner {
-			// An explicit owner principal is direct evidence and does not
-			// depend on group membership (shared groups are not ownership).
-			ownedContracts[key] = raw
-			continue
-		}
-		if group != "" && ownerGroups[group] {
+		if principal == owner || group != "" && ownerGroups[group] {
 			ownedContracts[key] = raw
 			continue
 		}
@@ -329,7 +419,7 @@ func (s *Server) buildAgentCoordinationMigration(source []byte, owner string) (a
 	migrated["contracts"] = ownedContracts
 
 	ownedArtifacts := map[string]any{}
-	for key, raw := range state.Artifacts {
+	for key, raw := range sourceArtifacts {
 		artifact, isObject := raw.(map[string]any)
 		if !isObject {
 			continue
@@ -345,15 +435,7 @@ func (s *Server) buildAgentCoordinationMigration(source []byte, owner string) (a
 			quarantine("artifact", key, "artifact belongs to another principal", artifact)
 			continue
 		}
-		if principal == owner {
-			ownedArtifacts[key] = raw
-			continue
-		}
-		if group != "" && ownerGroups[group] {
-			ownedArtifacts[key] = raw
-			continue
-		}
-		if conversation != "" && ownerConversations[conversation] {
+		if principal == owner || group != "" && ownerGroups[group] || conversation != "" && ownerConversations[conversation] {
 			ownedArtifacts[key] = raw
 			continue
 		}
@@ -366,22 +448,23 @@ func (s *Server) buildAgentCoordinationMigration(source []byte, owner string) (a
 	migrated["artifacts"] = ownedArtifacts
 
 	ownedDependencies := map[string]any{}
-	for key, raw := range state.Deps {
+	for key, raw := range sourceDeps {
 		dependency, isObject := raw.(map[string]any)
 		if !isObject {
 			continue
 		}
 		group, _ := dependency["group_id"].(string)
 		conversation, _ := dependency["conversation_id"].(string)
+		principal, _ := dependency["owner_principal"].(string)
 		if !sharedScope {
 			ownedDependencies[key] = raw
 			continue
 		}
-		if group != "" && ownerGroups[group] {
-			ownedDependencies[key] = raw
+		if principal != "" && principal != owner {
+			quarantine("dependency", key, "dependency belongs to another principal", dependency)
 			continue
 		}
-		if conversation != "" && ownerConversations[conversation] {
+		if principal == owner || group != "" && ownerGroups[group] || conversation != "" && ownerConversations[conversation] {
 			ownedDependencies[key] = raw
 			continue
 		}

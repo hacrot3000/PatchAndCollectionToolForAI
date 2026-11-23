@@ -152,6 +152,14 @@ type CoordinationHub struct {
 	projectID string
 }
 
+// LockCoordinationJournal takes the cross-process exclusive lock that guards
+// one coordination journal. Callers that migrate or repair the journal must
+// hold it for the whole read-modify-write cycle so no concurrent request can
+// observe or overwrite a half-migrated journal.
+func LockCoordinationJournal(path string) (func(), error) {
+	return lockCoordinationJournal(path)
+}
+
 func NewCoordinationHub(path string, scope ...string) (*CoordinationHub, error) {
 	if path == "" || !filepath.IsAbs(path) {
 		return nil, errors.New("absolute coordination hub path required")
@@ -169,6 +177,13 @@ func NewCoordinationHub(path string, scope ...string) (*CoordinationHub, error) 
 		hub.ownerID, hub.projectID = scope[0], scope[1]
 	}
 	return hub, nil
+}
+
+// lockJournal takes the cross-process exclusive lock of this journal. It is
+// always acquired after the in-process mutex, so the lock order is consistent
+// and cannot deadlock: in-process mutex first, then the advisory file lock.
+func (h *CoordinationHub) lockJournal() (func(), error) {
+	return lockCoordinationJournal(h.path)
 }
 
 func (h *CoordinationHub) load() (coordinationState, error) {
@@ -309,6 +324,11 @@ func (h *CoordinationHub) UpsertPeer(peer Peer) (Peer, error) {
 	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	unlockJournal, err := h.lockJournal()
+	if err != nil {
+		return Peer{}, err
+	}
+	defer unlockJournal()
 	state, err := h.load()
 	if err != nil {
 		return Peer{}, err
@@ -330,6 +350,11 @@ func (h *CoordinationHub) UpsertPeer(peer Peer) (Peer, error) {
 func (h *CoordinationHub) Peers(groupID string) ([]Peer, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	unlockJournal, err := h.lockJournal()
+	if err != nil {
+		return nil, err
+	}
+	defer unlockJournal()
 	state, err := h.load()
 	if err != nil {
 		return nil, err
@@ -391,6 +416,11 @@ func (h *CoordinationHub) PostPeerMessage(message PeerMessage) (PeerMessage, err
 	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	unlockJournal, err := h.lockJournal()
+	if err != nil {
+		return PeerMessage{}, err
+	}
+	defer unlockJournal()
 	state, err := h.load()
 	if err != nil {
 		return PeerMessage{}, err
@@ -437,6 +467,11 @@ func (h *CoordinationHub) PostPeerMessage(message PeerMessage) (PeerMessage, err
 func (h *CoordinationHub) PeerMessages(conversationID, groupID string) ([]PeerMessage, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	unlockJournal, err := h.lockJournal()
+	if err != nil {
+		return nil, err
+	}
+	defer unlockJournal()
 	state, err := h.load()
 	if err != nil {
 		return nil, err
@@ -467,6 +502,11 @@ func (h *CoordinationHub) UpsertContract(contract Contract) (Contract, error) {
 	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	unlockJournal, err := h.lockJournal()
+	if err != nil {
+		return Contract{}, err
+	}
+	defer unlockJournal()
 	state, err := h.load()
 	if err != nil {
 		return Contract{}, err
@@ -525,6 +565,11 @@ func (h *CoordinationHub) advanceContract(groupID, key string, revision uint64, 
 	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	unlockJournal, err := h.lockJournal()
+	if err != nil {
+		return Contract{}, err
+	}
+	defer unlockJournal()
 	state, err := h.load()
 	if err != nil {
 		return Contract{}, err
@@ -567,6 +612,11 @@ func (h *CoordinationHub) advanceContract(groupID, key string, revision uint64, 
 func (h *CoordinationHub) Contracts(groupID string) ([]Contract, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	unlockJournal, err := h.lockJournal()
+	if err != nil {
+		return nil, err
+	}
+	defer unlockJournal()
 	state, err := h.load()
 	if err != nil {
 		return nil, err
@@ -614,6 +664,11 @@ func (h *CoordinationHub) PublishArtifact(artifact Artifact) (Artifact, error) {
 	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	unlockJournal, err := h.lockJournal()
+	if err != nil {
+		return Artifact{}, err
+	}
+	defer unlockJournal()
 	state, err := h.load()
 	if err != nil {
 		return Artifact{}, err
@@ -649,6 +704,11 @@ func (h *CoordinationHub) PublishArtifact(artifact Artifact) (Artifact, error) {
 func (h *CoordinationHub) Artifacts() ([]Artifact, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	unlockJournal, err := h.lockJournal()
+	if err != nil {
+		return nil, err
+	}
+	defer unlockJournal()
 	state, err := h.load()
 	if err != nil {
 		return nil, err
@@ -693,6 +753,11 @@ func (h *CoordinationHub) RegisterDependency(dependency Dependency) (Dependency,
 	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	unlockJournal, err := h.lockJournal()
+	if err != nil {
+		return Dependency{}, err
+	}
+	defer unlockJournal()
 	state, err := h.load()
 	if err != nil {
 		return Dependency{}, err
@@ -753,6 +818,11 @@ func (h *CoordinationHub) RegisterDependency(dependency Dependency) (Dependency,
 func (h *CoordinationHub) Dependencies() ([]Dependency, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	unlockJournal, err := h.lockJournal()
+	if err != nil {
+		return nil, err
+	}
+	defer unlockJournal()
 	state, err := h.load()
 	if err != nil {
 		return nil, err
@@ -788,6 +858,11 @@ func (h *CoordinationHub) DependenciesForScope(groupID, conversationID string) (
 func (h *CoordinationHub) Events(after uint64, limit int) ([]CoordinationEvent, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	unlockJournal, err := h.lockJournal()
+	if err != nil {
+		return nil, err
+	}
+	defer unlockJournal()
 	state, err := h.load()
 	if err != nil {
 		return nil, err
