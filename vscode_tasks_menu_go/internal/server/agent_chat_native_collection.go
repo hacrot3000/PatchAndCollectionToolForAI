@@ -225,7 +225,12 @@ func agentNativeCollectionObservation(root string,identity patchtool.ProjectIden
   if err==nil{
    outcome["text_excerpt"]=excerpt
    outcome["text_excerpt_truncated"]=truncated
-  }else{outcome["text_error"]=scrubAIContext(err.Error(),240)}
+  }else{
+   outcome["text_error"]=scrubAIContext(err.Error(),240)
+   outcome["status"]="INCOMPLETE"
+   outcome["partial_evidence_available"]=true
+   outcome["warning"]="Native ZIP was verified, but its TXT companion could not be safely read"
+  }
  }
  if outcome["status"]=="INCOMPLETE" {
   outcome["continuation"]="Usable partial native COLLECT evidence is available; do not infer absence from missing data. Use a narrower native COLLECT action (search/file/range/head/tail/symbol/decompile) based on the original result. Do not rerun an identical broad request."
