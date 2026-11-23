@@ -344,7 +344,7 @@ func (s *Server) agentChatToolDecisionAPI(w http.ResponseWriter, r *http.Request
 			patchID, startErr := s.agentStartNativePatch(r)
 			if startErr != nil {
 				note = "Native Patch session could not start; package remains in queue for manual review."
-			} else if err := s.agentVerifyApprovalStillValid(r.Context(), &x.ToolCalls[idx]); err != nil {
+			} else if err := s.agentVerifyApprovalAfterOwnQueue(r.Context(), &x.ToolCalls[idx], receipt.QueuePath); err != nil {
 				x.ToolCalls[idx].Status = "unknown"
 				x.ToolCalls[idx].Result = "Workspace changed after the native session started; selection refused. Inspect the existing Patch session."
 				x.ToolCalls[idx].PatchSessionID = patchID

@@ -921,7 +921,7 @@ function renderAgentTool(session,item){
    actions.append(agentButton('Get the last result and send to AI',
     ()=>recoverAgentPatch(agentCurrentSession||session,item.call_id,'send_existing').catch(showAgentError)));
   }
-  if(state!=='done'){
+  if(state==='error'){
    const reapply=agentButton('Re-apply Patch then send to AI',
     ()=>recoverAgentPatch(agentCurrentSession||session,item.call_id,'rerun_and_send').catch(showAgentError));
    reapply.disabled=Boolean(agentApp.sharedMode&&!agentApp.hasPermission?.('patch.run'));
@@ -932,8 +932,12 @@ function renderAgentTool(session,item){
   actions.append(agentButton('Send rejection to AI',
    ()=>continueAgentTool(agentCurrentSession||session,item.call_id).catch(showAgentError)));
  }
- if(state==='unknown')actions.append(agentEl('p','agentchat-tool-summary',
-  'Old native result is not verified yet. Recovery will inspect the original run; it will not rerun an uncertain Patch.'));
+ if(state==='unknown'){
+  box.append(agentEl('p','agentchat-tool-summary',
+   'Native Patch execution was not confirmed for this Agent call. If you ran the queued ZIP manually, click Get the last result and send to AI: TaskDeck will look for unique matching completed native History and verify the original package hash. Re-apply is unavailable until a failed run is verified.'));
+  if(session.auto_patch&&!session.auto_feedback)box.append(agentEl('p','agentchat-tool-summary',
+   'Auto apply Patch is enabled, but Auto-send results is OFF. Enable Auto-send results to forward verified completions automatically.'));
+ }
  if(actions.childElementCount)box.append(actions);
  return box;
 }

@@ -26,6 +26,22 @@ type agentWorkspaceSnapshot struct {
 var errAgentDriftRefused = errors.New("workspace or Git state changed since approval")
 
 func agentWorkspaceSnapshotOf(ctx context.Context, workspace string) (agentWorkspaceSnapshot, error) {
+    return agentWorkspaceSnapshotWithQueueExcluded(ctx, workspace, "")
+}
+
+// After an Agent queues its immutable package, that exact untracked ZIP may
+// appear in git status. Filter only this server-owned package (never all of
+// patchs/ or artifacts/) when comparing the original approval snapshot.
+func agentWorkspaceSnapshotWithQueueExcluded(ctx context.Context, workspace, queuePath string) (agentWorkspaceSnapshot, error) {
+    if queuePath != "" {
+        if !strings.HasPrefix(queuePath, "patchs/") ||
+            !strings.HasSuffix(queuePath, ".zip") ||
+            strings.TrimPrefix(queuePath, "patchs/") == "" ||
+            strings.Contains(strings.TrimPrefix(queuePath, "patchs/"), "/") ||
+            strings.ContainsAny(queuePath, "\x00\r\n") {
+            return agentWorkspaceSnapshot{}, errAgentDriftRefused
+        }
+    }
 	if workspace == "" {
 		return agentWorkspaceSnapshot{}, errors.New("workspace unavailable")
 	}
@@ -50,6 +66,17 @@ func agentWorkspaceSnapshotOf(ctx context.Context, workspace string) (agentWorks
 	if err != nil {
 		return agentWorkspaceSnapshot{}, errors.New("Git worktree status unavailable")
 	}
+    if queuePath != "" {
+        // Git porcelain -z produces a NUL-terminated row for an untracked
+        // file. Remove the exact queue row only; tracked/modified files and
+        // every other untracked file must still fail the drift comparison.
+        var filtered strings.Builder
+        for _, row := range strings.SplitAfter(status, "\x00") {
+            if row == "?? "+queuePath+"\x00" { continue }
+            filtered.WriteString(row)
+        }
+        status = filtered.String()
+    }
 	digest := sha256.Sum256([]byte(status))
 	snap.StatusSHA256 = hex.EncodeToString(digest[:])
 	return snap, nil
@@ -85,4 +112,20 @@ func (s *Server) agentVerifyApprovalStillValid(ctx context.Context, call *agentc
 		return errAgentDriftRefused
 	}
 	return nil
+}
+
+// agentVerifyApprovalAfterOwnQueue preserves the approval's original Git
+// boundary while permitting ONLY the exact ZIP TaskDeck just placed in its
+// native queue. It does not waive source drift, branch changes or expiry.
+func (s *Server) agentVerifyApprovalAfterOwnQueue(ctx context.Context, call *agentchat.ToolCallRecord, queuePath string) error {
+    if call == nil || call.ApprovalExpiresAt == nil ||
+       time.Now().UTC().After(*call.ApprovalExpiresAt) {
+        return errAgentDriftRefused
+    }
+    fresh, err := agentWorkspaceSnapshotWithQueueExcluded(ctx, s.Workspace, queuePath)
+    if err != nil { return err }
+    if !agentDriftMatches(call.ExpectedHead, call.ExpectedBranch, call.WorkspaceStatusSHA256, call.GitIsRepo, fresh) {
+        return errAgentDriftRefused
+    }
+    return nil
 }

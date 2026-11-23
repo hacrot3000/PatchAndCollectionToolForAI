@@ -1167,8 +1167,20 @@ console.log('PASS: safe Markdown, syntax-highlighted PHP/Python, per-block Copy,
   const oldPatchCard=vm.runInNewContext('renderAgentTool('+JSON.stringify(stuckPatch)+','+JSON.stringify(stuckPatch.history[0])+')',context);
   assert.ok(find(oldPatchCard,node=>node.tagName==='button'&&node.textContent==='Get the last result and send to AI'),
      'stuck Patch must offer a read-only History recovery choice');
-   assert.ok(find(oldPatchCard,node=>node.tagName==='button'&&node.textContent==='Re-apply Patch then send to AI'),
-     'stuck Patch must present an explicit reapply action; backend verifies the old terminal is final');
+   assert.equal(Boolean(find(oldPatchCard,node=>node.tagName==='button'&&node.textContent==='Re-apply Patch then send to AI')),false,
+     'running Patch must not offer reapply before verified failure');
+  const unknownPatch={...stuckPatch,status:'tool_unknown',auto_patch:true,auto_feedback:false,
+    tool_calls:[{...stuckPatch.tool_calls[0],status:'unknown'}]};
+  const unknownCard=vm.runInNewContext('renderAgentTool('+
+     JSON.stringify(unknownPatch)+','+JSON.stringify(unknownPatch.history[0])+')',context);
+  assert.ok(find(unknownCard,node=>node.tagName==='button'&&
+     node.textContent==='Get the last result and send to AI'),
+     'UNKNOWN must allow exact manual History reconciliation');
+  assert.equal(Boolean(find(unknownCard,node=>node.tagName==='button'&&
+     node.textContent==='Re-apply Patch then send to AI')),false,
+     'UNKNOWN must not offer backend-forbidden reapply');
+  assert.ok(nodeText(unknownCard).includes('Auto-send results is OFF'),
+     'Auto apply and Auto-send results must be distinguished');
    const failedPatch={...stuckPatch,tool_calls:[{...stuckPatch.tool_calls[0],
      status:'error',result:'{"status":"PREFLIGHT_FAIL","rc":2}'}]};
    const failedPatchCard=vm.runInNewContext('renderAgentTool('+JSON.stringify(failedPatch)+','+JSON.stringify(failedPatch.history[0])+')',context);

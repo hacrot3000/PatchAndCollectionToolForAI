@@ -56,6 +56,17 @@ func (s *Server) agentLatestResultFromHistory(call agentchat.ToolCallRecord) (st
  return s.agentHistoryResultFromHistory(call,true)
 }
 
+// A native session refused selection before executing. The user may later
+// select the exact queued ZIP in the native Patch panel. This explicit,
+ // narrow case can be recovered from one matching completed History run,
+// but it must never be confused with an Agent-selected execution.
+func agentManualPatchAfterRefusedSelection(call agentchat.ToolCallRecord) bool {
+    return call.Status=="unknown" && call.SelectedIndex==0 &&
+        call.PromptID=="" && call.RunID=="" && call.PatchSessionID!="" &&
+        call.ApprovalExpiresAt!=nil &&
+        strings.Contains(call.Result, "Workspace changed after the native session started; selection refused.")
+}
+
 func (s *Server) agentHistoryResultFromHistory(call agentchat.ToolCallRecord,latest bool) (string,string,string,bool) {
  if (call.Status!="running" && call.Status!="unknown" && call.Status!="dispatching") || s.agentVerifyFinalPackage(call)!=nil {
   return "","","",false
@@ -71,6 +82,7 @@ func (s *Server) agentHistoryResultFromHistory(call agentchat.ToolCallRecord,lat
  entries,err:=os.ReadDir(path)
  if err!=nil || len(entries)>500 { return "","","",false }
  name:=filepath.Base(call.QueuePath)
+ manualRecovery:=agentManualPatchAfterRefusedSelection(call)
  type row struct {
   Name string `json:"name"`
   Kind string `json:"kind"`
@@ -109,17 +121,25 @@ func (s *Server) agentHistoryResultFromHistory(call agentchat.ToolCallRecord,lat
    if stampErr!=nil && call.RunID=="" {continue}
    if stampErr==nil && finished.Before(call.NativeStartedAt.Add(-5*time.Second)){continue}
   }
+  if manualRecovery {
+   // An unselected Agent call may only adopt a real subsequent manual
+   // execution with a trustworthy timestamp, not a stale prior run.
+   if stampErr!=nil || finished.Before(call.ApprovalExpiresAt.Add(-agentApprovalTTL-5*time.Second)){
+    continue
+   }
+  }
   selected,executed:=0,0
   for _,n:=range report.Selected { if n==name { selected++ } }
   for _,n:=range report.ExecutionOrder { if n==name { executed++ } }
-  if selected!=1 || executed>1 {continue}
+  if selected!=1 || executed>1 || (manualRecovery && executed!=1) {continue}
   count:=0
   var accepted match
   for _,item:=range report.Results {
    if item.Name!=name || strings.ToUpper(item.Kind)!="PATCH" { continue }
    status:=strings.ToUpper(item.Status)
    if executed==0 && status!="PREFLIGHT_FAIL" {continue}
-   if call.SelectedIndex<1 && status!="PREFLIGHT_FAIL" {continue}
+   if call.SelectedIndex<1 && status!="PREFLIGHT_FAIL" && !manualRecovery {continue}
+   if manualRecovery && (status!="PASS" || item.RC==nil || *item.RC!=0) {continue}
    if status!="PASS" && status!="FAIL" && status!="INCOMPLETE" && status!="PREFLIGHT_FAIL" { continue }
    if executed==0 && (item.RC==nil || *item.RC!=2) {continue}
    count++
@@ -137,6 +157,13 @@ func (s *Server) agentHistoryResultFromHistory(call agentchat.ToolCallRecord,lat
      "test_verification":"Patch PASS / rc=0 does not establish that nested tests passed; inspect stdout_tail for exit codes and warnings.",
     "project_unchanged":status=="PREFLIGHT_FAIL",
     "automatic_retry":false,
+   }
+   if manualRecovery {
+    evidence["source"]="native_patch_history_manual"
+    evidence["manual_execution"]=true
+    evidence["agent_auto_selection_refused"]=true
+    evidence["receipt_verified"]="approved_package_sha256_and_project_identity"
+    evidence["automatic_retry"]=false
    }
    if item.RC!=nil { evidence["rc"]=*item.RC }
    b,err:=json.Marshal(evidence)
