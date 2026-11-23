@@ -22,7 +22,7 @@ var ErrTaskPlanNotEditable=errors.New("task plan must be reopened before editing
 // unique IDs and suggestion references. It must run under Store.withLock.
 func (s *Store) scanTaskPlanSegmentsLocked(x Session,visit func(int,TaskPlanStep)error)(done,total int,err error){
  if x.TaskPlan==nil||len(x.TaskPlan.Steps)!=0||
-  len(x.TaskPlanSegments)==0||
+  len(x.TaskPlanSegments)==0||len(x.TaskPlan.Suggestions)>MaxTaskPlanSuggestions||
   len(x.TaskPlanSegments)>(MaxTaskPlanSteps+taskPlanSegmentSize-1)/taskPlanSegmentSize{
   return 0,0,ErrInvalidSession
  }
