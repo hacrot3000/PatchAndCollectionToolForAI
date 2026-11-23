@@ -79,7 +79,7 @@ func TestSegmentFsyncNeverPublishesMissingPageAndPreservesRecovery(t *testing.T)
  now,err:=os.ReadFile(store.file(x.ID));if err!=nil{t.Fatal(err)}
  if !bytes.Equal(now,journal){t.Fatal("page fsync failure changed canonical journal")}
  store.syncDirectoryOverride=nil
- if err=store.EnsureTaskPlanOrphanRecovery();err!=nil{t.Fatal(err)}
+ if _,err=store.RecoverTaskPlanOrphans();err!=nil{t.Fatal(err)}
  after,err:=store.Get(x.ID,"local")
  if err!=nil||after.Revision!=x.Revision||after.TaskPlan.Steps[135].Status!="pending"{
   t.Fatalf("precommit crash did not retain prior accepted milestone state: %v",err)
@@ -117,7 +117,7 @@ func TestSegmentFsyncNeverPublishesMissingPageAndPreservesRecovery(t *testing.T)
  if _,err=os.Stat(store.taskPlanSegmentPath(x.ID,refs[135/taskPlanSegmentSize]));err!=nil{
   t.Fatalf("old page must survive until safe orphan cleanup: %v",err)
  }
- if err=reopened.EnsureTaskPlanOrphanRecovery();err!=nil{t.Fatal(err)}
+ if _,err=reopened.RecoverTaskPlanOrphans();err!=nil{t.Fatal(err)}
  if _,err=os.Stat(store.taskPlanSegmentPath(x.ID,refs[135/taskPlanSegmentSize]));!os.IsNotExist(err){
   t.Fatal("recovery failed to remove old no-longer-referenced immutable page")
  }
