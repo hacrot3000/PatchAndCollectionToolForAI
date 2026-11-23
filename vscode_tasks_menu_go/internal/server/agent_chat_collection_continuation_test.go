@@ -169,7 +169,7 @@ func TestAgentCollectionMalformedReadRequestIsRepairable(t *testing.T) {
 			found:=false
 			for _,item:=range payload.Input {
 				if item["type"]=="function_call_output" && item["call_id"]=="bad-1" &&
-					strings.Contains(fmt.Sprint(item["output"]),"INVALID_COLLECTION_REQUEST") {found=true}
+					strings.Contains(fmt.Sprint(item["output"]),"NATIVE_COLLECTION_SCHEMA_REJECTED") {found=true}
 			}
 			if !found {t.Fatal("malformed read was not returned as a repairable tool error")}
 			return agentchat.ResponsesResult{ResponseID:"fixed-read",Calls:[]agentchat.FunctionCall{{
