@@ -44,8 +44,19 @@ func TestAgentChatRenameWhileTurnLockedAndInFlightSavePreservesTitle(t *testing.
   saved.Status!="requesting_ai"||len(saved.Events)==0 {
   t.Fatalf("active Agent journal update or metadata was lost: %+v",saved)
  }
+ // The UI can observe an earlier turn revision while a provider is
+ // actively committing a new one; it must still be allowed to rename.
+ second:=invokeAI(t,s.agentChatSessionItemAPI,http.MethodPatch,path,
+  map[string]any{"title":"Second active rename","expected_revision":before.Revision})
+ if second.Code!=200{
+  t.Fatalf("active Agent progress invalidated independent rename: %d %s",second.Code,second.Body)
+ }
+ current,err:=store.Get(id,"local")
+ if err!=nil||current.Title!="Second active rename"||current.Revision!=saved.Revision {
+  t.Fatalf("second metadata-only rename changed turn state: %+v / %v",current,err)
+ }
  rows:=invokeAI(t,s.agentChatSessionsAPI,http.MethodGet,"/api/agent/sessions",nil)
- if rows.Code!=200||!strings.Contains(rows.Body.String(),"Cải tiến UI Agent"){
+ if rows.Code!=200||!strings.Contains(rows.Body.String(),"Second active rename"){
   t.Fatalf("History list does not reflect renamed title: %d %s",rows.Code,rows.Body)
  }
 }
