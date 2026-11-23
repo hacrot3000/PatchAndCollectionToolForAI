@@ -132,6 +132,25 @@ func (s *Store) archivePatchHistory(x *Session)error{
  }
  return nil
 }
+// readArchivedPatchHistoryLocked must only be called with Store.withLock
+// already held AND the canonical session scoped to the authenticated owner.
+// It verifies precisely the same immutable receipt format as the public
+// archived history API, without re-entering the non-reentrant journal lock.
+func (s *Store) readArchivedPatchHistoryLocked(x Session,part uint64)([]PatchArchiveEntry,error){
+ if !validID(x.ID)||part==0||part>x.PatchArchiveParts{return nil,ErrNotFound}
+ path:=s.patchArchivePath(x.ID,part)
+ fi,e:=os.Lstat(path);if e!=nil{return nil,e}
+ if !fi.Mode().IsRegular()||fi.Mode().Perm()&0077!=0||fi.Size()>4<<20{return nil,ErrInvalidSession}
+ raw,e:=os.ReadFile(path);if e!=nil{return nil,e}
+ var rec patchArchiveSegment
+ if json.Unmarshal(raw,&rec)!=nil||rec.Format!="taskdeck-agent-patch-history-v1"||
+  rec.SessionID!=x.ID||rec.Sequence!=part{return nil,ErrInvalidSession}
+ payload,e:=json.Marshal(rec.Entries);if e!=nil{return nil,e}
+ d:=sha256.Sum256(payload)
+ if hex.EncodeToString(d[:])!=rec.SHA256{return nil,ErrInvalidSession}
+ return rec.Entries,nil
+}
+
 // ArchivedPatchHistory returns exact prior approvals and native receipts for
 // an authenticated owner. This is NOT a re-execution or provider egress path.
 func (s *Store) ArchivedPatchHistory(id,owner string,part uint64)([]PatchArchiveEntry,error){
@@ -139,19 +158,9 @@ func (s *Store) ArchivedPatchHistory(id,owner string,part uint64)([]PatchArchive
  var entries []PatchArchiveEntry
  err:=s.withLock(func()error{
   x,e:=s.readLocked(id);if e!=nil{return e}
-  if x.Owner!=owner||!s.matchesProject(x)||part>x.PatchArchiveParts{return ErrNotFound}
-  path:=s.patchArchivePath(id,part)
-  fi,e:=os.Lstat(path);if e!=nil{return e}
-  if !fi.Mode().IsRegular()||fi.Mode().Perm()&0077!=0||fi.Size()>4<<20{return ErrInvalidSession}
-  raw,e:=os.ReadFile(path);if e!=nil{return e}
-  var rec patchArchiveSegment
-  if json.Unmarshal(raw,&rec)!=nil||rec.Format!="taskdeck-agent-patch-history-v1"||
-    rec.SessionID!=id||rec.Sequence!=part{return ErrInvalidSession}
-  payload,e:=json.Marshal(rec.Entries);if e!=nil{return e}
-  d:=sha256.Sum256(payload)
-  if hex.EncodeToString(d[:])!=rec.SHA256{return ErrInvalidSession}
-  entries=rec.Entries
-  return nil
+  if x.Owner!=owner||!s.matchesProject(x){return ErrNotFound}
+  entries,e=s.readArchivedPatchHistoryLocked(x,part)
+  return e
  })
  return entries,err
 }

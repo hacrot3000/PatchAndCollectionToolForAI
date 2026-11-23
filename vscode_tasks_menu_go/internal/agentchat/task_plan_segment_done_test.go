@@ -33,8 +33,8 @@ func TestSegmentDoneCASRequiresOwnerEvidenceAndPreservesUntouchedPages(t *testin
  for _,tc:=range []struct{kind,ref,note string;want error}{
   {"manual","","  ",ErrTaskPlanCompletionProofRejected},
   {"manual","forged-call","Owner note",ErrTaskPlanCompletionProofRejected},
-  {"patch","invented","No native receipt",ErrTaskPlanSegmentWriteUnsupported},
-  {"collection","invented","No Collection output",ErrTaskPlanSegmentWriteUnsupported},
+  {"patch","invented","No native receipt",ErrTaskPlanCompletionProofRejected},
+  {"collection","invented","No Collection output",ErrTaskPlanCompletionProofRejected},
  }{
   _,e:=store.SetSegmentTaskPlanStepDone(x.ID,"local",initial,
    "step-0501",tc.kind,tc.ref,tc.note,480,24)
