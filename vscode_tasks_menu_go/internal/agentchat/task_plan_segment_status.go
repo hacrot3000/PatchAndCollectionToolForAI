@@ -6,6 +6,7 @@ import (
  "encoding/json"
  "errors"
  "os"
+ "strings"
  "time"
 )
 
@@ -115,7 +116,7 @@ func (s *Store) SetSegmentTaskPlanStepStatus(
 // only its immutable 32-step page. A manual note is an explicit OWNER
 // attestation, not a machine test; active and integrity-checked archived
 // Patch/Collection evidence use the SAME canonical verifier as legacy code.
-// Native Task/Go-test evidence continues through the full-plan path.
+// Native Task/Go-test evidence uses the companion server-verifier CAS path.
 // No caller can pass a pre-manufactured TaskPlanEvidence to this method.
 func (s *Store) SetSegmentTaskPlanStepDone(
  id,owner string,expectedRevision uint64,stepID,kind,ref,note string,
@@ -127,9 +128,33 @@ func (s *Store) SetSegmentTaskPlanStepDone(
  return s.setSegmentTaskPlanStep(id,owner,expectedRevision,stepID,"done",kind,ref,note,offset,limit,nil)
 }
 
+// SetSegmentTaskPlanStepDoneNative runs the server's authoritative native
+// Task / structured Go test verifier against the owner-scoped milestone
+// snapshot WHILE the journal CAS lock is held. The snapshot contains only
+// the target milestone, but retains its original plan creation timestamp,
+// owner/project and previously bound command and required Go tests. This
+// prevents an out-of-date native PASS from being attached after a concurrent
+// change to the milestone's acceptance or command guard.
+//
+// The verifier is host-owned (never provider-supplied). Only the server
+// obtains it from native SessionService/host-private authenticated receipts.
+// It must be side-effect-free with respect to this Store: do not re-enter
+// Store.withLock or start any Task / provider request inside the callback.
+func (s *Store) SetSegmentTaskPlanStepDoneNative(
+ id,owner string,expectedRevision uint64,stepID,kind,ref string,
+ offset,limit int,verify func(Session)(TaskPlanEvidence,error),
+)(TaskPlanPageResult,error){
+ if (kind!="task_run"&&kind!="go_test_case"&&kind!="go_test_suite")||verify==nil{
+  return TaskPlanPageResult{},ErrTaskPlanSegmentWriteUnsupported
+ }
+ return s.setSegmentTaskPlanStep(id,owner,expectedRevision,stepID,"done",kind,ref,"",
+  offset,limit,nil,verify)
+}
+
 func (s *Store) setSegmentTaskPlanStep(
  id,owner string,expectedRevision uint64,stepID,status,kind,ref,note string,
  offset,limit int,edit *segmentAcceptanceEdit,
+ nativeVerify ...func(Session)(TaskPlanEvidence,error),
 )(TaskPlanPageResult,error){
  var result TaskPlanPageResult
  if !validID(id){return result,ErrNotFound}
@@ -172,17 +197,42 @@ func (s *Store) setSegmentTaskPlanStep(
   if edit!=nil{
    if e=edit.apply(target,now);e!=nil{return e}
   }else if status=="done"{
-   if old.GoTestRequirements!=nil{
-    // The predeclared checklist requires the existing native suite verifier.
+   // An owner-pinned exact Go checklist can ONLY be completed with the
+   // native suite verifier, never a weaker Task exit or a single test.
+   if old.GoTestRequirements!=nil&&
+    !(kind=="go_test_suite"&&len(nativeVerify)==1){
     return ErrTaskPlanSegmentWriteUnsupported
    }
    if !TaskPlanStepCriteriaReviewed(old)||len(old.Evidence)>=MaxTaskPlanEvidence{
     return ErrTaskPlanCompletionProofRejected
    }
-   // Verification and the expected-revision CAS share this SAME lock:
-   // archive receipts cannot be replaced by a concurrent journal writer.
-   // Never call the public Archived... methods from inside withLock.
-   proof,verifyErr:=s.verifyArchivedTaskPlanEvidenceLocked(x,kind,ref,note)
+   var proof TaskPlanEvidence
+   var verifyErr error
+   if len(nativeVerify)==1{
+    // The Store validated ALL pages; hand the native verifier just the
+    // target step, not an untrusted, caller-assembled Task plan. The native
+    // verifier still checks the exact Task ID, owner, workspace, command
+    // digest, post-bind start time and full retained Go runner output.
+    snapshot:=x
+    plan:=*x.TaskPlan
+    plan.Steps=[]TaskPlanStep{old}
+    snapshot.TaskPlan=&plan
+    proof,verifyErr=nativeVerify[0](snapshot)
+    if verifyErr==nil{
+     if proof.Kind!=kind||proof.Ref!=ref||len(proof.Digest)!=64||
+      len(proof.Note)>512||strings.ToLower(proof.Digest)!=proof.Digest{
+      verifyErr=ErrTaskPlanCompletionProofRejected
+     }else if _,e:=hex.DecodeString(proof.Digest);e!=nil{
+      verifyErr=ErrTaskPlanCompletionProofRejected
+     }
+    }
+   }else if len(nativeVerify)==0{
+    // Archive and in-journal receipts use the matching authenticated
+    // verifier without re-entering Store.withLock.
+    proof,verifyErr=s.verifyArchivedTaskPlanEvidenceLocked(x,kind,ref,note)
+   }else{
+    return ErrTaskPlanSegmentWriteUnsupported
+   }
    if verifyErr!=nil{return ErrTaskPlanCompletionProofRejected}
    target.Evidence=append(target.Evidence,proof)
   }
