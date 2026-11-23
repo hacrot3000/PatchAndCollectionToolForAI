@@ -663,8 +663,11 @@ func (s *Store) Delete(id, owner string, expectedRevision uint64) error {
    if err:=os.Remove(s.patchArchivePath(id,part));err!=nil&&!os.IsNotExist(err){return err}
   }
         // Commit directory-entry removals before reporting completed owner
-        // deletion. Failure is uncertain, never a reason to replay egress.
-        return s.syncDirectory()
+        // deletion. Failure after journal unlink is explicitly uncertain.
+        if err:=s.syncDirectory();err!=nil{
+         return fmt.Errorf("%w: %v",ErrJournalDurabilityUnknown,err)
+        }
+        return nil
 	})
 }
 
