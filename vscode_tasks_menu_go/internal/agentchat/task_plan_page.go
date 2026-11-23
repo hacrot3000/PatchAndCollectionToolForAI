@@ -2,7 +2,6 @@ package agentchat
 
 import (
  "errors"
- "strings"
 )
 
 // ErrTaskPlanPageOutOfRange is a client pagination error rather than a
@@ -65,62 +64,24 @@ func (s *Store) TaskPlanPage(id,owner string,offset,limit int)(TaskPlanPageResul
    return nil
   }
 
-  // Validate the other canonical fields without a bogus one-step plan.
-  // The plan manifest itself is checked below against all private pages.
-  background:=x
-  background.TaskPlan=nil
-  background.TaskPlanSegments=nil
-  if e=validateSession(background);e!=nil{return e}
-  if x.TaskPlan==nil||len(x.TaskPlan.Steps)!=0||
-   len(x.TaskPlanSegments)>(MaxTaskPlanSteps+taskPlanSegmentSize-1)/taskPlanSegmentSize||
-   len(x.TaskPlan.Goal)==0||len(x.TaskPlan.Goal)>MaxTaskPlanGoalBytes||
-   strings.TrimSpace(x.TaskPlan.Goal)==""||
-   x.TaskPlan.CreatedAt.IsZero()||x.TaskPlan.UpdatedAt.IsZero(){
-   return ErrInvalidSession
-  }
-  switch x.TaskPlan.State{
-  case "active","paused","completed":
-  default:return ErrInvalidSession
-  }
-  // Keep this bounded without allocating/hydrating the 1,024-step plan.
-  total:=0
-  for i,ref:=range x.TaskPlanSegments{
-   if ref.Index!=i+1||!validTaskPlanSegmentRef(ref,x.Revision)||
-    (i<len(x.TaskPlanSegments)-1&&ref.Count!=taskPlanSegmentSize){
-    return ErrInvalidSession
+  // Use the same complete streamed validator as the single-segment CAS
+  // writer. Each SHA-checked page is validated against the canonical step,
+  // Go-test and evidence rules; cross-page duplicate IDs and untrusted
+  // suggestion references are also rejected. Only the requested rows stay
+  // resident in the response.
+  pageSteps:=make([]TaskPlanStep,0,limit)
+  done,total,e:=s.scanTaskPlanSegmentsLocked(x,func(i int,step TaskPlanStep)error{
+   if i>=offset&&i-offset<limit {
+    pageSteps=append(pageSteps,step)
    }
-   total+=ref.Count
-  }
-  if total<=MaxInlineTaskPlanSteps||total>MaxTaskPlanSteps{return ErrInvalidSession}
+   return nil
+  })
+  if e!=nil{return e}
   if offset>total{return ErrTaskPlanPageOutOfRange}
   end:=offset+limit
   if end>total{end=total}
-  pageSteps:=make([]TaskPlanStep,0,end-offset)
-  done:=0
-  first:=0
-  for _,ref:=range x.TaskPlanSegments{
-   // Check ALL page digests, including off-screen pages, before reporting
-   // whole-plan progress or completion; don't trade integrity for latency.
-   part,e:=s.readVerifiedTaskPlanSegment(id,ref)
-   if e!=nil{return e}
-   for j,step:=range part{
-    switch step.Status{
-    case "pending","active","blocked":
-    case "done":
-     if len(step.Evidence)==0{return ErrInvalidSession}
-     done++
-    default:return ErrInvalidSession
-    }
-    n:=first+j
-    if n>=offset&&n<end{pageSteps=append(pageSteps,step)}
-   }
-   first+=ref.Count
-  }
   if len(pageSteps)!=end-offset{return ErrInvalidSession}
   allDone:=done==total
-  if x.TaskPlan.State=="completed"&&(!allDone||x.TaskPlan.AutoContinue){
-   return ErrInvalidSession
-  }
   plan:=*x.TaskPlan
   plan.Steps=pageSteps
   result.Plan=&plan
