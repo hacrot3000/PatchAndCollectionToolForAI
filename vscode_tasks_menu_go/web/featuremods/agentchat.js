@@ -1138,6 +1138,7 @@ function agentLivePhase(session){
  if(session.status==='cancelled')return null;
  if(session.status==='requesting_ai'){
   if(turn?.phase==='sending'&&!newer.some(e=>e.kind==='turn_started'||e.kind==='feedback_prepared'))return {message:'Sending request…'};
+  if(lastEvent?.kind==='collect_started')return {message:'Running native Patch Tool COLLECT… large-file extraction in progress. Stop to cancel.'};
   if(lastEvent?.kind==='collect_observed')return {message:'Sending Collection result to AI…'};
   if(lastEvent?.kind==='feedback_prepared')return {message:'Sending native Patch result to AI…'};
   if(lastCall?.feedback_status==='sending'||lastCall?.feedback_status==='prepared')return {message:'Sending native Patch result to AI…'};
