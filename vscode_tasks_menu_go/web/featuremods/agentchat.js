@@ -2909,7 +2909,7 @@ async function saveAgentRename(){
   status.textContent='Renamed conversation: '+label;
  }catch(error){
   agentRenameError.textContent='Could not rename: '+String(error?.message||error)+
-   '. The conversation was not changed. Check the message and retry.';
+   '. The save result may be unknown. Refresh History to verify the title before retrying.';
  }finally{
   agentRenameSave.disabled=false;agentRenameInput.disabled=false;
  }
