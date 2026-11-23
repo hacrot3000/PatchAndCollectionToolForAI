@@ -125,7 +125,15 @@ func (s *Store) PreparedProviderPayload(id,owner string)(Session,[]byte,error){
 func (s *Store) DeleteProviderPayload(id string) error{
  if !validID(id){return errors.New("invalid session")}
  return s.withLock(func()error{
-  if err:=os.Remove(s.providerRunFile(id));err!=nil&&!os.IsNotExist(err){return err}
+  err:=os.Remove(s.providerRunFile(id))
+  if os.IsNotExist(err){return nil} // already removed; no metadata change
+  if err!=nil{return err}
+  // The canonical SENDING/UNKNOWN journal is authoritative regardless of
+  // this sidecar's cleanup outcome. Ensure a successfully removed sensitive
+  // PREPARED payload's filename is also durably unlinked on POSIX.
+  if err=s.syncDirectory();err!=nil{
+   return fmt.Errorf("%w: obsolete provider payload unlink: %v",ErrCleanupDurabilityUnknown,err)
+  }
   return nil
  })
 }
