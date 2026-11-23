@@ -121,9 +121,20 @@ func (s *Store) stageTaskPlanSegments(x *Session,previous *Session,newRevision u
 func (s *Store) cleanupTaskPlanSegments(old,current []TaskPlanSegmentRef,id string){
  retained:=make(map[string]bool,len(current))
  for _,ref:=range current{retained[s.taskPlanSegmentPath(id,ref)]=true}
+ removed:=false
  for _,ref:=range old{
   p:=s.taskPlanSegmentPath(id,ref)
-  if !retained[p]{_ =os.Remove(p)}
+  if !retained[p]{
+   // A failed delete cannot undo the successfully fsynced canonical
+   // manifest; startup orphan recovery will retry it.
+   if err:=os.Remove(p);err==nil{removed=true}
+  }
+ }
+ if removed{
+  // Cleanup is POST-COMMIT. Failure must not convert a successfully
+  // persisted owner action into a retryable error, which could duplicate
+  // an external provider call or a native Patch. Reap again on restart.
+  _=s.syncDirectory()
  }
 }
 
