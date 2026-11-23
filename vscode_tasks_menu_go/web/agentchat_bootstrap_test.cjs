@@ -1422,6 +1422,7 @@ console.log('PASS: safe Markdown, syntax-highlighted PHP/Python, per-block Copy,
      history:[],events:[],tool_calls:[],
      provider_run:{phase:'sending',estimated_input_tokens:8123},
      token_usage:{requests:2,input_tokens:4500,output_tokens:600,estimated_requests:1}};
+   vm.runInNewContext("agentActive='token-session'",context);
    vm.runInNewContext('displayAgentSession('+JSON.stringify(usageSession)+')',context);
    const currentTokens=vm.runInNewContext('agentTokenUsageLine.textContent',context);
    const sendingTokens=vm.runInNewContext('agentLiveText.textContent',context);
@@ -1429,6 +1430,7 @@ console.log('PASS: safe Markdown, syntax-highlighted PHP/Python, per-block Copy,
    assert.match(currentTokens,/2 requests/);
    assert.match(currentTokens,/1 request\(s\) estimated/);
    assert.match(sendingTokens,/request input ≈ 8,123 tokens/);
+   vm.runInNewContext("agentActive='token-session-2'",context);
    vm.runInNewContext('displayAgentSession('+JSON.stringify({...usageSession,
      id:'token-session-2',token_usage:{requests:0},provider_run:null})+')',context);
    assert.match(vm.runInNewContext('agentTokenUsageLine.textContent',context),
