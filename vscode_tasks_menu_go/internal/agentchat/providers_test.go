@@ -1,6 +1,7 @@
 package agentchat
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"net/http"
@@ -213,5 +214,12 @@ func TestProviderHTTPTransientAndPermanentStatusClassification(t *testing.T) {
  for _,status:=range []int{400,401,403,404,422} {
   pe:=parseProviderHTTPError(status,"",nil)
   if pe.Retryable{t.Errorf("HTTP %d must remain permanent",status)}
+ }
+}
+
+func TestProviderHeaderTimeoutDiagnosticIsDistinctFromDialTimeout(t *testing.T) {
+ code,_,ambiguous:=classifyProviderTransportError(context.Background(),fmt.Errorf("net/http: timeout awaiting response headers"))
+ if code!="RESPONSE_HEADER_TIMEOUT"||!ambiguous {
+  t.Fatalf("header wait misdiagnosed as %q ambiguous=%v",code,ambiguous)
  }
 }
