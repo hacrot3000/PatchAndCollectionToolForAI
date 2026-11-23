@@ -1274,8 +1274,8 @@ console.log('PASS: safe Markdown, syntax-highlighted PHP/Python, per-block Copy,
   await copyLog.onclick();
   assert.ok(copied.includes('failed-collection-trace')&&copied.includes('collect_failed'),
     'Copy log must include provider errors and durable session journal together');
-  assert.equal(debugPanel.children[0].children.filter(node=>node.tagName==='button').length,1,
-    'AI Debug must have exactly one action');
+  assert.equal(debugPanel.children[0].children.filter(node=>node.tagName==='button').length,2,
+    'AI Debug must provide Copy log and Clear history separately');
 
   // Even a broken report endpoint should create a copyable client diagnostic.
   context.TaskMenuApp.jsonFetch=async()=>{throw new Error('REPORT_HTTP_503');};
@@ -1283,7 +1283,7 @@ console.log('PASS: safe Markdown, syntax-highlighted PHP/Python, per-block Copy,
   await copyLog.onclick();
   assert.ok(copied.includes('REPORT_HTTP_503')&&copied.includes('report.unavailable'),
     'Copy log must work for failures of the debug endpoint itself');
-  console.log('PASS: one-button AI Debug copies all safe traces/journals or a useful fallback');
+  console.log('PASS: AI Debug copies safe traces/journals, shows clear action and handles unavailable reports');
 
   // Per-conversation retry policy and current retry countdown reuse the
   // existing single status row; they must not stack duplicates.
