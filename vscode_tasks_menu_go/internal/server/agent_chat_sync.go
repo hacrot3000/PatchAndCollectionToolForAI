@@ -80,68 +80,77 @@ func (s *Server) agentChatSyncAPI(w http.ResponseWriter, r *http.Request, id str
 // unknown or ambiguous case is left untouched for explicit manual recovery.
 // Runs are bounded so a large journal cannot stall daemon start.
 func (s *Server) agentReconcilePendingOnStartup(ctx context.Context) {
-	if s == nil || s.Workspace == "" {
-		return
-	}
-	store, err := s.agentChatStore()
-	if err != nil {
-		return
-	}
-	// Agent sessions are owner-scoped; the startup pass covers the single-user
-	// local owner only. Shared-server owners reconcile on demand via /sync.
-	sessions, err := store.List("local")
-	if err != nil {
-		return
-	}
-	// A project with long-running work may have many more than 64 sessions.
-	// Startup reconciliation is read-only native evidence inspection: do not
-	// silently skip older sessions merely because they are beyond a fixed index.
-	for _, sess := range sessions {
-		if ctx.Err() != nil { return }
-		changed := false
-		// Provider turns are process-owned, so a requesting_ai journal loaded
-		// at daemon startup has no live provider worker. Do not leave it stuck
-		// forever and do not blindly replay an ambiguous provider request.
-		if sess.Status=="requesting_ai" {
-			if sess.ProviderRun!=nil && sess.ProviderRun.Phase=="prepared" {
-				// Exact payload was durably staged but the journal has no
-				// SENDING mark. The scheduler can safely continue this run.
-				// It must still verify the payload checksum and provider before
-				// crossing the network boundary.
-			} else {
-				sess.Status="failed"
-				markAgentProviderOutcome(&sess,"unknown")
-				sess.AppendEvent("turn_interrupted","failed","","provider_egress_after_restart_unknown")
-				for j:=range sess.ToolCalls{
-					if sess.ToolCalls[j].FeedbackStatus=="sending"{
-						sess.ToolCalls[j].FeedbackStatus="unknown"
-					}
+ if s == nil || s.Workspace == "" { return }
+ store, err := s.agentChatStore()
+ if err != nil { return }
+ // Only the single-user local owner is scheduled on daemon start.
+ sessions, err := store.List("local")
+ if err != nil { return }
+ for _,candidate := range sessions {
+  if ctx.Err()!=nil{return}
+  s.agentReconcileOneStartupSession(ctx,store,candidate.ID)
+ }
+}
+
+// Reconcile only after obtaining the SAME nonblocking, cross-process
+// per-conversation lease used by the live provider turn. Startup of daemon B
+// must not misclassify a still-running request held by daemon A as UNKNOWN.
+// Store.List snapshots can be stale: reload the canonical revision *after*
+// the lease has been acquired, then let Store.Save enforce CAS again.
+//
+// The OS lease only coordinates daemons sharing one supported local state
+// filesystem; it is not a provider acknowledgement or a distributed lock.
+func (s *Server) agentReconcileOneStartupSession(ctx context.Context,store *agentchat.Store,id string){
+ if ctx.Err()!=nil{return}
+ release,ok:=lockAgentTurn(s.Workspace,"local",id)
+ if !ok{return} // live worker owns it or lock unavailable: fail closed
+ defer release()
+ sess,err:=store.Get(id,"local")
+ if err!=nil||sess.Workspace!=s.Workspace{return}
+ if ctx.Err()!=nil{return}
+	changed := false
+	// Provider turns are process-owned, so a requesting_ai journal loaded
+	// at daemon startup has no live provider worker. Do not leave it stuck
+	// forever and do not blindly replay an ambiguous provider request.
+	if sess.Status=="requesting_ai" {
+		if sess.ProviderRun!=nil && sess.ProviderRun.Phase=="prepared" {
+			// Exact payload was durably staged but the journal has no
+			// SENDING mark. The scheduler can safely continue this run.
+			// It must still verify the payload checksum and provider before
+			// crossing the network boundary.
+		} else {
+			sess.Status="failed"
+			markAgentProviderOutcome(&sess,"unknown")
+			sess.AppendEvent("turn_interrupted","failed","","provider_egress_after_restart_unknown")
+			for j:=range sess.ToolCalls{
+				if sess.ToolCalls[j].FeedbackStatus=="sending"{
+					sess.ToolCalls[j].FeedbackStatus="unknown"
 				}
-				changed=true
 			}
+			changed=true
 		}
-		for j, record := range sess.ToolCalls {
-			if s.Sessions == nil || record.Status != "running" || record.PatchSessionID == "" {
-				continue
-			}
-			// Persisting after disconnect must not extend an expired approval
-			// or bypass owner/project checks; reconciliation only reads state.
-			view := agentToolReconcileView{Record: record}
-			s.agentReconcilePatchRecord(&view)
-			if view.Changed {
-				sess.ToolCalls[j] = view.Record
-				if view.Record.Status=="done" || view.Record.Status=="error" {sess.Status="waiting_tool"}
-				changed = true
-			}
-		}
-		if !changed {
+	}
+	for j, record := range sess.ToolCalls {
+		if s.Sessions == nil || record.Status != "running" || record.PatchSessionID == "" {
 			continue
 		}
-		if _, err := store.Save(sess, sess.Revision); err != nil {
-			// A concurrent writer owns the newer revision; leave it to the
-			// authoritative /sync path rather than overwriting.
-			continue
+		// Persisting after disconnect must not extend an expired approval
+		// or bypass owner/project checks; reconciliation only reads state.
+		view := agentToolReconcileView{Record: record}
+		s.agentReconcilePatchRecord(&view)
+		if view.Changed {
+			sess.ToolCalls[j] = view.Record
+			if view.Record.Status=="done" || view.Record.Status=="error" {sess.Status="waiting_tool"}
+			changed = true
 		}
+	}
+	if !changed {
+		continue
+	}
+	if _, err := store.Save(sess, sess.Revision); err != nil {
+		// A concurrent writer owns the newer revision; leave it to the
+		// authoritative /sync path rather than overwriting.
+		continue
 	}
 }
 
