@@ -66,6 +66,10 @@ var (
  // failed. It may already be committed. NEVER interpret this as proof the
  // transaction did not occur, or as permission to retry external egress.
  ErrJournalDurabilityUnknown = errors.New("agent journal commit durability is unconfirmed")
+ // A deletion/garbage-collection unlink already happened, but its directory
+ // metadata could not be synced. This never invalidates an already committed
+ // canonical journal, nor proves that provider egress has not occurred.
+ ErrCleanupDurabilityUnknown = errors.New("agent cleanup unlink durability is unconfirmed")
 	// All Store instances in this daemon serialize journal mutation.
 	// Multi-process writers must use a shared database/lock before deployment.
 	agentJournalMu sync.Mutex
