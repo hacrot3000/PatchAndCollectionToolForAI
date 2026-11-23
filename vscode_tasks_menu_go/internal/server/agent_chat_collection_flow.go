@@ -137,7 +137,10 @@ func (s *Server) agentChatRunCollection(
 			typed = true
 			nativeRequest, validationErr = agentNativeCollectionRequest(result.Calls[0].Arguments,identity,false)
 		} else if len(result.Calls) == 0 {
-			nativeRequest, fallback = agentNativeCollectionTextRequest(result.Text,identity)
+			// Models sometimes emit native COLLECT as standalone assistant JSON
+			// even when the tool schema was advertised. Do not silently treat
+			// malformed JSON or an unsupported action as a completed task.
+			nativeRequest, fallback, validationErr = agentNativeCollectionTextRequest(result.Text,identity)
 		}
 		if !typed && !fallback {
 			return result, clearProviderRefs, nil
@@ -152,6 +155,16 @@ func (s *Server) agentChatRunCollection(
 
 		observed := ""
 		if validationErr != nil {
+			// Project identity is an authorization boundary, not a repairable
+			// search typo. STOP before Collection and provider continuation.
+			// Surface a durable failed turn with explicit cause; never infer
+			// project identity from a file name or another workspace.
+			lower := strings.ToLower(validationErr.Error())
+			if strings.Contains(lower,"identity") || strings.Contains(lower,"project.key") {
+				x.AppendEvent("collect_request_rejected","failed","",scrubAIContext(validationErr.Error(),256))
+				return result,clearProviderRefs,&agentCollectionLocalError{
+					Stage:"invalid_project_identity",Round:round+1,Cause:validationErr}
+			}
 			// Native COLLECT owns validation of action semantics, not Agent Chat.
 			// Do not silently repair or rewrite a mismatched project identity.
 			reason := scrubAIContext(validationErr.Error(), 256)
@@ -163,6 +176,7 @@ func (s *Server) agentChatRunCollection(
 				},
 			})
 			observed = string(data)
+			x.AppendEvent("collect_request_rejected","requesting_ai","",reason)
 		} else if lastReadSignature==string(nativeRequest)&&repeatedRead>=2 {
 			// Native COLLECT may scan a 150 MB file. Do not run the same
 			// unproductive read for a third time merely to learn it has not
@@ -176,6 +190,8 @@ func (s *Server) agentChatRunCollection(
 			var nativeErr error
 			observed,nativeErr = s.agentRunNativeCollection(ctx,x.Owner,nativeRequest,identity)
 			if nativeErr!=nil {
+				x.AppendEvent("collect_native_failed","requesting_ai","",
+					scrubAIContext(nativeErr.Error(),450))
 				data,_:=json.Marshal(map[string]any{"project":identity,
 					"error":map[string]any{"code":"NATIVE_COLLECTION_FAILED",
 					"message":scrubAIContext(nativeErr.Error(),700),
