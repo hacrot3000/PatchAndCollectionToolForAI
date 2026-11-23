@@ -148,7 +148,10 @@ func (s *Store) RecordProviderAttempt(
   if _,e=tmp.Write(data);e!=nil{tmp.Close();return e}
   if e=tmp.Sync();e!=nil{tmp.Close();return e}
   if e=tmp.Close();e!=nil{return e}
-  return os.Rename(tmp.Name(),s.providerAttemptsPath(id))
+  if e=os.Rename(tmp.Name(),s.providerAttemptsPath(id));e!=nil{return e}
+  // Block the next network attempt if its support correlation filename
+  // cannot be made durable. A recorded attempt is still NEVER delivery proof.
+  return s.syncDirectory()
  })
  if err!=nil{return "",fmt.Errorf("cannot durably record provider attempt: %w",err)}
  return clientID,nil

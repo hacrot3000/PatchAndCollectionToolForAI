@@ -62,6 +62,10 @@ var (
 	ErrNotFound       = errors.New("agent session not found")
 	ErrStaleRevision  = errors.New("agent session revision mismatch")
 	ErrInvalidSession = errors.New("invalid agent session")
+ // A canonical journal name was atomically renamed but directory fsync
+ // failed. It may already be committed. NEVER interpret this as proof the
+ // transaction did not occur, or as permission to retry external egress.
+ ErrJournalDurabilityUnknown = errors.New("agent journal commit durability is unconfirmed")
 	// All Store instances in this daemon serialize journal mutation.
 	// Multi-process writers must use a shared database/lock before deployment.
 	agentJournalMu sync.Mutex
@@ -226,6 +230,9 @@ type Store struct {
 	// It runs after an immutable-page status edit commits the authoritative
 	// journal but before post-commit cleanup, while withLock is still held.
 	afterSegmentStatusJournalCommit func()
+ // Test-only failure injection for the directory-fsync boundaries. Clients
+ // and provider requests never select the sync implementation.
+ syncDirectoryOverride func()error
 }
 
 func NewStore(dir string) (*Store, error) {
@@ -279,6 +286,14 @@ func (s *Store) ensureDir() error {
 	return nil
 }
 func (s *Store) file(id string) string { return filepath.Join(s.dir, id+".json") }
+
+// syncDirectory is needed for POSIX persistence of atomic rename directory
+// entries. It is distinct from the fsync of file contents and MUST run
+// before the first network byte whenever the journal marks SENDING.
+func (s *Store) syncDirectory()error{
+ if s.syncDirectoryOverride!=nil{return s.syncDirectoryOverride()}
+ return syncAgentDirectory(s.dir)
+}
 
 // withLock serializes journal mutation both inside this daemon (Go mutex) and
 // across TaskDeck processes sharing the same private state directory (OS
@@ -574,9 +589,20 @@ func (s *Store) Save(x Session, expectedRevision uint64) (Session, error) {
 		if e = temp.Close(); e != nil {
 			return e
 		}
+		// Archive / immutable page renames are staged first. Flush their
+        // directory entries before the canonical journal can reference them.
+        // A crash cannot leave a committed manifest referencing missing
+        // pages solely because the directory rename was not yet durable.
+        if e=s.syncDirectory();e!=nil{return e}
 		if e = os.Rename(temp.Name(), s.file(x.ID)); e != nil {
 			return e
 		}
+        // The journal's canonical name is the commit point. A failed fsync
+        // AFTER rename is ambiguous; the caller must re-read authoritative
+        // state and MUST NOT infer an unsent provider request.
+        if e=s.syncDirectory();e!=nil{
+         return fmt.Errorf("%w: %v",ErrJournalDurabilityUnknown,e)
+        }
 		// Do not fail or accidentally repeat a provider/native operation if
 		// this derived handoff write fails after the canonical commit.
 		// Handoff() can regenerate it from the journal on demand.
@@ -623,6 +649,9 @@ func (s *Store) Delete(id, owner string, expectedRevision uint64) error {
 		if err:=os.Remove(s.file(id));err!=nil{return err}
 		if err:=os.Remove(s.handoffFile(id));err!=nil&&!os.IsNotExist(err){return err}
 		if err:=os.Remove(s.providerRunFile(id));err!=nil&&!os.IsNotExist(err){return err}
+        // Attempt IDs contain only metadata, but leaving an orphan owner
+        // support ledger after explicit session deletion is still incorrect.
+        if err:=os.Remove(s.providerAttemptsPath(id));err!=nil&&!os.IsNotExist(err){return err}
 		if err:=os.Remove(s.providerHeartbeatFile(id));err!=nil&&!os.IsNotExist(err){return err}
   for _,ref:=range x.TaskPlanSegments{
    if err:=os.Remove(s.taskPlanSegmentPath(id,ref));err!=nil&&!os.IsNotExist(err){return err}
@@ -633,7 +662,12 @@ func (s *Store) Delete(id, owner string, expectedRevision uint64) error {
   for part:=uint64(1);part<=x.PatchArchiveParts;part++{
    if err:=os.Remove(s.patchArchivePath(id,part));err!=nil&&!os.IsNotExist(err){return err}
   }
-		return nil
+        // Commit directory-entry removals before reporting completed owner
+        // deletion. Failure after journal unlink is explicitly uncertain.
+        if err:=s.syncDirectory();err!=nil{
+         return fmt.Errorf("%w: %v",ErrJournalDurabilityUnknown,err)
+        }
+        return nil
 	})
 }
 
