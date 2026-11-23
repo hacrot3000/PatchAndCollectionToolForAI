@@ -1434,4 +1434,42 @@ console.log('PASS: safe Markdown, syntax-highlighted PHP/Python, per-block Copy,
 
 
 
+// End-to-end DOM/transport rename while the actual conversation is busy.
+// Server-side metadata must not require cancelling that provider turn.
+let savedRenameTitle='Before rename';
+const renameMetadataCalls=[];
+context.TaskMenuApp.jsonFetch=async (url,options={})=>{
+ if(url==='/api/agent/sessions/rename-test' && !options.method)
+  return {session:{id:'rename-test',title:savedRenameTitle,revision:7,status:'requesting_ai',model_id:'model'}};
+ if(url==='/api/agent/sessions/rename-test/metadata' && options.method==='PATCH'){
+  const req=JSON.parse(options.body);
+  renameMetadataCalls.push(req);
+  savedRenameTitle=req.title;
+  return {session:{id:'rename-test',title:savedRenameTitle,revision:7,status:'requesting_ai'}};
+ }
+ if(url==='/api/agent/sessions')
+  return {sessions:[{id:'rename-test',title:savedRenameTitle,model_id:'model',status:'requesting_ai',revision:7}]};
+ throw new Error('Unexpected endpoint in Rename UI test: '+url);
+};
+await vm.runInNewContext(
+ 'agentSessions=[{id:"rename-test",title:"Before rename",model_id:"model",status:"requesting_ai",revision:7}];'+
+ 'agentTabs=["rename-test"];agentActive="rename-test";renderAgentTabs();'+
+ 'markAgentSessionBusy("rename-test",true);renameAgentSession("rename-test")',context);
+vm.runInNewContext('agentRenameInput.value="New conversation title"',context);
+await vm.runInNewContext('saveAgentRename()',context);
+assert.equal(savedRenameTitle,'New conversation title','Rename did not persist the new title');
+assert.equal(renameMetadataCalls.length,1,'Rename must persist exactly one metadata update');
+assert.equal(renameMetadataCalls[0].expected_revision,7,'Rename lost the observed turn revision');
+const renamedTab=find(windowBox,node=>node.className==='agentchat-tab active');
+assert.ok(nodeText(renamedTab).includes('New conversation title'),'tab did not show the renamed title');
+const renamedHistoryRow=find(sessionsList,node=>node.className==='agentchat-session-row');
+assert.ok(nodeText(renamedHistoryRow).includes('New conversation title'),'History did not show renamed title');
+assert.equal(vm.runInNewContext('agentRenameOverlay.classList.contains("visible")',context),false,
+ 'Rename dialog should close after confirmed persistence');
+assert.equal(vm.runInNewContext('agentSessionBusy("rename-test")',context),true,
+ 'Rename metadata must not interrupt an active Agent turn');
+console.log('PASS: active Agent Rename persists once and updates tab and History');
+
+// Tests have no authority to execute native Patch or contact the real provider.
+
 })().catch(error => { console.error(error); process.exitCode = 1; });
