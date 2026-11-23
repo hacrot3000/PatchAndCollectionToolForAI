@@ -97,6 +97,7 @@ class FakeElement {
   addEventListener(type, listener) { (this.listeners[type] ||= []).push(listener); }
   querySelector(selector) { return selector === 'button' ? this.children.find(child => child.tagName === 'button') || null : null; }
   focus() {}
+  select() {}
   dispatchEvent() { return true; }
   contains(node) { return node === this || this.children.some(child => child.contains?.(node)); }
   click() {
@@ -153,8 +154,9 @@ assert.equal(windowBox.attributes['aria-modal'], undefined, 'Main Agent Chat mus
 assert.ok(viewTabs.children.some(child => child.textContent === 'AI Debug'), 'AI Debug view tab missing');
 assert.equal(debugPanel.className, 'agentchat-debug-panel');
 const debugButtons = (() => {const scan = node => [ ...(node.tagName==='button'?[node]:[]),...node.children.flatMap(scan) ];return scan(debugPanel);})();
-assert.equal(debugButtons.length,1,'AI Debug must expose exactly one action');
-assert.equal(debugButtons[0].textContent,'Copy log','one action must be Copy log');
+assert.equal(debugButtons.length,2,'AI Debug must expose Copy log and Clear history');
+assert.equal(debugButtons[0].textContent,'Copy log','first Debug action must be Copy log');
+assert.equal(debugButtons[1].textContent,'Clear history','second Debug action must clear old debug evidence only');
 const find = (node, predicate) => predicate(node) ? node : node.children.map(child => find(child, predicate)).find(Boolean);
 const nodeText = node => String(node.textContent||'')+(node.children||[]).map(nodeText).join('');
 
@@ -350,6 +352,9 @@ setupChoice('Context','previous_response').onclick();
 assert.equal(vm.runInNewContext('modeSelect.value',context),'previous_response');
 setupChoice('Context','conversation').onclick();
 assert.equal(vm.runInNewContext('modeSelect.value',context),'conversation');
+const contextHelp=find(configPanel,node=>node.className==='agentchat-context-help');
+assert.ok(contextHelp?.textContent.includes('Chat Completions')&&contextHelp.textContent.includes('conversation ID'),
+ 'Context help must explain the selected provider fallback and real conversation-state requirements');
 assert.equal(setupContainer.classList.contains('open'),true,'choices stay visible until user closes AI setup');
 const css=vm.runInNewContext('agentCSS.textContent',context);
 assert.ok(css.includes('.agentchat-config-category[aria-expanded="true"]>.agentchat-config-category-values'),
@@ -368,7 +373,15 @@ assert.ok(listedDelete,'saved conversations need a per-row Delete action');
 assert.equal(listedDelete.disabled,false,'completed conversations can be deleted');
 vm.runInNewContext('agentSessions=[{id:"deleted-view-only",title:"Old conversation",model_id:"m",status:"waiting_tool",archived:false}];updateAgentSessionRows()', context);
 assert.equal(listedDelete.disabled,true,'pending native Patch work cannot be deleted');
-vm.runInNewContext('agentSessions=[];updateAgentSessionRows()', context);
+const listedRename=find(sessionsList,node=>node.className==='rename'&&node.textContent==='Rename');
+assert.ok(listedRename&&!listedRename.disabled,'an unresolved/running native PATCH must not block metadata-only Rename');
+vm.runInNewContext('agentActive="deleted-view-only";markAgentSessionBusy("deleted-view-only",true);renderAgentAutomationControls(agentSessions[0]);renameAgentSession("deleted-view-only")',context);
+const renameDialog=find(document.body,node=>node.attributes?.['aria-label']==='Rename AI conversation');
+assert.ok(renameDialog?.classList.contains('visible'),'rename must use a real in-app dialog, not a suppressed browser prompt');
+const renameInput=find(renameDialog,node=>node.attributes?.['aria-label']==='Conversation name');
+assert.equal(renameInput?.value,'Old conversation','rename editor must use saved title even while Agent is busy');
+assert.equal(vm.runInNewContext('rename.disabled',context),false,'Conversation > Rename must stay enabled during an Agent turn');
+vm.runInNewContext('closeAgentRename();markAgentSessionBusy("deleted-view-only",false);agentActive=null;agentSessions=[];updateAgentSessionRows()', context);
 const collectLabels = node => [node.textContent, ...node.children.flatMap(collectLabels)];
 const labels = collectLabels(heading);
 const moreButton = heading.children.find(child => child.textContent === '⋯');
