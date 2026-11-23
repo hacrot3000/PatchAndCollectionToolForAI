@@ -20,22 +20,22 @@ func TestTurnDispositionStrictModelMetadata(t *testing.T){
  c:=AnalyzeTurnText(text)
  if c.Disposition!=TurnUnknown{t.Fatalf("unexpected metadata from text: %+v",c)}
  valid:="Start\n"+"\x60\x60\x60taskdeck-progress\n"+
-  `{"status":"NEEDS_CONTINUATION","next_action":"Read M07-M10","checkpoint_path":"docs/audit.md","evidence_refs":["collect-real-id"]}`
-  +"\n```"
+  `{"status":"NEEDS_CONTINUATION","next_action":"Read M07-M10","checkpoint_path":"docs/audit.md","evidence_refs":["collect-real-id"]}` +
+  "\n```"
  c=AnalyzeTurnText(valid)
  if c.Disposition!=TurnNeedsContinuation||c.NextAction!="Read M07-M10"||
   c.CheckpointPath!="docs/audit.md"||len(c.EvidenceRefs)!=1{
   t.Fatalf("structured progress was lost: %+v",c)
  }
  invalid:="```taskdeck-progress\n"+
-  `{"status":"NEEDS_CONTINUATION","next_action":"Read","checkpoint_path":"../../outside"}`
-  +"\n```"
+  `{"status":"NEEDS_CONTINUATION","next_action":"Read","checkpoint_path":"../../outside"}` +
+  "\n```"
  if got:=AnalyzeTurnText(invalid);got.CheckpointPath!=""{
   t.Fatalf("unsafe checkpoint path accepted: %+v",got)
  }
  unknownField:="```taskdeck-progress\n"+
-  `{"status":"NEEDS_CONTINUATION","secret_authority":true}`
-  +"\n```"
+  `{"status":"NEEDS_CONTINUATION","secret_authority":true}` +
+  "\n```"
  if got:=AnalyzeTurnText(unknownField);got.Disposition!=TurnUnknown{
   t.Fatalf("unknown metadata key granted scheduling authority: %+v",got)
  }

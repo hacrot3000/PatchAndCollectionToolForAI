@@ -46,7 +46,7 @@ type declaredTurnProgress struct {
  CheckpointPath string `json:"checkpoint_path,omitempty"`
  EvidenceRefs []string `json:"evidence_refs,omitempty"`
 }
-var progressFence=regexp.MustCompile(`(?is)\x60{3}taskdeck-progress[ \t]*\r?\n([\s\S]{1,2500}?)\r?\n\x60{3}`)
+var progressFence=regexp.MustCompile(`(?is)\x60{3}taskdeck-progress[ \t]*\r?\n([\s\S]+?)\r?\n\x60{3}`)
 var progressWhitespace=regexp.MustCompile(`[[:space:]]+`)
 var repeatedPunctuation=regexp.MustCompile(`[[:punct:]]+`)
 var progressIncomplete=regexp.MustCompile(`(?i)(chưa hoàn tất|chưa hoàn thành|chưa xong|vẫn chưa|còn phải|cần kiểm tiếp|not (yet )?(finished|complete|done)|unfinished|incomplete|remaining (work|items|cases)|still (pending|working)|work remains)`)
@@ -95,7 +95,7 @@ func normalizedTurnAction(s string)string{
 }
 func parseDeclaredTurnProgress(text string)(declaredTurnProgress,bool){
  matches:=progressFence.FindAllStringSubmatch(text,-1)
- if len(matches)!=1{return declaredTurnProgress{},false}
+ if len(matches)!=1||len(matches[0][1])>2500{return declaredTurnProgress{},false}
  var declared declaredTurnProgress
  dec:=json.NewDecoder(strings.NewReader(matches[0][1]))
  dec.DisallowUnknownFields()
