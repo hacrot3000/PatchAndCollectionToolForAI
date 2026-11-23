@@ -249,6 +249,10 @@ func (s *Server) agentRunNativeCollection(ctx context.Context,owner string,reque
  req:=httptest.NewRequest(http.MethodPost,"/api/sessions",nil).WithContext(ctx)
  nativeID,err:=s.agentStartNativePatch(req)
  if err!=nil{return "",fmt.Errorf("COLLECT queued as %s but native session failed to start: %w",receipt.QueuePath,err)}
+ defer func(){
+  // Cancellation also works while waiting for the native queue prompt.
+  if ctx.Err()!=nil { _=s.Sessions.Stop(nativeID) }
+ }()
  _,index,err:=s.agentSelectNativeQueue(ctx,req,nativeID,receipt.Name,"COLLECT")
  if err!=nil{return "",fmt.Errorf("native COLLECT session %s could not select %s; inspect existing queue, no automatic rerun: %w",nativeID,receipt.Name,err)}
  provider,ok:=s.Sessions.(session.ProtocolStateProvider)
@@ -258,6 +262,7 @@ func (s *Server) agentRunNativeCollection(ctx context.Context,owner string,reque
  var final session.ProtocolItemState
  var found bool
  var finalSeenAt time.Time
+ var endedAt time.Time
  for{
   if ctx.Err()!=nil{
    // Stop affects the exact read-only native Collection session only.
@@ -279,6 +284,15 @@ func (s *Server) agentRunNativeCollection(ctx context.Context,owner string,reque
       time.Since(finalSeenAt)>3*time.Second {
      return agentNativeCollectionObservation(s.Workspace,identity,nativeID,final,z,t),nil
     }
+   }
+  }
+  // A native process may exit without an item_finished event (crash,
+  // failed protocol, interrupted queue). Never leave Agent Chat RUNNING
+  // indefinitely and never manufacture a successful Collection receipt.
+  if meta,exists:=s.Sessions.Metadata(nativeID);!exists||!strings.EqualFold(meta.Status,"running"){
+   if endedAt.IsZero(){endedAt=time.Now()}
+   if !found&&time.Since(endedAt)>3*time.Second {
+    return "",fmt.Errorf("native COLLECT session %s ended without an exact final item for %s; inspect existing Patch Tool History",nativeID,receipt.Name)
    }
   }
   select{case <-ctx.Done():case <-ticker.C:}
