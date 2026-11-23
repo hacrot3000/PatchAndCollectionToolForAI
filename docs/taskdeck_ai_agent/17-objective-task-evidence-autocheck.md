@@ -498,3 +498,14 @@ This iteration closes only the **predeclared finite named-test checklist** porti
 - **Safety fence:** this is **not** an acknowledgement, successful delivery proof, provider API query, user-mediated re-execution or permission to auto-resend. No REST write route is added, no provider or Native Patch request is issued, no retry settings change and no session revision or journal record is modified. SENDING may still be in flight; an expired heartbeat alone cannot justify replay. Any future true reconciliation must require authoritative provider-side evidence or supported idempotency semantics.
 - **Regression:** all six phases (prepared/sending/acknowledged/unknown/completed/blocked), no run, full Run ID/hash identity and explicit no-automatic-replay; owner-scoped session GET emits exactly the matching warning for ambiguous phases without CAS churn. The warning is rendered as ordinary text, never HTML extracted from a provider response.
 - **Remaining:** authoritative provider-specific query/idempotency reconciliation, durable cross-daemon worker ownership, owner-defined semantic acceptance coverage beyond named tests, and direct segmented proof-verified completion. This UI warning does not mark those items complete.
+
+
+## Completion addendum — 2026-11-23 · PR #180 (read-only provider ambiguity warning)
+
+- **Merged PR:** [#180](https://github.com/hacrot3000/PatchAndCollectionToolForAI/pull/180).
+- **Merge commit on main:** `b59027aa35a6ec01623a4dd168c31c2d48441350`.
+- **Validated exact final feature HEAD:** `6ddc353acb1d90f629050949ca4fdc29a659e980`.
+- **CI on exact feature SHA:** Agent Chat core **PASS** and PHP validation **PASS**; Remote Agent Go **still in progress at merge**, not claimed successful.
+- **Delivered:** a read-only `provider_review` in authenticated per-owner session GET when the journal's latest ProviderRun phase is `SENDING` or `UNKNOWN`. UI shows a stable warning with Run ID, phase, kind, short payload SHA digest and **Open handoff** action. It explicitly marks `requires_reconciliation=true` and `automatic_replay_allowed=false`. Other phases produce no ambiguity warning.
+- **Regression tests:** pure classification of all six durable provider phases and nil; API GET returns only the matching diagnostic for owner-selected session, does not write journal/revision or provider phase. No provider/API network request, credential exposure, Native Patch execution or replay action added.
+- **Honest remaining gap:** this warning is **not** authoritative provider acknowledgement, idempotency support, automatic remote-result lookup or resolution of `SENDING/UNKNOWN`. Fully automated reconciliation is still blocked until a verified provider-specific acknowledgment/idempotency contract is implemented and tested. Multi-daemon durable coordination, owner-authored semantic acceptance coverage and full segment-level verified `done` writes remain open.
