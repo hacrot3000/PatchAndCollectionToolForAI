@@ -20,7 +20,7 @@ type ProviderAttempt struct {
  Attempt uint64 `json:"attempt"`
  ClientRequestID string `json:"client_request_id"`
  PayloadSHA256 string `json:"payload_sha256"`
- HeaderSent bool `json:"header_sent"`
+ HeaderConfigured bool `json:"header_configured"`
  RecordedAt time.Time `json:"recorded_at"`
 }
 type ProviderAttemptAudit struct {
@@ -105,6 +105,12 @@ func (s *Store) RecordProviderAttempt(
    x.ProviderRun.ID!=runID||x.Status!="requesting_ai"{
    return ErrInvalidSession
   }
+  // Attempt 1 MUST match the exact request bytes that the canonical
+  // PREPARED journal staged before the irreversible SENDING boundary.
+  // Retries may use a different output cap but remain a new attempt ID.
+  if attempt==1&&ProviderPayloadDigest(payload)!=x.ProviderRun.PayloadSHA256{
+   return ErrInvalidSession
+  }
   var record providerAttemptSidecar
   old,e:=s.readProviderAttemptsLocked(id)
   if e==nil&&old.RunID==runID{
@@ -122,7 +128,7 @@ func (s *Store) RecordProviderAttempt(
   clientID=providerAttemptClientID(id,runID,attempt,digest)
   record.Attempts=append(record.Attempts,ProviderAttempt{
    Attempt:attempt,ClientRequestID:clientID,PayloadSHA256:digest,
-   HeaderSent:headerSent,RecordedAt:time.Now().UTC(),
+   HeaderConfigured:headerSent,RecordedAt:time.Now().UTC(),
   })
   if len(record.Attempts)>maxProviderAttemptRecords{
    record.Attempts=append([]ProviderAttempt(nil),
