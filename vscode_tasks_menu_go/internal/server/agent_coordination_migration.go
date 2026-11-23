@@ -10,7 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"sync"
+	"strconv"
 	"time"
 
 	"bletonfc/vscode_tasks_menu/internal/agentrun"
@@ -27,6 +27,9 @@ const (
 	agentCoordinationMigrationFile      = "migration.json"
 	agentCoordinationMigrationPreparing = "preparing"
 	agentCoordinationMigrationComplete  = "complete"
+	// policyVersion changes when ownership/quarantine rules change. A marker
+	// with an older policy is never silently reused.
+	agentCoordinationMigrationPolicyVersion = 3
 )
 
 // agentCoordinationUnclaimedRecord is one legacy record that could not be
@@ -58,6 +61,8 @@ type agentCoordinationMigrationState struct {
 	Status          string    `json:"status"`
 	HubSHA256       string    `json:"hub_sha256,omitempty"`
 	UnclaimedSHA256 string    `json:"unclaimed_sha256,omitempty"`
+	SharedMode      bool      `json:"shared_mode"`
+	PolicyVersion   int       `json:"policy_version"`
 	UpdatedAt       time.Time `json:"updated_at"`
 }
 
@@ -70,11 +75,6 @@ func agentCoordinationUnclaimedPath(hubPath string) string {
 func agentCoordinationMigrationPath(hubPath string) string {
 	return filepath.Join(filepath.Dir(hubPath), agentCoordinationMigrationFile)
 }
-
-// agentCoordinationMigrationLocks serializes migrations of the same owner
-// journal inside one process. The cross-process exclusion is provided by the
-// advisory journal lock; this mutex also covers platforms without flock.
-var agentCoordinationMigrationLocks sync.Map
 
 // migrateLegacyCoordinationJournal copies the pre-tenant coordination journal
 // into an owner-scoped journal. The legacy journal was shared by every shared
@@ -101,18 +101,15 @@ func (s *Server) migrateLegacyCoordinationJournal(legacyPath, hubPath, owner str
 // lockCoordinationMigration serializes the migration of one owner journal
 // inside this process and takes the cross-process journal lock.
 func (s *Server) lockCoordinationMigration(hubPath string) (func(), error) {
-	key := filepath.Clean(hubPath)
-	value, _ := agentCoordinationMigrationLocks.LoadOrStore(key, &sync.Mutex{})
-	mutex := value.(*sync.Mutex)
-	mutex.Lock()
+	unlockProcess := agentrun.LockCoordinationJournalProcess(hubPath)
 	unlockJournal, err := agentrun.LockCoordinationJournal(hubPath)
 	if err != nil {
-		mutex.Unlock()
+		unlockProcess()
 		return nil, err
 	}
 	return func() {
 		unlockJournal()
-		mutex.Unlock()
+		unlockProcess()
 	}, nil
 }
 
@@ -134,6 +131,11 @@ func (s *Server) migrateLegacyCoordinationJournalLocked(legacyPath, hubPath, own
 		return markerErr
 	}
 	if marker != nil {
+		if marker.PolicyVersion != agentCoordinationMigrationPolicyVersion || marker.SharedMode != s.Config.SharedServerEnabled {
+			// A marker written under a different authorization policy cannot
+			// be reused; re-verification is required.
+			return s.reverifyMarkedCoordinationJournal(legacyPath, hubPath, owner, source, legacyDigest)
+		}
 		if marker.Owner != owner || marker.LegacySHA256 != legacyDigest {
 			return errors.New("coordination migration marker does not match the legacy journal")
 		}
@@ -145,7 +147,7 @@ func (s *Server) migrateLegacyCoordinationJournalLocked(legacyPath, hubPath, own
 		}
 	}
 
-	plan, err := s.buildAgentCoordinationMigration(source, owner)
+	plan, err := s.buildAgentCoordinationMigration(source, owner, hubPath)
 	if err != nil {
 		return err
 	}
@@ -167,7 +169,8 @@ func (s *Server) migrateLegacyCoordinationJournalLocked(legacyPath, hubPath, own
 		}
 		marker = &agentCoordinationMigrationState{
 			Version: 1, Owner: owner, LegacySHA256: legacyDigest,
-			Status: agentCoordinationMigrationPreparing, UpdatedAt: time.Now().UTC(),
+			Status: agentCoordinationMigrationPreparing, SharedMode: s.Config.SharedServerEnabled,
+			PolicyVersion: agentCoordinationMigrationPolicyVersion, UpdatedAt: time.Now().UTC(),
 		}
 	}
 	marker.UnclaimedSHA256 = unclaimedDigest
@@ -214,15 +217,23 @@ func (s *Server) adoptUnmarkedCoordinationMigration(legacyPath, hubPath, owner s
 		Artifacts map[string]any `json:"artifacts"`
 		Deps      map[string]any `json:"dependencies"`
 		Events    []any          `json:"events"`
+		EventSeq  uint64         `json:"event_seq"`
 	}
 	if json.Unmarshal(body, &state) != nil || state.Version != 2 || state.OwnerID != owner {
 		return false, nil
 	}
-	plan, err := s.buildAgentCoordinationMigrationFromRecords(owner, state.Peers, state.Messages, state.Contracts, state.Artifacts, state.Deps, state.Events)
+	previousUnclaimed, err := loadAgentCoordinationUnclaimed(agentCoordinationUnclaimedPath(hubPath))
+	if err != nil {
+		return false, err
+	}
+	plan, err := s.buildAgentCoordinationMigrationFromRecords(owner, state.Peers, state.Messages, state.Contracts, state.Artifacts, state.Deps, state.Events, state.EventSeq, previousUnclaimed)
 	if err != nil {
 		return false, err
 	}
 	if err := s.backupUnmarkedCoordinationJournal(hubPath, body); err != nil {
+		return false, err
+	}
+	if err := s.backupAgentCoordinationUnclaimed(hubPath); err != nil {
 		return false, err
 	}
 	unclaimedBody := append(append([]byte(nil), plan.unclaimedBody...), '\n')
@@ -234,7 +245,8 @@ func (s *Server) adoptUnmarkedCoordinationMigration(legacyPath, hubPath, owner s
 	marker := &agentCoordinationMigrationState{
 		Version: 1, Owner: owner, LegacySHA256: sha256Hex(source),
 		Status: agentCoordinationMigrationPreparing, HubSHA256: sha256Hex(hubBody),
-		UnclaimedSHA256: sha256Hex(unclaimedBody), UpdatedAt: time.Now().UTC(),
+		UnclaimedSHA256: sha256Hex(unclaimedBody), SharedMode: s.Config.SharedServerEnabled,
+		PolicyVersion: agentCoordinationMigrationPolicyVersion, UpdatedAt: time.Now().UTC(),
 	}
 	if len(plan.unclaimed.Records) == 0 {
 		marker.UnclaimedSHA256 = ""
@@ -242,11 +254,9 @@ func (s *Server) adoptUnmarkedCoordinationMigration(legacyPath, hubPath, owner s
 	if err := writeAgentCoordinationFileAtomic(agentCoordinationMigrationPath(hubPath), mustMigrationJSON(marker), 0600); err != nil {
 		return false, err
 	}
-	if len(plan.unclaimed.Records) == 0 {
-		if err := removeIfExists(agentCoordinationUnclaimedPath(hubPath)); err != nil {
-			return false, err
-		}
-	} else if err := writeAgentCoordinationFileAtomic(agentCoordinationUnclaimedPath(hubPath), unclaimedBody, 0600); err != nil {
+	// Quarantine is never deleted during repair: old unverified records stay
+	// available for review even when the current journal yields none.
+	if err := writeAgentCoordinationFileAtomic(agentCoordinationUnclaimedPath(hubPath), unclaimedBody, 0600); err != nil {
 		return false, err
 	}
 	if err := writeAgentCoordinationFileAtomic(hubPath, hubBody, 0600); err != nil {
@@ -272,9 +282,10 @@ type agentCoordinationMigrationPlan struct {
 	hubBody       []byte
 	unclaimedBody []byte
 	unclaimed     agentCoordinationUnclaimed
+	eventSeq      uint64
 }
 
-func (s *Server) buildAgentCoordinationMigration(source []byte, owner string) (agentCoordinationMigrationPlan, error) {
+func (s *Server) buildAgentCoordinationMigration(source []byte, owner, hubPath string) (agentCoordinationMigrationPlan, error) {
 	var state struct {
 		Version   int            `json:"version"`
 		OwnerID   string         `json:"owner_id"`
@@ -291,13 +302,13 @@ func (s *Server) buildAgentCoordinationMigration(source []byte, owner string) (a
 	if state.OwnerID != "" && state.OwnerID != owner {
 		return agentCoordinationMigrationPlan{}, errors.New("legacy coordination journal belongs to another owner")
 	}
-	return s.buildAgentCoordinationMigrationFromRecords(owner, state.Peers, state.Messages, state.Contracts, state.Artifacts, state.Deps, nil)
+	return s.buildAgentCoordinationMigrationFromRecords(owner, state.Peers, state.Messages, state.Contracts, state.Artifacts, state.Deps, nil, 0, agentCoordinationUnclaimed{})
 }
 
 // buildAgentCoordinationMigrationFromRecords verifies ownership of every
 // record, regardless of whether it came from the legacy journal or from a v2
 // journal created by an older buggy migration.
-func (s *Server) buildAgentCoordinationMigrationFromRecords(owner string, sourcePeers map[string]any, sourceMessages []any, sourceContracts, sourceArtifacts, sourceDeps map[string]any, sourceEvents []any) (agentCoordinationMigrationPlan, error) {
+func (s *Server) buildAgentCoordinationMigrationFromRecords(owner string, sourcePeers map[string]any, sourceMessages []any, sourceContracts, sourceArtifacts, sourceDeps map[string]any, sourceEvents []any, sourceEventSeq uint64, previousUnclaimed agentCoordinationUnclaimed) (agentCoordinationMigrationPlan, error) {
 	ownerConversations, err := s.agentConversationIDsForOwner(owner)
 	if err != nil {
 		return agentCoordinationMigrationPlan{}, err
@@ -348,17 +359,65 @@ func (s *Server) buildAgentCoordinationMigrationFromRecords(owner string, source
 		principal, _ := event["owner_principal"].(string)
 		group, _ := event["group_id"].(string)
 		conversation, _ := event["conversation_id"].(string)
+		actor, _ := event["actor"].(string)
+		// CoordinationEvent has no owner_principal field. Do not quarantine a
+		// valid event just because that optional field is absent. Actor alone
+		// is not authority: only group/conversation ownership or an explicit
+		// foreign principal can decide. Unknown scope stays in the journal.
 		if !sharedScope || principal == owner || group != "" && ownerGroups[group] || conversation != "" && ownerConversations[conversation] {
 			ownedEvents = append(ownedEvents, raw)
 			continue
 		}
-		reason := "event has no verified owner scope"
-		if principal != "" {
-			reason = "event belongs to another principal"
+		if principal != "" && principal != owner {
+			quarantine("event", eventQuarantineKey(event, index), "event belongs to another principal", event)
+			continue
 		}
-		quarantine("event", "event-"+itoa(index), reason, event)
+		_ = actor
+		ownedEvents = append(ownedEvents, raw)
 	}
 	migrated["events"] = ownedEvents
+	maxEventSeq := sourceEventSeq
+	seenSequences := map[uint64]bool{}
+	seenIDs := map[string]bool{}
+	for _, raw := range ownedEvents {
+		event, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		if sequence, ok := event["sequence"].(float64); ok && uint64(sequence) > maxEventSeq {
+			maxEventSeq = uint64(sequence)
+		}
+		if id, ok := event["id"].(string); ok && id != "" {
+			if seenIDs[id] {
+				// A duplicate ID is assigned a fresh cursor below.
+				delete(event, "id")
+			} else {
+				seenIDs[id] = true
+			}
+		}
+		if sequence, ok := event["sequence"].(float64); ok && sequence > 0 {
+			if seenSequences[uint64(sequence)] {
+				delete(event, "sequence")
+			} else {
+				seenSequences[uint64(sequence)] = true
+			}
+		}
+	}
+	for _, raw := range ownedEvents {
+		event, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		if _, ok := event["sequence"]; !ok {
+			maxEventSeq++
+			event["sequence"] = maxEventSeq
+			seenSequences[maxEventSeq] = true
+		}
+		if _, ok := event["id"]; !ok {
+			event["id"] = "evt-repaired-" + strconv.FormatUint(uint64(event["sequence"].(float64)), 10)
+		}
+	}
+	migrated["event_seq"] = maxEventSeq
 
 	owned := make([]any, 0, len(sourceMessages))
 	for index, raw := range sourceMessages {
@@ -483,6 +542,9 @@ func (s *Server) buildAgentCoordinationMigrationFromRecords(owner string, source
 	if err != nil {
 		return agentCoordinationMigrationPlan{}, err
 	}
+	// Existing quarantine records are merged with newly detected ones. Old
+	// records are never re-promoted into the journal and are never lost.
+	unclaimed.Records = mergeAgentCoordinationUnclaimed(previousUnclaimed.Records, unclaimed.Records)
 	sort.Slice(unclaimed.Records, func(i, j int) bool {
 		if unclaimed.Records[i].Kind != unclaimed.Records[j].Kind {
 			return unclaimed.Records[i].Kind < unclaimed.Records[j].Kind
@@ -493,7 +555,7 @@ func (s *Server) buildAgentCoordinationMigrationFromRecords(owner string, source
 	if err != nil {
 		return agentCoordinationMigrationPlan{}, err
 	}
-	return agentCoordinationMigrationPlan{hubBody: hubBody, unclaimedBody: unclaimedBody, unclaimed: unclaimed}, nil
+	return agentCoordinationMigrationPlan{hubBody: hubBody, unclaimedBody: unclaimedBody, unclaimed: unclaimed, eventSeq: maxEventSeq}, nil
 }
 
 // verifyCompletedCoordinationMigration checks that a completed migration's
@@ -650,4 +712,118 @@ func itoa(value int) string {
 		value /= 10
 	}
 	return digits
+}
+
+// eventQuarantineKey returns a stable fingerprint for a quarantined event.
+func eventQuarantineKey(event map[string]any, index int) string {
+	if id, ok := event["id"].(string); ok && id != "" {
+		return "event:" + id
+	}
+	return "event-index:" + itoa(index)
+}
+
+// agentQuarantineFingerprint is the stable identity of a quarantine record.
+// It uses the record content rather than timestamps so retries cannot duplicate
+// the same logical record.
+func agentQuarantineFingerprint(record agentCoordinationUnclaimedRecord) string {
+	body, err := json.Marshal(struct {
+		Kind   string         `json:"kind"`
+		Key    string         `json:"key"`
+		Record map[string]any `json:"record"`
+	}{record.Kind, record.Key, record.Record})
+	if err != nil {
+		return record.Kind + "\x00" + record.Key
+	}
+	return sha256Hex(body)
+}
+
+// mergeAgentCoordinationUnclaimed merges previous and newly detected records,
+// deduplicating by stable fingerprint while preserving the original record.
+func mergeAgentCoordinationUnclaimed(previous, detected []agentCoordinationUnclaimedRecord) []agentCoordinationUnclaimedRecord {
+	seen := map[string]bool{}
+	out := make([]agentCoordinationUnclaimedRecord, 0, len(previous)+len(detected))
+	for _, group := range [][]agentCoordinationUnclaimedRecord{previous, detected} {
+		for _, record := range group {
+			fingerprint := agentQuarantineFingerprint(record)
+			if seen[fingerprint] {
+				continue
+			}
+			seen[fingerprint] = true
+			out = append(out, record)
+		}
+	}
+	return out
+}
+
+// loadAgentCoordinationUnclaimed reads an existing quarantine before repair.
+func loadAgentCoordinationUnclaimed(path string) (agentCoordinationUnclaimed, error) {
+	body, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return agentCoordinationUnclaimed{Version: 1, Records: []agentCoordinationUnclaimedRecord{}}, nil
+	}
+	if err != nil {
+		return agentCoordinationUnclaimed{}, err
+	}
+	var unclaimed agentCoordinationUnclaimed
+	if err := json.Unmarshal(body, &unclaimed); err != nil {
+		return agentCoordinationUnclaimed{}, errors.New("invalid coordination quarantine file")
+	}
+	if unclaimed.Records == nil {
+		unclaimed.Records = []agentCoordinationUnclaimedRecord{}
+	}
+	return unclaimed, nil
+}
+
+// backupAgentCoordinationUnclaimed keeps the exact pre-repair quarantine.
+func (s *Server) backupAgentCoordinationUnclaimed(hubPath string) error {
+	path := agentCoordinationUnclaimedPath(hubPath)
+	body, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	backup := filepath.Join(filepath.Dir(hubPath), "unclaimed.unmarked-backup.json")
+	if _, err := os.Stat(backup); err == nil {
+		return nil
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	return writeAgentCoordinationFileAtomic(backup, body, 0600)
+}
+
+// reverifyMarkedCoordinationJournal handles a mode/policy change: a marker is
+// removed only after its journal and quarantine are backed up, then the whole
+// migration is recomputed under the current policy. Valid records survive and
+// previously quarantined records are merged.
+func (s *Server) reverifyMarkedCoordinationJournal(legacyPath, hubPath, owner string, source []byte, legacyDigest string) error {
+	if err := s.backupUnmarkedCoordinationJournal(hubPath, mustMigrationJSON(map[string]any{"reason": "policy change", "owner": owner})); err != nil {
+		return err
+	}
+	body, err := os.ReadFile(hubPath)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	if err == nil && len(body) > 0 {
+		backup := filepath.Join(filepath.Dir(hubPath), "coordination.policy-backup.json")
+		if _, statErr := os.Stat(backup); errors.Is(statErr, os.ErrNotExist) {
+			if err := writeAgentCoordinationFileAtomic(backup, body, 0600); err != nil {
+				return err
+			}
+		}
+	}
+	if err := s.backupAgentCoordinationUnclaimed(hubPath); err != nil {
+		return err
+	}
+	if err := removeIfExists(agentCoordinationMigrationPath(hubPath)); err != nil {
+		return err
+	}
+	// A policy change must re-verify the existing v2 journal record by record,
+	// so valid records added since the old migration survive. The unmarked
+	// repair path does exactly that and also merges the old quarantine.
+	if _, err := s.adoptUnmarkedCoordinationMigration(legacyPath, hubPath, owner); err != nil {
+		return err
+	}
+	return s.migrateLegacyCoordinationJournalLocked(legacyPath, hubPath, owner)
 }

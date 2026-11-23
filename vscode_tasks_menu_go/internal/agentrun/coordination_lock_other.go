@@ -2,10 +2,11 @@
 
 package agentrun
 
-// lockCoordinationJournal degrades to in-process serialization on platforms
-// without the flock implementation used by TaskDeck. Cross-process exclusion is
-// therefore NOT provided there; callers must not run two daemons against the
-// same Agent state directory on these platforms.
+// lockCoordinationJournal is a no-op on platforms without flock. In-process
+// exclusion is provided by coordinationJournalMutex, which CoordinationHub
+// holds before calling this function and which migration holds separately.
+// Cross-process exclusion is NOT provided; running two daemons against the
+// same state directory must be refused by deployment policy.
 func lockCoordinationJournal(path string) (func(), error) {
 	return func() {}, nil
 }

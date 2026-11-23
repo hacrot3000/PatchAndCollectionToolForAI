@@ -102,6 +102,41 @@ This pass was executed and verified by this coder. Findings distinguished by "se
 
 **NOT READY FOR INTEGRATION.** P0 items in this scope are fixed and self-verified, but the branch is 110 commits behind main with 12 overlap files, full suite has known pre-existing failures, and external/browser/Native-Patch-kill evidence remains blocked.
 
+
+## Final review findings pass (baseline `fcc1830b`, 2026-11-23)
+
+### Confirmed and fixed (all tests self-run in this pass)
+
+- **P0.1 Event cursor loss:** repair of an unmarked v2 journal kept events but dropped `event_seq`, causing `appendEvent()` to restart the cursor and pollers with an old cursor to miss/repeat events. Repair now preserves `event_seq`, uses the max existing sequence, deduplicates sequences/IDs, and keeps events with no `owner_principal` (that field is not part of `CoordinationEvent`). Only explicitly foreign events are quarantined; unverified `Actor` is not authority. Proof: `TestUnmarkedJournalRepairPreservesEventCursor` (100 events, old cursor, foreign event filtering, post-repair append, monotonic polling). Verified it fails when `event_seq` preservation is removed.
+- **P0.2 Quarantine loss:** repair now reads existing `unclaimed.json`, backs it up to `unclaimed.unmarked-backup.json`, merges old and newly detected records with a stable fingerprint, never deletes quarantine, and never re-promotes quarantined records. Proof: `TestRepairMergesExistingQuarantine` (5 old + 3 new, backup, no duplicates on retry). Verified it fails when merge is removed.
+- **P0.3 Policy/process isolation:** marker now records `shared_mode` and `policy_version`; a mode/policy change triggers re-verification instead of reusing a complete marker. Multi-process test now starts four helpers concurrently (two owners × two processes) with the same `SharedServerEnabled` and workspace binding, and checks strict Alice/Bob isolation plus quarantine scope. Proof: `TestModeSwitchReverifiesOwnership`, `TestConcurrentMigrationAcrossProcesses`. Verified mode-switch test fails when policy re-verification is removed.
+- **P1 Cross-platform lock:** `agentrun` now has one canonical in-process mutex registry used by both `CoordinationHub` and migration; non-flock platforms use that mutex only, with explicit no cross-process guarantee. Lock order remains in-process mutex → advisory file lock. `GOOS=windows GOARCH=amd64 go build ./internal/agentrun` and `GOOS=linux GOARCH=arm64 go build ./internal/agentrun ./internal/server` PASS. Full Windows/darwin server builds remain blocked by pre-existing pty/dbprofile/macOS-safeio issues.
+- **P1 Concurrent first migration:** added barrier-synchronized `TestFirstMigrationBlocksReadersUntilJournalIsComplete`: a reader cannot open/serve the hub while another goroutine holds the migration lock; after release it sees a fully migrated journal. Fixed a test-only race on `bytes.Buffer` by waiting for all child processes before reading outputs.
+
+### Files changed in this pass
+
+- `vscode_tasks_menu_go/internal/server/agent_coordination_migration.go`
+- `vscode_tasks_menu_go/internal/agentrun/coordination.go`
+- `vscode_tasks_menu_go/internal/agentrun/coordination_lock_shared.go` (new)
+- `vscode_tasks_menu_go/internal/agentrun/coordination_lock_other.go`
+- `vscode_tasks_menu_go/internal/server/agent_coordination_migration_crash_test.go`
+- `01_MULTI_CONVERSATION_SHARED_CONTEXT_PLAN.md`, `02_AGENT_PROVIDER_HOT_SWITCH_PLAN.md`, this handoff
+
+### Validation self-run in this pass
+
+- PASS: `go build ./internal/...`, `go vet ./internal/agentrun ./internal/agentchat ./internal/server`, focused `go test -race` for migration/coordination/group/concurrency, 4-process test under race, related Native Patch/provider regressions, `node --test web/*_test.cjs` not changed this pass but re-run in prior pass; `git diff --check` and gofmt clean.
+- FULL SERVER SUITE RUN THIS PASS: `go test ./internal/server -count=1` FAILED with 20 assertion failures plus `panic: test timed out after 10m0s` (`600.013s`). The 20 failures are the pre-existing Auth/Editor/Terminal/Patch UI source-contract and `TestSharedAdminAssignRestrictedRoleWithoutEditPermissions` cases; no failure came from the changed migration/coordination code. The timeout is an environment/duration blocker, not a hidden assertion change. No full-suite PASS is claimed.
+- BLOCKED: Browser E2E, external provider smoke, real Python Patch SIGKILL, full Windows/darwin server build due pre-existing platform errors, full server suite within the 10-minute Go test timeout.
+
+### Integration preparation (updated this pass)
+
+- `origin/main` after fresh fetch: `f8e0bb2d1c4565d24e7f747e4d66b8517012b3e2`; merge base `07fd54a534db573d2a89ef892c4283bc52aa612f`; review 7 ahead / 116 behind; 12 overlap files (same as previous list).
+- Integration proposal unchanged: create a new branch from current `origin/main` and transplant review changes in controlled batches, preserving main’s durable retry/recovery, Agent Chat, Native Patch, Collection and Context Compaction. No semantic file replacement for the 12 overlap files. No merge/rebase/cherry-pick/force-push performed.
+
+### Status
+
+NOT READY FOR INTEGRATION — P0 findings in this pass are fixed and self-verified, but the review branch remains far behind main, has 12 overlap files, full-server PASS is unproven, and external/browser/Patch-kill evidence is blocked.
+
 ## 1. Baseline and Git state
 
 - Repository: `hacrot3000/PatchAndCollectionToolForAI`

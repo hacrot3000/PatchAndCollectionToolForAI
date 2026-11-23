@@ -264,6 +264,7 @@ INTERRUPTED --explicit retry--> new attempt (not a silent re-execute)
 - [ ] **MC-02 — Persistence, migration và recovery**
   - [ ] **MC-02.01 — Tạo storage bền vững**
     - [ ] **MC-02.01.01 — PARTIAL** Lưu conversation, message, run, run_attempt, context_group, membership và event checkpoint.
+      **Bổ sung 2026-11-23 (baseline `fcc1830b`):** `TestUnmarkedJournalRepairPreservesEventCursor` chứng minh repair giữ `event_seq`, lọc foreign event, không tạo trùng sequence/ID và polling từ cursor cũ không bỏ sót event mới. `TestFirstMigrationBlocksReadersUntilJournalIsComplete` chứng minh reader bị chặn tới khi migration xong. Vẫn chưa có bằng chứng DB/table-level nên giữ PARTIAL.
       **Đã hoàn thành (2026-11-23):** `TestCoordinationMigrationRecoversFromWriteFaults`, `TestCoordinationMigrationIsIdempotent`, `TestLegacyCoordinationMigrationIsolatesTwoOwnersAndQuarantinesUnscopedRecords`, `TestConcurrentMigrationAcrossProcesses` PASS cho riêng coordination journal: marker durable, temp file + fsync + atomic rename, fault injection và cross-process lock.
       **Chưa đủ bằng chứng:** Chưa có migration DB/table-level, foreign key/index, transaction rollback rehearsal cho toàn bộ conversation/message/run/event checkpoint. Không được coi là complete theo tiêu chí gốc.
       **Cách triển khai:** Thêm migration idempotent cho tables (groups, membership, conversations, messages, runs, run_attempts, snapshots, coordination_events); foreign key/index và versioning tương thích DB thật.  
@@ -279,6 +280,7 @@ INTERRUPTED --explicit retry--> new attempt (not a silent re-execute)
       **Cách triển khai:** Viết migration đọc History legacy, map thành independent conversation; giữ message IDs/order nếu được, lưu legacy_id và migration version; tính năng dùng storage mới khi flag on.  
       **Kiểm chứng / đầu ra:** So sánh hash nội dung và số lượng trước/sau cho fixture lịch sử cũ.
     - [ ] **MC-02.02.02 — PARTIAL** Không sửa/xóa file History cũ trước khi backup và test migration/rollback.
+      **Bổ sung 2026-11-23:** `TestRepairMergesExistingQuarantine` chứng minh 5 bản ghi quarantine cũ + 3 bản ghi mới được giữ đầy đủ, backup `unclaimed.unmarked-backup.json` tồn tại và retry không duplicate. Chưa có History rollback rehearsal nên giữ PARTIAL.
       **Đã hoàn thành (2026-11-23):** Coordination migration giữ legacy journal, backup `coordination.unmarked-backup.json` trước khi sửa journal cũ, `migration.json` preparing/complete, quarantine `unclaimed.json`. `TestCoordinationMigrationRecoversFromWriteFaults`, `TestUnmarkedJournalIsRepairedRecordByRecord`, `TestCoordinationMigrationDoesNotTrustHubExistence` PASS.
       **Chưa đủ bằng chứng:** Chưa có backup/rollback rehearsal trên file History của chat; tiêu chí rollback toàn hệ thống chưa đạt.
       **Cách triển khai:** Backup trên đĩa có thể phục hồi; migration có dry-run, resume marker, atomic swap nếu phù hợp; document downgrade khi schema mới vẫn tồn tại.  

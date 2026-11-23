@@ -558,3 +558,10 @@ Các quy tắc bắt buộc: streaming/out-of-order theo run ID; UI badge messag
 - Coordination journal hiện dùng cùng một advisory file lock cho migration và mọi thao tác ghi hub, với in-process mutex trước file lock để tránh deadlock. Bằng chứng tự chạy: `TestConcurrentFirstMigrationKeepsSingleJournal`, `TestMigrationDoesNotOverwriteConcurrentHubUpdate`, `TestConcurrentMigrationAcrossProcesses` (race).
 - Các test real process-kill và Native Patch ledger ở mục trước vẫn giữ nguyên; không có test SIGKILL cho tiến trình Python Patch.
 - Checkbox persistence/rollback/recovery chi tiết được đối soát lại trong PLAN 01 (`PARTIAL`); không dùng coordination migration để thay thế bằng chứng DB rollback hay Native Patch reconciliation.
+
+## Cập nhật final review findings (baseline `fcc1830b`)
+
+- Policy binding được ghi vào marker (`shared_mode`, `policy_version`); chuyển single-user ↔ shared-server kích hoạt verify lại quyền sở hữu thay vì reused marker complete. Bằng chứng: `TestModeSwitchReverifiesOwnership`.
+- Multi-process test dùng 4 helper (2 owner × 2 process) chạy đồng thời, cùng `SharedServerEnabled` và workspace binding; kiểm tra isolation Alice/Bob, quarantine scope và marker policy. Bằng chứng: `TestConcurrentMigrationAcrossProcesses`.
+- In-process lock dùng chung theo canonical journal path trên mọi nền tảng; `agentrun` build OK cho Windows (agentrun package), Linux arm64. Windows/darwin full server build vẫn bị lỗi pre-existing của pty/dbprofile/macOS safeio.
+- Native Patch/provider regression liên quan chạy PASS: `TestAgentRunNativePatchRoundTripExecutesOnceAcrossRestart`, `TestComposerRunCanOverlapGPTRunRetryAndStopIndependently`, recovery real-kill tests.

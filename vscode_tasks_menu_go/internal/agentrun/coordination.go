@@ -143,8 +143,6 @@ type coordinationState struct {
 	EventSeq     uint64                `json:"event_seq"`
 }
 
-var coordinationHubLocks sync.Map
-
 type CoordinationHub struct {
 	mu        *sync.Mutex
 	path      string
@@ -171,8 +169,7 @@ func NewCoordinationHub(path string, scope ...string) (*CoordinationHub, error) 
 		return nil, err
 	}
 	cleanPath := filepath.Clean(path)
-	lock, _ := coordinationHubLocks.LoadOrStore(cleanPath, &sync.Mutex{})
-	hub := &CoordinationHub{mu: lock.(*sync.Mutex), path: cleanPath}
+	hub := &CoordinationHub{mu: coordinationJournalMutex(cleanPath), path: cleanPath}
 	if len(scope) == 2 {
 		hub.ownerID, hub.projectID = scope[0], scope[1]
 	}
