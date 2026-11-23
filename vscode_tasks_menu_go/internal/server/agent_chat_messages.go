@@ -124,6 +124,9 @@ func agentRequestDiagnosticMetadata(payload []byte) agentchat.DiagnosticEvent {
 	return agentchat.DiagnosticEvent{ContextMode: mode, Reasoning: request.Reasoning.Effort, HistoryItems: len(request.Input), ToolCount: len(request.Tools)}
 }
 
+// Agent turns span multiple journal writes and may hold provider I/O open.
+ // Store revision CAS alone cannot exclude a second daemon between those
+ // writes, so each turn also takes a per-session nonblocking OS lease.
 var agentTurnLocks sync.Map // key: workspace + owner + session ID
 func lockAgentTurn(workspace, owner, id string) (func(), bool) {
 	key := workspace + "\x00" + owner + "\x00" + id
@@ -132,7 +135,18 @@ func lockAgentTurn(workspace, owner, id string) (func(), bool) {
 	if !lock.TryLock() {
 		return nil, false
 	}
-	return lock.Unlock, true
+	releaseOS, err := acquireAgentTurnOSLock(workspace, id)
+	if err != nil {
+		lock.Unlock()
+		return nil, false // fail closed; never fall back to a local-only lease
+	}
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			releaseOS()
+			lock.Unlock()
+		})
+	}, true
 }
 
 // Messages use a durable two-phase update: write the user turn before
