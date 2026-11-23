@@ -210,6 +210,7 @@ func TestProviderHTTPTransientAndPermanentStatusClassification(t *testing.T) {
  for _,status:=range []int{408,425,429,499,500,503} {
   pe:=parseProviderHTTPError(status,"",[]byte(`{"error":{"message":"temporary gateway failure"}}`))
   if !pe.Retryable{t.Errorf("HTTP %d must be retryable when user enabled retries",status)}
+  if status==499&&!pe.Ambiguous{t.Error("HTTP 499 does not prove the upstream model did not run")}
  }
  for _,status:=range []int{400,401,403,404,422} {
   pe:=parseProviderHTTPError(status,"",nil)
