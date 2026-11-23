@@ -2011,14 +2011,16 @@ async function agentTaskPlanAction(action,params={}){
  const state=agentTaskPlanData;
  if(!agentActive||!state)throw new Error('Open the current task plan first.');
  const sessionID=agentActive;
- const updated=await agentApp.jsonFetch('/api/agent/sessions/'+encodeURIComponent(sessionID)+'/plan',{
+ const path='/api/agent/sessions/'+encodeURIComponent(sessionID)+
+  '/plan?offset='+agentTaskPlanOffset+'&limit='+agentTaskPlanPageLimit;
+ const updated=await agentApp.jsonFetch(path,{
   method:'POST',headers:{'Content-Type':'application/json'},
   body:JSON.stringify({action,expected_revision:state.revision,...params}),
  });
  if(agentActive!==sessionID)return;
- // POST remains legacy full-plan for compatibility. Do not render its
- // unbounded steps: reload only the selected page after any mutation.
- await openAgentTaskPlan(agentTaskPlanOffset);
+ // Authoritative whole-plan counts and the new CAS revision are returned
+ // with only this page; avoid a second disk scan after every edit.
+ renderAgentTaskPlan(updated);
  await selectAgentSession(sessionID);
 }
 function renderAgentTaskPlan(data){
