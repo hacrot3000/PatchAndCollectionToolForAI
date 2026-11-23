@@ -6,6 +6,7 @@ import (
  "errors"
  "io"
  "net/http"
+ "net/url"
  "sync"
  "time"
 
@@ -116,6 +117,22 @@ func agentRetryLargerOutputPayload(payload []byte,p agentchat.ProviderConfig)([]
 func (s *Server) agentChatProviderWithRetry(ctx context.Context,owner,sessionID string,p agentchat.ProviderConfig,key string,payload []byte)(agentchat.ResponsesResult,error,string){
  mode:=agentRetryModeForSession(s,owner,sessionID)
  replayPayload:=payload
+ // The durable SENDING journal is the only origin of correlation data.
+ // Direct capability probes and legacy tests without a live egress marker
+ // keep using the existing transport without manufacturing a fake receipt.
+ var attemptStore *agentchat.Store
+ var runID string
+ if sessionID!=""&&owner!=""{
+  if candidate,e:=s.agentChatStore();e==nil{
+   if x,e:=candidate.Get(sessionID,owner);e==nil&&x.Workspace==s.Workspace&&
+    x.Status=="requesting_ai"&&x.ProviderRun!=nil&&x.ProviderRun.Phase=="sending"{
+    attemptStore=candidate
+    runID=x.ProviderRun.ID
+   }
+  }
+ }
+ parsedURL,_:=url.Parse(p.BaseURL)
+ headerSupported:=parsedURL!=nil&&agentchat.SupportsClientRequestID(parsedURL.Hostname())
  defer agentRetryPublish(s.Workspace,owner,sessionID,agentRetryProgress{Phase:"idle"})
  for attempt:=1; ;attempt++{
   if err:=ctx.Err();err!=nil{return agentchat.ResponsesResult{},err,""}
@@ -123,6 +140,21 @@ func (s *Server) agentChatProviderWithRetry(ctx context.Context,owner,sessionID 
   if mode==agentchat.RetryLimited{remaining=6-attempt}
   agentRetryPublish(s.Workspace,owner,sessionID,agentRetryProgress{Mode:mode,Attempt:attempt,Remaining:remaining,Phase:"sending"})
   callCtx,cancel:=context.WithTimeout(ctx,60*time.Second)
+  if attemptStore!=nil{
+   // Flush the audit sidecar BEFORE each individual network attempt.
+   // All retry attempts get distinct IDs, even if output budgets change.
+   // Corrupt/missing storage blocks the attempt rather than losing the
+   // correlation that a provider support investigation will need.
+   clientID,e:=attemptStore.RecordProviderAttempt(
+    sessionID,owner,runID,uint64(attempt),replayPayload,headerSupported)
+   if e!=nil{
+    cancel()
+    return agentchat.ResponsesResult{},e,""
+   }
+   if headerSupported{
+    callCtx=agentchat.WithProviderClientRequestID(callCtx,clientID)
+   }
+  }
   result,err,trace:=s.agentChatObservedCall(callCtx,owner,"provider_request",sessionID,p,key,replayPayload)
   cancel()
   // User Stop/daemon shutdown is authoritative even when the transport
