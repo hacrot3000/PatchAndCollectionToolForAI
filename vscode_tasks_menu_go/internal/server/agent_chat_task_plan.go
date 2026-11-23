@@ -142,24 +142,56 @@ func (s *Server) agentChatTaskPlanAPI(w http.ResponseWriter,r *http.Request,id s
    return
   }
  }
- // Paged status edits may write a single verified 32-step page. A done
- // transition is eligible ONLY for explicit owner manual attestation or a
- // canonical in-journal Patch/Collection receipt; the Store verifies it
- // under the same journal lock as the revision CAS. Archived receipts and
- // native Task/Go-suite proof retain the full-plan verifier below.
- if r.Method==http.MethodPost&&postPaged&&req.Action=="set_step"&&
+ // Only the explicitly confirmed, owner-owned acceptance edits and
+ // verified status/done transitions use the bounded 32-step CAS writer.
+ // Native Task/Go proof and all unpaged/inline operations retain the full
+ // validator path below. The Store itself validates ALL offscreen pages.
+ eligiblePagedStep:=req.Action=="set_step"&&
   (req.Status=="pending"||req.Status=="active"||req.Status=="blocked"||
    (req.Status=="done"&&(req.EvidenceKind=="manual"||
-    req.EvidenceKind=="patch"||req.EvidenceKind=="collection"))){
+    req.EvidenceKind=="patch"||req.EvidenceKind=="collection")))
+ eligiblePagedAcceptance:=req.Action=="set_acceptance_criteria"||
+  req.Action=="review_acceptance_criterion"
+ if r.Method==http.MethodPost&&postPaged&&(eligiblePagedStep||eligiblePagedAcceptance){
   var page agentchat.TaskPlanPageResult
   var e error
-  if req.Status=="done"{
-   page,e=store.SetSegmentTaskPlanStepDone(
-    id,owner,req.ExpectedRevision,req.StepID,req.EvidenceKind,
-    req.EvidenceRef,req.EvidenceNote,postOffset,postLimit)
-  }else{
-   page,e=store.SetSegmentTaskPlanStepStatus(
-    id,owner,req.ExpectedRevision,req.StepID,req.Status,postOffset,postLimit)
+  switch req.Action{
+  case "set_step":
+   if req.Status=="done"{
+    page,e=store.SetSegmentTaskPlanStepDone(
+     id,owner,req.ExpectedRevision,req.StepID,req.EvidenceKind,
+     req.EvidenceRef,req.EvidenceNote,postOffset,postLimit)
+   }else{
+    page,e=store.SetSegmentTaskPlanStepStatus(
+     id,owner,req.ExpectedRevision,req.StepID,req.Status,postOffset,postLimit)
+   }
+  case "set_acceptance_criteria":
+   if !req.ConfirmCoverage{
+    http.Error(w,"explicit owner confirmation required to replace acceptance matrix",403);return
+   }
+   if len(req.AcceptanceCriteria)>agentchat.MaxTaskAcceptanceCriteria{
+    http.Error(w,"too many acceptance criteria",400);return
+   }
+   criteria:=make([]agentchat.TaskAcceptanceCriterion,0,len(req.AcceptanceCriteria))
+   for _,v:=range req.AcceptanceCriteria{
+    criteria=append(criteria,agentchat.TaskAcceptanceCriterion{
+     ID:v.ID,Description:strings.TrimSpace(v.Description),
+     RequiredTests:append([]string(nil),v.RequiredTests...),
+    })
+   }
+   page,e=store.SetSegmentTaskPlanAcceptanceCriteria(
+    id,owner,req.ExpectedRevision,req.StepID,criteria,postOffset,postLimit)
+  case "review_acceptance_criterion":
+   if !req.ConfirmCoverage{
+    http.Error(w,"explicit owner review confirmation required",403);return
+   }
+   note:=strings.TrimSpace(req.CoverageReviewNote)
+   if len(note)==0||len(note)>512{
+    http.Error(w,"owner review note is required and at most 512 bytes",400);return
+   }
+   page,e=store.ReviewSegmentTaskPlanAcceptanceCriterion(
+    id,owner,req.ExpectedRevision,req.StepID,
+    req.CriterionID,note,postOffset,postLimit)
   }
   if e==nil{
    w.Header().Set("Cache-Control","no-store")
@@ -180,6 +212,12 @@ func (s *Server) agentChatTaskPlanAPI(w http.ResponseWriter,r *http.Request,id s
     http.Error(w,"invalid task plan step: unknown task plan step",409)
    case errors.Is(e,agentchat.ErrTaskPlanCompletionProofRejected):
     http.Error(w,"completion evidence not verified or owner acceptance criteria not reviewed",409)
+   case errors.Is(e,agentchat.ErrTaskPlanAcceptanceInvalid):
+    http.Error(w,"invalid acceptance criteria or unmapped required Go test",400)
+   case errors.Is(e,agentchat.ErrTaskPlanCriterionNotFound):
+    http.Error(w,"unknown acceptance criterion for milestone",404)
+   case errors.Is(e,agentchat.ErrTaskPlanAcceptanceLocked):
+    http.Error(w,"reopen accepted milestone before editing acceptance criteria",409)
    default:
     http.Error(w,"unable to persist task plan",409)
    }
