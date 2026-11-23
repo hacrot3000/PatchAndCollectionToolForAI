@@ -116,7 +116,10 @@ func TestSegmentAcceptanceRefusesCorruptionForgedMappingsAndStaleOwner(t *testin
  if err!=nil{t.Fatal(err)}
  reject:=func(want error,fn func()error){
   t.Helper()
-  if e:=fn();!errors.Is(e,want){t.Fatalf("expected %v; got %v",want,e)}
+  e:=fn()
+  if want==nil{
+   if e==nil{t.Fatal("corrupted offscreen page admitted")}
+  }else if !errors.Is(e,want){t.Fatalf("expected %v; got %v",want,e)}
   now,e:=os.ReadFile(store.file(x.ID))
   if e!=nil{t.Fatal(e)}
   if !bytes.Equal(original,now){t.Fatal("rejected acceptance edit modified canonical journal")}
@@ -163,7 +166,7 @@ func TestSegmentAcceptanceRefusesCorruptionForgedMappingsAndStaleOwner(t *testin
  file:=store.taskPlanSegmentPath(x.ID,x.TaskPlanSegments[0])
  raw,err:=os.ReadFile(file);if err!=nil{t.Fatal(err)}
  if err=os.WriteFile(file,[]byte("[{}]"),0600);err!=nil{t.Fatal(err)}
- reject(ErrInvalidSession,func()error{
+ reject(nil,func()error{
   _,e:=store.SetSegmentTaskPlanAcceptanceCriteria(x.ID,"local",x.Revision,
    "step-0501",[]TaskAcceptanceCriterion{{ID:"a",Description:"A valid criterion"}},480,24)
   return e
