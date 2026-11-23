@@ -27,8 +27,8 @@ func TestAgentNativeCollectionRequestUsesOriginalSchemaAndIdentity(t *testing.T)
  if actions[0].(map[string]any)["type"]!="decompile"||actions[0].(map[string]any)["address"]!="0x21E551A"{
   t.Fatalf("native-specific decompile arguments were lost: %+v",actions)
  }
- if _,ok,err:=agentNativeCollectionTextRequest(request,identity);ok||err!=nil{
-  t.Fatal("text fallback accepted COLLECT without explicit identity")
+ if _,ok,err:=agentNativeCollectionTextRequest(request,identity);!ok||err==nil{
+  t.Fatal("text Collection with missing identity must be recognized and rejected visibly")
  }
  wrong:=`{"project":{"key":"foreign","id":"4fb18d97-cbc2-433b-8234-538b32ed0189"},"actions":[{"type":"search","query":"hello"}]}`
  if _,err:=agentNativeCollectionRequest(wrong,identity,false);err==nil{t.Fatal("foreign native request was accepted")}
