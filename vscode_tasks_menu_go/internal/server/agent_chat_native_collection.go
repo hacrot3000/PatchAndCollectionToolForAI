@@ -220,7 +220,7 @@ func agentNativeCollectionObservation(root string,identity patchtool.ProjectIden
    }
   }else{outcome["artifact_error"]=scrubAIContext(err.Error(),240)}
  }
- if txtPath!=""&&zipPath!="" {
+ if outcome["evidence_verified"]==true&&txtPath!=""&&zipPath!="" {
   excerpt,truncated,err:=agentNativeCollectionTextExcerpt(root,txtPath)
   if err==nil{
    outcome["text_excerpt"]=excerpt
