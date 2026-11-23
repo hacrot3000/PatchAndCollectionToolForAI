@@ -3,6 +3,7 @@ package agentchat
 import (
 	"fmt"
 	"net"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -185,5 +186,32 @@ func TestProviderResponseParseRetryClassification(t *testing.T) {
   if pe.Code!=tc.code||pe.ProviderErrorCode!=tc.reason||pe.Retryable!=tc.retry{
    t.Errorf("body %s: %+v",tc.body,pe)
   }
+ }
+}
+
+func TestProviderClientPoolKeepsPolicyIsolated(t *testing.T) {
+ p:=sampleProvider()
+ first:=newProviderClient(p)
+ if first!=newProviderClient(p){t.Fatal("identical endpoint lost pooled transport")}
+ transport,ok:=first.Transport.(*http.Transport)
+ if !ok||transport.DisableKeepAlives||!transport.ForceAttemptHTTP2||
+   transport.ResponseHeaderTimeout!=providerHeaderTimeout||first.Timeout!=providerHTTPTimeout {
+  t.Fatalf("provider transport has unsafe or short-lived settings: %#v",first.Transport)
+ }
+ p.TrustedSharedIPs=[]string{"100.64.0.19"}
+ changedTrust:=newProviderClient(p)
+ if changedTrust==first{t.Fatal("trust-policy change reused older connection pool")}
+ p.BaseURL="https://api.example.com/v1"
+ if newProviderClient(p)==changedTrust{t.Fatal("endpoint change reused old connection pool")}
+}
+
+func TestProviderHTTPTransientAndPermanentStatusClassification(t *testing.T) {
+ for _,status:=range []int{408,425,429,499,500,503} {
+  pe:=parseProviderHTTPError(status,"",[]byte(`{"error":{"message":"temporary gateway failure"}}`))
+  if !pe.Retryable{t.Errorf("HTTP %d must be retryable when user enabled retries",status)}
+ }
+ for _,status:=range []int{400,401,403,404,422} {
+  pe:=parseProviderHTTPError(status,"",nil)
+  if pe.Retryable{t.Errorf("HTTP %d must remain permanent",status)}
  }
 }
