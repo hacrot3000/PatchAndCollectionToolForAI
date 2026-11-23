@@ -916,7 +916,7 @@ function renderAgentTool(session,item){
  }
  if(!record.feedback_sent&&['running','dispatching','queued','unknown','done','error'].includes(state)){
   if((session.auto_feedback||record.send_after_retry)&&['done','error'].includes(state)){
-   box.append(agentEl('p','agentchat-tool-summary','Automatically forwarding the verified native result (PASS or FAIL) to AI…'));
+   box.append(agentEl('p','agentchat-tool-summary','Verified native Patch result ready (PASS or FAIL) · awaiting Auto-send worker…'));
   }else{
    actions.append(agentButton('Get the last result and send to AI',
     ()=>recoverAgentPatch(agentCurrentSession||session,item.call_id,'send_existing').catch(showAgentError)));
@@ -1055,7 +1055,7 @@ function agentLivePhase(session){
  if(['queued','dispatching','running'].includes(lastCall?.status))return {message:'Running native Patch…'};
  if(session.status==='waiting_tool'&&lastCall?.status==='pending'&&session.auto_patch)return {message:'Submitting Patch to native tool…'};
  if(['waiting_tool','tool_rejected'].includes(session.status)&&['done','error','rejected'].includes(lastCall?.status)&&
-    session.auto_feedback&&!lastCall.feedback_sent)return {message:'Sending verified Patch result to AI…'};
+    session.auto_feedback&&!lastCall.feedback_sent)return {message:'Verified Patch result ready · awaiting Auto-send worker…'};
  return null;
 }
 function agentUpdateLiveRow(session){
@@ -1419,7 +1419,7 @@ async function selectAgentSession(id){
  openAgentTab(id);
  displayAgentSession(sess);
  if(sess.status==='requesting_ai'&&!agentSessionBusy(id))
-  status.textContent='A model request is still running on the server. Use Cancel if you want to stop waiting.';
+  status.textContent='AI request is running on the server · new responses will appear automatically. Use Cancel only to stop the request.';
  scheduleAgentMonitor(sess);
  return sess;
 }
@@ -1500,17 +1500,38 @@ async function showAgentExecution(sessionID,callID){
  agentExecutionContent.textContent=agentExecutionText;
  agentExecutionPanel.classList.add('visible');
 }
+// POST /sync writes a reconciled result and needs the exclusive turn lock.
+// An AI provider request or Auto-feedback continuation can hold that lock
+// for an extended period. The read-only GET journal is safe during that turn.
+function agentPatchSyncTurnBusy(error){
+ return Number(error?.httpStatus)===409 &&
+  /Agent (?:session|conversation) is busy/i.test(String(error?.message||''));
+}
 async function syncAgentPatch(id,{quiet=false}={}){
- if(agentSessionBusy(id)){
-  if(!quiet)status.textContent='Agent is busy; native Patch status can be checked when the request finishes.';
-  return null;
- }
  if(agentPatchSyncInFlight.has(id))return null;
  agentPatchSyncInFlight.add(id);
  try{
-  const result=await agentApp.jsonFetch('/api/agent/sessions/'+encodeURIComponent(id)+'/sync',{
-   method:'POST',headers:{'Content-Type':'application/json'},body:'{}',
-  });
+  const base='/api/agent/sessions/'+encodeURIComponent(id);
+  // When another request owns the Agent turn, never attempt a competing
+  // POST. GET shows persisted progress and cannot replay a Patch or feedback.
+  if(agentSessionBusy(id)||agentCurrentSession?.id===id&&agentCurrentSession.status==='requesting_ai'){
+   if(agentActive===id)await selectAgentSession(id);
+   if(!quiet&&agentActive===id)status.textContent='AI request is active · native Patch progress is updating from saved results.';
+   return null;
+  }
+  let result;
+  try{
+   result=await agentApp.jsonFetch(base+'/sync',{
+    method:'POST',headers:{'Content-Type':'application/json'},body:'{}',
+   });
+  }catch(error){
+   if(!agentPatchSyncTurnBusy(error))throw error;
+   // A timer can race the background Auto-feedback worker and lose the turn
+   // lock between scheduling and POST. This is not a native Patch failure.
+   if(agentActive===id)await selectAgentSession(id);
+   if(!quiet&&agentActive===id)status.textContent='AI request is active · native Patch progress is updating from saved results.';
+   return null;
+  }
   if(agentActive!==id)return result;
   // No journal revision change means native state did not change. Keep the
   // whole transcript/tab/console DOM untouched and avoid a second API call.

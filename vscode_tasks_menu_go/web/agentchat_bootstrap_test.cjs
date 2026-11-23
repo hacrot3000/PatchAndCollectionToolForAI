@@ -837,6 +837,58 @@ console.log('PASS: safe Markdown, syntax-highlighted PHP/Python, per-block Copy,
   assert.deepEqual(requests,['/api/agent/sessions/test-session/sync','/api/agent/sessions/test-session'],
     'changed sync must fetch exactly one session detail');
   assert.equal(transcript.children[0],originalUser,'changed revision without new content may not repaint');
+  // Auto-feedback provider requests hold the server turn lock. A browser
+  // polling POST /sync that races one receives an expected 409. It must
+  // fall back to the read-only journal, without surfacing an error or replay.
+  requests=[];
+  const activeTurn={...edited,status:'requesting_ai',revision:204,event_seq:12};
+  context.TaskMenuApp.jsonFetch=async url=>{
+    requests.push(url);
+    if(url.endsWith('/sync')){
+      const e=new Error('Agent session is busy');e.httpStatus=409;throw e;
+    }
+    if(url.endsWith('/sessions/test-session'))
+      return {session:activeTurn,patch_tool_status:'enabled'};
+    throw Error('Unexpected polling request: '+url);
+  };
+  await vm.runInNewContext("syncAgentPatch('test-session',{quiet:true})",context);
+  assert.deepEqual(requests,[
+    '/api/agent/sessions/test-session/sync',
+    '/api/agent/sessions/test-session'
+  ],'409 while sending AI feedback must use a read-only GET, not be reported as a Patch failure');
+  assert.equal(vm.runInNewContext('agentCurrentSession.status',context),'requesting_ai',
+    'server-owned model request must stay visible while the foreground poll is locked');
+  requests=[];
+  await vm.runInNewContext("syncAgentPatch('test-session',{quiet:false})",context);
+  assert.deepEqual(requests,['/api/agent/sessions/test-session'],
+    'a known model turn must never issue a competing native /sync POST');
+  assert.ok(!String(vm.runInNewContext('status.textContent',context)).includes('polling failed'),
+    'expected turn-lock contention must not render a failure');
+  // A generic 409 can signal a real conflict and must never be suppressed.
+  requests=[];
+  vm.runInNewContext('agentCurrentSession=resetSyncSnapshot',Object.assign(context,{
+    resetSyncSnapshot: {...edited,revision:203,status:'waiting_tool'}
+  }));
+  context.TaskMenuApp.jsonFetch=async url=>{
+    requests.push(url);
+    const e=new Error('unrelated revision conflict');e.httpStatus=409;throw e;
+  };
+  await assert.rejects(
+    vm.runInNewContext("syncAgentPatch('test-session',{quiet:true})",context),
+    /unrelated revision conflict/,
+    'unrelated HTTP conflicts must remain visible'
+  );
+  assert.deepEqual(requests,['/api/agent/sessions/test-session/sync']);
+  assert.equal(vm.runInNewContext('agentPatchSyncInFlight.size',context),0,
+    'poll in-flight guard must release after a conflicting request');
+  const awaitingFeedback={...edited,status:'waiting_tool',auto_feedback:true,
+    tool_calls:[{call_id:'queued-result',status:'done',feedback_sent:false}]};
+  const readyMessage=vm.runInNewContext('agentLivePhase(readySyncSnapshot).message',
+    Object.assign(context,{readySyncSnapshot:awaitingFeedback}));
+  assert.match(readyMessage,/awaiting Auto-send worker/,
+    'a result not yet sent to provider must be labeled ready, not sending');
+  console.log('PASS: busy native polling uses read-only journal and pending feedback wording');
+
   console.log('PASS: append-only transcript, single-card status updates and revision-gated polling');
 
   // A user message appears synchronously, before any HTTP request resolves.
