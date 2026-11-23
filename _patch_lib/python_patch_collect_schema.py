@@ -441,7 +441,7 @@ def _validate_stdin_cli(argv: list[str] | None = None) -> int:
     parser.add_argument("--validate-stdin", action="store_true", required=True)
     args = parser.parse_args(argv)
     try:
-        from python_patch_project_state import ensure_project_identity
+        from python_patch_project_state import load_project_config
 
         raw = sys.stdin.buffer.read((256 << 10) + 1)
         if not raw or len(raw) > (256 << 10):
@@ -458,7 +458,8 @@ def _validate_stdin_cli(argv: list[str] | None = None) -> int:
         source = json.loads(raw.decode("utf-8"), object_pairs_hook=reject_duplicate)
         normalized = validate_request_data(source)
         from pathlib import Path
-        active = ensure_project_identity(Path(args.project_root).resolve())
+        project = load_project_config(Path(args.project_root).resolve()).get("project")
+        active = {k: project.get(k) for k in ("key", "id")} if isinstance(project, dict) else {}
         if normalized.get("project") != active:
             raise CollectSchemaError("project.key/project.id do not match the active workspace")
     except (ValueError, UnicodeError, OSError, KeyError, TypeError) as exc:
