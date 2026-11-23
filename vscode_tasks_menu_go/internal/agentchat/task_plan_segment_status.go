@@ -113,9 +113,9 @@ func (s *Store) SetSegmentTaskPlanStepStatus(
 
 // SetSegmentTaskPlanStepDone commits a proof-verified milestone by rewriting
 // only its immutable 32-step page. A manual note is an explicit OWNER
-// attestation, not a machine test; in-journal Patch/Collection evidence is
-// checked against the SAME canonical receipts as the legacy endpoint.
-// Archived/native Go evidence continues through the existing full-plan path.
+// attestation, not a machine test; active and integrity-checked archived
+// Patch/Collection evidence use the SAME canonical verifier as legacy code.
+// Native Task/Go-test evidence continues through the full-plan path.
 // No caller can pass a pre-manufactured TaskPlanEvidence to this method.
 func (s *Store) SetSegmentTaskPlanStepDone(
  id,owner string,expectedRevision uint64,stepID,kind,ref,note string,
@@ -176,15 +176,11 @@ func (s *Store) setSegmentTaskPlanStep(
    if !TaskPlanStepCriteriaReviewed(old)||len(old.Evidence)>=MaxTaskPlanEvidence{
     return ErrTaskPlanCompletionProofRejected
    }
-   proof,verifyErr:=VerifyTaskPlanEvidence(x,kind,ref,note)
-   if verifyErr!=nil{
-    if kind=="patch"||kind=="collection"{
-     // The authoritative receipt might live in an integrity-checked
-     // archive. The legacy endpoint resolves it without bypassing proof.
-     return ErrTaskPlanSegmentWriteUnsupported
-    }
-    return ErrTaskPlanCompletionProofRejected
-   }
+   // Verification and the expected-revision CAS share this SAME lock:
+   // archive receipts cannot be replaced by a concurrent journal writer.
+   // Never call the public Archived... methods from inside withLock.
+   proof,verifyErr:=s.verifyArchivedTaskPlanEvidenceLocked(x,kind,ref,note)
+   if verifyErr!=nil{return ErrTaskPlanCompletionProofRejected}
    target.Evidence=append(target.Evidence,proof)
   }
   target.Status=status
@@ -279,5 +275,5 @@ func (s *Store) setSegmentTaskPlanStep(
 }
 
 // This file intentionally does not allow arbitrary evidence injection.
-// Go test/Task-run proof, archive-only receipts, command guard mutations,
-// AutoCheck rules and final plan completion keep the legacy verified path.
+// Go test/Task-run proof, command guard mutations, AutoCheck rules and
+// final plan completion keep the legacy full-plan verified path.
