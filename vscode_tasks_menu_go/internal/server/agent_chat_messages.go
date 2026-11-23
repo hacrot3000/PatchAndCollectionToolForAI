@@ -465,6 +465,7 @@ func (s *Server) agentChatMessageAPI(w http.ResponseWriter, r *http.Request, id 
 		return
 	}
 	markAgentProviderOutcome(&session,"acknowledged")
+ recordAgentTokenUsage(&session,result)
 	// Collection tool calls (and project-bound legacy Collection JSON) are
 	// read-only. Execute and feed them back to the provider automatically until
 	// it answers or proposes a Patch requiring the existing human approval.

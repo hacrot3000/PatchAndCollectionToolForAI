@@ -22,6 +22,8 @@ type ProviderRun struct {
  CallID string `json:"call_id,omitempty"`
  PayloadSHA256 string `json:"payload_sha256"`
  ProviderFingerprint string `json:"provider_fingerprint"`
+ EstimatedInputTokens uint64 `json:"estimated_input_tokens,omitempty"`
+ UsageRecorded bool `json:"usage_recorded,omitempty"`
  CreatedAt time.Time `json:"created_at"`
  UpdatedAt time.Time `json:"updated_at"`
 }

@@ -87,3 +87,12 @@ The same `internal/agentchat/contextcompact` library now owns file-attachment su
 - Browser UI compacts automatically without another warning or a 32 KiB rejection for the original file. Quoted selections and terminal excerpts remain exact, subject to their existing 32 KiB bounds.
 
 Regression coverage: `contextcompact/attachment_summary_test.go` (multi-line Nim proc/template/ee.on, exact line ranges, >32 KiB source, other languages, metadata-only/noncode, JPEG EXIF); `agent_chat_attachment_summary_test.go` (project path, binary, local image, RBAC, bad input); `web/agentchat_bootstrap_test.cjs` (large editor staging before provider request).
+
+
+## 2026-11-23 — AI Agent request and conversation token estimates
+
+- The existing `contextcompact.Tokens` conservative UTF-8 bytes/2 heuristic now estimates the **serialized canonical provider request** when PREPARED is durably journaled. `provider_run.estimated_input_tokens` is available while SENDING. It is **not** a provider tokenizer, nor a guaranteed context-window measurement; stateful provider-side retained history may be larger than this local payload.
+- On every successful provider response (user message, Native Collection continuation, Native Patch feedback, or recovered PREPARED-only call), `recordAgentTokenUsage` increments persisted `session.token_usage`. Provider `input_tokens` and `output_tokens` win when reported; missing fields are estimated. A per-run `usage_recorded` fence prevents accidental double-counting of a returned reply. Unconfirmed SENDING/UNKNOWN and failed requests are **not** counted (they may nevertheless incur provider-side charges).
+- The conversation pane shows the current request's `≈ input tokens` in its live sending/thinking status and a bottom-right cumulative token readout with input/output, total request count, and number using estimates. Separate conversations have separate counters. Old conversations begin at zero *tracked since the update*: no ungrounded backfill of historical billed usage. Stateless replay counts repeated input per request, unlike a one-time snapshot of transcript size.
+- Counts are informational only; they do not alter provider retries, consent, tool execution or native Patch safety.
+- Tests: `agent_chat_token_usage_test.go` and `web/agentchat_bootstrap_test.cjs`. Verify CI before treating this change as released.

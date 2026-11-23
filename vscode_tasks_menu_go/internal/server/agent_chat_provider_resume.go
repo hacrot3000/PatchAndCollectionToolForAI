@@ -106,6 +106,7 @@ func (s *Server) resumePreparedAgentProviderRun(ctx context.Context,store *agent
   return true
  }
  markAgentProviderOutcome(&x,"acknowledged")
+ recordAgentTokenUsage(&x,result)
  if run.Kind=="feedback"{
   for i:=range x.ToolCalls{
    if agentFeedbackGroupContains(agentRejectedToolCallGroupByID(x,run.CallID),i){x.ToolCalls[i].FeedbackStatus="acknowledged"}

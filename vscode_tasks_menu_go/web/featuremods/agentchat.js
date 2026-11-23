@@ -185,6 +185,7 @@ agentCSS.textContent=[
 '.agentchat-attach-context-menu.open{display:block}.agentchat-attach-context-menu button{width:100%;text-align:left}',
 'html[data-taskmenu-theme="light"] .agentchat-attach-context-menu{background:#fff;color:#17283a}',
 '.agentchat-composer textarea{width:100%;min-height:66px;max-height:160px;resize:vertical}',
+'.agentchat-token-usage{font:11px ui-monospace,monospace;opacity:.8;text-align:right;padding:3px 10px 5px;line-height:1.45;white-space:normal}',
 '.agentchat-info{font-size:11px;color:#b6cce2;line-height:1.5;padding:4px 8px}',
 '.agentchat-settings-overlay{position:fixed;inset:0;z-index:17110;display:none;align-items:center;justify-content:center;background:#000a;padding:15px}',
 '.agentchat-settings-overlay.visible{display:flex}',
@@ -299,6 +300,8 @@ modeSelect.value='stateless';
 // Hidden selects keep a single source of truth for new-session creation,
  // provider/model config, model default and immutable existing sessions.
 const transcript=agentEl('div','agentchat-transcript');
+const agentTokenUsageLine=agentEl('div','agentchat-token-usage');
+agentTokenUsageLine.setAttribute('aria-label','Conversation token usage');
 // Keep inspection expansion and the execution viewer independent of transcript
 // replacements triggered by native status polling.
 const agentOpenReviewDetails=new Set();
@@ -478,7 +481,7 @@ const agentHeaderGroups=[conversationGroup,automationGroup,toolsGroup,layoutGrou
 for(const group of agentHeaderGroups)toolbarActions.append(group);
 heading.append(title,toolbarActions,moreButton,close,moreMenu);
 actionLine.append(status,cancel,send);composer.append(attachToggle,prompt,actionLine);
-main.append(tabbar,toolNotice,agentProviderEgressNotice,transcript,agentExecutionPanel,agentTaskPlanPanel,composer,attachPopup);layout.append(main);
+main.append(tabbar,toolNotice,agentProviderEgressNotice,transcript,agentExecutionPanel,agentTaskPlanPanel,agentTokenUsageLine,composer,attachPopup);layout.append(main);
 const footer=agentEl('div','agentchat-info','Agent automation is configured per conversation. Native Patch results are verified before being sent to AI.');
 windowBox.append(heading,viewTabs,layout,debugPanel,footer);root.append(windowBox);
 const agentToolbarItems=agentHeaderGroups;
@@ -1152,6 +1155,32 @@ function agentLivePhase(session){
     session.auto_feedback&&!lastCall.feedback_sent)return {message:'Verified Patch result ready · awaiting Auto-send worker…'};
  return null;
 }
+function agentFormatTokenCount(value){
+ const n=Number(value);
+ return Number.isSafeInteger(n)&&n>=0?n.toLocaleString('en-US'):'—';
+}
+function agentUpdateTokenUsage(session){
+ const usage=session?.token_usage;
+ if(!session){
+  agentTokenUsageLine.textContent='';
+  agentTokenUsageLine.hidden=true;
+  return;
+ }
+ agentTokenUsageLine.hidden=false;
+ const requests=Number(usage?.requests||0);
+ if(!requests){
+  agentTokenUsageLine.textContent='Conversation tokens: 0 tracked · previous usage unavailable';
+  agentTokenUsageLine.title='Tracking starts with the first successful provider reply after this update. Older usage cannot be reconstructed reliably.';
+  return;
+ }
+ const input=Number(usage.input_tokens||0),output=Number(usage.output_tokens||0);
+ const estimated=Number(usage.estimated_requests||0);
+ const partial=estimated>0?' · '+estimated+' request(s) estimated':' · provider-reported';
+ agentTokenUsageLine.textContent='Conversation total: '+agentFormatTokenCount(input+output)+
+  ' tokens (in '+agentFormatTokenCount(input)+' / out '+agentFormatTokenCount(output)+
+  ') · '+agentFormatTokenCount(requests)+' requests'+partial;
+ agentTokenUsageLine.title='Cumulative request usage for this conversation since tracking began. Stateless history replay is counted on each request; unconfirmed/failed provider sends are excluded. Exact token counts require provider usage; missing usage uses byte-based estimates.';
+}
 function agentUpdateLiveRow(session){
  const id=session?.id;
  if(!session||agentActive!==id){
@@ -1174,7 +1203,12 @@ function agentUpdateLiveRow(session){
  }
  agentLiveRow.className='agentchat-live-status'+(phase.error?' error':'');
  agentLiveSpinner.hidden=Boolean(phase.error);
- if(agentLiveText.textContent!==phase.message)agentLiveText.textContent=phase.message;
+ const requestEstimate=Number(session.provider_run?.estimated_input_tokens||0);
+ const sendingOrThinking=session.status==='requesting_ai'&&
+  /^(Sending |Retrying AI request|Thinking)/.test(phase.message);
+ const message=phase.message+(sendingOrThinking&&requestEstimate>0?
+  ' · request input ≈ '+agentFormatTokenCount(requestEstimate)+' tokens':'');
+ if(agentLiveText.textContent!==message)agentLiveText.textContent=message;
  if(transcript.children[transcript.children.length-1]!==agentLiveRow){
   // append(existingNode) moves it without recreating it. This preserves its
   // animation/state and does not count as removing a history entry.
@@ -1343,6 +1377,7 @@ function displayAgentSession(session){
    agentRenderedToolVersions.clear();
   }
   agentCurrentSession=null;
+  agentUpdateTokenUsage(null);
   renderAgentProviderEgressReview(null,null);
   toolNotice.hidden=true;
   if(!transcript.children.length)transcript.append(agentEl('p','','Create or select a session to begin.'));
@@ -1359,6 +1394,7 @@ function displayAgentSession(session){
   agentRenderedToolVersions.clear();
  }
  agentCurrentSession=session;
+ agentUpdateTokenUsage(session);
  const history=agentChronologicalHistory(session);
  const records=new Map((session.tool_calls||[]).map(call=>[call.call_id,call]));
  const outputs=new Map(),callNames=new Map();

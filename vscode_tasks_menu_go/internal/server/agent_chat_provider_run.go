@@ -7,6 +7,7 @@ import (
  "time"
 
  "bletonfc/vscode_tasks_menu/internal/agentchat"
+ "bletonfc/vscode_tasks_menu/internal/agentchat/contextcompact"
 )
 
 // prepareAgentProviderRun is strictly BEFORE any provider network attempt. A
@@ -21,6 +22,7 @@ func prepareAgentProviderRun(store *agentchat.Store,x *agentchat.Session,
   Kind:kind,Phase:"prepared",CallID:callID,
   PayloadSHA256:agentchat.ProviderPayloadDigest(payload),
   ProviderFingerprint:agentchat.CapabilityFingerprint(p,model),
+  EstimatedInputTokens:uint64(contextcompact.Tokens(string(payload))),
   CreatedAt:now,UpdatedAt:now,
  }
  return store.StageProviderPayload(*x,payload)
@@ -49,6 +51,31 @@ func markAgentProviderOutcome(x *agentchat.Session,phase string){
  switch phase{case "acknowledged","unknown","completed","blocked":default:return}
  x.ProviderRun.Phase=phase
  x.ProviderRun.UpdatedAt=time.Now().UTC()
+}
+
+// recordAgentTokenUsage runs ONLY after a provider returned a successful
+// response. It never counts speculative SENDING/UNKNOWN network attempts and
+// never guesses usage for pre-upgrade historical turns. Some providers do not
+// report token usage; those responses are clearly marked estimated.
+func recordAgentTokenUsage(x *agentchat.Session,result agentchat.ResponsesResult){
+ if x==nil||x.ProviderRun==nil||x.ProviderRun.UsageRecorded{return}
+ estimate:=x.ProviderRun.EstimatedInputTokens
+ in:=estimate
+ out:=uint64(contextcompact.Tokens(result.Text))
+ for _,call:=range result.Calls{
+  out+=uint64(contextcompact.Tokens(call.Arguments))
+ }
+ approximate:=false
+ if result.InputTokens>0{in=uint64(result.InputTokens)}else{approximate=true}
+ if result.OutputTokens>0{out=uint64(result.OutputTokens)}else{approximate=true}
+ const maxTokens=uint64(100000000000000)
+ if x.TokenUsage.InputTokens>maxTokens-in||
+    x.TokenUsage.OutputTokens>maxTokens-out{return}
+ x.TokenUsage.InputTokens+=in
+ x.TokenUsage.OutputTokens+=out
+ x.TokenUsage.Requests++
+ if approximate{x.TokenUsage.EstimatedRequests++}
+ x.ProviderRun.UsageRecorded=true
 }
 
 // requestDigestShort is a non-secret value for diagnosable handoff events.

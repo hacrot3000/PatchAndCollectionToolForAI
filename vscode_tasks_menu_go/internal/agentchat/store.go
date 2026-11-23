@@ -144,6 +144,17 @@ const (
 	RetryUnlimited RetryMode = "unlimited"
 )
 
+// TokenUsage tracks confirmed model replies, not the size of retained chat
+// history. Stateless replay therefore counts input on EACH request. Usage is
+// provider-reported where available; otherwise it is an approximate fallback.
+// Older sessions start tracking only after upgrading; no old usage is invented.
+type TokenUsage struct {
+ InputTokens uint64 `json:"input_tokens"`
+ OutputTokens uint64 `json:"output_tokens"`
+ Requests uint64 `json:"requests"`
+ EstimatedRequests uint64 `json:"estimated_requests,omitempty"`
+}
+
 // Session is persisted locally even when the provider offers server-side
 // context. It never contains API keys. All mutations require owner/identity
 // matching and revision compare-and-swap.
@@ -189,6 +200,7 @@ type Session struct {
 	AutoCollection    *bool            `json:"auto_collection,omitempty"`
 	AutoFeedbackUntil *time.Time       `json:"auto_feedback_until,omitempty"`
 	Status            string           `json:"status"`
+ TokenUsage TokenUsage `json:"token_usage,omitempty"`
 	ProviderRun       *ProviderRun     `json:"provider_run,omitempty"`
 	TaskPlan          *TaskPlan        `json:"task_plan,omitempty"`
  TaskPlanSegments []TaskPlanSegmentRef `json:"task_plan_segments,omitempty"`
@@ -327,6 +339,10 @@ func (s *Store) withLock(fn func() error) error {
 }
 func validateSession(x Session) error {
 	if !validProviderRun(x.ProviderRun) {return ErrInvalidSession}
+ if x.TokenUsage.EstimatedRequests>x.TokenUsage.Requests||
+    x.TokenUsage.Requests>1000000000||
+    x.TokenUsage.InputTokens>100000000000000||
+    x.TokenUsage.OutputTokens>100000000000000{return ErrInvalidSession}
 	if err:=ValidateTaskPlan(x.TaskPlan);err!=nil{return err}
 	if x.RetryMode != "" && x.RetryMode != RetryOff &&
 		x.RetryMode != RetryLimited && x.RetryMode != RetryUnlimited {

@@ -332,6 +332,7 @@ func (s *Server) agentChatRunCollection(
 			return result, clearProviderRefs, &agentCollectionProviderError{Round: round+1, TraceID: traceID, Cause: callErr}
 		}
 		markAgentProviderOutcome(x,"acknowledged")
+  recordAgentTokenUsage(x,result)
 	}
 }
 

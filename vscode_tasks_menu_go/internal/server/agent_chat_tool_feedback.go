@@ -319,6 +319,7 @@ func (s *Server) agentDeliverToolResult(ctx context.Context, store *agentchat.St
 	}
 for _,i:=range indices{x.ToolCalls[i].FeedbackStatus="acknowledged"}
 	markAgentProviderOutcome(&x,"acknowledged")
+ recordAgentTokenUsage(&x,result)
 	x.AppendEvent("feedback_acknowledged", x.Status, call.CallID, "")
 	// A verified native Patch result can legitimately lead the model to
 	// inspect more code. Continue read-only Collection calls automatically.

@@ -1415,6 +1415,27 @@ console.log('PASS: safe Markdown, syntax-highlighted PHP/Python, per-block Copy,
    assert.ok(find(rejectedCard,node=>node.tagName==='summary'&&
       node.textContent.includes('Patch rejection feedback')),
      'malformed rejection must show the model-visible diagnostic');
+   // Token readout is scoped to the selected conversation and reports the
+   // serialized provider request estimate during SENDING without claiming an
+   // exact tokenizer or historical usage for pre-upgrade sessions.
+   const usageSession={id:'token-session',status:'requesting_ai',revision:3,
+     history:[],events:[],tool_calls:[],
+     provider_run:{phase:'sending',estimated_input_tokens:8123},
+     token_usage:{requests:2,input_tokens:4500,output_tokens:600,estimated_requests:1}};
+   vm.runInNewContext('displayAgentSession('+JSON.stringify(usageSession)+')',context);
+   const currentTokens=vm.runInNewContext('agentTokenUsageLine.textContent',context);
+   const sendingTokens=vm.runInNewContext('agentLiveText.textContent',context);
+   assert.match(currentTokens,/Conversation total: 5,100 tokens/);
+   assert.match(currentTokens,/2 requests/);
+   assert.match(currentTokens,/1 request\(s\) estimated/);
+   assert.match(sendingTokens,/request input ≈ 8,123 tokens/);
+   vm.runInNewContext('displayAgentSession('+JSON.stringify({...usageSession,
+     id:'token-session-2',token_usage:{requests:0},provider_run:null})+')',context);
+   assert.match(vm.runInNewContext('agentTokenUsageLine.textContent',context),
+     /previous usage unavailable/,'pre-upgrade usage must not be invented');
+   vm.runInNewContext('displayAgentSession(null)',context);
+   assert.equal(vm.runInNewContext('agentTokenUsageLine.hidden',context),true);
+   console.log('PASS: per-session cumulative token usage and live request estimate');
    console.log('PASS: malformed provider Patch exposes diagnosis, sendable feedback and no approval');
    console.log('PASS: bounded/unlimited retry UI, single retry countdown and safe old-Patch recovery actions');
 
