@@ -1007,7 +1007,43 @@ console.log('PASS: safe Markdown, syntax-highlighted PHP/Python, per-block Copy,
   vm.runInNewContext("agentActive='natural-flow';",context);
   console.log('PASS: AI Pack preview dismiss/stale-response isolation without chat mutation or provider request');
 
-  // One click copies the WHOLE multi-trace/session report, not a selected tab
+  
+   // A visible SENDING/UNKNOWN warning is dismissible per exact run identity,
+   // without changing the canonical journal, starting a retry or hiding a
+   // later UNKNOWN/new run acknowledgement warning.
+   const providerNotice=vm.runInNewContext('agentProviderEgressNotice',context);
+   const warning={run_id:'r42-e17',kind:'collection',phase:'sending',
+     payload_sha256:'a'.repeat(64),requires_reconciliation:true,
+     automatic_replay_allowed:false,guidance:'Provider acknowledgement not confirmed'};
+   context.warning=warning;
+   vm.runInNewContext("renderAgentProviderEgressReview({id:'session-warning'},warning)",context);
+   assert.equal(providerNotice.hidden,false,'ambiguous sending warning must be visible by default');
+   const dismissWarning=find(providerNotice,node=>node.tagName==='button'&&node.textContent==='Dismiss warning');
+   assert.ok(dismissWarning,'warning has an independent close control');
+   assert.equal(dismissWarning.attributes['aria-label'],
+     'Dismiss provider warning without resolving the request');
+   assert.ok(find(providerNotice,node=>node.tagName==='button'&&node.textContent==='Open handoff'),
+     'handoff remains available before dismissal');
+   dismissWarning.onclick();
+   assert.equal(providerNotice.hidden,true,'dismiss hides only the warning panel');
+   vm.runInNewContext("renderAgentProviderEgressReview({id:'session-warning'},warning)",context);
+   assert.equal(providerNotice.hidden,true,'polling the identical run must not reopen a dismissed warning');
+   context.warningUnknown={...warning,phase:'unknown'};
+   vm.runInNewContext("renderAgentProviderEgressReview({id:'session-warning'},warningUnknown)",context);
+   assert.equal(providerNotice.hidden,false,'transition to UNKNOWN must show a new warning');
+   const dismissUnknown=find(providerNotice,node=>node.tagName==='button'&&node.textContent==='Dismiss warning');
+   dismissUnknown.onclick();
+   context.warningNext={...warning,run_id:'r43-e18'};
+   vm.runInNewContext("renderAgentProviderEgressReview({id:'session-warning'},warningNext)",context);
+   assert.equal(providerNotice.hidden,false,'different provider run must show a new warning');
+   vm.runInNewContext("renderAgentProviderEgressReview(null,null)",context);
+   assert.equal(providerNotice.hidden,true,'no ambiguous provider run clears the panel');
+   vm.runInNewContext("renderAgentProviderEgressReview({id:'other-session'},warning)",context);
+   assert.equal(providerNotice.hidden,false,'dismissal must not leak across session IDs');
+   vm.runInNewContext("renderAgentProviderEgressReview(null,null)",context);
+   console.log('PASS: provider warning per-run dismissal preserves SENDING/UNKNOWN and no replay');
+
+// One click copies the WHOLE multi-trace/session report, not a selected tab
   // or only the currently visible subset. Prefetch is complete before click
   // so Firefox retains its transient clipboard activation.
   let copied='';
