@@ -311,14 +311,43 @@ func VerifiedWorkSignature(x Session)string{
 // verified Collection or Native Patch receipt even after its full source was
 // moved to an integrity-checked private archive. All segments are owner scoped.
 // This is audit lookup only: no provider request or Native Patch is executed.
+// VerifyArchivedTaskPlanEvidence uses the authenticated public history APIs.
+// The same proof-checking predicate is shared with the journal-locked,
+ // single-segment CAS path below; only the archive reader differs.
 func VerifyArchivedTaskPlanEvidence(store *Store,x Session,kind,ref,note string)(TaskPlanEvidence,error){
+ if store==nil{return VerifyTaskPlanEvidence(x,kind,ref,note)}
+ return verifyArchivedTaskPlanEvidenceWithReaders(x,kind,ref,note,
+  func(part uint64)([]PatchArchiveEntry,error){return store.ArchivedPatchHistory(x.ID,x.Owner,part)},
+  func(part uint64)([]HistoryItem,error){return store.ArchivedCollectionHistory(x.ID,x.Owner,part)})
+}
+
+// verifyArchivedTaskPlanEvidenceLocked MUST run under Store.withLock after
+// matching the owner and project. Calling the public Archived... APIs here
+// would deadlock on the journal lock; the locked readers enforce the same
+// private format and checksum validation without re-entering it.
+func (s *Store) verifyArchivedTaskPlanEvidenceLocked(x Session,kind,ref,note string)(TaskPlanEvidence,error){
+ return verifyArchivedTaskPlanEvidenceWithReaders(x,kind,ref,note,
+  func(part uint64)([]PatchArchiveEntry,error){return s.readArchivedPatchHistoryLocked(x,part)},
+  func(part uint64)([]HistoryItem,error){return s.readArchivedCollectionHistoryLocked(x,part)})
+}
+
+// No model assertion, archive summary, or unsigned record can become proof.
+// Each archive must pass its private format/session/sequence/sha validation;
+// the exact Native Patch success or paired Collection result must still pass
+// the original canonical verifier. An error in ANY scanned archive fails
+// closed instead of skipping a damaged batch to find a convenient receipt.
+func verifyArchivedTaskPlanEvidenceWithReaders(
+ x Session,kind,ref,note string,
+ readPatch func(uint64)([]PatchArchiveEntry,error),
+ readCollection func(uint64)([]HistoryItem,error),
+)(TaskPlanEvidence,error){
  current,err:=VerifyTaskPlanEvidence(x,kind,ref,note)
  if err==nil{return current,nil}
- if store==nil||x.ID==""||x.Owner==""||ref==""||len(ref)>256{return TaskPlanEvidence{},err}
+ if x.ID==""||x.Owner==""||ref==""||len(ref)>256||len(note)>512{return TaskPlanEvidence{},err}
  switch kind{
  case "patch":
   for part:=x.PatchArchiveParts;part>0;part--{
-   entries,e:=store.ArchivedPatchHistory(x.ID,x.Owner,part)
+   entries,e:=readPatch(part)
    if e!=nil{return TaskPlanEvidence{},fmt.Errorf("cannot verify Patch archive %d: %w",part,e)}
    for _,entry:=range entries{
     call:=entry.Call
@@ -329,7 +358,7 @@ func VerifyArchivedTaskPlanEvidence(store *Store,x Session,kind,ref,note string)
   }
  case "collection":
   for part:=x.HistoryArchiveParts;part>0;part--{
-   items,e:=store.ArchivedCollectionHistory(x.ID,x.Owner,part)
+   items,e:=readCollection(part)
    if e!=nil{return TaskPlanEvidence{},fmt.Errorf("cannot verify Collection archive %d: %w",part,e)}
    for i:=0;i+1<len(items);i++{
     call,output:=items[i],items[i+1]
