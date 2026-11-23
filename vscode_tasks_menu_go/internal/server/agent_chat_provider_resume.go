@@ -68,7 +68,7 @@ func (s *Server) resumePreparedAgentProviderRun(ctx context.Context,store *agent
   }
   if !matched{fail("feedback_receipt_not_prepared");return true}
  }
- releaseSlot,admitted:=acquireAgentSlot(ctx,aiWorkspaceHash(s.Workspace)+":local")
+ releaseSlot,admitted:=acquireAgentProviderSlot(ctx,aiWorkspaceHash(s.Workspace)+":local")
  if !admitted{return false}
  defer releaseSlot()
  releaseQuota,allowed:=s.reserveAIRequest(aiWorkspaceHash(s.Workspace)+":local",20)
