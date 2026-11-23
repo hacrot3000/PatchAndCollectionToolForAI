@@ -623,7 +623,7 @@ func DoResponses(ctx context.Context, p ProviderConfig, key string, body []byte)
 		code, message, ambiguous := classifyProviderTransportError(ctx, err)
 		diagnostic := DiagnosticEvent{Level: "error", Stage: "provider_http", Event: "http.error", Code: code, SafeMessage: message, Endpoint: endpoint, APIType: p.APIType, ProviderID: p.ID, RequestBytes: len(body), RequestSHA256: BodyDigest(body), Duration: time.Since(started)}
 		RecordProviderDiagnostic(ctx, diagnostic)
-		return ResponsesResult{}, &ProviderError{Code: code, Stage: "provider_http", Message: message, Retryable: code == "CONNECT_FAILED" || code == "REQUEST_TIMEOUT", Ambiguous: ambiguous, BlockedSharedIP: blockedSharedIP(err)}
+		return ResponsesResult{}, &ProviderError{Code: code, Stage: "provider_http", Message: message, Retryable: code == "CONNECT_FAILED" || code == "CONNECT_TIMEOUT" || code == "RESPONSE_HEADER_TIMEOUT" || code == "REQUEST_TIMEOUT", Ambiguous: ambiguous, BlockedSharedIP: blockedSharedIP(err)}
 	}
 	defer resp.Body.Close()
 	raw, readErr := io.ReadAll(io.LimitReader(resp.Body, maxRequestBytes+1))
@@ -706,6 +706,9 @@ func classifyProviderTransportError(ctx context.Context, err error) (string, str
 	}
 	if strings.Contains(text, "tls") || strings.Contains(text, "certificate") {
 		return "TLS_HANDSHAKE_FAILED", "Provider TLS handshake failed", false
+	}
+	if strings.Contains(text, "timeout awaiting response headers") || strings.Contains(text, "timeout waiting for response headers") {
+		return "RESPONSE_HEADER_TIMEOUT", "Provider did not return response headers before the configured deadline", true
 	}
 	if strings.Contains(text, "timeout") || strings.Contains(text, "deadline") {
 		return "CONNECT_TIMEOUT", "Provider connection timed out", true
