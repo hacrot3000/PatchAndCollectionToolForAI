@@ -38,7 +38,7 @@ func TestAgentProviderRetryRecordsEveryAttemptBeforeProviderIOAndShowsReadOnlyAu
   audit,e:=store.ProviderAttempts(id,"local")
   if e!=nil||audit==nil||audit.Total!=uint64(calls)||
    len(audit.Attempts)!=calls||audit.Attempts[calls-1].Attempt!=uint64(calls)||
-   !audit.Attempts[calls-1].HeaderSent{
+   !audit.Attempts[calls-1].HeaderConfigured{
    t.Fatalf("attempt %d crossed network without private ledger: %v %+v",calls,e,audit)
   }
   if calls<3{
