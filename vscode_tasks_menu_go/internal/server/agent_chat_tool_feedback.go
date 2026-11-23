@@ -36,12 +36,24 @@ func (s *Server) agentChatToolContinueAPI(w http.ResponseWriter, r *http.Request
 		http.Error(w, "exactly one continuation object required", 400)
 		return
 	}
+	if !isInternalAgentRunRequest(r) {
+		owner := aiPlanOwner(r)
+		run, found, err := s.agentRunForToolCall(owner, id, callID)
+		if err != nil {
+			http.Error(w, "Agent Run tool binding is ambiguous", 409)
+			return
+		}
+		if found {
+			s.agentRunToolContinueAPI(w, r, owner, run.Spec.RunID)
+			return
+		}
+	}
 	if !req.ConfirmExternal {
 		http.Error(w, "explicit external-provider sharing consent required", 403)
 		return
 	}
 	owner := aiPlanOwner(r)
-	release, ok := lockAgentTurn(s.Workspace, owner, id)
+	release, ok := lockAgentTurn(s.agentOwnerWorkspace(), owner, id)
 	if !ok {
 		http.Error(w, "Agent session busy", 409)
 		return

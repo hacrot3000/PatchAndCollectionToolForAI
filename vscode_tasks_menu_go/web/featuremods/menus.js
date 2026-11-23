@@ -112,6 +112,9 @@ function installHeaderMenus(){
   const aiPlansButton=document.createElement('button');aiPlansButton.type='button';aiPlansButton.textContent='Guided AI plans (review only)…';
   aiPlansButton.disabled=Boolean(app.sharedMode&&(!app.hasPermission?.('terminal.view_own')||!app.hasPermission?.('settings.read')));
   aiPlansButton.onclick=()=>{closeAll();globalThis.TaskMenuAIPlans?.open?.().catch(app.showError);};
+  const taskWorkflowButton=document.createElement('button');taskWorkflowButton.type='button';taskWorkflowButton.textContent='Task Manifest Run All…';
+  taskWorkflowButton.disabled=Boolean(app.sharedMode&&(!app.hasPermission?.('settings.read')||!app.hasPermission?.('files.read')));
+  taskWorkflowButton.onclick=()=>{closeAll();import('/featuremods/taskworkflows.js').then(()=>globalThis.TaskMenuTaskWorkflows?.open?.()).catch(app.showError);};
   const agentChatButton=document.createElement('button');agentChatButton.type='button';
   agentChatButton.textContent='Open AI Agent Chat';
   agentChatButton.disabled=Boolean(app.sharedMode&&(!app.hasPermission?.('settings.read')||!app.hasPermission?.('files.read')));
@@ -120,7 +123,7 @@ function installHeaderMenus(){
   agentProviderButton.textContent='AI Agent providers / API keys…';
   agentProviderButton.disabled=!canConfigure;
   agentProviderButton.onclick=()=>{closeAll();globalThis.TaskMenuAgentChat?.settings?.().catch(app.showError);};
-  addSection(settings.pop,'AI ASSISTANT',[only(canConfigure,aiSettingsButton),only(canReadSettings,aiPanelButton),only(canReadSettings,aiPlansButton),
+  addSection(settings.pop,'AI ASSISTANT',[only(canConfigure,aiSettingsButton),only(canReadSettings,aiPanelButton),only(canReadSettings,aiPlansButton),only(!taskWorkflowButton.disabled,taskWorkflowButton),
     only(!agentChatButton.disabled,agentChatButton),only(canConfigure,agentProviderButton)]);
   addSection(settings.pop,'PATCH TOOL',[patchUIControl]);
   // Browser-local diagnostic visibility, not an administrator-wide server

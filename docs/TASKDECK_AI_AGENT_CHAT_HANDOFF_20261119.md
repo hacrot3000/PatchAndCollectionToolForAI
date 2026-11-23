@@ -19,7 +19,7 @@
 6. Every execution emits `QUEUE`, `RUNNING`, `DONE`, `ERROR` or `CANCELLED` along with timing, command/script subitems, console view/copy actions and persistent artifact references. Collect bounded logs/diffs/results to return as `function_call_output` with the *same* `call_id`.
 7. Remote execution reuses the existing TaskDeck E2EE dispatcher and server-enforced permissions. Remote hosts never need an AI key; sending context to an external model is a separate security/consent boundary from TaskDeck E2EE.
 8. Enforce per-session and global limits for model calls, run iterations, wall time, tokens/cost, log bytes, payload bytes and workspace writes. Stop and surface a recoverable error on timeout or ambiguous completion; do not blindly replay a side-effecting tool call.
-9. **Planning implemented, execution future only**: F08.1 Markdown/canonical JSON → validated Task Manifest and read-only preview is implemented. F08.2 dependency DAG execution/scheduler, worktrees and controlled integration remain deferred; do **not** implement task execution/splitting.
+9. **Planning implemented; execution in progress**: F08.1 Markdown/canonical JSON → validated Task Manifest and read-only preview is implemented. F08.2 now has uncommitted manifest Run All/DAG orchestration, owner-bound run/provider routing, detached worktrees, task review, and fake-native Patch continuation. Real Python/provider acceptance, browser acceptance and controlled owner-branch integration remain pending; keep F08.2 open.
 
 ## 2. Existing codebase / do-not-regress map (verified on 2026-11-19)
 
@@ -146,12 +146,15 @@ These are **design targets**, not promises that routes already exist.
   - [ ] F07.2.2 Local native Patch bridge/retry/cancel, background reconciliation and concurrent approval tests pass with fake Session Service; real Python run is NOT VERIFIED; remote E2EE Patch is out of scope/no typed action exists. — [Tài liệu triển khai](taskdeck_ai_agent/07-acceptance.md)
   - [ ] F07.2.3 Automated CI/static UI bootstrap + Smart Terminal regression tests pass; interactive browser GUI smoke remains NOT VERIFIED. — [Tài liệu triển khai](taskdeck_ai_agent/07-acceptance.md)
 
-### F08 — Planning scope: F08.1 implemented as preview/validation; F08.2 execution scheduler deferred — [Tài liệu triển khai](taskdeck_ai_agent/08-future-planner.md)
+### F08 — Planning + execution: F08.1 implemented; F08.2 foundations IN PROGRESS, end-to-end scheduler pending — [Tài liệu triển khai](taskdeck_ai_agent/08-future-planner.md)
 - [x] F08.1 Markdown/canonical JSON → validated Task Manifest and read-only preview (no execution). — [Tài liệu triển khai](taskdeck_ai_agent/08-future-planner.md)
   - [x] F08.1.1 Schema validation, dependency cycle detection, bounded number of tasks. — [Tài liệu triển khai](taskdeck_ai_agent/08-future-planner.md)
 - [ ] F08.2 Dependency DAG Scheduler and configurable concurrency. — [Tài liệu triển khai](taskdeck_ai_agent/08-future-planner.md)
+  - Foundation: durable Run Manager/DAG state, fencing, success-only dependency gate and global cap=5 are implemented in the uncommitted source; owner/project-scoped Context Groups can be revision-pinned into immutable task snapshots. Owner-bound Provider Router factory is now used by Run Manager when no custom executor is injected; manifest orchestration APIs are implemented, while browser Run All/status UI remains pending.
   - [ ] F08.2.1 Worktree/task isolation and controlled merge strategy. — [Tài liệu triển khai](taskdeck_ai_agent/08-future-planner.md)
+    - Partial: detached worktree binding and the Run API's explicit Agent Patch approval/queue/selection/result-continuation bridge are covered by fake-native tests. Current PLAN 02 default prompt options still advertise text-only, so model-generated Patch calls are not yet enabled in production; real Python execution and user review/apply UX remain unverified. No auto merge/branch mutation.
   - [ ] F08.2.2 Integration reports, retry/resume, explicit approval for branch mutation. — [Tài liệu triển khai](taskdeck_ai_agent/08-future-planner.md)
+    - Partial: workflow persists per-task report metadata and requires explicit approve/reject before dependencies unlock; safe retry and reviewed resume are tested. A separate menu-mounted Run All/review panel is present and static-tested; browser acceptance, full diff artifact retention, conflict-aware target integration and real branch-mutation approval remain pending. No automatic branch mutation.
 
 ## 5. Incremental delivery gates
 
@@ -164,7 +167,7 @@ These are **design targets**, not promises that routes already exist.
 | M4 Patch loop | Real queue run + tool results + idempotency + approvals | IN PROGRESS (background reconciliation + fake-native tests; real Python runtime/final live SHA evidence NOT VERIFIED) |
 | M5 remote & multi-session | E2EE live tests, lock safety, session isolation | BLOCKED for remote Patch (no typed operation); local admission/lease tests PASS |
 | M6 release acceptance | Regression suite, real provider smoke, security review | TODO |
-| M7 planner | F08.1 planning/validation only; F08.2 execution remains deferred | F08.1 DONE in code/tests; F08.2 DEFERRED |
+| M7 planner | F08.1 validation + F08.2 run/DAG/worktree execution evidence | F08.1 DONE; F08.2 foundation PARTIAL/IN PROGRESS (uncommitted; provider/Patch/UI integration pending) |
 
 ## 6. Acceptance matrix
 
@@ -282,7 +285,7 @@ Verification actually run (Go 1.20.14, Linux):
 
 **D — F08.1 planning-only Task Manifest:**
 - New `internal/taskmanifest` parses bounded Markdown and strict canonical JSON (≤1 MiB, ≤100 tasks), validates stable IDs, duplicate/self/unknown dependencies, acceptance warnings, schema/project identity and cycles, and returns roots/blocked/topological preview/diagnostics.
-- `POST /api/agent/task-manifests/validate` is owner/permission checked, derives project identity on server, performs no provider call, no file write, no task creation and no execution. UI supports Markdown/canonical JSON input, validation preview and download of valid canonical JSON. No F08.2 scheduler/Run All/auto-merge was added.
+- `POST /api/agent/task-manifests/validate` remains planning-only: owner/permission checked, derives project identity on server, and performs no provider call/file write/task creation. UI supports Markdown/canonical JSON preview/download. F08.2 adds separate Run All workflow APIs and a menu-mounted workflow panel; approval-controlled Patch continuation is fake-native tested. Auto-merge/owner-branch mutation remains disabled.
 
 **Verification on merged HEAD `8d75b299` (Go 1.20.14/Linux):**
 - `go test -race -count=1 ./internal/agentchat` PASS
@@ -305,7 +308,7 @@ Verification actually run (Go 1.20.14, Linux):
 3. Final evidence now binds queue SHA/size + native session + item index + run ID and revalidates Git snapshot; remaining local live test and shared lease with manual/native writers are still open. Do not claim remote support.
 4. Provider probes, request/attachment idempotency, daemon-owned turns, durable event cursor and local bounded auto-feedback are implemented/tested. Provider ACK is still unknowable after transport ambiguity; never resend `unknown`.
 5. Current targeted verification: `go test -race ./internal/agentchat`, `go test -race ./internal/taskmanifest`, `go test -race ./internal/server -run '^TestAgent'`, patchtool, vet and JS regressions. Keep these separate from live provider/native/browser/remote acceptance. Full server package has 22 baseline failures verified at `bba5eea6` in a clean worktree.
-6. F08.1 is planning-only and implemented. Keep F08.2 scheduler/worktrees/merge deferred; keep Anthropic Messages deferred.
+6. F08.1 is planning-only and implemented. F08.2 Run All/DAG orchestration and fake-native Patch continuation are in progress/uncommitted; real runtime, browser and controlled branch-integration acceptance remain open. Anthropic Messages remains deferred.
 
 ## 9. Commands for verification
 
