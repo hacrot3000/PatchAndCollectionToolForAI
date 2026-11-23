@@ -2146,6 +2146,84 @@ function renderAgentTaskPlan(data){
   const heading=agentEl('strong','',step.id+' · '+step.title+' · '+String(step.status).toUpperCase());
   const acceptance=agentEl('span','','Acceptance: '+step.acceptance);
   row.append(heading,acceptance);
+  // This optional matrix records OWNER review of how individual acceptance
+  // requirements relate to locked tests. It does NOT infer semantic proof
+  // from PASS results or make any provider/native request by itself.
+  const criteria=step.acceptance_criteria||[];
+  const acceptanceMatrix=agentEl('details','agentchat-taskplan-coverage');
+  const reviewed=criteria.filter(item=>Boolean(item.reviewed_at)).length;
+  acceptanceMatrix.append(agentEl('summary','',
+   'Owner acceptance review · '+reviewed+'/'+criteria.length+
+   ' criteria'+(criteria.length?' (required for Done)':' (optional)')));
+  acceptanceMatrix.append(agentEl('span','',
+   'Test PASS checks execution, not whether each business requirement is covered. '+
+   'Map predeclared Go tests when applicable; explicitly review EACH criterion. '+
+   'An owner note is an attestation, not an independent technical proof.'));
+  for(const item of criteria){
+   const line=agentEl('div','agentchat-info');
+   line.append(agentEl('strong','',item.id+' · '+item.description),
+    agentEl('span','',
+     'Mapped locked tests: '+((item.required_tests||[]).join(', ')||'none (human review only)')));
+   if(item.reviewed_at){
+    line.append(agentEl('span','',
+     'Owner-reviewed '+item.reviewed_at+' · '+(item.review_note||'')));
+   }else{
+    line.append(agentEl('span','','Not yet reviewed. This blocks Mark done.'));
+    if(plan.state!=='completed'&&step.status!=='done'){
+     const noteInput=agentEl('textarea');
+     noteInput.rows=2;noteInput.maxLength=512;
+     noteInput.placeholder='Your explicit evaluation of this criterion and its test mapping (not an automatic proof)';
+     const reviewButton=agentButton('Confirm owner review',()=>{
+      const note=noteInput.value.trim();
+      if(!note){showAgentError(new Error('Enter an owner review note before accepting this criterion.'));return;}
+      if(!window.confirm('Record YOUR review of criterion '+item.id+'? '+ 
+       'This confirms your assessment, not that an AI or passing test verified semantic coverage.'))return;
+      agentTaskPlanAction('review_acceptance_criterion',{
+       step_id:step.id,criterion_id:item.id,
+       coverage_review_note:note,confirm_coverage:true,
+      }).catch(showAgentError);
+     });
+     line.append(noteInput,reviewButton);
+    }
+   }
+   acceptanceMatrix.append(line);
+  }
+  if(plan.state!=='completed'&&step.status!=='done'){
+   const matrix=agentEl('textarea');
+   matrix.rows=3;
+   matrix.placeholder='One per line: criterion-id | requirement | TestOne, TestTwo (optional)\n'+
+    'Only names already locked in this milestone’s expected Go test suite may be mapped.';
+   const replace=agentButton(criteria.length?'Replace entire matrix':'Declare acceptance matrix',()=>{
+    try{
+     const lines=matrix.value.split(/\r?\n/).map(x=>x.trim()).filter(Boolean);
+     if(lines.length<1||lines.length>8)throw new Error('Enter 1–8 acceptance criteria.');
+     const items=lines.map(line=>{
+      const parts=line.split('|').map(x=>x.trim());
+      if(parts.length<2||parts.length>3||!parts[0]||!parts[1])
+       throw new Error('Use criterion-id | requirement | optional comma-separated locked Go tests.');
+      return {id:parts[0],description:parts[1],
+       required_tests:(parts[2]||'').split(',').map(x=>x.trim()).filter(Boolean)};
+     });
+     if(!window.confirm('Replace the owner acceptance matrix for '+step.id+'? '+
+      'ALL previous criterion reviews will be reset. Mapped Go tests MUST be in '+
+      'the predeclared locked checklist. No test PASS is inferred as semantic coverage.'))return;
+     agentTaskPlanAction('set_acceptance_criteria',{
+      step_id:step.id,acceptance_criteria:items,confirm_coverage:true,
+     }).catch(showAgentError);
+    }catch(error){showAgentError(error);}
+   });
+   acceptanceMatrix.append(matrix,replace);
+   if(criteria.length){
+    acceptanceMatrix.append(agentButton('Remove owner acceptance matrix',()=>{
+     if(!window.confirm('Remove ALL owner acceptance criteria and their reviews for this unfinished step? '+
+      'This weakens the completion gate. Continue only if you intentionally want to opt out.'))return;
+     agentTaskPlanAction('set_acceptance_criteria',{
+      step_id:step.id,acceptance_criteria:[],confirm_coverage:true,
+     }).catch(showAgentError);
+    }));
+   }
+  }
+  row.append(acceptanceMatrix);
   for(const item of step.evidence||[]){
    const description=item.kind==='manual'?'User-attested':'Verified tool';
    row.append(agentEl('span','',description+' · '+item.kind+' · '+(item.ref||'')+' · '+(item.note||'')+' · '+(item.digest||'')));
@@ -2187,6 +2265,10 @@ function renderAgentTaskPlan(data){
      }).catch(showAgentError);
     });
     row.append(kind,ref,taskID,goPkg,goTest,note);
+    if(criteria.some(item=>!item.reviewed_at)){
+     done.disabled=true;
+     done.title='Review every owner-declared acceptance criterion before marking this step done.';
+    }
     buttons.append(done);
     // Optional owner-controlled expected command, not proof of coverage.
     if(step.task_command_guard){
