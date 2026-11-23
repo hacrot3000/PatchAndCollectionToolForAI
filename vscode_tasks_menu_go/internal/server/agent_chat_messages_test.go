@@ -466,16 +466,25 @@ func TestAgentMultipleOrUnknownProviderToolCallsFailClosedAndRecover(t *testing.
 		{CallID: "c1", Name: "taskdeck_submit_patch", Arguments: args},
 		{CallID: "c2", Name: "taskdeck_submit_patch", Arguments: args},
 	}}, true)
-	if x.Status != "tool_rejected" || len(x.ToolCalls) != 0 || len(x.History) != 2 {
-		t.Fatalf("multiple calls were not quarantined: status=%s ledger=%d history=%d", x.Status, len(x.ToolCalls), len(x.History))
-	}
+	if x.Status != "tool_rejected" || len(x.ToolCalls) != 2 || len(x.History) != 2 {
+        t.Fatalf("multiple calls were not quarantined: status=%s ledger=%d history=%d",x.Status,len(x.ToolCalls),len(x.History))
+    }
+    for _,call:=range x.ToolCalls{
+        if call.Status!="rejected"||call.QueuePath!=""||call.RunID!=""||
+           !strings.Contains(call.Result,`"reason_code":"MULTIPLE_TOOL_CALLS"`){
+            t.Fatalf("multiple call became executable or lacked denied feedback: %+v",call)
+        }
+    }
 	// Unknown calls are also retained for audit but cannot lock the session in
 	// waiting_tool forever or create an execution intent.
 	y := agentchat.Session{Mode: agentchat.Stateless, History: []agentchat.HistoryItem{}}
 	appendAgentProviderResult(&y, agentchat.ResponsesResult{ResponseID: "r2", Calls: []agentchat.FunctionCall{{CallID: "c3", Name: "run_shell", Arguments: `{}`}}}, true)
-	if y.Status != "tool_rejected" || len(y.ToolCalls) != 0 {
-		t.Fatalf("unknown call was accepted: %+v", y)
-	}
+	if y.Status!="tool_rejected"||len(y.ToolCalls)!=1||
+       y.ToolCalls[0].Name!="run_shell"||y.ToolCalls[0].Status!="rejected"||
+       y.ToolCalls[0].QueuePath!=""||y.ToolCalls[0].PackageSHA256!=""||
+       !strings.Contains(y.ToolCalls[0].Result,`"reason_code":"UNSUPPORTED_TOOL"`){
+        t.Fatalf("unknown call was not blocked and recorded for model feedback: %+v",y)
+    }
 }
 
 func TestAgentChatCompletionsProviderUsesStatelessCanonicalInput(t *testing.T) {
