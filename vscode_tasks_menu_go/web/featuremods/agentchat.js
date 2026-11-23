@@ -110,6 +110,14 @@ agentCSS.textContent=[
 '.agentchat-bubble.user{align-self:flex-end;background:#203b56}',
 '.agentchat-bubble.assistant{align-self:flex-start;background:transparent;border-color:transparent;padding:4px 0}',
 '.agentchat-bubble.tool{align-self:flex-start;background:#1d2936;border-color:#394b60}',
+'.agentchat-message-body{min-width:0;overflow-wrap:anywhere}',
+'.agentchat-bubble.user .agentchat-message-body.is-collapsed{max-height:7.75em;overflow:hidden}',
+'.agentchat-message-actions{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:6px;min-width:0;white-space:normal}',
+'.agentchat-message-actions .agentchat-message-copy{margin-left:auto}',
+'.agentchat-window .agentchat-message-actions button{font-size:11px;padding:2px 6px;border:1px solid #536b83;border-radius:4px;background:transparent;color:#c8e1fa;line-height:1.4}',
+'.agentchat-window .agentchat-message-actions button:hover,.agentchat-window .agentchat-message-actions button:focus-visible{background:#344e68;color:#fff}',
+'html[data-taskmenu-theme="light"] .agentchat-window .agentchat-message-actions button{color:#254768;border-color:#afc2d5}',
+'html[data-taskmenu-theme="light"] .agentchat-window .agentchat-message-actions button:hover,html[data-taskmenu-theme="light"] .agentchat-window .agentchat-message-actions button:focus-visible{background:#e3effc;color:#153759}',
 '.agentchat-preview-header{display:flex;align-items:center;gap:10px}',
 '.agentchat-preview-header strong{flex:1;min-width:0}',
 '.agentchat-preview-close{flex:none;border:0!important;background:transparent!important;padding:2px 7px!important;color:inherit;opacity:.75;font-size:17px!important;line-height:1}',
@@ -820,8 +828,68 @@ function showAgentHistoryAttachmentsPopup(content,trigger){
  agentHistoryAttachmentsPopup={overlay,trigger};
  close.focus();
 }
+// Keep each outgoing message intact for Copy, but show only about five
+// visual lines until explicitly expanded. This is a cheap estimate of
+// wrapping in the normal Chat dock; max-height enforces the actual visual
+// limit without truncating or mutating the original message.
+function agentUserMessageIsLong(message){
+ let lines=0;
+ for(const line of String(message||'').replace(/\r\n?/g,'\n').split('\n')){
+  lines+=Math.max(1,Math.ceil(line.length/48));
+  if(lines>5)return true;
+ }
+ return false;
+}
+function agentMessageBubble(role,source){
+ const raw=String(source??'');
+ const bubble=agentRich.renderMessage(role,raw,showAgentError);
+ const body=agentEl('div','agentchat-message-body');
+ // The Markdown renderer owns safe DOM nodes. Move them rather than parsing
+ // markup again, and preserve its plain-text fallback for very large messages.
+ const parts=[...(bubble.childNodes||bubble.children||[])];
+ if(parts.length)body.append(...parts);
+ else if(bubble.textContent)body.textContent=bubble.textContent;
+ bubble.textContent='';
+ const actions=agentEl('div','agentchat-message-actions');
+ if(role==='user'&&agentUserMessageIsLong(raw)){
+  body.classList.add('is-collapsed');
+  const toggle=agentButton('Show all',()=>{
+   const expanded=body.classList.contains('is-collapsed');
+   body.classList.toggle('is-collapsed',!expanded);
+   toggle.textContent=expanded?'Show less':'Show all';
+   toggle.setAttribute('aria-expanded',String(expanded));
+  });
+  toggle.className='agentchat-message-toggle';
+  toggle.setAttribute('aria-expanded','false');
+  toggle.setAttribute('aria-label','Expand or collapse sent message');
+  actions.append(toggle);
+ }
+ // Copy the canonical source (including Markdown and text beyond line five),
+ // never the clipped DOM and never a hidden attachment envelope.
+ const copyLabel=role==='user'?'Copy sent message':'Copy entire AI response';
+ const copy=agentButton('Copy',async()=>{
+  const clipboard=globalThis.navigator?.clipboard;
+  if(!clipboard?.writeText){
+   showAgentError(new Error('Clipboard unavailable. Use HTTPS/localhost and allow clipboard access.'));
+   return;
+  }
+  try{
+   await clipboard.writeText(raw);
+   copy.textContent='Copied';
+   copy.setAttribute('aria-label',role==='user'?'Sent message copied':'AI response copied');
+   setTimeout(()=>{
+    if(copy.isConnected!==false){copy.textContent='Copy';copy.setAttribute('aria-label',copyLabel);}
+   },1600);
+  }catch(error){showAgentError(error);}
+ });
+ copy.className='agentchat-message-copy';
+ copy.setAttribute('aria-label',copyLabel);
+ actions.append(copy);
+ bubble.replaceChildren(body,actions);
+ return bubble;
+}
 function agentUserMessageNode(message,attachmentText,attachmentCount){
- const bubble=agentRich.renderMessage('user',message,showAgentError);
+ const bubble=agentMessageBubble('user',message);
  if(!attachmentText)return bubble;
  const wrapper=agentEl('div','agentchat-message-with-attachments');
  const count=attachmentCount>0?' ('+attachmentCount+')':'';
@@ -983,7 +1051,7 @@ function agentHistoryRow(session,item,callNames){
     if(parsed.type==='taskdeck_patch_proposal')return agentToolIO('AI proposed Patch · view request',raw);
    }catch{}
   }
-  return agentRich.renderMessage('assistant',raw,showAgentError);
+  return agentMessageBubble('assistant',raw);
  }
  if(item.type==='function_call')return renderAgentTool(session,item);
  if(item.type==='function_call_output'){

@@ -209,6 +209,76 @@ assert.equal(nodeText(pendingRow).includes('STAGED CONTENT'),false,
 assert.ok(find(pendingRow,node=>node.tagName==='button'&&node.textContent.includes('Attachments (1)')),
  'Optimistic turn needs the same on-demand attachments control');
 
+// The same message controls must apply to saved user turns and to optimistic
+// unsaved turns. Copy always uses canonical source text, not clipped Markdown
+// or the hidden attachment envelope.
+const copiedMessages=[];
+context.navigator={clipboard:{writeText:async text=>{copiedMessages.push(text);}}};
+const copyControl=node=>find(node,n=>n.tagName==='button'&&['Copy sent message','Copy entire AI response'].includes(n.attributes?.['aria-label']));
+const shortCopy=copyControl(ordinaryRow);
+assert.ok(shortCopy,'short saved outgoing message needs Copy');
+assert.equal(find(ordinaryRow,n=>n.tagName==='button'&&n.textContent==='Show all'),undefined,
+ 'a short message must not have a redundant expansion button');
+await shortCopy.onclick();
+assert.equal(copiedMessages.at(-1),ordinary,'sent Copy must preserve the unmodified user text');
+const hiddenAttachmentCopy=copyControl(savedRow);
+await hiddenAttachmentCopy.onclick();
+assert.equal(copiedMessages.at(-1),plainRequest,
+ 'Copy message must not expose or append the on-demand attachment envelope');
+const longMessage=[
+ 'Line 1: This is the beginning of the user request.',
+ 'Line 2: Keep all details in the saved message.',
+ 'Line 3: Inspect the native Patch history.',
+ 'Line 4: Preserve the conversation context.',
+ 'Line 5: Keep the exact original text.',
+ 'Line 6: This information must remain copyable.',
+ 'Line 7: The bottom lines are initially clipped.',
+ 'Line 8: Never truncate the underlying message.'
+].join('\n');
+const longRow=vm.runInNewContext(
+ 'agentHistoryRow({id:"sent-history"},{type:"user",content:'+JSON.stringify(longMessage)+'},new Map())',
+ context);
+const longBody=find(longRow,n=>n.className==='agentchat-message-body');
+const showAll=find(longRow,n=>n.tagName==='button'&&n.textContent==='Show all');
+assert.ok(longBody?.classList.contains('is-collapsed'),'long outgoing message must initially show five lines');
+assert.ok(showAll,'long outgoing message needs a Show all control');
+assert.equal(showAll.getAttribute('aria-expanded'),'false');
+showAll.onclick();
+assert.equal(longBody.classList.contains('is-collapsed'),false,'Show all must reveal the full message');
+assert.equal(showAll.textContent,'Show less');
+assert.equal(showAll.getAttribute('aria-expanded'),'true');
+showAll.onclick();
+assert.equal(longBody.classList.contains('is-collapsed'),true,'second click must restore five-line collapse');
+assert.equal(showAll.textContent,'Show all');
+assert.equal(showAll.getAttribute('aria-expanded'),'false');
+await copyControl(longRow).onclick();
+assert.equal(copiedMessages.at(-1),longMessage,
+ 'collapsed Copy must contain every line, including all hidden lines');
+const optimisticLong=vm.runInNewContext(
+ 'agentUserMessageNode('+JSON.stringify(longMessage)+','+JSON.stringify('hidden upload data')+',1)',context);
+assert.ok(find(optimisticLong,n=>n.className==='agentchat-message-body'&&n.classList.contains('is-collapsed')),
+ 'optimistic outgoing messages must use identical folding');
+await copyControl(optimisticLong).onclick();
+assert.equal(copiedMessages.at(-1),longMessage,
+ 'optimistic Copy must exclude attached upload data');
+assert.equal(nodeText(optimisticLong).includes('hidden upload data'),false,
+ 'hidden attachments must remain hidden while a message is collapsed');
+const completeReply='## Full AI response\n'+longMessage+'\n\n'+'\x60\x60\x60python\nprint("entire block")\n\x60\x60\x60';
+const replyRow=vm.runInNewContext(
+ 'agentHistoryRow({id:"sent-history"},{type:"assistant",content:'+JSON.stringify(completeReply)+'},new Map())',
+ context);
+assert.equal(find(replyRow,n=>n.tagName==='button'&&n.textContent==='Show all'),undefined,
+ 'AI answers must never be collapsed regardless of length');
+assert.equal(find(replyRow,n=>n.className==='agentchat-message-body')?.classList.contains('is-collapsed'),false,
+ 'long AI response remains completely expanded');
+assert.ok(find(replyRow,n=>n.className==='agentchat-code-block'),'AI Markdown and code blocks remain rendered');
+const replyCopy=copyControl(replyRow);
+assert.ok(replyCopy,'every AI answer needs a Copy button for the entire reply');
+await replyCopy.onclick();
+assert.equal(copiedMessages.at(-1),completeReply,
+ 'reply Copy must include the whole original Markdown and all fenced code, not only rendered text');
+console.log('PASS: outgoing five-line fold/toggle, full AI replies, entire-message Copy and hidden attachment boundary');
+
 const sessionsButton = find(windowBox, node => node.textContent === 'History ▾');
 const sessionsList = find(windowBox, node => node.id === 'agentchat-saved-sessions');
 assert.ok(sessionsButton && sessionsList, 'Saved conversations menu is present');
@@ -774,7 +844,7 @@ console.log('PASS: safe Markdown, syntax-highlighted PHP/Python, per-block Copy,
   // status row is also moved to the bottom to remain after that new message.
   assert.equal(transcript.appendCount,baselineAppend+2,'new assistant row plus relocated single live status are the only appends');
   assert.equal(transcript.children[0],originalUser,'old user message must remain the same element');
-  const assistantCreated=transcript.children.find(node=>node.className==='agentchat-bubble assistant'&&nodeText(node)==='helloworld.php created');
+  const assistantCreated=transcript.children.find(node=>node.className==='agentchat-bubble assistant'&&nodeText(node).startsWith('helloworld.php created'));
   assert.ok(assistantCreated,'new assistant message must be present exactly once');
   const patchDone={...extended,revision:201,tool_calls:[
     {...patchSession.tool_calls[0],status:'done',result:'{"status":"PASS"}'}
@@ -795,7 +865,7 @@ console.log('PASS: safe Markdown, syntax-highlighted PHP/Python, per-block Copy,
   const removalBeforeEdit=transcript.removeCount;
   vm.runInNewContext('displayAgentSession('+JSON.stringify(edited)+')',context);
   assert.equal(transcript.children[0],originalUser,'changing last answer must not redraw earlier history');
-  assert.equal(nodeText(transcript.children.at(-1)),'helloworld.php verified');
+  assert.ok(nodeText(transcript.children.at(-1)).startsWith('helloworld.php verified'),'edited assistant reply remains visible');
   assert.equal(transcript.removeCount,removalBeforeEdit+1,'only the changed assistant tail should be removed on this update');
 
   // The tab and conversation list should preserve keyed DOM nodes as their
@@ -915,7 +985,7 @@ console.log('PASS: safe Markdown, syntax-highlighted PHP/Python, per-block Copy,
   };
   const sending=vm.runInNewContext('sendAgentMessage()',context);
   assert.equal(postedMessages.length,1,'message POST must be issued');
-  assert.equal(nodeText(transcript.children[0]),'Create helloworld.php','user bubble appears before network completes');
+  assert.ok(nodeText(transcript.children[0]).startsWith('Create helloworld.php'),'user bubble appears before network completes');
   assert.ok(['agentchat-bubble user optimistic','agentchat-bubble user'].includes(transcript.children[0].className),
     'newly sent message is visible without duplicating a user bubble');
   const liveLine=transcript.children.at(-1);
@@ -932,7 +1002,7 @@ console.log('PASS: safe Markdown, syntax-highlighted PHP/Python, per-block Copy,
   vm.runInNewContext('displayAgentSession(flowSession)',context);
   assert.equal(transcript.children.filter(x=>x.className.includes('bubble user')).length,1,
     'persisted user message should replace optimistic message, not duplicate it');
-  assert.equal(nodeText(transcript.children[0]),'Create helloworld.php',
+  assert.ok(nodeText(transcript.children[0]).startsWith('Create helloworld.php'),
     'the persisted user message is reconciled without duplicate text');
   assert.equal(transcript.children.at(-1),liveLine,'status is one stable node across all phases');
   assert.equal(liveLine.children[1].textContent,'Thinking…');
@@ -961,7 +1031,8 @@ console.log('PASS: safe Markdown, syntax-highlighted PHP/Python, per-block Copy,
     'completed response removes the spinner instead of archiving a stale status');
   assert.equal(transcript.children.filter(x=>x.className.includes('bubble user')).length,1,
     'successful request must have exactly one user message');
-  assert.equal(nodeText(transcript.children.at(-1)),'Created helloworld.php.','assistant reply is appended after tool IO');
+  assert.ok(nodeText(transcript.children.at(-1)).startsWith('Created helloworld.php.'),
+    'assistant reply is appended after tool IO');
   assert.equal(vm.runInNewContext('agentLiveTurns.size',context),0);
   const lastBubble=transcript.children.at(-1);
   context.flowSession={...context.flowSession,status:'failed',revision:5,event_seq:4,
@@ -1015,7 +1086,7 @@ console.log('PASS: safe Markdown, syntax-highlighted PHP/Python, per-block Copy,
     history:[...context.flowSession.history,{type:'assistant',content:'Patch verified and applied.'}]};
   resolveFeedback({status:'ready'});
   await continuing;
-  assert.equal(nodeText(transcript.children.at(-1)),'Patch verified and applied.');
+  assert.ok(nodeText(transcript.children.at(-1)).startsWith('Patch verified and applied.'));
   assert.ok(transcript.children.some(x=>x.className==='agentchat-io-details'&&x.children[0].textContent.includes('Native Patch result sent')),
     'native Patch response must stay in user-visible history');
   assert.equal(transcript.children.filter(x=>x.className==='agentchat-live-status').length,0);
