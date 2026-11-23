@@ -102,8 +102,12 @@ func agentNativeCollectionArtifacts(state session.ProtocolState,item session.Pro
   if a.ItemName!=item.Name||strings.ToUpper(a.ItemKind)!="COLLECT"||a.Index!=item.Index||
     (a.RunID!=""&&a.RunID!=item.RunID){continue}
   switch a.ArtifactKind{
-  case "collect_result_zip":resultZip=a.Path
-  case "collect_result_text":resultText=a.Path
+  case "collect_result_zip":
+   if resultZip!=""&&resultZip!=a.Path{return "",""} // ambiguous output identity
+   resultZip=a.Path
+  case "collect_result_text":
+   if resultText!=""&&resultText!=a.Path{return "",""}
+   resultText=a.Path
   }
  }
  return resultZip,resultText
@@ -194,6 +198,7 @@ func agentNativeCollectionObservation(root string,identity patchtool.ProjectIden
  if zipPath!=""&&txtPath!=""&&strings.TrimSuffix(zipPath,".zip")!=strings.TrimSuffix(txtPath,".txt"){
   outcome["artifact_error"]="Native COLLECT ZIP/TXT do not share a stem; evidence not accepted"
   zipPath="";txtPath=""
+  outcome["result_zip"]="";outcome["result_text"]=""
  }
  if zipPath!="" {
   status,err:=agentNativeCollectionManifest(root,zipPath,identity)
@@ -252,6 +257,7 @@ func (s *Server) agentRunNativeCollection(ctx context.Context,owner string,reque
  defer ticker.Stop()
  var final session.ProtocolItemState
  var found bool
+ var finalSeenAt time.Time
  for{
   if ctx.Err()!=nil{
    // Stop affects the exact read-only native Collection session only.
@@ -262,16 +268,15 @@ func (s *Server) agentRunNativeCollection(ctx context.Context,owner string,reque
   if e==nil{
    final,found=agentNativeCollectionFinalItem(state,receipt.Name,index)
    if found {
+    if finalSeenAt.IsZero(){finalSeenAt=time.Now()}
     z,t:=agentNativeCollectionArtifacts(state,final)
     if z!=""&&t!="" {
      return agentNativeCollectionObservation(s.Workspace,identity,nativeID,final,z,t),nil
     }
-    // A failed preflight has no ZIP; a native completion can publish artifact
-    // events just AFTER item_finished, so allow the protocol to settle.
-    if strings.EqualFold(final.Status,"PREFLIGHT_FAIL") {
-     return agentNativeCollectionObservation(s.Workspace,identity,nativeID,final,z,t),nil
-    }
-    if meta,ok:=s.Sessions.Metadata(nativeID);ok&&!strings.EqualFold(meta.Status,"running"){
+    // The native item_finished event can precede the two artifact events.
+    // Never lose a partial rc=3 artifact because the session closed first.
+    if strings.EqualFold(final.Status,"PREFLIGHT_FAIL") ||
+      time.Since(finalSeenAt)>3*time.Second {
      return agentNativeCollectionObservation(s.Workspace,identity,nativeID,final,z,t),nil
     }
    }
