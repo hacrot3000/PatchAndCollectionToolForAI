@@ -669,6 +669,9 @@ func classifyProviderTransportError(ctx context.Context, err error) (string, str
 	return "CONNECT_FAILED", "Provider connection failed", true
 }
 
+// 499 is a nonstandard gateway/client-aborted response that can be transient
+// even when an upstream body says "context canceled". Retry is still gated by
+// the session's explicit AI retry policy and its live cancellation context.
 func parseProviderHTTPError(status int, retryAfter string, body []byte) *ProviderError {
 	code := fmt.Sprintf("PROVIDER_HTTP_%d", status)
 	providerType, providerCode, providerMessage := "", "", ""
@@ -694,5 +697,5 @@ func parseProviderHTTPError(status int, retryAfter string, body []byte) *Provide
 	if providerMessage != "" {
 		message += ": " + providerMessage
 	}
-	return &ProviderError{Code: code, Stage: "provider_http", Message: message, ProviderErrorType: providerType, ProviderErrorCode: providerCode, ProviderMessage: providerMessage, HTTPStatus: status, RetryAfter: SafeProviderText(retryAfter), Retryable: status == 429 || status >= 500}
+	return &ProviderError{Code: code, Stage: "provider_http", Message: message, ProviderErrorType: providerType, ProviderErrorCode: providerCode, ProviderMessage: providerMessage, HTTPStatus: status, RetryAfter: SafeProviderText(retryAfter), Retryable: status == 429 || status == 499 || status >= 500}
 }

@@ -54,6 +54,9 @@ func agentRetryModeForSession(s *Server,owner,id string) agentchat.RetryMode{
 func agentRetryTurnContext(parent context.Context,_ agentchat.RetryMode)(context.Context,context.CancelFunc){
  return context.WithCancel(parent)
 }
+// HTTP 499 ("context canceled") is an exception: gateways frequently emit
+// it after terminating a slow upstream request. Keep retrying only while an
+// expressly enabled mode is active; never replay a Native Patch.
 // Permanent 4xx model/auth errors and invalid local request payloads must not
 // be repeated forever. For transient failure, the user's explicit setting
 // permits replay of the provider request; a remote processing ambiguity may
@@ -64,7 +67,11 @@ func agentProviderRetryable(err error)bool{
  var pe *agentchat.ProviderError
  if errors.As(err,&pe){
   if pe.Retryable{return true}
-  if pe.HTTPStatus==429||pe.HTTPStatus==408||pe.HTTPStatus>=500{return true}
+  // A 499 response means the upstream gateway/client canceled an
+  // in-flight request. It is transient for an explicitly authorized
+  // retrying turn even when a provider did not set Retryable=true.
+  // User Stop still wins: ctx.Err() is checked after the HTTP call.
+  if pe.HTTPStatus==499||pe.HTTPStatus==429||pe.HTTPStatus==408||pe.HTTPStatus>=500{return true}
   // Provider_parse can be transient (partial stream); avoid auto replaying
   // malformed JSON/unsupported feature responses without a status.
   return pe.Ambiguous && pe.HTTPStatus==0

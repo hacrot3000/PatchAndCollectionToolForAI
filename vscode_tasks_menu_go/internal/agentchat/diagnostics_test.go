@@ -24,6 +24,18 @@ func TestProviderHTTPErrorHasSpecificSafeFields(t *testing.T) {
 	}
 }
 
+func TestProviderHTTP499ContextCanceledIsRetryable(t *testing.T) {
+ err:=parseProviderHTTPError(499,"",[]byte(`{"error":{"message":"context canceled"}}`))
+ if err.HTTPStatus!=499||err.Code!="PROVIDER_HTTP_499"||!err.Retryable ||
+  err.ProviderMessage!="context canceled" {
+  t.Fatalf("transient 499 was classified as a permanent error: %+v",err)
+ }
+ for _,status:=range []int{400,401,403,404,422}{
+  pe:=parseProviderHTTPError(status,"",[]byte(`{"error":{"message":"invalid request"}}`))
+  if pe.Retryable{t.Fatalf("permanent HTTP %d became retryable",status)}
+ }
+}
+
 func TestDiagnosticSinkIsContextScoped(t *testing.T) {
 	sink := &testDiagnosticSink{}
 	ctx := WithDiagnosticSink(context.Background(), sink)

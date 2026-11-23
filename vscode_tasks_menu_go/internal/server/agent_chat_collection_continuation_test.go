@@ -196,7 +196,7 @@ func TestAgentCollectionLocalFailuresHaveConcreteErrorStage(t *testing.T) {
 	}
 }
 
-func TestAgentCollectionUnlimitedRetriesContinuationWithoutDuplicateRead(t *testing.T){
+func TestAgentCollectionUnlimitedRetriesTimeoutAndHTTP499WithoutDuplicateRead(t *testing.T){
  s,id:=newAgentConversationFixture(t,"stateless")
  store,err:=s.agentChatStore()
  if err!=nil{t.Fatal(err)}
@@ -221,7 +221,10 @@ func TestAgentCollectionUnlimitedRetriesContinuationWithoutDuplicateRead(t *test
    original=append([]byte(nil),payload...)
    return agentchat.ResponsesResult{},&agentchat.ProviderError{Code:"CONNECT_TIMEOUT",Stage:"provider_http",Retryable:true,Ambiguous:true}
   case 3:
-   if string(payload)!=string(original){t.Fatal("continuation changed after retry")}
+   if string(payload)!=string(original){t.Fatal("continuation changed after first retry")}
+   return agentchat.ResponsesResult{},&agentchat.ProviderError{Code:"PROVIDER_HTTP_499",Stage:"provider_http",HTTPStatus:499,Message:"context canceled"}
+  case 4:
+   if string(payload)!=string(original){t.Fatal("continuation changed after HTTP 499")}
    return agentchat.ResponsesResult{ResponseID:"completed",Text:"Collection finished"},nil
   }
   t.Fatalf("unexpected provider call %d",calls)
@@ -229,7 +232,7 @@ func TestAgentCollectionUnlimitedRetriesContinuationWithoutDuplicateRead(t *test
  }
  w:=invokeAI(t,s.agentChatSessionItemAPI,"POST","/api/agent/sessions/"+id+"/messages",
   map[string]any{"message":"inspect project root","confirm_external":true,"expected_revision":x.Revision})
- if w.Code!=200||calls!=3{t.Fatalf("Collection failed: %d %d %s",w.Code,calls,w.Body)}
+ if w.Code!=200||calls!=4{t.Fatalf("Collection failed: %d %d %s",w.Code,calls,w.Body)}
  saved,err:=store.Get(id,"local")
  if err!=nil{t.Fatal(err)}
  observations:=0

@@ -87,6 +87,36 @@ func TestAgentUnlimitedRetryStopsOnCancellationAndNeverRetriesPermanentError(t *
  if err==nil||calls!=1{t.Fatalf("401 must not retry forever; calls=%d error=%v",calls,err)}
 }
 
+func TestAgentUnlimitedRetriesHTTP499AfterTimeoutUntilSuccessful(t *testing.T){
+ s,id:=newAgentConversationFixture(t,"stateless")
+ store,err:=s.agentChatStore()
+ if err!=nil{t.Fatal(err)}
+ x,err:=store.Get(id,"local")
+ if err!=nil{t.Fatal(err)}
+ x.RetryMode=agentchat.RetryUnlimited
+ if _,err=store.Save(x,x.Revision);err!=nil{t.Fatal(err)}
+ oldDelay:=agentRetryDelay
+ agentRetryDelay=time.Millisecond
+ defer func(){agentRetryDelay=oldDelay}()
+ original:=[]byte(`{"model":"model","input":"collection continuation"}`)
+ calls:=0
+ s.AgentChatCall=func(_ context.Context,_ agentchat.ProviderConfig,_ string,payload []byte)(agentchat.ResponsesResult,error){
+  calls++
+  if string(payload)!=string(original){t.Fatalf("request mutated at attempt %d",calls)}
+  switch calls{
+  case 1:return agentchat.ResponsesResult{},&agentchat.ProviderError{Code:"CONNECT_TIMEOUT",Stage:"provider_http",Retryable:true,Ambiguous:true}
+  case 2:return agentchat.ResponsesResult{},&agentchat.ProviderError{Code:"PROVIDER_HTTP_499",Stage:"provider_http",Message:"context canceled",HTTPStatus:499}
+  case 3:return agentchat.ResponsesResult{},&agentchat.ProviderError{Code:"PROVIDER_HTTP_499",Stage:"provider_http",HTTPStatus:499}
+  case 4:return agentchat.ResponsesResult{Text:"complete",ResponseID:"ack"},nil
+  default:t.Fatalf("unexpected retry %d",calls);return agentchat.ResponsesResult{},nil
+  }
+ }
+ result,err,_:=s.agentChatCallForOwner(context.Background(),"local",id,
+  agentchat.ProviderConfig{ID:"fake",APIType:"responses"},"key",original)
+ if err!=nil||result.Text!="complete"||calls!=4{t.Fatalf("did not continue after 499: count=%d result=%+v err=%v",calls,result,err)}
+ if agentRetrySnapshot(s.Workspace,"local",id)!=nil{t.Fatal("retry state leaked")}
+}
+
 func TestAgentUnlimitedRetriesIncompleteByExpandingOutputBudget(t *testing.T){
  s,id:=newAgentConversationFixture(t,"stateless")
  store,err:=s.agentChatStore()
