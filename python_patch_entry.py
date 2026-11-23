@@ -41,6 +41,7 @@ def _paths(base_dir: Path) -> dict[str, Path]:
         "lib": lib_dir,
         "runner": lib_dir / "python_patch_runner.py",
         "collect_compat": lib_dir / "python_patch_collect_compat.py",
+        "collect_schema": lib_dir / "python_patch_collect_schema.py",
         "dispatcher": lib_dir / "python_patch_queue_dispatcher.py",
         "collect_progress": lib_dir / "python_patch_collect_progress_v6_7.py",
         "collect_regex_worker": lib_dir / "python_patch_collect_regex_worker.py",
@@ -95,6 +96,16 @@ def build_exec_argv(project_root: str, tool_args: Sequence[str], base_dir: Path 
             first_lower,
             *args[1:],
         ], [paths["dispatcher"]]
+
+    if first_lower == "validate-collect":
+        if len(args) != 1:
+            raise EntryError("validate-collect accepts no arguments; read JSON from stdin")
+        return [
+            str(paths["collect_schema"]),
+            "--project-root",
+            project_root,
+            "--validate-stdin",
+        ], [paths["collect_schema"]]
 
     if first_lower == "collect":
         return [
@@ -184,6 +195,8 @@ def classify_route(tool_args: Sequence[str]) -> str:
         return first
     if first == "collect":
         return "collect"
+    if first == "validate-collect":
+        return "utility"
     patch_arg_count = sum(1 for arg in tool_args if arg.lower() == "--patch")
     if patch_arg_count > 1 or any(arg.lower() in AUTOMATION_FLAGS for arg in tool_args):
         return "run"
