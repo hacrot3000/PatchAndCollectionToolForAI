@@ -164,3 +164,45 @@ func TestSegmentDoneCASRejectsCorruptOffscreenPageAndConcurrentWriters(t *testin
  done,total:=TaskPlanProgress(final.TaskPlan)
  if done!=1||total!=192{t.Fatalf("wrong progress %d/%d",done,total)}
 }
+
+func TestSegmentDoneVerifiesActualInJournalCollectionAndPatchReceipts(t *testing.T){
+ store,err:=NewStore(filepath.Join(t.TempDir(),"private","agent"))
+ if err!=nil{t.Fatal(err)}
+ x,err:=NewSession("local","/workspace","project","provider","model",Stateless)
+ if err!=nil{t.Fatal(err)}
+ x.TaskPlan,err=NewTaskPlan("Real native proof must exist",planStepFixtures(160))
+ if err!=nil{t.Fatal(err)}
+ x.History=append(x.History,
+  HistoryItem{Type:"function_call",Name:"taskdeck_collect_workspace",CallID:"collect-actual",Arguments:`{"actions":[{"type":"read","path":"src/main.go"}]}`},
+  HistoryItem{Type:"function_call_output",CallID:"collect-actual",Content:`{"results":[{"files":[{"path":"src/main.go"}]}]}`},
+  HistoryItem{Type:"function_call",Name:"taskdeck_submit_patch",CallID:"patch-actual",Arguments:`{"name":"Apply source fix"}`},
+  HistoryItem{Type:"function_call_output",CallID:"patch-actual",Content:`{"status":"PASS","rc":0}`},
+ )
+ x.ToolCalls=[]ToolCallRecord{{
+  CallID:"patch-actual",Name:"taskdeck_submit_patch",Status:"done",
+  Result:`{"status":"PASS","rc":0}`,FeedbackSent:true,FeedbackStatus:"acknowledged",
+ }}
+ x,err=store.Save(x,0);if err!=nil{t.Fatal(err)}
+ for _,tc:=range []struct{step,kind,ref string}{
+  {"step-0130","collection","collect-actual"},
+  {"step-0131","patch","patch-actual"},
+ }{
+  page,e:=store.SetSegmentTaskPlanStepDone(x.ID,"local",x.Revision,
+   tc.step,tc.kind,tc.ref,"Owner reviewed receipt",128,24)
+  if e!=nil{t.Fatalf("real %s receipt refused: %v",tc.kind,e)}
+  if page.Revision!=x.Revision+1||page.Done<1{
+   t.Fatalf("did not commit verified %s proof: %+v",tc.kind,page)
+  }
+  x,e=store.Get(x.ID,"local");if e!=nil{t.Fatal(e)}
+ }
+ for _,tc:=range []struct{i int;kind,ref string}{
+  {130,"collection","collect-actual"},{131,"patch","patch-actual"},
+ }{
+  step:=x.TaskPlan.Steps[tc.i]
+  if step.Status!="done"||len(step.Evidence)!=1||
+   step.Evidence[0].Kind!=tc.kind||step.Evidence[0].Ref!=tc.ref||
+   len(step.Evidence[0].Digest)!=64{
+   t.Fatalf("incorrect verified %s completion: %+v",tc.kind,step)
+  }
+ }
+}
