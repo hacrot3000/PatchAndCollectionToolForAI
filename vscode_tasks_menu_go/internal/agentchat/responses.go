@@ -106,6 +106,31 @@ func encodeHistory(items []HistoryItem) ([]map[string]string, error) {
 	return out, nil
 }
 
+// validateStatelessToolPairs rejects malformed provider-facing history
+// BEFORE any HTTP call. It never invents a Patch/COLLECT result and never
+// modifies the canonical journal. A previous_response_id/conversation may
+// legitimately contain the matching call server-side, so validate only full
+// stateless replays.
+func validateStatelessToolPairs(items []HistoryItem) error {
+ calls:=map[string]bool{}
+ outputs:=map[string]bool{}
+ for _,item:=range items {
+  switch item.Type {
+  case "function_call":
+   if calls[item.CallID] {return fmt.Errorf("duplicate stateless function call %q",item.CallID)}
+   calls[item.CallID]=true
+  case "function_call_output":
+   if !calls[item.CallID] {return fmt.Errorf("stateless tool output %q has no matching function call",item.CallID)}
+   if outputs[item.CallID] {return fmt.Errorf("duplicate stateless tool output %q",item.CallID)}
+   outputs[item.CallID]=true
+  }
+ }
+ for id:=range calls{
+  if !outputs[id]{return fmt.Errorf("stateless function call %q has no tool output",id)}
+ }
+ return nil
+}
+
 // BuildResponsesRequest builds a Responses API JSON request. Required
 // instructions are sent EVERY time, including when previous_response_id is
 // used (top-level instructions are not inherited in response chains).
@@ -145,6 +170,9 @@ func BuildResponsesRequest(c RequestConfig) ([]byte, error) {
 	items := c.Next
 	if !hasPrevious && !hasConversation {
 		items = append(append([]HistoryItem{}, c.History...), c.Next...)
+		if err:=validateStatelessToolPairs(items);err!=nil {
+			return nil, fmt.Errorf("invalid stateless provider context: %w",err)
+		}
 	}
 	input, err := encodeHistory(items)
 	if err != nil {
