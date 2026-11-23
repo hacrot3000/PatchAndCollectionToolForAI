@@ -424,12 +424,12 @@ resizeObserver.callback();
 assert.equal(moreMenu.children.length,0,'wide toolbar restores all actions');
 assert.equal(moreButton.hidden,true,'More hides again after resizing back to wide');
 for (const label of ['AI Agent Chat', 'Bottom', 'Auto Hide', '⋯', 'Hide', '+ New session', 'Preview context',
-  'Rename', 'Archive', 'Delete conversation', 'Refresh', '+ Text file', 'Auto-send results',
+  'Rename', 'Archive', 'Delete conversation', 'Refresh', '+ File', 'Auto-send results',
   'Auto apply Patch: OFF', 'Auto Collection: ON', 'Conversation ▾', 'Automation ▾', 'Tools ▾', 'Layout ▾']) {
   assert.ok(labels.includes(label), 'Agent Chat control missing at runtime: ' + label);
 }
 for (const label of ['Bottom', 'Auto Hide', '⋯', 'Hide', '+ New session', 'Preview context',
-  'Rename', 'Archive', 'Delete conversation', 'Refresh', '+ Text file', 'Auto-send results',
+  'Rename', 'Archive', 'Delete conversation', 'Refresh', '+ File', 'Auto-send results',
   'Auto apply Patch: OFF', 'Auto Collection: ON']) {
   assert.equal(labels.filter(value => value === label).length, 1, 'Control duplicated: ' + label);
 }
