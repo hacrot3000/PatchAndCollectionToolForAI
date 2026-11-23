@@ -106,10 +106,26 @@ func appendAgentProviderResult(x *agentchat.Session, result agentchat.ResponsesR
 	if registeredCall {
 		x.Status = "waiting_tool"
 	} else if len(result.Calls) > 0 {
-		// A provider may ignore parallel_tool_calls:false or return an unsupported
-		// function. Keep the canonical transcript for audit, but fail closed rather
-		// than leaving an unresolvable waiting_tool session.
+		// Preserve the original untrusted function call for audit, but NEVER
+		// manufacture a native Patch intent from a malformed/unsupported call.
+		// Record a safe, bounded machine diagnosis for its owner so the UI
+		// doesn't claim a mysterious "approved Patch proposal" is missing.
 		x.Status = "tool_rejected"
+		reason := "unsupported_function"
+		if !toolAvailable {
+			reason = "patch_tool_unavailable"
+		} else if len(result.Calls) != 1 {
+			reason = "multiple_tool_calls"
+		} else if call := result.Calls[0]; call.Name == "taskdeck_submit_patch" {
+			if _, err := parseAgentPatchArguments(call.Arguments); err != nil {
+				reason = "invalid_patch_arguments: " + err.Error()
+			} else {
+				reason = "patch_proposal_not_registered"
+			}
+		}
+		for _, call := range result.Calls {
+			x.AppendEvent("tool_proposal_rejected", "tool_rejected", call.CallID, reason)
+		}
 	} else {
 		x.Status = "completed"
 	}

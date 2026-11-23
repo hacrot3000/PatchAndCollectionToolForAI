@@ -313,6 +313,7 @@ agentProviderEgressNotice.hidden=true;
 agentProviderEgressNotice.setAttribute('role','status');
 agentProviderEgressNotice.setAttribute('aria-live','polite');
 let agentProviderReviewKey='';
+const agentDismissedProviderReviews=new Set();
 const agentLiveRow=agentEl('div','agentchat-live-status');
 const agentLiveSpinner=agentEl('span','agentchat-live-spinner');
 agentLiveSpinner.setAttribute('aria-hidden','true');
@@ -856,12 +857,22 @@ function renderAgentTool(session,item){
   box.append(agentEl('span','','Unsupported tool request · not executed'));
   return box;
  }
- const state=record?.status||'blocked';
+ const state=record?.status||'rejected';
  box.append(agentEl('strong','',(record?.text_fallback?'Text-only Patch proposal':'Patch proposal')+' · '+state.toUpperCase()));
  let args=null;
  try{args=JSON.parse(item.arguments||'');}catch{}
  if(!record||!args||typeof args.patch_python!=='string'){
-  box.append(agentEl('p','agentchat-tool-summary','No valid approved Patch proposal is available.'));
+  const rejected=[...(session.events||[])].reverse().find(event=>
+   event.kind==='tool_proposal_rejected'&&event.call_id===item.call_id);
+  const reason=rejected?.detail||(!record?'No executable Patch proposal was registered.':'The saved Patch arguments are incomplete.');
+  box.append(agentEl('p','agentchat-tool-summary',
+   'Patch proposal rejected before approval or execution: '+reason));
+  if(item.arguments)box.append(detail(
+   'Inspect original rejected tool arguments (read-only)',
+   String(item.arguments),'rejected-arguments'));
+  box.append(agentEl('p','agentchat-tool-summary',
+   'No Patch was queued or executed. Ask AI to submit ONE valid taskdeck_submit_patch '+
+   'request with name and complete patch_python, then review the new proposal.'));
   return box;
  }
  box.append(detail('Review Python patch · '+String(args.name||'unnamed'),args.patch_python,'patch-code'));
@@ -1113,18 +1124,28 @@ function renderAgentProviderEgressReview(session,review){
  if(key===agentProviderReviewKey)return;
  agentProviderReviewKey=key;
  agentProviderEgressNotice.replaceChildren();
- if(!ambiguous){agentProviderEgressNotice.hidden=true;return;}
+ if(!ambiguous||agentDismissedProviderReviews.has(key)){
+  agentProviderEgressNotice.hidden=true;return;
+ }
  const heading=review.phase==='unknown'?
   'Provider acknowledgement UNKNOWN':'Provider request SENDING — not yet confirmed';
  const identity='Run '+String(review.run_id||'unknown')+
   ' · '+String(review.kind||'request')+
   ' · payload SHA-256 '+String(review.payload_sha256||'unavailable').slice(0,16)+'…';
  const handoff=agentButton('Open handoff',()=>agentHandoffButton.click());
+ const dismiss=agentButton('Close warning',()=>{
+  // Presentation only: journal, provider egress and native work are intact.
+  // Keep this run dismissed across every 1.2s progress poll. A different
+  // Run ID/phase remains eligible to show a fresh warning.
+  agentDismissedProviderReviews.add(key);
+  agentProviderEgressNotice.hidden=true;
+ });
+ dismiss.title='Hide this warning only; does not stop the AI or mark provider delivery as confirmed';
  agentProviderEgressNotice.append(
   agentEl('strong','',heading),
   agentEl('div','',identity),
   agentEl('div','',String(review.guidance||'Inspect the provider and TaskDeck handoff before any manual decision.')),
-  handoff
+  handoff,dismiss
  );
  agentProviderEgressNotice.hidden=false;
 }
