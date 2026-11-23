@@ -5,6 +5,7 @@ import (
  "encoding/hex"
  "encoding/json"
  "errors"
+ "fmt"
  "os"
  "strings"
  "time"
@@ -278,6 +279,9 @@ func (s *Store) setSegmentTaskPlanStep(
   background.TaskPlanSegments=nil
   if e=validateSession(background);e!=nil{return e}
   if e=s.writeTaskPlanStatusPartLocked(id,changed,part);e!=nil{return e}
+  // Flush the immutable page's directory entry BEFORE the canonical
+  // session may reference it; failed pre-commit sync leaves only an orphan.
+  if e=s.syncDirectory();e!=nil{return e}
 
   onDisk:=x
   meta:=*x.TaskPlan
@@ -294,6 +298,11 @@ func (s *Store) setSegmentTaskPlanStep(
   if e=temp.Sync();e!=nil{temp.Close();return e}
   if e=temp.Close();e!=nil{return e}
   if e=os.Rename(temp.Name(),s.file(id));e!=nil{return e}
+  // Post-rename fsync failure makes the committed revision uncertain.
+  // Never treat it as proof an owner action or provider egress did not occur.
+  if e=s.syncDirectory();e!=nil{
+   return fmt.Errorf("%w: %v",ErrJournalDurabilityUnknown,e)
+  }
 
   // A test-only barrier exercises a real process kill after the canonical
   // manifest commit and before cleanup. The hook is never populated by
