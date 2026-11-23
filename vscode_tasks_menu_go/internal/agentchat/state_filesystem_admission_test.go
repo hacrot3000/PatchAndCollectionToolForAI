@@ -5,7 +5,6 @@ import (
  "errors"
  "os"
  "path/filepath"
- "strings"
  "testing"
  "time"
 )
@@ -103,7 +102,8 @@ func TestAgentStateFilesystemAdmissionDoesNotInvalidatePreparedAndUnknownSafety(
  }
  audit,err:=store.ProviderAttempts(x.ID,"local")
  if err!=nil||audit!=nil{t.Fatalf("fabricated provider delivery on admission: %v",err)}
- if !strings.Contains(ProviderEgressReviewForSession(x).Reason,"") {
-  t.Fatal("unreachable")
+ review:=ProviderEgressReviewForSession(x)
+ if review==nil||review.AutomaticReplayAllowed||!review.RequiresReconciliation{
+  t.Fatal("local filesystem admission bypassed ambiguous provider replay fence")
  }
 }
