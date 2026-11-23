@@ -38,9 +38,9 @@ func agentAutoFeedbackCandidate(x agentchat.Session) (int, bool) {
   }
  }
  if !granted {return 0,false}
-	if x.Status != "waiting_tool" {
-		return 0, false
-	}
+	if x.Status != "waiting_tool" && x.Status != "tool_rejected" {
+        return 0, false
+    }
 	for _, call := range x.ToolCalls {
 		switch call.Status {
 		case "running", "dispatching", "queued":

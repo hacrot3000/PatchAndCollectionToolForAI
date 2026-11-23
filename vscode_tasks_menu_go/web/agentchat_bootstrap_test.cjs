@@ -1183,7 +1183,9 @@ console.log('PASS: safe Markdown, syntax-highlighted PHP/Python, per-block Copy,
    const rejectedTool={id:'rejected-patch',status:'tool_rejected',revision:22,
      history:[{type:'function_call',call_id:'call_rejected_patch',name:'taskdeck_submit_patch',
        arguments:JSON.stringify({patch_text:'not the required patch_python field'})}],
-     tool_calls:[],events:[{kind:'tool_proposal_rejected',status:'tool_rejected',
+     tool_calls:[{call_id:'call_rejected_patch',name:'taskdeck_submit_patch',status:'rejected',
+      result:'{"status":"REJECTED","reason_code":"INVALID_PATCH_ARGUMENTS"}',
+      feedback_sent:false}],events:[{kind:'tool_proposal_rejected',status:'tool_rejected',
        call_id:'call_rejected_patch',
        detail:'invalid_patch_arguments: invalid patch function arguments'}]};
    const rejectedCard=vm.runInNewContext('renderAgentTool('+
@@ -1199,7 +1201,12 @@ console.log('PASS: safe Markdown, syntax-highlighted PHP/Python, per-block Copy,
    assert.equal(Boolean(find(rejectedCard,node=>node.tagName==='button'&&
       /approve|run|re-apply/i.test(node.textContent))),false,
      'rejected Patch must never get an approval/execution action');
-   console.log('PASS: malformed provider Patch exposes diagnosis and read-only request, no approval');
+   assert.ok(find(rejectedCard,node=>node.tagName==='button'&&node.textContent==='Send rejection to AI'),
+     'rejected malformed proposal must let owner forward the exact tool rejection');
+   assert.ok(find(rejectedCard,node=>node.tagName==='summary'&&
+      node.textContent.includes('Patch rejection feedback')),
+     'malformed rejection must show the model-visible diagnostic');
+   console.log('PASS: malformed provider Patch exposes diagnosis, sendable feedback and no approval');
    console.log('PASS: bounded/unlimited retry UI, single retry countdown and safe old-Patch recovery actions');
 
 

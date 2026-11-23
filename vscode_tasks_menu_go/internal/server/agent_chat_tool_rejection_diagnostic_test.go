@@ -42,8 +42,28 @@ func TestAgentPatchRejectedProposalRecordsActionableReasonWithoutExecution(t *te
    }
    store,err:=s.agentChatStore();if err!=nil{t.Fatal(err)}
    x,err:=store.Get(id,"local");if err!=nil{t.Fatal(err)}
-   if len(x.ToolCalls)!=0||x.Status!="tool_rejected"{
-    t.Fatalf("invalid proposal became native execution intent: %+v",x.ToolCalls)
+   if x.Status!="tool_rejected" {t.Fatalf("wrong rejection status: %s",x.Status)}
+   if tc.name=="malformed_patch_args" {
+    if len(x.ToolCalls)!=1||x.ToolCalls[0].Status!="rejected"||
+       x.ToolCalls[0].CallID!="call_invalid"||x.ToolCalls[0].QueuePath!=""||
+       x.ToolCalls[0].RunID!=""||x.ToolCalls[0].FeedbackSent {
+     t.Fatalf("malformed proposal was not recorded as an unexecuted feedback result: %+v",x.ToolCalls)
+    }
+    var feedback struct {
+     Status string `json:"status"`
+     ReasonCode string `json:"reason_code"`
+     PatchQueued bool `json:"patch_queued"`
+     PatchExecuted bool `json:"patch_executed"`
+     Retryable bool `json:"retryable_by_ai"`
+    }
+    if json.Unmarshal([]byte(x.ToolCalls[0].Result),&feedback)!=nil||
+       feedback.Status!="REJECTED"||feedback.ReasonCode!="INVALID_PATCH_ARGUMENTS"||
+       feedback.PatchQueued||feedback.PatchExecuted||!feedback.Retryable {
+     t.Fatalf("invalid structured rejection feedback: %s",x.ToolCalls[0].Result)
+    }
+    if _,ok:=agentAutoFeedbackCandidate(x);ok{t.Fatal("no-consent rejection scheduled")}
+   }else if len(x.ToolCalls)!=0 {
+    t.Fatalf("unsupported or multiple calls became native execution intents: %+v",x.ToolCalls)
    }
    rejected:=0
    for _,event:=range x.Events{
@@ -59,7 +79,7 @@ func TestAgentPatchRejectedProposalRecordsActionableReasonWithoutExecution(t *te
    if session.Code!=200{t.Fatalf("owner cannot inspect rejected tool: %d",session.Code)}
    var view struct{Session agentchat.Session `json:"session"`}
    if err=json.Unmarshal(session.Body.Bytes(),&view);err!=nil{t.Fatal(err)}
-   if len(view.Session.ToolCalls)!=0||view.Session.Revision!=x.Revision{
+   if len(view.Session.ToolCalls)!=len(x.ToolCalls)||view.Session.Revision!=x.Revision{
     t.Fatal("read-only diagnostic changed journal or created an approval")
    }
   })

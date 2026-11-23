@@ -204,7 +204,10 @@ func (s *Server) agentChatToolDecisionAPI(w http.ResponseWriter, r *http.Request
 	}
 	if request.Action == "reject" {
 		x.ToolCalls[idx].Status = "rejected"
-		x.ToolCalls[idx].Result = "User rejected patch execution; no patch was queued or executed."
+		x.ToolCalls[idx].Result = agentRejectedPatchFeedback(
+            "USER_REJECTED",
+            "The user rejected this Patch. No Patch was queued or executed. Do not resubmit the rejected Patch without a new user instruction.",
+            false)
 		x.AppendEvent("tool_rejected", "tool_rejected", callID, "")
 		x.Status = "tool_rejected"
 		x, err = store.Save(x, x.Revision)

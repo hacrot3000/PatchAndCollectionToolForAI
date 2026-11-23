@@ -872,8 +872,16 @@ function renderAgentTool(session,item){
    'Inspect original rejected tool arguments (read-only)',
    String(item.arguments),'rejected-arguments'));
   box.append(agentEl('p','agentchat-tool-summary',
-   'No Patch was queued or executed. Ask AI to submit ONE valid taskdeck_submit_patch '+
-   'request with name and complete patch_python, then review the new proposal.'));
+   'No Patch was queued or executed. Send the rejection to AI so it can correct the proposal.'));
+  if(record?.result)box.append(detail('Patch rejection feedback',record.result,'patch-result'));
+  if(record?.status==='rejected'&&!record.feedback_sent){
+   const actions=agentEl('div','agentchat-tool-actions');
+   if(session.auto_feedback)box.append(agentEl('p','agentchat-tool-summary',
+    'Auto feedback is enabled · forwarding the rejection to AI when permitted.'));
+   actions.append(agentButton('Send rejection to AI',
+    ()=>continueAgentTool(agentCurrentSession||session,item.call_id).catch(showAgentError)));
+   box.append(actions);
+  }
   return box;
  }
  box.append(detail('Review Python patch · '+String(args.name||'unnamed'),args.patch_python,'patch-code'));
@@ -903,7 +911,7 @@ function renderAgentTool(session,item){
   const consoleButton=agentButton('View console',()=>showAgentExecution(session.id,item.call_id).catch(showAgentError));
   consoleButton.disabled=refresh.disabled;actions.append(refresh,consoleButton);
  }
- if(['done','error','rejected'].includes(state)){
+ if(['done','error'].includes(state)){
   actions.append(agentButton('View native result',()=>showAgentExecution(session.id,item.call_id).catch(showAgentError)));
  }
  if(!record.feedback_sent&&['running','dispatching','queued','unknown','done','error'].includes(state)){
@@ -1042,7 +1050,7 @@ function agentLivePhase(session){
  if(turn?.phase==='sending'&&!turn.acknowledged)return {message:'Sending request…'};
  if(['queued','dispatching','running'].includes(lastCall?.status))return {message:'Running native Patch…'};
  if(session.status==='waiting_tool'&&lastCall?.status==='pending'&&session.auto_patch)return {message:'Submitting Patch to native tool…'};
- if(session.status==='waiting_tool'&&['done','error','rejected'].includes(lastCall?.status)&&
+ if(['waiting_tool','tool_rejected'].includes(session.status)&&['done','error','rejected'].includes(lastCall?.status)&&
     session.auto_feedback&&!lastCall.feedback_sent)return {message:'Sending verified Patch result to AI…'};
  return null;
 }
@@ -1557,7 +1565,7 @@ function scheduleAgentMonitor(sess){
  const pending=(sess.tool_calls||[]).some(call=>['running','dispatching','queued','unknown'].includes(call.status));
  const awaitingAutoPatch=sess.auto_patch&&sess.status==='waiting_tool'&&
   (sess.tool_calls||[]).some(call=>call.status==='pending');
- const awaitingFeedback=sess.auto_feedback&&sess.status==='waiting_tool'&&
+ const awaitingFeedback=sess.auto_feedback&&['waiting_tool','tool_rejected'].includes(sess.status)&&
   (sess.tool_calls||[]).some(call=>['done','error','rejected'].includes(call.status)&&!call.feedback_sent);
  const thinking=sess.status==='requesting_ai';
  if(!pending&&!awaitingFeedback&&!awaitingAutoPatch&&!thinking)return;
