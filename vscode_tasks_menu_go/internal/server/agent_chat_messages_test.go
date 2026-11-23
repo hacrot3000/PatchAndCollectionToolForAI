@@ -169,9 +169,12 @@ func TestAgentChatToolCallsRemainNonExecuting(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(x.ToolCalls) != 0 {
-		t.Fatalf("malformed model call created an execution intent: %+v", x.ToolCalls)
-	}
+	if len(x.ToolCalls) != 1 || x.ToolCalls[0].Status != "rejected" ||
+        x.ToolCalls[0].CallID != "call_1" || x.ToolCalls[0].QueuePath != "" ||
+        x.ToolCalls[0].PatchSessionID != "" || x.ToolCalls[0].RunID != "" ||
+        x.ToolCalls[0].FeedbackSent || !strings.Contains(x.ToolCalls[0].Result, "INVALID_PATCH_ARGUMENTS") {
+        t.Fatalf("malformed model call must remain non-executable with sendable rejection: %+v", x.ToolCalls)
+    }
 }
 func TestAgentChatMessageSharedPermission(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/api/agent/sessions/deadbeef/messages", nil)
