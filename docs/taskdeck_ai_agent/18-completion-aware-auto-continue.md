@@ -79,3 +79,24 @@ Remaining risks: semantic completion remains under the owner-owned Task plan;
 a plain no-plan chat only has a conservative continuation signal and never
 automatically establishes verified acceptance. Existing authoritative provider
 SENDING/UNKNOWN reconciliation limitations remain unchanged.
+
+## Validation record — 2026-11-23
+
+Final functional code commit: ef1fe6d913580c42e570601689849ddc79a96254
+(preceded by implementation 021b145c2d0e55714f4f2c110cb4d3330ba19101
+and two explicit regression-fixture corrections).
+
+- Agent Chat protocol core: PASS, push workflow 45219398959,
+  https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/45219398959
+  This workflow ran Go race tests for agentchat, server TestAgent tests,
+  taskmanifest tests, go vet, Node JavaScript syntax/bootstrap regression,
+  Python Collection preflight and macOS agentchat cross-compilation.
+- Remote Portal PHP: PASS, push workflow 45219399018,
+  https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/45219399018
+- Remote Agent Go: still in progress at the time this validation record was
+  created. Do not claim a successful conclusion without a final workflow check.
+
+Earlier failures were fixed, not ignored: Go regexp repeat limit/Go fixture
+concatenation, a neutral text fixture accidentally containing "unfinished",
+and a synthetic final Native Patch record that canonical Store rightly rejected.
+The final core workflow validated the corrected code.
