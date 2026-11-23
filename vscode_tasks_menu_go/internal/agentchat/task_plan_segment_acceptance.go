@@ -2,6 +2,7 @@ package agentchat
 
 import (
  "errors"
+ "encoding/hex"
  "strings"
  "time"
 )
@@ -12,12 +13,20 @@ import (
 var ErrTaskPlanAcceptanceInvalid=errors.New("invalid task plan acceptance matrix or review")
 var ErrTaskPlanCriterionNotFound=errors.New("task plan acceptance criterion not found")
 var ErrTaskPlanAcceptanceLocked=errors.New("accepted milestone must be reopened before editing its criteria")
+var ErrTaskPlanGoBindingInvalid=errors.New("invalid owner-selected native command or Go test checklist")
+var ErrTaskPlanGoBindingConflict=errors.New("remove dependent owner Go tests or acceptance criteria first")
+var ErrTaskPlanGoBindingMissing=errors.New("lock expected native test command before selecting required Go tests")
 
 type segmentAcceptanceEdit struct {
  action string
  criteria []TaskAcceptanceCriterion
  criterionID string
  note string
+ enabled bool
+ taskID int
+ commandSHA256 string
+ goPackage string
+ goTests []string
 }
 
 // apply mutates only the selected, already SHA-verified 32-step page while
@@ -60,6 +69,41 @@ func (edit *segmentAcceptanceEdit) apply(step *TaskPlanStep,now time.Time)error{
    break
   }
   if !found{return ErrTaskPlanCriterionNotFound}
+ case "set_task_command_guard":
+  // A locked command identifies the exact Task ID, argv, cwd and digest
+  // selected by the OWNER, never by a model-produced PASS message.
+  if step.GoTestRequirements!=nil||len(step.AcceptanceCriteria)>0{
+   return ErrTaskPlanGoBindingConflict
+  }
+  if !edit.enabled{
+   step.TaskCommandGuard=nil
+  }else{
+   digest:=edit.commandSHA256
+   if edit.taskID<1||len(digest)!=64||strings.ToLower(digest)!=digest{
+    return ErrTaskPlanGoBindingInvalid
+   }
+   if _,err:=hex.DecodeString(digest);err!=nil{return ErrTaskPlanGoBindingInvalid}
+   step.TaskCommandGuard=&TaskCommandGuard{
+    TaskID:edit.taskID,CommandSHA256:digest,BoundAt:now,
+   }
+  }
+ case "set_go_test_requirements":
+  // Replacing an expected named-test checklist must never preserve semantic
+  // coverage attestations for a different checklist or bypass a locked
+  // command. The caller must first remove the acceptance matrix explicitly.
+  if len(step.AcceptanceCriteria)>0{return ErrTaskPlanGoBindingConflict}
+  if !edit.enabled{
+   step.GoTestRequirements=nil
+  }else{
+   if step.TaskCommandGuard==nil{return ErrTaskPlanGoBindingMissing}
+   candidate:=&TaskGoTestRequirements{
+    Package:edit.goPackage,Tests:append([]string(nil),edit.goTests...),BoundAt:now,
+   }
+   if err:=ValidateTaskGoTestRequirements(candidate);err!=nil{
+    return ErrTaskPlanGoBindingInvalid
+   }
+   step.GoTestRequirements=candidate
+  }
  default:
   return ErrTaskPlanSegmentWriteUnsupported
  }
@@ -94,5 +138,35 @@ func (s *Store) ReviewSegmentTaskPlanAcceptanceCriterion(
    action:"review_acceptance_criterion",
    criterionID:criterionID,
    note:note,
+  })
+}
+
+// SetSegmentTaskPlanCommandGuard stores or clears an exact owner-confirmed
+// native Task command identity on one immutable Task plan page. Any pinned
+// expected Go checklist or acceptance matrix must be explicitly removed
+// first. The HTTP endpoint enforces confirm_command_guard.
+func (s *Store) SetSegmentTaskPlanCommandGuard(
+ id,owner string,expectedRevision uint64,stepID string,
+ enabled bool,taskID int,commandSHA256 string,offset,limit int,
+)(TaskPlanPageResult,error){
+ return s.setSegmentTaskPlanStep(id,owner,expectedRevision,stepID,"","","","",
+  offset,limit,&segmentAcceptanceEdit{
+   action:"set_task_command_guard",enabled:enabled,
+   taskID:taskID,commandSHA256:commandSHA256,
+  })
+}
+
+// SetSegmentTaskPlanGoTestRequirements persists the OWNER's bounded, exact
+// named-test checklist tied to the previously bound Task command. It does
+// NOT record any test execution and cannot mark a milestone complete.
+// The HTTP endpoint enforces confirm_go_tests.
+func (s *Store) SetSegmentTaskPlanGoTestRequirements(
+ id,owner string,expectedRevision uint64,stepID string,
+ enabled bool,goPackage string,tests []string,offset,limit int,
+)(TaskPlanPageResult,error){
+ return s.setSegmentTaskPlanStep(id,owner,expectedRevision,stepID,"","","","",
+  offset,limit,&segmentAcceptanceEdit{
+   action:"set_go_test_requirements",enabled:enabled,
+   goPackage:goPackage,goTests:append([]string(nil),tests...),
   })
 }
