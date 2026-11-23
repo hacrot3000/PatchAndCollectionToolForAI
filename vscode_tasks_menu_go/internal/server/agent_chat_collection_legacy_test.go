@@ -16,9 +16,9 @@ import (
 	"bletonfc/vscode_tasks_menu/internal/patchtool"
 )
 
-// Agent Collection is deliberately read-only. It returns bounded, source-path
-// annotated evidence to the model; mutation continues through the existing
-// approval-gated native Patch Tool, never through this reader.
+// Historical limited Go reader retained ONLY as a protocol-test fixture.
+// This file is excluded from production builds. All production Agent COLLECT
+// operations use the native Python Patch Tool runner, ZIP/TXT and History.
 const (
 	agentCollectionMaxActions = 6
 	agentCollectionMaxEntries = 100

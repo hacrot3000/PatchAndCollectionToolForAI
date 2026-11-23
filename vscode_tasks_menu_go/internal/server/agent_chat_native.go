@@ -26,7 +26,7 @@ var errAgentPatchPromptNotReady = errors.New("native Patch selection prompt is n
 // queue snapshot. Never run "all selected" or trust model-provided indexes.
 // It returns the prompt ID and item index so the caller can bind the final
 // result to this exact approval.
-func agentExactPatchSelection(state session.ProtocolState, name string) (patchPromptResponseRequest, string, int, error) {
+func agentExactQueueSelection(state session.ProtocolState, name, kind string) (patchPromptResponseRequest, string, int, error) {
 	if !state.CommandsEnabled || !state.Available {
 		return patchPromptResponseRequest{}, "", 0, errAgentPatchPromptNotReady
 	}
@@ -71,7 +71,7 @@ func agentExactPatchSelection(state session.ProtocolState, name string) (patchPr
 		if selected != 0 {
 			return patchPromptResponseRequest{}, "", 0, errors.New("native Patch prompt contains duplicate approved item names")
 		}
-		if item.Index < 1 || strings.ToUpper(item.Kind) != "PATCH" || (item.Selectable != nil && !*item.Selectable) {
+		if item.Index < 1 || strings.ToUpper(item.Kind) != kind || (item.Selectable != nil && !*item.Selectable) {
 			return patchPromptResponseRequest{}, "", 0, errors.New("approved Patch package is not selectable")
 		}
 		selected = item.Index
@@ -112,6 +112,10 @@ func (s *Server) agentVerifyQueuedPackage(receipt patchUploadResult) error {
 	return nil
 }
 
+func agentExactPatchSelection(state session.ProtocolState, name string) (patchPromptResponseRequest, string, int, error) {
+ return agentExactQueueSelection(state,name,"PATCH")
+}
+
 // agentStartNativePatch launches the PREEXISTING /api/sessions kind=patch
 // handler, retaining native owner/permission/session identity and locks.
 func (s *Server) agentStartNativePatch(r *http.Request) (string, error) {
@@ -142,7 +146,7 @@ func (s *Server) agentStartNativePatch(r *http.Request) (string, error) {
 // used by the Patch Panel, including native prompt ID validation,
 // reservePatchWorkKind and workspace mutation leases. It returns the accepted
 // prompt ID and index so the ledger can bind the eventual final result.
-func (s *Server) agentSelectNativePatch(ctx context.Context, r *http.Request, sessionID, name string) (string, int, error) {
+func (s *Server) agentSelectNativeQueue(ctx context.Context, r *http.Request, sessionID, name, kind string) (string, int, error) {
 	provider, ok := s.Sessions.(session.ProtocolStateProvider)
 	if !ok {
 		return "", 0, errors.New("native Patch protocol state unavailable")
@@ -152,12 +156,14 @@ func (s *Server) agentSelectNativePatch(ctx context.Context, r *http.Request, se
 	}
 	ticker := time.NewTicker(200 * time.Millisecond)
 	defer ticker.Stop()
-	timeout, cancel := context.WithTimeout(ctx, 16*time.Second)
+	selectionTimeout:=16*time.Second
+	if kind=="COLLECT" {selectionTimeout=60*time.Second} // large project queue inspection may take longer
+	timeout, cancel := context.WithTimeout(ctx, selectionTimeout)
 	defer cancel()
 	for {
 		state, err := provider.ProtocolState(sessionID)
 		if err == nil {
-			selection, promptID, index, selErr := agentExactPatchSelection(state, name)
+			selection, promptID, index, selErr := agentExactQueueSelection(state, name, kind)
 			if selErr == nil {
 				payload, _ := json.Marshal(selection)
 				endpoint := "/api/sessions/" + sessionID + "/prompt-response"
@@ -186,6 +192,10 @@ func (s *Server) agentSelectNativePatch(ctx context.Context, r *http.Request, se
 		case <-ticker.C:
 		}
 	}
+}
+
+func (s *Server) agentSelectNativePatch(ctx context.Context, r *http.Request, sessionID, name string) (string, int, error) {
+ return s.agentSelectNativeQueue(ctx,r,sessionID,name,"PATCH")
 }
 
 // agentPatchExpectation binds a final protocol observation to the exact queue

@@ -917,7 +917,16 @@ function renderAgentTool(session,item){
  };
  if(item.name==='taskdeck_collect_workspace'){
   const output=(session.history||[]).find(x=>x.type==='function_call_output'&&x.call_id===item.call_id);
-  box.append(agentEl('span','',output?'Collection · inspected':'Collection · inspecting'));
+  let state=output?'Collection · result received':'Collection · inspecting';
+  if(output){
+   try{
+    const data=JSON.parse(String(output.content||''));
+    if(data?.status==='INCOMPLETE')state='Collection · INCOMPLETE (partial evidence)';
+    else if(data?.error||data?.status==='FAILED')state='Collection · FAILED';
+    else if(data?.evidence_verified===true||Array.isArray(data?.results))state='Collection · inspected';
+   }catch{}
+  }
+  box.append(agentEl('span','',state));
   box.append(detail('Inspect read-only Collection request',String(item.arguments||''),'collection-request'));
   if(output)box.append(detail('Observed workspace result',String(output.content||''),'collection-result'));
   return box;
@@ -1022,6 +1031,8 @@ function agentToolIO(label,content){
 function agentHistoryRow(session,item,callNames){
  if(item.type==='activity_event'){
   const name=item.kind==='collect_failed'?'Collection failed':
+   item.kind==='collect_request_rejected'?'Collection request rejected':
+   item.kind==='collect_native_failed'?'Native Collection failed':
    item.kind==='turn_failed'?'AI request failed':
    item.kind==='turn_cancelled'?'AI request cancelled':
    item.kind==='feedback_unknown'?'Patch result delivery unconfirmed':'Operation failed';
@@ -1030,7 +1041,8 @@ function agentHistoryRow(session,item,callNames){
  }
  if(item.type==='user'){
   const source=String(item.content||'');
-  if(source.startsWith('TaskDeck local read-only Collection tool returned this VERIFIED observation')){
+  if(source.startsWith('TaskDeck local read-only Collection tool returned this VERIFIED observation')||
+     source.startsWith('TaskDeck native Patch Tool COLLECT returned this observation')){
    return agentToolIO('Collection result sent to AI · view contents',source);
   }
   if(source.startsWith('TaskDeck native Patch Tool result for your prior text-only proposal')){
@@ -1047,7 +1059,20 @@ function agentHistoryRow(session,item,callNames){
   if(trimmed.startsWith('{')&&trimmed.endsWith('}')){
    try{
     const parsed=JSON.parse(trimmed);
-    if(Array.isArray(parsed.actions)&&parsed.project)return agentToolIO('AI requested Collection · view request',raw);
+    if(Array.isArray(parsed.actions)&&parsed.project){
+     const history=Array.isArray(session?.history)?session.history:[];
+     const i=history.indexOf(item),next=i>=0?history[i+1]:null;
+     const confirmed=next?.type==='user'&&(
+      String(next.content||'').startsWith('TaskDeck native Patch Tool COLLECT returned this observation')||
+      String(next.content||'').startsWith('TaskDeck local read-only Collection tool returned this VERIFIED observation'));
+     if(confirmed)return agentToolIO('Collection · result forwarded to AI · view request',raw);
+     const card=agentEl('div','agentchat-bubble tool');
+     card.append(agentEl('strong','','⚠ Collection request NOT executed'),
+      agentEl('p','agentchat-tool-summary',
+       'AI returned Collection JSON but no matching Collection result was recorded. This is NOT a completed workspace inspection. The conversation may have been marked completed incorrectly.'),
+      agentToolIO('AI requested Collection · view request',raw));
+     return card;
+    }
     if(parsed.type==='taskdeck_patch_proposal')return agentToolIO('AI proposed Patch · view request',raw);
    }catch{}
   }
@@ -1066,7 +1091,7 @@ function agentHistoryRow(session,item,callNames){
 function agentChronologicalHistory(session){
  const history=Array.isArray(session?.history)?session.history:[];
  const failures=(session?.events||[]).filter(e=>
-  ['turn_failed','collect_failed','turn_cancelled','feedback_unknown'].includes(e.kind));
+  ['turn_failed','collect_failed','collect_request_rejected','collect_native_failed','turn_cancelled','feedback_unknown'].includes(e.kind));
  if(!failures.length)return history;
  const ordered=failures.map(event=>({
   ...event,type:'activity_event',
@@ -1113,6 +1138,7 @@ function agentLivePhase(session){
  if(session.status==='cancelled')return null;
  if(session.status==='requesting_ai'){
   if(turn?.phase==='sending'&&!newer.some(e=>e.kind==='turn_started'||e.kind==='feedback_prepared'))return {message:'Sending request…'};
+  if(lastEvent?.kind==='collect_started')return {message:'Running native Patch Tool COLLECT… large-file extraction in progress. Stop to cancel.'};
   if(lastEvent?.kind==='collect_observed')return {message:'Sending Collection result to AI…'};
   if(lastEvent?.kind==='feedback_prepared')return {message:'Sending native Patch result to AI…'};
   if(lastCall?.feedback_status==='sending'||lastCall?.feedback_status==='prepared')return {message:'Sending native Patch result to AI…'};

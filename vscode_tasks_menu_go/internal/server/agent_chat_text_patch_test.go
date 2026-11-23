@@ -121,7 +121,7 @@ func TestAgentTextOnlyCollectionThenPatchNativeApprovalAndFeedback(t *testing.T)
             for _, raw := range req["input"].([]any) {
                 msg := raw.(map[string]any)
                 text, _ := msg["content"].(string)
-                if strings.Contains(text, "VERIFIED observation") && strings.Contains(text, "results") {
+                if strings.Contains(text, "native Patch Tool COLLECT") && strings.Contains(text, "results") {
                     seenCollection = true
                 }
             }

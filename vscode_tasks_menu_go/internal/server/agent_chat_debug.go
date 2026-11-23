@@ -539,6 +539,8 @@ func debugErrorJSON(err error, traceID, fallbackCode, fallbackStage, fallbackMes
 		switch local.Stage {
 		case "request_build": code = "COLLECTION_REQUEST_BUILD_FAILED"
 		case "journal_write": code = "COLLECTION_JOURNAL_WRITE_FAILED"
+		case "persist_native_collect_start": code = "COLLECTION_JOURNAL_WRITE_FAILED"
+		case "invalid_project_identity": code = "COLLECTION_IDENTITY_REJECTED"
 		case "cancelled_before_provider_request": code = "COLLECTION_CANCELLED"
 		}
 		return map[string]any{"error": map[string]any{

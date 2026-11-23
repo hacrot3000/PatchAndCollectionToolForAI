@@ -40,6 +40,7 @@ type Server struct {
 	agentRunCtx            context.Context
 	agentRunCancel         context.CancelFunc
 	AgentChatCall          func(context.Context, agentchat.ProviderConfig, string, []byte) (agentchat.ResponsesResult, error) // optional test adapter; nil = production HTTPS
+	AgentCollectionCall    func(string, patchtool.ProjectIdentity, []byte) string // optional TEST adapter only; production always uses native Patch Tool COLLECT
 	AgentChatPack          func(string, string) (patchtool.AIPackResult, error)                                               // optional test builder; nil = current AI Pack
 	agentDebugMu           sync.Mutex
 	agentDebug             *agentDebugStore

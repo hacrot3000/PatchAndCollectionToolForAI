@@ -97,7 +97,7 @@ func TestAgentChatLegacyCollectionFeedsPatchProposal(t *testing.T) {
 			found := false
 			for _, item := range items {
 				text, _ := item.(map[string]any)["content"].(string)
-				if strings.Contains(text, "VERIFIED observation") && strings.Contains(text, "results") {
+				if strings.Contains(text, "native Patch Tool COLLECT") && strings.Contains(text, "results") {
 					found = true
 				}
 			}

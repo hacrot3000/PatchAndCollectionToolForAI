@@ -493,10 +493,19 @@ func (s *Server) agentChatMessageAPI(w http.ResponseWriter, r *http.Request, id 
 			code, httpStatus = "COLLECTION_PROVIDER_TIMEOUT", http.StatusGatewayTimeout
 		} else if errors.Is(ctx.Err(), context.Canceled) {
 			code, httpStatus = "COLLECTION_CANCELLED", http.StatusConflict
+		} else {
+			var localErr *agentCollectionLocalError
+			if errors.As(callErr, &localErr) && localErr.Stage == "invalid_project_identity" {
+				code, httpStatus = "COLLECTION_IDENTITY_REJECTED", http.StatusConflict
+			}
 		}
 		s.recordAgentDebugEvent(owner, id, "", "collection", "collection.failed", code,
 			"stage="+stage+" trace="+traceID+" cause="+scrubAIContext(agentchat.SafeProviderText(callErr.Error()), 600))
-		writeAgentStructuredError(w, httpStatus, callErr, traceID, code, stage, "Collection read result was saved, but continuation could not finish; no Patch was executed. Inspect the provider trace for the underlying error.")
+		publicMessage := "Collection result or request was saved, but continuation could not finish. No Patch was executed. Inspect the provider trace and Agent events."
+		if code == "COLLECTION_IDENTITY_REJECTED" {
+			publicMessage = "Collection NOT executed: AI supplied a missing or mismatched project identity. Both project.key and project.id must match the active workspace."
+		}
+		writeAgentStructuredError(w, httpStatus, callErr, traceID, code, stage, publicMessage)
 		return
 	}
 	appendAgentProviderResult(&session, result, patchToolAvailable)
