@@ -62,3 +62,8 @@ jobs:
           node web/terminalchatcontext_test.cjs
           node web/agentchat_bootstrap_test.cjs
           node test_ai_smart_terminal.cjs
+      - name: Cross-compile Agent state filesystem guard for macOS
+        working-directory: vscode_tasks_menu_go
+        run: |
+          CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go test -c -o "$RUNNER_TEMP/agentchat-darwin-arm64.test" ./internal/agentchat
+          CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go test -c -o "$RUNNER_TEMP/agentchat-darwin-amd64.test" ./internal/agentchat

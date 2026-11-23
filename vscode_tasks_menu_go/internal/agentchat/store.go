@@ -233,6 +233,9 @@ type Store struct {
  // Test-only failure injection for the directory-fsync boundaries. Clients
  // and provider requests never select the sync implementation.
  syncDirectoryOverride func()error
+ // Test-only filesystem admission probe. Production uses kernel statfs.
+ // Never configurable by client, provider or workspace files.
+ filesystemCheckOverride func(dir string)error
 }
 
 func NewStore(dir string) (*Store, error) {
@@ -283,7 +286,13 @@ func (s *Store) ensureDir() error {
 	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm()&0077 != 0 {
 		return errors.New("unsafe agent session storage directory")
 	}
-	return nil
+ // This runs BEFORE every Store.withLock read or write, including egress
+ // admission, immutable segment mutation and startup orphan recovery.
+ // Local flock alone is NOT a distributed filesystem protocol.
+ if s.filesystemCheckOverride!=nil{
+  return s.filesystemCheckOverride(s.dir)
+ }
+ return validateAgentStateFilesystem(s.dir)
 }
 func (s *Store) file(id string) string { return filepath.Join(s.dir, id+".json") }
 
