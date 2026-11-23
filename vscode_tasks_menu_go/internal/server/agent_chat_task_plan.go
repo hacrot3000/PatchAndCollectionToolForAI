@@ -134,6 +134,37 @@ func (s *Server) agentChatTaskPlanAPI(w http.ResponseWriter,r *http.Request,id s
    return
   }
  }
+ // A segmented plan's non-completing single-step status edit can be
+ // revision-fenced and committed by replacing only its 32-step segment.
+ // "done", every evidence/AutoCheck/Go-test edit and unpaged/legacy
+ // operations keep the full-plan proof-verified mutation path below.
+ if r.Method==http.MethodPost&&postPaged&&req.Action=="set_step"&&
+  (req.Status=="pending"||req.Status=="active"||req.Status=="blocked"){
+  page,e:=store.SetSegmentTaskPlanStepStatus(
+   id,owner,req.ExpectedRevision,req.StepID,req.Status,postOffset,postLimit)
+  if e==nil{
+   w.Header().Set("Cache-Control","no-store")
+   writeJSON(w,200,page)
+   return
+  }
+  if !errors.Is(e,agentchat.ErrTaskPlanSegmentWriteUnsupported){
+   switch {
+   case errors.Is(e,agentchat.ErrNotFound):
+    http.Error(w,"session not found",404)
+   case errors.Is(e,agentchat.ErrStaleRevision):
+    http.Error(w,"stale task plan revision",409)
+   case errors.Is(e,agentchat.ErrTaskPlanPageOutOfRange):
+    http.Error(w,"task plan page offset exceeds plan length",400)
+   case errors.Is(e,agentchat.ErrTaskPlanNotEditable):
+    http.Error(w,"reopen the completed plan explicitly before editing",409)
+   case errors.Is(e,agentchat.ErrTaskPlanStepNotFound):
+    http.Error(w,"invalid task plan step: unknown task plan step",409)
+   default:
+    http.Error(w,"unable to persist task plan",409)
+   }
+   return
+  }
+ }
  x,err:=store.Get(id,owner)
  if errors.Is(err,agentchat.ErrNotFound){http.Error(w,"session not found",404);return}
  if err!=nil{http.Error(w,"session journal unavailable",500);return}
