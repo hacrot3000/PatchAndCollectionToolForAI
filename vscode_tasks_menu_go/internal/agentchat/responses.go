@@ -191,34 +191,30 @@ func BuildResponsesRequest(c RequestConfig) ([]byte, error) {
 		req["parallel_tool_calls"] = false
 	}
 	if c.EnableCollectionTool {
+		// This is only a permissive transport schema. The EXISTING Python
+		// Patch Tool COLLECT_ACTION_SCHEMA.json validates every native action,
+		// limit and exact project identity before any source inspection.
+		// Never reintroduce a second hard-coded Go Collection action parser.
 		req["tools"] = []any{map[string]any{
 			"type": "function", "name": "taskdeck_collect_workspace",
-			"description": "Read-only inspect TaskDeck project files. For large files, use read with start_line (1-based) and max_lines (1..200), and continue using next_line. Output may be explicitly marked truncated: page or narrow the request instead of repeating it. Never output Collection JSON as chat text.",
+			"description": "Run the SAME native Python Patch Tool COLLECT as its manual Queue/Paste text workflow. Use current COLLECT_ACTION_SCHEMA.json. Actions include overview, find, search, file, range, head, tail, symbol, references, dependencies, directory, decompile, ida, ghidra, database_select, git, command and pack. For a 150 MB decompile/source dump prefer targeted decompile/address/symbol/search instead of pack. Tool produces ZIP + TXT, and INCOMPLETE rc=3 retains usable evidence; never assume missing matches prove absence. Do not print Collection JSON as chat text.",
 			"strict": false,
 			"parameters": map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"actions": map[string]any{
-						"type": "array", "minItems": 1, "maxItems": 6,
-						"items": map[string]any{"type":"object",
-							"properties": map[string]any{
-								"type": map[string]any{"type":"string","enum":[]string{"ls","tree","find","search","read","pack"}},
-								"path": map[string]string{"type":"string"},
-								"paths": map[string]any{"type":"array","items":map[string]string{"type":"string"}},
-								"patterns": map[string]any{"type":"array","items":map[string]string{"type":"string"}},
-								"query": map[string]string{"type":"string"},
-								"max_entries": map[string]string{"type":"integer"},
-								"max_results": map[string]string{"type":"integer"},
-								"max_matches": map[string]string{"type":"integer"},
-								"start_line": map[string]any{"type":"integer","minimum":1,"description":"1-based first line when type is read"},
-								"max_lines": map[string]any{"type":"integer","minimum":1,"maximum":200,"description":"number of source lines to read, at most 200"},
-							}, "required": []string{"type"}, "additionalProperties": false},
-					},
+				"type":"object",
+				"properties":map[string]any{
+					"id":map[string]string{"type":"string"},
+					"title":map[string]string{"type":"string"},
+					"actions":map[string]any{"type":"array","minItems":1,
+						"items":map[string]any{"type":"object",
+							"properties":map[string]any{"type":map[string]string{"type":"string"}},
+							"required":[]string{"type"},"additionalProperties":true}},
+					"limits":map[string]any{"type":"object","additionalProperties":true},
+					"ai_context":map[string]any{"type":"object","additionalProperties":true},
 				},
-				"required": []string{"actions"}, "additionalProperties": false,
+				"required":[]string{"actions"},"additionalProperties":false,
 			},
 		}}
-		req["parallel_tool_calls"] = false
+		req["parallel_tool_calls"]=false
 	}
 	if c.EnablePatchTool {
 		tools, _ := req["tools"].([]any)
