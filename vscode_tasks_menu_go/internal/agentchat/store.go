@@ -366,9 +366,32 @@ func validateSession(x Session) error {
  for _,summary:=range x.PatchArchiveSummaries {if len(summary)>220{return ErrInvalidSession}}
 	seenCalls := make(map[string]bool, len(x.ToolCalls))
 	for _, call := range x.ToolCalls {
-		if call.CallID == "" || len(call.CallID) > 256 || call.Name != "taskdeck_submit_patch" || seenCalls[call.CallID] || len(call.QueuePath) > 512 || len(call.PackageSHA256) > 64 || call.PackageSize < 0 || call.PackageSize > 2<<20 || len(call.PatchSessionID) > 256 || len(call.Result) > 4096 {
+		if call.CallID == "" || len(call.CallID) > 256 || call.Name == "" || len(call.Name) > 128 || seenCalls[call.CallID] || len(call.QueuePath) > 512 || len(call.PackageSHA256) > 64 || call.PackageSize < 0 || call.PackageSize > 2<<20 || len(call.PatchSessionID) > 256 || len(call.Result) > 4096 {
 			return ErrInvalidSession
 		}
+		// Non-Patch functions are NEVER executable: only a permanently
+        // rejected protocol feedback record can be persisted. Any native
+        // queue, approval, execution or retry fields invalidate the session.
+        if call.Name!="taskdeck_submit_patch" {
+            var feedback struct{
+                Status string `json:"status"`
+                ReasonCode string `json:"reason_code"`
+                PatchQueued bool `json:"patch_queued"`
+                PatchExecuted bool `json:"patch_executed"`
+            }
+            if call.Status!="rejected"||call.TextFallback||
+                call.QueuePath!=""||call.PackageSHA256!=""||call.PackageSize!=0||
+                call.PatchSessionID!=""||call.NativeStartedAt!=nil||call.AutoRunOnce||
+                call.SendAfterRetry||call.PromptID!=""||call.SelectedIndex!=0||call.RunID!=""||
+                call.ExpectedHead!=""||call.ExpectedBranch!=""||
+                call.WorkspaceStatusSHA256!=""||call.GitIsRepo||
+                call.ApprovalExpiresAt!=nil||call.ManualRetryOnly||len(call.Attempts)!=0||
+                json.Unmarshal([]byte(call.Result),&feedback)!=nil||
+                feedback.Status!="REJECTED"||feedback.PatchQueued||feedback.PatchExecuted||
+                (feedback.ReasonCode!="UNSUPPORTED_TOOL"&&feedback.ReasonCode!="MULTIPLE_TOOL_CALLS"){
+                return ErrInvalidSession
+            }
+        }
 		seenCalls[call.CallID] = true
 		switch call.Status {
 		case "pending", "rejected", "queuing", "queued", "dispatching", "running", "done", "error", "unknown":

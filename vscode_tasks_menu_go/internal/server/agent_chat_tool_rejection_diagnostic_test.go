@@ -62,8 +62,15 @@ func TestAgentPatchRejectedProposalRecordsActionableReasonWithoutExecution(t *te
      t.Fatalf("invalid structured rejection feedback: %s",x.ToolCalls[0].Result)
     }
     if _,ok:=agentAutoFeedbackCandidate(x);ok{t.Fatal("no-consent rejection scheduled")}
-   }else if len(x.ToolCalls)!=0 {
-    t.Fatalf("unsupported or multiple calls became native execution intents: %+v",x.ToolCalls)
+   }else{
+    if len(x.ToolCalls)!=len(tc.calls){t.Fatalf("every denied function requires a feedback receipt: %+v",x.ToolCalls)}
+    for _,call:=range x.ToolCalls{
+     if call.Status!="rejected"||call.QueuePath!=""||call.PackageSHA256!=""||
+        call.RunID!=""||call.FeedbackSent||
+        !strings.Contains(call.Result,`"status":"REJECTED"`){
+      t.Fatalf("denied tool was not safely quarantined: %+v",call)
+     }
+    }
    }
    rejected:=0
    for _,event:=range x.Events{

@@ -146,3 +146,125 @@ func TestAgentInvalidPatchRequiresConsentForManualForwarding(t *testing.T){
  x,err=store.Get(id,"local");if err!=nil{t.Fatal(err)}
  if x.ToolCalls[0].FeedbackStatus!="acknowledged"{t.Fatalf("manual feedback state: %+v",x.ToolCalls[0])}
 }
+
+func TestAgentDeniedShellSudoIsReportedToAIAndModelCanContinue(t *testing.T){
+ s,id:=newAgentConversationFixture(t,"stateless")
+ store,err:=s.agentChatStore();if err!=nil{t.Fatal(err)}
+ x,err:=store.Get(id,"local");if err!=nil{t.Fatal(err)}
+ x.AutoFeedback=true;x.AutoFeedbackPersistent=true
+ x,err=store.Save(x,x.Revision);if err!=nil{t.Fatal(err)}
+ calls:=0
+ s.AgentChatCall=func(_ context.Context,_ agentchat.ProviderConfig,_ string,payload []byte)(agentchat.ResponsesResult,error){
+  calls++
+  switch calls{
+  case 1:
+    return agentchat.ResponsesResult{ResponseID:"blocked-shell-response",
+      Calls:[]agentchat.FunctionCall{{CallID:"call_shell_sudo",Name:"shell",
+      Arguments:`{"command":"sudo /usr/bin/true"}`}}},nil
+  case 2:
+    var body struct{Input []struct{
+      Type string `json:"type"`
+      CallID string `json:"call_id"`
+      Output string `json:"output"`
+    } `json:"input"`}
+    if err:=json.Unmarshal(payload,&body);err!=nil{t.Fatal(err)}
+    found:=false
+    for _,item:=range body.Input{
+      if item.Type!="function_call_output"||item.CallID!="call_shell_sudo"{continue}
+      var denial struct{
+       Status string `json:"status"`
+       Code string `json:"reason_code"`
+       Queued bool `json:"patch_queued"`
+       Executed bool `json:"patch_executed"`
+      }
+      if err:=json.Unmarshal([]byte(item.Output),&denial);err!=nil{t.Fatal(err)}
+      if denial.Status!="REJECTED"||denial.Code!="UNSUPPORTED_TOOL"||denial.Queued||denial.Executed{
+       t.Fatalf("unsafe or missing denial feedback: %+v",denial)
+      }
+      found=true
+    }
+    if !found{t.Fatalf("shell call_id missing from continuation: %s",payload)}
+    return agentchat.ResponsesResult{ResponseID:"fixed-after-denial",
+      Calls:[]agentchat.FunctionCall{{CallID:"call_safe_patch",
+        Name:"taskdeck_submit_patch",
+        Arguments:`{"name":"safe proposal","patch_python":"print('proposed only')"}`}}},nil
+  default:t.Fatalf("unexpected provider call %d",calls);return agentchat.ResponsesResult{},nil
+  }
+ }
+ first:=invokeAI(t,s.agentChatSessionItemAPI,"POST","/api/agent/sessions/"+id+"/messages",
+   map[string]any{"message":"inspect then update","confirm_external":true,"expected_revision":x.Revision})
+ if first.Code!=200{t.Fatalf("initial denied turn: %d %s",first.Code,first.Body)}
+ x,err=store.Get(id,"local");if err!=nil{t.Fatal(err)}
+ if x.Status!="tool_rejected"||len(x.ToolCalls)!=1||x.ToolCalls[0].Name!="shell"||
+    x.ToolCalls[0].Status!="rejected"||x.ToolCalls[0].QueuePath!=""{
+  t.Fatalf("shell was not quarantined as rejected-only: %+v",x)
+ }
+ if _,ok:=agentAutoFeedbackCandidate(x);!ok{t.Fatal("denied shell not scheduled for notification")}
+ if _,err:=os.Stat(filepath.Join(s.Workspace,"patchs"));!os.IsNotExist(err){t.Fatalf("shell created Patch queue: %v",err)}
+ s.runAgentAutoFeedback(context.Background())
+ x,err=store.Get(id,"local");if err!=nil{t.Fatal(err)}
+ if calls!=2||x.Status!="waiting_tool"||len(x.ToolCalls)!=2||
+    x.ToolCalls[0].FeedbackStatus!="acknowledged"||
+    x.ToolCalls[1].Name!="taskdeck_submit_patch"||
+    x.ToolCalls[1].Status!="pending"{
+  t.Fatalf("AI did not recover into safe proposal: calls=%d state=%+v",calls,x)
+ }
+ if _,err:=os.Stat(filepath.Join(s.Workspace,"patchs"));!os.IsNotExist(err){t.Fatalf("denied shell or unapproved Patch executed: %v",err)}
+ s.runAgentAutoFeedback(context.Background())
+ if calls!=2{t.Fatalf("denial feedback sent twice: %d",calls)}
+}
+
+func TestAgentEveryNonWhitelistedFunctionInBatchGetsSingleSafeFeedbackTurn(t *testing.T){
+ s,id:=newAgentConversationFixture(t,"stateless")
+ store,err:=s.agentChatStore();if err!=nil{t.Fatal(err)}
+ x,err:=store.Get(id,"local");if err!=nil{t.Fatal(err)}
+ x.AutoFeedback=true;x.AutoFeedbackPersistent=true
+ x,err=store.Save(x,x.Revision);if err!=nil{t.Fatal(err)}
+ calls:=0
+ s.AgentChatCall=func(_ context.Context,_ agentchat.ProviderConfig,_ string,payload []byte)(agentchat.ResponsesResult,error){
+  calls++
+  if calls==1{
+   return agentchat.ResponsesResult{ResponseID:"rejected-batch",Calls:[]agentchat.FunctionCall{
+    {CallID:"call_unsafe_shell",Name:"shell",Arguments:`{"command":"sudo /usr/bin/true"}`},
+    {CallID:"call_unsafe_exec",Name:"exec",Arguments:`{"command":"whoami"}`},
+   }},nil
+  }
+  if calls!=2{t.Fatalf("rejected tools triggered %d provider calls",calls)}
+  var body struct{Input []struct{
+   Type string `json:"type"`
+   CallID string `json:"call_id"`
+   Output string `json:"output"`
+  } `json:"input"`}
+  if err:=json.Unmarshal(payload,&body);err!=nil{t.Fatal(err)}
+  found:=map[string]bool{}
+  for _,item:=range body.Input{
+   if item.Type!="function_call_output"{continue}
+   if item.CallID!="call_unsafe_shell"&&item.CallID!="call_unsafe_exec"{continue}
+   if found[item.CallID]{t.Fatalf("duplicate rejection for %s",item.CallID)}
+   if !strings.Contains(item.Output,`"reason_code":"MULTIPLE_TOOL_CALLS"`)||
+      !strings.Contains(item.Output,`"patch_executed":false`){
+    t.Fatalf("incorrect rejection for %s: %s",item.CallID,item.Output)
+   }
+   found[item.CallID]=true
+  }
+  if len(found)!=2{t.Fatalf("missing denied call IDs: %+v",found)}
+  return agentchat.ResponsesResult{ResponseID:"ack-batch",Text:"Continuing without prohibited tools"},nil
+ }
+ response:=invokeAI(t,s.agentChatSessionItemAPI,"POST","/api/agent/sessions/"+id+"/messages",
+  map[string]any{"message":"work in allowed workspace only","confirm_external":true,"expected_revision":x.Revision})
+ if response.Code!=200{t.Fatalf("initial turn: %d %s",response.Code,response.Body)}
+ x,err=store.Get(id,"local");if err!=nil{t.Fatal(err)}
+ if x.Status!="tool_rejected"||len(x.ToolCalls)!=2{t.Fatalf("batch not denied: %+v",x)}
+ s.runAgentAutoFeedback(context.Background())
+ x,err=store.Get(id,"local");if err!=nil{t.Fatal(err)}
+ if calls!=2||x.Status!="completed"{t.Fatalf("batch did not recover: calls=%d status=%s",calls,x.Status)}
+ for _,call:=range x.ToolCalls{
+  if call.Status!="rejected"||!call.FeedbackSent||call.FeedbackStatus!="acknowledged"||
+     call.QueuePath!=""||call.PatchSessionID!=""{
+    t.Fatalf("unsafe multi-call handling: %+v",call)
+  }
+ }
+ if _,err:=os.Stat(filepath.Join(s.Workspace,"patchs"));!os.IsNotExist(err){t.Fatalf("denied batch created native queue: %v",err)}
+ s.runAgentAutoFeedback(context.Background())
+ if calls!=2{t.Fatalf("batch replayed after acknowledgement: %d",calls)}
+}

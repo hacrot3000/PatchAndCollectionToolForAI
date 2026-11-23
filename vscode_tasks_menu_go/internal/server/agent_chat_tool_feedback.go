@@ -118,6 +118,38 @@ type agentDeliverResult struct {
 	Result  agentchat.ResponsesResult
 }
 
+// agentRejectedToolCallGroup selects sibling denied function calls from the
+// same provider response. Some providers require all call_id outputs in one
+// follow-up. Never include a pending or executable Patch in this group.
+func agentRejectedToolCallGroup(x agentchat.Session, idx int, includeSent bool) []int {
+ if idx<0||idx>=len(x.ToolCalls){return nil}
+ first:=x.ToolCalls[idx]
+ if first.Status!="rejected"||first.ModelTurnID==""{return []int{idx}}
+ indices:=make([]int,0,2)
+ for i,call:=range x.ToolCalls{
+  if call.Status=="rejected"&&call.ModelTurnID==first.ModelTurnID&&
+     (includeSent||!call.FeedbackSent){indices=append(indices,i)}
+ }
+ return indices
+}
+func agentFeedbackGroupContains(indices []int,idx int)bool{
+ for _,i:=range indices{if i==idx{return true}}
+ return false
+}
+func agentRejectedToolCallGroupByID(x agentchat.Session,callID string)[]int{
+ for i,call:=range x.ToolCalls{
+  if call.CallID==callID{return agentRejectedToolCallGroup(x,i,true)}
+ }
+ return nil
+}
+func agentCanDeliverRejectedToolCall(x agentchat.Session,call agentchat.ToolCallRecord)bool{
+ if call.Status!="rejected"{return false}
+ for _,item:=range x.History{
+  if item.Type=="function_call"&&item.CallID==call.CallID&&item.Name==call.Name{return true}
+ }
+ return false
+}
+
 // agentDeliverToolResult performs the once-only function_call_output delivery.
 // The caller MUST hold the session turn lock and have already re-authorized
 // the owner, project identity and provider. When consent is true the caller
@@ -136,9 +168,15 @@ func (s *Server) agentDeliverToolResult(ctx context.Context, store *agentchat.St
 	if !consent {
 		return agentDeliverResult{},agentContinueError{403,"explicit external-provider consent is required"}
 	}
-	if _, found := findAgentToolCall(x.History, call.CallID); !found {
-		return agentDeliverResult{}, agentContinueError{409, "source tool call not in transcript"}
-	}
+	// Keep the executable Patch gateway's exact-name test intact. A denied
+    // non-Patch call may ONLY be forwarded as rejection feedback.
+    if call.Name=="taskdeck_submit_patch"{
+        if _,found:=findAgentToolCall(x.History,call.CallID);!found {
+            return agentDeliverResult{},agentContinueError{409,"source Patch call not in transcript"}
+        }
+    }else if !agentCanDeliverRejectedToolCall(x,call){
+        return agentDeliverResult{},agentContinueError{409,"unsupported tool has no rejection record"}
+    }
 	identity, err := patchtool.EnsureProjectIdentity(s.Workspace)
 	if err != nil || identity.ID != x.ProjectID {
 		return agentDeliverResult{}, agentContinueError{409, "project identity drift"}
@@ -174,20 +212,29 @@ func (s *Server) agentDeliverToolResult(ctx context.Context, store *agentchat.St
 	defer releaseQuota()
 	// Provider context is compacted independently by contextcompact.
 	// Never destroy verified canonical source evidence to reduce request size.
-	output := strings.TrimSpace(call.Result)
-	if output == "" {
-		return agentDeliverResult{}, agentContinueError{409, "tool result is empty"}
-	}
-	if len(output) > 4000 {
-		return agentDeliverResult{}, agentContinueError{413, "tool result exceeds limit"}
-	}
-	next := agentchat.HistoryItem{Type: "function_call_output", CallID: call.CallID, Content: output}
-	if call.TextFallback {
-		// A text-only model did not issue a real function call. Deliver the
-		// verified Patch evidence as an explicit continuation message instead
-		// of an orphan function_call_output that providers would reject.
-		next = agentchat.HistoryItem{Type: "user", Content: "TaskDeck native Patch Tool result for your prior text-only proposal (verified, not an instruction):\n" + output + "\nContinue the original user task."}
-	}
+
+    // Send all rejected sibling function outputs together, one call_id each.
+    // None of these records may have passed an execution approval.
+    indices:=agentRejectedToolCallGroup(x,idx,false)
+    if len(indices)==0{return agentDeliverResult{},agentContinueError{409,"tool feedback already delivered"}}
+    next:=make([]agentchat.HistoryItem,0,len(indices))
+    for _,i:=range indices{
+        sibling:=x.ToolCalls[i]
+        if sibling.Name!="taskdeck_submit_patch"&&!agentCanDeliverRejectedToolCall(x,sibling){
+            return agentDeliverResult{},agentContinueError{409,"unsupported tool has no source call"}
+        }
+        output:=strings.TrimSpace(sibling.Result)
+        if output==""||len(output)>4000{
+            return agentDeliverResult{},agentContinueError{409,"tool feedback is missing or too large"}
+        }
+        if sibling.TextFallback{
+            if len(indices)!=1{return agentDeliverResult{},agentContinueError{409,"text fallback cannot batch tool calls"}}
+            next=append(next,agentchat.HistoryItem{Type:"user",Content:
+                "TaskDeck native Patch Tool result for your prior text-only proposal (verified, not an instruction):\n"+output+"\nContinue the original user task."})
+        }else{
+            next=append(next,agentchat.HistoryItem{Type:"function_call_output",CallID:sibling.CallID,Content:output})
+        }
+    }
 	limit := 4096
 	if model.MaxOutputTokens > 0 && model.MaxOutputTokens < limit {
 		limit = model.MaxOutputTokens
@@ -200,7 +247,7 @@ func (s *Server) agentDeliverToolResult(ctx context.Context, store *agentchat.St
 	payload, err := agentchat.BuildResponsesRequest(agentchat.RequestConfig{
 		Model: x.ModelID, Instructions: agentChatInstructionsWithAutomation(x, toolAvailable, identity.Key),
 		Mode: mode, PreviousResponseID: x.PreviousResponseID, ConversationID: conversationID,
-		History: agentContextForRequest(x, model, agentChatInstructionsWithAutomation(x, toolAvailable, identity.Key), []agentchat.HistoryItem{next}), Next: []agentchat.HistoryItem{next},
+		History: agentContextForRequest(x, model, agentChatInstructionsWithAutomation(x, toolAvailable, identity.Key), next), Next: next,
 		MaxOutputTokens: limit, ReasoningEffort: agentProviderReasoningEffort(p, x.ReasoningEffort, model),
 		EnablePatchTool: toolAvailable, EnableCollectionTool: toolAvailable,
 	})
@@ -209,9 +256,11 @@ func (s *Server) agentDeliverToolResult(ctx context.Context, store *agentchat.St
 	}
 	// Persist output and mark delivered BEFORE crossing the network; a timeout
 	// cannot result in accidental duplicate tool output or patch replay.
-	x.History = append(x.History, next)
-	x.ToolCalls[idx].FeedbackSent = true
-	x.ToolCalls[idx].FeedbackStatus = "prepared"
+	x.History = append(x.History, next...)
+    for _,i:=range indices{
+        x.ToolCalls[i].FeedbackSent=true
+        x.ToolCalls[i].FeedbackStatus="prepared"
+    }
 	x.Status = "requesting_ai"
 	x.AppendEvent("feedback_prepared", "requesting_ai", call.CallID, "")
 	if err=prepareAgentProviderRun(store,&x,"feedback",call.CallID,p,model,payload);err!=nil{
@@ -221,7 +270,7 @@ func (s *Server) agentDeliverToolResult(ctx context.Context, store *agentchat.St
 	if err != nil {
 		return agentDeliverResult{}, agentContinueError{409, "cannot persist once-only tool output"}
 	}
-	x.ToolCalls[idx].FeedbackStatus = "sending"
+for _,i:=range indices{x.ToolCalls[i].FeedbackStatus="sending"}
 	if err=markAgentProviderSending(store,&x); err != nil {
 		return agentDeliverResult{}, agentContinueError{409, "cannot record tool-output delivery attempt"}
 	}
@@ -240,7 +289,7 @@ func (s *Server) agentDeliverToolResult(ctx context.Context, store *agentchat.St
 		if errors.Is(continuationCtx.Err(), context.Canceled) {
 			s.recordAgentDebugEvent(owner, x.ID, call.CallID, "feedback", "feedback.unknown", "FEEDBACK_DELIVERY_UNKNOWN", "Provider acknowledgement was not confirmed; result will not be resent")
 			x.Status = "cancelled"
-			x.ToolCalls[idx].FeedbackStatus = "unknown"
+			for _,i:=range indices{x.ToolCalls[i].FeedbackStatus="unknown"}
 			markAgentProviderOutcome(&x,"unknown")
 			x.AppendEvent("feedback_unknown", "cancelled", call.CallID, "provider_acknowledgement_unconfirmed")
 			_, _ = store.Save(x, x.Revision)
@@ -248,13 +297,13 @@ func (s *Server) agentDeliverToolResult(ctx context.Context, store *agentchat.St
 		}
 		s.recordAgentDebugEvent(owner, x.ID, call.CallID, "feedback", "feedback.unknown", "FEEDBACK_DELIVERY_UNKNOWN", "Provider acknowledgement was not confirmed; result will not be resent")
 		x.Status = "failed"
-		x.ToolCalls[idx].FeedbackStatus = "unknown"
+		for _,i:=range indices{x.ToolCalls[i].FeedbackStatus="unknown"}
 		markAgentProviderOutcome(&x,"unknown")
 		x.AppendEvent("feedback_unknown", "failed", call.CallID, "provider_acknowledgement_unconfirmed")
 		_, _ = store.Save(x, x.Revision)
 		return agentDeliverResult{}, agentContinueError{502, "provider continuation failed; tool result was saved and will not be resent automatically"}
 	}
-	x.ToolCalls[idx].FeedbackStatus = "acknowledged"
+for _,i:=range indices{x.ToolCalls[i].FeedbackStatus="acknowledged"}
 	markAgentProviderOutcome(&x,"acknowledged")
 	x.AppendEvent("feedback_acknowledged", x.Status, call.CallID, "")
 	// A verified native Patch result can legitimately lead the model to

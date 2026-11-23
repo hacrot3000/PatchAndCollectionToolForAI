@@ -27,7 +27,7 @@ func (s *Server) resumePreparedAgentProviderRun(ctx context.Context,store *agent
   x.AppendEvent("provider_resume_blocked","failed",run.CallID,code)
   if run.Kind=="feedback"{
    for i:=range x.ToolCalls{
-    if x.ToolCalls[i].CallID==run.CallID &&
+    if agentFeedbackGroupContains(agentRejectedToolCallGroupByID(x,run.CallID),i)&&
      x.ToolCalls[i].FeedbackStatus=="prepared" {
      // No network attempt occurred. The feedback remains recorded and
      // cannot be duplicated by a new manual or automatic submission.
@@ -79,9 +79,8 @@ func (s *Server) resumePreparedAgentProviderRun(ctx context.Context,store *agent
  // undelivered provider bytes. Never retry this run without reconciliation.
  if run.Kind=="feedback"{
   for i:=range x.ToolCalls{
-   if x.ToolCalls[i].CallID==run.CallID{
+   if agentFeedbackGroupContains(agentRejectedToolCallGroupByID(x,run.CallID),i){
     x.ToolCalls[i].FeedbackStatus="sending"
-    break
    }
   }
  }
@@ -99,7 +98,7 @@ func (s *Server) resumePreparedAgentProviderRun(ctx context.Context,store *agent
   x.AppendEvent("provider_resume_unknown","failed",run.CallID,"provider_acknowledgement_unconfirmed")
   if run.Kind=="feedback"{
    for i:=range x.ToolCalls{
-    if x.ToolCalls[i].CallID==run.CallID{x.ToolCalls[i].FeedbackStatus="unknown"}
+    if agentFeedbackGroupContains(agentRejectedToolCallGroupByID(x,run.CallID),i){x.ToolCalls[i].FeedbackStatus="unknown"}
    }
   }
   _,_=store.Save(x,x.Revision)
@@ -109,7 +108,7 @@ func (s *Server) resumePreparedAgentProviderRun(ctx context.Context,store *agent
  markAgentProviderOutcome(&x,"acknowledged")
  if run.Kind=="feedback"{
   for i:=range x.ToolCalls{
-   if x.ToolCalls[i].CallID==run.CallID{x.ToolCalls[i].FeedbackStatus="acknowledged"}
+   if agentFeedbackGroupContains(agentRejectedToolCallGroupByID(x,run.CallID),i){x.ToolCalls[i].FeedbackStatus="acknowledged"}
   }
   x.AppendEvent("feedback_acknowledged",x.Status,run.CallID,"recovered_pre_egress")
  }
