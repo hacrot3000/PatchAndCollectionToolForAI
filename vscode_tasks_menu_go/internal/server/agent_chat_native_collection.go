@@ -56,13 +56,25 @@ func agentNativeCollectionRequest(raw string, identity patchtool.ProjectIdentity
  return json.Marshal(request)
 }
 
-func agentNativeCollectionTextRequest(text string,identity patchtool.ProjectIdentity)([]byte,bool){
- // No commands embedded in prose and no Python execution. Native pasted
- // requests remain an exact standalone JSON object (possibly fenced).
+// A standalone Collection JSON produced as assistant TEXT is still a pending
+// tool request, not a completed answer. Keep recognition separate from schema
+// validity: an invalid request must get visible feedback rather than silently
+// returning "completed" while the UI shows "AI requested Collection".
+func agentNativeCollectionTextRequest(text string,identity patchtool.ProjectIdentity)([]byte,bool,error){
+ // Never execute commands embedded in prose or arbitrary Python.
  raw:=unwrapPasteFence(text)
- if !strings.HasPrefix(raw,"{")||!strings.HasSuffix(raw,"}"){return nil,false}
+ if !strings.HasPrefix(raw,"{")||!strings.HasSuffix(raw,"}"){return nil,false,nil}
+ var probe map[string]json.RawMessage
+ if err:=json.Unmarshal([]byte(raw),&probe);err!=nil{
+  if strings.Contains(raw,`"actions"`)&&strings.Contains(raw,`"project"`){
+   return nil,true,fmt.Errorf("malformed native COLLECT JSON: %w",err)
+  }
+  return nil,false,nil
+ }
+ if _,ok:=probe["actions"];!ok{return nil,false,nil}
+ // Both project fields are mandatory for a text-only model response.
  body,err:=agentNativeCollectionRequest(raw,identity,true)
- return body,err==nil
+ return body,true,err
 }
 
 // Queue through the SAME validated native Paste text handler used by humans.
