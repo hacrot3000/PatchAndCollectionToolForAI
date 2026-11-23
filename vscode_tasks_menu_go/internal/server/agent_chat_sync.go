@@ -110,8 +110,8 @@ func (s *Server) agentReconcileOneStartupSession(ctx context.Context,store *agen
  if ctx.Err()!=nil{return}
 	changed := false
 	// The per-session lease proves no other local daemon currently owns
-	// this turn. A crashed worker may leave requesting_ai SENDING behind. Do not leave it stuck
-	// forever and do not blindly replay an ambiguous provider request.
+	// this turn. A crashed worker may leave requesting_ai SENDING behind.
+	// Do not leave it stuck or blindly replay an ambiguous provider request.
 	if sess.Status=="requesting_ai" {
 		if sess.ProviderRun!=nil && sess.ProviderRun.Phase=="prepared" {
 			// Exact payload was durably staged but the journal has no
@@ -132,7 +132,7 @@ func (s *Server) agentReconcileOneStartupSession(ctx context.Context,store *agen
 	}
 	for j, record := range sess.ToolCalls {
 		if s.Sessions == nil || record.Status != "running" || record.PatchSessionID == "" {
-			return
+			continue
 		}
 		// Persisting after disconnect must not extend an expired approval
 		// or bypass owner/project checks; reconciliation only reads state.
