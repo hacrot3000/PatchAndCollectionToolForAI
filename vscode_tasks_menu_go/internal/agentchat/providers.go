@@ -742,5 +742,5 @@ func parseProviderHTTPError(status int, retryAfter string, body []byte) *Provide
 	if providerMessage != "" {
 		message += ": " + providerMessage
 	}
-	return &ProviderError{Code: code, Stage: "provider_http", Message: message, ProviderErrorType: providerType, ProviderErrorCode: providerCode, ProviderMessage: providerMessage, HTTPStatus: status, RetryAfter: SafeProviderText(retryAfter), Retryable: status == 408 || status == 425 || status == 429 || status == 499 || status >= 500}
+	return &ProviderError{Code: code, Stage: "provider_http", Message: message, ProviderErrorType: providerType, ProviderErrorCode: providerCode, ProviderMessage: providerMessage, HTTPStatus: status, RetryAfter: SafeProviderText(retryAfter), Retryable: status == 408 || status == 425 || status == 429 || status == 499 || status >= 500, Ambiguous: status == 408 || status == 499 || status == 504}
 }
