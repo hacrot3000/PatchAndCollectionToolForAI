@@ -381,7 +381,7 @@ assert.ok(renameDialog?.parentElement?.classList.contains('visible'),'rename mus
 const renameInput=find(renameDialog,node=>node.attributes?.['aria-label']==='Conversation name');
 assert.equal(renameInput?.value,'Old conversation','rename editor must use saved title even while Agent is busy');
 assert.equal(vm.runInNewContext('rename.disabled',context),false,'Conversation > Rename must stay enabled during an Agent turn');
-vm.runInNewContext('closeAgentRename();markAgentSessionBusy("deleted-view-only",false);agentActive=null;agentSessions=[];updateAgentSessionRows()', context);
+vm.runInNewContext('closeAgentRename();markAgentSessionBusy("deleted-view-only",false);agentActive=null;agentSessions=[];updateAgentSessionRows();autoFeedback.textContent="Auto-send results"', context);
 const collectLabels = node => [node.textContent, ...node.children.flatMap(collectLabels)];
 const labels = collectLabels(heading);
 const moreButton = heading.children.find(child => child.textContent === '⋯');
