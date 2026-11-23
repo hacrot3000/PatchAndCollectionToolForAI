@@ -162,7 +162,7 @@ func (s *Server) agentDeliverToolResult(ctx context.Context, store *agentchat.St
 	if err != nil || len(secret) == 0 {
 		return agentDeliverResult{}, agentContinueError{503, "provider credential unavailable"}
 	}
-	releaseSlot, admitted := acquireAgentSlot(ctx, aiWorkspaceHash(s.Workspace)+":"+owner)
+	releaseSlot, admitted := acquireAgentProviderSlot(ctx, aiWorkspaceHash(s.Workspace)+":"+owner)
 	if !admitted {
 		return agentDeliverResult{}, agentContinueError{429, "Agent concurrency limit reached; retry shortly"}
 	}
