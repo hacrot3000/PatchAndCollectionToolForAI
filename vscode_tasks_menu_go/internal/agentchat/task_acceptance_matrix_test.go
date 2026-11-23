@@ -86,6 +86,15 @@ func TestOwnerAcceptanceMatrixSurvivesSegmentedPersistenceAndHandoff(t *testing.
  if err!=nil{t.Fatal(err)}
  x.TaskPlan,err=NewTaskPlan("Large plan with explicit human coverage reviews",planStepFixtures(160))
  if err!=nil{t.Fatal(err)}
+ // Compact handoff deliberately selects only the earliest unfinished
+ // milestones. Make index 135 the FIRST unfinished step, while retaining a
+ // real 160-step segmented plan and owner-attested prior completions.
+ for i:=0;i<135;i++{
+  x.TaskPlan.Steps[i].Status="done"
+  x.TaskPlan.Steps[i].Evidence=[]TaskPlanEvidence{{
+   Kind:"manual",Note:"Owner attested earlier completion",
+  }}
+ }
  target:=&x.TaskPlan.Steps[135]
  target.AcceptanceCriteria=[]TaskAcceptanceCriterion{{
   ID:"feature_behavior",Description:"Behavior matches the exact acceptance statement",
