@@ -81,7 +81,7 @@ agentCSS.textContent=[
 '.agentchat-list.open{display:flex}',
 '.agentchat-config-menu{position:relative;flex:none}',
 '.agentchat-config-menu>button[aria-expanded="true"]{background:#273b52;border-color:#7db6e6}',
-'.agentchat-config-panel{display:none;position:absolute;z-index:31;right:0;top:100%;width:245px;max-width:calc(100vw - 18px);max-height:min(68vh,420px);overflow-y:auto;overscroll-behavior:contain;padding:5px;background:#192330;border:1px solid #60748b;border-radius:7px;box-shadow:0 8px 24px #0008}',
+'.agentchat-config-panel{display:none;position:absolute;z-index:31;right:0;top:100%;width:340px;max-width:calc(100vw - 18px);max-height:min(68vh,420px);overflow-y:auto;overscroll-behavior:contain;padding:5px;background:#192330;border:1px solid #60748b;border-radius:7px;box-shadow:0 8px 24px #0008}',
 '.agentchat-config-menu.open>.agentchat-config-panel{display:flex;flex-direction:column;gap:3px}',
 '.agentchat-config-category{position:relative;min-width:0}',
 '.agentchat-config-category>button{display:flex;width:100%;justify-content:space-between;align-items:center;text-align:left;gap:8px;border:0;background:transparent;box-shadow:none;border-radius:3px;padding:7px 8px}',
@@ -93,7 +93,11 @@ agentCSS.textContent=[
 '.agentchat-config-category-values button[aria-checked="true"]{background:#344c66;color:#f2f7ff;font-weight:600}',
 '.task-agent-dock-section.agent-dock-bottom .agentchat-header-menu{max-height:min(45vh,220px)}',
 '.agentchat-config-note{font-size:11px;line-height:1.4;padding:5px;color:#b6cce2}',
-'@media(max-width:700px){.agentchat-config-panel{width:min(245px,calc(100vw - 18px))}}',
+'.agentchat-context-choice{padding:0 0 2px 0}',
+'.agentchat-context-choice>.agentchat-config-note{padding:1px 8px 7px 22px}',
+'.agentchat-context-help{border-top:1px solid #50657f;padding:8px;font-size:12px;line-height:1.5;white-space:pre-line;color:#d8e8fb}',
+'html[data-taskmenu-theme="light"] .agentchat-context-help{color:#23405f;border-color:#bac8d8}',
+'@media(max-width:700px){.agentchat-config-panel{width:min(340px,calc(100vw - 18px))}}',
 'html[data-taskmenu-theme="light"] .agentchat-config-panel{background:#fff;color:#17283a;border-color:#bac8d8}',
 'html[data-taskmenu-theme="light"] .agentchat-config-category-values{border-color:#bac8d8}',
 'html[data-taskmenu-theme="light"] .agentchat-config-category-values button:hover,html[data-taskmenu-theme="light"] .agentchat-config-category[aria-expanded="true"]>button{background:#e8f0fa}',
@@ -266,6 +270,9 @@ agentConfigButton.setAttribute('aria-expanded','false');
 agentConfigButton.setAttribute('aria-label','Provider Model Effort and Context options for a new conversation');
 const agentConfigPanel=agentEl('div','agentchat-config-panel');
 const agentConfigNote=agentEl('div','agentchat-config-note','Selections apply when creating a new conversation. Existing conversations retain their original configuration.');
+const agentContextHelp=agentEl('div','agentchat-context-help');
+agentContextHelp.setAttribute('role','status');
+agentContextHelp.setAttribute('aria-live','polite');
 const agentConfigCategories=new Map();
 for(const name of ['Provider','Model','Effort','Context']){
  const category=agentEl('div','agentchat-config-category');
@@ -281,7 +288,7 @@ for(const name of ['Provider','Model','Effort','Context']){
  agentConfigPanel.append(category);
  agentConfigCategories.set(name,{row:category,button:categoryButton,values});
 }
-agentConfigPanel.append(agentConfigNote);
+agentConfigPanel.append(agentContextHelp,agentConfigNote);
 agentConfigMenu.append(agentConfigButton,agentConfigPanel);
 viewTabs.append(agentConfigMenu);
 const main=agentEl('div','agentchat-main'),modelBar=agentEl('div','agentchat-modelbar');
@@ -570,7 +577,7 @@ function markAgentSessionBusy(id,busy){
  if(!id)return;
  if(busy)agentBusySessions.add(id);else agentBusySessions.delete(id);
  if(id===agentActive){
-  send.disabled=busy;newChat.disabled=busy;rename.disabled=busy;archive.disabled=busy;
+  send.disabled=busy;newChat.disabled=busy;archive.disabled=busy;
   cancel.disabled=!busy;updateAgentModels();
  }
 }
@@ -630,6 +637,19 @@ function updateAgentEfforts(preferred){
  effortSelect.value=supported.includes(before)?before:(supported.includes(initial)?initial:'');
  renderAgentConfigMenu();
 }
+function agentContextExplanation(mode,fallback){
+ const descriptions={
+  stateless:'Stateless — Mỗi lần gửi, TaskDeck đóng gói lại lịch sử cục bộ đã compact và dữ liệu mới. Không yêu cầu provider giữ phiên. Tương thích rộng, nhưng hội thoại dài có thể tăng payload và token.',
+  previous_response:'Response chain — Nếu Responses provider/model đã qua Probe capabilities, TaskDeck gửi previous_response_id và chỉ phần mới. Giảm payload, nhưng phụ thuộc provider lưu được response ID và hỗ trợ nối chuỗi.',
+  conversation:'Conversations — Nếu Responses provider/model đã qua Probe capabilities, TaskDeck gửi conversation ID phía provider. Giảm việc gửi lại lịch sử nhưng phụ thuộc hỗ trợ và chính sách lưu trữ của provider.',
+ };
+ const compatibility=fallback&&mode!=='stateless'
+  ?'\nChat Completions không hỗ trợ kiểu reference này: TaskDeck sẽ replay lịch sử cục bộ như Stateless.'
+  :mode==='stateless'?'\nKhông cần Probe hỗ trợ lưu context.'
+  :'\nNếu Probe chưa xác nhận hỗ trợ stateful, hệ thống tự fallback về lịch sử cục bộ; không giả định provider nhớ.';
+ return (descriptions[mode]||descriptions.stateless)+compatibility+
+  '\nChỉ áp dụng khi tạo conversation mới; không đổi Context của phiên đang chạy.';
+}
 function renderAgentConfigMenu(){
  const provider=agentProviders.find(p=>p.id===providerSelect.value);
  const model=agentSelectedModel();
@@ -653,22 +673,25 @@ function renderAgentConfigMenu(){
   if(!group)continue;
   group.values.replaceChildren();
   for(const [value,label] of choices){
-   const option=agentButton((value===current?'✓ ':'')+label,()=>{
-    select(value);
-    // Keep AI setup and the selected category expanded so a user can
-    // compare choices without repeatedly navigating nested menus.
-   });
+   const option=agentButton((value===current?'✓ ':'')+label,()=>select(value));
    option.setAttribute('role','menuitemradio');
    option.setAttribute('aria-checked',String(value===current));
    option.dataset.value=value;
-   group.values.append(option);
+   if(name==='Context'){
+    const row=agentEl('div','agentchat-context-choice');
+    row.append(option,agentEl('div','agentchat-config-note',
+     agentContextExplanation(value,fallback).split('\n')[0]));
+    group.values.append(row);
+   }else group.values.append(option);
   }
   if(!choices.length)group.values.append(agentEl('div','agentchat-config-note','No options configured'));
   group.button.textContent=name+' · '+(choices.find(([v])=>v===current)?.[1]||'Not configured')+' ▸';
  }
- agentConfigNote.textContent=fallback
-  ?'Selections apply to new conversations. Chat Completions replays TaskDeck local history for Response chain and Conversations; no provider-side references are used.'
-  :'Selections apply to new conversations. Stateful provider references are used only after capability verification; otherwise TaskDeck replays local history.';
+ agentContextHelp.textContent='Context đang chọn · '+(modeSelect.value||'stateless')+
+  '\n'+agentContextExplanation(modeSelect.value||'stateless',fallback)+
+  '\nProvider: '+(provider?.name||provider?.id||'Chưa chọn')+' · API: '+
+  (fallback?'Chat Completions':'Responses')+'.';
+ agentConfigNote.textContent='Chọn Context trong AI setup để xem mô tả. Những lựa chọn này áp dụng cho cuộc hội thoại mới.';
 }
 async function loadAgentProviders(){
  const previousProvider=providerSelect.value, previousModel=modelSelect.value, previousEffort=effortSelect.value;
@@ -1489,7 +1512,8 @@ function updateAgentSessionRows(){
   }
   if(button.textContent!==label)button.textContent=label;
   const edit=button.parentElement?.children?.[1];
-  if(edit)edit.disabled=agentSessionBusy(sess.id);
+  // Rename is independent of active provider/native execution.
+  if(edit)edit.disabled=false;
   const remove=button.parentElement?.children?.[2];
   if(remove){
    remove.disabled=agentConversationUnresolved(sess);
@@ -2883,7 +2907,7 @@ async function saveAgentRename(){
   status.textContent='Renamed conversation: '+label;
  }catch(error){
   agentRenameError.textContent='Could not rename: '+String(error?.message||error)+
-   '. The conversation was not changed. If the AI is running, retry after it finishes.';
+   '. The conversation was not changed. Check the message and retry.';
  }finally{
   agentRenameSave.disabled=false;agentRenameInput.disabled=false;
  }
