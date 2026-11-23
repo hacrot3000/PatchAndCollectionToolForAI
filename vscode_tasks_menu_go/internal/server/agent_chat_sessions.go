@@ -27,7 +27,13 @@ func (s *Server) agentChatStore() (*agentchat.Store, error) {
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return nil, err
 	}
-	return agentchat.NewProjectStore(filepath.Join(filepath.Dir(privateFile), "agent-sessions-"+aiWorkspaceHash(s.Workspace)), s.Workspace, identity.ID)
+	store,err:=agentchat.NewProjectStore(filepath.Join(filepath.Dir(privateFile), "agent-sessions-"+aiWorkspaceHash(s.Workspace)), s.Workspace, identity.ID)
+ if err!=nil{return nil,err}
+ // Recover abandoned immutable plan segments once per private directory on
+ // daemon startup. A failed audit blocks use; never prune from a partial
+ // view of any owner/project's canonical session journal.
+ if err=store.EnsureTaskPlanOrphanRecovery();err!=nil{return nil,err}
+ return store,nil
 }
 
 // agentChatSessionsAPI implements only create/list in this milestone. A
