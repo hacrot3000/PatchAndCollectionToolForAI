@@ -191,6 +191,10 @@ func agentNativeCollectionObservation(root string,identity patchtool.ProjectIden
   "evidence_verified":false,"partial_evidence_available":false,
  }
  if item.RC!=nil{outcome["rc"]=*item.RC}
+ if zipPath!=""&&txtPath!=""&&strings.TrimSuffix(zipPath,".zip")!=strings.TrimSuffix(txtPath,".txt"){
+  outcome["artifact_error"]="Native COLLECT ZIP/TXT do not share a stem; evidence not accepted"
+  zipPath="";txtPath=""
+ }
  if zipPath!="" {
   status,err:=agentNativeCollectionManifest(root,zipPath,identity)
   if err==nil {
@@ -199,10 +203,19 @@ func agentNativeCollectionObservation(root string,identity patchtool.ProjectIden
    outcome["status"]=status
    outcome["evidence_verified"]=true
    outcome["partial_evidence_available"]=status=="INCOMPLETE"
-   if status=="PASS"&&strings.ToUpper(item.Status)!="PASS" {outcome["status"]="INCOMPLETE";outcome["partial_evidence_available"]=true}
+   if status=="PASS"&&(strings.ToUpper(item.Status)!="PASS"||item.RC==nil||*item.RC!=0) {
+    outcome["status"]="INCOMPLETE"
+    outcome["partial_evidence_available"]=true
+    outcome["warning"]="Native wrapper does not prove a successful complete COLLECT"
+   }
+   if txtPath=="" {
+    outcome["status"]="INCOMPLETE"
+    outcome["partial_evidence_available"]=true
+    outcome["warning"]="Native ZIP exists but the required same-stem TXT companion has not been observed"
+   }
   }else{outcome["artifact_error"]=scrubAIContext(err.Error(),240)}
  }
- if txtPath!="" {
+ if txtPath!=""&&zipPath!="" {
   excerpt,truncated,err:=agentNativeCollectionTextExcerpt(root,txtPath)
   if err==nil{
    outcome["text_excerpt"]=excerpt
