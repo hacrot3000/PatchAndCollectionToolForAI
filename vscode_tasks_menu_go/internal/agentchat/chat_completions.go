@@ -207,7 +207,6 @@ func ParseChatCompletionsResult(body []byte) (ResponsesResult, error) {
 // Responses. Streaming uses the separately bounded Chat Completions SSE parser.
 func DoChatCompletions(ctx context.Context, p ProviderConfig, key string, canonicalBody []byte) (ResponsesResult, error) {
 	client := newProviderClient(p)
-	defer client.CloseIdleConnections()
 	return doChatCompletionsWithClient(ctx, p, key, canonicalBody, client)
 }
 

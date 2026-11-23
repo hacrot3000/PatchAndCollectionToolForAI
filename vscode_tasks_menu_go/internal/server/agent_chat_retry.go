@@ -50,7 +50,7 @@ func agentRetryModeForSession(s *Server,owner,id string) agentchat.RetryMode{
  }
 }
 // A user's Collection task has no cumulative 7/30-minute deadline.
-// Preserve 60s per network attempt, retry-mode limits and explicit Stop.
+// Preserve independent 180s per network attempt, retry-mode limits and explicit Stop.
 func agentRetryTurnContext(parent context.Context,_ agentchat.RetryMode)(context.Context,context.CancelFunc){
  return context.WithCancel(parent)
 }
@@ -109,7 +109,7 @@ func agentRetryLargerOutputPayload(payload []byte,p agentchat.ProviderConfig)([]
  return b,err==nil
 }
 
-// agentChatProviderWithRetry runs one 60-second-scoped provider attempt at a
+// agentChatProviderWithRetry runs one 180-second-scoped provider attempt at a
 // time. A limited retry means ONE initial attempt + FIVE retries 10s apart.
 // An unlimited retry stops only on success, explicit Stop or daemon shutdown.
 // The same model request bytes are used for all retries; no Patch execution
@@ -139,7 +139,7 @@ func (s *Server) agentChatProviderWithRetry(ctx context.Context,owner,sessionID 
   remaining:=0
   if mode==agentchat.RetryLimited{remaining=6-attempt}
   agentRetryPublish(s.Workspace,owner,sessionID,agentRetryProgress{Mode:mode,Attempt:attempt,Remaining:remaining,Phase:"sending"})
-  callCtx,cancel:=context.WithTimeout(ctx,60*time.Second)
+  callCtx,cancel:=context.WithTimeout(ctx,3*time.Minute)
   if attemptStore!=nil{
    // Flush the audit sidecar BEFORE each individual network attempt.
    // All retry attempts get distinct IDs, even if output budgets change.

@@ -415,8 +415,8 @@ func (s *Server) agentChatMessageAPI(w http.ResponseWriter, r *http.Request, id 
 		return
 	}
 	// A model may inspect several files before proposing one Patch. The whole
-	// turn has a bounded multi-call budget, while each provider call has its
-	// OWN 60-second deadline. Reusing one 60-second deadline across all rounds
+	// turn has no arbitrary multi-call wall-clock limit, while each provider call has its
+	// OWN 180-second deadline. Reusing one deadline across all rounds
 	// previously caused COLLECTION_CONTINUATION_FAILED after a slow first call.
 	turnCtx := s.agentServerContext()
 	ctx, cancel := agentRetryTurnContext(turnCtx, session.RetryMode)
@@ -444,7 +444,7 @@ func (s *Server) agentChatMessageAPI(w http.ResponseWriter, r *http.Request, id 
 			return
 		}
 		// Distinguish a bounded timeout from a transport failure: both retain the
-		// user turn and neither is retried automatically. A timeout may still have
+		// user turn when the selected retry policy cannot continue. A timeout may still have
 		// reached the provider, so the durable status is failed (not "safe to retry").
 		session.Status = "failed"
 		markAgentProviderOutcome(&session,"unknown")

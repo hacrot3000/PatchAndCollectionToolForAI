@@ -453,16 +453,56 @@ func (s *ProviderStore) Delete(owner, id string) error {
 	return os.Rename(temp.Name(), path)
 }
 
-// newProviderClient pins DNS results to public IPs or explicitly trusted
-// shared-network addresses for this provider. Redirects and proxies are disabled.
+// Keep a small bounded pool keyed by the FULL provider network trust policy.
+// Requests for the same endpoint can reuse TLS/HTTP2 connections, but a trust
+// or endpoint change can never reuse an older policy's connection.
+const providerHTTPTimeout = 180 * time.Second
+const providerHeaderTimeout = 150 * time.Second
+const providerClientCacheLimit = 32
+
+type providerClientCacheEntry struct {
+ key string
+ client *http.Client
+}
+var providerClientCacheMu sync.Mutex
+var providerClientCache []providerClientCacheEntry
+
+func providerClientCacheKey(p ProviderConfig) string {
+ raw, _ := json.Marshal(struct {
+  ID string
+  APIType string
+  BaseURL string
+  TrustedSharedIPs []string
+ }{p.ID, p.APIType, p.BaseURL, p.TrustedSharedIPs})
+ sum := sha256.Sum256(raw)
+ return hex.EncodeToString(sum[:])
+}
+
+// newProviderClient pins each new DNS resolution to validated public/trusted
+// addresses. Redirects and proxies remain disabled. An idle connection can
+// only be reused for an identical endpoint and identical trust policy.
 func newProviderClient(p ProviderConfig) *http.Client {
+ providerClientCacheMu.Lock()
+ defer providerClientCacheMu.Unlock()
+ key := providerClientCacheKey(p)
+ for i, entry := range providerClientCache {
+  if entry.key == key {
+   // Maintain an LRU so stale per-provider transports are evicted.
+   providerClientCache = append(providerClientCache[:i],providerClientCache[i+1:]...)
+   providerClientCache = append(providerClientCache,entry)
+   return entry.client
+  }
+ }
 	dialer := &net.Dialer{Timeout: 8 * time.Second}
 	resolver := net.DefaultResolver
 	transport := &http.Transport{
 		Proxy:                 nil,
 		TLSHandshakeTimeout:   10 * time.Second,
-		ResponseHeaderTimeout: 30 * time.Second,
-		DisableKeepAlives:     true,
+		ResponseHeaderTimeout: providerHeaderTimeout,
+		ForceAttemptHTTP2:     true,
+		MaxIdleConns:          64,
+		MaxIdleConnsPerHost:   4,
+		IdleConnTimeout:       90 * time.Second,
 		DialContext: func(ctx context.Context, network, address string) (net.Conn, error) {
 			host, port, err := net.SplitHostPort(address)
 			if err != nil {
@@ -493,7 +533,13 @@ func newProviderClient(p ProviderConfig) *http.Client {
 			return nil, fmt.Errorf("provider connection failed: %w", lastErr)
 		},
 	}
-	return &http.Client{Transport: transport, Timeout: 60 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return errors.New("provider redirect refused") }}
+	client := &http.Client{Transport: transport, Timeout: providerHTTPTimeout, CheckRedirect: func(*http.Request, []*http.Request) error { return errors.New("provider redirect refused") }}
+	providerClientCache = append(providerClientCache, providerClientCacheEntry{key: key, client: client})
+	if len(providerClientCache) > providerClientCacheLimit {
+		providerClientCache[0].client.CloseIdleConnections()
+		providerClientCache = providerClientCache[1:]
+	}
+	return client
 }
 
 func newProviderRequest(ctx context.Context, endpoint, key string, body []byte) (*http.Request, error) {
@@ -567,7 +613,6 @@ func DoResponses(ctx context.Context, p ProviderConfig, key string, body []byte)
 		return ResponsesResult{}, classifyProviderPreflightError(err)
 	}
 	client := newProviderClient(p)
-	defer client.CloseIdleConnections()
 	req, err := newProviderRequest(ctx, endpoint, key, body)
 	if err != nil {
 		return ResponsesResult{}, err
@@ -579,7 +624,7 @@ func DoResponses(ctx context.Context, p ProviderConfig, key string, body []byte)
 		code, message, ambiguous := classifyProviderTransportError(ctx, err)
 		diagnostic := DiagnosticEvent{Level: "error", Stage: "provider_http", Event: "http.error", Code: code, SafeMessage: message, Endpoint: endpoint, APIType: p.APIType, ProviderID: p.ID, RequestBytes: len(body), RequestSHA256: BodyDigest(body), Duration: time.Since(started)}
 		RecordProviderDiagnostic(ctx, diagnostic)
-		return ResponsesResult{}, &ProviderError{Code: code, Stage: "provider_http", Message: message, Retryable: code == "CONNECT_FAILED" || code == "REQUEST_TIMEOUT", Ambiguous: ambiguous, BlockedSharedIP: blockedSharedIP(err)}
+		return ResponsesResult{}, &ProviderError{Code: code, Stage: "provider_http", Message: message, Retryable: code == "CONNECT_FAILED" || code == "CONNECT_TIMEOUT" || code == "RESPONSE_HEADER_TIMEOUT" || code == "REQUEST_TIMEOUT", Ambiguous: ambiguous, BlockedSharedIP: blockedSharedIP(err)}
 	}
 	defer resp.Body.Close()
 	raw, readErr := io.ReadAll(io.LimitReader(resp.Body, maxRequestBytes+1))
@@ -663,6 +708,9 @@ func classifyProviderTransportError(ctx context.Context, err error) (string, str
 	if strings.Contains(text, "tls") || strings.Contains(text, "certificate") {
 		return "TLS_HANDSHAKE_FAILED", "Provider TLS handshake failed", false
 	}
+	if strings.Contains(text, "timeout awaiting response headers") || strings.Contains(text, "timeout waiting for response headers") {
+		return "RESPONSE_HEADER_TIMEOUT", "Provider did not return response headers before the configured deadline", true
+	}
 	if strings.Contains(text, "timeout") || strings.Contains(text, "deadline") {
 		return "CONNECT_TIMEOUT", "Provider connection timed out", true
 	}
@@ -694,5 +742,5 @@ func parseProviderHTTPError(status int, retryAfter string, body []byte) *Provide
 	if providerMessage != "" {
 		message += ": " + providerMessage
 	}
-	return &ProviderError{Code: code, Stage: "provider_http", Message: message, ProviderErrorType: providerType, ProviderErrorCode: providerCode, ProviderMessage: providerMessage, HTTPStatus: status, RetryAfter: SafeProviderText(retryAfter), Retryable: status == 429 || status >= 500}
+	return &ProviderError{Code: code, Stage: "provider_http", Message: message, ProviderErrorType: providerType, ProviderErrorCode: providerCode, ProviderMessage: providerMessage, HTTPStatus: status, RetryAfter: SafeProviderText(retryAfter), Retryable: status == 408 || status == 425 || status == 429 || status == 499 || status >= 500, Ambiguous: status == 408 || status == 499 || status == 504}
 }
