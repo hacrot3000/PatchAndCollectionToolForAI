@@ -114,6 +114,16 @@ func (s *Server) agentConversationsAPI(w http.ResponseWriter, r *http.Request) {
 				http.Error(w, "owner workspace is unavailable", 409)
 				return
 			}
+			// A conversation may only join a group the requesting owner can
+			// manage, so nobody can add a conversation to a group it may not
+			// access in the first place.
+			if _, access, err := s.agentConversationGroupAccess(owner, request.GroupID); err != nil {
+				http.Error(w, "conversation group membership rejected", 409)
+				return
+			} else if !access.Manage {
+				http.Error(w, "conversation group membership rejected", 403)
+				return
+			}
 			if _, err := groupRegistry.AddMember(request.GroupID, ownerWorkspaceID, project.ID, session.ID); err != nil {
 				http.Error(w, "conversation group membership rejected", 409)
 				return

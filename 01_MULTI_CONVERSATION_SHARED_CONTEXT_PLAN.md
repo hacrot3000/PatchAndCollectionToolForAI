@@ -283,10 +283,12 @@ INTERRUPTED --explicit retry--> new attempt (not a silent re-execute)
       **Cách triển khai:** Kiểm tra UI truy vấn legacy và migrated history, search, copy, export; đảm bảo không sinh bản ghi kép khi migrate lại.  
       **Kiểm chứng / đầu ra:** Golden test và manual test trên dữ liệu nhiều vòng chat dài.
   - [ ] **MC-02.03 — Khôi phục khi mất kết nối hoặc restart**
-    - [ ] **MC-02.03.01** Từ DB khôi phục danh sách conversation và trạng thái cuối cùng mà không chạy lặp tool/patch.  
+    - [x] **MC-02.03.01** Từ DB khôi phục danh sách conversation và trạng thái cuối cùng mà không chạy lặp tool/patch.
+      **Bằng chứng (2026-11-23):** `TestAgentRunRecoversAfterProcessKillWithoutReplayingSideEffects`, `TestAgentRunWaitingToolSurvivesProcessKill` và `TestAgentRunReloadAndRetryKeepsSingleProviderAttempt` PASS sau process kill thật; journal vẫn giữ run/pending call, manager mới đánh dấu interrupted với `RetrySafe=false`, không replay provider cho tới khi operator review.
       **Cách triển khai:** Khi server restart, rebuild run view từ DB/event log, truy vấn native patch status dựa operation_id trước khi báo interrupted; tuyệt đối không auto re-execute side effect không rõ trạng thái.  
       **Kiểm chứng / đầu ra:** Chaos test restart giữa patch: không tạo bản patch thứ hai.
-    - [ ] **MC-02.03.02** Đánh dấu run mất worker là interrupted; xác định rõ được resume/retry hay chỉ báo lỗi.  
+    - [x] **MC-02.03.02** Đánh dấu run mất worker là interrupted; xác định rõ được resume/retry hay chỉ báo lỗi.
+      **Bằng chứng (2026-11-23):** Các recovery test trên xác nhận trạng thái `interrupted`, lý do `LastError`, từ chối `Retry`/`ResumeAfterReview(false)` và chỉ cho phép reviewed resume đúng một attempt.
       **Cách triển khai:** Phân loại worker_lost, provider session resumable, tool outcome unknown; trạng thái INTERRUPTED với action Resume Stream/Retry New Attempt/Inspect patch evidence.  
       **Kiểm chứng / đầu ra:** UI không báo Completed giả; operator có được last known state + cause.
     - [ ] **MC-02.03.03** Áp dụng event replay/cursor từ last_event_id để client reload không thiếu hay nhân đôi message.  

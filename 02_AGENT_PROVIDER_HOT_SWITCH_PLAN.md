@@ -361,13 +361,15 @@ Các quy tắc bắt buộc: streaming/out-of-order theo run ID; UI badge messag
       **Cách triển khai:** Separate rerun_patch from resend_patch_result actions, inspect original patch_id/status first; keep provider/run binding during feedback to AI.  
       **Kiểm chứng / đầu ra:** Resend old result never reapplies patch; hanging patch not treated as success.
   - [ ] **HS-05.02 — Recovery và idempotency**
-    - [ ] **HS-05.02.01** Khi reload/restart, khôi phục selected_next_provider và run.provider_id chính xác.  
+    - [ ] **HS-05.02.01** Khi reload/restart, khôi phục selected_next_provider và run.provider_id chính xác.
       **Cách triển khai:** Persist next_provider and run binding across restart; reconciliation marks interrupted when actual native worker unreachable.  
       **Kiểm chứng / đầu ra:** After reload UI choice GPT but #101 still shows Composer.
-    - [ ] **HS-05.02.02** Stream reconnect không tạo thêm provider request; retry có attempt_id/idempotency key.  
+    - [x] **HS-05.02.02** Stream reconnect không tạo thêm provider request; retry có attempt_id/idempotency key.
+      **Bằng chứng (2026-11-23):** Recovery tests dùng subprocess bị kill thật (`TestAgentRunRecoversAfterProcessKillWithoutReplayingSideEffects`, `TestAgentRunUncertainProviderResultRequiresReconciliation`, `TestAgentRunReloadAndRetryKeepsSingleProviderAttempt`) PASS: daemon mới không replay, reviewed retry tạo đúng 1 attempt với attempt ID/idempotency key mới.
       **Cách triển khai:** Use operation_id/attempt_id/idempotency key for replay and retry; stream reconnect only resubscribes, no network call to provider.  
       **Kiểm chứng / đầu ra:** Simulate dropped network, refresh, resend: one request execution.
-    - [ ] **HS-05.02.03** Nếu provider run đã interrupted, hiển thị trạng thái và yêu cầu thao tác phù hợp thay vì tự báo completed.  
+    - [x] **HS-05.02.03** Nếu provider run đã interrupted, hiển thị trạng thái và yêu cầu thao tác phù hợp thay vì tự báo completed.
+      **Bằng chứng (2026-11-23):** Recovery tests xác nhận run bị kill được phục hồi là `interrupted`, `RetrySafe=false`, có `LastError`, từ chối auto retry/review thiếu xác nhận và chỉ reviewed resume tạo thêm provider call.
       **Cách triển khai:** Differentiate lost-connection UI vs failed worker; inspect provider/patch state when possible; show Retry/Inspect/Resume options accurately.  
       **Kiểm chứng / đầu ra:** Cannot claim completed without terminal record, and no blind tool redo.
   - [ ] **HS-05.03 — Fallback policy minh bạch**

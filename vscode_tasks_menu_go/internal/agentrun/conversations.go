@@ -22,13 +22,101 @@ type ConversationGroup struct {
 	ID                 string    `json:"id"`
 	OwnerWorkspaceID   string    `json:"owner_workspace_id"`
 	ProjectID          string    `json:"project_id"`
+	PrincipalOwner     string    `json:"principal_owner,omitempty"`
+	ManagerPrincipals  []string  `json:"manager_principals,omitempty"`
+	SharedPrincipals   []string  `json:"shared_principals,omitempty"`
 	Title              string    `json:"title"`
 	SharedRevision     uint64    `json:"shared_revision"`
 	SharedInstructions string    `json:"shared_instructions"`
 	InstructionsSHA256 string    `json:"instructions_sha256"`
-	Members            []string  `json:"members"`
 	CreatedAt          time.Time `json:"created_at"`
 	UpdatedAt          time.Time `json:"updated_at"`
+	Members            []string  `json:"members"`
+}
+
+// GroupAccess describes what a principal may do with one conversation group.
+type GroupAccess struct {
+	Read   bool `json:"read"`
+	Manage bool `json:"manage"`
+}
+
+// MemberOwnerResolver reports whether the requesting principal owns the
+// conversation with the given ID. It is supplied by the caller because the
+// registry does not own conversation storage.
+type MemberOwnerResolver func(conversationID string) bool
+
+var (
+	// ErrGroupNotFound reports a conversation group outside the caller's scope.
+	ErrGroupNotFound = errors.New("conversation group not found")
+	// ErrGroupNotAuthorized reports a conversation group the caller may not manage.
+	ErrGroupNotAuthorized = errors.New("conversation group access denied")
+)
+
+// ManagedBy reports whether the principal may change the shared instructions
+// or the membership of the group.
+//
+// Only the recorded group owner and explicit managers may manage a group whose
+// ownership is known. Groups created before principal ownership was recorded
+// have no PrincipalOwner; those stay manageable by any owner of a member
+// conversation so an existing group is not lost after an upgrade.
+func (g ConversationGroup) ManagedBy(principal string, ownerOf MemberOwnerResolver) bool {
+	if principal == "" {
+		return true
+	}
+	if g.PrincipalOwner != "" {
+		if g.PrincipalOwner == principal {
+			return true
+		}
+		for _, manager := range g.ManagerPrincipals {
+			if manager == principal {
+				return true
+			}
+		}
+		return false
+	}
+	// A group written before principal ownership was recorded is owned by the
+	// principals that own its member conversations. This is also how groups
+	// created directly by internal code become owned on first management.
+	if ownerOf == nil {
+		return false
+	}
+	if len(g.Members) == 0 {
+		return true
+	}
+	for _, member := range g.Members {
+		if ownerOf(member) {
+			return true
+		}
+	}
+	return false
+}
+
+// ReadableBy reports whether the principal may read the group. A principal that
+// owns a member conversation, was granted shared access, or manages the group
+// may read it. A group owned by another principal stays invisible.
+func (g ConversationGroup) ReadableBy(principal string, ownerOf MemberOwnerResolver) bool {
+	if g.ManagedBy(principal, ownerOf) {
+		return true
+	}
+	for _, shared := range g.SharedPrincipals {
+		if shared == principal {
+			return true
+		}
+	}
+	if ownerOf == nil {
+		return false
+	}
+	for _, member := range g.Members {
+		if ownerOf(member) {
+			return true
+		}
+	}
+	return false
+}
+
+// Access returns the effective access of a principal to the group.
+func (g ConversationGroup) Access(principal string, ownerOf MemberOwnerResolver) GroupAccess {
+	return GroupAccess{Read: g.ReadableBy(principal, ownerOf), Manage: g.ManagedBy(principal, ownerOf)}
 }
 
 type ConversationFork struct {
@@ -118,6 +206,12 @@ func (r *ConversationRegistry) save(state conversationGroupState) error {
 }
 
 func (r *ConversationRegistry) CreateGroup(ownerWorkspaceID, projectID, title string) (ConversationGroup, error) {
+	return r.CreateGroupForPrincipal(ownerWorkspaceID, projectID, title, "")
+}
+
+// CreateGroupForPrincipal records the principal that owns the group so later
+// membership and instruction changes can be authorized against a real owner.
+func (r *ConversationRegistry) CreateGroupForPrincipal(ownerWorkspaceID, projectID, title, principalOwner string) (ConversationGroup, error) {
 	if ownerWorkspaceID == "" || projectID == "" || strings.TrimSpace(title) == "" || len(title) > 120 {
 		return ConversationGroup{}, errors.New("invalid conversation group")
 	}
@@ -135,12 +229,73 @@ func (r *ConversationRegistry) CreateGroup(ownerWorkspaceID, projectID, title st
 		return ConversationGroup{}, err
 	}
 	now := time.Now().UTC()
-	group := ConversationGroup{ID: id, OwnerWorkspaceID: ownerWorkspaceID, ProjectID: projectID, Title: strings.TrimSpace(title), SharedRevision: 1, Members: []string{}, CreatedAt: now, UpdatedAt: now}
+	group := ConversationGroup{ID: id, OwnerWorkspaceID: ownerWorkspaceID, ProjectID: projectID,
+		PrincipalOwner: principalOwner, Title: strings.TrimSpace(title), SharedRevision: 1,
+		Members: []string{}, CreatedAt: now, UpdatedAt: now}
 	state.Groups[id] = group
 	if err := r.save(state); err != nil {
 		return ConversationGroup{}, err
 	}
 	return group, nil
+}
+
+// SetGroupManagers replaces the principals that may manage the group. The group
+// owner always keeps management rights.
+func (r *ConversationRegistry) SetGroupManagers(id, ownerWorkspaceID, projectID string, managers []string) (ConversationGroup, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	state, err := r.load()
+	if err != nil {
+		return ConversationGroup{}, err
+	}
+	group, ok := state.Groups[id]
+	if !ok || group.OwnerWorkspaceID != ownerWorkspaceID || group.ProjectID != projectID {
+		return ConversationGroup{}, ErrGroupNotFound
+	}
+	group.ManagerPrincipals = uniquePrincipals(managers)
+	group.UpdatedAt = time.Now().UTC()
+	state.Groups[id] = group
+	if err := r.save(state); err != nil {
+		return ConversationGroup{}, err
+	}
+	return group, nil
+}
+
+// ShareGroup grants read access to principals that do not own a member
+// conversation, so a group can be shared on purpose without making it public.
+func (r *ConversationRegistry) ShareGroup(id, ownerWorkspaceID, projectID string, principals []string) (ConversationGroup, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	state, err := r.load()
+	if err != nil {
+		return ConversationGroup{}, err
+	}
+	group, ok := state.Groups[id]
+	if !ok || group.OwnerWorkspaceID != ownerWorkspaceID || group.ProjectID != projectID {
+		return ConversationGroup{}, ErrGroupNotFound
+	}
+	group.SharedPrincipals = uniquePrincipals(principals)
+	group.UpdatedAt = time.Now().UTC()
+	state.Groups[id] = group
+	if err := r.save(state); err != nil {
+		return ConversationGroup{}, err
+	}
+	return group, nil
+}
+
+func uniquePrincipals(values []string) []string {
+	seen := map[string]bool{}
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" || seen[value] {
+			continue
+		}
+		seen[value] = true
+		out = append(out, value)
+	}
+	sort.Strings(out)
+	return out
 }
 
 func (r *ConversationRegistry) UpdateGroupInstructions(id, ownerWorkspaceID, projectID string, expectedRevision uint64, instructions string) (ConversationGroup, error) {
@@ -185,6 +340,35 @@ func (r *ConversationRegistry) Groups(ownerWorkspaceID, projectID string) ([]Con
 		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].CreatedAt.Before(out[j].CreatedAt) })
+	return out, nil
+}
+
+// Group returns one group by ID without applying principal authorization.
+func (r *ConversationRegistry) Group(id string) (ConversationGroup, bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	state, err := r.load()
+	if err != nil {
+		return ConversationGroup{}, false
+	}
+	group, ok := state.Groups[id]
+	return group, ok
+}
+
+// AccessibleGroups returns the groups of a workspace and project that the
+// principal may read. Groups owned by another principal stay hidden unless the
+// principal was granted shared access.
+func (r *ConversationRegistry) AccessibleGroups(ownerWorkspaceID, projectID, principal string, ownerOf MemberOwnerResolver) ([]ConversationGroup, error) {
+	groups, err := r.Groups(ownerWorkspaceID, projectID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]ConversationGroup, 0, len(groups))
+	for _, group := range groups {
+		if group.ReadableBy(principal, ownerOf) {
+			out = append(out, group)
+		}
+	}
 	return out, nil
 }
 

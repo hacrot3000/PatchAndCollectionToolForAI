@@ -6,15 +6,15 @@ Review date: 2026-11-23
 
 - Repository: `hacrot3000/PatchAndCollectionToolForAI`
 - Branch: `review/taskdeck-multiconversation-hotswitch-20261123`
-- Required baseline / starting HEAD: `2fdf4dd15a9a436a7fc6388df5e400c2369c3a40` (exact match)
-- Initial worktree: clean; no staged changes.
-- `git fetch origin` completed. Merge base with `origin/main`: `07fd54a534db573d2a89ef892c4283bc52aa612f`.
-- Divergence after fetch: `origin/main` is 59 commits ahead; review is 2 commits ahead (`c10eb6e4`, `2fdf4dd1`).
-- No merge, commit, push, reset, or branch switch was performed. The current review changes remain unstaged.
+- Original review baseline: `2fdf4dd15a9a436a7fc6388df5e400c2369c3a40`.
+- Current pass baseline / HEAD: `9aa87d61dc048532f9604cba313a95d91e56fcc0` (exact match at the start of this pass).
+- Worktree: branch `review/taskdeck-multiconversation-hotswitch-20261123`; all changes unstaged.
+- `git fetch origin` completed again in this pass. Divergence: `origin/main` is 93 commits ahead and review is 4 commits ahead.
+- No merge, commit, push, reset, or branch switch was performed.
 
 ## 2. Integration status
 
-**NOT READY FOR MERGE.** The review branch is substantially behind `origin/main`, and nine Agent Chat files have edits on both sides. The full server test suite also has 24 baseline failures. The feature-specific tests pass, but there is no provider configuration for a real provider smoke test and no browser E2E run in this environment.
+**NOT READY FOR MERGE.** The review branch is 93 commits behind `origin/main`; ten Agent Chat/Chat UI files have edits on both sides (see the updated conflict table). The full server suite still has the same 24 pre-existing UI assertion failures. Feature-specific Go and Node tests pass, including a real HTTPS provider stub test executed inside an isolated namespace and process-kill recovery tests. Browser-level end-to-end scenarios and an external provider smoke test remain blocked in this environment.
 
 ## 3. Code present and evidence
 
@@ -34,18 +34,32 @@ Review date: 2026-11-23
 - Canonical tool continuation serialization is covered for both Responses and Chat Completions: function call and matching output are replayed in order. Provider tool integration tests use a deterministic provider invoker and fake native bridge.
 - A separate server test runs the actual repository `python_patch_entry.py` via a real native session manager: approve → one queue package → stop the Agent Run while Patch continues → reconcile result → manager restart → same-run continuation. The model response is deterministic test input; this does not constitute a real provider call.
 
-### Validation performed after the review fixes
+### Validation performed in this pass (`9aa87d61` baseline)
 
-- PASS: `go test ./internal/agentchat ./internal/agentrun`
-- PASS: `go test -race ./internal/agentchat ./internal/agentrun`
-- PASS: focused server integration selection covering 3 conversations, #101/#102 overlap/retry/stop, real native Patch, group snapshot membership, shared route permissions and coordination membership.
-- PASS: the same focused server selection under `-race`.
-- PASS: `node --test web/*_test.cjs` (9 reported tests, 0 failures).
-- PASS: `go build -o /tmp/taskdeck_review_final ./cmd/vscode_tasks_menu`; the temporary binary was removed.
-- PASS: `git diff --check` and `git check-ignore` for root and nested `__pycache__` paths.
-- BLOCKED: real-provider smoke. The workspace-specific provider store/config was absent; no credential was read or sent.
+- PASS: `go build ./cmd/vscode_tasks_menu`, `go vet ./internal/agentrun ./internal/agentchat ./internal/server`.
+- PASS: `go test -race -count=1 ./internal/agentchat ./internal/agentrun`.
+- PASS: focused server suite for group authorization, migration isolation/idempotency, native recovery and real-provider namespace integration; repeated with `-race`.
+- PASS: isolated HTTPS provider integration (`TestRealProviderTransportRunsInsideIsolatedNamespace`) — real TLS handshake, DNS/IP guard, bearer auth and canonical request/response through the configured provider adapter. Explicit SKIP applies only to the individual provider tests when run outside the namespace.
+- PASS: `node --test web/*_test.cjs` (10/10).
+- PASS: `git diff --check` and `gofmt` on all changed Go files.
+- FAIL (pre-existing, 24 tests): full `go test ./internal/server -count=1` still fails on Auth/Editor/Terminal/Patch UI source-contract assertions and `TestSharedAdminAssignRestrictedRoleWithoutEditPermissions`; direct run completed in 595 s with no panic or data race. These failures reproduce on `origin/main` and are outside this pass’s changes.
+- BLOCKED: external provider smoke (no configured external endpoint or credential; no credential was read or emitted). Browser-level E2E remains unavailable (no Playwright runtime installed).
+
+### P1 — Fixed and verified in this pass
+
+- Real HTTPS provider stub: certificate SAN matches the provider hostname; TLS, DNS/IP guard and credential assertions remain. The isolated namespace wrapper reports PASS with three subtests passing; outside the namespace the direct cases report explicit SKIP with the reason.
+- Process-kill recovery: streaming and uncertain-provider runs are recovered as `interrupted`, are not marked retry-safe and require explicit review; waiting-tool history and native Patch ledger survive. A reviewed retry performs exactly one additional provider attempt.
+- Full server suite: 24 failures, identical to the previously recorded baseline set on `origin/main`. No failure was removed or had its assertion weakened; no timeout was increased to hide a failure.
 
 ## 4. Findings by priority
+
+### P0 — Fixed in this pass (`9aa87d61` baseline)
+
+- **Group authorization was workspace-only.** Added explicit `PrincipalOwner`, `ManagerPrincipals` and `SharedPrincipals` to `agentrun.ConversationGroup`, plus `GroupAccess`, `ManagedBy`, `ReadableBy`, `AccessibleGroups`, `CreateGroupForPrincipal`, `SetGroupManagers` and `ShareGroup`. Group list/item APIs now hide groups of other owners, require management rights for instructions/membership, reject self-adding to an inaccessible group, and preserve legacy groups by falling back to member-conversation ownership when no principal owner was recorded. Regression tests cover owner A/B, group A/B, read-only managers, shared read access, non-members, foreign conversations and legacy groups.
+- **Legacy coordination migration could attribute ambiguous records.** Rewrote the migration in a dedicated file: unscoped/foreign peers, messages, contracts, artifacts and dependencies are quarantined into `unclaimed.json` with a reason instead of being copied to an owner; the legacy journal is never deleted. Migration is idempotent (an existing owner journal is not rewritten) and proven with two owners, two groups, unscoped records and three repeated runs.
+- **HTTPS provider test depended on the host and had a hostname-mismatched certificate.** The stub certificate now includes the provider hostname in its SAN, and all transport tests run inside an isolated user+mount+network namespace with a private hosts file. Outside the namespace the tests report explicit SKIP, never silent PASS. The test is labelled a local HTTPS stub integration and does not call an external provider.
+- **Recovery after process kill had no direct process-level test.** Added real subprocess-kill coverage for streaming and uncertain provider outcomes, waiting-tool state, reload/retry with exactly one reviewed attempt, and native Patch ledger persistence. Recovered runs are interrupted with `RetrySafe=false` and require explicit review before any side effect is replayed.
+
 
 ### P0 — Fixed in review code / baseline
 
@@ -104,13 +118,13 @@ Failure causes recorded by the baseline run: Auth/menu/editor/tab tests report m
 
 ## 5. PLAN checkbox reconciliation
 
-- PLAN 01: 1/139 checklist boxes checked: `MC-05.01.02` (fork boundary), with focused/race test evidence. The other 138 remain unchecked because the broader acceptance/UI/recovery requirements are not all proven.
-- PLAN 02: 0/126 checked. Provider payload continuation tests pass, but a real provider endpoint, browser E2E and the end-to-end switch/reload acceptance were not available.
+- PLAN 01: 6/139 child boxes checked, now including process-kill recovery (`MC-02.03.01`, `MC-02.03.02`) in addition to previously evidenced fork, event-log, correlation/TTL, contract gate and shared-context items. Parent/milestone boxes remain unchecked until every child and browser acceptance criterion is satisfied.
+- PLAN 02: 14/126 child boxes checked, now including stream reconnect/retry idempotency and interrupted-run recovery (`HS-05.02.02`, `HS-05.02.03`) alongside the previously evidenced contract/binding/UI items. External-provider and browser E2E boxes remain unchecked.
 - Parent and milestone boxes remain unchecked until every child and acceptance gate is satisfied. The two source plans remain the authoritative requirements.
 
 ## 6. Main-branch comparison and conflict plan
 
-The 59 main-only commits include durable provider run/egress recovery, provider heartbeat/review, history/Patch archives, context compaction, task-plan segmentation/handoff and related collection/retry changes. The following nine files are changed on both branches:
+The 93 main-only commits include durable provider attempt correlation/recovery, HTTP 499 retry recovery, directory-fsync crash boundaries, provider heartbeat/review, context compaction, task-plan segmentation/handoff and related collection/retry changes. Ten files are changed on both branches:
 
 | Shared file | Integration risk / resolution |
 |---|---|
@@ -123,21 +137,28 @@ The 59 main-only commits include durable provider run/egress recovery, provider 
 | `internal/server/agent_chat_tool_feedback.go` | Reconcile one-shot feedback/continuation with main’s durable handoff and Patch receipt behavior. |
 | `web/featuremods/agentchat.js` | Manually combine the multi-run/provider selector UI with main’s attachments, retry, recovery, and long-run controls. |
 | `web/agentchat_bootstrap_test.cjs` | Merge browser contracts from both feature sets; do not discard tests to make strings pass. |
+| `internal/patchtool/` and root Patch runtime (main-only) | Preserve main’s durable provider recovery/Patch fixes and this branch’s approval→execution→continuation bridge; run the native Patch end-to-end test after integration. |
+| `vscode_tasks_menu_go/internal/server/agent_chat_provider_resume.go`, `agent_chat_retry.go` (main-only) | Do not replace the single Run Manager; map review run bindings and tool reconciliation onto main’s durable resume path and verify no double side effect. |
+| `vscode_tasks_menu_go/internal/server/agent_chat_shared_admission*.go` (main-only) | Combine with review’s explicit group owner/manager/member model; shared-daemon capacity admission must not bypass group authorization. |
 
 No main changes were integrated. The owner’s explicit authorization is still required before any merge/rebase into this branch. Recommended next step after authorization: create a protected integration worktree from current `origin/main`, transplant/merge review changes by the conflict table, run all existing main durability tests plus the focused Agent suites, then request browser/provider smoke credentials and acceptance.
 
-## 7. Files changed in this review pass
+## 7. Files changed in this review pass (`9aa87d61` baseline)
 
-- `.gitignore`
-- `01_MULTI_CONVERSATION_SHARED_CONTEXT_PLAN.md`
-- `docs/taskdeck_ai_agent/UNIFIED_REVIEW_HANDOFF.md`
-- `vscode_tasks_menu_go/internal/server/shared_authorization.go`
+Production code:
+- `vscode_tasks_menu_go/internal/agentrun/conversations.go`
 - `vscode_tasks_menu_go/internal/server/agent_conversation_api.go`
 - `vscode_tasks_menu_go/internal/server/agent_conversations_api.go`
-- `vscode_tasks_menu_go/internal/server/agent_coordination_api.go`
-- `vscode_tasks_menu_go/internal/server/agent_context_group_api.go`
-- `vscode_tasks_menu_go/internal/server/agent_context_snapshot_api.go`
-- `vscode_tasks_menu_go/web/featuremods/agentchat_coordination.js`
-- Tests: `agent_coordination_permissions_test.go`, `agent_conversation_group_membership_test.go`, `agent_context_snapshot_group_test.go`, plus the coordination API test update.
+- `vscode_tasks_menu_go/internal/server/agent_coordination_api.go` (scope validation retained; no functional change in this pass)
+- `vscode_tasks_menu_go/internal/server/agent_coordination_migration.go` (new)
 
-No Provider Router/Adapter implementation file was changed in this review pass.
+Tests and documentation:
+- `vscode_tasks_menu_go/internal/server/agent_conversation_group_authorization_test.go` (new)
+- `vscode_tasks_menu_go/internal/server/agent_coordination_migration_scope_test.go` (new)
+- `vscode_tasks_menu_go/internal/server/agent_run_real_provider_test.go` (rewritten)
+- `vscode_tasks_menu_go/internal/server/agent_run_recovery_test.go` (new)
+- `01_MULTI_CONVERSATION_SHARED_CONTEXT_PLAN.md`
+- `02_AGENT_PROVIDER_HOT_SWITCH_PLAN.md`
+- `docs/taskdeck_ai_agent/UNIFIED_REVIEW_HANDOFF.md`
+
+No Provider Router/Adapter implementation file was changed in this pass. Nothing was staged, committed, pushed, merged or force-pushed.
