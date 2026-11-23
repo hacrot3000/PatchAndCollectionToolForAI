@@ -360,7 +360,44 @@ func (s *Server) agentChatSessionMetadataAPI(w http.ResponseWriter, r *http.Requ
 		http.Error(w, "title or archived required", 400)
 		return
 	}
+	if req.Title != nil && req.Archived != nil {
+		http.Error(w, "rename and archive must be separate operations", 400)
+		return
+	}
 	owner := aiPlanOwner(r)
+	if req.Title != nil {
+		// Rename only changes display metadata. Do NOT acquire lockAgentTurn:
+		// active provider/native turns and their CAS revision continue
+		// unmodified. Store.Rename serializes the on-disk write and Save
+		// carries the fresh title forward from the committed journal.
+		title := strings.TrimSpace(*req.Title)
+		if title == "" || len(title) > 120 {
+			http.Error(w, "invalid conversation title", 400)
+			return
+		}
+		store, err := s.agentChatStore()
+		if err != nil {
+			http.Error(w, "agent journal unavailable", 500)
+			return
+		}
+		x, err := store.Rename(id, owner, title)
+		if errors.Is(err, agentchat.ErrNotFound) {
+			http.Error(w, "Agent session not found", 404)
+			return
+		}
+		if err != nil {
+			http.Error(w, "cannot persist conversation title", 500)
+			return
+		}
+		w.Header().Set("Cache-Control", "no-store")
+		writeJSON(w, 200, map[string]any{"session": map[string]any{
+			"id": x.ID, "title": x.Title, "archived": x.Archived,
+			"status": x.Status, "revision": x.Revision,
+			"provider_id": x.ProviderID, "model_id": x.ModelID,
+			"mode": x.Mode, "target": x.Target,
+		}})
+		return
+	}
 	release, ok := lockAgentTurn(s.Workspace, owner, id)
 	if !ok {
 		http.Error(w, "Agent session is busy", 409)
@@ -388,14 +425,6 @@ func (s *Server) agentChatSessionMetadataAPI(w http.ResponseWriter, r *http.Requ
 	if x.Revision != req.ExpectedRevision {
 		http.Error(w, "stale session revision", 409)
 		return
-	}
-	if req.Title != nil {
-		title := strings.TrimSpace(*req.Title)
-		if len(title) > 120 {
-			http.Error(w, "title too long", 400)
-			return
-		}
-		x.Title = title
 	}
 	if req.Archived != nil {
 		if *req.Archived {
