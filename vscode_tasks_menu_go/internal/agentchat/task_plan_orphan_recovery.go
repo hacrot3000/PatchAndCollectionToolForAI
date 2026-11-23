@@ -96,8 +96,20 @@ func (s *Store) RecoverTaskPlanOrphans()(int,error){
   // Phase 3: journal snapshots cannot change while the directory lock is
   // held. No referenced segment can become a newly published orphan target.
   for _,path:=range candidates{
-   if err:=os.Remove(path);err!=nil&&!os.IsNotExist(err){return err}
+   if err:=os.Remove(path);err!=nil{
+    if os.IsNotExist(err){continue}
+    return err
+   }
    removed++
+  }
+  // An unlink is a directory-entry mutation: fsync it before declaring
+  // startup cleanup complete. A failure AFTER unlink is not evidence that
+  // the old page still exists; do not cache it as successful recovery.
+  // A rerun remains idempotent and uses the canonical live-page set.
+  if removed>0{
+   if err:=s.syncDirectory();err!=nil{
+    return fmt.Errorf("%w: Task Plan orphan unlink: %v",ErrCleanupDurabilityUnknown,err)
+   }
   }
   return nil
  })
