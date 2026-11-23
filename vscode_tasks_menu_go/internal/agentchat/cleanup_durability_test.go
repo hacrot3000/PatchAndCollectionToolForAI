@@ -36,14 +36,6 @@ func TestOrphanUnlinkFsyncFailureIsExplicitAndRestartRecoveryRetries(t *testing.
  if string(rawBefore)!=string(current){
   t.Fatal("orphan recovery must never change canonical owner journal")
  }
- for _,ref:=range append(refs,otherRefs...){
-  id:=x.ID
-  if ref==otherRefs[0]{
-   // Reference lists may be equal across sessions; use separate loops below.
-   break
-  }
-  if _,err=os.Stat(store.taskPlanSegmentPath(id,ref));err!=nil{t.Fatalf("referenced page lost: %v",err)}
- }
  // A simulated power interruption can resurrect a previously un-fsynced
  // directory entry. The incomplete startup scan must NOT be cached.
  if err=os.WriteFile(orphan,[]byte("resurrected stale page"),0600);err!=nil{t.Fatal(err)}
