@@ -156,7 +156,9 @@ func (s *Server) agentSelectNativeQueue(ctx context.Context, r *http.Request, se
 	}
 	ticker := time.NewTicker(200 * time.Millisecond)
 	defer ticker.Stop()
-	timeout, cancel := context.WithTimeout(ctx, 16*time.Second)
+	selectionTimeout:=16*time.Second
+	if kind=="COLLECT" {selectionTimeout=60*time.Second} // large project queue inspection may take longer
+	timeout, cancel := context.WithTimeout(ctx, selectionTimeout)
 	defer cancel()
 	for {
 		state, err := provider.ProtocolState(sessionID)
