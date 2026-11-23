@@ -303,7 +303,7 @@ func (s *Server) agentChatMessageAPI(w http.ResponseWriter, r *http.Request, id 
 		return
 	}
 
-	releaseSlot, admitted := acquireAgentSlot(r.Context(), aiWorkspaceHash(s.Workspace)+":"+owner)
+	releaseSlot, admitted := acquireAgentProviderSlot(r.Context(), aiWorkspaceHash(s.Workspace)+":"+owner)
 	if !admitted {
 		http.Error(w, "Agent concurrency limit reached; retry after an active turn finishes", 429)
 		return
