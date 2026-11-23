@@ -11,6 +11,7 @@ import (
 // Only the HTTP owner API decides whether the explicit confirmation was given.
 var ErrTaskPlanAcceptanceInvalid=errors.New("invalid task plan acceptance matrix or review")
 var ErrTaskPlanCriterionNotFound=errors.New("task plan acceptance criterion not found")
+var ErrTaskPlanAcceptanceLocked=errors.New("accepted milestone must be reopened before editing its criteria")
 
 type segmentAcceptanceEdit struct {
  action string
@@ -24,7 +25,7 @@ type segmentAcceptanceEdit struct {
 // canonical pages and revisions before calling this method.
 func (edit *segmentAcceptanceEdit) apply(step *TaskPlanStep,now time.Time)error{
  if edit==nil||step==nil{return ErrInvalidSession}
- if step.Status=="done"{return ErrTaskPlanNotEditable}
+ if step.Status=="done"{return ErrTaskPlanAcceptanceLocked}
  switch edit.action{
  case "set_acceptance_criteria":
   if len(edit.criteria)>MaxTaskAcceptanceCriteria{return ErrTaskPlanAcceptanceInvalid}
