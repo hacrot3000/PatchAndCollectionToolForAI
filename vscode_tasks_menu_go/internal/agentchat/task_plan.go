@@ -17,6 +17,7 @@ const (
  MaxTaskPlanEvidence=12
  MaxTaskPlanSuggestions=8
  MaxTaskGoRequiredTests=16
+ MaxTaskAcceptanceCriteria=8
 )
 var taskPlanStepIDPattern=regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$`)
 
@@ -56,6 +57,56 @@ func ValidateTaskGoTestRequirements(v *TaskGoTestRequirements)error{
  return nil
 }
 
+// TaskAcceptanceCriterion binds an OWNER-declared acceptance requirement to
+// zero or more PREDECLARED Go tests. A reviewed note is an explicit human
+// attestation of semantic applicability, NOT proof the tests ran/PASS.
+// Successful native suite verification remains a separate completion gate.
+type TaskAcceptanceCriterion struct {
+ ID string `json:"id"`
+ Description string `json:"description"`
+ RequiredTests []string `json:"required_tests,omitempty"`
+ ReviewNote string `json:"review_note,omitempty"`
+ ReviewedAt *time.Time `json:"reviewed_at,omitempty"`
+}
+
+// Every declared criterion needs an explicit owner review before its
+// milestone can be marked done. Legacy plans without criteria are unchanged.
+func TaskPlanStepCriteriaReviewed(step TaskPlanStep) bool {
+ for _,criterion:=range step.AcceptanceCriteria {
+  if criterion.ReviewedAt==nil||strings.TrimSpace(criterion.ReviewNote)==""{return false}
+ }
+ return true
+}
+func ValidateTaskAcceptanceCriteria(step TaskPlanStep)error{
+ if len(step.AcceptanceCriteria)>MaxTaskAcceptanceCriteria{return ErrInvalidSession}
+ mapped:=make(map[string]bool)
+ if step.GoTestRequirements!=nil {
+  for _,name:=range step.GoTestRequirements.Tests{mapped[name]=true}
+ }
+ ids:=make(map[string]bool,len(step.AcceptanceCriteria))
+ for _,criterion:=range step.AcceptanceCriteria{
+  if !taskPlanStepIDPattern.MatchString(criterion.ID)||ids[criterion.ID]||
+   strings.TrimSpace(criterion.Description)==""||
+   len(criterion.Description)>300||len(criterion.RequiredTests)>MaxTaskGoRequiredTests||
+   len(criterion.ReviewNote)>512{
+   return ErrInvalidSession
+  }
+  ids[criterion.ID]=true
+  if (criterion.ReviewedAt==nil)!=(criterion.ReviewNote==""){return ErrInvalidSession}
+  if criterion.ReviewedAt!=nil{
+   if criterion.ReviewedAt.IsZero()||strings.TrimSpace(criterion.ReviewNote)==""{return ErrInvalidSession}
+  }
+  seen:=make(map[string]bool,len(criterion.RequiredTests))
+  for _,name:=range criterion.RequiredTests{
+   // An unmapped name, duplicate, or changed Go checklist cannot become
+   // a retroactive semantic-coverage claim from an old PASS receipt.
+   if !mapped[name]||seen[name]{return ErrInvalidSession}
+   seen[name]=true
+  }
+ }
+ return nil
+}
+
 type TaskPlanStep struct {
  ID string `json:"id"`
  Title string `json:"title"`
@@ -65,6 +116,7 @@ type TaskPlanStep struct {
  AutoCheck *TaskAutoCheck `json:"auto_check,omitempty"`
  TaskCommandGuard *TaskCommandGuard `json:"task_command_guard,omitempty"`
  GoTestRequirements *TaskGoTestRequirements `json:"go_test_requirements,omitempty"`
+ AcceptanceCriteria []TaskAcceptanceCriterion `json:"acceptance_criteria,omitempty"`
  UpdatedAt time.Time `json:"updated_at,omitempty"`
 }
 type TaskPlan struct {
@@ -87,7 +139,7 @@ type TaskPlan struct {
 }
 func TaskPlanAllDone(p *TaskPlan)bool{
  if p==nil||len(p.Steps)==0{return false}
- for _,step:=range p.Steps{if step.Status!="done"||len(step.Evidence)==0{return false}}
+ for _,step:=range p.Steps{if step.Status!="done"||len(step.Evidence)==0||!TaskPlanStepCriteriaReviewed(step){return false}}
  return true
 }
 func ValidateTaskPlan(p *TaskPlan)error{
@@ -120,12 +172,13 @@ func ValidateTaskPlan(p *TaskPlan)error{
    if _,err:=hex.DecodeString(guard.CommandSHA256);err!=nil{return ErrInvalidSession}
   }
   if err:=ValidateTaskGoTestRequirements(step.GoTestRequirements);err!=nil{return err}
+  if err:=ValidateTaskAcceptanceCriteria(step);err!=nil{return err}
   if step.GoTestRequirements!=nil{
    if step.TaskCommandGuard==nil||step.GoTestRequirements.BoundAt.Before(step.TaskCommandGuard.BoundAt){return ErrInvalidSession}
   }
   if err:=ValidateTaskAutoCheck(step.AutoCheck);err!=nil{return err}
   switch step.Status{case "pending","active","blocked","done":default:return ErrInvalidSession}
-  if step.Status=="done"&&len(step.Evidence)==0{return ErrInvalidSession}
+  if step.Status=="done"&&(len(step.Evidence)==0||!TaskPlanStepCriteriaReviewed(step)){return ErrInvalidSession}
   for _,e:=range step.Evidence{
    switch e.Kind{case "patch","collection","task_run","go_test_case","go_test_suite","manual":default:return ErrInvalidSession}
    if len(e.Ref)>256||len(e.Note)>512||len(e.Digest)>64{return ErrInvalidSession}
@@ -140,7 +193,7 @@ func ValidateTaskPlan(p *TaskPlan)error{
 func NewTaskPlan(goal string,steps []TaskPlanStep)(*TaskPlan,error){
  now:=time.Now().UTC()
  p:=&TaskPlan{Goal:strings.TrimSpace(goal),State:"active",Steps:steps,CreatedAt:now,UpdatedAt:now}
- for i:=range p.Steps{p.Steps[i].Status="pending";p.Steps[i].Evidence=nil;p.Steps[i].TaskCommandGuard=nil;p.Steps[i].GoTestRequirements=nil;p.Steps[i].UpdatedAt=now}
+ for i:=range p.Steps{p.Steps[i].Status="pending";p.Steps[i].Evidence=nil;p.Steps[i].TaskCommandGuard=nil;p.Steps[i].GoTestRequirements=nil;p.Steps[i].AcceptanceCriteria=nil;p.Steps[i].UpdatedAt=now}
  if err:=ValidateTaskPlan(p);err!=nil{return nil,err}
  return p,nil
 }
@@ -186,6 +239,7 @@ func UpdateTaskPlanStep(x *Session,id,status string,evidence *TaskPlanEvidence)e
   step:=&x.TaskPlan.Steps[i]
   if step.ID!=id{continue}
   if status=="done"{
+   if !TaskPlanStepCriteriaReviewed(*step){return errors.New("all owner-defined acceptance criteria need explicit reviews")}
    if evidence==nil {return errors.New("completion requires verified or user-attested evidence")}
    if len(step.Evidence)>=MaxTaskPlanEvidence{return ErrInvalidSession}
    step.Evidence=append(step.Evidence,*evidence)

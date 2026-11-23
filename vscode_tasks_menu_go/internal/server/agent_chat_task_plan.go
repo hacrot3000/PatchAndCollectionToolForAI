@@ -70,6 +70,14 @@ func (s *Server) agentChatTaskPlanAPI(w http.ResponseWriter,r *http.Request,id s
   EvidenceGoTest string `json:"evidence_go_test,omitempty"`
   RequiredGoTests []string `json:"required_go_tests,omitempty"`
   ConfirmGoTests bool `json:"confirm_go_tests,omitempty"`
+  AcceptanceCriteria []struct {
+   ID string `json:"id"`
+   Description string `json:"description"`
+   RequiredTests []string `json:"required_tests,omitempty"`
+  } `json:"acceptance_criteria,omitempty"`
+  CriterionID string `json:"criterion_id,omitempty"`
+  CoverageReviewNote string `json:"coverage_review_note,omitempty"`
+  ConfirmCoverage bool `json:"confirm_coverage,omitempty"`
   ExpectedCommandSHA256 string `json:"expected_command_sha256,omitempty"`
   ConfirmCommandGuard bool `json:"confirm_command_guard,omitempty"`
   Enabled bool `json:"enabled,omitempty"`
@@ -254,6 +262,9 @@ func (s *Server) agentChatTaskPlanAPI(w http.ResponseWriter,r *http.Request,id s
    found=true
    if step.Status=="done"{http.Error(w,"reopen accepted milestone before editing test command",409);return}
    if step.GoTestRequirements!=nil{http.Error(w,"remove expected Go tests explicitly before changing command lock",409);return}
+   if len(step.AcceptanceCriteria)>0{
+    http.Error(w,"remove the owner acceptance matrix explicitly before changing command lock",409);return
+   }
    if !req.Enabled{step.TaskCommandGuard=nil
    }else{
     digest:=req.ExpectedCommandSHA256
@@ -283,6 +294,9 @@ func (s *Server) agentChatTaskPlanAPI(w http.ResponseWriter,r *http.Request,id s
    if step.Status=="done"{
     http.Error(w,"reopen accepted milestone before changing test requirements",409);return
    }
+   if len(step.AcceptanceCriteria)>0{
+    http.Error(w,"remove the owner acceptance matrix explicitly before changing expected Go tests",409);return
+   }
    if !req.Enabled{
     step.GoTestRequirements=nil
    }else{
@@ -302,6 +316,76 @@ func (s *Server) agentChatTaskPlanAPI(w http.ResponseWriter,r *http.Request,id s
    break
   }
   if !found{http.Error(w,"unknown milestone",404);return}
+ case "set_acceptance_criteria":
+  if x.TaskPlan==nil||x.TaskPlan.State=="completed"{
+   http.Error(w,"no editable Task plan",409);return
+  }
+  if !req.ConfirmCoverage{
+   http.Error(w,"explicit owner confirmation required to replace acceptance matrix",403);return
+  }
+  if len(req.AcceptanceCriteria)>agentchat.MaxTaskAcceptanceCriteria{
+   http.Error(w,"too many acceptance criteria",400);return
+  }
+  found:=false
+  for i:=range x.TaskPlan.Steps{
+   step:=&x.TaskPlan.Steps[i]
+   if step.ID!=req.StepID{continue}
+   found=true
+   if step.Status=="done"{
+    http.Error(w,"reopen accepted milestone before changing acceptance matrix",409);return
+   }
+   // Any change resets ALL reviews, so previous review notes can never
+   // attach to altered criterion text or a different expected test.
+   candidate:=make([]agentchat.TaskAcceptanceCriterion,0,len(req.AcceptanceCriteria))
+   for _,v:=range req.AcceptanceCriteria{
+    candidate=append(candidate,agentchat.TaskAcceptanceCriterion{
+     ID:v.ID,Description:strings.TrimSpace(v.Description),
+     RequiredTests:append([]string(nil),v.RequiredTests...),
+    })
+   }
+   temp:=*step
+   temp.AcceptanceCriteria=candidate
+   if e:=agentchat.ValidateTaskAcceptanceCriteria(temp);e!=nil{
+    http.Error(w,"invalid acceptance criteria or unmapped required Go test",400);return
+   }
+   step.AcceptanceCriteria=candidate
+   step.UpdatedAt=now;x.TaskPlan.UpdatedAt=now
+   break
+  }
+  if !found{http.Error(w,"unknown milestone",404);return}
+ case "review_acceptance_criterion":
+  if x.TaskPlan==nil||x.TaskPlan.State=="completed"{
+   http.Error(w,"no editable Task plan",409);return
+  }
+  if !req.ConfirmCoverage{
+   http.Error(w,"explicit owner review confirmation required",403);return
+  }
+  note:=strings.TrimSpace(req.CoverageReviewNote)
+  if len(note)==0||len(note)>512{
+   http.Error(w,"owner review note is required and at most 512 bytes",400);return
+  }
+  found:=false
+  for i:=range x.TaskPlan.Steps{
+   step:=&x.TaskPlan.Steps[i]
+   if step.ID!=req.StepID{continue}
+   if step.Status=="done"{
+    http.Error(w,"reopen accepted milestone before reviewing criteria",409);return
+   }
+   for j:=range step.AcceptanceCriteria{
+    criterion:=&step.AcceptanceCriteria[j]
+    if criterion.ID!=req.CriterionID{continue}
+    // This records an OWNER statement of semantic coverage only. It never
+    // fetches provider content, starts tests, or mints Native Task proof.
+    criterion.ReviewNote=note
+    at:=now
+    criterion.ReviewedAt=&at
+    found=true
+    step.UpdatedAt=now;x.TaskPlan.UpdatedAt=now
+    break
+   }
+   break
+  }
+  if !found{http.Error(w,"unknown acceptance criterion for milestone",404);return}
  case "set_auto_check":
   if x.TaskPlan==nil||x.TaskPlan.State=="completed"{
    http.Error(w,"reopen the plan before changing automatic acceptance",409);return
@@ -329,10 +413,12 @@ func (s *Server) agentChatTaskPlanAPI(w http.ResponseWriter,r *http.Request,id s
    // A historical native receipt may already be in an archived segment.
    // A checked, immutable result can be recorded immediately; otherwise the
    // background scheduler examines this exact rule after future tool work.
-   if evidence,err:=agentchat.VerifyArchivedTaskAutoCheck(store,x,rule);err==nil{
+   if agentchat.TaskPlanStepCriteriaReviewed(*step) {
+    if evidence,err:=agentchat.VerifyArchivedTaskAutoCheck(store,x,rule);err==nil{
     if err:=agentchat.UpdateTaskPlanStep(&x,step.ID,"done",&evidence);err!=nil{
      http.Error(w,"could not persist verified evidence",409);return
     }
+   }
    }
    break
   }

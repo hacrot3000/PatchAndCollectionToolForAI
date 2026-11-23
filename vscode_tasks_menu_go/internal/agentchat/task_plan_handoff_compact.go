@@ -73,6 +73,21 @@ func appendCompactTaskPlanHandoff(b *strings.Builder,sessionID string,plan *Task
     handoffTrim(req.Package,120),req.BoundAt.UTC().Format("2006-01-02T15:04:05Z"),
     handoffTrim(strings.Join(req.Tests,", "),240))
   }
+  if len(step.AcceptanceCriteria)>0{
+   reviewed:=0
+   for _,criterion:=range step.AcceptanceCriteria{
+    if criterion.ReviewedAt!=nil{reviewed++}
+   }
+   fmt.Fprintf(b,"  - OWNER acceptance coverage: %d/%d reviewed (human attestation, not proven semantics).\n",reviewed,len(step.AcceptanceCriteria))
+   for _,criterion:=range step.AcceptanceCriteria{
+    state:="unreviewed"
+    if criterion.ReviewedAt!=nil{state="owner-reviewed"}
+    fmt.Fprintf(b,"    - %s: %s; mapped Go tests=%s; %s; note=%s\n",
+     handoffTrim(criterion.ID,64),handoffTrim(criterion.Description,140),
+     handoffTrim(strings.Join(criterion.RequiredTests,", "),160),
+     state,handoffTrim(criterion.ReviewNote,100))
+   }
+  }
   for j,ev:=range step.Evidence{
    if j>=compactHandoffEvidencePerStep{
     fmt.Fprintf(b,"  - %d further evidence receipt(s) omitted; inspect the canonical plan page.\n",
