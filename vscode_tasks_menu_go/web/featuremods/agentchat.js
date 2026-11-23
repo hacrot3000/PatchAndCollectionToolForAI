@@ -245,7 +245,9 @@ const debugToolbar=agentEl('div','agentchat-debug-toolbar');
 const debugStateLabel=agentEl('span','agentchat-info','Safe AI diagnostic metadata is collected automatically.');
 const debugCopy=agentButton('Copy log',()=>copyAgentDebug().catch(showAgentError));
 debugCopy.disabled=true; // enabled after the report is loaded; clipboard write stays inside the click
-debugToolbar.append(debugStateLabel,debugCopy);
+const debugClear=agentButton('Clear history',()=>clearAgentDebugHistory().catch(showAgentError));
+debugClear.title='Hide old AI Debug traces, journal summaries and local browser errors. Conversations and native Patch/Collection evidence are preserved.';
+debugToolbar.append(debugStateLabel,debugCopy,debugClear);
 const debugOutput=agentEl('pre','agentchat-debug-output','Opening AI Debug will load one complete safe diagnostic report.');
 debugPanel.append(debugToolbar,debugOutput);
 const agentDock={position:'right',autoHide:false,expanded:false,rightWidth:420,bottomHeight:320,observer:null};
@@ -3120,7 +3122,8 @@ async function loadAgentDebugReport(){
    agentDebugLog=JSON.stringify(bundle,null,2);
    const traces=Array.isArray(data.provider_traces)?data.provider_traces.length:0;
    const sessions=Array.isArray(data.sessions)?data.sessions.length:0;
-   debugStateLabel.textContent='Automatic safe capture · '+traces+' provider trace(s) · '+sessions+' saved conversation(s)';
+   debugStateLabel.textContent='Automatic safe capture · '+traces+' provider trace(s) · '+sessions+' recent conversation(s)'+
+    (data.cleared_at?' · cleared '+new Date(data.cleared_at).toLocaleString():'');
   }catch(error){
    // Even if the diagnostic endpoint itself fails, Copy log must yield a
    // useful support artifact describing that failure and recent browser errors.
@@ -3139,6 +3142,23 @@ async function loadAgentDebugReport(){
  })();
  try{return await agentDebugFetchInFlight;}
  finally{agentDebugFetchInFlight=null;}
+}
+async function clearAgentDebugHistory(){
+ if(!window.confirm('Clear AI Debug history up to now? The old debug traces and session summaries will be hidden even after a restart. Conversation History and native Patch/Collection results will NOT be deleted.'))return;
+ debugClear.disabled=true;
+ try{
+  // Prevent a pre-clear report already in flight from restoring stale data.
+  if(agentDebugFetchInFlight)await agentDebugFetchInFlight;
+  const result=await agentApp.jsonFetch('/api/agent/debug/clear',{
+   method:'POST',headers:{'Content-Type':'application/json'},body:'{}',
+  });
+  if(result?.cleared!==true)throw new Error('Server did not confirm AI Debug reset.');
+  agentDebugClientErrors.length=0;
+  agentDebugLog='';
+  debugOutput.textContent='AI Debug cleared. New activity will be captured automatically.';
+  await loadAgentDebugReport();
+  debugStateLabel.textContent='AI Debug cleared · new events only · conversations and Patch History preserved';
+ }finally{debugClear.disabled=false;}
 }
 async function copyAgentDebug(){
  // Firefox and other browsers can expire transient user activation during
