@@ -7,6 +7,7 @@ import (
 
 // acquireAgentProviderSlot preserves the existing per-daemon bounded, fair
 // admission queue and adds a cross-daemon capacity lease before provider I/O.
+// The cross-daemon layer enforces capacity, not FIFO fairness across daemons.
 // Both leases stay held until the operation ends. This is NOT a network
 // filesystem/distributed broker, and cannot acknowledge/replay a ProviderRun.
 func acquireAgentProviderSlot(ctx context.Context, owner string)(func(),bool){
