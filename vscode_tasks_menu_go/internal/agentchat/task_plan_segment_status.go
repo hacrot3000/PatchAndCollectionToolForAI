@@ -192,6 +192,11 @@ func (s *Store) SetSegmentTaskPlanStepStatus(
   if e=temp.Close();e!=nil{return e}
   if e=os.Rename(temp.Name(),s.file(id));e!=nil{return e}
 
+  // A test-only barrier exercises a real process kill after the canonical
+  // manifest commit and before cleanup. The hook is never populated by
+  // production stores, and cannot be configured by a request or provider.
+  if s.afterSegmentStatusJournalCommit!=nil{s.afterSegmentStatusJournalCommit()}
+
   // The derived markdown handoff is regenerated authoritatively by
   // Store.Handoff() on demand; remove an obsolete materialized copy.
   _=os.Remove(s.handoffFile(id))
