@@ -146,6 +146,9 @@ func (s *Server) agentChatTaskPlanAPI(w http.ResponseWriter,r *http.Request,id s
  // status/done transitions use the bounded 32-step CAS writer.
  // Native Task/Go proof and all unpaged/inline operations retain the full
  // validator path below. The Store itself validates ALL offscreen pages.
+ eligiblePagedNativeDone:=req.Action=="set_step"&&req.Status=="done"&&
+  (req.EvidenceKind=="task_run"||req.EvidenceKind=="go_test_case"||
+   req.EvidenceKind=="go_test_suite")
  eligiblePagedStep:=req.Action=="set_step"&&
   (req.Status=="pending"||req.Status=="active"||req.Status=="blocked"||
    (req.Status=="done"&&(req.EvidenceKind=="manual"||
@@ -155,12 +158,35 @@ func (s *Server) agentChatTaskPlanAPI(w http.ResponseWriter,r *http.Request,id s
  eligiblePagedGoBinding:=req.Action=="set_task_command_guard"||
   req.Action=="set_go_test_requirements"
  if r.Method==http.MethodPost&&postPaged&&
-  (eligiblePagedStep||eligiblePagedAcceptance||eligiblePagedGoBinding){
+  (eligiblePagedStep||eligiblePagedNativeDone||eligiblePagedAcceptance||eligiblePagedGoBinding){
   var page agentchat.TaskPlanPageResult
   var e error
   switch req.Action{
   case "set_step":
-   if req.Status=="done"{
+   if eligiblePagedNativeDone{
+    // A Go suite's exact requirements must come only from the owner-bound
+    // canonical milestone, never a substitute list supplied at proof time.
+    if req.EvidenceKind=="go_test_suite"&&
+     (req.EvidenceGoPackage!=""||req.EvidenceGoTest!=""||len(req.RequiredGoTests)!=0){
+     http.Error(w,"expected Go test suite is read from the owner-bound plan only",400);return
+    }
+    page,e=store.SetSegmentTaskPlanStepDoneNative(
+     id,owner,req.ExpectedRevision,req.StepID,req.EvidenceKind,req.EvidenceRef,
+     postOffset,postLimit,func(snapshot agentchat.Session)(agentchat.TaskPlanEvidence,error){
+      switch req.EvidenceKind{
+      case "task_run":
+       return s.verifyNativeTaskRunEvidence(snapshot,req.EvidenceRef,req.EvidenceTaskID,
+        req.EvidenceNote,req.StepID)
+      case "go_test_case":
+       return s.verifyNativeGoTestCaseEvidence(snapshot,req.EvidenceRef,req.EvidenceTaskID,
+        req.StepID,req.EvidenceGoPackage,req.EvidenceGoTest,req.EvidenceNote)
+      case "go_test_suite":
+       return s.verifyNativeGoTestSuiteEvidence(snapshot,req.EvidenceRef,req.EvidenceTaskID,
+        req.StepID,req.EvidenceNote)
+      }
+      return agentchat.TaskPlanEvidence{},agentchat.ErrInvalidSession
+     })
+   }else if req.Status=="done"{
     page,e=store.SetSegmentTaskPlanStepDone(
      id,owner,req.ExpectedRevision,req.StepID,req.EvidenceKind,
      req.EvidenceRef,req.EvidenceNote,postOffset,postLimit)
