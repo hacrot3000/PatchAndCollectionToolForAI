@@ -212,6 +212,8 @@ assert.ok(find(pendingRow,node=>node.tagName==='button'&&node.textContent.includ
 // The same message controls must apply to saved user turns and to optimistic
 // unsaved turns. Copy always uses canonical source text, not clipped Markdown
 // or the hidden attachment envelope.
+// The fake clipboard records the payload synchronously before its Promise resolves.
+// This bootstrap file is CommonJS, so do not use top-level await.
 const copiedMessages=[];
 context.navigator={clipboard:{writeText:async text=>{copiedMessages.push(text);}}};
 const copyControl=node=>find(node,n=>n.tagName==='button'&&['Copy sent message','Copy entire AI response'].includes(n.attributes?.['aria-label']));
@@ -219,10 +221,10 @@ const shortCopy=copyControl(ordinaryRow);
 assert.ok(shortCopy,'short saved outgoing message needs Copy');
 assert.equal(find(ordinaryRow,n=>n.tagName==='button'&&n.textContent==='Show all'),undefined,
  'a short message must not have a redundant expansion button');
-await shortCopy.onclick();
+shortCopy.onclick();
 assert.equal(copiedMessages.at(-1),ordinary,'sent Copy must preserve the unmodified user text');
 const hiddenAttachmentCopy=copyControl(savedRow);
-await hiddenAttachmentCopy.onclick();
+hiddenAttachmentCopy.onclick();
 assert.equal(copiedMessages.at(-1),plainRequest,
  'Copy message must not expose or append the on-demand attachment envelope');
 const longMessage=[
@@ -251,14 +253,14 @@ showAll.onclick();
 assert.equal(longBody.classList.contains('is-collapsed'),true,'second click must restore five-line collapse');
 assert.equal(showAll.textContent,'Show all');
 assert.equal(showAll.getAttribute('aria-expanded'),'false');
-await copyControl(longRow).onclick();
+copyControl(longRow).onclick();
 assert.equal(copiedMessages.at(-1),longMessage,
  'collapsed Copy must contain every line, including all hidden lines');
 const optimisticLong=vm.runInNewContext(
  'agentUserMessageNode('+JSON.stringify(longMessage)+','+JSON.stringify('hidden upload data')+',1)',context);
 assert.ok(find(optimisticLong,n=>n.className==='agentchat-message-body'&&n.classList.contains('is-collapsed')),
  'optimistic outgoing messages must use identical folding');
-await copyControl(optimisticLong).onclick();
+copyControl(optimisticLong).onclick();
 assert.equal(copiedMessages.at(-1),longMessage,
  'optimistic Copy must exclude attached upload data');
 assert.equal(nodeText(optimisticLong).includes('hidden upload data'),false,
@@ -274,7 +276,7 @@ assert.equal(find(replyRow,n=>n.className==='agentchat-message-body')?.classList
 assert.ok(find(replyRow,n=>n.className==='agentchat-code-block'),'AI Markdown and code blocks remain rendered');
 const replyCopy=copyControl(replyRow);
 assert.ok(replyCopy,'every AI answer needs a Copy button for the entire reply');
-await replyCopy.onclick();
+replyCopy.onclick();
 assert.equal(copiedMessages.at(-1),completeReply,
  'reply Copy must include the whole original Markdown and all fenced code, not only rendered text');
 console.log('PASS: outgoing five-line fold/toggle, full AI replies, entire-message Copy and hidden attachment boundary');
