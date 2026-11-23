@@ -187,6 +187,18 @@ func (s *Server) agentChatRunCollection(
 			// backend: the existing native Python Patch Tool runner/queue.
 			observed = s.AgentCollectionCall(s.Workspace,identity,nativeRequest)
 		} else {
+			// A native large-file COLLECT may run for minutes. Persist its phase
+			// BEFORE the local process starts so browser polling shows a truthful
+			// "Running native Collection" status instead of a frozen "Thinking".
+			callID:=""
+			if typed {callID=result.Calls[0].CallID}
+			x.AppendEvent("collect_started","requesting_ai",callID,"native_patch_tool_collect")
+			var saveErr error
+			*x,saveErr=store.Save(*x,x.Revision)
+			if saveErr!=nil {
+				return result,clearProviderRefs,&agentCollectionLocalError{
+					Stage:"persist_native_collect_start",Round:round+1,Cause:saveErr}
+			}
 			var nativeErr error
 			observed,nativeErr = s.agentRunNativeCollection(ctx,x.Owner,nativeRequest,identity)
 			if nativeErr!=nil {
