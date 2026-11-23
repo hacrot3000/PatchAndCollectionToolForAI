@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"bletonfc/vscode_tasks_menu/internal/agentchat"
+	"bletonfc/vscode_tasks_menu/internal/agentrun"
 	"bletonfc/vscode_tasks_menu/internal/approval"
 	"bletonfc/vscode_tasks_menu/internal/config"
 	"bletonfc/vscode_tasks_menu/internal/dbadapter"
@@ -41,9 +42,13 @@ type Server struct {
 	agentRunCancel         context.CancelFunc
 	AgentChatCall          func(context.Context, agentchat.ProviderConfig, string, []byte) (agentchat.ResponsesResult, error) // optional test adapter; nil = production HTTPS
 	AgentChatPack          func(string, string) (patchtool.AIPackResult, error)                                               // optional test builder; nil = current AI Pack
+	AgentRunExecutor       agentrun.Executor
+	agentRunManagersMu     sync.Mutex
+	agentRunManagers       map[string]*agentrun.Manager
 	agentDebugMu           sync.Mutex
 	agentDebug             *agentDebugStore
 	Workspace              string
+	OwnerWorkspace         string
 	Config                 config.Config
 	Log                    *log.Logger
 	Sessions               session.Service
@@ -208,6 +213,18 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/agent/providers/test", s.agentChatProviderTestAPI)
 	mux.HandleFunc("/api/agent/providers/probe", s.agentChatProviderProbeAPI)
 	mux.HandleFunc("/api/agent/task-manifests/validate", s.agentTaskManifestValidateAPI)
+	mux.HandleFunc("/api/agent/conversations", s.agentConversationsAPI)
+	mux.HandleFunc("/api/agent/conversations/", s.agentConversationItemAPI)
+	mux.HandleFunc("/api/agent/conversation-groups", s.agentConversationGroupsAPI)
+	mux.HandleFunc("/api/agent/conversation-groups/", s.agentConversationGroupItemAPI)
+	mux.HandleFunc("/api/agent/coordination", s.agentCoordinationAPI)
+	mux.HandleFunc("/api/agent/task-manifests/runs", s.agentTaskManifestRunsAPI)
+	mux.HandleFunc("/api/agent/task-manifests/runs/", s.agentTaskManifestRunItemAPI)
+	mux.HandleFunc("/api/agent/context-snapshots", s.agentContextSnapshotAPI)
+	mux.HandleFunc("/api/agent/context-groups", s.agentContextGroupsAPI)
+	mux.HandleFunc("/api/agent/context-groups/", s.agentContextGroupItemAPI)
+	mux.HandleFunc("/api/agent/runs", s.agentRunAPI)
+	mux.HandleFunc("/api/agent/runs/", s.agentRunItemAPI)
 	mux.HandleFunc("/api/agent/sessions", s.agentChatSessionsAPI)
 	mux.HandleFunc("/api/agent/sessions/", s.agentChatSessionItemAPI)
 	mux.HandleFunc("/api/ai/settings", s.aiSettingsAPI)

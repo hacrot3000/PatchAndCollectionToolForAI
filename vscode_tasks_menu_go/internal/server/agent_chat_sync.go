@@ -21,7 +21,7 @@ func (s *Server) agentChatSyncAPI(w http.ResponseWriter, r *http.Request, id str
 		return
 	}
 	owner := aiPlanOwner(r)
-	release, ok := lockAgentTurn(s.Workspace, owner, id)
+	release, ok := lockAgentTurn(s.agentOwnerWorkspace(), owner, id)
 	if !ok {
 		http.Error(w, "Agent session is busy", 409)
 		return
@@ -50,7 +50,9 @@ func (s *Server) agentChatSyncAPI(w http.ResponseWriter, r *http.Request, id str
 		s.agentReconcilePatchRecord(&view)
 		if view.Changed {
 			x.ToolCalls[i] = view.Record
-			if view.Record.Status=="done" || view.Record.Status=="error" {x.Status="waiting_tool"}
+			if view.Record.Status == "done" || view.Record.Status == "error" {
+				x.Status = "waiting_tool"
+			}
 			x.AppendEvent("tool_final", view.Record.Status, record.CallID, "")
 			changed = true
 		}
@@ -108,7 +110,9 @@ func (s *Server) agentReconcilePendingOnStartup(ctx context.Context) {
 			s.agentReconcilePatchRecord(&view)
 			if view.Changed {
 				sess.ToolCalls[j] = view.Record
-				if view.Record.Status=="done" || view.Record.Status=="error" {sess.Status="waiting_tool"}
+				if view.Record.Status == "done" || view.Record.Status == "error" {
+					sess.Status = "waiting_tool"
+				}
 				changed = true
 			}
 		}
@@ -147,7 +151,7 @@ func (s *Server) agentChatExecutionAPI(w http.ResponseWriter, r *http.Request, i
 		http.Error(w, "agent journal unavailable", 500)
 		return
 	}
-	if x.Workspace != s.Workspace {
+	if x.Workspace != s.agentOwnerWorkspace() {
 		http.Error(w, "workspace mismatch", 403)
 		return
 	}
@@ -266,7 +270,7 @@ func (s *Server) agentChatEventsAPI(w http.ResponseWriter, r *http.Request, id s
 		http.Error(w, "agent journal unavailable", 500)
 		return
 	}
-	if x.Workspace != s.Workspace {
+	if x.Workspace != s.agentOwnerWorkspace() {
 		http.Error(w, "workspace mismatch", 403)
 		return
 	}

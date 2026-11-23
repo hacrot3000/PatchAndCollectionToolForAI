@@ -73,6 +73,8 @@ import '/featuremods/help.js';
 import '/featuremods/aidebug.js';
 import '/featuremods/aiassistant.js';
 import '/featuremods/agentchatformat.js';
+import '/featuremods/agentproviderselector.js';
+import '/featuremods/agentchat_runs_ui.js';
 import '/featuremods/agentchat.js';
 import '/featuremods/smartterminal_engine.js';
 import '/featuremods/terminal_command_guides.js';

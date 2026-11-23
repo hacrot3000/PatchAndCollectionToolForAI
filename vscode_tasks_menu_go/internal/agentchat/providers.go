@@ -349,6 +349,9 @@ func (s *ProviderStore) Put(owner string, p ProviderConfig) error {
 	replaced := false
 	for i := range cfg.Providers {
 		if cfg.Providers[i].ID == p.ID {
+			if err := s.archiveProviderVersionsLocked(owner, cfg.Providers[i]); err != nil {
+				return err
+			}
 			cfg.Providers[i] = p
 			replaced = true
 			break

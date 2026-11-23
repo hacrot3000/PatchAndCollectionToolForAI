@@ -54,7 +54,12 @@ func newStreamAccumulator() *streamAccumulator {
 	return &streamAccumulator{callByItem: make(map[string]int)}
 }
 
-func (a *streamAccumulator) apply(ev StreamEvent) error {
+type streamEventCallbackError struct{ err error }
+
+func (e streamEventCallbackError) Error() string { return e.err.Error() }
+func (e streamEventCallbackError) Unwrap() error { return e.err }
+
+func (a *streamAccumulator) apply(ev StreamEvent, callbacks ...func(StreamEvent) error) error {
 	a.eventCount++
 	if a.eventCount > maxSSEEvents {
 		return errors.New("provider stream exceeded event limit")
@@ -106,6 +111,11 @@ func (a *streamAccumulator) apply(ev StreamEvent) error {
 	}
 	if ev.Done {
 		a.sawDone = true
+	}
+	if len(callbacks) > 0 && callbacks[0] != nil {
+		if err := callbacks[0](ev); err != nil {
+			return streamEventCallbackError{err: err}
+		}
 	}
 	return nil
 }
@@ -207,6 +217,20 @@ func parseSSEEvent(payload []byte) (StreamEvent, error) {
 		if raw.Item == nil || ev.CallID == "" {
 			return StreamEvent{}, errors.New("function call added without identity")
 		}
+		// A provider may stream the complete call in the item itself.
+		if ev.CallName == "" && raw.Item.Name != "" {
+			ev.CallName = raw.Item.Name
+		}
+	case "response.output_item.done":
+		if raw.Item == nil || ev.CallID == "" {
+			return StreamEvent{}, errors.New("function call completed without identity")
+		}
+		if ev.CallName == "" && raw.Item.Name != "" {
+			ev.CallName = raw.Item.Name
+		}
+		if ev.Arguments == "" && raw.Item.Arguments != "" {
+			ev.Arguments = raw.Item.Arguments
+		}
 	case "response.completed":
 		if raw.Response == nil {
 			return StreamEvent{}, errors.New("completion event missing response")
@@ -229,6 +253,12 @@ func parseSSEEvent(payload []byte) (StreamEvent, error) {
 // returns a result only after a completion event. Cancellation propagates via
 // ctx. An EOF without completion is an error, never a partial success.
 func DoResponsesStream(ctx context.Context, p ProviderConfig, key string, body []byte) (ResponsesResult, error) {
+	return DoResponsesStreamWithEvents(ctx, p, key, body, nil)
+}
+
+// DoResponsesStreamWithEvents emits validated provider deltas while preserving
+// the existing complete-response validation and hardened transport behavior.
+func DoResponsesStreamWithEvents(ctx context.Context, p ProviderConfig, key string, body []byte, onEvent func(StreamEvent) error) (ResponsesResult, error) {
 	endpoint, err := validateProviderCall(p, key, body)
 	if err != nil {
 		return ResponsesResult{}, err
@@ -280,7 +310,11 @@ func DoResponsesStream(ctx context.Context, p ProviderConfig, key string, body [
 			RecordProviderDiagnostic(ctx, DiagnosticEvent{Level: "error", Stage: "provider_parse", Event: "sse.parse_error", Code: "SSE_PARSE_FAILED", SafeMessage: "Provider stream frame could not be parsed"})
 			return &ProviderError{Code: "SSE_PARSE_FAILED", Stage: "provider_parse", Message: "Provider stream frame could not be parsed"}
 		}
-		if err = acc.apply(ev); err != nil {
+		if err = acc.apply(ev, onEvent); err != nil {
+			var callbackErr streamEventCallbackError
+			if errors.As(err, &callbackErr) {
+				return callbackErr.err
+			}
 			RecordProviderDiagnostic(ctx, DiagnosticEvent{Level: "error", Stage: "provider_parse", Event: "sse.accumulate_error", Code: "SSE_INCOMPLETE", SafeMessage: "Provider stream did not contain a complete result"})
 			return &ProviderError{Code: "SSE_INCOMPLETE", Stage: "provider_parse", Message: "Provider stream did not contain a complete result"}
 		}
@@ -321,7 +355,7 @@ func DoResponsesStream(ctx context.Context, p ProviderConfig, key string, body [
 				if acc.sawDone {
 					return acc.result()
 				}
-				return ResponsesResult{}, errors.New("provider stream ended before completion")
+				return ResponsesResult{}, io.ErrUnexpectedEOF
 			}
 			if ctx.Err() != nil {
 				return ResponsesResult{}, ctx.Err()

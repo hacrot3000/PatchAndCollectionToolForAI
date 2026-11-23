@@ -8,6 +8,8 @@ const path = require('node:path');
 const vm = require('node:vm');
 
 const formatterSource = fs.readFileSync(path.join(__dirname, 'featuremods/agentchatformat.js'), 'utf8');
+const selectorSource = fs.readFileSync(path.join(__dirname, 'featuremods/agentproviderselector.js'), 'utf8');
+const runUISource = fs.readFileSync(path.join(__dirname, 'featuremods/agentchat_runs_ui.js'), 'utf8');
 const source = fs.readFileSync(path.join(__dirname, 'featuremods/agentchat.js'), 'utf8');
 // Module imports execute in strict mode. A sloppy vm.runInNewContext can
 // accept duplicate function declarations that Firefox rejects at parse time.
@@ -116,7 +118,9 @@ const document = {
   addEventListener() {},
 };
 let resizeObserver;
+const localStorageValues=new Map();
 const context = {
+  localStorage:{getItem:key=>localStorageValues.get(key)||null,setItem:(key,value)=>localStorageValues.set(key,String(value))},
   TaskMenuApp: {
     jsonFetch() { throw new Error('Bootstrap must not call the provider or other APIs'); },
   },
@@ -124,6 +128,7 @@ const context = {
   Event: class Event { constructor(type) { this.type = type; } },
   TextEncoder,
   TextDecoder,
+  atob: value => Buffer.from(value,'base64').toString('binary'),
   AbortController,
   ResizeObserver: class ResizeObserver {
     constructor(callback) { this.callback = callback; resizeObserver = this; }
@@ -137,6 +142,10 @@ const context = {
 };
 assert.doesNotThrow(() => vm.runInNewContext(formatterSource, context, {filename:'agentchatformat.js', timeout:2000}),
   'Chat Markdown formatter must bootstrap before Agent Chat');
+assert.doesNotThrow(() => vm.runInNewContext(selectorSource, context, {filename:'agentproviderselector.js', timeout:2000}),
+  'Next-provider selector must bootstrap before Agent Chat');
+assert.doesNotThrow(() => vm.runInNewContext(runUISource, context, {filename:'agentchat_runs_ui.js', timeout:2000}),
+  'Agent Run UI must bootstrap before Agent Chat');
 assert.doesNotThrow(
   () => vm.runInNewContext(source, context, { filename: 'agentchat.js', timeout: 2000 }),
   'Agent Chat must load without referencing lexical variables before initialization'
@@ -810,7 +819,7 @@ console.log('PASS: safe Markdown, syntax-highlighted PHP/Python, per-block Copy,
     'completed response removes the spinner instead of archiving a stale status');
   assert.equal(transcript.children.filter(x=>x.className.includes('bubble user')).length,1,
     'successful request must have exactly one user message');
-  assert.equal(nodeText(transcript.children.at(-1)),'Created helloworld.php.','assistant reply is appended after tool IO');
+  assert.equal(nodeText(transcript.children.at(-1)),'Custom Endpoint · composer-2.5Created helloworld.php.','assistant reply is appended with its actual provider/model after tool IO');
   assert.equal(vm.runInNewContext('agentLiveTurns.size',context),0);
   const lastBubble=transcript.children.at(-1);
   context.flowSession={...context.flowSession,status:'failed',revision:5,event_seq:4,
@@ -864,7 +873,7 @@ console.log('PASS: safe Markdown, syntax-highlighted PHP/Python, per-block Copy,
     history:[...context.flowSession.history,{type:'assistant',content:'Patch verified and applied.'}]};
   resolveFeedback({status:'ready'});
   await continuing;
-  assert.equal(nodeText(transcript.children.at(-1)),'Patch verified and applied.');
+  assert.equal(nodeText(transcript.children.at(-1)),'Custom Endpoint · composer-2.5Patch verified and applied.');
   assert.ok(transcript.children.some(x=>x.className==='agentchat-io-details'&&x.children[0].textContent.includes('Native Patch result sent')),
     'native Patch response must stay in user-visible history');
   assert.equal(transcript.children.filter(x=>x.className==='agentchat-live-status').length,0);
@@ -1047,7 +1056,117 @@ console.log('PASS: safe Markdown, syntax-highlighted PHP/Python, per-block Copy,
      'successful Patch must not show reapply');
    console.log('PASS: bounded/unlimited retry UI, single retry countdown and safe old-Patch recovery actions');
 
-
-
+  // Switching the next-run provider while a legacy Composer turn is active
+  // submits an independent RunManager request and leaves the original alone.
+  const hotSession={id:'hot-switch-session',status:'requesting_ai',revision:11,retry_mode:'limited',
+   provider_id:'composer',model_id:'composer-2.5',mode:'stateless',history:[{type:'user',content:'prior completed turn'}],events:[],tool_calls:[]};
+  context.hotSession=hotSession;
+  context.hotProviders=[
+   {id:'composer',name:'Composer',has_api_key:true,api_type:'responses',base_url:'https://composer.example/v1',models:[{id:'composer-2.5',name:'Composer 2.5'}]},
+   {id:'gpt',name:'GPT',has_api_key:true,api_type:'responses',base_url:'https://gpt.example/v1',models:[{id:'gpt-6.1-sol',name:'GPT 6.1'}]},
+  ];
+  const runRequests=[],apiCalls=[];let acceptedRun=null,continuedRun=null;
+  const composerRun={spec:{run_id:'run-101',conversation_id:hotSession.id,provider_id:'composer',model_id:'composer-2.5',
+   provider_config_version:'composer-config',credential_fingerprint:'composer-credential',context_snapshot_id:'snapshot-101',
+   attempt_id:'run-101-a1',idempotency_key:'request-101',retry_mode:'limited'},status:'running',attempt:1,retry_safe:false,
+   created_at:new Date(Date.now()-1000).toISOString(),history:[{type:'user',content:'Request #101 with Composer'}],
+   events:[{run_id:'run-101',attempt_id:'run-101-a1',provider_id:'composer',sequence:1,type:'assistant.delta',payload:Buffer.from('Composer partial').toString('base64')}]};
+  const allRuns=[composerRun];
+  context.TaskMenuApp.jsonFetch=async(url,opts={})=>{
+   apiCalls.push(url);
+   if(url==='/api/agent/runs'&&!opts.method)return {runs:allRuns.slice(),max_concurrent:5};
+   if(url==='/api/agent/context-snapshots'){
+    const request=JSON.parse(opts.body);
+    assert.equal(request.conversation_id,hotSession.id);
+    assert.ok(request.run_id,'snapshot must be bound to a client-generated run ID');
+    assert.ok(['gpt','composer'].includes(request.provider_id));
+    const expectedModel=request.provider_id==='gpt'?'gpt-6.1-sol':'composer-2.5';
+    assert.equal(request.model_id,expectedModel);
+    return {context_snapshot_id:'0123456789abcdef0123456789abcdef',owner_workspace_id:'owner-hash',execution_workspace_id:'owner-hash',parent_turn_id:'run-101',excluded_pending_run_ids:['run-101'],provider_config_version:'config-'+request.provider_id,credential_fingerprint:'credential-'+request.provider_id,retry_mode:'limited'};
+   }
+   if(url==='/api/agent/runs'&&opts.method==='POST'){
+    const request=JSON.parse(opts.body);runRequests.push(request);
+    const run={spec:request.spec,status:'completed',attempt:1,created_at:new Date().toISOString(),
+     history:[{type:'user',content:request.spec.provider_id==='gpt'?'Request #102 with GPT':'Request #103 with Composer'}],
+     events:[{run_id:request.spec.run_id,attempt_id:request.spec.attempt_id,provider_id:request.spec.provider_id,sequence:1,type:'assistant.delta',
+      payload:Buffer.from(request.spec.provider_id==='gpt'?'GPT completed first':'Composer completed after GPT').toString('base64')}]};
+    if(request.spec.provider_id==='gpt')acceptedRun=run;else continuedRun=run;
+    allRuns.push(run);return {run};
+   }
+   if(url==='/api/agent/runs/run-101/retry'){
+    composerRun.status='running';composerRun.attempt++;composerRun.retry_safe=false;composerRun.spec.attempt_id='run-101-a'+composerRun.attempt;
+    composerRun.events.push({run_id:'run-101',attempt_id:composerRun.spec.attempt_id,provider_id:'composer',sequence:2,type:'assistant.delta',payload:Buffer.from('Composer retry').toString('base64')});
+    return {run:composerRun};
+   }
+   if(url==='/api/agent/runs/run-101/stop'){composerRun.status='stopped';return {run:composerRun};}
+   if(url==='/api/agent/runs')return {runs:allRuns.slice(),max_concurrent:5};
+   throw new Error('Unexpected Hot-Switch request '+url);
+  };
+  vm.runInNewContext("agentRunUI.setProviders(hotProviders);agentActive=hotSession.id;agentCurrentSession=hotSession;agentBusySessions.add(hotSession.id);prompt.value='Use GPT now';",context);
+  await vm.runInNewContext('agentRunUI.selectConversation(hotSession)',context);
+  const runSelector=vm.runInNewContext('agentRunUI.element',context);
+  const nextProviderSelect=runSelector.children[0].children[0];
+  nextProviderSelect.value='gpt';nextProviderSelect.listeners.change[0]({type:'change'});
+  const otherSession={id:'other-session',provider_id:'composer',model_id:'composer-2.5'};
+  await vm.runInNewContext('agentRunUI.selectConversation(otherHotSession)',Object.assign(context,{otherHotSession:otherSession}));
+  assert.equal(vm.runInNewContext('agentRunUI.value().providerId',context),'composer','another conversation keeps its own default');
+  await vm.runInNewContext('agentRunUI.selectConversation(hotSession)',context);
+  assert.equal(vm.runInNewContext('agentRunUI.value().providerId',context),'gpt','returning restores the saved conversation preference');
+  const reloadedRunsUI=context.TaskMenuAgentRunsUI.create({document,selectorMount:new FakeElement('div'),runsMount:new FakeElement('div'),
+    jsonFetch:(...args)=>context.TaskMenuApp.jsonFetch(...args)});
+  reloadedRunsUI.setProviders(context.hotProviders);
+  await reloadedRunsUI.selectConversation(context.hotSession);
+  assert.equal(JSON.stringify(reloadedRunsUI.value()),JSON.stringify({providerId:'gpt',modelId:'gpt-6.1-sol'}),'reload restores the local conversation provider/model choice');
+  const hotRun=await vm.runInNewContext('sendAgentMessage()',context);
+  assert.equal(runRequests.length,1,'one independent run request was submitted');
+  assert.equal(runRequests[0].spec.provider_id,'gpt');
+  assert.equal(runRequests[0].spec.model_id,'gpt-6.1-sol');
+  assert.equal(runRequests[0].spec.retry_mode,'limited');
+  assert.equal(vm.runInNewContext("agentBusySessions.has('hot-switch-session')",context),true,
+    'sending the GPT run did not cancel/clear the active Composer request');
+  assert.equal(runSelector.children[0].children[0].value,'gpt','next-provider choice stays selected');
+  assert.ok(runRequests[0].spec.context_snapshot_id,'run is pinned to its snapshot');
+  assert.equal(hotRun.spec.run_id,runRequests[0].spec.run_id);
+  const runList=vm.runInNewContext('agentRunListMount',context);
+  const runCards=()=>runList.children.filter(node=>node.className==='agentchat-run-card');
+  let composerCard=runCards().find(node=>node.dataset.runId==='run-101');
+  let gptCard=runCards().find(node=>node.dataset.runId===hotRun.spec.run_id);
+  assert.ok(composerCard&&gptCard,'both provider-bound runs render independently');
+  assert.ok(nodeText(composerCard).includes('Composer partial')&&nodeText(gptCard).includes('GPT completed first'),
+    'stream output is isolated to its own RunID and #102 may complete first');
+  assert.ok(nodeText(gptCard).includes('Context snapshot excluded unfinished run output: run-101'),
+    'the UI warns that #101 response was not available in #102 snapshot');
+  assert.ok(nodeText(gptCard).toLowerCase().includes('completed'));
+  assert.equal(apiCalls.some(url=>url.endsWith('/cancel')),false,'provider switch sent no session Cancel request');
+  composerCard=runCards().find(node=>node.dataset.runId==='run-101');
+  composerRun.status='failed';composerRun.retry_safe=true;
+  await vm.runInNewContext('agentRunUI.refresh()',context);
+  composerCard=runCards().find(node=>node.dataset.runId==='run-101');
+  const retryRunButton=find(composerCard,node=>node.tagName==='button'&&node.textContent==='Retry same provider');
+  assert.ok(retryRunButton,'a retryable failed Composer run exposes an explicit retry action');
+  await retryRunButton.onclick();
+  assert.ok(apiCalls.includes('/api/agent/runs/run-101/retry'),'Retry targets Composer run #101');
+  assert.equal(composerRun.spec.provider_id,'composer','retry retains Composer provider');
+  assert.equal(composerRun.spec.model_id,'composer-2.5','retry retains Composer model');
+  composerCard=runCards().find(node=>node.dataset.runId==='run-101');
+  const stopRunButton=find(composerCard,node=>node.tagName==='button'&&node.textContent==='Stop request');
+  assert.ok(stopRunButton,'each active Manager run has its own Stop action');
+  await stopRunButton.onclick();
+  assert.ok(apiCalls.includes('/api/agent/runs/run-101/stop'),'Stop targets run #101 only');
+  composerCard=runCards().find(node=>node.dataset.runId==='run-101');
+  assert.ok(nodeText(composerCard).includes('Remote provider cancellation is not confirmed'),
+    'Stop UI does not overclaim remote provider cancellation');
+  gptCard=runCards().find(node=>node.dataset.runId===hotRun.spec.run_id);
+  assert.ok(nodeText(gptCard).toLowerCase().includes('completed'),'Stop #101 leaves GPT #102 completed');
+  vm.runInNewContext("hotSession.status='completed';agentCurrentSession=hotSession;agentBusySessions.delete(hotSession.id);",context);
+  nextProviderSelect.value='composer';nextProviderSelect.listeners.change[0]({type:'change'});
+  vm.runInNewContext("prompt.value='Continue using Composer';",context);
+  const laterRun=await vm.runInNewContext('sendAgentMessage()',context);
+  assert.equal(runRequests.length,2,'later same-default-provider turns stay on the run path after a hot-switch');
+  assert.equal(runRequests[1].spec.provider_id,'composer','switching back uses Composer for the new run');
+  assert.equal(laterRun.spec.context_snapshot_id,runRequests[1].spec.context_snapshot_id);
+  assert.ok(allRuns.some(run=>run.spec.run_id===hotRun.spec.run_id&&run.spec.provider_id==='gpt'),
+    'GPT run remains in persisted conversation run history');
+  console.log('PASS: Composer #101 and GPT #102 stream separately; later requests preserve the hot-switched history path');
 
 })().catch(error => { console.error(error); process.exitCode = 1; });

@@ -254,6 +254,7 @@ const toolNotice=agentEl('div','agentchat-info');toolNotice.hidden=true;
 const tabbar=agentEl('div','agentchat-modelbar');
 let agentTabs=[];const agentDrafts=new Map();const agentAttachmentDrafts=new Map();
 const agentRequestIDs=new Map();
+const agentRunRequestIDs=new Map();
 let agentSelectGeneration=0;
 function agentSelectedChatSession(){return agentActive||null;}
 const providerSelect=agentEl('select'),modelSelect=agentEl('select'),modeSelect=agentEl('select'),effortSelect=agentEl('select');
@@ -301,6 +302,12 @@ agentExecutionHeader.append(agentExecutionHeading,agentExecutionRefresh,agentExe
 const agentExecutionContent=agentEl('pre','agentchat-execution-content','');
 agentExecutionPanel.append(agentExecutionHeader,agentExecutionContent);
 const composer=agentEl('div','agentchat-composer'),prompt=agentEl('textarea');
+const agentRunSelectorMount=agentEl('div','agentchat-run-selector-mount');
+const agentRunListMount=agentEl('div','agentchat-run-list');
+const agentRunUI=globalThis.TaskMenuAgentRunsUI?.create({
+ selectorMount:agentRunSelectorMount,runsMount:agentRunListMount,
+ jsonFetch:(...args)=>agentApp.jsonFetch(...args),
+});
 // Text-only attachment staging. Binary files are rejected server-side; the UI
 // never reads local paths or embeds base64.
 const attachButton=agentButton('+ Text file',()=>{const sessionID=agentSelectedChatSession();pickAgentAttachment(sessionID).catch(showAgentError);});
@@ -388,8 +395,8 @@ const layoutGroup=makeAgentHeaderGroup('Layout',[dockPositionButton,autoHideButt
 const agentHeaderGroups=[conversationGroup,automationGroup,toolsGroup,layoutGroup];
 for(const group of agentHeaderGroups)toolbarActions.append(group);
 heading.append(title,toolbarActions,moreButton,close,moreMenu);
-actionLine.append(status,cancel,send);composer.append(attachList,prompt,actionLine);
-main.append(tabbar,toolNotice,transcript,agentExecutionPanel,composer);layout.append(main);
+actionLine.append(status,cancel,send);composer.append(agentRunSelectorMount,attachList,prompt,actionLine);
+main.append(tabbar,toolNotice,agentRunListMount,transcript,agentExecutionPanel,composer);layout.append(main);
 const footer=agentEl('div','agentchat-info','Agent automation is configured per conversation. Native Patch results are verified before being sent to AI.');
 windowBox.append(heading,viewTabs,layout,debugPanel,footer);root.append(windowBox);
 const agentToolbarItems=agentHeaderGroups;
@@ -448,7 +455,7 @@ function markAgentSessionBusy(id,busy){
  if(!id)return;
  if(busy)agentBusySessions.add(id);else agentBusySessions.delete(id);
  if(id===agentActive){
-  send.disabled=busy;newChat.disabled=busy;rename.disabled=busy;archive.disabled=busy;
+  send.disabled=busy&&!agentRunUI?.canSend();newChat.disabled=busy;rename.disabled=busy;archive.disabled=busy;
   cancel.disabled=!busy;updateAgentModels();
  }
 }
@@ -563,6 +570,7 @@ async function loadAgentProviders(){
  updateAgentModels(previousModel,previousEffort);
  settingsPicker.value=providerSelect.value;
  settingsPicker.dispatchEvent(new Event('change'));
+ agentRunUI?.setProviders(agentProviders);
 }
 function updateAgentModels(preferredModel,preferredEffort){
  const provider=agentProviders.find(p=>p.id===providerSelect.value);
@@ -788,6 +796,17 @@ function agentToolIO(label,content){
  details.append(agentEl('summary','',label),agentRich.renderCode(content,'',showAgentError));
  return details;
 }
+function agentProviderBadge(row,item,session){
+ if(!row)return row;
+ const providerID=String(item.provider_id||session?.provider_id||'');
+ const modelID=String(item.model_id||session?.model_id||'');
+ if(!providerID&&!modelID)return row;
+ const provider=agentProviders.find(entry=>entry.id===providerID);
+ const badge=agentEl('span','agentchat-provider-badge',(provider?.name||providerID||'Unknown provider')+(modelID?' · '+modelID:''));
+ badge.style.display='block';badge.style.fontSize='10px';badge.style.opacity='.68';badge.style.marginBottom='4px';
+ row.prepend(badge);
+ return row;
+}
 function agentHistoryRow(session,item,callNames){
  if(item.type==='activity_event'){
   const name=item.kind==='collect_failed'?'Collection failed':
@@ -805,7 +824,7 @@ function agentHistoryRow(session,item,callNames){
   if(source.startsWith('TaskDeck native Patch Tool result for your prior text-only proposal')){
    return agentToolIO('Sending native Patch result to AI · view contents',source);
   }
-  return agentRich.renderMessage('user',userMessageText(source),showAgentError);
+  return agentProviderBadge(agentRich.renderMessage('user',userMessageText(source),showAgentError),item,session);
  }
  if(item.type==='assistant'){
   const raw=String(item.content||'');
@@ -815,11 +834,11 @@ function agentHistoryRow(session,item,callNames){
   if(trimmed.startsWith('{')&&trimmed.endsWith('}')){
    try{
     const parsed=JSON.parse(trimmed);
-    if(Array.isArray(parsed.actions)&&parsed.project)return agentToolIO('AI requested Collection · view request',raw);
-    if(parsed.type==='taskdeck_patch_proposal')return agentToolIO('AI proposed Patch · view request',raw);
+    if(Array.isArray(parsed.actions)&&parsed.project)return agentProviderBadge(agentToolIO('AI requested Collection · view request',raw),item,session);
+    if(parsed.type==='taskdeck_patch_proposal')return agentProviderBadge(agentToolIO('AI proposed Patch · view request',raw),item,session);
    }catch{}
   }
-  return agentRich.renderMessage('assistant',raw,showAgentError);
+  return agentProviderBadge(agentRich.renderMessage('assistant',raw,showAgentError),item,session);
  }
  if(item.type==='function_call')return renderAgentTool(session,item);
  if(item.type==='function_call_output'){
@@ -971,6 +990,7 @@ function displayAgentSession(session){
    agentRenderedToolVersions.clear();
   }
   agentCurrentSession=null;
+  agentRunUI?.selectConversation(null);
   toolNotice.hidden=true;
   if(!transcript.children.length)transcript.append(agentEl('p','','Create or select a session to begin.'));
   return;
@@ -1176,6 +1196,7 @@ async function selectAgentSession(id){
  }
  toolNotice.hidden=false;
  agentActive=id;
+ if(switched)await agentRunUI?.selectConversation(sess);
  if(switched){
   prompt.value=agentDrafts.get(id)||'';
   agentAttachments=(agentAttachmentDrafts.get(id)||[]).map(a=>({...a}));
@@ -1196,7 +1217,7 @@ async function selectAgentSession(id){
   }catch(error){status.textContent='Pending attachments need room: '+String(error?.message||error);}
  }
  renderAgentAutomationControls(sess);
- send.disabled=agentSessionBusy(id)||(sess.status==='requesting_ai');
+ send.disabled=(agentSessionBusy(id)||(sess.status==='requesting_ai'))&&!agentRunUI?.canSend();
  cancel.disabled=!agentSessionBusy(id)&&sess.status!=='requesting_ai';
  const summary=agentSessions.find(x=>x.id===id);
  if(summary){
@@ -1399,12 +1420,43 @@ async function createSession(){
 }
 async function sendAgentMessage(){
  if(!agentActive)throw new Error('Create a session first.');
- if(agentSessionBusy(agentActive))return;
  const sessionID=agentActive;
  const msg=prompt.value.trim();
  const attachments=(agentAttachments||[]).map(a=>({...a}));
  const wireAttachments=attachments.map(({name,mime,text})=>({name,mime,text}));
  if(!msg)throw new Error('Enter a message.');
+ const current=agentCurrentSession?.id===sessionID?agentCurrentSession:await selectAgentSession(sessionID);
+ if(!current||agentActive!==sessionID)throw new Error('Conversation changed before the message could be submitted.');
+ const canStartAgentRun=Boolean(agentRunUI?.canSend());
+ const nextProvider=canStartAgentRun?agentRunUI.value():{providerId:current.provider_id,modelId:current.model_id};
+ const useRunManager=Boolean(canStartAgentRun&&(agentSessionBusy(sessionID)||current.status==='requesting_ai'||
+  nextProvider.providerId!==current.provider_id||nextProvider.modelId!==current.model_id||agentRunUI.hasRun(sessionID)));
+ if(useRunManager){
+  const fingerprint=JSON.stringify({message:msg,attachments:wireAttachments,provider:nextProvider.providerId,model:nextProvider.modelId});
+  const requestKey=sessionID+'\0'+fingerprint;
+  let requestID=agentRunRequestIDs.get(requestKey);
+  if(!requestID){
+   requestID='run-'+sessionID+'-'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2,8);
+   agentRunRequestIDs.set(requestKey,requestID);
+  }
+  const pending=agentRunUI.submit(current,msg,attachments,requestID);
+  if(prompt.value.trim()===msg){prompt.value='';agentDrafts.set(sessionID,'');}
+  if(agentActive===sessionID){agentAttachments=[];agentAttachmentDrafts.delete(sessionID);renderAgentAttachments();}
+  try{
+   const run=await pending;
+   agentRunRequestIDs.delete(requestKey);
+   if(agentActive===sessionID)status.textContent='Run '+String(run?.spec?.run_id||'')+' · '+nextProvider.providerId+'/'+nextProvider.modelId+' · '+String(run?.status||'queued');
+   return run;
+  }catch(error){
+   if(agentActive===sessionID){
+    if(!prompt.value.trim())prompt.value=msg;
+    agentDrafts.set(sessionID,prompt.value);
+    if(agentAttachments.length===0){agentAttachments=attachments.map(a=>({...a}));renderAgentAttachments();}
+   }
+   throw error;
+  }
+ }
+ if(agentSessionBusy(sessionID))return;
  const old=agentLiveTurns.get(sessionID);
  if(old?.optimisticNode&&old.error)old.optimisticNode.remove();
  // Render the user's message synchronously, before session preflight, provider

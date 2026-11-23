@@ -4,6 +4,8 @@ import (
 	"context"
 	"sync"
 	"time"
+
+	"bletonfc/vscode_tasks_menu/internal/agentrun"
 )
 
 // Agent Chat concurrency and backpressure. These are process-local admissions
@@ -12,8 +14,8 @@ import (
 // plus workspace lease remain the source of truth, and the documented policy
 // is one daemon per workspace.
 const (
-	agentMaxConcurrentPerOwner = 2
-	agentMaxConcurrentGlobal   = 4
+	agentMaxConcurrentPerOwner = agentrun.MaxConcurrentRuns
+	agentMaxConcurrentGlobal   = agentrun.MaxConcurrentRuns
 	agentMaxQueuedPerOwner     = 8
 )
 
@@ -82,11 +84,14 @@ func (a *agentAdmission) releaseSlot(owner string) func() {
 // per-owner waiter cap is reached, so callers answer 429 instead of queueing
 // unbounded work.
 func acquireAgentSlot(ctx context.Context, owner string) (func(), bool) {
-	if owner == "" {
-		return func() {}, true
-	}
 	if ctx == nil {
 		ctx = context.Background()
+	}
+	if owner == "" {
+		if agentrun.GlobalSlotHeld(ctx) {
+			return func() {}, true
+		}
+		return agentrun.AcquireGlobalSlot(ctx)
 	}
 	// The wait budget is derived from agentQueueTimeout at call time so tests
 	// can shorten it. A shorter caller deadline always wins.
@@ -101,7 +106,7 @@ func acquireAgentSlot(ctx context.Context, owner string) (func(), bool) {
 	if agentAdmissions.fitsLocked(owner) {
 		agentAdmissions.takeLocked(owner)
 		agentAdmissions.mu.Unlock()
-		return agentAdmissions.releaseSlot(owner), true
+		return acquireAgentGlobalWithLocal(waitCtx, agentAdmissions.releaseSlot(owner), agentrun.GlobalSlotHeld(waitCtx))
 	}
 	if agentAdmissions.waiters[owner] >= agentMaxQueuedPerOwner {
 		agentAdmissions.mu.Unlock()
@@ -128,7 +133,7 @@ func acquireAgentSlot(ctx context.Context, owner string) (func(), bool) {
 		if agentAdmissions.fitsLocked(owner) {
 			agentAdmissions.takeLocked(owner)
 			agentAdmissions.mu.Unlock()
-			return agentAdmissions.releaseSlot(owner), true
+			return acquireAgentGlobalWithLocal(waitCtx, agentAdmissions.releaseSlot(owner), agentrun.GlobalSlotHeld(waitCtx))
 		}
 		wait := agentAdmissions.notify
 		agentAdmissions.mu.Unlock()
@@ -139,6 +144,24 @@ func acquireAgentSlot(ctx context.Context, owner string) (func(), bool) {
 		case <-wait:
 		}
 	}
+}
+
+func acquireAgentGlobalWithLocal(ctx context.Context, releaseLocal func(), globalAlreadyHeld bool) (func(), bool) {
+	if globalAlreadyHeld {
+		return releaseLocal, true
+	}
+	releaseGlobal, ok := agentrun.AcquireGlobalSlot(ctx)
+	if !ok {
+		releaseLocal()
+		return nil, false
+	}
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			releaseGlobal()
+			releaseLocal()
+		})
+	}, true
 }
 
 // agentAdmissionState is a read-only inspection helper for tests.

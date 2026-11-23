@@ -166,6 +166,42 @@ func sharedSessionItemPath(path string) bool {
 func sharedRoutePermissions(r *http.Request) []string {
 	path := r.URL.Path
 	switch {
+	case strings.HasPrefix(path, "/api/agent/context-groups/"):
+		if r.Method == http.MethodGet {
+			return []string{identity.PermissionSettingsRead}
+		}
+		if r.Method == http.MethodPut {
+			return []string{identity.PermissionSettingsRead, identity.PermissionSettingsWrite}
+		}
+		return nil
+	case strings.HasPrefix(path, "/api/agent/task-manifests/runs/"):
+		if r.Method == http.MethodGet {
+			return []string{identity.PermissionSettingsRead}
+		}
+		if r.Method == http.MethodPost {
+			return []string{identity.PermissionSettingsRead, identity.PermissionSettingsWrite, identity.PermissionFilesRead}
+		}
+		return nil
+	case strings.HasPrefix(path, "/api/agent/runs/"):
+		if r.Method == http.MethodPost && strings.Contains(path, "/tools/") && strings.HasSuffix(path, "/decision") {
+			return []string{identity.PermissionSettingsRead, identity.PermissionPatchRun}
+		}
+		if r.Method == http.MethodPost && strings.Contains(path, "/tools/") && strings.HasSuffix(path, "/continue") {
+			return []string{identity.PermissionSettingsRead, identity.PermissionPatchView}
+		}
+		if strings.HasSuffix(path, "/integration-report") && r.Method == http.MethodGet {
+			return []string{identity.PermissionSettingsRead, identity.PermissionFilesRead}
+		}
+		if strings.HasSuffix(path, "/retry") || strings.HasSuffix(path, "/resume") {
+			return []string{identity.PermissionSettingsWrite}
+		}
+		if r.Method == http.MethodGet {
+			return []string{identity.PermissionSettingsRead}
+		}
+		if r.Method == http.MethodPost {
+			return []string{identity.PermissionSettingsRead, identity.PermissionFilesRead}
+		}
+		return nil
 	case strings.HasPrefix(path, "/api/agent/debug/traces/"):
 		if r.Method == http.MethodGet {
 			return []string{identity.PermissionSettingsRead}
@@ -305,6 +341,35 @@ func sharedRoutePermissions(r *http.Request) []string {
 			return []string{identity.PermissionSecretsView}
 		}
 		return []string{identity.PermissionSecretsManage}
+	case "/api/agent/task-manifests/runs":
+		if r.Method == http.MethodGet {
+			return []string{identity.PermissionSettingsRead}
+		}
+		if r.Method == http.MethodPost {
+			return []string{identity.PermissionSettingsRead, identity.PermissionFilesRead}
+		}
+		return nil
+	case "/api/agent/context-groups":
+		if r.Method == http.MethodGet {
+			return []string{identity.PermissionSettingsRead}
+		}
+		if r.Method == http.MethodPost {
+			return []string{identity.PermissionSettingsRead, identity.PermissionSettingsWrite}
+		}
+		return nil
+	case "/api/agent/context-snapshots":
+		if r.Method == http.MethodPost {
+			return []string{identity.PermissionSettingsRead, identity.PermissionFilesRead}
+		}
+		return nil
+	case "/api/agent/runs":
+		if r.Method == http.MethodGet {
+			return []string{identity.PermissionSettingsRead}
+		}
+		if r.Method == http.MethodPost {
+			return []string{identity.PermissionSettingsRead, identity.PermissionFilesRead}
+		}
+		return nil
 	case "/api/agent/providers":
 		if r.Method == http.MethodGet {
 			return []string{identity.PermissionSettingsRead}

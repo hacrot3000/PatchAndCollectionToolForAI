@@ -19,15 +19,16 @@ const agentSessionLimit = 32
 // agentChatStore is private to this TaskDeck installation, not the project
 // checkout. Its directory is keyed to the authoritative workspace path.
 func (s *Server) agentChatStore() (*agentchat.Store, error) {
-	privateFile, err := aiPrivatePath(s.Workspace)
+	ownerWorkspace := s.agentOwnerWorkspace()
+	privateFile, err := aiPrivatePath(ownerWorkspace)
 	if err != nil {
 		return nil, err
 	}
-	identity, err := patchtool.ReadProjectIdentity(s.Workspace)
+	identity, err := patchtool.ReadProjectIdentity(ownerWorkspace)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return nil, err
 	}
-	return agentchat.NewProjectStore(filepath.Join(filepath.Dir(privateFile), "agent-sessions-"+aiWorkspaceHash(s.Workspace)), s.Workspace, identity.ID)
+	return agentchat.NewProjectStore(filepath.Join(filepath.Dir(privateFile), "agent-sessions-"+aiWorkspaceHash(ownerWorkspace)), ownerWorkspace, identity.ID)
 }
 
 // agentChatSessionsAPI implements only create/list in this milestone. A
@@ -58,7 +59,7 @@ func (s *Server) agentChatSessionsAPI(w http.ResponseWriter, r *http.Request) {
 				"provider_id": item.ProviderID, "mode": item.Mode, "status": item.Status,
 				"title": item.Title, "archived": item.Archived, "target": item.Target,
 				"reasoning_effort": item.ReasoningEffort, "retry_mode": item.RetryMode,
-				"revision":         item.Revision, "updated_at": item.UpdatedAt,
+				"revision": item.Revision, "updated_at": item.UpdatedAt,
 				"unresolved": agentchat.HasUnresolvedWork(item),
 			})
 		}
@@ -295,7 +296,7 @@ func (s *Server) agentChatSessionItemAPI(w http.ResponseWriter, r *http.Request)
 	// The API currently exposes a transcript only to its authenticated owner.
 	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, http.StatusOK, map[string]any{"session": item, "execution_enabled": false,
-		"retry_runtime": agentRetrySnapshot(s.Workspace,aiPlanOwner(r),id),
+		"retry_runtime":     agentRetrySnapshot(s.Workspace, aiPlanOwner(r), id),
 		"patch_tool_status": s.agentPatchToolStatus(aiPlanOwner(r), item.ProviderID, item.ModelID)})
 }
 
@@ -439,9 +440,13 @@ func (s *Server) agentChatSessionCancelAPI(w http.ResponseWriter, r *http.Reques
 		// A detached/manual registered request without a turn lock is still
 		// marked cancelled immediately for crash/reconnect recovery.
 		if unlock, acquired := lockAgentTurn(s.Workspace, owner, id); acquired {
-			if x.Status == "requesting_ai" { x.Status = "cancelled" }
-			x.AppendEvent("turn_cancel_requested",x.Status,"","user_stop")
-			if changed, saveErr := store.Save(x,x.Revision); saveErr == nil { x = changed }
+			if x.Status == "requesting_ai" {
+				x.Status = "cancelled"
+			}
+			x.AppendEvent("turn_cancel_requested", x.Status, "", "user_stop")
+			if changed, saveErr := store.Save(x, x.Revision); saveErr == nil {
+				x = changed
+			}
 			unlock()
 		}
 	}
