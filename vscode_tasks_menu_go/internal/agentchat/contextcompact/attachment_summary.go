@@ -126,6 +126,35 @@ func outlineSignature(s string)string{
  if len(s)>320{s=s[:317]+"..."}
  return s
 }
+// Retain only declaration syntax, never a same-line implementation body.
+func declarationHeader(lang,s string)string{
+ if (lang=="JavaScript"||lang=="TypeScript"||lang=="Go"||lang=="Java"||
+     lang=="Kotlin"||lang=="Swift"||lang=="Rust"||lang=="PHP"||
+     lang=="C"||lang=="C++"||lang=="C#"||lang=="CSS"||lang=="Dart")&&
+     !strings.HasPrefix(s,"import {") {
+  if p:=strings.Index(s," {");p>=0{s=s[:p+2]}
+  if p:=strings.Index(s,"){");p>=0{s=s[:p+2]}
+ }
+ if lang=="Nim"{
+  for _,prefix:=range []string{"proc ","func ","method ","iterator ","template ","macro ","converter "} {
+   if strings.HasPrefix(s,prefix) {
+    if p:=strings.LastIndex(s," =");p>=0{s=s[:p+2]}
+    break
+   }
+  }
+  if strings.HasPrefix(s,"ee.on(")||strings.HasPrefix(s,"ee.once("){
+   if p:=strings.LastIndex(s,"):");p>=0{s=s[:p+2]}
+  }
+ }
+ if lang=="Python"&&(strings.HasPrefix(s,"def ")||strings.HasPrefix(s,"async def ")||
+      strings.HasPrefix(s,"class ")){
+  if p:=strings.LastIndex(s,":");p>=0{s=s[:p+1]}
+ }
+ if strings.HasPrefix(s,"#define "){
+  parts:=strings.Fields(s);if len(parts)>1{s=parts[0]+" "+parts[1]}
+ }
+ return s
+}
 func nimBlockChild(line string)string{
  trimmed:=strings.TrimSpace(line)
  if trimmed==""||strings.HasPrefix(trimmed,"#")||strings.HasPrefix(trimmed,"{."){return ""}
@@ -174,7 +203,7 @@ func extractOutline(lang string,r io.Reader) (string,int64,bool,error){
    if last.multiline&&(indent>last.indent||strings.HasPrefix(trim,")"))&&lineNumber-last.line<=14{
     tail:=outlineSignature(trim)
     if len(last.signature)+len(tail)<420 {
-     last.signature+=" "+tail
+     last.signature=declarationHeader(lang,last.signature+" "+tail)
     }
     last.multiline=isSignatureContinuation(lang,last.signature)
     continue
@@ -192,7 +221,7 @@ func extractOutline(lang string,r io.Reader) (string,int64,bool,error){
    }
   }
   if len(symbols)>=attachmentMaxSymbols{partial=true;overflow++;continue}
-  signature:=outlineSignature(trim)
+  signature:=declarationHeader(lang,outlineSignature(trim))
   // Index declaration names and types, not source initializer values. For
   // instance a top-level const SECRET = "value" is NOT model context.
   head:=strings.TrimSpace(signature)

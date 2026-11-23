@@ -134,3 +134,18 @@ func TestAttachmentNonCodeOnlyMetadataAndImageExif(t *testing.T){
   t.Fatalf("missing safe JPEG EXIF model: %s",result.Text)
  }
 }
+
+func TestAttachmentSameLineImplementationsStayOutOfOutline(t *testing.T){
+ for _,tc:=range []struct{name,source,signature,body string}{
+  {"inline.nim","proc inline*(): int = return 123\n","proc inline*(): int =","return 123"},
+  {"inline.js","export function run(){console.log('private body')}\n","export function run(){","private body"},
+  {"secret.ts","const token = 'never forward literal'\n","const token = [initializer omitted]","never forward literal"},
+  {"config.h","#define SECRET_VALUE some-private-value\n","#define SECRET_VALUE","some-private-value"},
+ }{
+  summary,err:=CompactAttachment(tc.name,tc.name,"",int64(len(tc.source)),strings.NewReader(tc.source))
+  if err!=nil{t.Fatal(err)}
+  if !strings.Contains(summary.Text,tc.signature)||strings.Contains(summary.Text,tc.body){
+   t.Fatalf("%s leaked implementation/value or lost signature: %s",tc.name,summary.Text)
+  }
+ }
+}
