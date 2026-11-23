@@ -159,8 +159,9 @@ func extractOutline(lang string,r io.Reader) (string,int64,bool,error){
   // to avoid accidentally sharing secrets contained in const assignments.
   if lang=="Nim"&&indent>0&&len(symbols)>0 {
    top:=&symbols[len(symbols)-1]
-   if (top.signature=="type"||top.signature=="const"||top.signature=="var"||top.signature=="let")&&
-      top.indent==0 {
+   if (top.signature=="type"||top.signature=="const"||top.signature=="var"||top.signature=="let"||
+       strings.HasPrefix(top.signature,"type ")||strings.HasPrefix(top.signature,"const ")||
+       strings.HasPrefix(top.signature,"var ")||strings.HasPrefix(top.signature,"let "))&&top.indent==0 {
     if child:=nimBlockChild(raw);child!=""&&len(top.signature)<250{
      top.signature+=" "+child
     }
