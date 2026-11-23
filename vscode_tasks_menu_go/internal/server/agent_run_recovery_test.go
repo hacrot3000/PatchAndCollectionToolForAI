@@ -213,10 +213,11 @@ func TestAgentRunRecoversAfterProcessKillWithoutReplayingSideEffects(t *testing.
 	}
 }
 
-// TestAgentRunWaitingToolSurvivesProcessKill verifies that a run that waits for
-// a tool decision keeps its pending call after the daemon is killed, so the
-// decision can still be applied exactly once after a restart.
-func TestAgentRunWaitingToolSurvivesProcessKill(t *testing.T) {
+// TestAgentRunWaitingToolSurvivesCleanManagerCloseAndSyntheticJournal verifies
+// the reconstruction path with a clean Manager close and a synthetic journal.
+// It is NOT real process-kill evidence; see
+// TestAgentRunWaitingToolSurvivesRealProcessKill below.
+func TestAgentRunWaitingToolSurvivesCleanManagerCloseAndSyntheticJournal(t *testing.T) {
 	workdir := t.TempDir()
 	runID := "recovery-waiting-tool"
 	executor := &recoveryRunExecutor{}
@@ -391,4 +392,152 @@ func TestAgentRunReloadAndRetryKeepsSingleProviderAttempt(t *testing.T) {
 	if reloaded.attempts.Load() != 1 {
 		t.Fatalf("the reviewed retry produced %d provider attempts, want exactly 1", reloaded.attempts.Load())
 	}
+}
+
+const agentRunWaitingToolHelperEnv = "TASKDECK_AGENT_RUN_WAITING_TOOL_HELPER"
+
+// waitingToolRunExecutor publishes a valid tool call and then blocks so the
+// helper process stays in waiting_tool until it is killed.
+type waitingToolRunExecutor struct{}
+
+func (*waitingToolRunExecutor) Execute(ctx context.Context, _ agentchat.RunSpec, _ []agentchat.HistoryItem, sink agentchat.EventSink) error {
+	call, err := json.Marshal(map[string]any{"call_id": "killed-waiting-call", "name": "taskdeck_submit_patch", "arguments": `{"name":"真实 process kill"}`})
+	if err != nil {
+		return err
+	}
+	if err := sink.Publish(ctx, agentchat.RunEvent{Type: agentchat.RunEventToolCall, Payload: call}); err != nil {
+		return err
+	}
+	select {}
+}
+
+func (*waitingToolRunExecutor) Cancel(context.Context, agentchat.RunSpec) error { return nil }
+
+// TestAgentRunWaitingToolHelperProcess is a helper process used only by the
+// real process-kill test below.
+func TestAgentRunWaitingToolHelperProcess(t *testing.T) {
+	if os.Getenv(agentRunWaitingToolHelperEnv) != "1" {
+		t.Skip("helper process")
+	}
+	workdir := os.Getenv(agentRunRecoveryWorkdirEnv)
+	runID := os.Getenv(agentRunRecoveryRunIDEnv)
+	marker := os.Getenv(agentRunRecoveryMarkerEnv)
+	manager, err := agentrun.NewManager(filepath.Join(workdir, "runs"), 1, &waitingToolRunExecutor{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer manager.Close()
+	if _, err := manager.Submit(recoveryRunSpec(runID), []agentchat.HistoryItem{{Type: "user", Content: "wait for tool"}}); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		if record, ok := manager.Get(runID); ok && record.Status == agentrun.WaitingTool {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	payload := []byte(runID + "\n")
+	if err := os.WriteFile(marker, payload, 0600); err != nil {
+		t.Fatal(err)
+	}
+	select {}
+}
+
+// TestAgentRunWaitingToolSurvivesRealProcessKill kills a real daemon while the
+// run is in waiting_tool. It is distinct from the clean-close/synthetic-journal
+// evidence test and proves the pending tool call survives an actual SIGKILL.
+func TestAgentRunWaitingToolSurvivesRealProcessKill(t *testing.T) {
+	workdir := t.TempDir()
+	runID := "recovery-waiting-tool-real-kill"
+	marker := filepath.Join(workdir, "waiting-marker.json")
+	command := exec.Command(os.Args[0], "-test.run=TestAgentRunWaitingToolHelperProcess", "-test.v")
+	command.Env = append(os.Environ(),
+		agentRunWaitingToolHelperEnv+"=1",
+		agentRunRecoveryWorkdirEnv+"="+workdir,
+		agentRunRecoveryRunIDEnv+"="+runID,
+		agentRunRecoveryMarkerEnv+"="+marker,
+	)
+	if err := command.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if command.Process != nil {
+			_ = command.Process.Kill()
+			_ = command.Wait()
+		}
+	})
+	deadline := time.Now().Add(30 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, err := os.Stat(marker); err == nil {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if _, err := os.Stat(marker); err != nil {
+		t.Fatalf("the waiting-tool helper did not become ready: %v", err)
+	}
+	journalPath := filepath.Join(workdir, "runs", runID+".json")
+	waitForDurableActiveRun(t, journalPath, agentrun.WaitingTool)
+	body, err := os.ReadFile(journalPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var persisted struct {
+		Status string `json:"status"`
+	}
+	if json.Unmarshal(body, &persisted) != nil || persisted.Status != string(agentrun.WaitingTool) {
+		t.Fatalf("the killed process was not in waiting_tool: %s", body)
+	}
+	if err := command.Process.Kill(); err != nil {
+		t.Fatal(err)
+	}
+	_ = command.Wait()
+	command.Process = nil
+	restartExecutor := &recoveryRunExecutor{}
+	manager, err := agentrun.NewManager(filepath.Join(workdir, "runs"), 1, restartExecutor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer manager.Close()
+	record, ok := manager.Get(runID)
+	if !ok {
+		t.Fatal("waiting-tool run was not recovered after real process kill")
+	}
+	if record.Status != agentrun.Interrupted {
+		t.Fatalf("recovered status is %q, want interrupted", record.Status)
+	}
+	pending := 0
+	for _, item := range record.History {
+		if item.Type == "function_call" && item.CallID == "killed-waiting-call" {
+			pending++
+		}
+	}
+	if pending != 1 {
+		t.Fatalf("pending tool call was lost or duplicated after real kill: %+v", record.History)
+	}
+	if restartExecutor.attempts.Load() != 0 {
+		t.Fatalf("recovery replayed the provider request: %d", restartExecutor.attempts.Load())
+	}
+}
+
+// waitForDurableActiveRun waits until the journal records the requested active
+// status. Waiting-tool runs never pass through a durable Running state in the
+// helper, so the generic Running-only helper cannot be used here.
+func waitForDurableActiveRun(t *testing.T, journalPath string, status agentrun.Status) {
+	t.Helper()
+	deadline := time.Now().Add(30 * time.Second)
+	for time.Now().Before(deadline) {
+		body, err := os.ReadFile(journalPath)
+		if err == nil {
+			var persisted struct {
+				Status string `json:"status"`
+			}
+			if json.Unmarshal(body, &persisted) == nil && persisted.Status == string(status) {
+				return
+			}
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("the run journal %s did not record %s", journalPath, status)
 }

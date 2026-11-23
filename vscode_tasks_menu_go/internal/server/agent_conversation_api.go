@@ -59,10 +59,39 @@ func (s *Server) agentConversationIDsForOwner(owner string) (map[string]bool, er
 	return out, nil
 }
 
-// agentConversationGroupIDsForOwner returns the conversation groups this owner
-// may access. The registry is shared by every principal of a workspace, so the
-// groups of another owner must never be reported as this owner's groups.
+// agentConversationGroupIDsForOwner returns only groups whose ownership has
+// been verified for this principal. Readable (shared) groups are deliberately
+// excluded: a group that was shared with a principal is not proof that the
+// principal owns the group's contracts or artifacts.
 func (s *Server) agentConversationGroupIDsForOwner(owner string) (map[string]bool, error) {
+	registry, err := s.agentConversationRegistry()
+	if err != nil {
+		return nil, err
+	}
+	ownerID, err := agentrun.WorkspaceID(s.agentOwnerWorkspace())
+	if err != nil {
+		return nil, err
+	}
+	project, err := patchtool.ReadProjectIdentity(s.agentOwnerWorkspace())
+	if err != nil {
+		return nil, err
+	}
+	groups, err := registry.Groups(ownerID, project.ID)
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string]bool, len(groups))
+	for _, group := range groups {
+		if group.PrincipalOwner == owner {
+			out[group.ID] = true
+		}
+	}
+	return out, nil
+}
+
+// agentConversationGroupIDsAccessibleToOwner returns readable groups for
+// access checks. It must not be used as ownership evidence.
+func (s *Server) agentConversationGroupIDsAccessibleToOwner(owner string) (map[string]bool, error) {
 	registry, err := s.agentConversationRegistry()
 	if err != nil {
 		return nil, err
@@ -194,6 +223,9 @@ func (s *Server) agentConversationGroupItemAPI(w http.ResponseWriter, r *http.Re
 			Instructions     string   `json:"instructions"`
 			Managers         []string `json:"managers,omitempty"`
 			Shared           []string `json:"shared_principals,omitempty"`
+			ClaimPrincipal   string   `json:"claim_principal,omitempty"`
+			ConversationIDs  []string `json:"conversation_ids,omitempty"`
+			ClaimReason      string   `json:"reason,omitempty"`
 		}
 		dec := json.NewDecoder(r.Body)
 		dec.DisallowUnknownFields()
@@ -207,6 +239,25 @@ func (s *Server) agentConversationGroupItemAPI(w http.ResponseWriter, r *http.Re
 			return
 		}
 		switch request.Action {
+		case "claim_owner":
+			// Recovering a legacy group requires explicit administrative
+			// authority plus verifiable evidence. An ownerless group alone is
+			// never treated as permission to take it over.
+			claim := agentrun.GroupOwnerClaim{Principal: request.ClaimPrincipal, ConversationIDs: request.ConversationIDs, Reason: request.ClaimReason}
+			if claim.Principal == "" {
+				claim.Principal = owner
+			}
+			if !s.agentGroupAdministrator(r, claim.Principal) {
+				http.Error(w, "group ownership claim requires project administrator", 403)
+				return
+			}
+			group, err := registry.ClaimGroupOwner(id, ownerWorkspaceID, project.ID, claim,
+				func(principal string) bool { return s.agentGroupAdministrator(r, principal) }, s.groupConversationOwnerCheck())
+			if err != nil {
+				http.Error(w, "group ownership claim rejected", 403)
+				return
+			}
+			writeJSON(w, 200, map[string]any{"group": group})
 		case "add_member":
 			if err := s.validateAgentConversationOwner(owner, request.ConversationID); err != nil {
 				http.Error(w, "conversation not found for owner project", 404)
@@ -344,6 +395,33 @@ func (s *Server) agentGroupMemberOwnerResolver(owner string) agentrun.MemberOwne
 		owned[session.ID] = true
 	}
 	return func(conversationID string) bool { return owned[conversationID] }
+}
+
+// agentGroupAdministrator reports documented project-administration authority.
+// The implicit local owner of a single-user installation is the administrator
+// of its own groups; a shared installation requires the explicit permission.
+func (s *Server) agentGroupAdministrator(r *http.Request, principal string) bool {
+	if !s.Config.SharedServerEnabled {
+		return principal == "local"
+	}
+	requestPrincipal, ok := PrincipalFromContext(r.Context())
+	if !ok || !requestPrincipal.Allowed(identity.PermissionProjectAdmin) {
+		return false
+	}
+	return aiPlanOwner(r) == principal
+}
+
+// groupConversationOwnerCheck checks conversation ownership against the store
+// for an arbitrary principal. It is used only for verified ownership claims.
+func (s *Server) groupConversationOwnerCheck() agentrun.ConversationOwnerCheck {
+	store, err := s.agentChatStore()
+	if err != nil {
+		return func(string, string) bool { return false }
+	}
+	return func(principal, conversationID string) bool {
+		_, err := store.Get(conversationID, principal)
+		return err == nil
+	}
 }
 
 // agentConversationGroupAccess resolves the effective access of the requesting

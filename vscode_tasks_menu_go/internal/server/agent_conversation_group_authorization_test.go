@@ -325,7 +325,7 @@ func TestConversationGroupManagerMayManageWithoutOwningMembers(t *testing.T) {
 	}
 }
 
-func TestConversationGroupLegacyGroupWithoutPrincipalOwnerStaysUsable(t *testing.T) {
+func TestConversationGroupLegacyGroupRequiresExplicitOwnerClaim(t *testing.T) {
 	fixture := newAgentGroupFixture(t)
 	// A group created before principal ownership was recorded has no owner.
 	legacy, err := fixture.registry.CreateGroup(fixture.ownerID, fixture.project.ID, "Legacy group")
@@ -336,21 +336,67 @@ func TestConversationGroupLegacyGroupWithoutPrincipalOwnerStaysUsable(t *testing
 		t.Fatal(err)
 	}
 	write := []string{identity.PermissionSettingsRead, identity.PermissionSettingsWrite}
-	// The owner of a member conversation may still manage the legacy group.
+	// Owning a member conversation is not proof of group management.
 	response := fixture.call(t, "user:alice", http.MethodPost, "/api/agent/conversation-groups/"+legacy.ID, map[string]any{
 		"action": "update_instructions", "expected_revision": legacy.SharedRevision,
 		"instructions": "legacy group instructions",
 	}, write...)
-	if response.Code != http.StatusOK {
-		t.Fatalf("legacy group was not manageable by its member owner: HTTP %d %s", response.Code, response.Body)
+	if response.Code != http.StatusForbidden {
+		t.Fatalf("ownerless group granted implicit management: HTTP %d %s", response.Code, response.Body)
 	}
-	// A principal without a member conversation cannot manage it.
+	// A non-administrator cannot claim the group even with a conversation ID.
+	response = fixture.call(t, "user:alice", http.MethodPost, "/api/agent/conversation-groups/"+legacy.ID, map[string]any{
+		"action": "claim_owner", "claim_principal": "user:alice",
+		"conversation_ids": []string{fixture.convs["user:alice"][0].ID},
+	}, write...)
+	if response.Code != http.StatusForbidden {
+		t.Fatalf("non-administrator claimed a legacy group: HTTP %d %s", response.Code, response.Body)
+	}
+	// An administrator records ownership with verifiable evidence; the old
+	// owner keeps its legitimate management rights after the conversion.
+	claim := fixture.call(t, "user:alice", http.MethodPost, "/api/agent/conversation-groups/"+legacy.ID, map[string]any{
+		"action": "claim_owner", "claim_principal": "user:alice",
+		"conversation_ids": []string{fixture.convs["user:alice"][0].ID},
+		"reason":           "legacy group verified by member conversation ownership",
+	}, append(write, identity.PermissionProjectAdmin)...)
+	if claim.Code != http.StatusOK {
+		t.Fatalf("administrator could not claim the legacy group: HTTP %d %s", claim.Code, claim.Body)
+	}
+	response = fixture.call(t, "user:alice", http.MethodPost, "/api/agent/conversation-groups/"+legacy.ID, map[string]any{
+		"action": "update_instructions", "expected_revision": legacy.SharedRevision,
+		"instructions": "legacy group instructions",
+	}, write...)
+	if response.Code != http.StatusOK {
+		t.Fatalf("former owner lost management after claim: HTTP %d %s", response.Code, response.Body)
+	}
 	response = fixture.call(t, "user:bob", http.MethodPost, "/api/agent/conversation-groups/"+legacy.ID, map[string]any{
 		"action": "update_instructions", "expected_revision": legacy.SharedRevision + 1,
 		"instructions": "instructions from a principal without a member conversation",
 	}, write...)
 	if response.Code != http.StatusForbidden {
-		t.Fatalf("principal without members managed the legacy group: HTTP %d %s", response.Code, response.Body)
+		t.Fatalf("principal without management rights managed the legacy group: HTTP %d %s", response.Code, response.Body)
+	}
+}
+
+func TestConversationGroupOwnerlessEmptyGroupGrantsNoManagement(t *testing.T) {
+	fixture := newAgentGroupFixture(t)
+	legacy, err := fixture.registry.CreateGroup(fixture.ownerID, fixture.project.ID, "Empty legacy group")
+	if err != nil {
+		t.Fatal(err)
+	}
+	write := []string{identity.PermissionSettingsRead, identity.PermissionSettingsWrite}
+	for _, owner := range []string{"user:alice", "user:bob"} {
+		response := fixture.call(t, owner, http.MethodPost, "/api/agent/conversation-groups/"+legacy.ID, map[string]any{
+			"action": "update_instructions", "expected_revision": legacy.SharedRevision,
+			"instructions": "unauthorized update",
+		}, write...)
+		if response.Code != http.StatusForbidden {
+			t.Fatalf("%s managed an ownerless empty group: HTTP %d %s", owner, response.Code, response.Body)
+		}
+	}
+	group, ok := fixture.registry.Group(legacy.ID)
+	if !ok || group.SharedInstructions != "" {
+		t.Fatalf("ownerless empty group was mutated: %+v", group)
 	}
 }
 

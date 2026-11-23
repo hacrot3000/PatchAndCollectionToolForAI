@@ -25,7 +25,7 @@ func TestContextSnapshotPinsGroupInstructionsOnlyForMembers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	group, err := registry.CreateGroup(ownerID, project.ID, "Shared build contract")
+	group, err := registry.CreateGroupForPrincipal(ownerID, project.ID, "Shared build contract", "local")
 	if err != nil {
 		t.Fatal(err)
 	}

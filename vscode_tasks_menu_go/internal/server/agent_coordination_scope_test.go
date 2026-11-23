@@ -52,11 +52,11 @@ func TestCoordinationAPIIsolatesGroupsOwnersAndUnscopedQueries(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	groupA, err := groups.CreateGroup(ownerWorkspaceID, project.ID, "Shared group A")
+	groupA, err := groups.CreateGroupForPrincipal(ownerWorkspaceID, project.ID, "Shared group A", "local")
 	if err != nil {
 		t.Fatal(err)
 	}
-	groupB, err := groups.CreateGroup(ownerWorkspaceID, project.ID, "Group B")
+	groupB, err := groups.CreateGroupForPrincipal(ownerWorkspaceID, project.ID, "Group B", "local")
 	if err != nil {
 		t.Fatal(err)
 	}

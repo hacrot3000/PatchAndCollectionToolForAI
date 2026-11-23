@@ -97,7 +97,7 @@ func TestCoordinationWritesRequireCurrentGroupMembership(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	group, err := registry.CreateGroup(ownerID, conversation.ProjectID, "Authorized peers")
+	group, err := registry.CreateGroupForPrincipal(ownerID, conversation.ProjectID, "Authorized peers", "local")
 	if err != nil {
 		t.Fatal(err)
 	}

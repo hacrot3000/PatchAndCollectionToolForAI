@@ -43,7 +43,7 @@ func TestCoordinationAPIExposesPeerAskAndAnswerKinds(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	group, err := registry.CreateGroup(ownerID, project.ID, "API peers")
+	group, err := registry.CreateGroupForPrincipal(ownerID, project.ID, "API peers", "local")
 	if err != nil {
 		t.Fatal(err)
 	}

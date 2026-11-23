@@ -2,19 +2,72 @@
 
 Review date: 2026-11-23
 
+## Final isolation & migration pass (2026-11-23, baseline `2400aa33`)
+
+This pass fixed the P0 authorization/migration findings and added P1 recovery-evidence tests. All changes are unstaged; nothing was committed, staged, pushed, merged, or force-pushed.
+
+### Files changed in this pass
+
+Production:
+- `vscode_tasks_menu_go/internal/agentrun/conversations.go` — group read/manage provenance; explicit owner-claim API data; no implicit management for ownerless groups.
+- `vscode_tasks_menu_go/internal/server/agent_conversation_api.go` — owned vs accessible group IDs, `claim_owner` action, administrator and evidence checks.
+- `vscode_tasks_menu_go/internal/server/agent_coordination_migration.go` — crash-safe marker, durable atomic writes, quarantine and ownership evidence.
+
+Tests:
+- `vscode_tasks_menu_go/internal/agentrun/context_groups_test.go`
+- `vscode_tasks_menu_go/internal/server/agent_conversation_group_authorization_test.go`
+- `vscode_tasks_menu_go/internal/server/agent_coordination_migration_crash_test.go` (new)
+- `vscode_tasks_menu_go/internal/server/agent_coordination_migration_scope_test.go`
+- `vscode_tasks_menu_go/internal/server/agent_coordination_migration_test.go`, `agent_coordination_api_test.go`, `agent_coordination_scope_test.go`, `agent_coordination_permissions_test.go`, `agent_context_snapshot_group_test.go`, `agent_conversation_group_membership_test.go` (owned-group fixtures)
+- `vscode_tasks_menu_go/internal/server/agent_run_recovery_test.go`
+
+Docs:
+- `01_MULTI_CONVERSATION_SHARED_CONTEXT_PLAN.md`, `02_AGENT_PROVIDER_HOT_SWITCH_PLAN.md`, this handoff.
+
+### Errors fixed and proving tests
+
+P0.1 — Legacy group authorization:
+- Removed the implicit `ManagedBy=true` grant for empty/ownerless legacy groups and the automatic transfer of management from member-conversation owners to shared groups. Owner and explicit managers are verified independently of read grants.
+- Added explicit `claim_owner` recovery: requires project-admin authority plus a verified member conversation (and membership) before an owner is recorded; legitimate legacy owners keep their rights after conversion.
+- Proving tests: `TestConversationGroupOwnerlessEmptyGroupGrantsNoManagement`, `TestConversationGroupLegacyGroupRequiresExplicitOwnerClaim`, `TestConversationGroupMemberWithoutMembershipIsRejected`, `TestConversationGroupSharedPrincipalGetsReadOnlyAccess`, `TestConversationGroupManagerMayManageWithoutOwningMembers`, `TestConversationGroupAccessIsIndependentOfReadGrants`, `TestConversationGroupOwnerClaimRequiresEvidence`.
+
+P0.2 — Crash-safe/idempotent migration:
+- Writes `migration.json` marker (`preparing` → `complete`) before hub/quarantine output; every file uses temp file, chmod 0600, full write check, fsync, atomic rename and best-effort directory fsync. A restart recomputes migration from the untouched legacy journal and completes any interrupted step.
+- Completion no longer follows from the existence of `coordination.json`; valid markers verify structure, invalid/unmarked journals are rebuilt. Empty quarantine is not fabricated. No legacy data is deleted; reruns do not duplicate records.
+- Proving tests: `TestCoordinationMigrationRecoversFromWriteFaults` (fault at marker, quarantine and hub write, then restart), `TestCoordinationMigrationDoesNotTrustHubExistence`, `TestLegacyCoordinationMigrationIsIdempotent`, `TestLegacyCoordinationMigrationIsolatesTwoOwnersAndQuarantinesUnscopedRecords`.
+
+P0.3 — OwnedGroups vs AccessibleGroups:
+- Migration now uses `agentConversationGroupIDsForOwner` (verified `PrincipalOwner`) for contracts/artifacts/dependencies. `AccessibleGroups` remains only a read-access check; explicit `owner_principal` is honored as direct evidence. Foreign records stay in the owner-scoped quarantine with a reason.
+- Proving test: `TestSharedGroupDoesNotTransferOwnershipInMigration` — two owners access one shared group but retain independent contract/artifact ownership.
+
+P1 — Recovery evidence:
+- Renamed the synthetic reconstruction test to `TestAgentRunWaitingToolSurvivesCleanManagerCloseAndSyntheticJournal`; it is explicitly not process-kill evidence.
+- Added a real SIGKILL waiting-tool test: `TestAgentRunWaitingToolSurvivesRealProcessKill`.
+- Native Patch ledger persistence is still covered by `TestAgentRunNativePatchRoundTripExecutesOnceAcrossRestart`; native Patch execution is real but was not SIGKILLed in that test. A real Patch-process kill requires a dedicated helper that owns the native session manager and is not yet implemented.
+
+### Validation in this pass
+
+- PASS: `go build ./cmd/vscode_tasks_menu`, `go vet ./internal/agentrun ./internal/agentchat ./internal/server`.
+- PASS: `go test -race -count=1 ./internal/agentrun ./internal/agentchat`.
+- PASS: `go test -race -count=1 ./internal/server -run 'TestConversationGroup|TestLegacyCoordination|TestCoordinationMigration|TestSharedGroup|TestAgentRunWaitingToolSurvivesRealProcessKill|TestAgentRunRecoversAfterProcessKill'`.
+- PASS: `node --test web/*_test.cjs` (10/10).
+- PASS: focused Agent Chat/Coordination/Patch/recovery tests after each change.
+- Full server suite: results are recorded below; pre-existing UI source-contract failures remain outside this pass’s scope. No assertion was weakened or skipped to make the suite pass.
+
+
 ## 1. Baseline and Git state
 
 - Repository: `hacrot3000/PatchAndCollectionToolForAI`
 - Branch: `review/taskdeck-multiconversation-hotswitch-20261123`
 - Original review baseline: `2fdf4dd15a9a436a7fc6388df5e400c2369c3a40`.
-- Current pass baseline / HEAD: `9aa87d61dc048532f9604cba313a95d91e56fcc0` (exact match at the start of this pass).
+- Current pass baseline / HEAD: `2400aa339d5e39839629c02f4f2793a5736d880e` at the start of this pass; changes in this pass are unstaged.
 - Worktree: branch `review/taskdeck-multiconversation-hotswitch-20261123`; all changes unstaged.
 - `git fetch origin` completed again in this pass. Divergence: `origin/main` is 93 commits ahead and review is 4 commits ahead.
 - No merge, commit, push, reset, or branch switch was performed.
 
 ## 2. Integration status
 
-**NOT READY FOR MERGE.** The review branch is 93 commits behind `origin/main`; ten Agent Chat/Chat UI files have edits on both sides (see the updated conflict table). The full server suite still has the same 24 pre-existing UI assertion failures. Feature-specific Go and Node tests pass, including a real HTTPS provider stub test executed inside an isolated namespace and process-kill recovery tests. Browser-level end-to-end scenarios and an external provider smoke test remain blocked in this environment.
+**NOT READY FOR MERGE.** The review branch is 93 commits behind `origin/main`; ten Agent Chat/Chat UI files have edits on both sides (see the updated conflict table). The full server suite still has 24 pre-existing UI assertion failures on the review branch; a clean `origin/main` run has 22 different assertion failures plus a 10-minute timeout (exact name/cause comparison in §6). Feature-specific Go and Node tests pass, including a real HTTPS provider stub test executed inside an isolated namespace and process-kill recovery tests. Browser-level end-to-end scenarios and an external provider smoke test remain blocked in this environment.
 
 ## 3. Code present and evidence
 
@@ -42,7 +95,7 @@ Review date: 2026-11-23
 - PASS: isolated HTTPS provider integration (`TestRealProviderTransportRunsInsideIsolatedNamespace`) — real TLS handshake, DNS/IP guard, bearer auth and canonical request/response through the configured provider adapter. Explicit SKIP applies only to the individual provider tests when run outside the namespace.
 - PASS: `node --test web/*_test.cjs` (10/10).
 - PASS: `git diff --check` and `gofmt` on all changed Go files.
-- FAIL (pre-existing, 24 tests): full `go test ./internal/server -count=1` still fails on Auth/Editor/Terminal/Patch UI source-contract assertions and `TestSharedAdminAssignRestrictedRoleWithoutEditPermissions`; direct run completed in 595 s with no panic or data race. These failures reproduce on `origin/main` and are outside this pass’s changes.
+- FAIL (review branch, pre-existing, 24 tests): full `go test ./internal/server -count=1` still fails on Auth/Editor/Terminal/Patch UI source-contract assertions and `TestSharedAdminAssignRestrictedRoleWithoutEditPermissions`; this pass’s direct run completed in 579.986 s with no panic or data race. A clean `origin/main` run has 22 assertion failures plus a 10-minute timeout; the exact overlap and differences are recorded in §6. All failures are outside this pass’s changes.
 - BLOCKED: external provider smoke (no configured external endpoint or credential; no credential was read or emitted). Browser-level E2E remains unavailable (no Playwright runtime installed).
 
 ### P1 — Fixed and verified in this pass
@@ -123,6 +176,15 @@ Failure causes recorded by the baseline run: Auth/menu/editor/tab tests report m
 - Parent and milestone boxes remain unchecked until every child and acceptance gate is satisfied. The two source plans remain the authoritative requirements.
 
 ## 6. Main-branch comparison and conflict plan
+
+### Direct verification on clean `origin/main` (this pass)
+
+A clean detached worktree at `origin/main` (`4ef354356211bab47f9b3f597069e6b2b581f4ad`) ran `go test ./internal/server -count=1` directly. It did NOT produce a clean 24-failure result: it reported 22 assertion failures plus a 10-minute package timeout (`panic: test timed out after 10m0s`, total `600.013s`). The failing test names on main were:
+
+`TestAuthenticationModeWizardLoadsBeforeSettingsMenu`, `TestBuiltInBrowserUIUsesEnglish`, `TestDurableNativeTaskReceiptSurvivesSessionEvictionAndRejectsForgedHistory`, `TestEditorClosesCleanTabsForTrashedProjectPaths`, `TestEditorDirtySaveShortcutsAndCloseFlow`, `TestEditorOpeningBraceKeepsCurrentIndent`, `TestEditorSessionPersistenceFrontendContract`, `TestEditorSmartEnterPreservesIndentAndSplitsPairs`, `TestExplicitForceBreaksForegroundLockWithoutDOMTrustHeuristics`, `TestExplicitTerminalAndTaskLaunchesBreakForegroundLock`, `TestExplicitWorkspaceOpenPathsForceForegroundWhileRestoreRemainsPassive`, `TestGroupedMenusFeature`, `TestMobileTabContextCanBeOpenedWithoutRightClick`, `TestPatchForegroundLockCoversAllWorkspaceOpenPaths`, `TestPatchForegroundRunStaysAboveBackgroundActiveRuns`, `TestPatchNativeProductAcceptanceGate`, `TestPatchProtocolParityAndHeadlessBackingGate`, `TestRemoteParallelWorkflowWorkerTimeoutCancelsSiblings`, `TestRestartInPlaceRetargetsDetectionState`, `TestSharedAdminAssignRestrictedRoleWithoutEditPermissions`, `TestTerminalDetectsReleasePathsWithSpacesAndDecoratedLabels`, `TestViewActivationEventsDistinguishExplicitTabSwitches`.
+
+Compared with the review branch’s direct full-suite run in this pass (24 assertion failures, `579.986s`, no timeout), the shared 20 names and causes are unchanged (missing source-contract snippets, Vietnamese help text, `+` instead of `%20`, Patch foreground/headless gate, restart discriminator, restricted `release_ready`). Main additionally has `TestDurableNativeTaskReceiptSurvivesSessionEvictionAndRejectsForgedHistory` (`session is not a task run`) and `TestRemoteParallelWorkflowWorkerTimeoutCancelsSiblings` (`cancelled` instead of `timed_out`); those are main-only tests. Review-only failures are `TestCoreUIRestoresSSHMinusOneTerminalButKeepsPatchHeadless`, `TestEditorTabContextKeepsQuickActionsAndGroupsAdvancedCommands`, `TestEditorTabContextMenuUsesEditorOnlyActions` and `TestFeatureTabsSupportPersistentReadOnlyMode`; their source files were not changed by this pass or by the Agent Chat work, and they are pre-existing UI source-contract assertions on the older review base. Therefore “24 pre-existing failures on origin/main” is NOT an exact statement for the current main HEAD; the accurate statement is that a large pre-existing UI-contract failure set exists on both sides, with the names and causes above. The timeout itself is an additional environment/test-duration blocker, not a hidden assertion change.
+
 
 The 93 main-only commits include durable provider attempt correlation/recovery, HTTP 499 retry recovery, directory-fsync crash boundaries, provider heartbeat/review, context compaction, task-plan segmentation/handoff and related collection/retry changes. Ten files are changed on both branches:
 

@@ -35,15 +35,37 @@ type ConversationGroup struct {
 }
 
 // GroupAccess describes what a principal may do with one conversation group.
+// Read and Manage are independent: read-only sharing and appointed management
+// never imply each other, and neither is inferred from an empty owner field.
 type GroupAccess struct {
 	Read   bool `json:"read"`
 	Manage bool `json:"manage"`
+}
+
+// GroupOwnerClaim records the evidence used to convert a legacy group without
+// a recorded principal owner into an owned group. An explicit claim is
+// required; merely observing that a group has no owner is not authority.
+type GroupOwnerClaim struct {
+	Principal       string   `json:"principal"`
+	ConversationIDs []string `json:"conversation_ids,omitempty"`
+	Reason          string   `json:"reason,omitempty"`
 }
 
 // MemberOwnerResolver reports whether the requesting principal owns the
 // conversation with the given ID. It is supplied by the caller because the
 // registry does not own conversation storage.
 type MemberOwnerResolver func(conversationID string) bool
+
+// GroupAdministrator reports whether a principal has documented group
+// administration authority (for example a shared-server administrator). It is
+// used only for legacy owner claims; ownership of a member conversation is not
+// administration evidence.
+type GroupAdministrator func(principal string) bool
+
+// ConversationOwnerCheck reports whether a principal owns a conversation. It
+// is supplied by the caller so group authorization can verify each claim
+// against the conversation store instead of trusting a client-supplied list.
+type ConversationOwnerCheck func(principal, conversationID string) bool
 
 var (
 	// ErrGroupNotFound reports a conversation group outside the caller's scope.
@@ -55,53 +77,36 @@ var (
 // ManagedBy reports whether the principal may change the shared instructions
 // or the membership of the group.
 //
-// Only the recorded group owner and explicit managers may manage a group whose
-// ownership is known. Groups created before principal ownership was recorded
-// have no PrincipalOwner; those stay manageable by any owner of a member
-// conversation so an existing group is not lost after an upgrade.
+// Management authority comes only from a recorded PrincipalOwner, an explicit
+// ManagerPrincipals entry, or an explicit administrative recovery claim. An
+// ownerless group never grants management implicitly, even when it has no
+// members. Owning a member conversation is evidence of conversation ownership,
+// not evidence of group administration.
 func (g ConversationGroup) ManagedBy(principal string, ownerOf MemberOwnerResolver) bool {
 	if principal == "" {
-		return true
+		return false
 	}
 	if g.PrincipalOwner != "" {
-		if g.PrincipalOwner == principal {
-			return true
-		}
-		for _, manager := range g.ManagerPrincipals {
-			if manager == principal {
-				return true
-			}
-		}
-		return false
+		return g.PrincipalOwner == principal || containsPrincipal(g.ManagerPrincipals, principal)
 	}
-	// A group written before principal ownership was recorded is owned by the
-	// principals that own its member conversations. This is also how groups
-	// created directly by internal code become owned on first management.
-	if ownerOf == nil {
-		return false
-	}
-	if len(g.Members) == 0 {
-		return true
-	}
-	for _, member := range g.Members {
-		if ownerOf(member) {
-			return true
-		}
-	}
+	// Legacy groups are unclaimed until an administrator records ownership.
+	// This keeps legitimate access recoverable without an implicit grant.
 	return false
 }
 
-// ReadableBy reports whether the principal may read the group. A principal that
-// owns a member conversation, was granted shared access, or manages the group
-// may read it. A group owned by another principal stays invisible.
+// ReadableBy reports whether the principal may read the group. Read access is
+// checked independently of management: an owner/manager reads by authority, a
+// shared principal reads by explicit grant, and a member owner reads only when
+// ownership of a member conversation has been verified.
 func (g ConversationGroup) ReadableBy(principal string, ownerOf MemberOwnerResolver) bool {
+	if principal == "" {
+		return false
+	}
 	if g.ManagedBy(principal, ownerOf) {
 		return true
 	}
-	for _, shared := range g.SharedPrincipals {
-		if shared == principal {
-			return true
-		}
+	if containsPrincipal(g.SharedPrincipals, principal) {
+		return true
 	}
 	if ownerOf == nil {
 		return false
@@ -114,9 +119,20 @@ func (g ConversationGroup) ReadableBy(principal string, ownerOf MemberOwnerResol
 	return false
 }
 
-// Access returns the effective access of a principal to the group.
+// Access returns the effective access of a principal to the group. Read and
+// manage are computed independently so a shared group is never mistaken for
+// proof of ownership and a manager never acquires read access by accident.
 func (g ConversationGroup) Access(principal string, ownerOf MemberOwnerResolver) GroupAccess {
 	return GroupAccess{Read: g.ReadableBy(principal, ownerOf), Manage: g.ManagedBy(principal, ownerOf)}
+}
+
+func containsPrincipal(values []string, principal string) bool {
+	for _, value := range values {
+		if value == principal {
+			return true
+		}
+	}
+	return false
 }
 
 type ConversationFork struct {
@@ -232,6 +248,51 @@ func (r *ConversationRegistry) CreateGroupForPrincipal(ownerWorkspaceID, project
 	group := ConversationGroup{ID: id, OwnerWorkspaceID: ownerWorkspaceID, ProjectID: projectID,
 		PrincipalOwner: principalOwner, Title: strings.TrimSpace(title), SharedRevision: 1,
 		Members: []string{}, CreatedAt: now, UpdatedAt: now}
+	state.Groups[id] = group
+	if err := r.save(state); err != nil {
+		return ConversationGroup{}, err
+	}
+	return group, nil
+}
+
+// ClaimGroupOwner records an explicit, auditable owner for a legacy group. It
+// requires a principal with documented group-administration authority and, for
+// non-administrators, evidence that the claimant owns at least one member
+// conversation. The evidence is checked against the current conversation store
+// rather than inferred from the group's empty owner field.
+func (r *ConversationRegistry) ClaimGroupOwner(id, ownerWorkspaceID, projectID string, claim GroupOwnerClaim, isAdministrator GroupAdministrator, ownsConversation ConversationOwnerCheck) (ConversationGroup, error) {
+	if claim.Principal == "" || isAdministrator == nil || ownsConversation == nil {
+		return ConversationGroup{}, errors.New("invalid owner claim")
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	state, err := r.load()
+	if err != nil {
+		return ConversationGroup{}, err
+	}
+	group, ok := state.Groups[id]
+	if !ok || group.OwnerWorkspaceID != ownerWorkspaceID || group.ProjectID != projectID {
+		return ConversationGroup{}, ErrGroupNotFound
+	}
+	if group.PrincipalOwner != "" {
+		// An existing owner can only be replaced by an administrator.
+		if !isAdministrator(claim.Principal) {
+			return ConversationGroup{}, ErrGroupNotAuthorized
+		}
+	} else if !isAdministrator(claim.Principal) {
+		verified := false
+		for _, conversationID := range claim.ConversationIDs {
+			if ownsConversation(claim.Principal, conversationID) && containsPrincipal(group.Members, conversationID) {
+				verified = true
+				break
+			}
+		}
+		if !verified {
+			return ConversationGroup{}, ErrGroupNotAuthorized
+		}
+	}
+	group.PrincipalOwner = claim.Principal
+	group.UpdatedAt = time.Now().UTC()
 	state.Groups[id] = group
 	if err := r.save(state); err != nil {
 		return ConversationGroup{}, err

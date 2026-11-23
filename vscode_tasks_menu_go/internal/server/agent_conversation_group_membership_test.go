@@ -24,7 +24,7 @@ func TestConversationGroupMemberMustBelongToOwnerProject(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	group, err := registry.CreateGroup(ownerID, conversation.ProjectID, "Member validation")
+	group, err := registry.CreateGroupForPrincipal(ownerID, conversation.ProjectID, "Member validation", "local")
 	if err != nil {
 		t.Fatal(err)
 	}

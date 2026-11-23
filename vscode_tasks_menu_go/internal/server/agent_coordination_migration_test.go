@@ -42,7 +42,7 @@ func TestLegacyCoordinationJournalMigratesOnlyOwnerRecords(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	group, err := registry.CreateGroup(ownerID, project.ID, "Legacy group")
+	group, err := registry.CreateGroupForPrincipal(ownerID, project.ID, "Legacy group", "local")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -280,3 +280,107 @@ func agentOwnerHubPath(t *testing.T, s *Server, owner string) string {
 	dir := filepath.Join(filepath.Dir(privatePath), "agent-coordination-"+aiWorkspaceHash(s.Workspace)+"-"+aiOwnerHash(owner))
 	return filepath.Join(dir, "coordination.json")
 }
+
+// TestSharedGroupDoesNotTransferOwnershipInMigration verifies that read access
+// to a shared group is not treated as ownership of its contracts or artifacts.
+func TestSharedGroupDoesNotTransferOwnershipInMigration(t *testing.T) {
+	s, conversations, groups, legacyPath := agentLegacyCoordinationFixture(t)
+	registry, err := s.agentConversationRegistry()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ownerID, err := agentrunWorkspaceID(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Alice shares her group with Bob. Bob can read it, but he does not own it.
+	if _, err := registry.ShareGroup(groups["user:alice"].ID, ownerID, groups["user:alice"].ProjectID, []string{"user:bob"}); err != nil {
+		t.Fatal(err)
+	}
+	bobAccessible, err := registry.AccessibleGroups(ownerID, groups["user:alice"].ProjectID, "user:bob", s.agentGroupMemberOwnerResolver("user:bob"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	foundShared := false
+	for _, group := range bobAccessible {
+		if group.ID == groups["user:alice"].ID {
+			foundShared = true
+		}
+	}
+	if !foundShared {
+		t.Fatal("shared group is not accessible to Bob")
+	}
+	bobOwned, err := s.agentConversationGroupIDsForOwner("user:bob")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bobOwned[groups["user:alice"].ID] {
+		t.Fatal("shared group was reported as owned by Bob")
+	}
+
+	// Bob's contract is scoped to Alice's group. It must not be copied into
+	// either owner's journal: Bob does not own the group, and Alice does not
+	// own the contract.
+	legacy := map[string]any{
+		"version":  1,
+		"peers":    map[string]any{},
+		"messages": []any{},
+		"contracts": map[string]any{
+			"bob-in-alice-group": map[string]any{"key": "bob-in-alice-group", "owner_group": groups["user:alice"].ID, "owner_principal": "user:bob", "signature": "bob(): Result", "revision": 1, "status": "planned"},
+		},
+		"artifacts": map[string]any{
+			"bob-artifact-in-alice-group": map[string]any{"id": "bob-artifact-in-alice-group", "kind": "diff", "ref": "diff:bob-foreign", "sha256": repeatHex('d'), "group_id": groups["user:alice"].ID, "conversation_id": conversations["user:bob"].ID, "owner_principal": "user:bob"},
+		},
+	}
+	body, err := json.Marshal(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(legacyPath, append(body, '\n'), 0600); err != nil {
+		t.Fatal(err)
+	}
+	aliceHub, err := s.agentCoordinationHub("user:alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	bobHub, err := s.agentCoordinationHub("user:bob")
+	if err != nil {
+		t.Fatal(err)
+	}
+	aliceContracts, err := aliceHub.Contracts("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(aliceContracts) != 0 {
+		t.Fatalf("Alice received Bob's contract through a shared group: %+v", aliceContracts)
+	}
+	bobContracts, err := bobHub.Contracts("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(bobContracts) != 1 || bobContracts[0].Key != "bob-in-alice-group" {
+		t.Fatalf("Bob lost his independently owned contract: %+v", bobContracts)
+	}
+	aliceArtifacts, err := aliceHub.Artifacts()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(aliceArtifacts) != 0 {
+		t.Fatalf("Alice received Bob's artifact through a shared group: %+v", aliceArtifacts)
+	}
+	bobArtifacts, err := bobHub.Artifacts()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(bobArtifacts) != 1 || bobArtifacts[0].Ref != "diff:bob-foreign" {
+		t.Fatalf("Bob lost his independently owned artifact: %+v", bobArtifacts)
+	}
+	alicePath := agentOwnerHubPath(t, s, "user:alice")
+	aliceUnclaimed, err := s.agentCoordinationUnclaimedRecords(alicePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(aliceUnclaimed) != 2 {
+		t.Fatalf("Alice's quarantine must keep the foreign records for review: %+v", aliceUnclaimed)
+	}
+}
