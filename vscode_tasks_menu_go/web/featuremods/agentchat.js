@@ -644,16 +644,16 @@ function updateAgentEfforts(preferred){
 }
 function agentContextExplanation(mode,fallback){
  const descriptions={
-  stateless:'Stateless — Mỗi lần gửi, TaskDeck đóng gói lại lịch sử cục bộ đã compact và dữ liệu mới. Không yêu cầu provider giữ phiên. Tương thích rộng, nhưng hội thoại dài có thể tăng payload và token.',
-  previous_response:'Response chain — Nếu Responses provider/model đã qua Probe capabilities, TaskDeck gửi previous_response_id và chỉ phần mới. Giảm payload, nhưng phụ thuộc provider lưu được response ID và hỗ trợ nối chuỗi.',
-  conversation:'Conversations — Nếu Responses provider/model đã qua Probe capabilities, TaskDeck gửi conversation ID phía provider. Giảm việc gửi lại lịch sử nhưng phụ thuộc hỗ trợ và chính sách lưu trữ của provider.',
+  stateless:'Stateless — TaskDeck sends the compacted local conversation history together with new input on every request. No provider-side session storage is required. This is broadly compatible, but long conversations may increase request size and token usage.',
+  previous_response:'Response chain — When the Responses provider and model have passed the capability probe, TaskDeck sends a previous_response_id with only the new input. This reduces repeated history, but depends on the provider storing response IDs and supporting response chaining.',
+  conversation:'Conversations — When the Responses provider and model have passed the capability probe, TaskDeck sends a provider-side conversation ID with only the new input. This reduces repeated history, but depends on provider support and its conversation retention policy.',
  };
  const compatibility=fallback&&mode!=='stateless'
-  ?'\nChat Completions không hỗ trợ kiểu reference này: TaskDeck sẽ replay lịch sử cục bộ như Stateless.'
-  :mode==='stateless'?'\nKhông cần Probe hỗ trợ lưu context.'
-  :'\nNếu Probe chưa xác nhận hỗ trợ stateful, hệ thống tự fallback về lịch sử cục bộ; không giả định provider nhớ.';
+  ?'\nChat Completions does not support this provider-side reference. TaskDeck replays compacted local history instead, as in Stateless mode.'
+  :mode==='stateless'?'\nNo stateful capability probe is required.'
+  :'\nIf stateful capability has not been verified, TaskDeck falls back to local history replay. It does not assume the provider remembers earlier turns.';
  return (descriptions[mode]||descriptions.stateless)+compatibility+
-  '\nChỉ áp dụng khi tạo conversation mới; không đổi Context của phiên đang chạy.';
+  '\nThis setting applies to new conversations only. Existing or running conversations keep their selected Context mode.';
 }
 function renderAgentConfigMenu(){
  const provider=agentProviders.find(p=>p.id===providerSelect.value);
@@ -692,11 +692,11 @@ function renderAgentConfigMenu(){
   if(!choices.length)group.values.append(agentEl('div','agentchat-config-note','No options configured'));
   group.button.textContent=name+' · '+(choices.find(([v])=>v===current)?.[1]||'Not configured')+' ▸';
  }
- agentContextHelp.textContent='Context đang chọn · '+(modeSelect.value||'stateless')+
+ agentContextHelp.textContent='Selected Context · '+(modeSelect.value||'stateless')+
   '\n'+agentContextExplanation(modeSelect.value||'stateless',fallback)+
-  '\nProvider: '+(provider?.name||provider?.id||'Chưa chọn')+' · API: '+
+  '\nProvider: '+(provider?.name||provider?.id||'Not selected')+' · API: '+
   (fallback?'Chat Completions':'Responses')+'.';
- agentConfigNote.textContent='Chọn Context trong AI setup để xem mô tả. Những lựa chọn này áp dụng cho cuộc hội thoại mới.';
+ agentConfigNote.textContent='Select a Context mode above to see how history is sent. Changes apply only to new conversations.';
 }
 async function loadAgentProviders(){
  const previousProvider=providerSelect.value, previousModel=modelSelect.value, previousEffort=effortSelect.value;
