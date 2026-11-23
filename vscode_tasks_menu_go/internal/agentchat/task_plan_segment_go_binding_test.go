@@ -9,7 +9,6 @@ import (
  "sync"
  "testing"
  "time"
- "fmt"
 )
 
 func newSegmentGoBindingFixture(t *testing.T)(*Store,Session){
@@ -54,12 +53,8 @@ func TestSegmentGoBindingCASPreservesPriorProofsAndSinglePage(t *testing.T){
     t.Fatalf("unrelated segment %d changed while editing Go bindings",i)
    }
   }
-  if !lastNow.IsZero()&&!y.TaskPlan.Steps[501].UpdatedAt.After(lastNow){
-   // UpdatedAt must never move backward; equality can occur on very fast
-   // machines only at clock resolution. Require >=, not strictly >.
-   if y.TaskPlan.Steps[501].UpdatedAt.Before(lastNow){
-    t.Fatal("milestone UpdatedAt moved backward")
-   }
+  if !lastNow.IsZero()&&y.TaskPlan.Steps[501].UpdatedAt.Before(lastNow){
+   t.Fatal("milestone UpdatedAt moved backward")
   }
   lastNow=y.TaskPlan.Steps[501].UpdatedAt
   all=append([]TaskPlanSegmentRef(nil),y.TaskPlanSegments...)
@@ -217,5 +212,4 @@ func TestConcurrentSegmentGoBindingCASAllowsExactlyOneWriter(t *testing.T){
  if final.Revision!=x.Revision+1||final.TaskPlan.Steps[501].TaskCommandGuard==nil{
   t.Fatal("concurrent native test command binding was not serialized")
  }
- _=fmt.Sprintf("%s",final.TaskPlan.Steps[501].ID)
 }
