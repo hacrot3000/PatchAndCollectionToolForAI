@@ -17,7 +17,7 @@ func TestJournalFsyncBeforeAndAfterManifestRename(t *testing.T){
  if err!=nil{t.Fatal(err)}
  x,err=store.Save(x,0);if err!=nil{t.Fatal(err)}
  original,err:=os.ReadFile(store.file(x.ID));if err!=nil{t.Fatal(err)}
- x.Title="Owner update"
+ x.Status="owner_updated"
 
  // Failure before journal rename: the old owner revision is still
  // authoritative, including after reopening the Store.
@@ -47,7 +47,7 @@ func TestJournalFsyncBeforeAndAfterManifestRename(t *testing.T){
   t.Fatalf("postcommit boundary did not return explicit uncertainty: %v calls=%d",err,calls)
  }
  saved,err:=reopened.Get(x.ID,"local")
- if err!=nil||saved.Revision!=x.Revision+1||saved.Title!="Owner update"{
+ if err!=nil||saved.Revision!=x.Revision+1||saved.Status!="owner_updated"||saved.Title!=""{
   t.Fatalf("journal rename was not observable after postcommit sync error: %v",err)
  }
  store.syncDirectoryOverride=nil

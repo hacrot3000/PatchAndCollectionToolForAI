@@ -22,13 +22,23 @@ func (s *Server) agentChatDebugReportAPI(w http.ResponseWriter, r *http.Request)
  }
  if !s.requireSharedActionPermission(w,r,"settings.read","agent.debug.read","agent_debug") {return}
  owner:=aiPlanOwner(r)
+ marker,resetErr:=s.readAgentDebugClearMarker(owner)
+ if resetErr!=nil {
+  http.Error(w,"AI Debug reset marker unavailable",500)
+  return
+ }
  report:=map[string]any{
   "format":"taskdeck.agent.debug.report.v1",
   "generated_at":time.Now().UTC(),
   "capture_mode":"automatic_safe_metadata",
   "security":"No API keys, authorization headers, request/response bodies, prompts or Patch Python are copied.",
   "workspace_name":filepath.Base(s.Workspace),
-  "trace_retention":"In-memory provider traces are bounded and may reset on daemon restart; session events are durable.",
+  "trace_retention":"In-memory provider traces are bounded; canonical session events remain durable but old debug summaries can be hidden by Clear history.",
+ }
+ if !marker.At.IsZero(){
+  report["cleared_at"]=marker.At
+  report["debug_window"]="after_clear"
+  report["diagnostic_scope"]="Only new AI Debug data since Clear history. Original conversation/patch journals are not deleted."
  }
  store:=s.debugStore()
  store.mu.Lock()
@@ -36,6 +46,7 @@ func (s *Server) agentChatDebugReportAPI(w http.ResponseWriter, r *http.Request)
  store.pruneLocked(o,time.Now())
  traces:=make([]agentDebugTrace,0,len(o.Traces))
  for _,entry:=range o.Traces {
+  if !marker.At.IsZero() && !entry.CreatedAt.After(marker.At){continue}
   trace:=*entry
   trace.payload=agentDebugPayload{}
   trace.Events=append([]agentDebugEvent(nil),entry.Events...)
@@ -56,10 +67,33 @@ func (s *Server) agentChatDebugReportAPI(w http.ResponseWriter, r *http.Request)
   if listErr!=nil{
    report["journal_error"]="Unable to read the scoped Agent session journal"
   }else{
-   limit:=len(sessions)
+   visible:=make([]agentchat.Session,0,len(sessions))
+   for _,sess:=range sessions {
+    if !marker.At.IsZero() && !sess.UpdatedAt.After(marker.At){continue}
+    visible=append(visible,sess)
+   }
+   limit:=len(visible)
    if limit>32{limit=32;report["sessions_truncated"]=true}
    out:=make([]map[string]any,0,limit)
-   for _,sess:=range sessions[:limit] {
+   for _,sess:=range visible[:limit] {
+    if cursor,seen:=marker.Sessions[sess.ID];seen && !marker.At.IsZero(){
+     // Existing sessions remain operational after clear. Expose only the
+     // new journal tail; earlier history/tool metadata stays in the
+     // canonical file, but no longer clutters this debug report.
+     historyStart:=cursor.HistoryItems
+     if historyStart>len(sess.History){historyStart=len(sess.History)}
+     sess.History=sess.History[historyStart:]
+     toolStart:=cursor.ToolCalls
+     if toolStart>len(sess.ToolCalls){toolStart=len(sess.ToolCalls)}
+     sess.ToolCalls=sess.ToolCalls[toolStart:]
+     events:=sess.Events[:0:0]
+     for _,event:=range sess.Events {
+      if event.Seq>cursor.EventSeq && event.At.After(marker.At){
+       events=append(events,event)
+      }
+     }
+     sess.Events=events
+    }
     // Transcript summaries preserve ordering and tool IDs without sending
     // potentially sensitive prompts or generated source code to clipboard.
     hist:=make([]map[string]any,0,len(sess.History))
@@ -113,7 +147,11 @@ func (s *Server) agentChatDebugReportAPI(w http.ResponseWriter, r *http.Request)
   }
  }
  if len(traces)==0 {
-  report["diagnostic_note"]="No in-memory provider traces available. Durable Agent session transitions appear under sessions; reproduce the failure to capture new provider HTTP diagnostics."
+  if !marker.At.IsZero(){
+   report["diagnostic_note"]="No new provider traces since AI Debug was cleared. Continue using the Agent to capture fresh diagnostics."
+  }else{
+   report["diagnostic_note"]="No in-memory provider traces available. Durable Agent session transitions appear under sessions; reproduce the failure to capture new provider HTTP diagnostics."
+  }
  }
  // Limit the scope of the report to a single user's current project; avoid
  // embedding raw HTTP payload, workstation paths or unknown provider bodies.

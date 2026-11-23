@@ -591,6 +591,11 @@ func (s *Store) Save(x Session, expectedRevision uint64) (Session, error) {
 			if existing.Revision != expectedRevision {
 				return ErrStaleRevision
 			}
+			// Display title is independent metadata. An active provider/native
+			// turn may be holding a pre-rename snapshot; preserve the latest
+			// persisted title so that its next valid journal CAS cannot undo
+			// an owner rename. Renaming never changes the turn revision.
+			x.Title = existing.Title
 			if existing.Owner != x.Owner || existing.Workspace != x.Workspace || existing.ProjectID != x.ProjectID || existing.ProviderID != x.ProviderID || existing.ModelID != x.ModelID || existing.Mode != x.Mode || !existing.CreatedAt.Equal(x.CreatedAt) ||
 				x.HistoryArchiveParts!=existing.HistoryArchiveParts || x.ArchivedHistoryItems!=existing.ArchivedHistoryItems ||
             x.PatchArchiveParts!=existing.PatchArchiveParts || x.ArchivedPatchCalls!=existing.ArchivedPatchCalls {
@@ -670,6 +675,60 @@ func (s *Store) Save(x Session, expectedRevision uint64) (Session, error) {
 	}
 	return saved, nil
 }
+// Rename updates only the display title, independently from an executing
+// model turn. It holds the same cross-process journal lock as Save but does
+// NOT advance the turn revision or touch history, tools, provider run, or
+// approvals. Save preserves this latest title during any later in-flight
+// model write. Never use Save for this metadata-only operation.
+func (s *Store) Rename(id, owner, title string, observedRevision uint64) (Session, error) {
+ title = strings.TrimSpace(title)
+ if title == "" || len(title) > 120 {
+  return Session{}, ErrInvalidSession
+ }
+ var updated Session
+ err := s.withLock(func() error {
+  x, e := s.readLocked(id)
+  if e != nil { return e }
+  if x.Owner != owner || !s.matchesProject(x) { return ErrNotFound }
+  // A revision that is already older is normal while the Agent works;
+  // a future revision is impossible and must not be accepted as metadata.
+  if observedRevision > x.Revision { return ErrStaleRevision }
+  if x.Title == title { updated = x; return nil }
+  x.Title = title
+  if err := validateSession(x); err != nil { return err }
+  onDisk := x
+  // readLocked hydrates immutable plan segment steps; the canonical journal
+  // stores only segment references, as Store.Save does.
+  if len(x.TaskPlanSegments) > 0 {
+   if x.TaskPlan == nil { return ErrInvalidSession }
+   plan := *x.TaskPlan
+   plan.Steps = nil
+   onDisk.TaskPlan = &plan
+  }
+  raw, e := json.Marshal(onDisk)
+  if e != nil { return e }
+  if len(raw) > maxSessionBytes { return errors.New("agent session exceeds size limit") }
+  temp, e := os.CreateTemp(s.dir, ".agent-session-rename-*")
+  if e != nil { return e }
+  defer os.Remove(temp.Name())
+  if e = temp.Chmod(0600); e != nil { _ = temp.Close(); return e }
+  if _, e = temp.Write(raw); e != nil { _ = temp.Close(); return e }
+  if e = temp.Sync(); e != nil { _ = temp.Close(); return e }
+  if e = temp.Close(); e != nil { return e }
+  if e = s.syncDirectory(); e != nil { return e }
+  if e = os.Rename(temp.Name(), s.file(id)); e != nil { return e }
+  if e = s.syncDirectory(); e != nil {
+   return fmt.Errorf("%w: %v", ErrJournalDurabilityUnknown, e)
+  }
+  // Derived handoff can always be regenerated; failure is not a rollback.
+  _ = s.writeHandoffLocked(x)
+  updated = x
+  return nil
+ })
+ if err != nil { return Session{}, err }
+ return updated, nil
+}
+
 // HasUnresolvedWork identifies native work that would lose its ownership
 // journal if deleted. Finished Patch calls may still have feedback pending:
 // deleting that completed work is allowed, without re-running or delivering.

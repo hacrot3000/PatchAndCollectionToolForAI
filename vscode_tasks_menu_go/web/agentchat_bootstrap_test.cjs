@@ -97,6 +97,7 @@ class FakeElement {
   addEventListener(type, listener) { (this.listeners[type] ||= []).push(listener); }
   querySelector(selector) { return selector === 'button' ? this.children.find(child => child.tagName === 'button') || null : null; }
   focus() {}
+  select() {}
   dispatchEvent() { return true; }
   contains(node) { return node === this || this.children.some(child => child.contains?.(node)); }
   click() {
@@ -153,8 +154,9 @@ assert.equal(windowBox.attributes['aria-modal'], undefined, 'Main Agent Chat mus
 assert.ok(viewTabs.children.some(child => child.textContent === 'AI Debug'), 'AI Debug view tab missing');
 assert.equal(debugPanel.className, 'agentchat-debug-panel');
 const debugButtons = (() => {const scan = node => [ ...(node.tagName==='button'?[node]:[]),...node.children.flatMap(scan) ];return scan(debugPanel);})();
-assert.equal(debugButtons.length,1,'AI Debug must expose exactly one action');
-assert.equal(debugButtons[0].textContent,'Copy log','one action must be Copy log');
+assert.equal(debugButtons.length,2,'AI Debug must expose Copy log and Clear history');
+assert.equal(debugButtons[0].textContent,'Copy log','first Debug action must be Copy log');
+assert.equal(debugButtons[1].textContent,'Clear history','second Debug action must clear old debug evidence only');
 const find = (node, predicate) => predicate(node) ? node : node.children.map(child => find(child, predicate)).find(Boolean);
 const nodeText = node => String(node.textContent||'')+(node.children||[]).map(nodeText).join('');
 
@@ -350,6 +352,9 @@ setupChoice('Context','previous_response').onclick();
 assert.equal(vm.runInNewContext('modeSelect.value',context),'previous_response');
 setupChoice('Context','conversation').onclick();
 assert.equal(vm.runInNewContext('modeSelect.value',context),'conversation');
+const contextHelp=find(configPanel,node=>node.className==='agentchat-context-help');
+assert.ok(contextHelp?.textContent.includes('Chat Completions')&&contextHelp.textContent.includes('conversation ID'),
+ 'Context help must explain the selected provider fallback and real conversation-state requirements');
 assert.equal(setupContainer.classList.contains('open'),true,'choices stay visible until user closes AI setup');
 const css=vm.runInNewContext('agentCSS.textContent',context);
 assert.ok(css.includes('.agentchat-config-category[aria-expanded="true"]>.agentchat-config-category-values'),
@@ -368,7 +373,15 @@ assert.ok(listedDelete,'saved conversations need a per-row Delete action');
 assert.equal(listedDelete.disabled,false,'completed conversations can be deleted');
 vm.runInNewContext('agentSessions=[{id:"deleted-view-only",title:"Old conversation",model_id:"m",status:"waiting_tool",archived:false}];updateAgentSessionRows()', context);
 assert.equal(listedDelete.disabled,true,'pending native Patch work cannot be deleted');
-vm.runInNewContext('agentSessions=[];updateAgentSessionRows()', context);
+const listedRename=find(sessionsList,node=>node.className==='rename'&&node.textContent==='Rename');
+assert.ok(listedRename&&!listedRename.disabled,'an unresolved/running native PATCH must not block metadata-only Rename');
+vm.runInNewContext('agentActive="deleted-view-only";markAgentSessionBusy("deleted-view-only",true);renderAgentAutomationControls(agentSessions[0]);renameAgentSession("deleted-view-only")',context);
+const renameDialog=find(document.body,node=>node.attributes?.['aria-label']==='Rename AI conversation');
+assert.ok(renameDialog?.parentElement?.classList.contains('visible'),'rename must use a real in-app dialog, not a suppressed browser prompt');
+const renameInput=find(renameDialog,node=>node.attributes?.['aria-label']==='Conversation name');
+assert.equal(renameInput?.value,'Old conversation','rename editor must use saved title even while Agent is busy');
+assert.equal(vm.runInNewContext('rename.disabled',context),false,'Conversation > Rename must stay enabled during an Agent turn');
+vm.runInNewContext('closeAgentRename();markAgentSessionBusy("deleted-view-only",false);agentActive=null;agentSessions=[];updateAgentSessionRows();autoFeedback.textContent="Auto-send results"', context);
 const collectLabels = node => [node.textContent, ...node.children.flatMap(collectLabels)];
 const labels = collectLabels(heading);
 const moreButton = heading.children.find(child => child.textContent === '⋯');
@@ -1261,8 +1274,8 @@ console.log('PASS: safe Markdown, syntax-highlighted PHP/Python, per-block Copy,
   await copyLog.onclick();
   assert.ok(copied.includes('failed-collection-trace')&&copied.includes('collect_failed'),
     'Copy log must include provider errors and durable session journal together');
-  assert.equal(debugPanel.children[0].children.filter(node=>node.tagName==='button').length,1,
-    'AI Debug must have exactly one action');
+  assert.equal(debugPanel.children[0].children.filter(node=>node.tagName==='button').length,2,
+    'AI Debug must provide Copy log and Clear history separately');
 
   // Even a broken report endpoint should create a copyable client diagnostic.
   context.TaskMenuApp.jsonFetch=async()=>{throw new Error('REPORT_HTTP_503');};
@@ -1270,7 +1283,7 @@ console.log('PASS: safe Markdown, syntax-highlighted PHP/Python, per-block Copy,
   await copyLog.onclick();
   assert.ok(copied.includes('REPORT_HTTP_503')&&copied.includes('report.unavailable'),
     'Copy log must work for failures of the debug endpoint itself');
-  console.log('PASS: one-button AI Debug copies all safe traces/journals or a useful fallback');
+  console.log('PASS: AI Debug copies safe traces/journals, shows clear action and handles unavailable reports');
 
   // Per-conversation retry policy and current retry countdown reuse the
   // existing single status row; they must not stack duplicates.
@@ -1443,5 +1456,43 @@ console.log('PASS: safe Markdown, syntax-highlighted PHP/Python, per-block Copy,
 
 
 
+
+// End-to-end DOM/transport rename while the actual conversation is busy.
+// Server-side metadata must not require cancelling that provider turn.
+let savedRenameTitle='Before rename';
+const renameMetadataCalls=[];
+context.TaskMenuApp.jsonFetch=async (url,options={})=>{
+ if(url==='/api/agent/sessions/rename-test' && !options.method)
+  return {session:{id:'rename-test',title:savedRenameTitle,revision:7,status:'requesting_ai',model_id:'model'}};
+ if(url==='/api/agent/sessions/rename-test/metadata' && options.method==='PATCH'){
+  const req=JSON.parse(options.body);
+  renameMetadataCalls.push(req);
+  savedRenameTitle=req.title;
+  return {session:{id:'rename-test',title:savedRenameTitle,revision:7,status:'requesting_ai'}};
+ }
+ if(url==='/api/agent/sessions')
+  return {sessions:[{id:'rename-test',title:savedRenameTitle,model_id:'model',status:'requesting_ai',revision:7}]};
+ throw new Error('Unexpected endpoint in Rename UI test: '+url);
+};
+await vm.runInNewContext(
+ 'agentSessions=[{id:"rename-test",title:"Before rename",model_id:"model",status:"requesting_ai",revision:7}];'+
+ 'agentTabs=["rename-test"];agentActive="rename-test";renderAgentTabs();'+
+ 'markAgentSessionBusy("rename-test",true);renameAgentSession("rename-test")',context);
+vm.runInNewContext('agentRenameInput.value="New conversation title"',context);
+await vm.runInNewContext('saveAgentRename()',context);
+assert.equal(savedRenameTitle,'New conversation title','Rename did not persist the new title');
+assert.equal(renameMetadataCalls.length,1,'Rename must persist exactly one metadata update');
+assert.equal(renameMetadataCalls[0].expected_revision,7,'Rename lost the observed turn revision');
+const renamedTab=find(windowBox,node=>node.className==='agentchat-tab active');
+assert.ok(nodeText(renamedTab).includes('New conversation title'),'tab did not show the renamed title');
+const renamedHistoryRow=find(sessionsList,node=>node.className==='agentchat-session-row');
+assert.ok(nodeText(renamedHistoryRow).includes('New conversation title'),'History did not show renamed title');
+assert.equal(vm.runInNewContext('agentRenameOverlay.classList.contains("visible")',context),false,
+ 'Rename dialog should close after confirmed persistence');
+assert.equal(vm.runInNewContext('agentSessionBusy("rename-test")',context),true,
+ 'Rename metadata must not interrupt an active Agent turn');
+console.log('PASS: active Agent Rename persists once and updates tab and History');
+
+// Tests have no authority to execute native Patch or contact the real provider.
 
 })().catch(error => { console.error(error); process.exitCode = 1; });

@@ -505,15 +505,48 @@ func (s *Server) agentChatDebugClearAPI(w http.ResponseWriter, r *http.Request) 
 	if !s.requireSharedActionPermission(w, r, "settings.write", "agent.debug.clear", "agent_debug") {
 		return
 	}
-	store := s.debugStore()
 	owner := aiPlanOwner(r)
+	journal, err := s.agentChatStore()
+	if err != nil {
+		http.Error(w,"Agent journal unavailable for safe debug reset",500)
+		return
+	}
+	sessions, err := journal.List(owner)
+	if err != nil {
+		http.Error(w,"Cannot read scoped Agent journal for debug reset",500)
+		return
+	}
+	marker := agentDebugClearMarker{Sessions: make(map[string]agentDebugClearCursor,len(sessions))}
+	for _,sess := range sessions {
+		marker.Sessions[sess.ID] = agentDebugClearCursor{
+			HistoryItems:len(sess.History),ToolCalls:len(sess.ToolCalls),EventSeq:sess.EventSeq,
+		}
+	}
+	store := s.debugStore()
 	store.mu.Lock()
+	// Marker and in-memory trace reset have the same local serialization.
+	// Never claim Clear completed until its durable marker is committed.
+	marker.At = time.Now().UTC()
+	if err=s.writeAgentDebugClearMarker(owner,marker);err!=nil {
+		store.mu.Unlock()
+		http.Error(w,"Could not persist AI Debug clear watermark",500)
+		return
+	}
 	o := store.owner(owner)
-	o.Traces = nil
+	// Traces created during the concurrent provider run AFTER the reset
+	// point must remain visible; old traces and optional raw payload go.
+	kept := make([]*agentDebugTrace,0,len(o.Traces))
+	for _,trace := range o.Traces {
+		if !trace.CreatedAt.Before(marker.At) { kept=append(kept,trace) }
+	}
+	o.Traces=kept
 	o.State.RawUntil = time.Time{}
 	store.mu.Unlock()
 	w.Header().Set("Cache-Control", "no-store")
-	writeJSON(w, 200, map[string]bool{"cleared": true})
+	writeJSON(w, 200, map[string]any{
+		"cleared":true,"cleared_at":marker.At,
+		"note":"Previous AI Debug traces and journal summaries are hidden; canonical conversations, Patch and Collection evidence remain intact.",
+	})
 }
 func (s *Server) beginAgentDebug(parent context.Context, owner, action, sessionID string, p agentchat.ProviderConfig, model string) (context.Context, *agentDebugRecorder, string) {
 	recorder, id := s.startAgentDebug(owner, action, sessionID, p, model)
