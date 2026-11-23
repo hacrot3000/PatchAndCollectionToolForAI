@@ -1220,16 +1220,62 @@ function agentScrollToLatest(sessionID){
   if(agentActive===sessionID&&agentAtLatest())transcript.scrollTop=transcript.scrollHeight;
  });
 }
+// The local audit is a pre-send hint. It does NOT prove provider receipt.
+// Only include bounded, provider-related metadata in a support report; NEVER
+// concatenate prompt, provider API key, response body or native Patch content.
+function agentProviderDiagnosticReport(session,review,attemptAudit,integrityError){
+ const lines=[
+  'TaskDeck provider request investigation — read-only',
+  'Session: '+String(session?.id||'unavailable'),
+  'Provider: '+String(session?.provider_id||'unavailable'),
+  'Run: '+String(review?.run_id||'unavailable'),
+  'Phase: '+String(review?.phase||'unavailable'),
+  'Kind: '+String(review?.kind||'unavailable'),
+  'Payload SHA-256: '+String(review?.payload_sha256||'unavailable'),
+  'Automatic replay: FORBIDDEN until authoritative provider reconciliation'
+ ];
+ if(integrityError){
+  lines.push('Provider-attempt audit: INTEGRITY ERROR — do not rely on the local attempt ledger');
+ }else if(attemptAudit&&attemptAudit.run_id===review?.run_id&&
+  Array.isArray(attemptAudit.attempts)&&Number.isSafeInteger(attemptAudit.total)&&
+  attemptAudit.total>=attemptAudit.attempts.length){
+  lines.push('Recorded local attempts: '+attemptAudit.total);
+  if(attemptAudit.truncated){
+   lines.push('Earlier attempts: omitted from bounded local history (not proof of delivery)');
+  }
+  for(const attempt of attemptAudit.attempts.slice(-128)){
+   lines.push('Attempt '+String(attempt.attempt)+': X-Client-Request-Id='+
+    String(attempt.client_request_id||'not available')+
+    ' · UTC='+String(attempt.recorded_at||'unavailable')+
+    ' · request payload SHA-256='+String(attempt.payload_sha256||'unavailable')+
+    ' · header configured='+String(attempt.header_configured===true?'yes':'no'));
+  }
+ }else{
+  lines.push('Provider-attempt audit: no matching verified record available');
+ }
+ lines.push(
+  'IMPORTANT: every attempt was recorded before network I/O. A local ID, timestamp',
+  'or configured header is NOT acknowledgement that the provider received or',
+  'completed a request. Do not replay ambiguous SENDING/UNKNOWN requests.',
+  'Use the client request ID with the operator of the receiving API to investigate.'
+ );
+ return lines.join('\n');
+}
 // The journal's SENDING/UNKNOWN phase is NOT provider acknowledgement.
 // Never offer a retry button based on this read-only diagnostic.
-function renderAgentProviderEgressReview(session,review){
+function renderAgentProviderEgressReview(session,review,attemptAudit=null,integrityError=false){
  const ambiguous=Boolean(review?.requires_reconciliation)&&
   (review.phase==='sending'||review.phase==='unknown')&&
   review.automatic_replay_allowed===false;
  const key=ambiguous?
   [session?.id,review.run_id,review.phase,review.payload_sha256].join('|'):'';
- if(key===agentProviderReviewKey)return;
- agentProviderReviewKey=key;
+ // The same unresolved run may acquire a new pre-send attempt during retry,
+ // without becoming a different warning or clearing a prior dismissal.
+ const audit=attemptAudit?.run_id===review?.run_id?attemptAudit:null;
+ const latest=audit&&Array.isArray(audit.attempts)?audit.attempts[audit.attempts.length-1]:null;
+ const viewKey=[key,audit?.total??'',latest?.client_request_id??'',Boolean(integrityError)].join('|');
+ if(viewKey===agentProviderReviewKey)return;
+ agentProviderReviewKey=viewKey;
  agentProviderEgressNotice.replaceChildren();
  if(!ambiguous){agentProviderEgressNotice.hidden=true;return;}
  if(agentDismissedProviderReviews.has(key)){
@@ -1249,14 +1295,40 @@ function renderAgentProviderEgressReview(session,review){
   if(agentDismissedProviderReviews.size>64){
    agentDismissedProviderReviews.delete(agentDismissedProviderReviews.values().next().value);
   }
-  if(agentProviderReviewKey===key)agentProviderEgressNotice.hidden=true;
+  if(agentProviderReviewKey===viewKey)agentProviderEgressNotice.hidden=true;
  });
  dismiss.setAttribute('aria-label','Dismiss provider warning without resolving the request');
+ const diagnostics=agentProviderDiagnosticReport(session,review,audit,Boolean(integrityError));
+ const copy=agentButton('Copy provider diagnostics',()=>{
+  // Clipboard write must start directly in the click handler so Firefox
+  // retains transient user activation; never start a fetch before copying.
+  if(!globalThis.navigator?.clipboard?.writeText){
+   showAgentError(new Error('Clipboard unavailable. Use HTTPS/localhost and allow clipboard access.'));
+   return;
+  }
+  Promise.resolve(globalThis.navigator.clipboard.writeText(diagnostics)).then(()=>{
+   copy.textContent='Copied provider diagnostics';
+  }).catch(showAgentError);
+ });
+ copy.setAttribute('aria-label','Copy read-only provider request IDs for support');
+ const details=agentEl('div','','Local attempt audit: '+
+  (integrityError?'integrity error — do not rely on this record':
+   audit&&Number.isSafeInteger(audit.total)?
+    String(audit.total)+' recorded'+(audit.truncated?' (older attempts omitted)':''):
+    'no matching record'));
+ const latestLine=latest&&integrityError!==true?
+  agentEl('div','','Latest X-Client-Request-Id: '+String(latest.client_request_id||'unavailable')+
+   ' · header '+(latest.header_configured===true?'configured (NOT receipt)':'not configured')):null;
  agentProviderEgressNotice.append(
   agentEl('strong','',heading),
   agentEl('div','',identity),
   agentEl('div','',String(review.guidance||'Inspect the provider and TaskDeck handoff before any manual decision.')),
-  handoff,dismiss
+  details
+ );
+ if(latestLine)agentProviderEgressNotice.append(latestLine);
+ agentProviderEgressNotice.append(
+  agentEl('div','','Correlation is pre-send only; neither a retry key nor provider acknowledgement.'),
+  copy,handoff,dismiss
  );
  agentProviderEgressNotice.hidden=false;
 }
@@ -1465,7 +1537,8 @@ async function selectAgentSession(id){
  if(generation!==agentSelectGeneration)return null;
  const sess=data.session;
  sess.retry_runtime=data.retry_runtime||null;
- renderAgentProviderEgressReview(sess,data.provider_review||null);
+ renderAgentProviderEgressReview(sess,data.provider_review||null,
+  data.provider_attempts||null,data.provider_attempts_integrity_error===true);
  if(switched||agentToolNoticeKey!==data.patch_tool_status+':'+(sess.auto_patch?'auto':'manual')){
   toolNotice.replaceChildren();
   const toolStatus=data.patch_tool_status;

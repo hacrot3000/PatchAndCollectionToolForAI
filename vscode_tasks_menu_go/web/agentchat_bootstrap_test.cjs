@@ -1143,6 +1143,44 @@ console.log('PASS: safe Markdown, syntax-highlighted PHP/Python, per-block Copy,
    context.warning=warning;
    vm.runInNewContext("renderAgentProviderEgressReview({id:'session-warning'},warning)",context);
    assert.equal(providerNotice.hidden,false,'ambiguous sending warning must be visible by default');
+   // PR #197: read-only support correlation appears for the exact run
+   // without inventing provider acknowledgement or triggering a retry.
+   let providerCopied='';
+   context.navigator={clipboard:{writeText(value){providerCopied=value;return Promise.resolve();}}};
+   context.providerAudit={run_id:'r42-e17',total:2,truncated:false,attempts:[
+     {attempt:1,client_request_id:'td-'+('b'.repeat(64)),recorded_at:'2026-11-23T00:01:00Z',
+       payload_sha256:'a'.repeat(64),header_configured:true},
+     {attempt:2,client_request_id:'td-'+('c'.repeat(64)),recorded_at:'2026-11-23T00:02:00Z',
+       payload_sha256:'a'.repeat(64),header_configured:false}
+   ]};
+   vm.runInNewContext("renderAgentProviderEgressReview({id:'session-warning',provider_id:'openai'},warning,providerAudit,false)",context);
+   assert.ok(nodeText(providerNotice).includes('2 recorded'),'same-run new attempt count must refresh warning');
+   assert.ok(nodeText(providerNotice).includes('td-'+('c'.repeat(64))),
+     'latest request ID must be visible even when the header was not configured');
+   const supportCopy=find(providerNotice,node=>node.tagName==='button'&&node.textContent==='Copy provider diagnostics');
+   assert.ok(supportCopy,'support diagnostics must be copyable without another request');
+   supportCopy.onclick();
+   assert.ok(providerCopied.includes('td-'+('b'.repeat(64)))&&
+     providerCopied.includes('td-'+('c'.repeat(64))),
+     'copy must include both recorded attempt IDs, not just the latest');
+   assert.ok(providerCopied.includes('header configured=no')&&
+     providerCopied.includes('Automatic replay: FORBIDDEN')&&
+     providerCopied.includes('NOT acknowledgement'),
+     'copy must distinguish configured header from delivery and never authorize replay');
+   assert.equal(providerCopied.includes('TEST-KEY'),false,'support metadata must never contain an API key');
+   context.providerAuditWrong={...context.providerAudit,run_id:'different-run'};
+   vm.runInNewContext("renderAgentProviderEgressReview({id:'session-warning'},warning,providerAuditWrong,false)",context);
+   assert.ok(nodeText(providerNotice).includes('no matching record'),
+     'attempts from a different run must never appear in this warning');
+   assert.equal(nodeText(providerNotice).includes('td-'+('c'.repeat(64))),false,
+     'different-run correlation IDs must not leak into this run');
+   vm.runInNewContext("renderAgentProviderEgressReview({id:'session-warning'},warning,providerAudit,true)",context);
+   assert.ok(nodeText(providerNotice).includes('integrity error'),
+     'a corrupt audit must surface an explicit warning, not a fabricated receipt');
+   assert.equal(nodeText(providerNotice).includes('td-'+('c'.repeat(64))),false,
+     'a corrupt ledger must not show a client request ID as trustworthy');
+   // Reinstate the original warning identity for dismissal regression.
+   vm.runInNewContext("renderAgentProviderEgressReview({id:'session-warning'},warning)",context);
    const dismissWarning=find(providerNotice,node=>node.tagName==='button'&&node.textContent==='Dismiss warning');
    assert.ok(dismissWarning,'warning has an independent close control');
    assert.equal(dismissWarning.attributes['aria-label'],
@@ -1166,6 +1204,7 @@ console.log('PASS: safe Markdown, syntax-highlighted PHP/Python, per-block Copy,
    vm.runInNewContext("renderAgentProviderEgressReview({id:'other-session'},warning)",context);
    assert.equal(providerNotice.hidden,false,'dismissal must not leak across session IDs');
    vm.runInNewContext("renderAgentProviderEgressReview(null,null)",context);
+   console.log('PASS: owner-visible provider correlation copying, stale-run isolation, corrupt audit warning and no replay');
    console.log('PASS: provider warning per-run dismissal preserves SENDING/UNKNOWN and no replay');
 
 // One click copies the WHOLE multi-trace/session report, not a selected tab
