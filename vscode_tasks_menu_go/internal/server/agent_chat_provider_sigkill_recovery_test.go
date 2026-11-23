@@ -220,11 +220,20 @@ func TestAgentProviderRealSIGKILLAtEgressBoundaries(t *testing.T){
    }
    retained,err:=reopened.ProviderAttempts(id,"local");if err!=nil{t.Fatal(err)}
    if phase=="sending_attempt"{
-    if retained==nil||retained.Total!=1{
-     t.Fatal("restart reconciliation erased audit used by provider support")
+    if retained==nil||retained.Total!=1||retained.RunID!=originalRun{
+     t.Fatal("restart reconciliation erased or replaced prior pre-network audit")
+    }
+   }else if phase=="prepared"{
+    // PREPARED legitimately resumed its exact payload ONCE through the
+    // native provider retry wrapper; that authorized send must create
+    // exactly one new pre-network audit (not zero and not two).
+    if retained==nil||retained.Total!=1||len(retained.Attempts)!=1||
+     retained.RunID!=originalRun||
+     retained.Attempts[0].PayloadSHA256!=agentchat.ProviderPayloadDigest(payload){
+     t.Fatalf("legitimate PREPARED resumption lacks exact one-attempt audit: %+v",retained)
     }
    }else if retained!=nil{
-    t.Fatal("unsent request gained post-restart audit")
+    t.Fatal("SENDING before first audit acquired a synthetic receipt after restart")
    }
   })
  }
