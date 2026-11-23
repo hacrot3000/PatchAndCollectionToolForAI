@@ -122,6 +122,7 @@ func (s *Store) SetSegmentTaskPlanStepStatus(
 
   index:=-1
   var old TaskPlanStep
+  selected:=make([]TaskPlanStep,0,limit)
   // Stream validation of ALL canonical parts, including off-screen
   // evidence fields, before changing even one segment pointer.
   done,total,e:=s.scanTaskPlanSegmentsLocked(x,func(i int,step TaskPlanStep)error{
@@ -129,6 +130,7 @@ func (s *Store) SetSegmentTaskPlanStepStatus(
     index=i
     old=step
    }
+   if i>=offset&&i-offset<limit{selected=append(selected,step)}
    return nil
   })
   if e!=nil{return e}
@@ -146,6 +148,9 @@ func (s *Store) SetSegmentTaskPlanStepStatus(
   target.Status=status
   target.UpdatedAt=now
   if old.Status=="done"{done--}
+  if index>=offset&&index-offset<len(selected){
+   selected[index-offset]=*target
+  }
   x.TaskPlan.UpdatedAt=now
   x.AppendEvent("plan_updated",x.Status,"","set_step")
   x.Revision=expectedRevision+1
@@ -196,23 +201,9 @@ func (s *Store) SetSegmentTaskPlanStepStatus(
 
   end:=offset+limit
   if end>total{end=total}
-  selected:=make([]TaskPlanStep,0,end-offset)
-  // Scan again only when forming the small response; do not materialize
-  // all 1,024 milestone records. All segments were verified above.
-  first:=0
-  for _,ref:=range x.TaskPlanSegments{
-   if first>=end{break}
-   last:=first+ref.Count
-   if last>offset&&first<end {
-    p,e:=s.readVerifiedTaskPlanSegment(id,ref)
-    if e!=nil{return fmt.Errorf("committed page response cannot be verified: %w",e)}
-    from,to:=0,len(p)
-    if offset>first{from=offset-first}
-    if end<last{to=end-first}
-    selected=append(selected,p[from:to]...)
-   }
-   first=last
-  }
+  // The response is projected from the already-verified pre-commit
+  // snapshot with the single changed step substituted. No fallible page
+  // re-read may turn a successfully committed edit into an ambiguous error.
   if len(selected)!=end-offset{return ErrInvalidSession}
   responsePlan:=*x.TaskPlan
   responsePlan.Steps=selected
