@@ -1133,7 +1133,7 @@ function renderAgentProviderEgressReview(session,review){
   ' · '+String(review.kind||'request')+
   ' · payload SHA-256 '+String(review.payload_sha256||'unavailable').slice(0,16)+'…';
  const handoff=agentButton('Open handoff',()=>agentHandoffButton.click());
- const dismiss=agentButton('Close warning',()=>{
+ const dismiss=agentButton('Dismiss warning',()=>{
   // Presentation only: journal, provider egress and native work are intact.
   // Keep this run dismissed across every 1.2s progress poll. A different
   // Run ID/phase remains eligible to show a fresh warning.
@@ -1141,6 +1141,7 @@ function renderAgentProviderEgressReview(session,review){
   agentProviderEgressNotice.hidden=true;
  });
  dismiss.title='Hide this warning only; does not stop the AI or mark provider delivery as confirmed';
+ dismiss.setAttribute('aria-label','Dismiss provider warning without resolving the request');
  agentProviderEgressNotice.append(
   agentEl('strong','',heading),
   agentEl('div','',identity),
