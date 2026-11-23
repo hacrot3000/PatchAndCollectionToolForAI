@@ -86,6 +86,7 @@ type Contract struct {
 
 type Artifact struct {
 	ID           string    `json:"id"`
+	GroupID      string    `json:"group_id,omitempty"`
 	Kind         string    `json:"kind"`
 	Ref          string    `json:"ref"`
 	SHA256       string    `json:"sha256"`
@@ -105,6 +106,8 @@ const (
 
 type Dependency struct {
 	ID               string           `json:"id"`
+	GroupID          string           `json:"group_id,omitempty"`
+	ConversationID   string           `json:"conversation_id,omitempty"`
 	ConsumerTask     string           `json:"consumer_task"`
 	ProducerTask     string           `json:"producer_task"`
 	ContractKey      string           `json:"contract_key"`
@@ -129,6 +132,8 @@ type CoordinationEvent struct {
 
 type coordinationState struct {
 	Version      int                   `json:"version"`
+	OwnerID      string                `json:"owner_id,omitempty"`
+	ProjectID    string                `json:"project_id,omitempty"`
 	Peers        map[string]Peer       `json:"peers"`
 	Messages     []PeerMessage         `json:"messages"`
 	Contracts    map[string]Contract   `json:"contracts"`
@@ -138,23 +143,36 @@ type coordinationState struct {
 	EventSeq     uint64                `json:"event_seq"`
 }
 
+var coordinationHubLocks sync.Map
+
 type CoordinationHub struct {
-	mu   sync.Mutex
-	path string
+	mu        *sync.Mutex
+	path      string
+	ownerID   string
+	projectID string
 }
 
-func NewCoordinationHub(path string) (*CoordinationHub, error) {
+func NewCoordinationHub(path string, scope ...string) (*CoordinationHub, error) {
 	if path == "" || !filepath.IsAbs(path) {
 		return nil, errors.New("absolute coordination hub path required")
+	}
+	if len(scope) != 0 && len(scope) != 2 {
+		return nil, errors.New("coordination hub scope must include owner and project")
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 		return nil, err
 	}
-	return &CoordinationHub{path: filepath.Clean(path)}, nil
+	cleanPath := filepath.Clean(path)
+	lock, _ := coordinationHubLocks.LoadOrStore(cleanPath, &sync.Mutex{})
+	hub := &CoordinationHub{mu: lock.(*sync.Mutex), path: cleanPath}
+	if len(scope) == 2 {
+		hub.ownerID, hub.projectID = scope[0], scope[1]
+	}
+	return hub, nil
 }
 
 func (h *CoordinationHub) load() (coordinationState, error) {
-	state := coordinationState{Version: 1, Peers: map[string]Peer{}, Contracts: map[string]Contract{}, Artifacts: map[string]Artifact{}, Dependencies: map[string]Dependency{}}
+	state := coordinationState{Version: 2, OwnerID: h.ownerID, ProjectID: h.projectID, Peers: map[string]Peer{}, Contracts: map[string]Contract{}, Artifacts: map[string]Artifact{}, Dependencies: map[string]Dependency{}}
 	info, err := os.Lstat(h.path)
 	if errors.Is(err, os.ErrNotExist) {
 		return state, nil
@@ -172,8 +190,24 @@ func (h *CoordinationHub) load() (coordinationState, error) {
 	if err := json.Unmarshal(body, &state); err != nil {
 		return state, errors.New("invalid coordination hub state")
 	}
-	if state.Version != 1 {
+	switch state.Version {
+	case 1:
+		state.migrateVersionOne()
+	case 2:
+	default:
 		return state, errors.New("unsupported coordination hub version")
+	}
+	if h.ownerID != "" {
+		if state.OwnerID != "" && state.OwnerID != h.ownerID {
+			return state, errors.New("coordination hub owner mismatch")
+		}
+		state.OwnerID = h.ownerID
+	}
+	if h.projectID != "" {
+		if state.ProjectID != "" && state.ProjectID != h.projectID {
+			return state, errors.New("coordination hub project mismatch")
+		}
+		state.ProjectID = h.projectID
 	}
 	if state.Peers == nil {
 		state.Peers = map[string]Peer{}
@@ -188,6 +222,48 @@ func (h *CoordinationHub) load() (coordinationState, error) {
 		state.Dependencies = map[string]Dependency{}
 	}
 	return state, nil
+}
+
+func (state *coordinationState) migrateVersionOne() {
+	legacyPeers := state.Peers
+	state.Peers = make(map[string]Peer, len(legacyPeers))
+	for legacyKey, peer := range legacyPeers {
+		if peer.ConversationID == "" {
+			peer.ConversationID = legacyKey
+		}
+		state.Peers[coordinationPeerStorageKey(peer.GroupID, peer.ConversationID)] = peer
+	}
+	groupByContract := make(map[string]string, len(state.Contracts))
+	contracts := make(map[string]Contract, len(state.Contracts))
+	for legacyKey, contract := range state.Contracts {
+		if contract.Key == "" {
+			contract.Key = legacyKey
+		}
+		contracts[coordinationContractStorageKey(contract.OwnerGroup, contract.Key)] = contract
+		groupByContract[contract.Key] = contract.OwnerGroup
+	}
+	state.Contracts = contracts
+	for key, dependency := range state.Dependencies {
+		if dependency.ID == "" {
+			dependency.ID = key
+		}
+		if dependency.GroupID == "" {
+			dependency.GroupID = groupByContract[dependency.ContractKey]
+		}
+		state.Dependencies[dependency.ID] = dependency
+		if key != dependency.ID {
+			delete(state.Dependencies, key)
+		}
+	}
+	state.Version = 2
+}
+
+func coordinationContractStorageKey(groupID, key string) string {
+	return groupID + "\x00" + key
+}
+
+func coordinationPeerStorageKey(groupID, conversationID string) string {
+	return groupID + "\x00" + conversationID
 }
 
 func (h *CoordinationHub) save(state coordinationState) error {
@@ -237,12 +313,13 @@ func (h *CoordinationHub) UpsertPeer(peer Peer) (Peer, error) {
 	if err != nil {
 		return Peer{}, err
 	}
-	existing, ok := state.Peers[peer.ConversationID]
-	if ok && existing.GroupID != "" && peer.GroupID == "" {
+	storageKey := coordinationPeerStorageKey(peer.GroupID, peer.ConversationID)
+	if existing, ok := state.Peers[storageKey]; ok && existing.GroupID != "" && peer.GroupID == "" {
 		peer.GroupID = existing.GroupID
+		storageKey = coordinationPeerStorageKey(peer.GroupID, peer.ConversationID)
 	}
 	peer.UpdatedAt = time.Now().UTC()
-	state.Peers[peer.ConversationID] = peer
+	state.Peers[storageKey] = peer
 	state.appendEvent(CoordinationEvent{GroupID: peer.GroupID, Kind: "peer_progress", Actor: peer.ConversationID, Summary: string(peer.Status), OccurredAt: peer.UpdatedAt})
 	if err := h.save(state); err != nil {
 		return Peer{}, err
@@ -263,7 +340,26 @@ func (h *CoordinationHub) Peers(groupID string) ([]Peer, error) {
 			out = append(out, peer)
 		}
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].ConversationID < out[j].ConversationID })
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].GroupID == out[j].GroupID {
+			return out[i].ConversationID < out[j].ConversationID
+		}
+		return out[i].GroupID < out[j].GroupID
+	})
+	return out, nil
+}
+
+func (h *CoordinationHub) PeersForScope(groupID, conversationID string) ([]Peer, error) {
+	peers, err := h.Peers(groupID)
+	if err != nil || groupID != "" {
+		return peers, err
+	}
+	out := make([]Peer, 0, len(peers))
+	for _, peer := range peers {
+		if peer.ConversationID == conversationID {
+			out = append(out, peer)
+		}
+	}
 	return out, nil
 }
 
@@ -285,7 +381,7 @@ func (h *CoordinationHub) PostPeerMessage(message PeerMessage) (PeerMessage, err
 		return PeerMessage{}, errors.New("peer message hop count exceeds limit")
 	}
 	if message.CorrelationID == "" {
-		message.CorrelationID = "corr-" + shortDigest(message.FromConversation+message.ToConversation+message.Kind+message.Body)
+		message.CorrelationID = "corr-" + shortDigest(message.GroupID+"|"+message.FromConversation+"|"+message.ToConversation+"|"+message.Kind+"|"+message.Body)
 	}
 	if !message.ExpiresAt.IsZero() && message.ExpiresAt.Before(time.Now().UTC()) {
 		return PeerMessage{}, errors.New("peer message already expired")
@@ -300,13 +396,14 @@ func (h *CoordinationHub) PostPeerMessage(message PeerMessage) (PeerMessage, err
 		return PeerMessage{}, err
 	}
 	for _, existing := range state.Messages {
-		if existing.CorrelationID == message.CorrelationID && existing.FromConversation == message.FromConversation && existing.Kind == message.Kind {
+		if existing.GroupID == message.GroupID && existing.CorrelationID == message.CorrelationID && existing.FromConversation == message.FromConversation && existing.Kind == message.Kind {
 			return existing, nil
 		}
 	}
 	if message.Kind == "answer" {
 		for i := range state.Messages {
-			if state.Messages[i].CorrelationID == message.CorrelationID && state.Messages[i].Status == "pending" {
+			if state.Messages[i].GroupID == message.GroupID && state.Messages[i].CorrelationID == message.CorrelationID &&
+				state.Messages[i].ToConversation == message.FromConversation && state.Messages[i].FromConversation == message.ToConversation && state.Messages[i].Status == "pending" {
 				state.Messages[i].Status = "answered"
 				state.Messages[i].AnsweredBy = message.FromConversation
 				state.Messages[i].Answer = message.Body
@@ -317,6 +414,7 @@ func (h *CoordinationHub) PostPeerMessage(message PeerMessage) (PeerMessage, err
 				return state.Messages[i], nil
 			}
 		}
+		return PeerMessage{}, errors.New("peer answer does not match a pending question in this group")
 	}
 	message.Status = "pending"
 	message.CreatedAt = time.Now().UTC()
@@ -359,7 +457,7 @@ func (h *CoordinationHub) PeerMessages(conversationID, groupID string) ([]PeerMe
 // UpsertContract publishes a contract revision. Status never advances on its
 // own: only verified evidence can move it to integrated or verified.
 func (h *CoordinationHub) UpsertContract(contract Contract) (Contract, error) {
-	if contract.Key == "" || len(contract.Key) > 200 || contract.Signature == "" || len(contract.Signature) > 2000 {
+	if contract.Key == "" || len(contract.Key) > 200 || strings.ContainsRune(contract.Key, '\x00') || contract.Signature == "" || len(contract.Signature) > 2000 || strings.ContainsRune(contract.OwnerGroup, '\x00') {
 		return Contract{}, errors.New("invalid contract")
 	}
 	switch contract.Status {
@@ -373,7 +471,8 @@ func (h *CoordinationHub) UpsertContract(contract Contract) (Contract, error) {
 	if err != nil {
 		return Contract{}, err
 	}
-	existing, ok := state.Contracts[contract.Key]
+	storageKey := coordinationContractStorageKey(contract.OwnerGroup, contract.Key)
+	existing, ok := state.Contracts[storageKey]
 	if ok {
 		if contract.Revision == 0 {
 			contract.Revision = existing.Revision
@@ -392,7 +491,7 @@ func (h *CoordinationHub) UpsertContract(contract Contract) (Contract, error) {
 		contract.Revision = 1
 	}
 	contract.UpdatedAt = time.Now().UTC()
-	state.Contracts[contract.Key] = contract
+	state.Contracts[storageKey] = contract
 	if len(state.Contracts) > maxContracts {
 		return Contract{}, errors.New("contract registry capacity exceeded")
 	}
@@ -403,8 +502,16 @@ func (h *CoordinationHub) UpsertContract(contract Contract) (Contract, error) {
 	return contract, nil
 }
 
-// AdvanceContract moves a contract forward only with explicit evidence.
+// AdvanceContract preserves the legacy unscoped API only when the key is unique.
 func (h *CoordinationHub) AdvanceContract(key string, revision uint64, status ContractStatus, integratedRef, testEvidence string) (Contract, error) {
+	return h.advanceContract("", key, revision, status, integratedRef, testEvidence)
+}
+
+func (h *CoordinationHub) AdvanceContractInGroup(groupID, key string, revision uint64, status ContractStatus, integratedRef, testEvidence string) (Contract, error) {
+	return h.advanceContract(groupID, key, revision, status, integratedRef, testEvidence)
+}
+
+func (h *CoordinationHub) advanceContract(groupID, key string, revision uint64, status ContractStatus, integratedRef, testEvidence string) (Contract, error) {
 	switch status {
 	case ContractIntegrated, ContractVerified, ContractNeedsReview:
 	default:
@@ -422,7 +529,22 @@ func (h *CoordinationHub) AdvanceContract(key string, revision uint64, status Co
 	if err != nil {
 		return Contract{}, err
 	}
-	contract, ok := state.Contracts[key]
+	storageKey := coordinationContractStorageKey(groupID, key)
+	var contract Contract
+	var ok bool
+	if groupID != "" {
+		contract, ok = state.Contracts[storageKey]
+	} else {
+		for candidateKey, candidate := range state.Contracts {
+			if candidate.Key != key {
+				continue
+			}
+			if ok {
+				return Contract{}, errors.New("contract key is ambiguous without a group")
+			}
+			contract, storageKey, ok = candidate, candidateKey, true
+		}
+	}
 	if !ok {
 		return Contract{}, errors.New("contract not found")
 	}
@@ -434,7 +556,7 @@ func (h *CoordinationHub) AdvanceContract(key string, revision uint64, status Co
 	}
 	contract.Status, contract.IntegratedRef, contract.TestEvidence = status, integratedRef, testEvidence
 	contract.UpdatedAt = time.Now().UTC()
-	state.Contracts[key] = contract
+	state.Contracts[storageKey] = contract
 	state.appendEvent(CoordinationEvent{GroupID: contract.OwnerGroup, Kind: "contract_updated", Actor: contract.OwnerTask, Target: key, Summary: string(status), OccurredAt: contract.UpdatedAt})
 	if err := h.save(state); err != nil {
 		return Contract{}, err
@@ -455,7 +577,26 @@ func (h *CoordinationHub) Contracts(groupID string) ([]Contract, error) {
 			out = append(out, contract)
 		}
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Key < out[j].Key })
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].OwnerGroup == out[j].OwnerGroup {
+			return out[i].Key < out[j].Key
+		}
+		return out[i].OwnerGroup < out[j].OwnerGroup
+	})
+	return out, nil
+}
+
+func (h *CoordinationHub) ContractsForScope(groupID string) ([]Contract, error) {
+	contracts, err := h.Contracts(groupID)
+	if err != nil || groupID != "" {
+		return contracts, err
+	}
+	out := make([]Contract, 0, len(contracts))
+	for _, contract := range contracts {
+		if contract.OwnerGroup == "" {
+			out = append(out, contract)
+		}
+	}
 	return out, nil
 }
 
@@ -477,6 +618,9 @@ func (h *CoordinationHub) PublishArtifact(artifact Artifact) (Artifact, error) {
 	if err != nil {
 		return Artifact{}, err
 	}
+	if artifact.GroupID != "" && strings.ContainsRune(artifact.GroupID, '\x00') {
+		return Artifact{}, errors.New("invalid artifact group")
+	}
 	if artifact.ID == "" {
 		id, idErr := newID()
 		if idErr != nil {
@@ -484,12 +628,18 @@ func (h *CoordinationHub) PublishArtifact(artifact Artifact) (Artifact, error) {
 		}
 		artifact.ID = id
 	}
+	if existing, ok := state.Artifacts[artifact.ID]; ok {
+		if existing.GroupID != artifact.GroupID || existing.Conversation != artifact.Conversation || existing.Ref != artifact.Ref || existing.SHA256 != artifact.SHA256 || existing.Kind != artifact.Kind {
+			return Artifact{}, errors.New("artifact ID is already owned by another scope or payload")
+		}
+		return existing, nil
+	}
 	artifact.CreatedAt = time.Now().UTC()
 	state.Artifacts[artifact.ID] = artifact
 	if len(state.Artifacts) > maxArtifacts {
 		return Artifact{}, errors.New("artifact registry capacity exceeded")
 	}
-	state.appendEvent(CoordinationEvent{Kind: "artifact_published", Actor: artifact.ProducerRun, Target: artifact.ID, Summary: artifact.Kind, OccurredAt: artifact.CreatedAt})
+	state.appendEvent(CoordinationEvent{GroupID: artifact.GroupID, Kind: "artifact_published", Actor: artifact.ProducerRun, Target: artifact.ID, Summary: artifact.Kind, OccurredAt: artifact.CreatedAt})
 	if err := h.save(state); err != nil {
 		return Artifact{}, err
 	}
@@ -511,7 +661,30 @@ func (h *CoordinationHub) Artifacts() ([]Artifact, error) {
 	return out, nil
 }
 
+func (h *CoordinationHub) ArtifactsForScope(groupID, conversationID string) ([]Artifact, error) {
+	artifacts, err := h.Artifacts()
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Artifact, 0, len(artifacts))
+	for _, artifact := range artifacts {
+		if groupID != "" {
+			if artifact.GroupID == groupID || artifact.GroupID == "" && conversationID != "" && artifact.Conversation == conversationID {
+				out = append(out, artifact)
+			}
+			continue
+		}
+		if artifact.GroupID == "" && conversationID != "" && artifact.Conversation == conversationID {
+			out = append(out, artifact)
+		}
+	}
+	return out, nil
+}
+
 func (h *CoordinationHub) RegisterDependency(dependency Dependency) (Dependency, error) {
+	if strings.ContainsAny(dependency.GroupID+dependency.ConversationID, "\x00\r\n") {
+		return Dependency{}, errors.New("invalid dependency scope")
+	}
 	if dependency.ConsumerTask == "" || dependency.ProducerTask == "" || dependency.ContractKey == "" {
 		return Dependency{}, errors.New("invalid dependency")
 	}
@@ -525,7 +698,10 @@ func (h *CoordinationHub) RegisterDependency(dependency Dependency) (Dependency,
 		return Dependency{}, err
 	}
 	if dependency.ID == "" {
-		dependency.ID = "dep-" + shortDigest(dependency.ConsumerTask+"|"+dependency.ProducerTask+"|"+dependency.ContractKey)
+		dependency.ID = "dep-" + shortDigest(dependency.GroupID+"|"+dependency.ConsumerTask+"|"+dependency.ProducerTask+"|"+dependency.ContractKey)
+	}
+	if existing, ok := state.Dependencies[dependency.ID]; ok && (existing.GroupID != dependency.GroupID || existing.ContractKey != dependency.ContractKey) {
+		return Dependency{}, errors.New("dependency ID is already owned by another group or contract")
 	}
 	if dependency.Status == "" {
 		dependency.Status = DependencyPlanned
@@ -538,7 +714,21 @@ func (h *CoordinationHub) RegisterDependency(dependency Dependency) (Dependency,
 	if dependency.Status == DependencyVerified && (dependency.WorkspaceRef == "" || dependency.TestEvidence == "") {
 		return Dependency{}, errors.New("verified dependency requires a workspace reference and test evidence")
 	}
-	contract, ok := state.Contracts[dependency.ContractKey]
+	var contract Contract
+	var ok bool
+	if dependency.GroupID != "" {
+		contract, ok = state.Contracts[coordinationContractStorageKey(dependency.GroupID, dependency.ContractKey)]
+	} else {
+		for _, candidate := range state.Contracts {
+			if candidate.Key != dependency.ContractKey {
+				continue
+			}
+			if ok {
+				return Dependency{}, errors.New("dependency contract key is ambiguous without a group")
+			}
+			contract, dependency.GroupID, ok = candidate, candidate.OwnerGroup, true
+		}
+	}
 	if !ok {
 		return Dependency{}, errors.New("dependency must reference a published contract")
 	}
@@ -553,7 +743,7 @@ func (h *CoordinationHub) RegisterDependency(dependency Dependency) (Dependency,
 	if len(state.Dependencies) > maxDependencies {
 		return Dependency{}, errors.New("dependency registry capacity exceeded")
 	}
-	state.appendEvent(CoordinationEvent{Kind: "dependency_registered", Actor: dependency.ConsumerTask, Target: dependency.ProducerTask, Summary: dependency.ContractKey, OccurredAt: dependency.UpdatedAt})
+	state.appendEvent(CoordinationEvent{GroupID: dependency.GroupID, Kind: "dependency_registered", Actor: dependency.ConversationID, Target: dependency.ProducerTask, Summary: dependency.ContractKey, OccurredAt: dependency.UpdatedAt})
 	if err := h.save(state); err != nil {
 		return Dependency{}, err
 	}
@@ -575,6 +765,26 @@ func (h *CoordinationHub) Dependencies() ([]Dependency, error) {
 	return out, nil
 }
 
+func (h *CoordinationHub) DependenciesForScope(groupID, conversationID string) ([]Dependency, error) {
+	dependencies, err := h.Dependencies()
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Dependency, 0, len(dependencies))
+	for _, dependency := range dependencies {
+		if groupID != "" {
+			if dependency.GroupID == groupID {
+				out = append(out, dependency)
+			}
+			continue
+		}
+		if dependency.GroupID == "" && conversationID != "" && dependency.ConversationID == conversationID {
+			out = append(out, dependency)
+		}
+	}
+	return out, nil
+}
+
 func (h *CoordinationHub) Events(after uint64, limit int) ([]CoordinationEvent, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -590,6 +800,32 @@ func (h *CoordinationHub) Events(after uint64, limit int) ([]CoordinationEvent, 
 		if event.Sequence > after {
 			out = append(out, event)
 		}
+	}
+	if len(out) > limit {
+		out = out[len(out)-limit:]
+	}
+	return out, nil
+}
+
+func (h *CoordinationHub) EventsForScope(groupID, conversationID string, after uint64, limit int) ([]CoordinationEvent, error) {
+	events, err := h.Events(after, maxCoordinationEvents)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]CoordinationEvent, 0, len(events))
+	for _, event := range events {
+		if groupID != "" {
+			if event.GroupID == groupID {
+				out = append(out, event)
+			}
+			continue
+		}
+		if event.GroupID == "" && conversationID != "" && (event.Actor == conversationID || event.Target == conversationID) {
+			out = append(out, event)
+		}
+	}
+	if limit <= 0 || limit > maxCoordinationEvents {
+		limit = maxCoordinationEvents
 	}
 	if len(out) > limit {
 		out = out[len(out)-limit:]

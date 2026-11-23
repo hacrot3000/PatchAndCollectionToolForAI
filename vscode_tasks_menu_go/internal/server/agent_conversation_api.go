@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -23,13 +24,204 @@ func (s *Server) agentConversationRegistry() (*agentrun.ConversationRegistry, er
 	return agentrun.NewConversationRegistry(filepath.Join(dir, "conversations.json"))
 }
 
-func (s *Server) agentCoordinationHub() (*agentrun.CoordinationHub, error) {
-	privatePath, err := aiPrivatePath(s.agentOwnerWorkspace())
+func (s *Server) agentCoordinationHub(owner string) (*agentrun.CoordinationHub, error) {
+	ownerWorkspace := s.agentOwnerWorkspace()
+	privatePath, err := aiPrivatePath(ownerWorkspace)
 	if err != nil {
 		return nil, err
 	}
-	dir := filepath.Join(filepath.Dir(privatePath), "agent-coordination-"+aiWorkspaceHash(s.agentOwnerWorkspace()))
-	return agentrun.NewCoordinationHub(filepath.Join(dir, "coordination.json"))
+	project, err := patchtool.ReadProjectIdentity(ownerWorkspace)
+	if err != nil {
+		return nil, err
+	}
+	workspaceHash := aiWorkspaceHash(ownerWorkspace)
+	legacyPath := filepath.Join(filepath.Dir(privatePath), "agent-coordination-"+workspaceHash, "coordination.json")
+	dir := filepath.Join(filepath.Dir(privatePath), "agent-coordination-"+workspaceHash+"-"+aiOwnerHash(owner))
+	hubPath := filepath.Join(dir, "coordination.json")
+	if err := s.migrateLegacyCoordinationJournal(legacyPath, hubPath, owner); err != nil {
+		return nil, err
+	}
+	return agentrun.NewCoordinationHub(hubPath, owner, project.ID)
+}
+
+// migrateLegacyCoordinationJournal copies the pre-tenant coordination journal
+// into an owner-scoped journal. The legacy journal was shared by every shared
+// user, so only the records this owner owns are copied; the legacy file is
+// never deleted, so a rollback keeps its data.
+func (s *Server) migrateLegacyCoordinationJournal(legacyPath, hubPath, owner string) error {
+	if _, err := os.Stat(hubPath); err == nil {
+		return nil
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	source, err := os.ReadFile(legacyPath)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if len(source) > 8<<20 {
+		return errors.New("legacy coordination journal exceeds the size limit")
+	}
+	var state struct {
+		Version   int            `json:"version"`
+		OwnerID   string         `json:"owner_id"`
+		ProjectID string         `json:"project_id"`
+		Peers     map[string]any `json:"peers"`
+		Messages  []any          `json:"messages"`
+		Contracts map[string]any `json:"contracts"`
+		Artifacts map[string]any `json:"artifacts"`
+		Deps      map[string]any `json:"dependencies"`
+	}
+	if err := json.Unmarshal(source, &state); err != nil {
+		return errors.New("legacy coordination journal is invalid")
+	}
+	if state.OwnerID != "" && state.OwnerID != owner {
+		return errors.New("legacy coordination journal belongs to another owner")
+	}
+	ownerConversations, err := s.agentConversationIDsForOwner(owner)
+	if err != nil {
+		return err
+	}
+	ownerGroups, err := s.agentConversationGroupIDsForOwner(owner)
+	if err != nil {
+		return err
+	}
+	// A single-user installation owns the whole legacy journal. A shared
+	// installation must only migrate the records this owner owns.
+	sharedScope := s.Config.SharedServerEnabled
+	filtered := map[string]any{}
+	for key, value := range state.Peers {
+		peer, ok := value.(map[string]any)
+		if !ok {
+			continue
+		}
+		conversation, _ := peer["conversation_id"].(string)
+		if conversation == "" {
+			continue
+		}
+		if !sharedScope || ownerConversations[conversation] {
+			filtered[key] = value
+		}
+	}
+	migrated := map[string]any{
+		"version": 2, "owner_id": owner, "peers": filtered,
+		"messages": []any{}, "contracts": map[string]any{},
+		"artifacts": map[string]any{}, "dependencies": map[string]any{},
+		"events": []any{},
+	}
+	if len(filtered) == 0 {
+		migrated["peers"] = map[string]any{}
+	}
+	if messages, ok := state.Messages, true; ok {
+		owned := make([]any, 0, len(messages))
+		for _, raw := range messages {
+			message, isObject := raw.(map[string]any)
+			if !isObject {
+				continue
+			}
+			from, _ := message["from_conversation"].(string)
+			to, _ := message["to_conversation"].(string)
+			if !sharedScope || ownerConversations[from] || ownerConversations[to] {
+				owned = append(owned, raw)
+			}
+		}
+		migrated["messages"] = owned
+	}
+	if contracts, ok := state.Contracts, true; ok {
+		owned := map[string]any{}
+		for key, raw := range contracts {
+			contract, isObject := raw.(map[string]any)
+			if !isObject {
+				continue
+			}
+			group, _ := contract["owner_group"].(string)
+			if !sharedScope || group == "" || ownerGroups[group] {
+				owned[key] = raw
+			}
+		}
+		migrated["contracts"] = owned
+	}
+	if artifacts, ok := state.Artifacts, true; ok {
+		owned := map[string]any{}
+		for key, raw := range artifacts {
+			artifact, isObject := raw.(map[string]any)
+			if !isObject {
+				continue
+			}
+			conversation, _ := artifact["conversation_id"].(string)
+			if !sharedScope || conversation == "" || ownerConversations[conversation] {
+				owned[key] = raw
+			}
+		}
+		migrated["artifacts"] = owned
+	}
+	if dependencies, ok := state.Deps, true; ok {
+		owned := map[string]any{}
+		for key, raw := range dependencies {
+			dependency, isObject := raw.(map[string]any)
+			if !isObject {
+				continue
+			}
+			group, _ := dependency["group_id"].(string)
+			if !sharedScope || group == "" || ownerGroups[group] {
+				owned[key] = raw
+			}
+		}
+		migrated["dependencies"] = owned
+	}
+	if project, err := patchtool.ReadProjectIdentity(s.agentOwnerWorkspace()); err == nil {
+		migrated["project_id"] = project.ID
+	}
+	body, err := json.Marshal(migrated)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(hubPath), 0700); err != nil {
+		return err
+	}
+	return os.WriteFile(hubPath, append(body, '\n'), 0600)
+}
+
+func (s *Server) agentConversationIDsForOwner(owner string) (map[string]bool, error) {
+	store, err := s.agentChatStore()
+	if err != nil {
+		return nil, err
+	}
+	sessions, err := store.List(owner)
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string]bool, len(sessions))
+	for _, session := range sessions {
+		out[session.ID] = true
+	}
+	return out, nil
+}
+
+func (s *Server) agentConversationGroupIDsForOwner(owner string) (map[string]bool, error) {
+	registry, err := s.agentConversationRegistry()
+	if err != nil {
+		return nil, err
+	}
+	ownerID, err := agentrun.WorkspaceID(s.agentOwnerWorkspace())
+	if err != nil {
+		return nil, err
+	}
+	project, err := patchtool.ReadProjectIdentity(s.agentOwnerWorkspace())
+	if err != nil {
+		return nil, err
+	}
+	groups, err := registry.Groups(ownerID, project.ID)
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string]bool, len(groups))
+	for _, group := range groups {
+		out[group.ID] = true
+	}
+	return out, nil
 }
 
 func (s *Server) agentConversationGroupsAPI(w http.ResponseWriter, r *http.Request) {
@@ -215,41 +407,71 @@ func (s *Server) validateAgentConversationOwner(owner, conversationID string) er
 	return nil
 }
 
+func (s *Server) conversationGroupForOwner(owner, groupID string) (agentrun.ConversationGroup, error) {
+	registry, err := s.agentConversationRegistry()
+	if err != nil {
+		return agentrun.ConversationGroup{}, err
+	}
+	ownerID, err := agentrun.WorkspaceID(s.agentOwnerWorkspace())
+	if err != nil {
+		return agentrun.ConversationGroup{}, err
+	}
+	project, err := patchtool.ReadProjectIdentity(s.agentOwnerWorkspace())
+	if err != nil {
+		return agentrun.ConversationGroup{}, err
+	}
+	groups, err := registry.Groups(ownerID, project.ID)
+	if err != nil {
+		return agentrun.ConversationGroup{}, err
+	}
+	for _, group := range groups {
+		if group.ID == groupID {
+			return group, nil
+		}
+	}
+	return agentrun.ConversationGroup{}, errors.New("conversation group not found")
+}
+
+func (s *Server) validateAgentConversationGroupAccess(owner, groupID string) error {
+	group, err := s.conversationGroupForOwner(owner, groupID)
+	if err != nil {
+		return err
+	}
+	store, err := s.agentChatStore()
+	if err != nil {
+		return err
+	}
+	sessions, err := store.List(owner)
+	if err != nil {
+		return err
+	}
+	for _, session := range sessions {
+		if session.ProjectID != group.ProjectID {
+			continue
+		}
+		for _, member := range group.Members {
+			if member == session.ID {
+				return nil
+			}
+		}
+	}
+	return errors.New("owner has no conversation in the group")
+}
+
 func (s *Server) validateAgentConversationGroupMember(owner, groupID, conversationID string) error {
 	if err := s.validateAgentConversationOwner(owner, conversationID); err != nil {
 		return err
 	}
-	if strings.TrimSpace(groupID) == "" {
-		return errors.New("conversation group is required")
-	}
-	registry, err := s.agentConversationRegistry()
+	group, err := s.conversationGroupForOwner(owner, groupID)
 	if err != nil {
 		return err
 	}
-	ownerID, err := agentrun.WorkspaceID(s.agentOwnerWorkspace())
-	if err != nil {
-		return err
-	}
-	project, err := patchtool.ReadProjectIdentity(s.agentOwnerWorkspace())
-	if err != nil {
-		return err
-	}
-	groups, err := registry.Groups(ownerID, project.ID)
-	if err != nil {
-		return err
-	}
-	for _, group := range groups {
-		if group.ID != groupID {
-			continue
+	for _, member := range group.Members {
+		if member == conversationID {
+			return nil
 		}
-		for _, member := range group.Members {
-			if member == conversationID {
-				return nil
-			}
-		}
-		return errors.New("conversation is not a member of the group")
 	}
-	return errors.New("conversation group not found")
+	return errors.New("conversation is not a member of the group")
 }
 
 // ForkConversation creates a new conversation that inherits the ancestor prefix

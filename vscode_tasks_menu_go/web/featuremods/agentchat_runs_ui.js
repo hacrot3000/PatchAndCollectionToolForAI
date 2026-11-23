@@ -199,17 +199,41 @@
   async function refresh(){
    if(!currentSession||loading)return;
    loading=true;
+   // A poll that started for one conversation must never write another
+   // conversation's data into the view when the user switches meanwhile.
+   const requestedSessionID=currentSession.id;
+   let stale=false;
    try{
     const data=await options.jsonFetch('/api/agent/runs');
-    runs=Array.isArray(data.runs)?data.runs:[];
-    try{
-     const sessionData=await options.jsonFetch('/api/agent/sessions/'+encodeURIComponent(currentSession.id));
-     toolCalls=Array.isArray(sessionData.session?.tool_calls)?sessionData.session.tool_calls:[];
-     toolCallLoadError='';
-    }catch(error){toolCalls=[];toolCallLoadError='Native Patch ledger unavailable: '+String(error?.message||error);}
-    render();
-   }catch(error){showError(error);}
+    if(currentSession?.id!==requestedSessionID){
+     stale=true;
+    }else{
+     runs=Array.isArray(data.runs)?data.runs:[];
+     try{
+      const sessionData=await options.jsonFetch('/api/agent/sessions/'+encodeURIComponent(requestedSessionID));
+      if(currentSession?.id!==requestedSessionID){
+       stale=true;
+      }else{
+       toolCalls=Array.isArray(sessionData.session?.tool_calls)?sessionData.session.tool_calls:[];
+       toolCallLoadError='';
+      }
+     }catch(error){
+      if(currentSession?.id!==requestedSessionID){
+       stale=true;
+      }else{
+       toolCalls=[];toolCallLoadError='Native Patch ledger unavailable: '+String(error?.message||error);
+      }
+     }
+     if(!stale)render();
+    }
+   }catch(error){if(currentSession?.id===requestedSessionID)showError(error);}
    finally{loading=false;}
+   if(stale){
+    // The conversation changed while this poll was in flight. Reload the new
+    // conversation instead of leaving it without run data.
+    if(currentSession)await refresh();
+    return;
+   }
    const hasActive=runs.some(run=>run.spec?.conversation_id===currentSession?.id&&activeStatuses.has(run.status));
    stopPolling();
    if(hasActive&&currentSession)timer=root.setTimeout(()=>refresh().catch(showError),650);
@@ -218,6 +242,16 @@
    currentSession=session||null;stopPolling();
    if(currentSession){selector.update(providers,preferenceFor(currentSession));await refresh();}
    else{runs=[];toolCalls=[];toolCallLoadError='';render();}
+  }
+  async function loadToolCalls(sessionID){
+   if(!sessionID)return;
+   try{
+    const sessionData=await options.jsonFetch('/api/agent/sessions/'+encodeURIComponent(sessionID));
+    const calls=Array.isArray(sessionData.session?.tool_calls)?sessionData.session.tool_calls:[];
+    if(currentSession?.id===sessionID){toolCalls=calls;toolCallLoadError='';}
+   }catch(error){
+    if(currentSession?.id===sessionID){toolCalls=[];toolCallLoadError='Native Patch ledger unavailable: '+String(error?.message||error);}
+   }
   }
   async function submit(session,message,attachments,requestID){
    if(!session?.id)throw new Error('Select a conversation before sending an Agent Run.');

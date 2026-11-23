@@ -170,7 +170,7 @@ func (s *Server) agentConversationItemAPI(w http.ResponseWriter, r *http.Request
 			"attempt": record.Attempt, "execution_workspace_id": record.Spec.ExecutionWorkspaceID,
 			"updated_at": record.UpdatedAt, "last_error": record.LastError})
 	}
-	hub, err := s.agentCoordinationHub()
+	hub, err := s.agentCoordinationHub(owner)
 	messages := []any{}
 	if err == nil {
 		if list, listErr := hub.PeerMessages(session.ID, ""); listErr == nil {

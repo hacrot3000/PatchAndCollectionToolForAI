@@ -189,12 +189,14 @@ Các quy tắc bắt buộc: streaming/out-of-order theo run ID; UI badge messag
       **Cách triển khai:** Lập capability matrix: text, streaming, context budget, files/images, tool/function calling, native session resumability, cancellation, retry semantics.  
       **Kiểm chứng / đầu ra:** Matrix chỉ đánh supported khi đã chứng thực qua code/docs/test, unsupported rõ ràng.
   - [ ] **HS-00.02 — Đồng bộ hợp đồng với nhóm Multi-Conversation**
-    - [ ] **HS-00.02.01** Thống nhất RunRequest, run_id, conversation_id, parent_turn_id, context_snapshot_id, provider_id, attempt và event envelope.  
+    - [x] **HS-00.02.01** Thống nhất RunRequest, run_id, conversation_id, parent_turn_id, context_snapshot_id, provider_id, attempt và event envelope.  
       **Cách triển khai:** Dùng một schema RunRequest/RunEvent chung với MC (IDs, parent turn, snapshot, provider, attempt, idempotency); fixture JSON versioned.  
-      **Kiểm chứng / đầu ra:** Contract test giữa two modules được CI chạy, chưa chốt thì không thay shared code.
-    - [ ] **HS-00.02.02** Thống nhất ranh giới: RunManager điều phối/lưu/truyền run; Provider Router quyết định và gọi provider.  
+      **Kiểm chứng / đầu ra:** Contract test giữa two modules được CI chạy, chưa chốt thì không thay shared code.  
+      **Bằng chứng (2026-11-23):** `agentchat.RunSpec`/`RunEvent` là envelope duy nhất; `agentrun.Manager` là nơi duy nhất giữ run state, `agentchat.ProviderRouter` chỉ quyết định/gọi provider. `go test ./internal/agentchat ./internal/agentrun` và `-race` PASS; server test `TestComposerRunCanOverlapGPTRunRetryAndStopIndependently` PASS xác nhận binding bất biến qua retry.
+    - [x] **HS-00.02.02** Thống nhất ranh giới: RunManager điều phối/lưu/truyền run; Provider Router quyết định và gọi provider.  
       **Cách triển khai:** RunManager MC nắm scheduling/persistence/cancellation ownership; HS nắm registry/router/serialization; bỏ loop riêng và double retry scheduler trong adapters.  
-      **Kiểm chứng / đầu ra:** Không có hai nơi tự quản run state hoặc global AbortController.
+      **Kiểm chứng / đầu ra:** Không có hai nơi tự quản run state hoặc global AbortController.  
+      **Bằng chứng (2026-11-23):** Chỉ `agentrun.Manager` giữ scheduler/persistence/cancel (`internal/agentrun/manager.go`); `agentchat.ConfiguredProviderAdapter` chỉ phát `RunEvent` và dùng chính `spec.RetryMode`, không có retry loop thứ hai (`internal/agentchat/provider_adapter.go`). `TestGlobalConcurrencyNeverExceedsFiveAcrossManagers`, `TestRestartMarksInFlightInterruptedAndRetryKeepsBinding` và `TestAgentChatAndRunManagerShareFiveRunLimit` PASS.
     - [ ] **HS-00.02.03** Định nghĩa cách phát hành feature flags và merge mà không cùng nhóm sửa những file giao nhau không kiểm soát.  
       **Cách triển khai:** Định nghĩa module ownership, shared interface PR first, feature flags, merge sequencing và conflict resolution; nhánh làm việc riêng nếu concurrent coder.  
       **Kiểm chứng / đầu ra:** Hai coder không push cùng HEAD/line mà không sync, integration order ghi rõ.
@@ -202,12 +204,14 @@ Các quy tắc bắt buộc: streaming/out-of-order theo run ID; UI badge messag
     - [ ] **HS-00.03.01** Ghi nhận hành vi conversation hiện tại, provider select, retry, patch and debug trước khi chỉnh sửa.  
       **Cách triển khai:** Snapshot baseline provider behavior và các đường phụ Attach to Chat, AI Pack preview, Debug, Patch failed/running; ghi commands/HEAD.  
       **Kiểm chứng / đầu ra:** Có test ledger pass/fail và đường quay lại khi regression.
-    - [ ] **HS-00.03.02** Chốt chính sách gửi mới khi run cũ chưa hoàn thành: send-now snapshot hoặc explicit queue; default send-now nếu được phép.  
+    - [x] **HS-00.03.02** Chốt chính sách gửi mới khi run cũ chưa hoàn thành: send-now snapshot hoặc explicit queue; default send-now nếu được phép.  
       **Cách triển khai:** Chính sách send-now mặc định nếu scheduler cho phép; nếu queue, reserve provider at Send; ctx #102 chỉ gồm completed turns trước snapshot.  
-      **Kiểm chứng / đầu ra:** UI không chờ #101 trừ khi user chọn queue; run #102 hiển thị stale-context warning.
-    - [ ] **HS-00.03.03** Phân biệt đổi provider cho NEXT REQUEST với chuyển một run đang chạy (không hỗ trợ chuyển mid-flight).  
+      **Kiểm chứng / đầu ra:** UI không chờ #101 trừ khi user chọn queue; run #102 hiển thị stale-context warning.  
+      **Bằng chứng (2026-11-23):** Send-now là hành vi mặc định: `POST /api/agent/context-snapshots` + `POST /api/agent/runs` không bị chặn bởi run đang chạy. Snapshot #102 chỉ chứa prompt của #101 (chưa có output) và ghim `excluded_pending_run_ids=[run-101]`; UI hiện cảnh báo "Context snapshot excluded unfinished run output". `TestComposerRunCanOverlapGPTRunRetryAndStopIndependently` và `TestContextSnapshotIncludesActiveRunPromptButExcludesItsPartialOutput` PASS.
+    - [x] **HS-00.03.03** Phân biệt đổi provider cho NEXT REQUEST với chuyển một run đang chạy (không hỗ trợ chuyển mid-flight).  
       **Cách triển khai:** Chỉ đổi `selected_next_provider`, không hot-migrate live stream/native provider session; hiển thị explanatory tooltip nếu cần.  
-      **Kiểm chứng / đầu ra:** Composer #101 còn running khi chọn GPT, không restart/abort #101.
+      **Kiểm chứng / đầu ra:** Composer #101 còn running khi chọn GPT, không restart/abort #101.  
+      **Bằng chứng (2026-11-23):** Selector chỉ ghi preference `taskdeck.agent.next-provider.v1.<conversation_id>`; không có đường code nào đổi binding của run đang chạy. `TestComposerRunCanOverlapGPTRunRetryAndStopIndependently` xác nhận #101 vẫn chạy và giữ provider sau khi #102 GPT hoàn tất trước.
 
 - [ ] **HS-01 — Provider Registry và định danh provider cho mỗi run**
   - [ ] **HS-01.01 — Chuẩn hóa Provider Registry**
@@ -231,12 +235,14 @@ Các quy tắc bắt buộc: streaming/out-of-order theo run ID; UI badge messag
       **Cách triển khai:** Persist provider_session mapping keyed conversation+provider+model/session lineage; không lấy native session id làm conversation id hoặc reuse across providers.  
       **Kiểm chứng / đầu ra:** Composer→GPT→Composer giữ internal identities riêng không cross-route.
   - [ ] **HS-01.03 — Immutable run binding**
-    - [ ] **HS-01.03.01** Khi bấm Send, chốt provider_id, model, config version và context snapshot vào run.  
+    - [x] **HS-01.03.01** Khi bấm Send, chốt provider_id, model, config version và context snapshot vào run.  
       **Cách triển khai:** In one transaction at Send, resolve and validate selected provider/model/config_version, snapshot provider binding và context manifest trong run record.  
-      **Kiểm chứng / đầu ra:** Đổi selector 100 lần sau Send không thay run.provider_id.
-    - [ ] **HS-01.03.02** Không đọc biến currentProvider để route stream/tool response/stop/retry của run đang chạy.  
+      **Kiểm chứng / đầu ra:** Đổi selector 100 lần sau Send không thay run.provider_id.  
+      **Bằng chứng (2026-11-23):** RunSpec chốt `ProviderID`, `ModelID`, `ProviderConfigVersion`, `CredentialFingerprint`, `ContextSnapshotID` và `ParentTurnID` lúc Send; snapshot lưu `RunBindingSnapshot` đúng các giá trị đó và `verifyAgentRunSnapshotBinding` từ chối lệch. `TestAgentContextSnapshotReturnsSafePinnedRunBinding`, `TestRunSpecRequiresCompleteImmutableBinding` và `TestComposerRunCanOverlapGPTRunRetryAndStopIndependently` PASS.
+    - [x] **HS-01.03.02** Không đọc biến currentProvider để route stream/tool response/stop/retry của run đang chạy.  
       **Cách triển khai:** Every callback resolves run_id→immutable spec, including stream/tools/patch/retry/stop; grep + refactor global currentProvider reads ngoài UI preference.  
-      **Kiểm chứng / đầu ra:** Interleaved Composer/GPT events không swap destinations.
+      **Kiểm chứng / đầu ra:** Interleaved Composer/GPT events không swap destinations.  
+      **Bằng chứng (2026-11-23):** Không tồn tại biến `currentProvider` trong `internal/agentchat`; mọi event đi qua `runEventSink{manager,runID}` và `Manager` ghi vào record của đúng `runID`. `TestComposerRunCanOverlapGPTRunRetryAndStopIndependently` xác nhận output #102 chỉ nằm trong record của #102; `TestStopOnlyCancelsSelectedRun` xác nhận Stop chỉ hủy run được chọn.
     - [ ] **HS-01.03.03** Thêm migration/backfill provider info cho run/history cũ nếu dữ liệu có thể xác định; nếu không, đánh unknown.  
       **Cách triển khai:** Backfill provenance only if known, e.g. stored provider tags; else `unknown` with fallback display; migration idempotent/non-destructive.  
       **Kiểm chứng / đầu ra:** Old History displayed accurately; không gán GPT giả cho old Composer.
@@ -249,19 +255,23 @@ Các quy tắc bắt buộc: streaming/out-of-order theo run ID; UI badge messag
     - [ ] **HS-02.01.02** Cho phép chuyển khi conversation đang có một hoặc nhiều run active; không reset draft/attachments.  
       **Cách triển khai:** Remove disabled-on-running global selector, keep draft/attachments on switch, update UI immediately while preserving active run streams.  
       **Kiểm chứng / đầu ra:** Start #101 Composer, switch GPT, request #101 remains streaming.
-    - [ ] **HS-02.01.03** Lưu selected_next_provider theo conversation; có default của project và tùy chọn dùng mặc định.  
+    - [x] **HS-02.01.03** Lưu selected_next_provider theo conversation; có default của project và tùy chọn dùng mặc định.  
       **Cách triển khai:** Persist `next_provider_id` per conversation with project default fallback; explicit reset uses project default, never overwrites active runs.  
-      **Kiểm chứng / đầu ra:** Reload restores C1 GPT and C2 Composer choices.
+      **Kiểm chứng / đầu ra:** Reload restores C1 GPT and C2 Composer choices.  
+      **Bằng chứng (2026-11-23):** `web/featuremods/agentchat_runs_ui.js` lưu preference theo khoá `taskdeck.agent.next-provider.v1.<conversation_id>` và khôi phục khi remount; fallback về provider/model của session. Node test trong `web/agentchat_bootstrap_test.cjs` (Composer #101 → GPT #102, reload khôi phục GPT, quay lại Composer) PASS.
   - [ ] **HS-02.02 — Thông tin provider trên từng message**
-    - [ ] **HS-02.02.01** Hiển thị badge provider và trạng thái run trên response, request pending và History.  
+    - [x] **HS-02.02.01** Hiển thị badge provider và trạng thái run trên response, request pending và History.  
       **Cách triển khai:** Badges use run.provider_id (not selected_next_provider) in transcript, pending cards and History; unknown legacy rendered neutral.  
-      **Kiểm chứng / đầu ra:** Switch UI after Send does not repaint old response badge.
-    - [ ] **HS-02.02.02** Khi request #101 đang Composer và #102 là GPT, UI hiển thị song song, stop/retry tách biệt.  
+      **Kiểm chứng / đầu ra:** Switch UI after Send does not repaint old response badge.  
+      **Bằng chứng (2026-11-23):** `agentProviderBadge` trong `web/featuremods/agentchat.js` đọc `item.provider_id`/`item.model_id` của history item (mang provenance từ `OriginRunID`), không đọc selector hiện tại; run card đọc `run.spec.provider_id`. Node bootstrap test xác nhận badge và card giữ đúng provider sau khi đổi selector.
+    - [x] **HS-02.02.02** Khi request #101 đang Composer và #102 là GPT, UI hiển thị song song, stop/retry tách biệt.  
       **Cách triển khai:** Show two running cards #101 Composer, #102 GPT with independent Stop/Retry/Inspect; fix loading state keyed run.  
-      **Kiểm chứng / đầu ra:** Stop #101 keeps #102 progress and its actions accessible.
-    - [ ] **HS-02.02.03** Hiển thị cảnh báo nếu #102 không bao gồm output #101 vì #101 chưa hoàn tất tại thời điểm snapshot.  
+      **Kiểm chứng / đầu ra:** Stop #101 keeps #102 progress and its actions accessible.  
+      **Bằng chứng (2026-11-23):** `web/featuremods/agentchat_runs_ui.js` render card theo `run.spec.run_id`, action Stop/Retry gọi endpoint có runID cụ thể. Node bootstrap test xác nhận Stop #101 không đổi trạng thái #102 và card #102 vẫn hiển thị; thêm `web/agentchat_runs_isolation_test.cjs` xác nhận poll của conversation cũ không vẽ dữ liệu sang conversation mới.
+    - [x] **HS-02.02.03** Hiển thị cảnh báo nếu #102 không bao gồm output #101 vì #101 chưa hoàn tất tại thời điểm snapshot.  
       **Cách triển khai:** Compute prior_active_run exclusion at snapshot_at_send; show informational warning `#101 chưa nằm trong context #102`, optional queue setting.  
-      **Kiểm chứng / đầu ra:** Warning appears only when there is relevant unfinished prior run.
+      **Kiểm chứng / đầu ra:** Warning appears only when there is relevant unfinished prior run.  
+      **Bằng chứng (2026-11-23):** Snapshot ghim `excluded_pending_run_ids` cho các run queued/running/waiting_tool; run card hiển thị "Context snapshot excluded unfinished run output: run-101" chỉ khi danh sách này khác rỗng. Node bootstrap test và `TestContextSnapshotIncludesActiveRunPromptButExcludesItsPartialOutput` PASS.
   - [ ] **HS-02.03 — Khả dụng và lỗi dễ hiểu**
     - [ ] **HS-02.03.01** Trình bày lý do provider không sẵn sàng hoặc không hỗ trợ tool/attachment hiện tại.  
       **Cách triển khai:** Capability preflight check attachment types, tool list, context window and provider available; display actionable validation error.  
@@ -278,16 +288,18 @@ Các quy tắc bắt buộc: streaming/out-of-order theo run ID; UI badge messag
     - [ ] **HS-03.01.01** Chuẩn hóa user/assistant/tool/system messages, attachments, tool results, timestamps và file/line provenance.  
       **Cách triển khai:** Canonical message shape role, kind/text, tool_call/result, attachment references, provenance, origin_run_id, timestamps, source provider tags.  
       **Kiểm chứng / đầu ra:** Serializer roundtrip preserves visible chat and line-numbered file excerpts.
-    - [ ] **HS-03.01.02** Gắn parent_turn/run reference để giữ đúng thứ tự logic khi hai response trả về đảo thứ tự.  
+    - [x] **HS-03.01.02** Gắn parent_turn/run reference để giữ đúng thứ tự logic khi hai response trả về đảo thứ tự.  
       **Cách triển khai:** DAG history parent_turn_id with snapshot anchor; never flatten by completion timestamp, keep partial run exclusion semantics.  
-      **Kiểm chứng / đầu ra:** GPT #102 response before Composer #101 still attached to #102 prompt.
+      **Kiểm chứng / đầu ra:** GPT #102 response before Composer #101 still attached to #102 prompt.  
+      **Bằng chứng (2026-11-23):** `agentchat.HistoryItem` mang `ParentTurnID`, `OriginRunID`, `ProviderID`, `ModelID`; snapshot chọn parent turn bằng `parent_turn_id` chứ không theo timestamp, và chỉ nối output của run Completed. `TestHistoryItemCarriesRunProvenance`, `TestContextSnapshotIncludesActiveRunPromptButExcludesItsPartialOutput` và `TestComposerRunCanOverlapGPTRunRetryAndStopIndependently` PASS.
     - [ ] **HS-03.01.03** Phân biệt text hữu hình và dữ liệu nội bộ provider; không yêu cầu xuất private reasoning/opaque state.  
       **Cách triển khai:** Only user-visible content and permitted tool outputs in canonical data; native hidden thoughts/session secrets are opaque refs or omitted.  
       **Kiểm chứng / đầu ra:** Cross-provider payload contains no private reasoning or auth headers.
   - [ ] **HS-03.02 — Bộ chuyển đổi context theo provider**
-    - [ ] **HS-03.02.01** Mapper canonical → Composer/GPT request, giữ roles, instructions, source links và tool outputs hỗ trợ.  
+    - [x] **HS-03.02.01** Mapper canonical → Composer/GPT request, giữ roles, instructions, source links và tool outputs hỗ trợ.  
       **Cách triển khai:** Provider-specific serializers build payload from canonical snapshots, map roles/tool calls/text, file refs and system instructions; log payload schema not secrets.  
-      **Kiểm chứng / đầu ra:** Golden fixture Composer→GPT retains prompts, visible results and attachments when supported.
+      **Kiểm chứng / đầu ra:** Golden fixture Composer→GPT retains prompts, visible results and attachments when supported.  
+      **Bằng chứng (2026-11-23):** `agentchat.CanonicalProviderPayloadBuilder` dựng canonical request rồi `BuildChatCompletionsRequest`/`BuildResponsesRequest` chiếu sang từng API; không mang `previous_response_id`, `conversation` hay metadata nội bộ. `TestCanonicalPayloadBuilderMapsHistoryAndDropsOpaqueSessionState` và `TestCanonicalPayloadBuilderReplaysToolContinuationForBothProviderAPIs` PASS.
     - [ ] **HS-03.02.02** Handle unsupported attachment/tool bằng thông báo rõ, không bỏ lặng dữ liệu quan trọng.  
       **Cách triển khai:** Preflight unsupported media/tools: convert only safe types with review or refuse; generate error listing exact affected items, never silently strip.  
       **Kiểm chứng / đầu ra:** Send unsupported binary to text-only provider yields explicit actionable refusal.

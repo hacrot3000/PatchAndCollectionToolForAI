@@ -86,8 +86,10 @@
    setOptions(conversationSelect,conversations.map(item=>({value:item.id,label:(item.title||item.id)+' · '+item.id})), 'Select conversation',current);
    setOptions(groupSelect,groups.map(item=>({value:item.id,label:item.title+' · '+item.members.length+' member(s)'})),'Select group',priorGroup||groups.find(group=>group.members.includes(conversationSelect.value))?.id||'');
    const group=selectedGroup();instructions.value=group?.shared_instructions||'';
-   const query=new URLSearchParams();if(group)query.set('group_id',group.id);if(selectedConversation())query.set('conversation_id',selectedConversation());
-   const data=await api.jsonFetch('/api/agent/coordination'+(query.size?'?'+query.toString():''));
+   const conversationID=selectedConversation();
+   if(!group&&!conversationID){for(const pre of Object.values(views))pre.textContent='None';status.textContent='Select a conversation or group to view coordination data.';return {peers:[],messages:[],contracts:[],artifacts:[],dependencies:[],events:[]};}
+   const query=new URLSearchParams();if(group)query.set('group_id',group.id);if(conversationID)query.set('conversation_id',conversationID);
+   const data=await api.jsonFetch('/api/agent/coordination?'+query.toString());
    for(const key of Object.keys(views)){const items=Array.isArray(data[key])?data[key]:[];views[key].textContent=items.length?JSON.stringify(items,null,2):'None';}
    status.textContent='Group and coordination data refreshed.';
    return data;

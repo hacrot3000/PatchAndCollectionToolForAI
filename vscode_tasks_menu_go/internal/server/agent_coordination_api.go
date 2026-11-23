@@ -21,7 +21,7 @@ func (s *Server) agentCoordinationAPI(w http.ResponseWriter, r *http.Request) {
 	if !s.requireSharedActionPermission(w, r, permission, "agent.coordination", "agent_coordination") {
 		return
 	}
-	hub, err := s.agentCoordinationHub()
+	hub, err := s.agentCoordinationHub(owner)
 	if err != nil {
 		http.Error(w, "coordination hub unavailable", 500)
 		return
@@ -30,17 +30,21 @@ func (s *Server) agentCoordinationAPI(w http.ResponseWriter, r *http.Request) {
 	case http.MethodGet:
 		groupID := strings.TrimSpace(r.URL.Query().Get("group_id"))
 		conversationID := strings.TrimSpace(r.URL.Query().Get("conversation_id"))
-		if conversationID != "" {
-			var validateErr error
-			if groupID != "" {
-				validateErr = s.validateAgentConversationGroupMember(owner, groupID, conversationID)
-			} else {
-				validateErr = s.validateAgentConversationOwner(owner, conversationID)
-			}
-			if validateErr != nil {
-				http.Error(w, "conversation coordination data not found", 404)
-				return
-			}
+		if groupID == "" && conversationID == "" {
+			http.Error(w, "group_id or conversation_id scope is required", 400)
+			return
+		}
+		var validateErr error
+		if groupID != "" && conversationID != "" {
+			validateErr = s.validateAgentConversationGroupMember(owner, groupID, conversationID)
+		} else if groupID != "" {
+			validateErr = s.validateAgentConversationGroupAccess(owner, groupID)
+		} else {
+			validateErr = s.validateAgentConversationOwner(owner, conversationID)
+		}
+		if validateErr != nil {
+			http.Error(w, "conversation coordination data not found", 404)
+			return
 		}
 		after := uint64(0)
 		if raw := strings.TrimSpace(r.URL.Query().Get("after")); raw != "" {
@@ -51,7 +55,7 @@ func (s *Server) agentCoordinationAPI(w http.ResponseWriter, r *http.Request) {
 			}
 			after = parsed
 		}
-		peers, err := hub.Peers(groupID)
+		peers, err := hub.PeersForScope(groupID, conversationID)
 		if err != nil {
 			http.Error(w, "cannot list peers", 500)
 			return
@@ -61,22 +65,22 @@ func (s *Server) agentCoordinationAPI(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "cannot list peer messages", 500)
 			return
 		}
-		contracts, err := hub.Contracts(groupID)
+		contracts, err := hub.ContractsForScope(groupID)
 		if err != nil {
 			http.Error(w, "cannot list contracts", 500)
 			return
 		}
-		artifacts, err := hub.Artifacts()
+		artifacts, err := hub.ArtifactsForScope(groupID, conversationID)
 		if err != nil {
 			http.Error(w, "cannot list artifacts", 500)
 			return
 		}
-		dependencies, err := hub.Dependencies()
+		dependencies, err := hub.DependenciesForScope(groupID, conversationID)
 		if err != nil {
 			http.Error(w, "cannot list dependencies", 500)
 			return
 		}
-		events, err := hub.Events(after, 100)
+		events, err := hub.EventsForScope(groupID, conversationID, after, 100)
 		if err != nil {
 			http.Error(w, "cannot list coordination events", 500)
 			return
@@ -189,7 +193,13 @@ func (s *Server) agentCoordinationAPI(w http.ResponseWriter, r *http.Request) {
 					return
 				}
 			}
-			contract, err := hub.AdvanceContract(request.ContractKey, request.Revision, agentrun.ContractStatus(request.Status), request.IntegratedRef, request.TestEvidence)
+			var contract agentrun.Contract
+			var err error
+			if request.GroupID != "" {
+				contract, err = hub.AdvanceContractInGroup(request.GroupID, request.ContractKey, request.Revision, agentrun.ContractStatus(request.Status), request.IntegratedRef, request.TestEvidence)
+			} else {
+				contract, err = hub.AdvanceContract(request.ContractKey, request.Revision, agentrun.ContractStatus(request.Status), request.IntegratedRef, request.TestEvidence)
+			}
 			if err != nil {
 				http.Error(w, "contract transition rejected", 409)
 				return
@@ -212,7 +222,12 @@ func (s *Server) agentCoordinationAPI(w http.ResponseWriter, r *http.Request) {
 				http.Error(w, "artifact conversation does not match its producer", 403)
 				return
 			}
+			if request.Artifact.GroupID != "" && request.Artifact.GroupID != request.GroupID {
+				http.Error(w, "artifact group does not match its producer scope", 403)
+				return
+			}
 			request.Artifact.Conversation = request.ConversationID
+			request.Artifact.GroupID = request.GroupID
 			artifact, err := hub.PublishArtifact(*request.Artifact)
 			if err != nil {
 				http.Error(w, "artifact rejected", 400)
@@ -243,6 +258,16 @@ func (s *Server) agentCoordinationAPI(w http.ResponseWriter, r *http.Request) {
 					return
 				}
 			}
+			if request.Dependency.GroupID != "" && request.Dependency.GroupID != request.GroupID {
+				http.Error(w, "dependency group does not match its producer scope", 403)
+				return
+			}
+			if request.Dependency.ConversationID != "" && request.Dependency.ConversationID != request.ConversationID {
+				http.Error(w, "dependency conversation does not match its producer", 403)
+				return
+			}
+			request.Dependency.GroupID = request.GroupID
+			request.Dependency.ConversationID = request.ConversationID
 			dependency, err := hub.RegisterDependency(*request.Dependency)
 			if err != nil {
 				http.Error(w, "dependency rejected", 409)

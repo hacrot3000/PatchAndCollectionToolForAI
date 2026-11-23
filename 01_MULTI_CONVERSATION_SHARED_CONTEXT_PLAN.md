@@ -398,15 +398,18 @@ INTERRUPTED --explicit retry--> new attempt (not a silent re-execute)
 
 - [ ] **MC-06 — Coordination Hub, contracts và dependencies**
   - [ ] **MC-06.01 — Lưu sự kiện phối hợp**
-    - [ ] **MC-06.01.01** Tạo event log append-only cho task assignment, progress, blockers, requests, contracts và artifacts.  
+    - [x] **MC-06.01.01** Tạo event log append-only cho task assignment, progress, blockers, requests, contracts và artifacts.  
       **Cách triển khai:** Append-only coordination log với types TASK_ASSIGNED/PROGRESS/BLOCKED/ASK/ANSWER/CONTRACT/ARTIFACT, producer, consumer, contract ref.  
-      **Kiểm chứng / đầu ra:** Can query events theo group và correlate về initiating run.
-    - [ ] **MC-06.01.02** Chống vòng lặp hỏi đáp agent-agent, duplicate event, và lưu correlation_id/TTL/timeout.  
+      **Kiểm chứng / đầu ra:** Can query events theo group và correlate về initiating run.  
+      **Bằng chứng (2026-11-23):** Coordination hub ghi event append-only với sequence tăng đơn điệu và `group_id`, và có API đọc theo phạm vi group. `TestCoordinationEventLogCoversRequiredKindsAndStaysGroupScoped` PASS xác nhận đủ loại peer_progress/peer_ask/peer_answered/contract_published/artifact_published/dependency_registered, sequence tăng nghiêm ngặt và group khác không thấy event ngoài phạm vi.
+    - [x] **MC-06.01.02** Chống vòng lặp hỏi đáp agent-agent, duplicate event, và lưu correlation_id/TTL/timeout.  
       **Cách triển khai:** Mỗi peer request có correlation_id, hop_count <= cấu hình, dedup key, TTL và max unanswered; không cho auto ping-pong vô hạn.  
-      **Kiểm chứng / đầu ra:** Synthetic loop A→B→A bị chặn với lỗi rõ; hỏi trùng không tăng số event.
+      **Kiểm chứng / đầu ra:** Synthetic loop A→B→A bị chặn với lỗi rõ; hỏi trùng không tăng số event.  
+      **Bằng chứng (2026-11-23):** `agentrun.PostPeerMessage` từ chối self-message, giới hạn `hop_count <= 4`, gán TTL 15 phút, dedup theo (group, correlation, from, kind) và chỉ cho phép answer khớp đúng câu hỏi pending trong cùng group. `TestCoordinationHubRejectsUnknownContractAndPeerLoop` PASS.
     - [ ] **MC-06.01.03** Tạo bảng dependency task ↔ API/file/commit và trạng thái PLANNED/IMPLEMENTED/INTEGRATED/VERIFIED.  
       **Cách triển khai:** Dependency record link consumer task/run→producer contract/artifact, status PLANNED→IMPLEMENTED→INTEGRATED→VERIFIED, workspace/ref/test-evidence.  
-      **Kiểm chứng / đầu ra:** Không cho VERIFIED khi thiếu SHA + integration proof + passing test.
+      **Kiểm chứng / đầu ra:** Không cho VERIFIED khi thiếu SHA + integration proof + passing test.  
+      **Implementation note (partial, 2026-11-23):** Dependency record lưu `group_id` + `conversation_id` + contract key/revision; VERIFIED bắt buộc có `workspace_ref` và `test_evidence` (fail-closed trong `agentrun.RegisterDependency`), và contract phải thuộc đúng group. `TestCoordinationHubScopesDuplicateContractKeysByGroup` và `TestCoordinationAPIIsolatesGroupsOwnersAndUnscopedQueries` PASS. Dependency graph trong UI và bằng chứng build/test còn pending.
   - [ ] **MC-06.02 — Cung cấp giao thức peer communication**
     - [ ] **MC-06.02.01** Triển khai get_peer_status, ask_peer, publish_progress, publish_contract, get_contract, register_dependency.
       **Cách triển khai:** Publish service/typed tool API `get_peer_status`, `ask_peer`, `publish_progress`, `publish_contract`, `get_contract`, `register_dependency`; validate group membership.
@@ -426,9 +429,10 @@ INTERRUPTED --explicit retry--> new attempt (not a silent re-execute)
     - [ ] **MC-06.03.02** Thông báo thay đổi contract/breaking change đến các conversation bị ảnh hưởng.  
       **Cách triển khai:** Diff contract schema/version, classify breaking (rename, args/return) và publish invalidation tới consumers, mark dependencies NEEDS_REVIEW.  
       **Kiểm chứng / đầu ra:** Thay return type của A2 khiến C2 thấy cảnh báo và pending verify.
-    - [ ] **MC-06.03.03** Chỉ đánh dấu INTEGRATED/VERIFIED khi artifact đã có trong workspace dùng và test qua; không dựa vào chat nói đã hoàn tất.  
+    - [x] **MC-06.03.03** Chỉ đánh dấu INTEGRATED/VERIFIED khi artifact đã có trong workspace dùng và test qua; không dựa vào chat nói đã hoàn tất.  
       **Cách triển khai:** IMPLEMENTED cần code ref, INTEGRATED cần ref trong workspace consumer, VERIFIED cần build/test evidence cho dependency; state transitions audit.  
-      **Kiểm chứng / đầu ra:** Không thể click VERIFIED nếu chỉ có chat báo hoàn thành hoặc commit chưa áp dụng.
+      **Kiểm chứng / đầu ra:** Không thể click VERIFIED nếu chỉ có chat báo hoàn thành hoặc commit chưa áp dụng.  
+      **Bằng chứng (2026-11-23):** `AdvanceContract` yêu cầu artifact reference cho INTEGRATED và cả reference + test evidence cho VERIFIED; `RegisterDependency` từ chối VERIFIED khi thiếu `workspace_ref`/`test_evidence` và từ chối dependency không có contract hợp lệ trong group. `TestCoordinationHubPeersMessagesAndContractLifecycle` PASS.
   - [ ] **MC-06.04 — Hiển thị Coordination UI**
     - [ ] **MC-06.04.01** Thêm tab/activity Coordination Events, peer status, dependency tree, blocked items và cross-link sang run gốc.
       **Cách triển khai:** Coordination tab gồm event timeline, peer status, contract list, dependency graph, blocked queue; click event mở originating conversation/run.
