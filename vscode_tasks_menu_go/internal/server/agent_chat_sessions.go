@@ -380,9 +380,13 @@ func (s *Server) agentChatSessionMetadataAPI(w http.ResponseWriter, r *http.Requ
 			http.Error(w, "agent journal unavailable", 500)
 			return
 		}
-		x, err := store.Rename(id, owner, title)
+		x, err := store.Rename(id, owner, title, req.ExpectedRevision)
 		if errors.Is(err, agentchat.ErrNotFound) {
 			http.Error(w, "Agent session not found", 404)
+			return
+		}
+		if errors.Is(err, agentchat.ErrStaleRevision) {
+			http.Error(w, "future session revision", 409)
 			return
 		}
 		if err != nil {
