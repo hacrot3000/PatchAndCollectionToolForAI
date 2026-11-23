@@ -142,14 +142,25 @@ func (s *Server) agentChatTaskPlanAPI(w http.ResponseWriter,r *http.Request,id s
    return
   }
  }
- // A segmented plan's non-completing single-step status edit can be
- // revision-fenced and committed by replacing only its 32-step segment.
- // "done", every evidence/AutoCheck/Go-test edit and unpaged/legacy
- // operations keep the full-plan proof-verified mutation path below.
+ // Paged status edits may write a single verified 32-step page. A done
+ // transition is eligible ONLY for explicit owner manual attestation or a
+ // canonical in-journal Patch/Collection receipt; the Store verifies it
+ // under the same journal lock as the revision CAS. Archived receipts and
+ // native Task/Go-suite proof retain the full-plan verifier below.
  if r.Method==http.MethodPost&&postPaged&&req.Action=="set_step"&&
-  (req.Status=="pending"||req.Status=="active"||req.Status=="blocked"){
-  page,e:=store.SetSegmentTaskPlanStepStatus(
-   id,owner,req.ExpectedRevision,req.StepID,req.Status,postOffset,postLimit)
+  (req.Status=="pending"||req.Status=="active"||req.Status=="blocked"||
+   (req.Status=="done"&&(req.EvidenceKind=="manual"||
+    req.EvidenceKind=="patch"||req.EvidenceKind=="collection"))){
+  var page agentchat.TaskPlanPageResult
+  var e error
+  if req.Status=="done"{
+   page,e=store.SetSegmentTaskPlanStepDone(
+    id,owner,req.ExpectedRevision,req.StepID,req.EvidenceKind,
+    req.EvidenceRef,req.EvidenceNote,postOffset,postLimit)
+  }else{
+   page,e=store.SetSegmentTaskPlanStepStatus(
+    id,owner,req.ExpectedRevision,req.StepID,req.Status,postOffset,postLimit)
+  }
   if e==nil{
    w.Header().Set("Cache-Control","no-store")
    writeJSON(w,200,page)
@@ -167,6 +178,8 @@ func (s *Server) agentChatTaskPlanAPI(w http.ResponseWriter,r *http.Request,id s
     http.Error(w,"reopen the completed plan explicitly before editing",409)
    case errors.Is(e,agentchat.ErrTaskPlanStepNotFound):
     http.Error(w,"invalid task plan step: unknown task plan step",409)
+   case errors.Is(e,agentchat.ErrTaskPlanCompletionProofRejected):
+    http.Error(w,"completion evidence not verified or owner acceptance criteria not reviewed",409)
    default:
     http.Error(w,"unable to persist task plan",409)
    }

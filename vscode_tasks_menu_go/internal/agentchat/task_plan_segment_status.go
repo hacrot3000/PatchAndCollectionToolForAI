@@ -15,6 +15,7 @@ import (
 var ErrTaskPlanSegmentWriteUnsupported=errors.New("task plan segment status edit not applicable")
 var ErrTaskPlanStepNotFound=errors.New("task plan milestone not found")
 var ErrTaskPlanNotEditable=errors.New("task plan must be reopened before editing")
+var ErrTaskPlanCompletionProofRejected=errors.New("task plan completion requires verified evidence and owner-reviewed criteria")
 
 // scanTaskPlanSegmentsLocked validates ALL steps without retaining a giant
 // plan in memory. The per-page canonical validator enforces ALL field-,
@@ -89,9 +90,9 @@ func (s *Store) writeTaskPlanStatusPartLocked(id string,ref TaskPlanSegmentRef,p
  return os.Rename(tmp.Name(),s.taskPlanSegmentPath(id,ref))
 }
 
-// SetSegmentTaskPlanStepStatus is deliberately LIMITED to non-completing
-// status transitions: pending, active, blocked. It never mints acceptance,
-// changes a Go-test requirement, or bypasses verified Native tool receipts.
+// SetSegmentTaskPlanStepStatus only accepts non-completing transitions.
+// The companion SetSegmentTaskPlanStepDone requires in-Store verification
+// of the exact user-attested or canonical in-journal completion evidence.
 //
 // After owner+revision checks it validates every canonical step/page, edits
 // only the one matching 32-step page, commits a new immutable page and then
@@ -104,11 +105,34 @@ func (s *Store) SetSegmentTaskPlanStepStatus(
  id,owner string,expectedRevision uint64,stepID,status string,
  offset,limit int,
 )(TaskPlanPageResult,error){
+ if status!="pending"&&status!="active"&&status!="blocked"{
+  return TaskPlanPageResult{},ErrTaskPlanSegmentWriteUnsupported
+ }
+ return s.setSegmentTaskPlanStep(id,owner,expectedRevision,stepID,status,"","","",offset,limit)
+}
+
+// SetSegmentTaskPlanStepDone commits a proof-verified milestone by rewriting
+// only its immutable 32-step page. A manual note is an explicit OWNER
+// attestation, not a machine test; in-journal Patch/Collection evidence is
+// checked against the SAME canonical receipts as the legacy endpoint.
+// Archived/native Go evidence continues through the existing full-plan path.
+// No caller can pass a pre-manufactured TaskPlanEvidence to this method.
+func (s *Store) SetSegmentTaskPlanStepDone(
+ id,owner string,expectedRevision uint64,stepID,kind,ref,note string,
+ offset,limit int,
+)(TaskPlanPageResult,error){
+ if kind!="manual"&&kind!="patch"&&kind!="collection"{
+  return TaskPlanPageResult{},ErrTaskPlanSegmentWriteUnsupported
+ }
+ return s.setSegmentTaskPlanStep(id,owner,expectedRevision,stepID,"done",kind,ref,note,offset,limit)
+}
+
+func (s *Store) setSegmentTaskPlanStep(
+ id,owner string,expectedRevision uint64,stepID,status,kind,ref,note string,
+ offset,limit int,
+)(TaskPlanPageResult,error){
  var result TaskPlanPageResult
  if !validID(id){return result,ErrNotFound}
- if status!="pending"&&status!="active"&&status!="blocked"{
-  return result,ErrTaskPlanSegmentWriteUnsupported
- }
  if offset<0||limit<1||limit>32{return result,ErrTaskPlanPageOutOfRange}
  err:=s.withLock(func()error{
   x,e:=s.readSessionManifestLocked(id)
@@ -142,11 +166,37 @@ func (s *Store) SetSegmentTaskPlanStepStatus(
 
   now:=time.Now().UTC()
   target:=&part[index%taskPlanSegmentSize]
-  // Preserve prior evidence (including any accepted native receipt) when
-  // marking a previously-done step pending/active/blocked, as legacy code.
+  // Preserve prior accepted receipts, matching UpdateTaskPlanStep. A
+  // transition to done MUST verify the owner's evidence before any writes.
+  if status=="done"{
+   if old.GoTestRequirements!=nil{
+    // The predeclared checklist requires the existing native suite verifier.
+    return ErrTaskPlanSegmentWriteUnsupported
+   }
+   if !TaskPlanStepCriteriaReviewed(old)||len(old.Evidence)>=MaxTaskPlanEvidence{
+    return ErrTaskPlanCompletionProofRejected
+   }
+   proof,verifyErr:=VerifyTaskPlanEvidence(x,kind,ref,note)
+   if verifyErr!=nil{
+    if kind=="patch"||kind=="collection"{
+     // The authoritative receipt might live in an integrity-checked
+     // archive. The legacy endpoint resolves it without bypassing proof.
+     return ErrTaskPlanSegmentWriteUnsupported
+    }
+    return ErrTaskPlanCompletionProofRejected
+   }
+   target.Evidence=append(target.Evidence,proof)
+  }
   target.Status=status
   target.UpdatedAt=now
-  if old.Status=="done"{done--}
+  if old.Status=="done"&&status!="done"{done--}
+  if old.Status!="done"&&status=="done"{done++}
+  // Validate the mutated page (including evidence and acceptance) using
+  // the same canonical plan validator before staging any new immutable file.
+  pageMeta:=*x.TaskPlan
+  pageMeta.Suggestions=nil
+  pageMeta.Steps=part
+  if e=ValidateTaskPlan(&pageMeta);e!=nil{return e}
   if index>=offset&&index-offset<len(selected){
    selected[index-offset]=*target
   }
@@ -228,6 +278,6 @@ func (s *Store) SetSegmentTaskPlanStepStatus(
  return result,nil
 }
 
-// This file intentionally doesn't supply a generic segment-level evidence
-// mutation API. "done" and any evidence/Go/AutoCheck change must continue
-// through the existing full-plan, native-proof-verified endpoint.
+// This file intentionally does not allow arbitrary evidence injection.
+// Go test/Task-run proof, archive-only receipts, command guard mutations,
+// AutoCheck rules and final plan completion keep the legacy verified path.
