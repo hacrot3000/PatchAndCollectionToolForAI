@@ -30,6 +30,8 @@ agentCSS.textContent=[
 '.agentchat-session-row{display:flex;align-items:center;gap:4px}',
 '.agentchat-session-row>.agentchat-session{flex:1;min-width:0}',
 '.agentchat-session-row>.delete{flex:none;color:#ecb2b2}',
+'.agentchat-session-row>.rename{flex:none;font-size:11px;padding:4px 6px}',
+'.agentchat-tab>button:first-child{max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
 '.agentchat-header-group:focus-within .agentchat-header-menu{outline:0}',
 '.agentchat-toolbar-actions{overflow:visible}',
 '.agentchat-more-menu .agentchat-header-menu{left:auto;right:0}',
@@ -1448,12 +1450,16 @@ function updateAgentSessionRows(){
    const row=agentEl('div','agentchat-session-row');
    button=agentButton(label,()=>{toggleAgentSessions(false);selectAgentSession(sess.id).catch(showAgentError);});
    button.title=sess.id;agentSessionListNodes.set(sess.id,button);
+   const edit=agentButton('Rename',()=>renameAgentSession(sess.id).catch(showAgentError));
+   edit.className='rename';edit.title='Rename this conversation (saved to tabs and History)';
    const remove=agentButton('Delete',()=>deleteAgentSession(sess.id).catch(showAgentError));
    remove.className='delete';remove.title='Permanently delete this conversation';
-   row.append(button,remove);sessionList.append(row);
+   row.append(button,edit,remove);sessionList.append(row);
   }
   if(button.textContent!==label)button.textContent=label;
-  const remove=button.parentElement?.children?.[1];
+  const edit=button.parentElement?.children?.[1];
+  if(edit)edit.disabled=agentSessionBusy(sess.id);
+  const remove=button.parentElement?.children?.[2];
   if(remove){
    remove.disabled=agentConversationUnresolved(sess);
    remove.title=remove.disabled?'Resolve the running/pending Patch before deleting':'Permanently delete this conversation';
@@ -1499,6 +1505,8 @@ function renderAgentTabs(){
    const open=agentButton(label,()=>selectAgentSession(id).catch(showAgentError));
    open.className='';
    open.style.padding='0';open.style.border='0';open.style.background='transparent';
+   open.title='Double-click to rename conversation';
+   open.addEventListener('dblclick',event=>{event.preventDefault();renameAgentSession(id).catch(showAgentError);});
    const close=agentButton('✕',()=>closeAgentTab(id));
    close.className='close';tab.append(open,close);
    agentTabNodes.set(id,tab);tabbar.append(tab);
@@ -2793,17 +2801,33 @@ async function deleteAgentSession(id){
  else {displayAgentSession(null);renderAgentAutomationControls(null);}
  status.textContent='Conversation deleted.';
 }
-async function renameAgentSession(){
- if(!agentActive)return;
- const session=await selectAgentSession(agentActive);
- const next=window.prompt('Session title',session.title||'');
+async function renameAgentSession(id=agentActive){
+ if(!id)return;
+ // Rename by immutable session ID; do not switch tabs or overwrite a draft
+ // merely because the user renamed an item in the History menu.
+ const data=await agentApp.jsonFetch('/api/agent/sessions/'+encodeURIComponent(id));
+ const session=data.session;
+ if(!session||session.id!==id)throw new Error('Conversation not found.');
+ const next=window.prompt('Rename conversation (maximum 120 UTF-8 bytes)',session.title||session.model_id||'');
  if(next===null)return;
- const result=await agentApp.jsonFetch('/api/agent/sessions/'+encodeURIComponent(session.id)+'/metadata',{
+ const label=String(next).trim();
+ if(!label)throw new Error('Enter a non-empty conversation name.');
+ if(new TextEncoder().encode(label).length>120)throw new Error('Conversation name must be at most 120 UTF-8 bytes.');
+ if(label===session.title)return;
+ const result=await agentApp.jsonFetch('/api/agent/sessions/'+encodeURIComponent(id)+'/metadata',{
   method:'PATCH',headers:{'Content-Type':'application/json'},
-  body:JSON.stringify({title:String(next),expected_revision:session.revision}),
+  body:JSON.stringify({title:label,expected_revision:session.revision}),
  });
+ const saved=result.session;
+ if(saved?.id!==id||saved.title!==label)throw new Error('Server did not confirm the renamed conversation.');
+ if(agentCurrentSession?.id===id)agentCurrentSession.title=saved.title;
+ const cached=agentSessions.find(x=>x.id===id);
+ if(cached){cached.title=saved.title;cached.revision=saved.revision;}
+ updateAgentSessionRows();
+ renderAgentTabs();
+ // Reload the authoritative list without selecting a different conversation.
  await loadAgentSessions();
- await selectAgentSession(result.session.id);
+ status.textContent='Conversation renamed to "'+label+'".';
 }
 async function archiveAgentSession(){
  if(!agentActive)return;
