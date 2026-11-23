@@ -113,6 +113,24 @@ func (s *Store) archiveCollectionHistory(x *Session) error {
  return nil
 }
 
+// readArchivedCollectionHistoryLocked uses the same verified immutable
+// archive decoder as the owner-scoped public API, while the caller already
+// holds Store.withLock. Never invoke the public API under that lock.
+func (s *Store) readArchivedCollectionHistoryLocked(x Session,part uint64)([]HistoryItem,error){
+ if !validID(x.ID)||part==0||part>x.HistoryArchiveParts{return nil,ErrNotFound}
+ path:=s.historyArchivePath(x.ID,part)
+ fi,e:=os.Lstat(path);if e!=nil{return nil,e}
+ if !fi.Mode().IsRegular()||fi.Mode().Perm()&0077!=0||fi.Size()>4<<20{return nil,ErrInvalidSession}
+ raw,e:=os.ReadFile(path);if e!=nil{return nil,e}
+ var rec historyArchiveSegment
+ if json.Unmarshal(raw,&rec)!=nil||rec.Format!="taskdeck-agent-collection-history-v1"||
+  rec.SessionID!=x.ID||rec.Sequence!=part||len(rec.Items)!=rec.ItemCount{return nil,ErrInvalidSession}
+ payload,e:=json.Marshal(rec.Items);if e!=nil{return nil,e}
+ digest:=sha256.Sum256(payload)
+ if rec.SHA256!=hex.EncodeToString(digest[:]){return nil,ErrInvalidSession}
+ return rec.Items,nil
+}
+
 // ArchivedCollectionHistory returns historical evidence for audit without
 // bringing all older observations into the provider-visible context.
 func (s *Store) ArchivedCollectionHistory(id,owner string,part uint64)([]HistoryItem,error){
@@ -120,18 +138,9 @@ func (s *Store) ArchivedCollectionHistory(id,owner string,part uint64)([]History
  var result []HistoryItem
  err:=s.withLock(func()error{
   x,e:=s.readLocked(id);if e!=nil{return e}
-  if x.Owner!=owner||!s.matchesProject(x)||part>x.HistoryArchiveParts{return ErrNotFound}
-  path:=s.historyArchivePath(id,part)
-  fi,e:=os.Lstat(path);if e!=nil{return e}
-  if !fi.Mode().IsRegular()||fi.Mode().Perm()&0077!=0||fi.Size()>4<<20{return ErrInvalidSession}
-  raw,e:=os.ReadFile(path);if e!=nil{return e}
-  var rec historyArchiveSegment
-  if json.Unmarshal(raw,&rec)!=nil||rec.Format!="taskdeck-agent-collection-history-v1"||
-   rec.SessionID!=id||rec.Sequence!=part||len(rec.Items)!=rec.ItemCount{return ErrInvalidSession}
-  payload,e:=json.Marshal(rec.Items);if e!=nil{return e}
-  digest:=sha256.Sum256(payload)
-  if rec.SHA256!=hex.EncodeToString(digest[:]){return ErrInvalidSession}
-  result=rec.Items;return nil
+  if x.Owner!=owner||!s.matchesProject(x){return ErrNotFound}
+  result,e=s.readArchivedCollectionHistoryLocked(x,part)
+  return e
  })
  return result,err
 }
