@@ -80,3 +80,32 @@ the native session service is unavailable.
 **Release verification:** CI and a live manual-versus-Agent comparison
 on the user's 150 MB workspace are required before calling the integration
 production-verified.
+
+## Silent stop regression (2026-11-23, session f7e34945)
+
+The user's debug report shows two successful provider HTTP 200 responses at
+08:13:02 and 08:13:20 UTC. The second model response was a standalone
+native COLLECT JSON request for FBB symbols in `docs/GM_52_76.c`, but the
+old Agent Go Collection JSON parser rejected its native `decompile` actions.
+The conversation was then incorrectly labelled `completed` (revision 81),
+with no native Collection execution or explicit error. UI displayed
+`AI requested Collection · view request` despite the lack of a tool result.
+
+The corrected flow recognizes standalone native COLLECT JSON even when the
+provider emits it as assistant text and function calling was offered. Valid
+requests execute via the canonical native Patch Tool; malformed requests
+produce visible `collect_request_rejected` diagnostic events and repairable
+feedback. Any missing/mismatched `project.key` or `project.id` fails the
+turn with explicit `COLLECTION_IDENTITY_REJECTED` without execution.
+Native execution errors produce `collect_native_failed` events. The UI
+labels any unexecuted assistant JSON `Collection request NOT executed`,
+not an inspected result, and distinguishes native `INCOMPLETE` and `FAILED`.
+
+A protocol integration test reproduces the user's 8-action FBB request,
+including two 200 MB search/decompile limits, and verifies Collection result
+continuation rather than a silent turn completion. A separate test covers
+malformed raw JSON and a wrong-project STOP.
+
+This does **not** mean that `auto-send ON` automatically continues every
+completed task. It is the native Collection handoff, not that UI switch,
+which must execute and return a result before the provider answers.
