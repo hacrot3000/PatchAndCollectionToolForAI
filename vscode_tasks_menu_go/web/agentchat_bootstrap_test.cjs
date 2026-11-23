@@ -355,6 +355,19 @@ assert.equal(vm.runInNewContext('modeSelect.value',context),'conversation');
 const contextHelp=find(configPanel,node=>node.className==='agentchat-context-help');
 assert.ok(contextHelp?.textContent.includes('Chat Completions')&&contextHelp.textContent.includes('conversation ID'),
  'Context help must explain the selected provider fallback and real conversation-state requirements');
+assert.ok(contextHelp.textContent.includes('Selected Context')&&
+ contextHelp.textContent.includes('new conversations only')&&
+ contextHelp.textContent.includes('TaskDeck replays compacted local history'),
+ 'Context guidance must be in English, including when Chat Completions falls back');
+setupChoice('Context','previous_response').onclick();
+assert.ok(contextHelp.textContent.includes('previous_response_id')&&
+ contextHelp.textContent.includes('response chaining'),
+ 'Response chain must have clear English guidance');
+setupChoice('Context','stateless').onclick();
+assert.ok(contextHelp.textContent.includes('token usage')&&
+ contextHelp.textContent.includes('No stateful capability probe is required'),
+ 'Stateless must have clear English guidance');
+setupChoice('Context','conversation').onclick();
 assert.equal(setupContainer.classList.contains('open'),true,'choices stay visible until user closes AI setup');
 const css=vm.runInNewContext('agentCSS.textContent',context);
 assert.ok(css.includes('.agentchat-config-category[aria-expanded="true"]>.agentchat-config-category-values'),
