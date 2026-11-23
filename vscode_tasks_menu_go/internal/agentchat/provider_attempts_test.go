@@ -48,7 +48,7 @@ func TestProviderAttemptIDsPersistPerRetryAndNeverAuthorizeReplay(t *testing.T){
  }
  for i,item:=range audit.Attempts{
   if item.Attempt!=uint64(i+1)||!ids[item.ClientRequestID]||
-   !item.HeaderSent||item.PayloadSHA256!=ProviderPayloadDigest(payload)||
+   !item.HeaderConfigured||item.PayloadSHA256!=ProviderPayloadDigest(payload)||
    item.RecordedAt.IsZero(){
    t.Fatal("attempt audit lost exact pre-send correlation record")
   }
