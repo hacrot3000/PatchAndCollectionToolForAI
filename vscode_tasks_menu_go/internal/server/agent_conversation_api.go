@@ -33,7 +33,11 @@ func (s *Server) agentCoordinationHub() (*agentrun.CoordinationHub, error) {
 }
 
 func (s *Server) agentConversationGroupsAPI(w http.ResponseWriter, r *http.Request) {
-	if !s.requireSharedActionPermission(w, r, identity.PermissionSettingsRead, "agent.conversation_groups", "agent_conversation_groups") {
+	permission := identity.PermissionSettingsRead
+	if r.Method == http.MethodPost {
+		permission = identity.PermissionSettingsWrite
+	}
+	if !s.requireSharedActionPermission(w, r, permission, "agent.conversation_groups", "agent_conversation_groups") {
 		return
 	}
 	registry, err := s.agentConversationRegistry()
@@ -89,12 +93,17 @@ func (s *Server) agentConversationGroupsAPI(w http.ResponseWriter, r *http.Reque
 }
 
 func (s *Server) agentConversationGroupItemAPI(w http.ResponseWriter, r *http.Request) {
+	owner := aiPlanOwner(r)
 	id := strings.TrimPrefix(r.URL.Path, "/api/agent/conversation-groups/")
 	if id == "" || strings.Contains(id, "/") {
 		http.Error(w, "invalid conversation group ID", 400)
 		return
 	}
-	if !s.requireSharedActionPermission(w, r, identity.PermissionSettingsRead, "agent.conversation_group.inspect", id) {
+	permission := identity.PermissionSettingsRead
+	if r.Method == http.MethodPost {
+		permission = identity.PermissionSettingsWrite
+	}
+	if !s.requireSharedActionPermission(w, r, permission, "agent.conversation_group.inspect", id) {
 		return
 	}
 	registry, err := s.agentConversationRegistry()
@@ -148,6 +157,10 @@ func (s *Server) agentConversationGroupItemAPI(w http.ResponseWriter, r *http.Re
 		}
 		switch request.Action {
 		case "add_member":
+			if err := s.validateAgentConversationOwner(owner, request.ConversationID); err != nil {
+				http.Error(w, "conversation not found for owner project", 404)
+				return
+			}
 			group, err := registry.AddMember(id, ownerWorkspaceID, project.ID, request.ConversationID)
 			if err != nil {
 				http.Error(w, "conversation group member rejected", 409)
@@ -178,6 +191,65 @@ func (s *Server) agentConversationGroupItemAPI(w http.ResponseWriter, r *http.Re
 
 func agentrunWorkspaceID(s *Server) (string, error) {
 	return agentrun.WorkspaceID(s.agentOwnerWorkspace())
+}
+
+func (s *Server) validateAgentConversationOwner(owner, conversationID string) error {
+	if strings.TrimSpace(conversationID) == "" {
+		return errors.New("conversation ID is required")
+	}
+	store, err := s.agentChatStore()
+	if err != nil {
+		return err
+	}
+	session, err := store.Get(conversationID, owner)
+	if err != nil {
+		return err
+	}
+	project, err := patchtool.ReadProjectIdentity(s.agentOwnerWorkspace())
+	if err != nil {
+		return err
+	}
+	if session.ProjectID != project.ID {
+		return errors.New("conversation belongs to another project")
+	}
+	return nil
+}
+
+func (s *Server) validateAgentConversationGroupMember(owner, groupID, conversationID string) error {
+	if err := s.validateAgentConversationOwner(owner, conversationID); err != nil {
+		return err
+	}
+	if strings.TrimSpace(groupID) == "" {
+		return errors.New("conversation group is required")
+	}
+	registry, err := s.agentConversationRegistry()
+	if err != nil {
+		return err
+	}
+	ownerID, err := agentrun.WorkspaceID(s.agentOwnerWorkspace())
+	if err != nil {
+		return err
+	}
+	project, err := patchtool.ReadProjectIdentity(s.agentOwnerWorkspace())
+	if err != nil {
+		return err
+	}
+	groups, err := registry.Groups(ownerID, project.ID)
+	if err != nil {
+		return err
+	}
+	for _, group := range groups {
+		if group.ID != groupID {
+			continue
+		}
+		for _, member := range group.Members {
+			if member == conversationID {
+				return nil
+			}
+		}
+		return errors.New("conversation is not a member of the group")
+	}
+	return errors.New("conversation group not found")
 }
 
 // ForkConversation creates a new conversation that inherits the ancestor prefix

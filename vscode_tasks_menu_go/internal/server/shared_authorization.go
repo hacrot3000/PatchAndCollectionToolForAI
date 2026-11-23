@@ -166,6 +166,46 @@ func sharedSessionItemPath(path string) bool {
 func sharedRoutePermissions(r *http.Request) []string {
 	path := r.URL.Path
 	switch {
+	case path == "/api/agent/conversations":
+		if r.Method == http.MethodGet {
+			return []string{identity.PermissionSettingsRead}
+		}
+		if r.Method == http.MethodPost {
+			return []string{identity.PermissionSettingsRead, identity.PermissionSettingsWrite}
+		}
+		return nil
+	case strings.HasPrefix(path, "/api/agent/conversations/"):
+		if r.Method == http.MethodGet {
+			return []string{identity.PermissionSettingsRead}
+		}
+		if r.Method == http.MethodPost {
+			return []string{identity.PermissionSettingsRead, identity.PermissionSettingsWrite}
+		}
+		return nil
+	case path == "/api/agent/conversation-groups":
+		if r.Method == http.MethodGet {
+			return []string{identity.PermissionSettingsRead}
+		}
+		if r.Method == http.MethodPost {
+			return []string{identity.PermissionSettingsRead, identity.PermissionSettingsWrite}
+		}
+		return nil
+	case strings.HasPrefix(path, "/api/agent/conversation-groups/"):
+		if r.Method == http.MethodGet {
+			return []string{identity.PermissionSettingsRead}
+		}
+		if r.Method == http.MethodPost {
+			return []string{identity.PermissionSettingsRead, identity.PermissionSettingsWrite}
+		}
+		return nil
+	case path == "/api/agent/coordination":
+		if r.Method == http.MethodGet {
+			return []string{identity.PermissionSettingsRead}
+		}
+		if r.Method == http.MethodPost {
+			return []string{identity.PermissionSettingsRead, identity.PermissionSettingsWrite}
+		}
+		return nil
 	case strings.HasPrefix(path, "/api/agent/context-groups/"):
 		if r.Method == http.MethodGet {
 			return []string{identity.PermissionSettingsRead}

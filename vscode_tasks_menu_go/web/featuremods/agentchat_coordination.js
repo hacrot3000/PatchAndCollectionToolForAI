@@ -125,19 +125,21 @@
    await api.jsonFetch('/api/agent/coordination',action('POST',{kind:'contract_publish',conversation_id:selectedConversation(),group_id:group.id,contract:{key,signature,owner_task:contractOwner.value.trim(),owner_group:group.id,file_paths:filePaths,status:'planned'}}));await refresh();
   }
   async function advanceContract(){
-   const key=contractKey.value.trim(),revision=Number(contractRevision.value||0);
-   if(!key)throw new Error('Provide the contract key to advance.');
-   await api.jsonFetch('/api/agent/coordination',action('POST',{kind:'contract_advance',conversation_id:selectedConversation(),contract_key:key,revision,status:contractStatus.value,integrated_ref:integratedRef.value.trim(),test_evidence:testEvidence.value.trim()}));await refresh();
+   const group=selectedGroup(),key=contractKey.value.trim(),revision=Number(contractRevision.value||0);
+   if(!group||!key)throw new Error('Select a group and provide the contract key to advance.');
+   await api.jsonFetch('/api/agent/coordination',action('POST',{kind:'contract_advance',conversation_id:selectedConversation(),group_id:group.id,contract_key:key,revision,status:contractStatus.value,integrated_ref:integratedRef.value.trim(),test_evidence:testEvidence.value.trim()}));await refresh();
   }
   async function publishArtifact(){
    const ref=artifactRef.value.trim(),sha256=artifactSHA.value.trim().toLowerCase();
    if(!ref||!/^[0-9a-f]{64}$/.test(sha256))throw new Error('Provide an artifact reference and a 64-character SHA-256 digest.');
-   await api.jsonFetch('/api/agent/coordination',action('POST',{kind:'artifact_publish',conversation_id:selectedConversation(),artifact:{kind:artifactKind.value,ref,sha256,producer_run:artifactRun.value.trim(),conversation_id:selectedConversation()}}));await refresh();
+   const group=selectedGroup();
+   await api.jsonFetch('/api/agent/coordination',action('POST',{kind:'artifact_publish',conversation_id:selectedConversation(),group_id:group?.id||'',artifact:{kind:artifactKind.value,ref,sha256,producer_run:artifactRun.value.trim(),conversation_id:selectedConversation()}}));await refresh();
   }
   async function registerDependency(){
    const consumerTask=dependencyConsumer.value.trim(),producerTask=dependencyProducer.value.trim(),contractKeyValue=dependencyContract.value.trim();
    if(!consumerTask||!producerTask||!contractKeyValue)throw new Error('Provide consumer task, producer task, and contract key.');
-   await api.jsonFetch('/api/agent/coordination',action('POST',{kind:'dependency_register',conversation_id:selectedConversation(),dependency:{consumer_task:consumerTask,producer_task:producerTask,contract_key:contractKeyValue,contract_revision:Number(dependencyRevision.value||0),status:dependencyStatus.value,workspace_ref:dependencyWorkspace.value.trim(),test_evidence:dependencyEvidence.value.trim()}}));await refresh();
+   const group=selectedGroup();
+   await api.jsonFetch('/api/agent/coordination',action('POST',{kind:'dependency_register',conversation_id:selectedConversation(),group_id:group?.id||'',dependency:{consumer_task:consumerTask,producer_task:producerTask,contract_key:contractKeyValue,contract_revision:Number(dependencyRevision.value||0),status:dependencyStatus.value,workspace_ref:dependencyWorkspace.value.trim(),test_evidence:dependencyEvidence.value.trim()}}));await refresh();
   }
   conversationSelect.addEventListener('change',()=>refresh().catch(showError));groupSelect.addEventListener('change',()=>refresh().catch(showError));
   overlay.addEventListener('click',event=>{if(event.target===overlay)closePanel();});

@@ -13,7 +13,12 @@ import (
 )
 
 func (s *Server) agentCoordinationAPI(w http.ResponseWriter, r *http.Request) {
-	if !s.requireSharedActionPermission(w, r, identity.PermissionSettingsRead, "agent.coordination", "agent_coordination") {
+	owner := aiPlanOwner(r)
+	permission := identity.PermissionSettingsRead
+	if r.Method == http.MethodPost {
+		permission = identity.PermissionSettingsWrite
+	}
+	if !s.requireSharedActionPermission(w, r, permission, "agent.coordination", "agent_coordination") {
 		return
 	}
 	hub, err := s.agentCoordinationHub()
@@ -25,6 +30,18 @@ func (s *Server) agentCoordinationAPI(w http.ResponseWriter, r *http.Request) {
 	case http.MethodGet:
 		groupID := strings.TrimSpace(r.URL.Query().Get("group_id"))
 		conversationID := strings.TrimSpace(r.URL.Query().Get("conversation_id"))
+		if conversationID != "" {
+			var validateErr error
+			if groupID != "" {
+				validateErr = s.validateAgentConversationGroupMember(owner, groupID, conversationID)
+			} else {
+				validateErr = s.validateAgentConversationOwner(owner, conversationID)
+			}
+			if validateErr != nil {
+				http.Error(w, "conversation coordination data not found", 404)
+				return
+			}
+		}
 		after := uint64(0)
 		if raw := strings.TrimSpace(r.URL.Query().Get("after")); raw != "" {
 			parsed, parseErr := strconv.ParseUint(raw, 10, 64)
@@ -99,6 +116,14 @@ func (s *Server) agentCoordinationAPI(w http.ResponseWriter, r *http.Request) {
 		}
 		switch request.Kind {
 		case "peer_progress":
+			if err := s.validateAgentConversationOwner(owner, request.ConversationID); err != nil {
+				http.Error(w, "peer conversation not found for owner", 404)
+				return
+			}
+			if request.GroupID != "" && s.validateAgentConversationGroupMember(owner, request.GroupID, request.ConversationID) != nil {
+				http.Error(w, "peer conversation is not a member of the group", 403)
+				return
+			}
 			peer, err := hub.UpsertPeer(agentrun.Peer{ConversationID: request.ConversationID, GroupID: request.GroupID, Status: agentrun.PeerStatus(request.Status), Summary: request.Body, RunID: request.RunID})
 			if err != nil {
 				http.Error(w, "peer progress rejected", 400)
@@ -109,6 +134,11 @@ func (s *Server) agentCoordinationAPI(w http.ResponseWriter, r *http.Request) {
 			messageKind := request.MessageKind
 			if messageKind == "" {
 				messageKind = "ask"
+			}
+			if s.validateAgentConversationGroupMember(owner, request.GroupID, request.ConversationID) != nil ||
+				s.validateAgentConversationGroupMember(owner, request.GroupID, request.ToConversationID) != nil {
+				http.Error(w, "peer message participants must be members of the group", 403)
+				return
 			}
 			message, err := hub.PostPeerMessage(agentrun.PeerMessage{GroupID: request.GroupID, FromConversation: request.ConversationID, ToConversation: request.ToConversationID, Kind: messageKind, Body: request.Body, CorrelationID: request.CorrelationID})
 			if err != nil {
@@ -121,6 +151,18 @@ func (s *Server) agentCoordinationAPI(w http.ResponseWriter, r *http.Request) {
 				http.Error(w, "contract payload is required", 400)
 				return
 			}
+			if err := s.validateAgentConversationOwner(owner, request.ConversationID); err != nil {
+				http.Error(w, "contract owner conversation not found", 404)
+				return
+			}
+			if request.GroupID != "" {
+				if s.validateAgentConversationGroupMember(owner, request.GroupID, request.ConversationID) != nil ||
+					request.Contract.OwnerGroup != "" && request.Contract.OwnerGroup != request.GroupID {
+					http.Error(w, "contract publisher is not authorized for the group", 403)
+					return
+				}
+				request.Contract.OwnerGroup = request.GroupID
+			}
 			contract, err := hub.UpsertContract(*request.Contract)
 			if err != nil {
 				http.Error(w, "contract rejected", 400)
@@ -128,6 +170,25 @@ func (s *Server) agentCoordinationAPI(w http.ResponseWriter, r *http.Request) {
 			}
 			writeJSON(w, 200, map[string]any{"contract": contract})
 		case "contract_advance":
+			if err := s.validateAgentConversationOwner(owner, request.ConversationID); err != nil {
+				http.Error(w, "contract owner conversation not found", 404)
+				return
+			}
+			if request.GroupID != "" {
+				if s.validateAgentConversationGroupMember(owner, request.GroupID, request.ConversationID) != nil {
+					http.Error(w, "contract publisher is not authorized for the group", 403)
+					return
+				}
+				contracts, listErr := hub.Contracts(request.GroupID)
+				found := false
+				for _, contract := range contracts {
+					found = found || contract.Key == request.ContractKey
+				}
+				if listErr != nil || !found {
+					http.Error(w, "contract is not available in the group", 404)
+					return
+				}
+			}
 			contract, err := hub.AdvanceContract(request.ContractKey, request.Revision, agentrun.ContractStatus(request.Status), request.IntegratedRef, request.TestEvidence)
 			if err != nil {
 				http.Error(w, "contract transition rejected", 409)
@@ -139,6 +200,19 @@ func (s *Server) agentCoordinationAPI(w http.ResponseWriter, r *http.Request) {
 				http.Error(w, "artifact payload is required", 400)
 				return
 			}
+			if err := s.validateAgentConversationOwner(owner, request.ConversationID); err != nil {
+				http.Error(w, "artifact producer conversation not found", 404)
+				return
+			}
+			if request.GroupID != "" && s.validateAgentConversationGroupMember(owner, request.GroupID, request.ConversationID) != nil {
+				http.Error(w, "artifact producer is not a member of the group", 403)
+				return
+			}
+			if request.Artifact.Conversation != "" && request.Artifact.Conversation != request.ConversationID {
+				http.Error(w, "artifact conversation does not match its producer", 403)
+				return
+			}
+			request.Artifact.Conversation = request.ConversationID
 			artifact, err := hub.PublishArtifact(*request.Artifact)
 			if err != nil {
 				http.Error(w, "artifact rejected", 400)
@@ -149,6 +223,25 @@ func (s *Server) agentCoordinationAPI(w http.ResponseWriter, r *http.Request) {
 			if request.Dependency == nil {
 				http.Error(w, "dependency payload is required", 400)
 				return
+			}
+			if err := s.validateAgentConversationOwner(owner, request.ConversationID); err != nil {
+				http.Error(w, "dependency owner conversation not found", 404)
+				return
+			}
+			if request.GroupID != "" {
+				if s.validateAgentConversationGroupMember(owner, request.GroupID, request.ConversationID) != nil {
+					http.Error(w, "dependency publisher is not a member of the group", 403)
+					return
+				}
+				contracts, listErr := hub.Contracts(request.GroupID)
+				found := false
+				for _, contract := range contracts {
+					found = found || contract.Key == request.Dependency.ContractKey
+				}
+				if listErr != nil || !found {
+					http.Error(w, "dependency contract is not available in the group", 404)
+					return
+				}
 			}
 			dependency, err := hub.RegisterDependency(*request.Dependency)
 			if err != nil {

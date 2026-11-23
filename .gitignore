@@ -6,5 +6,5 @@ deploy/docker/.env
 
 .lh/
 
-
-*/__pycache__/*
+# Python bytecode caches created by Patch runtime and test runs.
+__pycache__/

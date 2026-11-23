@@ -18,7 +18,11 @@ import (
 // status and run bindings, so several can run in parallel.
 func (s *Server) agentConversationsAPI(w http.ResponseWriter, r *http.Request) {
 	owner := aiPlanOwner(r)
-	if !s.requireSharedActionPermission(w, r, identity.PermissionSettingsRead, "agent.conversations", "agent_conversations") {
+	permission := identity.PermissionSettingsRead
+	if r.Method == http.MethodPost {
+		permission = identity.PermissionSettingsWrite
+	}
+	if !s.requireSharedActionPermission(w, r, permission, "agent.conversations", "agent_conversations") {
 		return
 	}
 	store, err := s.agentChatStore()

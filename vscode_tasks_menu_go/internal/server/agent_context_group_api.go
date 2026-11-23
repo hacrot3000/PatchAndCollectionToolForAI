@@ -33,7 +33,11 @@ func (s *Server) agentContextGroupStore(owner string) (*agentrun.ContextGroupSto
 
 func (s *Server) agentContextGroupsAPI(w http.ResponseWriter, r *http.Request) {
 	owner := aiPlanOwner(r)
-	if !s.requireSharedActionPermission(w, r, identity.PermissionSettingsRead, "agent.context_group", "agent_context_groups") {
+	permission := identity.PermissionSettingsRead
+	if r.Method == http.MethodPost {
+		permission = identity.PermissionSettingsWrite
+	}
+	if !s.requireSharedActionPermission(w, r, permission, "agent.context_group", "agent_context_groups") {
 		return
 	}
 	store, ownerID, projectID, err := s.agentContextGroupStore(owner)

@@ -25,6 +25,47 @@ func (s *Server) agentContextSnapshotStore(owner string) (*agentrun.SnapshotStor
 	return agentrun.NewSnapshotStore(dir)
 }
 
+func (s *Server) agentConversationGroupInstructions(conversationID, projectID string) (string, []string, error) {
+	registry, err := s.agentConversationRegistry()
+	if err != nil {
+		return "", nil, err
+	}
+	ownerWorkspaceID, err := agentrun.WorkspaceID(s.agentOwnerWorkspace())
+	if err != nil {
+		return "", nil, err
+	}
+	groups, err := registry.Groups(ownerWorkspaceID, projectID)
+	if err != nil {
+		return "", nil, err
+	}
+	var instructions strings.Builder
+	var sourceRefs []string
+	for _, group := range groups {
+		member := false
+		for _, id := range group.Members {
+			if id == conversationID {
+				member = true
+				break
+			}
+		}
+		if !member || strings.TrimSpace(group.SharedInstructions) == "" {
+			continue
+		}
+		digest := agentrun.ContextInstructionsDigest(group.SharedInstructions)
+		if digest != group.InstructionsSHA256 {
+			return "", nil, errors.New("conversation group instructions failed integrity validation")
+		}
+		instructions.WriteString("\n\nShared instructions for conversation group ")
+		instructions.WriteString(group.Title)
+		instructions.WriteString(" (revision ")
+		instructions.WriteString(strconv.FormatUint(group.SharedRevision, 10))
+		instructions.WriteString("):\n")
+		instructions.WriteString(group.SharedInstructions)
+		sourceRefs = append(sourceRefs, "conversation-group:"+group.ID+"@"+strconv.FormatUint(group.SharedRevision, 10)+":"+digest)
+	}
+	return instructions.String(), sourceRefs, nil
+}
+
 func (s *Server) agentContextSnapshotAPI(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", 405)
@@ -144,6 +185,11 @@ func (s *Server) agentContextSnapshotAPI(w http.ResponseWriter, r *http.Request)
 		http.Error(w, "Agent Run history is unavailable", 503)
 		return
 	}
+	groupInstructions, groupSourceRefs, err := s.agentConversationGroupInstructions(request.ConversationID, session.ProjectID)
+	if err != nil {
+		http.Error(w, "conversation group context is unavailable", 503)
+		return
+	}
 	history := append([]agentchat.HistoryItem(nil), session.History...)
 	history = completedAgentRunHistory(history, runRecords, request.ConversationID)
 	parentTurnID := "turn-" + session.ID + "-" + strconv.FormatUint(session.Revision, 10)
@@ -170,7 +216,7 @@ func (s *Server) agentContextSnapshotAPI(w http.ResponseWriter, r *http.Request)
 		http.Error(w, "context snapshot storage unavailable", 500)
 		return
 	}
-	sourceRefs := []string(nil)
+	sourceRefs := append([]string(nil), groupSourceRefs...)
 	workspacePackRef := ""
 	if providerConfigVersion != "" {
 		workspacePackRef, err = agentRunWorkspacePackSourceRef(executionWorkspacePath, session.ProjectID, s.AgentChatPack)
@@ -185,7 +231,7 @@ func (s *Server) agentContextSnapshotAPI(w http.ResponseWriter, r *http.Request)
 		retryMode = agentchat.RetryOff
 	}
 	policy := &agentrun.ContextSnapshotPolicy{
-		SystemInstructions: agentChatInstructions(session.ProjectID, false) + " A concurrent Agent Run may propose a Patch with taskdeck_submit_patch when TaskDeck advertises it. TaskDeck alone applies a Patch, only after approval, only in the run's isolated execution workspace. Never claim a proposal was applied and never claim files were changed.",
+		SystemInstructions: agentChatInstructions(session.ProjectID, false) + groupInstructions + " A concurrent Agent Run may propose a Patch with taskdeck_submit_patch when TaskDeck advertises it. TaskDeck alone applies a Patch, only after approval, only in the run's isolated execution workspace. Never claim a proposal was applied and never claim files were changed.",
 		RetryMode:          retryMode, ReasoningEffort: session.ReasoningEffort,
 		Automation: agentrun.AutomationSnapshot{AutoPatch: session.AutoPatch, AutoCollection: session.AutoCollection,
 			AutoFeedback: session.AutoFeedback, AutoFeedbackPersistent: session.AutoFeedbackPersistent,
