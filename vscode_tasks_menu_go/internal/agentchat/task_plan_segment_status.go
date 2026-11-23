@@ -108,7 +108,7 @@ func (s *Store) SetSegmentTaskPlanStepStatus(
  if status!="pending"&&status!="active"&&status!="blocked"{
   return TaskPlanPageResult{},ErrTaskPlanSegmentWriteUnsupported
  }
- return s.setSegmentTaskPlanStep(id,owner,expectedRevision,stepID,status,"","","",offset,limit)
+ return s.setSegmentTaskPlanStep(id,owner,expectedRevision,stepID,status,"","","",offset,limit,nil)
 }
 
 // SetSegmentTaskPlanStepDone commits a proof-verified milestone by rewriting
@@ -124,12 +124,12 @@ func (s *Store) SetSegmentTaskPlanStepDone(
  if kind!="manual"&&kind!="patch"&&kind!="collection"{
   return TaskPlanPageResult{},ErrTaskPlanSegmentWriteUnsupported
  }
- return s.setSegmentTaskPlanStep(id,owner,expectedRevision,stepID,"done",kind,ref,note,offset,limit)
+ return s.setSegmentTaskPlanStep(id,owner,expectedRevision,stepID,"done",kind,ref,note,offset,limit,nil)
 }
 
 func (s *Store) setSegmentTaskPlanStep(
  id,owner string,expectedRevision uint64,stepID,status,kind,ref,note string,
- offset,limit int,
+ offset,limit int,edit *segmentAcceptanceEdit,
 )(TaskPlanPageResult,error){
  var result TaskPlanPageResult
  if !validID(id){return result,ErrNotFound}
@@ -166,9 +166,12 @@ func (s *Store) setSegmentTaskPlanStep(
 
   now:=time.Now().UTC()
   target:=&part[index%taskPlanSegmentSize]
-  // Preserve prior accepted receipts, matching UpdateTaskPlanStep. A
-  // transition to done MUST verify the owner's evidence before any writes.
-  if status=="done"{
+  // Owner acceptance edits retain the current milestone status and
+  // evidence. They cannot manufacture completion or reuse old reviews.
+  // Ordinary status/done actions retain the original verified CAS policy.
+  if edit!=nil{
+   if e=edit.apply(target,now);e!=nil{return e}
+  }else if status=="done"{
    if old.GoTestRequirements!=nil{
     // The predeclared checklist requires the existing native suite verifier.
     return ErrTaskPlanSegmentWriteUnsupported
@@ -183,10 +186,12 @@ func (s *Store) setSegmentTaskPlanStep(
    if verifyErr!=nil{return ErrTaskPlanCompletionProofRejected}
    target.Evidence=append(target.Evidence,proof)
   }
-  target.Status=status
-  target.UpdatedAt=now
-  if old.Status=="done"&&status!="done"{done--}
-  if old.Status!="done"&&status=="done"{done++}
+  if edit==nil{
+   target.Status=status
+   target.UpdatedAt=now
+   if old.Status=="done"&&status!="done"{done--}
+   if old.Status!="done"&&status=="done"{done++}
+  }
   // Validate the mutated page (including evidence and acceptance) using
   // the same canonical plan validator before staging any new immutable file.
   pageMeta:=*x.TaskPlan
@@ -197,7 +202,9 @@ func (s *Store) setSegmentTaskPlanStep(
    selected[index-offset]=*target
   }
   x.TaskPlan.UpdatedAt=now
-  x.AppendEvent("plan_updated",x.Status,"","set_step")
+  detail:="set_step"
+  if edit!=nil{detail=edit.action}
+  x.AppendEvent("plan_updated",x.Status,"",detail)
   x.Revision=expectedRevision+1
   x.UpdatedAt=now
 
