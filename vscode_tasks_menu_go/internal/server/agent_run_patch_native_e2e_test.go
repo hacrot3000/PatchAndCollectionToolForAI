@@ -117,7 +117,7 @@ func TestAgentRunNativePatchRoundTripExecutesOnceAcrossRestart(t *testing.T) {
 	spec.ContextSnapshotID = snapshot.ID
 	spec.ExcludedPendingRunIDs = strings.Join(snapshot.ExcludedPendingRunIDs, ",")
 	spec.RetryMode = agentchat.RetryMode(snapshot.RetryMode)
-	submit := invokeAI(t, s.agentRunAPI, http.MethodPost, "/api/agent/runs", map[string]any{"spec": spec, "confirm_external": true})
+	submit := invokeAI(t, func(w http.ResponseWriter,r *http.Request){s.agentRunAPIWithCreationPolicy(w,r,true)}, http.MethodPost, "/api/agent/runs", map[string]any{"spec": spec, "confirm_external": true})
 	if submit.Code != http.StatusAccepted {
 		t.Fatalf("submit Agent Run: HTTP %d: %s", submit.Code, submit.Body)
 	}

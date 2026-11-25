@@ -636,6 +636,9 @@ Added agent_chat_collection_guard.go, wired real owner admission before original
 #### CLP-02.03/04.01/04.04 — Remove Legacy proofless skip
 Removed third-identical-fingerprint suppression and receipt rewriting. Request shape now produces only fixed bounded instruction advice on third occurrence (including alternating scopes); never asserts unchanged source, skips native execution or alters a valid receipt. Updated duplicate tests for new safety contract: four actual reads with changed content on third request, exact canonical receipts, unknown novelty, one warning; alternating A/B six actual reads and two warnings. Kept 55 unique reads → PATCH regression untouched. Existing schema repair budget remains. Verified novelty policy separate; Unified proofless skip and durable verified-stall recovery pending. CI pending.
 
+#### CLP-00.03 — Reconcile concurrent CI failures without weakening production fences
+Core CI 45586888166 and 45587045914 passed agentchat/race, collectionprogress/race and contextcompact/race, and named CLP20 fixture; full server suite still failed the same four pre-existing concurrent UAG-02 regressions. Updated PREPARED corruption regression to assert the tightened Store rejects mismatched digest and then corrupt the actual private sidecar to test restart fail-closed without network. Public Unified POST remains hard-disabled; extracted private creation-policy handler, public route always false. Underlying existing admission and native Patch E2E tests invoke the private handler directly with true to exercise original permission, identity and binding assertions; public disabled regression unchanged. No configuration, header or request bypass and no scheduler route enabled. CI pending.
+
 ### 8.2. Blockers và quyết định (append)
 
 | ID | Task | Vấn đề / quyết định | Ảnh hưởng | Hành động tiếp theo | Trạng thái |

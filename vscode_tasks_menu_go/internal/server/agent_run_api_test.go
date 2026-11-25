@@ -163,7 +163,7 @@ func TestAgentRunAPIUsesOwnerConversationAndImmutableRunBinding(t *testing.T) {
 		t.Fatal(err)
 	}
 	spec.ContextSnapshotID = snapshot.ID
-	w := invokeAI(t, s.agentRunAPI, http.MethodPost, "/api/agent/runs", map[string]any{"spec": spec, "confirm_external": true})
+	w := invokeAI(t, func(w http.ResponseWriter,r *http.Request){s.agentRunAPIWithCreationPolicy(w,r,true)}, http.MethodPost, "/api/agent/runs", map[string]any{"spec": spec, "confirm_external": true})
 	if w.Code != http.StatusAccepted {
 		t.Fatalf("run submit: %d %s", w.Code, w.Body)
 	}
@@ -199,7 +199,7 @@ func TestAgentRunAPIUsesOwnerConversationAndImmutableRunBinding(t *testing.T) {
 	badSpec := spec
 	badSpec.RunID = "run-foreign"
 	badSpec.ExecutionWorkspaceID = "unregistered"
-	w = invokeAI(t, s.agentRunAPI, http.MethodPost, "/api/agent/runs", map[string]any{"spec": badSpec, "confirm_external": true})
+	w = invokeAI(t, func(w http.ResponseWriter,r *http.Request){s.agentRunAPIWithCreationPolicy(w,r,true)}, http.MethodPost, "/api/agent/runs", map[string]any{"spec": badSpec, "confirm_external": true})
 	if w.Code != http.StatusForbidden {
 		t.Fatalf("unregistered execution workspace accepted: %d %s", w.Code, w.Body)
 	}
@@ -208,12 +208,12 @@ func TestAgentRunAPIUsesOwnerConversationAndImmutableRunBinding(t *testing.T) {
 func TestAgentRunRequiresExternalConsentAndOwnerSession(t *testing.T) {
 	s, session, provider := prepareRunAPIServer(t, false)
 	spec := runSpecFor(s, session, provider)
-	w := invokeAI(t, s.agentRunAPI, http.MethodPost, "/api/agent/runs", map[string]any{"spec": spec})
+	w := invokeAI(t, func(w http.ResponseWriter,r *http.Request){s.agentRunAPIWithCreationPolicy(w,r,true)}, http.MethodPost, "/api/agent/runs", map[string]any{"spec": spec})
 	if w.Code != http.StatusForbidden {
 		t.Fatalf("missing consent accepted: %d", w.Code)
 	}
 	spec.ConversationID = "missing-conversation"
-	w = invokeAI(t, s.agentRunAPI, http.MethodPost, "/api/agent/runs", map[string]any{"spec": spec, "confirm_external": true})
+	w = invokeAI(t, func(w http.ResponseWriter,r *http.Request){s.agentRunAPIWithCreationPolicy(w,r,true)}, http.MethodPost, "/api/agent/runs", map[string]any{"spec": spec, "confirm_external": true})
 	if w.Code != http.StatusNotFound {
 		t.Fatalf("unknown owner conversation accepted: %d", w.Code)
 	}
