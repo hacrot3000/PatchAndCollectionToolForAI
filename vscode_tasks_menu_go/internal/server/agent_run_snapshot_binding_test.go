@@ -62,3 +62,26 @@ func TestAgentContextSnapshotReturnsSafePinnedRunBinding(t *testing.T) {
 		t.Fatalf("snapshot did not pin safe prompt/retry policy: %+v", snapshot.Policy)
 	}
 }
+
+func TestAgentContextSnapshotPinsExplicitReasoningEffort(t *testing.T) {
+ s,id:=newAgentConversationFixture(t,"stateless")
+ providers,err:=s.agentChatProviders();if err!=nil{t.Fatal(err)}
+ provider,err:=providers.Get("local","custom-r2d");if err!=nil{t.Fatal(err)}
+ provider.Models[0].ReasoningEfforts=[]string{"low","high"}
+ provider.Models[0].DefaultReasoningEffort="low"
+ if err=providers.Put("local",provider);err!=nil{t.Fatal(err)}
+ body:=map[string]any{"conversation_id":id,"prompt":"Next request","run_id":"effort-test","provider_id":provider.ID,"model_id":provider.Models[0].ID,"reasoning_effort":"high"}
+ response:=invokeAI(t,s.agentContextSnapshotAPI,"POST","/api/agent/context-snapshots",body)
+ if response.Code!=201{t.Fatalf("snapshot: %d %s",response.Code,response.Body)}
+ var result map[string]any
+ if err=json.Unmarshal(response.Body.Bytes(),&result);err!=nil{t.Fatal(err)}
+ if result["reasoning_effort"]!="high"{t.Fatalf("wrong effort: %#v",result)}
+ snapshots,err:=s.agentContextSnapshotStore("local");if err!=nil{t.Fatal(err)}
+ snapshot,err:=snapshots.Get(result["context_snapshot_id"].(string),result["owner_workspace_id"].(string),id,result["project_id"].(string))
+ if err!=nil||snapshot.Policy==nil||snapshot.Policy.ReasoningEffort!="high"{t.Fatalf("effort not pinned: %+v %v",snapshot.Policy,err)}
+ store,err:=s.agentChatStore();if err!=nil{t.Fatal(err)}
+ session,err:=store.Get(id,"local");if err!=nil||session.ReasoningEffort!=""{t.Fatal("original conversation settings changed")}
+ body["reasoning_effort"]="max"
+ invalid:=invokeAI(t,s.agentContextSnapshotAPI,"POST","/api/agent/context-snapshots",body)
+ if invalid.Code!=400{t.Fatalf("unsupported effort accepted: %d %s",invalid.Code,invalid.Body)}
+}
