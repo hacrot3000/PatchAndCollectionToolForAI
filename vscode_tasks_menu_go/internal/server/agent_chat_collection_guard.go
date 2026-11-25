@@ -5,6 +5,7 @@ import (
  "crypto/sha256"
  "encoding/hex"
  "encoding/json"
+ "errors"
  "strings"
 
  "bletonfc/vscode_tasks_menu/internal/agentchat"
@@ -130,3 +131,47 @@ func(a *collectionRequestAdvisories)Observe(request []byte)string{
  if n==2{return repeatedCollectionRequestAdvice}
  return ""
 }
+
+
+func legacyCollectionStallCandidate(x agentchat.Session,callID string)bool{
+ g,ok:=x.ReadCollectionGuard()
+ if !ok||!g.Counters.Progress.DuplicateAdvised||g.Counters.Progress.DuplicateStreak<g.Policy.DuplicateStreak+g.Policy.DuplicateCooldown{return false}
+ if len(x.Events)==0{return false}
+ last:=x.Events[len(x.Events)-1]
+ return last.Kind=="clp_collection_observed"&&last.CallID==callID&&last.Seq==g.Counters.LastSequence
+}
+
+// The caller has already saved the exact current observation in the same
+// CAS as the counters. Replan can only replace the NEXT continuation's
+// instructions, never replay a previous provider or native operation.
+func assessLegacyCollectionStall(ctx context.Context,x *agentchat.Session,next agentchat.HistoryItem)(cp.RecoveryDecision,error){
+ g,ok:=x.ReadCollectionGuard()
+ if !ok{return cp.RecoveryDecision{Kind:cp.Continue},nil}
+ committed:=len(x.History)>0&&x.History[len(x.History)-1]==next
+ sequence:=g.Counters.LastSequence
+ e:=cp.CounterEvent{Sequence:sequence,Identity:collectionEventIdentity(x,next.CallID,cp.CollectionObserved,sequence),Kind:cp.CollectionObserved,Novelty:cp.VerifiedDuplicate,NativeRead:true}
+ safe:=x.ProviderRun!=nil&&x.ProviderRun.Phase=="acknowledged"&&!x.Archived&&x.PendingUserTurn==nil
+ for _,call:=range x.ToolCalls{
+  switch call.Status{
+  case "pending","queuing","queued","dispatching","running","unknown":safe=false
+  }
+  if call.Name=="taskdeck_submit_patch"&&(!call.FeedbackSent||call.FeedbackStatus!="acknowledged"){safe=false}
+ }
+ allowed:=x.Owner=="local"&&(x.AutoCollection==nil||*x.AutoCollection)
+ if x.TaskPlan!=nil{
+  allowed=allowed&&x.TaskPlan.AutoContinue&&agentchat.TaskPlanNext(x.TaskPlan)!=nil
+ }else{allowed=allowed&&x.AutoContinueText}
+ state,decision:=cp.AssessRecovery(g.Policy,g.Counters,e,g.Recovery,cp.RecoveryGate{
+  Stopped:ctx.Err()!=nil,SafeEgress:safe,CanonicalOutputCommitted:committed,OwnerAllowsContinuation:allowed,
+ })
+ if decision.Kind==cp.Replan{
+  g.Recovery=state
+  if !x.SetCollectionGuard(g){return cp.RecoveryDecision{},errors.New("cannot retain collection recovery reservation")}
+  x.AppendEvent("clp_replan",x.Status,next.CallID,string(decision.Reason))
+ }else if decision.Kind==cp.Checkpoint{
+  x.AppendEvent("clp_checkpoint",x.Status,next.CallID,string(decision.Reason))
+ }
+ return decision,nil
+}
+
+const collectionReplanAdvice=" Collection progress recovery: verified duplicate evidence persisted after earlier advice. Rebase on the current original goal and exact native receipt. Change the inspection strategy, identify a concrete missing scope or justified next action, and do not repeat the same evidence or claim completion. This is the one bounded replan for this objective generation."

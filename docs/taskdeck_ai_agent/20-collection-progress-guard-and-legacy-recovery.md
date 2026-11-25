@@ -187,8 +187,8 @@ Không bỏ qua function output của call đã nhận. Nếu checkpoint trướ
   - Tạo decisions `CONTINUE`, `ADVISE`, `REPLAN`, `CHECKPOINT` (tên có thể điều chỉnh). Recovery dùng tiếp continuation framework đã có; phân biệt stalled với user stop/unknown delivery. Ghi next action và reason; không tự báo completed.
   - **Acceptance:** sau nhiều lượt không novelty, tạo checkpoint và tối đa số recovery cho phép theo generation; khi có bằng chứng mới thì tiếp tục; không mất tool pair.
     - [x] **CLP-01.04.01** — Cài decisions continue/advisory/replan/checkpoint với reason và next action có schema bounded. (`DONE` — pure bounded decisions/reasons/actions verified in CI 45584362259)
-    - [ ] **CLP-01.04.02** — Nối recovery generation/budget vào framework continuation, giữ stop/unknown là trạng thái riêng. (`TODO`)
-    - [ ] **CLP-01.04.03** — Định nghĩa cách đóng pending call thật khi checkpoint, không invent output hoặc mark task done. (`TODO`)
+    - [ ] **CLP-01.04.02** — Nối recovery generation/budget vào framework continuation, giữ stop/unknown là trạng thái riêng. (`VERIFY_PENDING` — Legacy verified receipt checkpoint/replan; CI and Unified pending)
+    - [ ] **CLP-01.04.03** — Định nghĩa cách đóng pending call thật khi checkpoint, không invent output hoặc mark task done. (`VERIFY_PENDING` — commit exact native output before recovery; CI pending)
     - [ ] **CLP-01.04.04** — Test stall lặp, recovery tối đa, novelty xuất hiện lại, pending pair và no continuation storm. (`TODO`)
 - [ ] **CLP-01.05 — Policy configuration và compatibility** (`IN_PROGRESS`, P1)
   - Central defaults + validate range; không rải magic numbers. Dùng internal config trước nếu UI không cần chỉnh. Policy version/snapshot phù hợp unified run; tránh thay policy giữa active immutable run.
@@ -266,7 +266,7 @@ Không bỏ qua function output của call đã nhận. Nếu checkpoint trướ
   - **Acceptance:** 27-round fixture nhận advisory/checkpoint đúng policy, duplicate guard cũ vẫn đúng, cancellation và disabled COLLECT không bị bypass; 55 rounds unique → PATCH PASS test logic giữ nguyên.
     - [ ] **CLP-04.01.01** — Gắn guard precheck sau validation/permission trong legacy collection loop. (`VERIFY_PENDING` — after existing permission check; no new admission grant)
     - [ ] **CLP-04.01.02** — Gắn post-observation decision vào checkpoint trước provider egress, giữ original output và repair. (`VERIFY_PENDING` — counters and advisory at existing checkpoint; proofless Legacy skip removed)
-    - [ ] **CLP-04.01.03** — Nối warning/checkpoint/cancel vào existing state transitions; không nuốt pending tool pair. (`TODO`)
+    - [ ] **CLP-04.01.03** — Nối warning/checkpoint/cancel vào existing state transitions; không nuốt pending tool pair. (`VERIFY_PENDING` — verified stall checkpoint with ACK preserved; CI pending)
     - [ ] **CLP-04.01.04** — Test incident 27 reads, duplicate, disabled collection, cancellation và 55 reads → PATCH. (`TODO`)
 - [ ] **CLP-04.02 — Unified Agent Run waiting-tool path** (`TODO`, P1)
   - Tích hợp cùng guard trong `agent_run_collection.go`, authoritative run snapshot/parent turn và scheduler. Không lấy state mutable của session làm thay đổi immutable run binding. Ensure parity với legacy theo cùng input semantics.
@@ -638,6 +638,9 @@ Removed third-identical-fingerprint suppression and receipt rewriting. Request s
 
 #### CLP-00.03 — Reconcile concurrent CI failures without weakening production fences
 Core CI 45586888166 and 45587045914 passed agentchat/race, collectionprogress/race and contextcompact/race, and named CLP20 fixture; full server suite still failed the same four pre-existing concurrent UAG-02 regressions. Updated PREPARED corruption regression to assert the tightened Store rejects mismatched digest and then corrupt the actual private sidecar to test restart fail-closed without network. Public Unified POST remains hard-disabled; extracted private creation-policy handler, public route always false. Underlying existing admission and native Patch E2E tests invoke the private handler directly with true to exercise original permission, identity and binding assertions; public disabled regression unchanged. No configuration, header or request bypass and no scheduler route enabled. CI pending.
+
+#### CLP-01.04/04.01 — Legacy bounded verified-stall checkpoint
+Only a verified duplicate streak after earlier advice can trigger stall recovery. Save the exact native receipt and counter state before evaluating recovery; use original ACK, absence of unresolved PATCH/pending turn and current owner automation grant. One replan within existing next continuation (stateless rebase and fixed advisory, no replay); reserve in guard before PREPARED egress. Exhaustion returns recoverable local checkpoint preserving exact output and ACK, not task completion. Reprojection removes just-saved output from History only for the current Next pair; no canonical truncation. Recovery pure logic also checks exact event digest. Added named synthetic full-file proof integration test (14 actual reads, one replan, no 15th egress before explicit Continue; novel result resumes same objective without resetting budget). CI pending. Unified and legacy recovery UI remain pending.
 
 ### 8.2. Blockers và quyết định (append)
 
