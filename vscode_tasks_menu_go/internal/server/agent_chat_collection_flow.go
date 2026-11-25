@@ -301,8 +301,9 @@ func (s *Server) agentChatRunCollection(
 			forceStateless = true
 			clearProviderRefs = true
 		}
+		currentContract := agentInstalledCollectionContract(s.Workspace)
 		mode := x.Mode
-		if agentContextNeedsRebase(*x) || (mode==agentchat.Conversation && !s.agentConversationCapabilityVerified(x.Owner,provider,model)){
+		if agentContextNeedsRebase(*x) || agentHistoricalCollectionPackStale(*x,currentContract) || (mode==agentchat.Conversation && !s.agentConversationCapabilityVerified(x.Owner,provider,model)){
 			forceStateless=true
 			clearProviderRefs=true
 		}
@@ -351,7 +352,7 @@ func (s *Server) agentChatRunCollection(
 			MaxOutputTokens: limit,
 			ReasoningEffort: reasoning,
 			EnablePatchTool: toolAvailable, EnableCollectionTool: toolAvailable,
-			NativeCollectionContract: agentInstalledCollectionContract(s.Workspace),
+			NativeCollectionContract: currentContract,
 		})
 		if err != nil {
 			if !nextCommitted{x.History=append(x.History,next)}

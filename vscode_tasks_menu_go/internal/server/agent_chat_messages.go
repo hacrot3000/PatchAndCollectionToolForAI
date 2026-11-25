@@ -472,7 +472,8 @@ func (s *Server) agentChatAuthorizedMessage(w http.ResponseWriter, r *http.Reque
 	// Conversations mode is only trusted with verified evidence for this exact
 	// endpoint/model. Otherwise replay canonical history statelessly; the stored
 	// session mode stays immutable for audit and a later verified retry.
-	mode := agentContextRequestMode(session,p.APIType,s.agentConversationCapabilityVerified(owner,p,model))
+	currentContract := agentInstalledCollectionContract(s.Workspace)
+	mode := agentContextRequestMode(session,p.APIType,s.agentConversationCapabilityVerified(owner,p,model),currentContract)
 	if len(runRecords) != 0 || resumeCollection || newAfterCollection ||
 		previousProvider != p.ID || previousModel != model.ID || len(failureProjection.History)>len(session.History) {
 		mode = agentchat.Stateless
@@ -493,7 +494,7 @@ func (s *Server) agentChatAuthorizedMessage(w http.ResponseWriter, r *http.Reque
 		Next: requestNext, MaxOutputTokens: limit,
 		ReasoningEffort: reasoning,
 		EnablePatchTool: patchToolAvailable, EnableCollectionTool: patchToolAvailable,
-		NativeCollectionContract: agentInstalledCollectionContract(s.Workspace),
+		NativeCollectionContract: currentContract,
 	})
 	if err != nil {
 		http.Error(w, "cannot build bounded AI context: "+err.Error(), 413)

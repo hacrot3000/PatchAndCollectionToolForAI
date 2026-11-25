@@ -314,7 +314,8 @@ func (s *Server) agentDeliverToolResult(ctx context.Context, store *agentchat.St
 	failureProjection := s.agentFailureContextProjection(store, x, call.CallID, "")
 	reasoning:=agentProviderReasoningEffort(p,x.ReasoningEffort,model)
 	limit := agentInitialOutputBudget(model,reasoning,toolAvailable)
-	mode := agentContextRequestMode(x,p.APIType,s.agentConversationCapabilityVerified(owner,p,model))
+	currentContract := agentInstalledCollectionContract(s.Workspace)
+	mode := agentContextRequestMode(x,p.APIType,s.agentConversationCapabilityVerified(owner,p,model),currentContract)
 	if call.TextFallback || len(failureProjection.History)>len(x.History) {mode=agentchat.Stateless}
 	agentClearProviderRefsForStateless(&x,mode)
 	conversationID := x.ConversationID
@@ -326,7 +327,7 @@ func (s *Server) agentDeliverToolResult(ctx context.Context, store *agentchat.St
 		Next: next,
 		MaxOutputTokens: limit, ReasoningEffort: reasoning,
 		EnablePatchTool: toolAvailable, EnableCollectionTool: toolAvailable,
-		NativeCollectionContract: agentInstalledCollectionContract(s.Workspace),
+		NativeCollectionContract: currentContract,
 	})
 	if err != nil {
 		return agentDeliverResult{}, agentContinueError{413, "cannot format tool-result model request"}

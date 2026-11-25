@@ -17,8 +17,8 @@ func agentContextNeedsRebase(x agentchat.Session) bool {
  }
  return false
 }
-func agentContextRequestMode(x agentchat.Session,providerAPI string,conversationVerified bool) agentchat.ContextMode{
- if providerAPI=="chat_completions" || agentContextNeedsRebase(x) {return agentchat.Stateless}
+func agentContextRequestMode(x agentchat.Session,providerAPI string,conversationVerified bool,currentContract ...string) agentchat.ContextMode{
+ if providerAPI=="chat_completions" || agentContextNeedsRebase(x) || (len(currentContract)>0 && agentHistoricalCollectionPackStale(x,currentContract[0])) {return agentchat.Stateless}
  if x.Mode==agentchat.Conversation && !conversationVerified {return agentchat.Stateless}
  return x.Mode
 }
