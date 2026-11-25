@@ -48,7 +48,7 @@ func agentPendingTurnBindingMatches(pending agentchat.PendingUserTurn, provider 
 // Its caller must authorize egress, validate project identity and acquire the turn
 // lease. Dispatch stays disabled until the entire handoff is verified.
 func agentAdmitPreparedPendingTurn(store *agentchat.Store, owner string, x agentchat.Session, provider agentchat.ProviderConfig, model agentchat.ModelConfig, secret, payload []byte) (agentchat.Session, error) {
-	if store == nil || owner == "" || x.Owner != owner || x.PendingUserTurn == nil || !agentSessionAcceptsUserMessage(x.Status) {
+	if store == nil || owner == "" || x.Owner != owner || x.Archived || x.PendingUserTurn == nil || !agentSessionAcceptsUserMessage(x.Status) {
 		return agentchat.Session{}, agentchat.ErrInvalidSession
 	}
 	pending := *x.PendingUserTurn
@@ -57,7 +57,7 @@ func agentAdmitPreparedPendingTurn(store *agentchat.Store, owner string, x agent
 	}
 	// Require the exact queued message in the candidate's canonical history;
 	// payload construction and all other authorization remain the caller's job.
-	if len(x.History) == 0 || x.History[len(x.History)-1].Type != "user" || x.History[len(x.History)-1].Content != pending.Message {
+	if len(x.History) == 0 || x.History[len(x.History)-1] != (agentchat.HistoryItem{Type: "user", Content: pending.Message}) {
 		return agentchat.Session{}, agentchat.ErrInvalidSession
 	}
 	x.PendingUserTurn = nil

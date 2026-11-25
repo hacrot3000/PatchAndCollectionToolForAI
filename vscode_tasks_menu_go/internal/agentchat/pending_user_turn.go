@@ -36,12 +36,14 @@ func pendingAdmissionBindingMatches(p *PendingUserTurn, b *TurnBinding, r *Provi
 // lock; the caller must still check project identity and commit atomically.
 func pendingAdmissionCandidateMatches(current, candidate Session, owner string, expectedRevision uint64, payload []byte) bool {
 	return owner != "" && current.Owner == owner && candidate.Owner == owner &&
+		!current.Archived && !candidate.Archived &&
 		current.ID == candidate.ID && current.Workspace == candidate.Workspace && current.ProjectID == candidate.ProjectID &&
 		current.Revision == expectedRevision && candidate.Revision == expectedRevision &&
 		current.PendingUserTurn != nil && candidate.PendingUserTurn == nil &&
 		(current.ProviderRun == nil || current.ProviderRun.Phase == "completed") &&
 		candidate.Status == "requesting_ai" &&
 		pendingAdmissionBindingMatches(current.PendingUserTurn, candidate.TurnBinding, candidate.ProviderRun) &&
+		(current.ProviderRun == nil || current.ProviderRun.ID != candidate.ProviderRun.ID) &&
 		candidate.Mode == current.Mode && candidate.TurnBinding.ContextMode == current.Mode &&
 		len(payload) > 0 && len(payload) <= maxProviderRunPayload &&
 		ProviderPayloadDigest(payload) == candidate.ProviderRun.PayloadSHA256

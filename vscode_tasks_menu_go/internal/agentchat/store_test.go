@@ -411,12 +411,15 @@ func TestPendingAdmissionCandidateMatches(t *testing.T) {
  if !pendingAdmissionCandidateMatches(current, candidate, "user:alice", 4, payload) { t.Fatal("valid candidate rejected") }
  completed := *candidate.ProviderRun
  completed.Phase = "completed"
+ completed.ID = "prior-run"
  prior := current
  prior.ProviderRun = &completed
  if !pendingAdmissionCandidateMatches(prior, candidate, "user:alice", 4, payload) { t.Fatal("completed prior run rejected") }
  cases := []struct{name string; mutate func(*Session,*Session,*string,*uint64,*[]byte)}{
   {"owner", func(c,x *Session,o *string,r *uint64,p *[]byte){*o="user:bob"}},
   {"candidate owner", func(c,x *Session,o *string,r *uint64,p *[]byte){x.Owner="user:bob"}},
+  {"archived current", func(c,x *Session,o *string,r *uint64,p *[]byte){c.Archived=true}},
+  {"archived candidate", func(c,x *Session,o *string,r *uint64,p *[]byte){x.Archived=true}},
   {"revision", func(c,x *Session,o *string,r *uint64,p *[]byte){*r=5}},
   {"session ID", func(c,x *Session,o *string,r *uint64,p *[]byte){x.ID="other"}},
   {"candidate revision", func(c,x *Session,o *string,r *uint64,p *[]byte){x.Revision++}},
@@ -425,6 +428,7 @@ func TestPendingAdmissionCandidateMatches(t *testing.T) {
   {"pending retained", func(c,x *Session,o *string,r *uint64,p *[]byte){x.PendingUserTurn=c.PendingUserTurn}},
   {"no pending", func(c,x *Session,o *string,r *uint64,p *[]byte){c.PendingUserTurn=nil}},
   {"prepared already", func(c,x *Session,o *string,r *uint64,p *[]byte){c.ProviderRun=x.ProviderRun}},
+  {"completed run ID reused", func(c,x *Session,o *string,r *uint64,p *[]byte){run:=*x.ProviderRun; run.Phase="completed"; c.ProviderRun=&run}},
   {"sending unresolved", func(c,x *Session,o *string,r *uint64,p *[]byte){run:=*x.ProviderRun; run.Phase="sending"; c.ProviderRun=&run}},
   {"unknown unresolved", func(c,x *Session,o *string,r *uint64,p *[]byte){run:=*x.ProviderRun; run.Phase="unknown"; c.ProviderRun=&run}},
   {"acknowledged unresolved", func(c,x *Session,o *string,r *uint64,p *[]byte){run:=*x.ProviderRun; run.Phase="acknowledged"; c.ProviderRun=&run}},

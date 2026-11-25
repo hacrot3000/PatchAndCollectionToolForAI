@@ -1293,3 +1293,17 @@ Status: IMPLEMENTED_UNVERIFIED
 ### UAG-02 follow-up — queued history rejection coverage
 - Native PATCH runs 1795602662969193_1533858 and 1795602704937462_1536399 passed for forged AI Pack and non-user history regression assertions. COLLECT agent_collect_341cd3ea46176ea8bb08f6d7 inspected both assertions and confirmed pending dispatch remains disabled.
 - These receipts do not demonstrate test execution. First-turn admission and crash recovery remain unverified; UAG-02 is not accepted and UAG-03–08 and M17–M19 remain gated. Next: obtain focused test results, implement safe first-turn admission, and verify crash recovery before enabling dispatch.
+
+
+### UAG-02 follow-up — admission guard source checkpoint
+- Native PATCH run 1795604086720518_1627041 passed for the completed provider-run ID reuse guard. COLLECT agent_collect_360459467021d0df99ddaed0 independently inspected that guard and its regression case; COLLECT agent_collect_949ca19cc2b2dd4671725e4e inspected the subsequent-turn mode-drift fixture.
+- These are PATCH and source-inspection evidence, not executed test results. First-turn queued admission and process-crash recovery remain unverified; automatic pending dispatch remains disabled. UAG-02 is not accepted; UAG-03–08 and M17–M19 remain gated. Next: obtain focused test results and implement and verify first-turn admission and crash recovery before enabling dispatch.
+
+
+### UAG-02 follow-up — archived admission guards
+- Native PATCH runs 1795604419816170_1649540 and 1795604455818045_1651726 passed. COLLECT agent_collect_d1273915a04806c559884360 inspected the store guard and both regression cases; COLLECT agent_collect_f648e2b689bd6790ac63adce inspected the server guard and regression assertion.
+- These receipts and source inspections do not establish test execution. First-turn admission and process-crash recovery remain unverified; dispatch remains disabled. UAG-02 is unaccepted and UAG-03 through UAG-08 and M17 through M19 remain gated. Next: obtain focused test results and implement and verify safe first-turn admission and crash recovery.
+
+### UAG-02 follow-up — first-turn state preservation inspection
+- COLLECT agent_collect_ce098d78bbbe2418d144fc36 independently inspected the first-turn regression assertions for unchanged canonical history and AI Pack fingerprint and the early rejection gate.
+- Source inspection does not prove test execution. First-turn queued admission and process-crash recovery remain unverified; pending dispatch stays disabled. UAG-02 is not accepted, and UAG-03–08 and M17–M19 remain gated. Next: verify focused tests and implement secure first-turn admission and crash recovery.

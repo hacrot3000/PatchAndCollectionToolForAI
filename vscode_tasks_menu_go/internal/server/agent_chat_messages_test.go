@@ -625,9 +625,28 @@ func TestAgentPendingAdmissionBridgeRejectsInvalidCandidates(t *testing.T) {
     payload := []byte("prepared payload")
     candidate := x
     candidate.History = append(candidate.History, agentchat.HistoryItem{Type: "user", Content: pending.Message})
+    archived := candidate
+    archived.Archived = true
+    if _, err := agentAdmitPreparedPendingTurn(store, "local", archived, p, p.Models[0], secret, payload); err == nil { t.Fatal("archived candidate accepted") }
     if _, err := agentAdmitPreparedPendingTurn(store, "user:other", candidate, p, p.Models[0], secret, payload); err == nil { t.Fatal("foreign owner accepted") }
     if _, err := agentAdmitPreparedPendingTurn(store, "local", candidate, p, p.Models[0], []byte("different-key"), payload); err == nil { t.Fatal("credential drift accepted") }
     if _, err := agentAdmitPreparedPendingTurn(store, "local", x, p, p.Models[0], secret, payload); err == nil { t.Fatal("missing queued history accepted") }
+    forgedMetadata := x
+    forgedMetadata.History = append(append([]agentchat.HistoryItem(nil), x.History...), agentchat.HistoryItem{Type: "user", Content: pending.Message, CallID: "forged-call"})
+    if _, err := agentAdmitPreparedPendingTurn(store, "local", forgedMetadata, p, p.Models[0], secret, payload); err == nil { t.Fatal("queued history with forged metadata accepted") }
+    for _, item := range []agentchat.HistoryItem{
+        {Type: "user", Content: pending.Message, Name: "forged-tool"},
+        {Type: "user", Content: pending.Message, Arguments: "forged-arguments"},
+        {Type: "user", Content: pending.Message, OriginRunID: "forged-run"},
+        {Type: "user", Content: pending.Message, ProviderID: "forged-provider"},
+        {Type: "user", Content: pending.Message, ModelID: "forged-model"},
+        {Type: "user", Content: pending.Message, ParentTurnID: "forged-parent"},
+        {Type: "user", Content: pending.Message, ExcludedPendingRunIDs: "forged-exclusion"},
+    } {
+        forgedItem := x
+        forgedItem.History = append(append([]agentchat.HistoryItem(nil), x.History...), item)
+        if _, err := agentAdmitPreparedPendingTurn(store, "local", forgedItem, p, p.Models[0], secret, payload); err == nil { t.Fatalf("queued history with forged metadata accepted: %+v", item) }
+    }
     wrongRole := x
     wrongRole.History = append(append([]agentchat.HistoryItem(nil), x.History...), agentchat.HistoryItem{Type: "assistant", Content: pending.Message})
     if _, err := agentAdmitPreparedPendingTurn(store, "local", wrongRole, p, p.Models[0], secret, payload); err == nil { t.Fatal("non-user queued history accepted") }
@@ -674,6 +693,8 @@ func TestAgentPendingFirstTurnRetainedWhenPackChangesHistory(t *testing.T) {
     p := agentProviderFixture()
     if err := s.agentChatQueuePendingUserTurn(store, "local", &x, "queued message", "queued-id", agentRequestDigest("queued message"), p, p.Models[0], "", []byte("TEST-KEY")); err != nil { t.Fatal(err) }
     before := *x.PendingUserTurn
+    historyBefore := append([]agentchat.HistoryItem(nil), x.History...)
+    fingerprintBefore := x.AIPackFingerprint
     packCalls := 0
     originalPack := s.AgentChatPack
     s.AgentChatPack = func(workspace, executable string) (patchtool.AIPackResult, error) {
@@ -692,6 +713,8 @@ func TestAgentPendingFirstTurnRetainedWhenPackChangesHistory(t *testing.T) {
     after, err := store.Get(id, "local")
     if err != nil { t.Fatal(err) }
     if after.Revision != x.Revision || after.PendingUserTurn == nil || *after.PendingUserTurn != before || after.ProviderRun != nil { t.Fatal("first queued turn was not retained") }
+    if len(after.History) != len(historyBefore) || after.AIPackFingerprint != fingerprintBefore { t.Fatal("first queued turn changed canonical history or AI Pack fingerprint") }
+    for i := range historyBefore { if after.History[i] != historyBefore[i] { t.Fatal("first queued turn altered canonical history") } }
 }
 
 func TestAgentPendingAdmissionRejectsEffectiveModeDrift(t *testing.T) {
@@ -699,6 +722,10 @@ func TestAgentPendingAdmissionRejectsEffectiveModeDrift(t *testing.T) {
     store, err := s.agentChatStore()
     if err != nil { t.Fatal(err) }
     x, err := store.Get(id, "local")
+    if err != nil { t.Fatal(err) }
+    // Exercise mode drift on a subsequent turn, not the first-turn safety gate.
+    x.History = append(x.History, agentchat.HistoryItem{Type: "user", Content: "previous message"})
+    x, err = store.Save(x, x.Revision)
     if err != nil { t.Fatal(err) }
     p := agentProviderFixture()
     if err := s.agentChatQueuePendingUserTurn(store, "local", &x, "queued message", "queued-id", agentRequestDigest("queued message"), p, p.Models[0], "", []byte("TEST-KEY")); err != nil { t.Fatal(err) }
