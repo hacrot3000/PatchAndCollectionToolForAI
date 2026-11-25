@@ -31,7 +31,7 @@ func agentRecoverAcknowledgedCollection(x *agentchat.Session) bool {
  // response body and does not authorize replay of the old provider request.
  markAgentProviderOutcome(x,"acknowledged")
  x.PreviousResponseID="";x.ConversationID=""
- x.AppendEvent("provider_ack_recovered","failed",run.CallID,"verified local response accounting and exact Collection rejection; do not replay original request")
+ x.AppendEvent("provider_ack_recovered","failed",run.CallID,run.ID+": verified local response accounting and exact Collection rejection; do not replay original request")
  return true
 }
 
@@ -64,4 +64,27 @@ func agentCloseInterruptedCollection(x *agentchat.Session)bool{
  x.PreviousResponseID="";x.ConversationID=""
  x.AppendEvent("collect_checkpoint_closed",x.Status,event.CallID,x.ProviderRun.ID)
  return true
+}
+
+
+// Automatic recovery is limited to a proven legacy local validation failure,
+// one new continuation per recovered run and only an existing owner grant.
+// An exhausted repair budget, interrupted native execution, outstanding Patch
+// or uncertain feedback must remain reviewable rather than loop on restart.
+func agentRecoveredCollectionResumeCandidate(x agentchat.Session)bool{
+ if x.Owner!="local"||x.Archived||x.Status!="failed"||x.ProviderRun==nil||
+  x.ProviderRun.Phase!="acknowledged"||x.ProviderRun.Kind!="collection"||
+  (x.AutoCollection!=nil&&!*x.AutoCollection)||agentchat.HasUnresolvedWork(x){return false}
+ if x.TaskPlan!=nil{
+  if !x.TaskPlan.AutoContinue||agentchat.TaskPlanNext(x.TaskPlan)==nil||x.TaskPlan.NoProgressTurns>=agentchat.MaxContinuationNoWorkTurns{return false}
+ }else if !x.AutoContinueText||(x.Continuation!=nil&&x.Continuation.NoProgressTurns>=agentchat.MaxContinuationNoWorkTurns){return false}
+ for _,call:=range x.ToolCalls{
+  if !call.FeedbackSent||call.FeedbackStatus!="acknowledged"{return false}
+ }
+ for i:=len(x.Events)-1;i>=0;i--{
+  e:=x.Events[i]
+  if e.Kind=="collection_resume_attempted"&&e.Detail==x.ProviderRun.ID{return false}
+  if e.Kind=="provider_ack_recovered"&&e.CallID==x.ProviderRun.CallID&&strings.HasPrefix(e.Detail,x.ProviderRun.ID+": "){return true}
+ }
+ return false
 }

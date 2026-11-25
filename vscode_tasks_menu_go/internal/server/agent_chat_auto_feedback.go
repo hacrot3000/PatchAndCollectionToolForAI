@@ -117,6 +117,7 @@ func agentAutoFeedbackCandidate(x agentchat.Session) (int, bool) {
 			continue
 		}
 		if recorded[call.CallID]{continue} // historical result, never re-send
+		if call.Status=="rejected"&&!agentFeedbackCallIsCurrent(x,call.CallID){continue}
 		switch call.Status {
 		case "done", "error", "rejected":
             if call.FeedbackStatus == "" && agentFeedbackGrantForCall(x, call) {return i,true}
@@ -172,6 +173,7 @@ func (s *Server) processAgentAutoFeedbackSession(ctx context.Context, store *age
 	s.autoPatchOne(ctx, store, id)
 	// Adopt verified native final results without requiring a browser poll.
 	s.reconcileAgentSession(ctx, store, id)
+	if s.autoResumeRecoveredCollectionOne(ctx,store,id){return}
 	fresh, err := store.Get(id, "local")
 	if err != nil { return }
 	if _, ok := agentAutoFeedbackCandidate(fresh); ok {
@@ -190,6 +192,7 @@ func (s *Server) processAgentAutoFeedbackSession(ctx context.Context, store *age
 func agentAutoFeedbackNeedsWork(x agentchat.Session) bool {
 	if x.Owner != "local" || x.Archived { return false }
 	if x.Status=="requesting_ai" && x.ProviderRun!=nil && x.ProviderRun.Phase=="prepared"{return true}
+	if agentRecoveredCollectionResumeCandidate(x){return true}
 	if agentchat.TaskPlanAutoContinueCandidate(x){return true}
 	if agentchat.StandaloneAutoContinueCandidate(x){return true}
 	if agentchat.TaskAutoCheckReady(x){return true}

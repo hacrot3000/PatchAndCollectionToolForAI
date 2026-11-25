@@ -183,6 +183,20 @@ func agentCanDeliverRejectedToolCall(x agentchat.Session,call agentchat.ToolCall
  return false
 }
 
+// Reject historical, unresolved machine denials rather than choosing the
+// wrong provider turn. An explicit native receipt remains governed by its
+// independent execution/feedback ledger. Empty histories are handled by
+// the caller's existing source-call validation (including pure unit fixtures).
+func agentFeedbackCallIsCurrent(x agentchat.Session,callID string)bool{
+ hasCall:=false
+ for _,it:=range x.History{if it.Type=="function_call"{hasCall=true}}
+ if !hasCall{return true}
+ for i:=len(x.History)-1;i>=0&&x.History[i].Type=="function_call";i--{
+  if x.History[i].CallID==callID{return true}
+ }
+ return false
+}
+
 // agentDeliverToolResult performs the once-only function_call_output delivery.
 // The caller MUST hold the session turn lock and have already re-authorized
 // the owner, project identity and provider. When consent is true the caller
@@ -190,6 +204,9 @@ func agentCanDeliverRejectedToolCall(x agentchat.Session,call agentchat.ToolCall
 func (s *Server) agentDeliverToolResult(ctx context.Context, store *agentchat.Store, x agentchat.Session, idx int, consent bool) (agentDeliverResult, error) {
 	owner := x.Owner
 	call := x.ToolCalls[idx]
+	if call.Status=="rejected"&&!agentFeedbackCallIsCurrent(x,call.CallID){
+		return agentDeliverResult{},agentContinueError{409,"historical rejection does not belong to the current provider tool batch; continue the current conversation instead"}
+	}
 	if call.Status != "done" && call.Status != "error" && call.Status != "rejected" {
 		return agentDeliverResult{}, agentContinueError{409, "Patch result has no verified final status; do not send success prematurely"}
 	}
@@ -261,6 +278,7 @@ func (s *Server) agentDeliverToolResult(ctx context.Context, store *agentchat.St
     next:=make([]agentchat.HistoryItem,0,len(indices))
     for _,i:=range indices{
         sibling:=x.ToolCalls[i]
+        if sibling.Status=="rejected"&&!agentFeedbackCallIsCurrent(x,sibling.CallID){return agentDeliverResult{},agentContinueError{409,"rejection group contains historical call; no result was sent"}}
         if sibling.FeedbackSent || sibling.FeedbackStatus!="" {
             return agentDeliverResult{},agentContinueError{409,"sibling tool output is not pending"}
         }

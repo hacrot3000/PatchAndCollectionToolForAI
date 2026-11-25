@@ -509,6 +509,8 @@ func (s *Server) agentChatMessageAPI(w http.ResponseWriter, r *http.Request, id 
 		}
 		var nested *agentCollectionProviderError
 		if errors.As(callErr,&nested)&&nested.TraceID!=""{traceID=nested.TraceID}
+		var local *agentCollectionLocalError
+		if errors.As(callErr,&local)&&local.TraceID!=""{traceID=local.TraceID}
 		s.recordAgentDebugEvent(owner, id, "", "collection", "collection.failed", code,
 			"stage="+stage+" trace="+traceID+" cause="+scrubAIContext(agentchat.SafeProviderText(callErr.Error()), 600))
 		publicMessage := "Collection result or request was saved, but continuation could not finish. No Patch was executed. Inspect the provider trace and Agent events."

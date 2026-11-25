@@ -93,3 +93,29 @@ func TestAgentInterruptedCollectionCheckpointClosesExactCallOnce(t *testing.T){
  if !agentCloseInterruptedCollection(&x)||len(x.History)!=2||x.History[1].CallID!="read-1"||!strings.Contains(x.History[1].Content,"COLLECTION_LOCAL_INTERRUPTED"){t.Fatal("checkpoint not closed")}
  if agentCloseInterruptedCollection(&x){t.Fatal("checkpoint duplicated")}
 }
+
+func TestAgentRecoveredCollectionResumeRequiresGrantAndRunsOnce(t *testing.T){
+ x:=agentchat.Session{Owner:"local",Status:"failed",ProviderRun:&agentchat.ProviderRun{ID:"r50-e61",Kind:"collection",Phase:"acknowledged",CallID:"read"}}
+ x.AppendEvent("provider_ack_recovered","failed","read","r50-e61: verified local response")
+ if agentRecoveredCollectionResumeCandidate(x){t.Fatal("automatic egress without grant")}
+ x.AutoContinueText=true
+ if !agentRecoveredCollectionResumeCandidate(x){t.Fatal("authorized recovery refused")}
+ x.ToolCalls=[]agentchat.ToolCallRecord{{CallID:"patch",Status:"unknown"}}
+ if agentRecoveredCollectionResumeCandidate(x){t.Fatal("uncertain native Patch bypassed")}
+ x.ToolCalls=nil
+ x.AppendEvent("collection_resume_attempted","failed","read","r50-e61")
+ if agentRecoveredCollectionResumeCandidate(x){t.Fatal("same recovery repeated")}
+}
+func TestAgentFeedbackSelectsCurrentRejectionNotHistorical(t *testing.T){
+ old:=agentchat.ToolCallRecord{CallID:"old",Status:"rejected",Name:"shell",Result:agentRejectedUnsupportedToolFeedback("shell","UNSUPPORTED_TOOL")}
+ current:=agentchat.ToolCallRecord{CallID:"current",Status:"rejected",Name:"taskdeck_submit_patch",Result:agentRejectedPatchFeedback("PATCH_APPROVAL_STALE","stale",true)}
+ x:=agentchat.Session{Owner:"local",Status:"tool_rejected",AutoContinueText:true,ToolCalls:[]agentchat.ToolCallRecord{old,current},History:[]agentchat.HistoryItem{{Type:"function_call",CallID:"old",Name:"shell"},{Type:"user",Content:"continue"},{Type:"function_call",CallID:"current",Name:"taskdeck_submit_patch"}}}
+ if idx,ok:=agentAutoFeedbackCandidate(x);!ok||idx!=1{t.Fatalf("wrong feedback target %d/%v",idx,ok)}
+ if agentFeedbackCallIsCurrent(x,"old"){t.Fatal("old denial mistaken for current")}
+}
+func TestAgentCollectionDiagnosticsContainOnlyFingerprints(t *testing.T){
+ const digest="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+ raw:=[]byte(`{"instructions":"Installed native COLLECT contract version test, SHA-256 `+digest+`","tools":[{"name":"taskdeck_collect_workspace","parameters":{"type":"object"}}],"input":[{"type":"function_call_output","output":"{\"repair_attempt\":1,\"secret\":\"do-not-export\"}"}]}`)
+ tool,contract,repair:=agentCollectionRequestDiagnostics(raw)
+ if len(tool)!=64||contract!=digest||!repair{t.Fatal("missing safe Collection diagnostics")}
+}

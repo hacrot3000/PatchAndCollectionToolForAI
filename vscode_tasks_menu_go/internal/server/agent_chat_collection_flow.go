@@ -26,6 +26,7 @@ type agentCollectionLocalError struct {
 	Stage string
 	Round int
 	Cause error
+	TraceID string
 }
 func (e *agentCollectionLocalError) Error() string { return fmt.Sprintf("Collection round %d %s: %v", e.Round, e.Stage, e.Cause) }
 func (e *agentCollectionLocalError) Unwrap() error { return e.Cause }
@@ -114,7 +115,12 @@ func (s *Server) agentChatRunCollection(
 	first agentchat.ResponsesResult, provider agentchat.ProviderConfig,
 	model agentchat.ModelConfig, key string, identity patchtool.ProjectIdentity,
 	toolAvailable bool,
-) (agentchat.ResponsesResult, bool, error) {
+) (out agentchat.ResponsesResult, clear bool, finalErr error) {
+	lastTraceID:=""
+	defer func(){
+		var local *agentCollectionLocalError
+		if errors.As(finalErr,&local)&&lastTraceID!=""{local.TraceID=lastTraceID}
+	}()
 	result := first
 	// A text-JSON fallback is a full-history stateless exchange. Never reuse
 	// its response ID as a previous_response_id on a later Collection round:
@@ -340,6 +346,7 @@ func (s *Server) agentChatRunCollection(
 		var callErr error
 		var traceID string
 		result, callErr, traceID = s.agentChatCallForOwner(ctx, x.Owner, x.ID, provider, key, payload)
+		lastTraceID=traceID
 		if callErr != nil {
 			markAgentProviderOutcome(x,"unknown")
 			s.recordAgentDebugEvent(x.Owner, x.ID, next.CallID, "collection", "collection.continuation_failed",
