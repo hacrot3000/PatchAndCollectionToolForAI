@@ -669,6 +669,9 @@ Added narrow CollectionResumeReceipt eligibility (failed local owner, exact curr
 #### CLP-07.03 — Explicit new continuation admission
 Added owner-confirmed resume_collection_run_id to existing message API (same lease/revision/idempotency/credential/workspace checks, no alternate provider route). Failed UNKNOWN Collection normal sends fail closed; explicit exact run + safe canonical receipt + all PATCH ACK + no pending/orphan work + local owner + consent permits NEW stateless message with fixed server-owned recovery instruction; old unknown audit committed in same PREPARED CAS. Browser offers distinct "Resume original task (new request)" only on server eligibility; no resend button, no automatic invocation. Named synthetic test old ACK plus unknown read → new pending PATCH, no repeated native read, no duplicate click egress, denied consent/cancelled/pending feedback. CI pending.
 
+#### Resume fixture verification
+CI 45593058020 reached new named resume test and rejected invalid fixture: LastRequestCode=200 without LastRequestKey, which violates existing session validation. Corrected synthetic old accepted-message key/digest; no production invariant relaxed. Intermediate CI 45592717708 and 45592847763 both PASS.
+
 ### 8.2. Blockers và quyết định (append)
 
 | ID | Task | Vấn đề / quyết định | Ảnh hưởng | Hành động tiếp theo | Trạng thái |

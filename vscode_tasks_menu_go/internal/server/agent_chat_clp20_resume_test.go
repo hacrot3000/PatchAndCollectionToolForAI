@@ -23,6 +23,8 @@ func TestAgentCLP20ExplicitUnknownCollectionResumePreservesAuditAndAck(t *testin
   {Type:"function_call_output",CallID:"read",Content:`{"status":"PASS","results":[]}`}}
  x.ToolCalls=[]agentchat.ToolCallRecord{{CallID:"old-patch",Name:"taskdeck_submit_patch",Status:"done",Result:x.History[2].Content,FeedbackSent:true,FeedbackStatus:"acknowledged"}}
  x.Status="requesting_ai"
+ x.LastRequestKey="old-accepted-message"
+ x.LastRequestSHA=agentchat.ProviderPayloadDigest([]byte("original task"))
  x.LastRequestCode=200
  now:=time.Now().UTC()
  oldPayload:=[]byte(`{"model":"old","input":"old ambiguous bytes"}`)
