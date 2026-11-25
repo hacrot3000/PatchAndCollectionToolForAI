@@ -25,6 +25,24 @@ func (s *Server) agentVerifyFinalPackage(record agentchat.ToolCallRecord) error 
  }
  receipt := patchUploadResult{Name:name,QueuePath:record.QueuePath,Size:record.PackageSize,SHA256:record.PackageSHA256}
  if s.agentVerifyQueuedPackage(receipt) == nil { return nil }
+ // A failed input can have been retired before a consented feedback send
+ // failed to build. Preserve the existing explicit reapply workflow while
+ // never treating the ignore archive as PASS or as a dispatchable queue file.
+ if record.Status=="error" {
+  if digest,e:=hex.DecodeString(record.PackageSHA256);e==nil&&len(digest)==32{
+   ignore:=filepath.Join(s.Workspace,"patchs","ignore")
+   queueInfo,qe:=os.Lstat(filepath.Join(s.Workspace,"patchs"))
+   info,ie:=os.Lstat(ignore)
+   if qe==nil&&queueInfo.IsDir()&&queueInfo.Mode()&os.ModeSymlink==0&&ie==nil&&info.IsDir()&&info.Mode()&os.ModeSymlink==0{
+    archive:=filepath.Join(ignore,"agent-failed-"+record.PackageSHA256+".zip")
+    if fi,e:=os.Lstat(archive);e==nil&&fi.Mode().IsRegular()&&fi.Size()==record.PackageSize{
+     if data,e:=os.ReadFile(archive);e==nil&&int64(len(data))==record.PackageSize{
+      h:=sha256.Sum256(data);if hex.EncodeToString(h[:])==record.PackageSHA256{return nil}
+     }
+    }
+   }
+  }
+ }
  root := s.Workspace
  for _, dir := range []string{"patchs","patched"} {
   root = filepath.Join(root,dir)

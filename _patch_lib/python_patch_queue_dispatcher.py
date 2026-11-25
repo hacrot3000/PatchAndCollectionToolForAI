@@ -9805,12 +9805,121 @@ def _is_zero_argument_dispatch(raw_argv: list[str]) -> bool:
     return not remaining
 
 
+# This is a narrow native lifecycle operation, never a general file delete.
+# The server supplies immutable receipts, not model-chosen file paths.
+def _retire_failed_agent_package(root: Path, project_key: str, project_id: str,
+                                 name: str, kind: str, digest: str, run_id: str) -> dict:
+    if kind not in {"PATCH", "COLLECT"} or not re.fullmatch(r"[0-9a-f]{64}", digest or ""):
+        raise QueueSafetyError("invalid failed package identity")
+    prefix = "PATCH_CLEAR_TEXT_" if kind == "PATCH" else "CODE_COLLECTION_REQUEST_CLEAR_TEXT_"
+    if not name or len(name) > 240 or not name.startswith(prefix) or not re.fullmatch(r"[A-Za-z0-9_.-]+\.zip", name):
+        raise QueueSafetyError("not an exact TaskDeck text package basename")
+    if not run_id or len(run_id) > 128 or not re.fullmatch(r"[A-Za-z0-9_.-]+", run_id):
+        raise QueueSafetyError("invalid native run id")
+    # Require an already initialized project, rather than creating identity
+    # on an unrelated directory.
+    if not load_project_config(root):
+        raise QueueSafetyError("project identity unavailable")
+    identity = ensure_project_identity(root)
+    if identity != {"key": project_key, "id": project_id}:
+        raise QueueSafetyError("project identity mismatch")
+    queue = root / "patchs"
+    if queue.is_symlink() or not queue.is_dir() or queue.resolve().parent != root.resolve():
+        raise QueueSafetyError("unsafe queue directory")
+    source = queue / name
+    if not source.exists() and not source.is_symlink():
+        return {"status": "not_queued", "name": name, "sha256": digest}
+    if source.is_symlink() or not source.is_file() or source.stat().st_size > 2 * 1024 * 1024 or _sha256_file(source) != digest:
+        raise QueueSafetyError("queued package changed or is unsafe")
+    patched = queue / "patched"
+    if patched.exists() or patched.is_symlink():
+        if patched.is_symlink() or not patched.is_dir():
+            raise QueueSafetyError("unsafe success archive")
+        if (patched / name).exists() or (patched / name).is_symlink():
+            raise QueueSafetyError("successful/archive package protected")
+
+    # Require durable native completion, not a model claim, a filename or
+    # a synthetic UNKNOWN. Never consider PASS (even rolled-back PASS) eligible.
+    history = _existing_artifact_subdir_readonly(root, "history")
+    if history is None:
+        raise QueueSafetyError("native History not available")
+    files = list(history.glob("*.json"))
+    if len(files) > 1000:
+        raise QueueSafetyError("native History exceeds safe inspection bound")
+    matched = []
+    for path in files:
+        if path.is_symlink() or not path.is_file() or path.stat().st_size > 8 * 1024 * 1024:
+            raise QueueSafetyError("unsafe native History record")
+        report = _load_json(path)
+        if not isinstance(report, dict):
+            raise QueueSafetyError("unreadable native History record")
+        if report.get("project_identity") != identity:
+            continue
+        for row in report.get("results") or []:
+            if not isinstance(row, dict):
+                continue
+            row_kind, _, row_sha, row_name = _failure_identity(row)
+            if row_kind != kind:
+                continue
+            # A successful logical package is never removed by Agent cleanup.
+            if row.get("status") == "PASS" and (row_name == name or row_sha == digest):
+                raise QueueSafetyError("PASS evidence protects this package")
+            if (row_name == name and row_sha == digest and
+                (report.get("run_id") == run_id or (kind == "COLLECT" and row.get("native_run_id") == run_id)) and
+                row.get("status") in {"FAIL", "PREFLIGHT_FAIL", "INCOMPLETE"}):
+                matched.append(row)
+    if len(matched) != 1:
+        raise QueueSafetyError("no unique SHA-bound final failure in native History")
+    # Protect against previously successful bytes even when normal History has
+    # aged out. The archive itself remains completely untouched.
+    ledger_path = _artifact_run_root(root) / "PATCH_LEDGER.json"
+    if ledger_path.exists() or ledger_path.is_symlink():
+        if ledger_path.is_symlink() or not ledger_path.is_file() or ledger_path.stat().st_size > 8 * 1024 * 1024:
+            raise QueueSafetyError("unsafe PATCH ledger")
+        ledger = _load_json(ledger_path)
+        if not isinstance(ledger, dict) or not isinstance(ledger.get("entries"), dict):
+            raise QueueSafetyError("invalid PATCH ledger")
+        if any(isinstance(v, dict) and v.get("sha256") == digest and v.get("last_status") == "PASS" for v in ledger["entries"].values()):
+            raise QueueSafetyError("PASS ledger evidence protects this package")
+
+    # Publish an immutable recovery copy first, then retire ONLY the same
+    # input bytes using the existing native COLLECT archive lifecycle helper.
+    # Never touch source files, result archives, FAIL_HANDOFF or History.
+    ignore = queue / "ignore"
+    if ignore.is_symlink() or (ignore.exists() and not ignore.is_dir()):
+        raise QueueSafetyError("unsafe ignore directory")
+    ignore.mkdir(exist_ok=True)
+    if ignore.resolve().parent != queue.resolve():
+        raise QueueSafetyError("ignore escapes queue")
+    archive = ignore / ("agent-failed-" + digest + ".zip")
+    from python_patch_collect_compat import _publish_request_snapshot, _remove_request_if_executed
+    _publish_request_snapshot(source, archive, digest)
+    # A concurrent PASS can have archived the package since the first check.
+    if (patched / name).exists() or (patched / name).is_symlink():
+        raise QueueSafetyError("native archive appeared; preserve queue")
+    lifecycle = _remove_request_if_executed(source, digest)
+    if lifecycle != "removed_executed_input":
+        raise QueueSafetyError("queue changed during retirement: " + lifecycle)
+    # Resolve exactly the retired identity. Retained History is not rewritten.
+    registry = _unresolved_registry_path(root)
+    if registry.exists() or registry.is_symlink():
+        if registry.is_symlink() or not registry.is_file():
+            raise QueueSafetyError("unsafe failure registry")
+        rows = [row for row in _unresolved_failure_rows(root)
+                if _failure_identity(row)[0] == kind and _failure_identity(row)[2] == digest
+                and _recovery_row_queue_name(row) == name]
+        _resolve_registry_rows(root, rows, "agent_retired_failed_queue_item")
+    return {"status": "retired", "name": name, "sha256": digest,
+            "run_id": run_id, "archive": "patchs/ignore/" + archive.name,
+            "source_unchanged_by_cleanup": True, "history_preserved": True}
+
+
 def main(argv=None):
     raw_argv = list(sys.argv[1:] if argv is None else argv)
     zero_argument_invocation = _is_zero_argument_dispatch(raw_argv)
     ap = argparse.ArgumentParser()
     ap.add_argument("--project-root", required=True)
-    ap.add_argument("command", nargs="?", choices=["run", "resume", "history", "report", "plan", "health"], default="run")
+    ap.add_argument("command", nargs="?", choices=["run", "resume", "history", "report", "plan", "health", "retire-failed"], default="run")
     ap.add_argument("--failure-policy", choices=["fail_fast", "continue_independent"])
     ap.add_argument("--transaction-policy", choices=["patch", "batch"])
     ap.add_argument("--resume-mode", choices=["all", "failed", "remaining"])
@@ -9834,6 +9943,11 @@ def main(argv=None):
     ap.add_argument("--keep-failed-zip", action="store_true")
     ap.add_argument("--move", action="store_true")
     ap.add_argument("--no-validation", action="store_true", help="Disable trusted validation profiles and delta auto-selection for this run")
+    ap.add_argument("--failed-name")
+    ap.add_argument("--failed-kind", choices=["PATCH", "COLLECT"])
+    ap.add_argument("--failed-sha256")
+    ap.add_argument("--project-key")
+    ap.add_argument("--project-id")
     ns = ap.parse_args(raw_argv)
     root = Path(ns.project_root).resolve()
     try:
@@ -9846,6 +9960,15 @@ def main(argv=None):
                     file=sys.stderr,
                 )
                 return 2
+        if ns.command == "retire-failed":
+            lock, _, _ = _acquire_batch_mutation_lock(root)
+            try:
+                result = _retire_failed_agent_package(root, ns.project_key, ns.project_id,
+                    ns.failed_name, ns.failed_kind, ns.failed_sha256, ns.run_id)
+                print(json.dumps(result, ensure_ascii=False))
+                return 0
+            finally:
+                _release_batch_mutation_lock(lock)
         if ns.command == "health":
             from python_patch_health import audit_runtime, print_health_report, protocol_health_snapshot
             runtime_dir = Path(__file__).resolve().parent.parent

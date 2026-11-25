@@ -400,6 +400,7 @@ func (s *Server) agentChatMessageForOwner(w http.ResponseWriter, r *http.Request
 		patchToolAvailable = s.agentChatEnsureTools(r.Context(), owner, p, model, string(secret))
 	}
 	instructions := agentChatInstructionsWithAutomation(session, patchToolAvailable, identity.Key)
+	instructions += s.agentRetireKnownFailedPatches(r.Context(), &session, identity, "")
 	limit := agentInitialOutputBudget(model, reasoning, patchToolAvailable)
 	// Conversations mode is only trusted with verified evidence for this exact
 	// endpoint/model. Otherwise replay canonical history statelessly; the stored

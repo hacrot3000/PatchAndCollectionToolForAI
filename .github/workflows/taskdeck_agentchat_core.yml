@@ -31,6 +31,9 @@ on:
       - 'python_patch_entry.py'
       - '_patch_lib/python_patch_collect_schema.py'
       - 'test_agent_collect_preflight.py'
+      - 'test_agent_failed_queue.py'
+      - '_patch_lib/python_patch_queue_dispatcher.py'
+      - '_patch_lib/python_patch_collect_progress_v6_7.py'
       - '.github/workflows/taskdeck_agentchat_core.yml'
   pull_request:
     paths:
@@ -62,6 +65,9 @@ on:
       - 'python_patch_entry.py'
       - '_patch_lib/python_patch_collect_schema.py'
       - 'test_agent_collect_preflight.py'
+      - 'test_agent_failed_queue.py'
+      - '_patch_lib/python_patch_queue_dispatcher.py'
+      - '_patch_lib/python_patch_collect_progress_v6_7.py'
       - '.github/workflows/taskdeck_agentchat_core.yml'
   workflow_dispatch:
 
@@ -103,6 +109,8 @@ jobs:
           python-version: '3.12'
       - name: Test canonical Python COLLECT schema preflight (no queue side effects)
         run: python test_agent_collect_preflight.py
+      - name: Test native failed-queue retirement and PASS protection
+        run: python test_agent_failed_queue.py
       - name: Cross-compile Agent state filesystem guard for macOS
         working-directory: vscode_tasks_menu_go
         run: |

@@ -356,13 +356,13 @@ func (s *Server) agentRunNativeCollection(ctx context.Context,owner string,reque
     if finalSeenAt.IsZero(){finalSeenAt=time.Now()}
     z,t:=agentNativeCollectionArtifacts(state,final)
     if z!=""&&t!="" {
-     return agentNativeCollectionObservation(s.Workspace,identity,nativeID,final,z,t),nil
+     return s.agentNativeCollectionWithRetirement(ctx,owner,identity,receipt,nativeID,final,z,t),nil
     }
     // The native item_finished event can precede the two artifact events.
     // Never lose a partial rc=3 artifact because the session closed first.
     if strings.EqualFold(final.Status,"PREFLIGHT_FAIL") ||
       time.Since(finalSeenAt)>3*time.Second {
-     return agentNativeCollectionObservation(s.Workspace,identity,nativeID,final,z,t),nil
+     return s.agentNativeCollectionWithRetirement(ctx,owner,identity,receipt,nativeID,final,z,t),nil
     }
    }
   }
@@ -377,4 +377,17 @@ func (s *Server) agentRunNativeCollection(ctx context.Context,owner string,reque
   }
   select{case <-ctx.Done():case <-ticker.C:}
  }
+}
+
+
+func(s *Server)agentNativeCollectionWithRetirement(ctx context.Context,owner string,identity patchtool.ProjectIdentity,receipt patchUploadResult,nativeID string,item session.ProtocolItemState,z,t string)string{
+ observed:=agentNativeCollectionObservation(s.Workspace,identity,nativeID,item,z,t)
+ // A PASS wrapper or verified PASS artifact is never a cleanup candidate,
+ // even if the model-facing observation was truncated or missing a TXT.
+ switch strings.ToUpper(item.Status){case "FAIL","PREFLIGHT_FAIL","INCOMPLETE":default:return observed}
+ var out map[string]any
+ if json.Unmarshal([]byte(observed),&out)!=nil||out["status"]=="PASS"{return observed}
+ retired,err:=s.agentRetireFailedQueue(ctx,owner,identity,receipt,"COLLECT",item.RunID)
+ if err!=nil{out["failed_queue_cleanup"]="retained: "+scrubAIContext(err.Error(),200)}else{out["failed_queue_cleanup"]=retired}
+ raw,e:=json.Marshal(out);if e!=nil{return observed};return string(raw)
 }

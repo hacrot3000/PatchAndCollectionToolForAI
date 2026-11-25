@@ -276,6 +276,8 @@ def _persist_direct_collect_history(root: Path, context: dict[str, object], resu
             "rc": rc,
             "elapsed_seconds": round(elapsed, 3),
             "collect_result": dict(result),
+            "request_sha256": result.get("request_sha256") or "",
+            "native_run_id": str(context.get("run_id") or ""),
         }
         if result.get("failure_reason"):
             detail["diagnosis"] = {"kind": "collect_failed", "message": str(result["failure_reason"])[:1024]}
@@ -658,6 +660,15 @@ def main(argv: list[str] | None = None) -> int:
         heartbeat = DEFAULT_HEARTBEAT
     heartbeat = max(0.2, heartbeat)
 
+    request_sha = ""
+    if _direct_collect_protocol_enabled():
+        try:
+            from python_patch_queue_dispatcher import QueueItem, _queue_item_sha256
+            item_name = str(_protocol_progress_context().get("item_name") or "")
+            if item_name == Path(item_name).name and item_name.startswith("CODE_COLLECTION_REQUEST_CLEAR_TEXT_"):
+                request_sha = _queue_item_sha256(root, QueueItem(item_name, "COLLECT")) or ""
+        except Exception:
+            pass  # no digest => no automatic retirement
     cmd = [sys.executable, str(collector), "--project-root", str(root), *rest]
     env = dict(os.environ)
     env["PYTHONUNBUFFERED"] = "1"
@@ -946,6 +957,8 @@ def main(argv: list[str] | None = None) -> int:
             if len(output_tail_bytes) > 16384:
                 output_tail = output_tail_bytes[-16384:].decode("utf-8", errors="ignore")
             result_meta["output_tail"] = output_tail
+    if request_sha:
+        result_meta["request_sha256"] = request_sha
     _write_collect_run_result(result_meta)
     _persist_direct_collect_history(root, protocol_context, result_meta)
     if protocol_writer is not None:
