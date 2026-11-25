@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"bletonfc/vscode_tasks_menu/internal/agentchat"
 	"bletonfc/vscode_tasks_menu/internal/patchtool"
@@ -16,7 +17,7 @@ import (
 // any of the incident's reads were redundant. Historical PATCH outcomes are
 // pre-seeded; no PATCH is executed by this fixture.
 func TestAgentCLP20LegacyCollectionFailurePreservesAcknowledgedPatches(t *testing.T) {
-	for _, failure := range []string{"timeout", "context_rejected", "stop"} {
+	for _, failure := range []string{"timeout", "context_rejected", "stop", "progressive_retry_stop"} {
 		t.Run(failure, func(t *testing.T) {
 			s, id := newAgentConversationFixture(t, "stateless")
 			store, err := s.agentChatStore()
@@ -29,6 +30,13 @@ func TestAgentCLP20LegacyCollectionFailurePreservesAcknowledgedPatches(t *testin
 			}
 			x.Status = "completed"
 			x.RetryMode = agentchat.RetryOff
+			progressive := failure == "progressive_retry_stop"
+			if progressive {
+				x.RetryMode = agentchat.RetryUnlimited
+				oldDelay := agentRetryDelay
+				agentRetryDelay = time.Millisecond
+				defer func() { agentRetryDelay = oldDelay }()
+			}
 			x.AutoFeedback = true
 			x.AutoFeedbackPersistent = true
 			x.History = []agentchat.HistoryItem{{Type: "user", Content: "Synthetic original objective: inspect then propose bounded changes."}}
@@ -41,7 +49,16 @@ func TestAgentCLP20LegacyCollectionFailurePreservesAcknowledgedPatches(t *testin
 				return fmt.Sprintf(`{"actions":[{"type":"read","path":"fixture.go","start_line":%d,"max_lines":1}]}`, n)
 			}
 			readReceipt := func(n int) string {
-				return fmt.Sprintf(`{"source":"native_patch_tool_collect","status":"PASS","evidence_verified":true,"results":[{"type":"read","files":[{"path":"fixture.go","content":"synthetic-read-%d"}]}]}`, n)
+				body := fmt.Sprintf("synthetic-read-%d", n)
+				if progressive {
+					// Artificial data only, under the per-item 512 KiB fence.
+					// Build a larger current receipt late in the sequence.
+					padding := 16 << 10
+					if n >= 20 { padding = 48 << 10 }
+					if n == 27 { padding = 390 << 10 }
+					body += strings.Repeat("x", padding)
+				}
+				return fmt.Sprintf(`{"source":"native_patch_tool_collect","status":"PASS","evidence_verified":true,"results":[{"type":"read","files":[{"path":"fixture.go","content":%q}]}]}`, body)
 			}
 			read := 0
 			for batch, count := range []int{12, 7} {
@@ -71,6 +88,8 @@ func TestAgentCLP20LegacyCollectionFailurePreservesAcknowledgedPatches(t *testin
 			requests := []string{readArgs(20), readArgs(21), readArgs(22), invalid, readArgs(23), readArgs(24), readArgs(25), readArgs(26), readArgs(27)}
 			nativeReads, schemaRejections, providerCalls := 0, 0, 0
 			observed := make(map[string]string)
+			var payloadSizes []int
+			var reducedPayload string
 			s.AgentCollectionCall = func(_ string, _ patchtool.ProjectIdentity, raw []byte) string {
 				if strings.Contains(string(raw), `"grep"`) {
 					schemaRejections++
@@ -81,6 +100,7 @@ func TestAgentCLP20LegacyCollectionFailurePreservesAcknowledgedPatches(t *testin
 			}
 			s.AgentChatCall = func(_ context.Context, _ agentchat.ProviderConfig, _ string, payload []byte) (agentchat.ResponsesResult, error) {
 				providerCalls++
+				payloadSizes = append(payloadSizes, len(payload))
 				if providerCalls > 1 {
 					var wire struct {
 						Input []map[string]any `json:"input"`
@@ -88,15 +108,21 @@ func TestAgentCLP20LegacyCollectionFailurePreservesAcknowledgedPatches(t *testin
 					if err := json.Unmarshal(payload, &wire); err != nil {
 						t.Fatal(err)
 					}
-					prior := fmt.Sprintf("clp20-collect-%d", providerCalls-1)
+					priorIndex := providerCalls-1
+					if priorIndex > len(requests) { priorIndex = len(requests) }
+					prior := fmt.Sprintf("clp20-collect-%d", priorIndex)
+					current, count := "", 0
 					for _, item := range wire.Input {
 						if item["type"] == "function_call_output" && item["call_id"] == prior {
-							if value, ok := item["output"].(string); ok {
-								observed[prior] = value
-							}
+							count++
+							current, _ = item["output"].(string)
 						}
 					}
-					if observed[prior] == "" {
+					if old, ok := observed[prior]; ok && old != current {
+						t.Fatalf("retry changed exact current receipt for %s", prior)
+					}
+					observed[prior] = current
+					if count != 1 || current == "" {
 						t.Fatalf("missing exact current result for %s", prior)
 					}
 				}
@@ -104,6 +130,22 @@ func TestAgentCLP20LegacyCollectionFailurePreservesAcknowledgedPatches(t *testin
 					return agentchat.ResponsesResult{ResponseID: fmt.Sprintf("clp20-response-%d", providerCalls), Calls: []agentchat.FunctionCall{{
 						CallID: fmt.Sprintf("clp20-collect-%d", providerCalls), Name: "taskdeck_collect_workspace", Arguments: requests[providerCalls-1],
 					}}}, nil
+				}
+				if progressive {
+					switch providerCalls {
+					case len(requests)+1:
+						return agentchat.ResponsesResult{}, &agentchat.ProviderError{Code: "PROVIDER_HTTP_400", HTTPStatus: 400, ProviderErrorCode: "context_length_exceeded"}
+					case len(requests)+2:
+						if len(payload) >= payloadSizes[len(requests)] {
+							t.Fatalf("explicit context rejection did not shrink wire bytes: %v", payloadSizes)
+						}
+						reducedPayload = string(payload)
+						return agentchat.ResponsesResult{}, &agentchat.ProviderError{Code: "CONNECT_TIMEOUT", Stage: "provider_http", Retryable: true, Ambiguous: true}
+					case len(requests)+3:
+						if string(payload) != reducedPayload { t.Fatal("transport retry changed payload") }
+						if !cancelAgentRequest(s.Workspace, "local", id) { t.Fatal("Stop did not cancel retry") }
+						return agentchat.ResponsesResult{}, context.Canceled
+					}
 				}
 				if providerCalls != len(requests)+1 {
 					t.Fatalf("unexpected egress after terminal failure: %d", providerCalls)
@@ -122,7 +164,15 @@ func TestAgentCLP20LegacyCollectionFailurePreservesAcknowledgedPatches(t *testin
 			}
 			w := invokeAI(t, s.agentChatSessionItemAPI, "POST", "/api/agent/sessions/"+id+"/messages",
 				map[string]any{"message": "Continue original synthetic objective", "confirm_external": true, "expected_revision": x.Revision})
-			if w.Code < 400 || providerCalls != 10 || nativeReads != 8 || schemaRejections != 1 {
+			expectedCalls := 10
+			if progressive {
+				expectedCalls = 12
+				if len(payloadSizes) != expectedCalls || payloadSizes[9] <= payloadSizes[0] || payloadSizes[10] >= payloadSizes[9] || payloadSizes[11] != payloadSizes[10] {
+					t.Fatalf("unexpected synthetic wire growth/recovery: %v", payloadSizes)
+				}
+				t.Logf("synthetic initial=%d late=%d reduced=%d retry=%d bytes (not production sizes)", payloadSizes[0], payloadSizes[9], payloadSizes[10], payloadSizes[11])
+			}
+			if w.Code < 400 || providerCalls != expectedCalls || nativeReads != 8 || schemaRejections != 1 {
 				t.Fatalf("unexpected incident path: HTTP=%d provider=%d reads=%d schema=%d body=%s", w.Code, providerCalls, nativeReads, schemaRejections, w.Body)
 			}
 			saved, err := store.Get(id, "local")
@@ -130,7 +180,7 @@ func TestAgentCLP20LegacyCollectionFailurePreservesAcknowledgedPatches(t *testin
 				t.Fatal(err)
 			}
 			wantStatus := "failed"
-			if failure == "stop" {
+			if failure == "stop" || progressive {
 				wantStatus = "cancelled"
 			}
 			if saved.Status != wantStatus || saved.ProviderRun == nil || saved.ProviderRun.Kind != "collection" ||

@@ -39,6 +39,13 @@ func TestAgentSessionGetShowsOwnerScopedProviderEgressReviewWithoutReplay(t *tes
    CreatedAt:now,UpdatedAt:now,
   }
   x.Status=tc.status
+  // A PREPARED record now requires an exact private sidecar before Save.
+  // Simulate that valid pre-egress state without contacting a provider.
+  if tc.phase=="prepared"{
+   payload:=[]byte(`{"model":"fixture","input":[{"role":"user","content":"review only"}]}`)
+   x.ProviderRun.PayloadSHA256=agentchat.ProviderPayloadDigest(payload)
+   if err=store.StageProviderPayload(x,payload);err!=nil{t.Fatal(err)}
+  }
   x,err=store.Save(x,x.Revision)
   if err!=nil{t.Fatalf("save phase %s: %v",tc.phase,err)}
   before:=x.Revision
