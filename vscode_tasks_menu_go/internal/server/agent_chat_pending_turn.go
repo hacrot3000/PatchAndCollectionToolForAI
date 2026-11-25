@@ -1,11 +1,6 @@
 package server
 
 import (
-	"bytes"
-	"context"
-	"encoding/json"
-	"net/http"
-	"net/http/httptest"
 	"strings"
 	"time"
 
@@ -93,7 +88,7 @@ func agentReleaseAndDispatchPending(release, dispatch func()) {
 const agentPendingDispatchHandoffReady = false
 
 // agentChatDispatchPendingUserTurn starts a queued Legacy turn after the active
-// turn finishes. It reuses the public message admission path internally.
+// turn finishes. Dispatch is suspended until the atomic handoff is integrated.
 func (s *Server) agentChatDispatchPendingUserTurn(owner, id string) {
 	if s == nil || strings.TrimSpace(id) == "" {
 		return
@@ -112,46 +107,7 @@ func (s *Server) agentChatDispatchPendingUserTurn(owner, id string) {
 		release()
 		return
 	}
-	// Dispatch is suspended until pending removal and PREPARED admission can
-	// commit atomically. Clearing it before admission can permanently lose it.
-	// Keep the existing implementation below for the forthcoming safe handoff.
-	if !agentPendingDispatchHandoffReady {
-		release()
-		return
-	}
-	pending := *x.PendingUserTurn
-	// Do not discard or dispatch a queued request under changed credentials or
-	// provider configuration. Keep it durable for explicit owner review.
-	provider, model, _, resolveErr := s.agentResolveTurnModel(owner, &x, pending.ProviderID, pending.ModelID, pending.ReasoningEffort)
-	if resolveErr != nil || s.ConnectionSecrets == nil {
-		release()
-		return
-	}
-	secret, secretErr := s.ConnectionSecrets.Get(agentProviderSecretID(s.Workspace, owner, provider.ID))
-	if secretErr != nil || !agentPendingTurnBindingMatches(pending, provider, model, secret) {
-		release()
-		return
-	}
-	x.PendingUserTurn = nil
-	_ = agentApplyNextTurnSelection(&x, pending.ProviderID, pending.ModelID, pending.ReasoningEffort)
-	x, err = store.Save(x, x.Revision)
-	if err != nil {
-		release()
-		return
-	}
+	// Fail closed: the prepared admission bridge is not yet wired into the
+	// authorized message-building path. Never clear a durable pending turn here.
 	release()
-	body, err := json.Marshal(map[string]any{
-		"message": pending.Message, "confirm_external": true,
-		"expected_revision": x.Revision, "request_id": pending.RequestID,
-		"provider_id": pending.ProviderID, "model_id": pending.ModelID,
-		"reasoning_effort": pending.ReasoningEffort,
-	})
-	if err != nil {
-		return
-	}
-	req := httptest.NewRequest(http.MethodPost, "/api/agent/sessions/"+id+"/messages", bytes.NewReader(body)).WithContext(context.Background())
-	req.Header.Set("Content-Type", "application/json")
-	w := httptest.NewRecorder()
-	// Preserve the authenticated owner; synthetic requests carry no user identity.
-	s.agentChatMessageForOwner(w, req, id, owner)
 }

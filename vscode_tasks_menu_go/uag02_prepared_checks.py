@@ -32,6 +32,8 @@ checks = [
     ("./internal/server", "^TestAgentPreparedResumeRejectsCredentialDrift$"),
     ("./internal/server", "^TestAgentPreparedProviderRunResumesExactlyOnceAfterRestart$"),
     ("./internal/server", "^TestAgentSendingRunRestartBecomesAmbiguousWithoutProviderReplay$"),
+    ("./internal/server", "^TestAgentPendingAdmissionBridgeRejectsInvalidCandidates$"),
+    ("./internal/server", "^TestAgentPendingAdmissionBridgeCommitsPrepared$"),
     ("./internal/server", "^TestAgentSuspendedPendingDispatchRetainsTurn$"),
     ("./internal/server", "^TestAgentSuspendedPendingDispatchRejectsForeignOwner$"),
 ]

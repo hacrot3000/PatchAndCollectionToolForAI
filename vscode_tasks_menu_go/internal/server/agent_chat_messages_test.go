@@ -611,6 +611,54 @@ func TestAgentSuspendedPendingDispatchRejectsForeignOwner(t *testing.T) {
     }
 }
 
+func TestAgentPendingAdmissionBridgeRejectsInvalidCandidates(t *testing.T) {
+    s, id := newAgentConversationFixture(t, "stateless")
+    store, err := s.agentChatStore()
+    if err != nil { t.Fatal(err) }
+    x, err := store.Get(id, "local")
+    if err != nil { t.Fatal(err) }
+    p := agentProviderFixture()
+    secret := []byte("TEST-KEY")
+    if err := s.agentChatQueuePendingUserTurn(store, "local", &x, "queued message", "queued-id", agentRequestDigest("queued message"), p, p.Models[0], "", secret); err != nil { t.Fatal(err) }
+    pending := *x.PendingUserTurn
+    revision := x.Revision
+    payload := []byte("prepared payload")
+    candidate := x
+    candidate.History = append(candidate.History, agentchat.HistoryItem{Type: "user", Content: pending.Message})
+    if _, err := agentAdmitPreparedPendingTurn(store, "user:other", candidate, p, p.Models[0], secret, payload); err == nil { t.Fatal("foreign owner accepted") }
+    if _, err := agentAdmitPreparedPendingTurn(store, "local", candidate, p, p.Models[0], []byte("different-key"), payload); err == nil { t.Fatal("credential drift accepted") }
+    if _, err := agentAdmitPreparedPendingTurn(store, "local", x, p, p.Models[0], secret, payload); err == nil { t.Fatal("missing queued history accepted") }
+    wrong := x
+    wrong.History = append(append([]agentchat.HistoryItem(nil), x.History...), agentchat.HistoryItem{Type: "user", Content: "different message"})
+    if _, err := agentAdmitPreparedPendingTurn(store, "local", wrong, p, p.Models[0], secret, payload); err == nil { t.Fatal("mismatched queued history accepted") }
+    after, err := store.Get(id, "local")
+    if err != nil { t.Fatal(err) }
+    if after.Revision != revision || after.PendingUserTurn == nil || *after.PendingUserTurn != pending || after.ProviderRun != nil { t.Fatal("rejected admission changed persisted session") }
+}
+
+func TestAgentPendingAdmissionBridgeCommitsPrepared(t *testing.T) {
+    s, id := newAgentConversationFixture(t, "stateless")
+    store, err := s.agentChatStore()
+    if err != nil { t.Fatal(err) }
+    x, err := store.Get(id, "local")
+    if err != nil { t.Fatal(err) }
+    p := agentProviderFixture()
+    credential := []byte("TEST-KEY")
+    digest := agentRequestDigest("queued message")
+    if err := s.agentChatQueuePendingUserTurn(store, "local", &x, "queued message", "queued-id", digest, p, p.Models[0], "", credential); err != nil { t.Fatal(err) }
+    revision := x.Revision
+    x.History = append(x.History, agentchat.HistoryItem{Type: "user", Content: "queued message"})
+    payload := []byte("prepared payload")
+    saved, err := agentAdmitPreparedPendingTurn(store, "local", x, p, p.Models[0], credential, payload)
+    if err != nil { t.Fatal(err) }
+    if saved.Revision != revision+1 || saved.PendingUserTurn != nil || saved.ProviderRun == nil || saved.ProviderRun.Phase != "prepared" || saved.LastRequestKey != "queued-id" || saved.LastRequestSHA != digest { t.Fatal("incorrect committed admission") }
+    if saved.TurnBinding == nil || saved.TurnBinding.RequestID != "queued-id" || saved.TurnBinding.ProviderID != p.ID || saved.TurnBinding.ModelID != p.Models[0].ID || saved.TurnBinding.PayloadDigest != agentchat.ProviderPayloadDigest(payload) { t.Fatal("prepared admission lost its queued binding") }
+    if _, _, err := store.PreparedProviderPayload(id, "user:other"); err == nil { t.Fatal("foreign owner recovered prepared payload") }
+    recovered, got, err := store.PreparedProviderPayload(id, "local")
+    if err != nil { t.Fatal(err) }
+    if recovered.Revision != saved.Revision || recovered.PendingUserTurn != nil || string(got) != string(payload) { t.Fatal("prepared admission or payload not recoverable") }
+}
+
 func TestAgentSuspendedPendingDispatchRetainsTurn(t *testing.T) {
     s, id := newAgentConversationFixture(t, "stateless")
     store, err := s.agentChatStore()
