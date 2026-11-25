@@ -19,6 +19,7 @@ type CollectionProgressView struct {
  PatchProposals uint64 `json:"patch_proposals"`
  PatchExecutions uint64 `json:"patch_executions"`
  VerifiedProgress uint64 `json:"verified_progress"`
+ AttestedProgress uint64 `json:"attested_progress,omitempty"`
  Replans uint64 `json:"replans"`
  LegacyIncomplete bool `json:"legacy_incomplete,omitempty"`
  AttemptAuditIncomplete bool `json:"attempt_audit_incomplete,omitempty"`
@@ -32,7 +33,7 @@ func CollectionProgressViewForSession(x Session)*CollectionProgressView{
   Requested:c.Requested,Observed:c.Observed,NativeReads:c.NativeReads,NewEvidence:c.NewEvidence,
   DuplicateEvidence:c.DuplicateEvidence,UnknownEvidence:c.UnknownEvidence,Errors:c.Errors,
   HTTPAttempts:c.HTTPAttempts,PatchProposals:c.PatchProposals,PatchExecutions:c.PatchExecutions,
-  VerifiedProgress:c.VerifiedProgressEvents,Replans:g.Recovery.Attempts,LegacyIncomplete:g.Legacy.Incomplete,
+  VerifiedProgress:c.VerifiedProgressEvents,AttestedProgress:c.AttestedProgressEvents,Replans:g.Recovery.Attempts,LegacyIncomplete:g.Legacy.Incomplete,
   AttemptAuditIncomplete:g.AttemptAuditIncomplete}
  if x.Status=="cancelled"{v.State="stopped";return v}
  if x.ProviderRun!=nil&&x.ProviderRun.Phase=="unknown"{v.State="recovery_required";return v}

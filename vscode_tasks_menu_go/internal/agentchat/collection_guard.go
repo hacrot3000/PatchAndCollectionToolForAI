@@ -19,6 +19,7 @@ type CollectionGuardState struct {
  ScopeDigest string `json:"scope_digest"`
  GoalDigest string `json:"goal_digest"`
  Generation uint64 `json:"generation"`
+ AcceptedStep bool `json:"accepted_step,omitempty"`
  Policy cp.Policy `json:"policy"`
  Counters cp.CounterState `json:"counters"`
  Evidence cp.EvidenceIndex `json:"evidence"`
@@ -217,5 +218,36 @@ func (x *Session) recordCollectionGuardPatchTransitions(previous Session){
   // mutation. Keep reads-since-meaningful-progress and recovery budget.
   g.Counters.Progress.DuplicateStreak=0
  }
+ x.SetCollectionGuard(g)
+}
+
+
+// Record a newly accepted step only when this objective is bound to the
+// exact plan goal/step/acceptance. UpdateTaskPlanStep's existing authenticated
+// callers verify native evidence or explicit owner attestation before calling
+// it. This is a non-authorizing projection, not a new acceptance mechanism.
+// Never reset on an unrelated milestone, wrapper PASS, model completion or
+// replay of a previously accepted step in the same objective generation.
+func(x *Session)recordCollectionGuardAcceptedStep(step TaskPlanStep,evidence TaskPlanEvidence){
+ g,ok:=x.ReadCollectionGuard()
+ if !ok||g.AcceptedStep||x.TaskPlan==nil||x.EventSeq==^uint64(0)||
+  g.GoalDigest!=guardDigest([]string{x.TaskPlan.Goal+"\n"+step.Title+"\n"+step.Acceptance,step.ID}){return}
+ kind:=cp.VerifiedProgress
+ switch evidence.Kind{
+ case "manual":
+  if strings.TrimSpace(evidence.Note)==""{return}
+  kind=cp.OwnerAttestedProgress
+ case "patch","collection","task_run","go_test_case","go_test_suite":
+  if evidence.Ref==""||!validGuardDigest(evidence.Digest){return}
+  // Unified adoption must not reset the Legacy objective.
+  if strings.HasPrefix(evidence.Ref,"run:"){return}
+ default:return
+ }
+ seq:=x.EventSeq+1
+ event:=cp.CounterEvent{Sequence:seq,Identity:guardDigest([]any{x.ID,g.Generation,step.ID,kind,seq}),Kind:kind}
+ c,_,applied,err:=cp.ApplyCounterEvent(g.Policy,g.Counters,event,true)
+ if err!=nil||!applied{return}
+ g.Counters=c;g.AcceptedStep=true
+ x.AppendEvent("clp_"+string(kind),x.Status,"","")
  x.SetCollectionGuard(g)
 }
