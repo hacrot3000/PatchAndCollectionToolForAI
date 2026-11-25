@@ -1401,6 +1401,7 @@ function agentLivePhase(session){
   const remaining=Math.max(0,Math.ceil((Date.parse(retry.next_at||'')-Date.now())/1000));
   const max=retry.mode==='unlimited'?'∞':'5';
   return {message:'AI retry '+retry.attempt+'/'+max+' · '+(retry.last_code||'transient failure')+
+   (Number(retry.same_digest_failures)>=3?' · same payload failed '+retry.same_digest_failures+' times; check provider connectivity':'')+
    ' · trying again in '+remaining+'s · Stop request to cancel'};
  }
  if(retry?.phase==='sending'&&retry.attempt>1){
@@ -1567,7 +1568,13 @@ function agentProviderDiagnosticReport(session,review,attemptAudit,integrityErro
     String(attempt.client_request_id||'not available')+
     ' · UTC='+String(attempt.recorded_at||'unavailable')+
     ' · request payload SHA-256='+String(attempt.payload_sha256||'unavailable')+
-    ' · header configured='+String(attempt.header_configured===true?'yes':'no'));
+    ' · header configured='+String(attempt.header_configured===true?'yes':'no')+
+    (attempt.outcome?' · local outcome='+String(attempt.outcome):'')+
+    (Number.isSafeInteger(attempt.payload_bytes)?' · canonical bytes='+attempt.payload_bytes:'')+
+    (Number.isSafeInteger(attempt.estimated_input_tokens)?' · estimated input tokens='+attempt.estimated_input_tokens:'')+
+    (Number.isSafeInteger(attempt.output_budget)?' · output budget='+attempt.output_budget:'')+
+    (Number.isSafeInteger(attempt.recovery_generation)?' · recovery generation='+attempt.recovery_generation:'')+
+    (attempt.retry_mode?' · retry mode='+String(attempt.retry_mode):''));
   }
  }else{
   lines.push('Provider-attempt audit: no matching verified record available');
@@ -1597,7 +1604,7 @@ function renderAgentProviderEgressReview(session,review,attemptAudit=null,integr
  // without becoming a different warning or clearing a prior dismissal.
  const audit=attemptAudit?.run_id===review?.run_id?attemptAudit:null;
  const latest=audit&&Array.isArray(audit.attempts)?audit.attempts[audit.attempts.length-1]:null;
- const viewKey=[key,audit?.total??'',latest?.client_request_id??'',Boolean(integrityError),Boolean(session?.collection_resume_eligible),session?.collection_auto_recovery||''].join('|');
+ const viewKey=[key,audit?.total??'',latest?.client_request_id??'',latest?.outcome??'',Boolean(integrityError),Boolean(session?.collection_resume_eligible),session?.collection_auto_recovery||''].join('|');
  if(viewKey===agentProviderReviewKey)return;
  agentProviderReviewKey=viewKey;
  agentProviderEgressNotice.replaceChildren();
@@ -1667,8 +1674,9 @@ function renderAgentProviderEgressReview(session,review,attemptAudit=null,integr
  if(review.phase==='unknown'&&review.kind==='collection'&&session.collection_resume_eligible===true&&!integrityError){
   const resume=agentButton('Resume original task (new request)',()=>{
    if(agentActive!==session.id||agentSessionBusy(session.id))return;
-   if(prompt.value.trim()||(agentAttachments||[]).length){showAgentError(new Error('Preserve the current draft/attachments before resuming.'));return;}
-   setAgentPromptValue('Resume original unfinished task from the canonical checkpoint (new request; do not replay old provider egress).');
+   const recoveryDraft='Resume original unfinished task from the canonical checkpoint (new request; do not replay old provider egress).';
+   if((prompt.value.trim()&&prompt.value.trim()!==recoveryDraft)||(agentAttachments||[]).length){showAgentError(new Error('Preserve the current draft/attachments before resuming.'));return;}
+   setAgentPromptValue(recoveryDraft);
    sendAgentMessage(String(review.run_id)).catch(showAgentError);
   });
   agentProviderEgressNotice.append(agentEl('div','','Previous PATCH acknowledgements remain intact. You can send any new message normally to the selected model or resume the original task. The previous provider request stays UNKNOWN.'),resume);
@@ -2173,6 +2181,7 @@ async function createSession(){
  if(agentPendingAttachments.length){const pending=agentPendingAttachments.slice();try{const merged=normalizeStagedAttachments([...agentAttachments,...pending]);agentAttachments=merged;agentAttachmentDrafts.set(result.session.id,merged.map(a=>({...a})));agentPendingAttachments.splice(0,pending.length);renderAgentAttachments();}catch(error){setAgentStatusNotice('Pending attachments need room in this session: '+String(error?.message||error));}}
 }
 async function sendAgentMessage(resumeCollectionRunID=""){
+ if(typeof resumeCollectionRunID!=="string")resumeCollectionRunID="";
  if(!agentActive)throw new Error('Create a session first.');
  const sessionID=agentActive;
  const msg=prompt.value.trim();

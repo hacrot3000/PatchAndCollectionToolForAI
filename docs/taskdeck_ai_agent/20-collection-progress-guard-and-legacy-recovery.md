@@ -683,6 +683,9 @@ Extended existing v1 attempt records additively (omitempty fields preserve old r
 #### CLP-06.01 — Durable adaptive budget hints
 Replaced process-local map with bounded private checksummed advisory cache under existing Store lock (256 entries, 24h TTL, exact owner/workspace/project/provider config/credential scope hash; no plaintext prompts/keys/identity). Atomic temp+fsync+rename+directory sync; absent/expired/corrupt hints fall back to configured limits, corrupt file preserved. Learn only after structured rejection followed by successful strictly smaller input/output reservation; not timeout. Apply before PREPARED. Tests reopen, TTL, credential rotation, foreign scope, concurrent writes, capacity, privacy, corrupt metadata and existing integration. CI pending.
 
+#### CLP-06.02 / 07.01 / 08 — Owner-visible diagnostics
+UI support copy includes allowlisted attempt metadata, refreshes on local outcome, displays same-digest stagnation without changing retry policy; repeat explicit resume draft can be retried without deleting unrelated draft. UI regression distinguishes UNKNOWN Collection from feedback. Handoff exposes bounded previous UNKNOWN checkpoint metadata including receipt unavailable, plus guard counts; no additional raw prompts or credentials. Retained concurrent recovery changes (ordinary Send, opted-in auto-recovery, rolling audit window). CI pending.
+
 ### 8.2. Blockers và quyết định (append)
 
 | ID | Task | Vấn đề / quyết định | Ảnh hưởng | Hành động tiếp theo | Trạng thái |
