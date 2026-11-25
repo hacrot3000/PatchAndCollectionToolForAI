@@ -18,7 +18,7 @@ func TestCollectionProgressViewOnlyCommittedRedactedMetadata(t *testing.T){
  raw,_:=json.Marshal(v)
  for _,secret:=range []string{"private-worktree","private-call","secret-file","goal_digest","scope_digest","proof_digest"}{if strings.Contains(string(raw),secret){t.Fatalf("leaked %s",secret)}}
  x.Status="requesting_ai";x.AppendEvent("turn_started",x.Status,"","")
- if v=CollectionProgressViewForSession(x);v.State=="stalled"{t.Fatal("stale checkpoint leaked into new turn")}
+ if v=CollectionProgressViewForSession(x);v.State!="waiting_provider"{t.Fatalf("new turn has wrong state: %+v",v)}
  x.ProviderRun=&ProviderRun{Phase:"unknown"};x.Status="failed"
  if CollectionProgressViewForSession(x).State!="recovery_required"{t.Fatal("unknown provider hidden")}
  x.Status="cancelled"

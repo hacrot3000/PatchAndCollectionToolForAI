@@ -37,6 +37,7 @@ func CollectionProgressViewForSession(x Session)*CollectionProgressView{
  if x.Status=="cancelled"{v.State="stopped";return v}
  if x.ProviderRun!=nil&&x.ProviderRun.Phase=="unknown"{v.State="recovery_required";return v}
  if x.Status=="waiting_tool"||x.Status=="tool_queuing"{v.State="waiting_tool";return v}
+ if x.Status=="requesting_ai"{v.State="waiting_provider"}
  // Read the most recent relevant event in the current turn only. Stale
  // checkpoints must not mark a later successful/user-started turn stalled.
  for i:=len(x.Events)-1;i>=0;i--{
@@ -59,6 +60,5 @@ func CollectionProgressViewForSession(x Session)*CollectionProgressView{
    if x.Status=="requesting_ai"{v.State="waiting_provider";return v}
   }
  }
- if x.Status=="requesting_ai"{v.State="waiting_provider"}
  return v
 }
