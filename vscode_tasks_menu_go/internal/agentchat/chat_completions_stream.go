@@ -38,7 +38,13 @@ func newChatStreamAccumulator() *chatStreamAccumulator {
 	return &chatStreamAccumulator{callIndex: make(map[int]int)}
 }
 
-func (a *chatStreamAccumulator) apply(payload []byte) error {
+func (a *chatStreamAccumulator) apply(payload []byte, callbacks ...func(StreamEvent) error) error {
+	emit := func(event StreamEvent) error {
+		if len(callbacks) > 0 && callbacks[0] != nil {
+			return callbacks[0](event)
+		}
+		return nil
+	}
 	if string(payload) == "[DONE]" {
 		if !a.finished {
 			return errors.New("Chat Completions stream ended without a finish reason")
@@ -88,6 +94,9 @@ func (a *chatStreamAccumulator) apply(payload []byte) error {
 				return errors.New("Chat Completions stream text exceeded limit")
 			}
 			a.text.WriteString(choice.Delta.Content)
+			if err := emit(StreamEvent{Type: "assistant.delta", TextDelta: choice.Delta.Content}); err != nil {
+				return err
+			}
 		}
 		for _, tc := range choice.Delta.ToolCalls {
 			idx, ok := a.callIndex[tc.Index]
@@ -112,6 +121,13 @@ func (a *chatStreamAccumulator) apply(payload []byte) error {
 				return errors.New("Chat Completions tool arguments exceeded limit")
 			}
 			a.args[idx].WriteString(tc.Function.Arguments)
+			// The accumulated name is published with every fragment so a run can
+			// assemble the complete call even when the name arrives later.
+			if tc.Function.Name != "" || tc.Function.Arguments != "" {
+				if err := emit(StreamEvent{Type: "tool.call.delta", CallID: a.calls[idx].CallID, CallName: a.calls[idx].Name, Arguments: tc.Function.Arguments}); err != nil {
+					return err
+				}
+			}
 		}
 		if choice.FinishReason != nil {
 			a.finish = *choice.FinishReason
@@ -153,6 +169,12 @@ func (a *chatStreamAccumulator) result() (ResponsesResult, error) {
 // DoChatCompletionsStream sends a stateless Chat Completions request through
 // the shared hardened transport and accepts only a complete SSE response.
 func DoChatCompletionsStream(ctx context.Context, p ProviderConfig, key string, canonicalBody []byte) (ResponsesResult, error) {
+	return DoChatCompletionsStreamWithEvents(ctx, p, key, canonicalBody, nil)
+}
+
+// DoChatCompletionsStreamWithEvents emits validated text/tool argument deltas
+// without weakening the complete-result checks used by the regular API.
+func DoChatCompletionsStreamWithEvents(ctx context.Context, p ProviderConfig, key string, canonicalBody []byte, onEvent func(StreamEvent) error) (ResponsesResult, error) {
 	if p.APIType != "chat_completions" {
 		return ResponsesResult{}, errors.New("provider is not configured for Chat Completions")
 	}
@@ -219,7 +241,7 @@ func DoChatCompletionsStream(ctx context.Context, p ProviderConfig, key string, 
 		if payload == "" {
 			return nil
 		}
-		return acc.apply([]byte(payload))
+		return acc.apply([]byte(payload), onEvent)
 	}
 	for {
 		line, readErr := reader.ReadString('\n')

@@ -19,15 +19,16 @@ const agentSessionLimit = 32
 // agentChatStore is private to this TaskDeck installation, not the project
 // checkout. Its directory is keyed to the authoritative workspace path.
 func (s *Server) agentChatStore() (*agentchat.Store, error) {
-	privateFile, err := aiPrivatePath(s.Workspace)
+	ownerWorkspace := s.agentOwnerWorkspace()
+	privateFile, err := aiPrivatePath(ownerWorkspace)
 	if err != nil {
 		return nil, err
 	}
-	identity, err := patchtool.ReadProjectIdentity(s.Workspace)
+	identity, err := patchtool.ReadProjectIdentity(ownerWorkspace)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return nil, err
 	}
-	store,err:=agentchat.NewProjectStore(filepath.Join(filepath.Dir(privateFile), "agent-sessions-"+aiWorkspaceHash(s.Workspace)), s.Workspace, identity.ID)
+	store,err:=agentchat.NewProjectStore(filepath.Join(filepath.Dir(privateFile), "agent-sessions-"+aiWorkspaceHash(ownerWorkspace)), ownerWorkspace, identity.ID)
  if err!=nil{return nil,err}
  // Recover abandoned immutable plan segments once per private directory on
  // daemon startup. A failed audit blocks use; never prune from a partial
@@ -64,7 +65,7 @@ func (s *Server) agentChatSessionsAPI(w http.ResponseWriter, r *http.Request) {
 				"provider_id": item.ProviderID, "mode": item.Mode, "status": item.Status,
 				"title": item.Title, "archived": item.Archived, "target": item.Target,
 				"reasoning_effort": item.ReasoningEffort, "retry_mode": item.RetryMode,
-				"revision":         item.Revision, "updated_at": item.UpdatedAt,
+				"revision": item.Revision, "updated_at": item.UpdatedAt,
 				"unresolved": agentchat.HasUnresolvedWork(item),
 			})
 		}
@@ -520,9 +521,13 @@ func (s *Server) agentChatSessionCancelAPI(w http.ResponseWriter, r *http.Reques
 		// A detached/manual registered request without a turn lock is still
 		// marked cancelled immediately for crash/reconnect recovery.
 		if unlock, acquired := lockAgentTurn(s.Workspace, owner, id); acquired {
-			if x.Status == "requesting_ai" { x.Status = "cancelled" }
-			x.AppendEvent("turn_cancel_requested",x.Status,"","user_stop")
-			if changed, saveErr := store.Save(x,x.Revision); saveErr == nil { x = changed }
+			if x.Status == "requesting_ai" {
+				x.Status = "cancelled"
+			}
+			x.AppendEvent("turn_cancel_requested", x.Status, "", "user_stop")
+			if changed, saveErr := store.Save(x, x.Revision); saveErr == nil {
+				x = changed
+			}
 			unlock()
 		}
 	}

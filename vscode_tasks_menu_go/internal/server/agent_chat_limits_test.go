@@ -14,6 +14,11 @@ func TestAgentAdmissionEnforcesGlobalLimitAndReleases(t *testing.T) {
 	t.Cleanup(func() { agentQueueTimeout = previousTimeout })
 
 	releases := make([]func(), 0, agentMaxConcurrentGlobal)
+	defer func() {
+		for _, release := range releases {
+			release()
+		}
+	}()
 	for i := 0; i < agentMaxConcurrentGlobal; i++ {
 		release, ok := acquireAgentSlot(context.Background(), "owner-"+string(rune('a'+i)))
 		if !ok {
@@ -49,6 +54,11 @@ func TestAgentAdmissionWaiterCountsOnceWhileWaiting(t *testing.T) {
 
 	// Saturate one owner.
 	var held []func()
+	defer func() {
+		for _, release := range held {
+			release()
+		}
+	}()
 	for i := 0; i < agentMaxConcurrentPerOwner; i++ {
 		rel, ok := acquireAgentSlot(context.Background(), "same")
 		if !ok {
@@ -98,6 +108,11 @@ func TestAgentAdmissionCancelReleasesQueuePosition(t *testing.T) {
 	t.Cleanup(func() { agentQueueTimeout = previousTimeout })
 
 	held := make([]func(), 0, agentMaxConcurrentPerOwner)
+	defer func() {
+		for _, release := range held {
+			release()
+		}
+	}()
 	for i := 0; i < agentMaxConcurrentPerOwner; i++ {
 		rel, ok := acquireAgentSlot(context.Background(), "cancel-owner")
 		if !ok {
@@ -140,6 +155,11 @@ func TestAgentAdmissionAdmitsWaiterAfterRelease(t *testing.T) {
 	t.Cleanup(func() { agentQueueTimeout = previousTimeout })
 
 	held := make([]func(), 0, agentMaxConcurrentPerOwner)
+	defer func() {
+		for _, release := range held {
+			release()
+		}
+	}()
 	for i := 0; i < agentMaxConcurrentPerOwner; i++ {
 		rel, ok := acquireAgentSlot(context.Background(), "handoff")
 		if !ok {

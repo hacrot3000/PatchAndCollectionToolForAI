@@ -99,6 +99,18 @@ func (s *Server) agentChatToolDecisionAPI(w http.ResponseWriter, r *http.Request
 		http.Error(w, "invalid tool call id", 400)
 		return
 	}
+	if !isInternalAgentRunRequest(r) {
+		owner := aiPlanOwner(r)
+		run, found, err := s.agentRunForToolCall(owner, sessionID, callID)
+		if err != nil {
+			http.Error(w, "Agent Run tool binding is ambiguous", 409)
+			return
+		}
+		if found {
+			s.agentRunToolDecisionAPI(w, r, owner, run.Spec.RunID, callID)
+			return
+		}
+	}
 	if !s.requireSharedActionPermission(w, r, identity.PermissionPatchRun, "agent.patch_decision", sessionID) {
 		return
 	}
@@ -129,7 +141,7 @@ func (s *Server) agentChatToolDecisionAPI(w http.ResponseWriter, r *http.Request
 		return
 	}
 	owner := aiPlanOwner(r)
-	release, ok := lockAgentTurn(s.Workspace, owner, sessionID)
+	release, ok := lockAgentTurn(s.agentOwnerWorkspace(), owner, sessionID)
 	if !ok {
 		http.Error(w, "Agent session is busy", 409)
 		return
@@ -152,11 +164,11 @@ func (s *Server) agentChatToolDecisionAPI(w http.ResponseWriter, r *http.Request
 	// A background auto-approval is authorized only by an owner-controlled
 	// session flag and only for a local (non-shared) workspace. A model cannot
 	// set this flag by proposing a Patch.
-	if request.Automatic && (x.Owner != "local" || s.Config.SharedServerEnabled || !agentAutoApprovalAuthorized(x,callID)) {
-		http.Error(w,"automatic Patch approval is not authorized for this session",403)
+	if request.Automatic && (x.Owner != "local" || s.Config.SharedServerEnabled || !agentAutoApprovalAuthorized(x, callID)) {
+		http.Error(w, "automatic Patch approval is not authorized for this session", 403)
 		return
 	}
-	if x.Workspace != s.Workspace || x.Status != "waiting_tool" {
+	if x.Workspace != s.agentOwnerWorkspace() || x.Status != "waiting_tool" {
 		http.Error(w, "Agent session no longer awaits Patch approval; refresh the conversation to view the native status", 409)
 		return
 	}
@@ -167,7 +179,7 @@ func (s *Server) agentChatToolDecisionAPI(w http.ResponseWriter, r *http.Request
 	// Automatic approvals remain strict so the scheduler cannot act on stale
 	// preferences or queue a second package.
 	if request.Automatic && x.Revision != request.ExpectedRevision {
-		http.Error(w,"automatic approval revision changed; retry on the next scheduler pass",409)
+		http.Error(w, "automatic approval revision changed; retry on the next scheduler pass", 409)
 		return
 	}
 	identity, err := patchtool.EnsureProjectIdentity(s.Workspace)
@@ -357,8 +369,8 @@ func (s *Server) agentChatToolDecisionAPI(w http.ResponseWriter, r *http.Request
 			} else {
 				x.ToolCalls[idx].Status = "dispatching"
 				x.ToolCalls[idx].PatchSessionID = patchID
-				started:=time.Now().UTC()
-				x.ToolCalls[idx].NativeStartedAt=&started
+				started := time.Now().UTC()
+				x.ToolCalls[idx].NativeStartedAt = &started
 				if !persistStatus() {
 					return
 				}
@@ -398,7 +410,9 @@ func (s *Server) agentChatToolDecisionAPI(w http.ResponseWriter, r *http.Request
 						status = "unknown"
 						note = "Native Patch selection was not confirmed; inspect existing session, do not requeue automatically."
 					}
-					if !persistStatus() {return}
+					if !persistStatus() {
+						return
+					}
 				} else {
 					x.ToolCalls[idx].Status = "running"
 					x.AppendEvent("tool_running", "waiting_tool", callID, "")

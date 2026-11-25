@@ -91,9 +91,15 @@ func (s *Server) runAgentAutoFeedback(ctx context.Context) {
 // all other conversations.
 func (s *Server) processAgentAutoFeedbackSession(ctx context.Context, store *agentchat.Store, id string) {
 	if ctx.Err() != nil { return }
-	// Resume a pre-egress, exact-payload provider request if it was durably
-	// PREPARED before a daemon restart. Never replay SENDING/UNKNOWN.
+	// Resume an exact legacy PREPARED request using its durable provider
+	// attempt record. Never replay SENDING/UNKNOWN.
 	if s.resumePreparedAgentProviderRun(ctx,store,id){return}
+	// Do not originate new legacy egress for a provider-bound run.
+	// Existing exact proof checks remain read-only.
+	if s.agentConversationRequiresRunContinuation("local", id) {
+		s.autoCheckTaskPlanOne(ctx, store, id)
+		return
+	}
 	// Auto Patch uses exactly the existing revision-fenced native approval
 	// gateway; it must not reexecute an ambiguous native Patch.
 	s.autoPatchOne(ctx, store, id)
@@ -237,6 +243,9 @@ func (s *Server) reconcileAgentSession(ctx context.Context, store *agentchat.Sto
 }
 
 func (s *Server) autoFeedbackOne(ctx context.Context, store *agentchat.Store, id string) {
+	if s.agentConversationRequiresRunContinuation("local", id) {
+		return
+	}
 	release, ok := lockAgentTurn(s.Workspace, "local", id)
 	if !ok {
 		return

@@ -24,24 +24,29 @@ const (
 // For a tool call, Type is "function_call" and CallID/Name/Arguments are set.
 // For a tool result, Type is "function_call_output" and CallID/Content are set.
 type HistoryItem struct {
-	Type      string `json:"type"`
-	Content   string `json:"content,omitempty"`
-	CallID    string `json:"call_id,omitempty"`
-	Name      string `json:"name,omitempty"`
-	Arguments string `json:"arguments,omitempty"`
+	Type                  string `json:"type"`
+	Content               string `json:"content,omitempty"`
+	CallID                string `json:"call_id,omitempty"`
+	Name                  string `json:"name,omitempty"`
+	Arguments             string `json:"arguments,omitempty"`
+	OriginRunID           string `json:"origin_run_id,omitempty"`
+	ProviderID            string `json:"provider_id,omitempty"`
+	ModelID               string `json:"model_id,omitempty"`
+	ParentTurnID          string `json:"parent_turn_id,omitempty"`
+	ExcludedPendingRunIDs string `json:"excluded_pending_run_ids,omitempty"`
 }
 
 type RequestConfig struct {
-	Model              string
-	Instructions       string
-	Mode               ContextMode
-	PreviousResponseID string
-	ConversationID     string
-	History            []HistoryItem
-	Next               []HistoryItem
-	MaxOutputTokens    int
-	ReasoningEffort    string
-	EnablePatchTool    bool // gated, approval-required native Patch function
+	Model                string
+	Instructions         string
+	Mode                 ContextMode
+	PreviousResponseID   string
+	ConversationID       string
+	History              []HistoryItem
+	Next                 []HistoryItem
+	MaxOutputTokens      int
+	ReasoningEffort      string
+	EnablePatchTool      bool // gated, approval-required native Patch function
 	EnableCollectionTool bool // bounded, read-only project inspection
 	// ProbeToolName advertises a single harmless function with no required
 	// arguments. It exists only for a user-triggered capability probe and can

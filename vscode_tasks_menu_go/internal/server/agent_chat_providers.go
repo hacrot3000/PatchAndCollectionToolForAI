@@ -20,11 +20,12 @@ import (
 const agentProviderConfigLimit = 128 << 10
 
 func (s *Server) agentChatProviders() (*agentchat.ProviderStore, error) {
-	privateFile, err := aiPrivatePath(s.Workspace)
+	ownerWorkspace := s.agentOwnerWorkspace()
+	privateFile, err := aiPrivatePath(ownerWorkspace)
 	if err != nil {
 		return nil, err
 	}
-	return agentchat.NewProviderStore(filepath.Join(filepath.Dir(privateFile), "agent-providers-"+aiWorkspaceHash(s.Workspace)))
+	return agentchat.NewProviderStore(filepath.Join(filepath.Dir(privateFile), "agent-providers-"+aiWorkspaceHash(ownerWorkspace)))
 }
 func agentProviderSecretID(workspace, owner, providerID string) string {
 	h := sha256.Sum256([]byte(owner))
@@ -34,11 +35,12 @@ func agentProviderSecretID(workspace, owner, providerID string) string {
 // agentChatCapabilities returns the private probe-evidence store for this
 // installation. It is separate from provider metadata and never holds keys.
 func (s *Server) agentChatCapabilities() (*agentchat.CapabilityStore, error) {
-	privateFile, err := aiPrivatePath(s.Workspace)
+	ownerWorkspace := s.agentOwnerWorkspace()
+	privateFile, err := aiPrivatePath(ownerWorkspace)
 	if err != nil {
 		return nil, err
 	}
-	return agentchat.NewCapabilityStore(filepath.Join(filepath.Dir(privateFile), "agent-providers-"+aiWorkspaceHash(s.Workspace)))
+	return agentchat.NewCapabilityStore(filepath.Join(filepath.Dir(privateFile), "agent-providers-"+aiWorkspaceHash(ownerWorkspace)))
 }
 
 // agentModelCapabilityFingerprint is exposed so request building and probes
@@ -136,7 +138,7 @@ type agentProviderView struct {
 func (s *Server) agentProviderView(owner string, p agentchat.ProviderConfig) agentProviderView {
 	view := agentProviderView{ProviderConfig: p}
 	if s.ConnectionSecrets != nil {
-		key, err := s.ConnectionSecrets.Get(agentProviderSecretID(s.Workspace, owner, p.ID))
+		key, err := s.ConnectionSecrets.Get(agentProviderSecretID(s.agentOwnerWorkspace(), owner, p.ID))
 		view.HasAPIKey = err == nil && len(key) > 0
 	}
 	return view
@@ -207,7 +209,7 @@ func (s *Server) agentChatProvidersAPI(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "encrypted secret store unavailable", 503)
 			return
 		}
-		if err = s.ConnectionSecrets.Put(agentProviderSecretID(s.Workspace, owner, req.Provider.ID), []byte(req.APIKey)); err != nil {
+		if err = s.ConnectionSecrets.Put(agentProviderSecretID(s.agentOwnerWorkspace(), owner, req.Provider.ID), []byte(req.APIKey)); err != nil {
 			http.Error(w, "unable to store encrypted provider key", 500)
 			return
 		}
@@ -266,12 +268,12 @@ func (s *Server) agentChatProviderTestAPI(w http.ResponseWriter, r *http.Request
 		http.Error(w, "secret store unavailable", 503)
 		return
 	}
-	secret, err := s.ConnectionSecrets.Get(agentProviderSecretID(s.Workspace, owner, p.ID))
+	secret, err := s.ConnectionSecrets.Get(agentProviderSecretID(s.agentOwnerWorkspace(), owner, p.ID))
 	if err != nil || len(secret) == 0 {
 		http.Error(w, "provider API key not configured", 503)
 		return
 	}
-	release, allowed := s.reserveAIRequest(aiWorkspaceHash(s.Workspace)+":"+owner, 20)
+	release, allowed := s.reserveAIRequest(aiWorkspaceHash(s.agentOwnerWorkspace())+":"+owner, 20)
 	if !allowed {
 		http.Error(w, "provider request quota exceeded", 429)
 		return
@@ -341,7 +343,7 @@ func (s *Server) agentChatProviderDeleteAPI(w http.ResponseWriter, r *http.Reque
 			http.Error(w, "encrypted secret store unavailable", 503)
 			return
 		}
-		err := s.ConnectionSecrets.Delete(agentProviderSecretID(s.Workspace, owner, req.ProviderID))
+		err := s.ConnectionSecrets.Delete(agentProviderSecretID(s.agentOwnerWorkspace(), owner, req.ProviderID))
 		if err != nil {
 			http.Error(w, "cannot delete local provider credential", 500)
 			return
@@ -431,12 +433,12 @@ func (s *Server) agentChatProviderProbeAPI(w http.ResponseWriter, r *http.Reques
 		http.Error(w, "secret store unavailable", 503)
 		return
 	}
-	secret, err := s.ConnectionSecrets.Get(agentProviderSecretID(s.Workspace, owner, p.ID))
+	secret, err := s.ConnectionSecrets.Get(agentProviderSecretID(s.agentOwnerWorkspace(), owner, p.ID))
 	if err != nil || len(secret) == 0 {
 		http.Error(w, "provider API key not configured", 503)
 		return
 	}
-	release, allowed := s.reserveAIRequest(aiWorkspaceHash(s.Workspace)+":"+owner, 20)
+	release, allowed := s.reserveAIRequest(aiWorkspaceHash(s.agentOwnerWorkspace())+":"+owner, 20)
 	if !allowed {
 		http.Error(w, "provider request quota exceeded", 429)
 		return

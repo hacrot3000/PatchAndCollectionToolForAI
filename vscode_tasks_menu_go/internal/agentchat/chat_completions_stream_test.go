@@ -7,6 +7,11 @@ import (
 
 func TestChatCompletionsStreamAccumulatesFragmentedTextAndToolArguments(t *testing.T) {
 	a := newChatStreamAccumulator()
+	var emitted []StreamEvent
+	onEvent := func(event StreamEvent) error {
+		emitted = append(emitted, event)
+		return nil
+	}
 	chunks := []string{
 		`{"id":"chatcmpl-s","choices":[{"delta":{"content":"hello "},"finish_reason":null}]}`,
 		`{"id":"chatcmpl-s","choices":[{"delta":{"content":"world"},"finish_reason":null}]}`,
@@ -15,7 +20,7 @@ func TestChatCompletionsStreamAccumulatesFragmentedTextAndToolArguments(t *testi
 		`{"id":"chatcmpl-s","choices":[{"delta":{},"finish_reason":"tool_calls"}]}`,
 	}
 	for _, chunk := range chunks {
-		if err := a.apply([]byte(chunk)); err != nil {
+		if err := a.apply([]byte(chunk), onEvent); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -28,6 +33,9 @@ func TestChatCompletionsStreamAccumulatesFragmentedTextAndToolArguments(t *testi
 	}
 	if res.Text != "hello world" || len(res.Calls) != 1 || res.Calls[0].CallID != "call-1" || !strings.Contains(res.Calls[0].Arguments, "patch_python") {
 		t.Fatalf("bad streaming result: %+v", res)
+	}
+	if len(emitted) != 4 || emitted[0].TextDelta != "hello " || emitted[1].TextDelta != "world" || emitted[2].Type != "tool.call.delta" || emitted[3].Type != "tool.call.delta" {
+		t.Fatalf("stream deltas were not emitted as they arrived: %+v", emitted)
 	}
 }
 

@@ -5,3 +5,6 @@ deploy/docker/.env
 **/.vscode/vscode_tasks_menu.ini
 
 .lh/
+
+# Python bytecode caches created by Patch runtime and test runs.
+__pycache__/

@@ -239,6 +239,13 @@ func (s *Server) agentChatMessageAPI(w http.ResponseWriter, r *http.Request, id 
 		http.Error(w, "workspace mismatch", 403)
 		return
 	}
+	// Existing legacy request replays remain readable, but a new request
+	// for a run-managed conversation must use its pinned provider binding.
+	if s.agentConversationRequiresRunContinuation(owner, id) &&
+		(strings.TrimSpace(req.RequestID) == "" || session.LastRequestKey != strings.TrimSpace(req.RequestID)) {
+		http.Error(w, "conversation has provider-bound runs; submit using the Agent Run API", 409)
+		return
+	}
 	// Idempotent replay must be evaluated BEFORE the revision check: a retried
 	// request arrives with the pre-turn revision, which is now stale.
 	requestKey := strings.TrimSpace(req.RequestID)

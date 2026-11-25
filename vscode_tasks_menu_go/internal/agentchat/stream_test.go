@@ -46,6 +46,37 @@ func TestStreamAccumulatorCollectsTextAndToolCall(t *testing.T) {
 	}
 }
 
+func TestStreamAccumulatorEmitsValidatedDeltasInArrivalOrder(t *testing.T) {
+	acc := newStreamAccumulator()
+	var emitted []StreamEvent
+	callback := func(event StreamEvent) error {
+		emitted = append(emitted, event)
+		return nil
+	}
+	for _, raw := range []string{
+		`{"type":"response.output_text.delta","delta":"first"}`,
+		`{"type":"response.output_text.delta","delta":" second"}`,
+	} {
+		event, err := parseSSEEvent([]byte(raw))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := acc.apply(event, callback); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(emitted) != 2 || emitted[0].TextDelta != "first" || emitted[1].TextDelta != " second" {
+		t.Fatalf("validated deltas were not emitted in order: %+v", emitted)
+	}
+	if err := acc.apply(StreamEvent{TextDelta: strings.Repeat("x", maxSSETextBytes+1)}, callback); err == nil {
+		t.Fatal("oversized delta was emitted")
+	}
+	sinkErr := errors.New("run event sink stopped")
+	if err := acc.apply(StreamEvent{TextDelta: "next"}, func(StreamEvent) error { return sinkErr }); !errors.Is(err, sinkErr) {
+		t.Fatalf("event sink failure was not propagated: %v", err)
+	}
+}
+
 func TestStreamAccumulatorRefusesIncompleteOrFailed(t *testing.T) {
 	acc := newStreamAccumulator()
 	ev, _ := parseSSEEvent([]byte(`{"type":"response.output_text.delta","delta":"partial"}`))
