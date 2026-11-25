@@ -1,0 +1,266 @@
+{
+  "tasks": [
+    {
+      "args": [
+        "-m",
+        "compileall",
+        "-q",
+        "."
+      ],
+      "command": "python3",
+      "detail": "Suggested task: review before running",
+      "label": "Python · Compile check",
+      "menuGroup": "Python",
+      "menuLabel": "Python · Compile check",
+      "type": "process"
+    },
+    {
+      "args": [
+        "-m",
+        "compileall",
+        "-q",
+        "."
+      ],
+      "command": "python3",
+      "detail": "Suggested task: review before running",
+      "label": "Python (_patch_lib) · Compile check",
+      "menuGroup": "Python",
+      "menuLabel": "Python (_patch_lib) · Compile check",
+      "options": {
+        "cwd": "_patch_lib"
+      },
+      "type": "process"
+    },
+    {
+      "args": [
+        "--version"
+      ],
+      "command": "node",
+      "detail": "Suggested task: review before running",
+      "label": "Node.js (remote_portal/public) · Node version",
+      "menuGroup": "Node.js",
+      "menuLabel": "Node.js (remote_portal/public) · Node version",
+      "options": {
+        "cwd": "remote_portal/public"
+      },
+      "type": "process"
+    },
+    {
+      "args": [
+        "-v"
+      ],
+      "command": "php",
+      "detail": "Suggested task: review before running",
+      "label": "PHP (remote_portal/public) · PHP version",
+      "menuGroup": "PHP",
+      "menuLabel": "PHP (remote_portal/public) · PHP version",
+      "options": {
+        "cwd": "remote_portal/public"
+      },
+      "type": "process"
+    },
+    {
+      "args": [
+        "-v"
+      ],
+      "command": "php",
+      "detail": "Suggested task: review before running",
+      "label": "PHP (remote_portal/src) · PHP version",
+      "menuGroup": "PHP",
+      "menuLabel": "PHP (remote_portal/src) · PHP version",
+      "options": {
+        "cwd": "remote_portal/src"
+      },
+      "type": "process"
+    },
+    {
+      "args": [
+        "--version"
+      ],
+      "command": "node",
+      "detail": "Suggested task: review before running",
+      "label": "Node.js (remote_portal/tests) · Node version",
+      "menuGroup": "Node.js",
+      "menuLabel": "Node.js (remote_portal/tests) · Node version",
+      "options": {
+        "cwd": "remote_portal/tests"
+      },
+      "type": "process"
+    },
+    {
+      "args": [
+        "-v"
+      ],
+      "command": "php",
+      "detail": "Suggested task: review before running",
+      "label": "PHP (remote_portal/tests) · PHP version",
+      "menuGroup": "PHP",
+      "menuLabel": "PHP (remote_portal/tests) · PHP version",
+      "options": {
+        "cwd": "remote_portal/tests"
+      },
+      "type": "process"
+    },
+    {
+      "args": [
+        "--version"
+      ],
+      "command": "node",
+      "detail": "Suggested task: review before running",
+      "label": "Node.js (remote_portal/tests/fixtures) · Node version",
+      "menuGroup": "Node.js",
+      "menuLabel": "Node.js (remote_portal/tests/fixtures) · Node version",
+      "options": {
+        "cwd": "remote_portal/tests/fixtures"
+      },
+      "type": "process"
+    },
+    {
+      "args": [
+        "test",
+        "./..."
+      ],
+      "command": "go",
+      "detail": "Suggested task: review before running",
+      "label": "Go (vscode_tasks_menu_go) · Test",
+      "menuGroup": "Go",
+      "menuLabel": "Go (vscode_tasks_menu_go) · Test",
+      "options": {
+        "cwd": "vscode_tasks_menu_go"
+      },
+      "type": "process"
+    },
+    {
+      "args": [
+        "build",
+        "./..."
+      ],
+      "command": "go",
+      "detail": "Suggested task: review before running",
+      "label": "Go (vscode_tasks_menu_go) · Build",
+      "menuGroup": "Go",
+      "menuLabel": "Go (vscode_tasks_menu_go) · Build",
+      "options": {
+        "cwd": "vscode_tasks_menu_go"
+      },
+      "type": "process"
+    },
+    {
+      "args": [
+        "vet",
+        "./..."
+      ],
+      "command": "go",
+      "detail": "Suggested task: review before running",
+      "label": "Go (vscode_tasks_menu_go) · Vet",
+      "menuGroup": "Go",
+      "menuLabel": "Go (vscode_tasks_menu_go) · Vet",
+      "options": {
+        "cwd": "vscode_tasks_menu_go"
+      },
+      "type": "process"
+    },
+    {
+      "args": [
+        "--version"
+      ],
+      "command": "node",
+      "detail": "Suggested task: review before running",
+      "label": "Node.js (vscode_tasks_menu_go) · Node version",
+      "menuGroup": "Node.js",
+      "menuLabel": "Node.js (vscode_tasks_menu_go) · Node version",
+      "options": {
+        "cwd": "vscode_tasks_menu_go"
+      },
+      "type": "process"
+    },
+    {
+      "args": [
+        "--version"
+      ],
+      "command": "node",
+      "detail": "Suggested task: review before running",
+      "label": "Node.js (vscode_tasks_menu_go/cmd/taskdeck_remote_login) · Node version",
+      "menuGroup": "Node.js",
+      "menuLabel": "Node.js (vscode_tasks_menu_go/cmd/taskdeck_remote_login) · Node version",
+      "options": {
+        "cwd": "vscode_tasks_menu_go/cmd/taskdeck_remote_login"
+      },
+      "type": "process"
+    },
+    {
+      "args": [
+        "-m",
+        "compileall",
+        "-q",
+        "."
+      ],
+      "command": "python3",
+      "detail": "Suggested task: review before running",
+      "label": "Python (vscode_tasks_menu_go/internal/dbsqlite) · Compile check",
+      "menuGroup": "Python",
+      "menuLabel": "Python (vscode_tasks_menu_go/internal/dbsqlite) · Compile check",
+      "options": {
+        "cwd": "vscode_tasks_menu_go/internal/dbsqlite"
+      },
+      "type": "process"
+    },
+    {
+      "args": [
+        "--version"
+      ],
+      "command": "node",
+      "detail": "Suggested task: review before running",
+      "label": "Node.js (vscode_tasks_menu_go/tests) · Node version",
+      "menuGroup": "Node.js",
+      "menuLabel": "Node.js (vscode_tasks_menu_go/tests) · Node version",
+      "options": {
+        "cwd": "vscode_tasks_menu_go/tests"
+      },
+      "type": "process"
+    },
+    {
+      "args": [
+        "--version"
+      ],
+      "command": "node",
+      "detail": "Suggested task: review before running",
+      "label": "Node.js (vscode_tasks_menu_go/web) · Node version",
+      "menuGroup": "Node.js",
+      "menuLabel": "Node.js (vscode_tasks_menu_go/web) · Node version",
+      "options": {
+        "cwd": "vscode_tasks_menu_go/web"
+      },
+      "type": "process"
+    },
+    {
+      "args": [
+        "--version"
+      ],
+      "command": "node",
+      "detail": "Suggested task: review before running",
+      "label": "Node.js (vscode_tasks_menu_go/web/featuremods) · Node version",
+      "menuGroup": "Node.js",
+      "menuLabel": "Node.js (vscode_tasks_menu_go/web/featuremods) · Node version",
+      "options": {
+        "cwd": "vscode_tasks_menu_go/web/featuremods"
+      },
+      "type": "process"
+    },
+    {
+      "args": [
+        "--version"
+      ],
+      "command": "node",
+      "detail": "Suggested task: review before running",
+      "label": "Node.js (vscode_tasks_menu_go/web/tests) · Node version",
+      "menuGroup": "Node.js",
+      "menuLabel": "Node.js (vscode_tasks_menu_go/web/tests) · Node version",
+      "options": {
+        "cwd": "vscode_tasks_menu_go/web/tests"
+      },
+      "type": "process"
+    }
+  ],
+  "version": "2.0.0"
+}

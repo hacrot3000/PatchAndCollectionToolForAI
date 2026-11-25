@@ -8,3 +8,6 @@ deploy/docker/.env
 
 # Python bytecode caches created by Patch runtime and test runs.
 __pycache__/
+/artifacts/
+/patchs/
+/.vscode/vscode_tasks_menu.*
