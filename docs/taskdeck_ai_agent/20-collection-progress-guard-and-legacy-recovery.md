@@ -162,13 +162,13 @@ Không bỏ qua function output của call đã nhận. Nếu checkpoint trướ
 
 - [ ] **Phase gate** — `TODO`; chỉ đánh dấu khi tất cả task cấp 2 DONE và remote delivery đã xác minh.
 
-- [ ] **CLP-01.01 — Shared policy/module và typed decision** (`TODO`, P1)
+- [ ] **CLP-01.01 — Shared policy/module và typed decision** (`VERIFY_PENDING`, P1)
   - Tạo module dùng chung (ví dụ `internal/agentchat/collectionprogress` nếu phù hợp dependency graph). Định nghĩa `State`, `Observation`, `Decision`, policy version, threshold, reason codes và intent. Pure decision logic, không phụ thuộc HTTP/UI/collector. Tái sử dụng fingerprint hiện có.
   - **Acceptance:** unit test state transitions, 5/10 advisory, cooldown, read-only/unknown; không đặt hard cap số lượt đọc.
-    - [ ] **CLP-01.01.01** — Thiết kế package pure logic với State/Observation/Decision, reason codes, policy version; tránh dependency cycle. (`TODO`)
-    - [ ] **CLP-01.01.02** — Cài decision function tách verified novelty, objective progress và unknown; không cấp quyền tool. (`TODO`)
-    - [ ] **CLP-01.01.03** — Cài soft thresholds 5/10/3 và cooldown; không hard cap reads. (`TODO`)
-    - [ ] **CLP-01.01.04** — Viết table-driven unit tests cho transitions, read-only/unknown, threshold boundary và long reads. (`TODO`)
+    - [ ] **CLP-01.01.01** — Thiết kế package pure logic với State/Observation/Decision, reason codes, policy version; tránh dependency cycle. (`VERIFY_PENDING` — isolated unit tests PASS; remote byte verification and repo CI pending)
+    - [ ] **CLP-01.01.02** — Cài decision function tách verified novelty, objective progress và unknown; không cấp quyền tool. (`VERIFY_PENDING` — isolated unit tests PASS; remote byte verification and repo CI pending)
+    - [ ] **CLP-01.01.03** — Cài soft thresholds 5/10/3 và cooldown; không hard cap reads. (`VERIFY_PENDING` — isolated unit tests PASS; remote byte verification and repo CI pending)
+    - [ ] **CLP-01.01.04** — Viết table-driven unit tests cho transitions, read-only/unknown, threshold boundary và long reads. (`VERIFY_PENDING` — isolated unit tests PASS; remote byte verification and repo CI pending)
 - [ ] **CLP-01.02 — Objective binding và intent** (`TODO`, P1)
   - Bind scope vào current task/user intent/TaskPlan step/generation; đổi task, user intervention, plan revision, worktree change phải có transition rõ ràng. Model hints chỉ là advisory. Không reset toàn bộ counters chỉ vì model/provider đổi.
   - **Acceptance:** coding/read-only/mixed/unknown, task switch, user Stop, no plan, task plan pending/accepted được test; không nâng quyền mutating.
@@ -492,7 +492,7 @@ Kiểm tra cả các Python/native Patch Tool test hiện có nếu sửa contra
 | Phase | Tổng | DONE | Trạng thái |
 |---|---:|---:|---|
 | CLP-00 Baseline | 3 | 0 | IN_PROGRESS |
-| CLP-01 Guard | 5 | 0 | TODO |
+| CLP-01 Guard | 5 | 0 | VERIFY_PENDING |
 | CLP-02 Evidence | 4 | 0 | TODO |
 | CLP-03 Durability | 3 | 0 | TODO |
 | CLP-04 Integration | 4 | 0 | TODO |
@@ -528,6 +528,8 @@ Regression gates: **0/28 PASS**. Mỗi lần cập nhật, ghi ID subtask cụ t
 | 25/11/2026 | PLAN | CREATED | Audit baseline `1c1e2ba0`; mở rộng handoff thành checklist ba cấp, chưa sửa source hoặc chạy test | Chưa commit tài liệu | CLP-00.01 |
 
 | 25/11/2026 16:00 ICT | CLP-00.01 | IN_PROGRESS / BLOCKED local checkout | Remote main `a7cc2a1711bfc25efca51676150a4f5d300c7aa1`; compare baseline: ahead 2, behind 0, 14 changed paths. Native failed-queue retirement, identity, PASS protection, preflight, runtime checksums and CI changed; not proof of CLP guard. go.mod Go 1.20; CI Go 1.25.x. | GitHub connector remote reads verified; local git status exit 128 (not a repository), git ls-remote exit 128 (DNS github.com unavailable), local Go 1.23.2. No baseline tests run. | CLP-00.01.02–04 |
+
+| 25/11/2026 | CLP-01.01.01–04 | VERIFY_PENDING | Added pure advisory-only collectionprogress policy and unit tests. Local isolated Go 1.23.2: gofmt; GO111MODULE=off go test -v -count=1 (exit 0); GO111MODULE=off go test -race -count=1 (exit 0). Three tests with four intent subtests; 100 useful reads per intent, advisory 5/10, duplicate streak 3, cooldown 5, unknown/error, meaningful progress reset. Tested blob SHA policy.go c6c2f15e4eaf38dd3a8a1860c6a05a759f7a10ca; policy_test.go edbb28d49a6be1e580a0a845d883d00920fa4ec7. | Full repository checkout unavailable; no pipeline integration, no fixture or CI PASS asserted. Work isolated per §1 while baseline tests blocked. | CLP-00.02/03 when runner available; then CLP-01.02 |
 
 #### CLP-00.01 — Partial pinned-source trace
 All paths below are relative to `vscode_tasks_menu_go/internal/server/`, read at `a7cc2a1711bfc25efca51676150a4f5d300c7aa1`.
