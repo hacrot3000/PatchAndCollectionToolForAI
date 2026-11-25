@@ -349,3 +349,33 @@ func TestAgentCollectionMalformedProjectStringReturnsRepairFeedback(t *testing.T
 		map[string]any{"message":"Inspect workspace","confirm_external":true,"expected_revision":1})
 	if w.Code!=200 || requests!=3 || reads!=1 {t.Fatalf("repair failed HTTP %d requests=%d reads=%d body=%s",w.Code,requests,reads,w.Body)}
 }
+
+
+// Alternating scopes must not evade the bounded read-only duplicate guard.
+// Distinct reads and the original native collector remain available.
+func TestAgentCollectionAlternatingIdenticalReadsDoNotExecuteAgain(t *testing.T){
+ s,id:=newAgentConversationFixture(t,"stateless")
+ reads,calls:=0,0
+ s.AgentCollectionCall=func(_ string,_ patchtool.ProjectIdentity,_ []byte) string{
+  reads++
+  return `{"results":[{"type":"ls","entries":[]}]}`
+ }
+ s.AgentChatCall=func(_ context.Context,_ agentchat.ProviderConfig,_ string,_ []byte)(agentchat.ResponsesResult,error){
+  calls++
+  if calls<=6{
+   path:="src"
+   if calls%2==1{path="."}
+   return agentchat.ResponsesResult{ResponseID:fmt.Sprintf("alternate-%d",calls),Calls:[]agentchat.FunctionCall{{CallID:fmt.Sprintf("alt-%d",calls),Name:"taskdeck_collect_workspace",Arguments:fmt.Sprintf(`{"actions":[{"type":"ls","path":%q}]}`,path)}}},nil
+  }
+  if calls==7{return agentchat.ResponsesResult{ResponseID:"recovered",Text:"Reuse the previous evidence."},nil}
+  t.Fatalf("unexpected provider call %d",calls)
+  return agentchat.ResponsesResult{},nil
+ }
+ w:=invokeAI(t,s.agentChatSessionItemAPI,"POST","/api/agent/sessions/"+id+"/messages",map[string]any{"message":"Inspect project","confirm_external":true,"expected_revision":1})
+ if w.Code!=200||reads!=4||calls!=7{t.Fatalf("HTTP=%d native reads=%d provider calls=%d body=%s",w.Code,reads,calls,w.Body)}
+ store,err:=s.agentChatStore();if err!=nil{t.Fatal(err)}
+ x,err:=store.Get(id,"local");if err!=nil{t.Fatal(err)}
+ warnings:=0
+ for _,row:=range x.History{if row.Type=="function_call_output"&&strings.Contains(row.Content,"COLLECTION_NO_PROGRESS"){warnings++}}
+ if warnings!=2{t.Fatalf("expected two duplicate-read diagnostics, got %d",warnings)}
+}

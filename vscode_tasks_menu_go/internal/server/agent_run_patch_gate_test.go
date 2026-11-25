@@ -114,7 +114,7 @@ func TestRunAutoPatchDispatchOneShotOnlyWhenEligible(t *testing.T) {
 	base := autoPatchGateSession()
 	noConsent := agentrun.AutomationSnapshot{}
 	if ok, code := runAutoPatchDispatchAllowed(base, noConsent, "c1", "run-1", false); ok {
-		t.Fatal("pending call dispatched without any consent")
+		t.Fatalf("pending call dispatched without any consent: %s", code)
 	}
 	base.ToolCalls[0].AutoRunOnce = true
 	if ok, code := runAutoPatchDispatchAllowed(base, noConsent, "c1", "run-1", false); !ok || code != "one_shot_authorized" {
