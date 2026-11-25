@@ -217,6 +217,35 @@ func agentPatchLogExcerpt(raw string, maxBytes int) string {
  return "[EARLIER LOG TRUNCATED; LAST OUTPUT FOLLOWS]\n" + tail
 }
 
+// agentPatchFeedbackLimit matches agentDeliverToolResult admission.
+const agentPatchFeedbackLimit = 4000
+
+// agentBoundPatchFeedback reduces optional diagnostics before shortening
+// mandatory diagnostic text. Never change native status or run identity.
+func agentBoundPatchFeedback(out map[string]any) ([]byte, bool) {
+ b, err := json.Marshal(out)
+ if err != nil { return nil, false }
+ if len(b) <= agentPatchFeedbackLimit { return b, true }
+ out["diagnostics_truncated"] = true
+ for {
+  if commands, ok := out["commands"].([]map[string]any); ok && len(commands)>0 {
+   out["commands"] = commands[:len(commands)/2]
+  } else if tail, ok := out["stdout_tail"].(string); ok && len(tail)>0 {
+   out["stdout_tail"] = agentPatchLogExcerpt(tail,len(tail)/2)
+   if len(out["stdout_tail"].(string)) >= len(tail) { out["stdout_tail"] = "" }
+  } else if reason, ok := out["failure_reason"].(string); ok && len(reason)>32 {
+   out["failure_reason"] = scrubAIContext(reason,len(reason)/2)
+   if len(out["failure_reason"].(string)) >= len(reason) { out["failure_reason"] = "Inspect native History." }
+  } else if kind, ok := out["diagnosis_kind"].(string); ok && len(kind)>32 {
+   out["diagnosis_kind"] = scrubAIContext(kind,len(kind)/2)
+   if len(out["diagnosis_kind"].(string)) >= len(kind) { out["diagnosis_kind"] = "unknown" }
+  } else { return nil,false }
+  b,err = json.Marshal(out)
+  if err != nil { return nil,false }
+  if len(b)<=agentPatchFeedbackLimit { return b,true }
+ }
+}
+
 // agentPatchResultFromProtocol is strictly evidence-based: only a matching
 // native item with a final status can satisfy the model tool call. Name-only
 // matching is insufficient because a reused/renamed queue item would be
@@ -251,7 +280,9 @@ func agentPatchResultFromProtocol(state session.ProtocolState, expect agentPatch
 			out := map[string]any{
 				"status": status, "name": item.Name, "run_id": item.RunID,
 				"failure_reason":  scrubAIContext(item.FailureReason, 400),
-				"diagnosis_kind":  item.DiagnosisKind,
+				"diagnosis_kind":  scrubAIContext(item.DiagnosisKind, 128),
+                "mutation_state": "UNKNOWN",
+                "failure_evidence": "native_protocol_excerpt",
 				"elapsed_seconds": item.ElapsedSeconds,
 				"commands":        commands,
 				"stdout_tail":     agentPatchLogExcerpt(item.OutputTail, 1800),
@@ -265,10 +296,9 @@ func agentPatchResultFromProtocol(state session.ProtocolState, expect agentPatch
 			if item.RC != nil {
 				out["rc"] = *item.RC
 			}
-			b, _ := json.Marshal(out)
-			if len(b) > 4096 {
-				b = []byte(`{"status":"INCOMPLETE","reason":"result exceeded data limit"}`)
-			}
+			if status == "PREFLIGHT_FAIL" { out["mutation_state"] = "UNCHANGED" }
+            b, fit := agentBoundPatchFeedback(out)
+            if !fit { return "", "", "", false }
 			if status == "PASS" {
 				return "done", string(b), item.RunID, true
 			}
