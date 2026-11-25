@@ -83,7 +83,7 @@ func TestAgentSessionCASFailsClosedOnReplacedOrUnsafeJournalLock(t *testing.T){
  if _,err=store.Get(x.ID,"local");!errors.Is(err,ErrUnsafeAgentJournalLock){
   t.Fatalf("unsafe lock allowed an owner read: %v",err)
  }
- x.Title="This update is not committed"
+ x.Status="ready" // ordinary session CAS, not independent Store.Rename metadata
  if _,err=store.Save(x,x.Revision);!errors.Is(err,ErrUnsafeAgentJournalLock){
   t.Fatalf("unsafe lock allowed CAS commit: %v",err)
  }
@@ -94,7 +94,7 @@ func TestAgentSessionCASFailsClosedOnReplacedOrUnsafeJournalLock(t *testing.T){
  if err=os.Remove(path);err!=nil{t.Fatal(err)}
  // After repairing local lock path, owner-scoped CAS must work again.
  restored,err:=store.Save(x,x.Revision)
- if err!=nil||restored.Revision!=x.Revision+1||restored.Title!=x.Title{
+ if err!=nil||restored.Revision!=x.Revision+1||restored.Status!=x.Status{
   t.Fatalf("journal failed to recover after lock path repair: %+v %v",restored,err)
  }
 }
