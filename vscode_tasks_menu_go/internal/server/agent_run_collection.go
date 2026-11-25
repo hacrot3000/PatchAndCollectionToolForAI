@@ -105,12 +105,9 @@ func (e ownerBoundAgentRunExecutor) ResolveWaitingTool(ctx context.Context, run 
 		if agentCollectionIdentityKind(validationErr)=="foreign"{code="COLLECTION_IDENTITY_REJECTED"}
 		observed = runCollectionDiagnostic(code, reason, true)
 	} else {
-		// Count only consecutive completed matching observations from this
-		// parent turn. Old failures and earlier tasks do not consume a read budget.
-		repeats := agentConsecutiveMatchingCollectionReads(run.History,call,request,identity)
-		if repeats >= 2 {
-			observed = runCollectionDiagnostic("COLLECTION_NO_PROGRESS", "Choose a narrower native read-only action instead of repeating the same request.", true)
-		} else if s.AgentCollectionCall != nil {
+		// A repeated request shape is not proof that the source is unchanged.
+		// Every authorized valid read must reach the existing native backend.
+		if s.AgentCollectionCall != nil {
 			// Same test-only seam as the legacy native Collection flow.
 			observed = s.AgentCollectionCall(inputs.ExecutionWorkspacePath, identity, request)
 		} else {

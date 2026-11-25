@@ -689,6 +689,9 @@ UI support copy includes allowlisted attempt metadata, refreshes on local outcom
 #### CLP-06.01 / 07.03 — CI findings
 CI 45601988008 reached named resume test after fixing CLP-10 imports. Old test expected ordinary Send to be blocked, incompatible with current main's explicit new-message contract. Replace negative case with incorrect resume run identity; preserve explicit resume/idempotency/ACK checks and repeat after a fresh Server/Store. CI 45602168979 detected concurrent TTL race (capturing clock outside lock let earlier waiter treat newer expiry as invalid); capture clock under existing lock before comparing hints. No production egress fence weakened. CI pending.
 
+#### CLP-04.02 — Unified existing drain path: eliminate unverified skip
+Removed remaining request-shape skip in existing waiting-tool resolver. Every authorized valid read reaches the same native backend; no receipt rewritten on repeated request. Added four-read fixture asserting every distinct observation reaches exact pinned provider and canonical run history. No change to public creation fence, permissions, retry policy or scheduler. Shared immutable snapshot guard adapter remains pending. CI pending.
+
 ### 8.2. Blockers và quyết định (append)
 
 | ID | Task | Vấn đề / quyết định | Ảnh hưởng | Hành động tiếp theo | Trạng thái |
