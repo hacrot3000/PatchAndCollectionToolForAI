@@ -89,6 +89,7 @@ jobs:
         run: |
           go test -race -count=1 ./internal/agentchat/...
           go test -v -race -count=1 ./internal/agentrun/...
+          go test -v -count=1 ./internal/server -run '^TestAgentCLP20'
           go test -count=1 ./internal/server -run '^TestAgent'
           go test -v -race -count=1 ./internal/server -run '^(TestAgentRun|TestAgentConversation|TestAgentCoordination|TestAgentContext|TestAgentTask|TestAgentProvider)'
           go test -race -count=1 ./internal/taskmanifest
