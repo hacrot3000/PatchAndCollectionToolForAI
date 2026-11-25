@@ -686,6 +686,9 @@ Replaced process-local map with bounded private checksummed advisory cache under
 #### CLP-06.02 / 07.01 / 08 — Owner-visible diagnostics
 UI support copy includes allowlisted attempt metadata, refreshes on local outcome, displays same-digest stagnation without changing retry policy; repeat explicit resume draft can be retried without deleting unrelated draft. UI regression distinguishes UNKNOWN Collection from feedback. Handoff exposes bounded previous UNKNOWN checkpoint metadata including receipt unavailable, plus guard counts; no additional raw prompts or credentials. Retained concurrent recovery changes (ordinary Send, opted-in auto-recovery, rolling audit window). CI pending.
 
+#### CLP-06.01 / 07.03 — CI findings
+CI 45601988008 reached named resume test after fixing CLP-10 imports. Old test expected ordinary Send to be blocked, incompatible with current main's explicit new-message contract. Replace negative case with incorrect resume run identity; preserve explicit resume/idempotency/ACK checks and repeat after a fresh Server/Store. CI 45602168979 detected concurrent TTL race (capturing clock outside lock let earlier waiter treat newer expiry as invalid); capture clock under existing lock before comparing hints. No production egress fence weakened. CI pending.
+
 ### 8.2. Blockers và quyết định (append)
 
 | ID | Task | Vấn đề / quyết định | Ảnh hưởng | Hành động tiếp theo | Trạng thái |

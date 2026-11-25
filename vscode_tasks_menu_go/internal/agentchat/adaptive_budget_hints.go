@@ -79,12 +79,14 @@ func(s *Store) AdaptiveBudgetHint(x Session,version,credential string)(AdaptiveB
  return out,found&&e==nil,e
 }
 func(s *Store) RememberAdaptiveBudgetHint(x Session,version,credential string,input,output int)error{
- now:=time.Now().UTC()
- hint:=AdaptiveBudgetHint{Input:input,Output:output,ExpiresAt:now.Add(adaptiveBudgetHintTTL)}
- if !validAdaptiveHint(hint){return ErrInvalidSession}
  return s.withLock(func()error{
   key,e:=s.adaptiveHintScopeLocked(x,version,credential);if e!=nil{return e}
   f,e:=s.readAdaptiveHintsLocked();if e!=nil{return e} // preserve corrupt/future version
+  // Use the clock inside the lock: a waiting writer may have started
+  // before a concurrent writer's newer valid TTL was committed.
+  now:=time.Now().UTC()
+  hint:=AdaptiveBudgetHint{Input:input,Output:output,ExpiresAt:now.Add(adaptiveBudgetHintTTL)}
+  if !validAdaptiveHint(hint){return ErrInvalidSession}
   for k,old:=range f.Entries{if !now.Before(old.ExpiresAt)||old.ExpiresAt.After(now.Add(adaptiveBudgetHintTTL)){delete(f.Entries,k)}}
   if old,ok:=f.Entries[key];ok{
    if old.Input<hint.Input{hint.Input=old.Input}

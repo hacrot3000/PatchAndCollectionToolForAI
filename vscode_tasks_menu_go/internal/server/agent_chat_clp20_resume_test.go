@@ -52,8 +52,11 @@ func TestAgentCLP20ExplicitUnknownCollectionResumePreservesAuditAndAck(t *testin
  s.AgentCollectionCall=func(_ string,_ patchtool.ProjectIdentity,_ []byte)string{t.Fatal("old native read replayed");return ""}
  path:="/api/agent/sessions/"+id+"/messages"
  request:=map[string]any{"message":"Resume original task","confirm_external":true,"expected_revision":x.Revision,"request_id":"new-resume-1"}
+ // Ordinary Send now legitimately authorizes a distinct new user turn;
+ // an explicit resume with the WRONG old identity must still be refused.
+ request["resume_collection_run_id"]="wrong-run"
  w:=invokeAI(t,s.agentChatSessionItemAPI,"POST",path,request)
- if w.Code!=409||calls!=0{t.Fatal("ordinary send bypassed explicit recovery")}
+ if w.Code!=409||calls!=0{t.Fatal("wrong checkpoint admitted")}
  request["resume_collection_run_id"]="old-unknown"
  request["confirm_external"]=false
  w=invokeAI(t,s.agentChatSessionItemAPI,"POST",path,request)
@@ -66,6 +69,11 @@ func TestAgentCLP20ExplicitUnknownCollectionResumePreservesAuditAndAck(t *testin
  if !reflect.DeepEqual(saved.History[:len(original)],original)||len(saved.CollectionResumeHistory)!=1{t.Fatal("canonical history or recovery checkpoint lost")}
  cp:=saved.CollectionResumeHistory[0]
  if !reflect.DeepEqual(cp.Previous,oldRun)||cp.Previous.Phase!="unknown"||cp.NewRunID==oldRun.ID||cp.AttemptAudit==nil||cp.AttemptAudit.Total!=1||cp.ReceiptSHA256!=agentchat.ProviderPayloadDigest([]byte(original[4].Content)){t.Fatalf("old unknown audit lost: %+v",cp)}
- w=invokeAI(t,s.agentChatSessionItemAPI,"POST",path,request)
- if w.Code!=200||calls!=1{t.Fatal("repeated click initiated new egress")}
+ // A new server instance loads the same private journal after restart.
+ restarted:=&Server{Workspace:s.Workspace,Config:s.Config,ConnectionSecrets:s.ConnectionSecrets,AgentChatCall:s.AgentChatCall,AgentCollectionCall:s.AgentCollectionCall}
+ reopened,err:=restarted.agentChatStore();if err!=nil{t.Fatal(err)}
+ fresh,err:=reopened.Get(id,"local");if err!=nil{t.Fatal(err)}
+ if !reflect.DeepEqual(fresh.CollectionResumeHistory,saved.CollectionResumeHistory)||!reflect.DeepEqual(fresh.ToolCalls,saved.ToolCalls){t.Fatal("restart lost canonical recovery or ACK")}
+ w=invokeAI(t,restarted.agentChatSessionItemAPI,"POST",path,request)
+ if w.Code!=200||calls!=1{t.Fatal("repeated click after restart initiated new egress")}
 }
