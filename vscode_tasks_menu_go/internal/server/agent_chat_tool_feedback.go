@@ -320,10 +320,10 @@ func (s *Server) agentDeliverToolResult(ctx context.Context, store *agentchat.St
 	conversationID := x.ConversationID
 	contextModel := model
 	if mode==agentchat.Stateless{contextModel,limit=agentAdaptiveRequestBudget(store,x,p,model,string(secret),limit)}
-	payload, err := agentchat.BuildResponsesRequest(agentchat.RequestConfig{
+	payload, err := agentBuildContextRequest(failureProjection,contextModel,p,agentchat.RequestConfig{
 		Model: x.ModelID, Instructions: instructions,
 		Mode: mode, PreviousResponseID: x.PreviousResponseID, ConversationID: conversationID,
-		History: agentContextForRequest(failureProjection, contextModel, instructions, next), Next: next,
+		Next: next,
 		MaxOutputTokens: limit, ReasoningEffort: reasoning,
 		EnablePatchTool: toolAvailable, EnableCollectionTool: toolAvailable,
 		NativeCollectionContract: agentInstalledCollectionContract(s.Workspace),

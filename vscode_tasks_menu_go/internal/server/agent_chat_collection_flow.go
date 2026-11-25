@@ -338,10 +338,10 @@ func (s *Server) agentChatRunCollection(
 			if len(x.History)==0||x.History[len(x.History)-1]!=next{return result,clearProviderRefs,&agentCollectionLocalError{Stage:"stall_receipt_projection",Round:round+1,Cause:errors.New("committed Collection output missing from latest history")}}
 			projection.History=x.History[:len(x.History)-1]
 		}
-		payload, err := agentchat.BuildResponsesRequest(agentchat.RequestConfig{
+		payload, err := agentBuildContextRequest(projection,contextModel,provider,agentchat.RequestConfig{
 			Model: x.ModelID, Instructions: instructions,
 			Mode: mode, PreviousResponseID: x.PreviousResponseID, ConversationID: conversationID,
-			History: agentContextForRequest(projection, contextModel, instructions, []agentchat.HistoryItem{next}), Next: []agentchat.HistoryItem{next},
+			Next: []agentchat.HistoryItem{next},
 			MaxOutputTokens: limit,
 			ReasoningEffort: reasoning,
 			EnablePatchTool: toolAvailable, EnableCollectionTool: toolAvailable,

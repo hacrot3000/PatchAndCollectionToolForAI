@@ -271,6 +271,9 @@ func (s *Server) agentChatProviderWithRetry(ctx context.Context,owner,sessionID 
   generation:=contextRecoveries
   if incompleteRecoverySent{generation++}
   digest:=agentchat.ProviderPayloadDigest(replayPayload)
+  if m,e:=agentchat.MeasureProviderPayload(p.APIType,replayPayload);e==nil{
+   s.recordAgentDebugEvent(owner,sessionID,"","provider_retry","payload.budget","","canonical_bytes="+strconv.Itoa(m.CanonicalBytes)+" wire_template_bytes="+strconv.Itoa(m.WireBytes)+" estimated_input_tokens="+strconv.Itoa(m.EstimatedInputTokens)+" output_budget="+strconv.Itoa(m.OutputBudget)+" instruction_bytes="+strconv.Itoa(m.InstructionsBytes)+" input_bytes="+strconv.Itoa(m.InputBytes)+" tools_bytes="+strconv.Itoa(m.ToolsBytes)+" other_bytes="+strconv.Itoa(m.OtherBytes)+" stateful="+strconv.FormatBool(m.Stateful))
+  }
   agentRetryPublish(s.Workspace,owner,sessionID,agentRetryProgress{Mode:mode,Attempt:attempt,Remaining:remaining,Phase:"sending",SameDigestFailures:sameDigestFailures,RecoveryGeneration:generation})
   callCtx,cancel:=context.WithTimeout(ctx,agentchat.ProviderAttemptTimeout)
   if attemptStore!=nil{

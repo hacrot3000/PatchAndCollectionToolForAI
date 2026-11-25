@@ -487,10 +487,10 @@ func (s *Server) agentChatAuthorizedMessage(w http.ResponseWriter, r *http.Reque
 		failureProjection.History,requestNext,ok=agentCollectionResumeProjection(session,failureProjection.History,next)
 		if !ok{http.Error(w,"cannot project the exact saved Collection checkpoint; canonical history retained",409);return}
 	}
-	payload, err := agentchat.BuildResponsesRequest(agentchat.RequestConfig{
+	payload, err := agentBuildContextRequest(failureProjection,contextModel,p,agentchat.RequestConfig{
 		Model: session.ModelID, Instructions: instructions, Mode: mode,
 		PreviousResponseID: session.PreviousResponseID, ConversationID: conversationID,
-		History: agentContextForRequest(failureProjection, contextModel, instructions, requestNext), Next: requestNext, MaxOutputTokens: limit,
+		Next: requestNext, MaxOutputTokens: limit,
 		ReasoningEffort: reasoning,
 		EnablePatchTool: patchToolAvailable, EnableCollectionTool: patchToolAvailable,
 		NativeCollectionContract: agentInstalledCollectionContract(s.Workspace),

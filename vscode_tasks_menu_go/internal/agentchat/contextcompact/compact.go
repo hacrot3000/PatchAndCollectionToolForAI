@@ -27,6 +27,7 @@ const (
 type Policy struct {
  MaxInputTokens int
  CollectionPercent int
+ Minimal bool // omit optional full observations and narration on technical overflow
  Instructions string
  Next []agentchat.HistoryItem
  // The archive is not replayed; its count is reported so the model knows
@@ -344,7 +345,7 @@ func Build(history []agentchat.HistoryItem,p Policy)([]agentchat.HistoryItem,Sta
  // The immediately previous completed Collection is full only when the
  // budget allows; the current Collection output in Next remains full.
  for i:=len(gs)-1;i>=0;i--{
-  if gs[i].kind=="collection"&&gs[i].tokens<=collectionBudget{
+  if !p.Minimal&&gs[i].kind=="collection"&&gs[i].tokens<=collectionBudget{
    gs[i].full=true
    collectionBudget-=gs[i].tokens
    stats.RecentFullCollections++
@@ -365,7 +366,7 @@ func Build(history []agentchat.HistoryItem,p Policy)([]agentchat.HistoryItem,Sta
    if g.keep {result=append(result,g.items...)}
    // Short recent assistant text is useful for workflow continuity; ancient
    // narration is discarded, not used as fabricated evidence.
-   if !g.keep && i>=len(gs)-8 && g.tokens<=768{result=append(result,g.items...)}
+   if !p.Minimal && !g.keep && i>=len(gs)-8 && g.tokens<=768{result=append(result,g.items...)}
   default:
    result=append(result,g.items...)
   }
@@ -375,6 +376,7 @@ func Build(history []agentchat.HistoryItem,p Policy)([]agentchat.HistoryItem,Sta
   if len(p.ArchivedPatchSummaries)>0{patchNote+=" "+strings.Join(p.ArchivedPatchSummaries,"; ")}
   catalog=append(catalog,truncate(patchNote,3000))
  }
+ if p.Minimal{catalog=nil}
  if len(catalog)>0{
   room:=ceiling-overhead-groupTokens(result)-64
   if p.ArchivedItems>0{room-=128}
