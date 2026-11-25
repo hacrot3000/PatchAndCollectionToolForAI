@@ -202,3 +202,59 @@ func TestChatCompletionsForwardsConfiguredReasoningEffort(t *testing.T){
 		t.Fatalf("unconfigured model should not receive reasoning override: %s",body)
 	}
 }
+
+
+// Exercise the actual transport with the Run Manager's payload builder, rather
+// than testing a mock invoker that accepts any JSON. This catches conversion
+// at both layers before any network I/O is attempted.
+func TestRunPayloadReachesChatCompletionsTransport(t *testing.T) {
+	p := chatProvider("https://api.example.invalid/v1")
+	spec := runSpecFor(p.ID, p.Models[0].ID, "run-chat-transport")
+	spec.ParentTurnID = "turn-1"
+	history := []HistoryItem{
+		{Type: "user", Content: "inspect and continue", ParentTurnID: "turn-1"},
+		{Type: "function_call", Name: "taskdeck_collect_workspace", CallID: "collect-1", Arguments: `{"actions":[{"type":"ls","path":"."}]}`},
+		{Type: "function_call_output", CallID: "collect-1", Content: `{"status":"PASS","marker":"read-result"}`},
+	}
+	builder := CanonicalProviderPayloadBuilder{Options: fixedPromptOptions{config: RequestConfig{
+		Instructions: "pinned run policy", MaxOutputTokens: 1024,
+	}}}
+	canonical, err := builder.Build(spec, p, p.Models[0], history)
+	if err != nil {
+		t.Fatal(err)
+	}
+	requests := 0
+	client := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		requests++
+		if req.URL.String() != "https://api.example.invalid/v1/chat/completions" || req.Header.Get("Authorization") != "Bearer test-key" {
+			t.Fatal("wrong provider binding")
+		}
+		var body struct {
+			Model string `json:"model"`
+			Input json.RawMessage `json:"input"`
+			Messages []struct {
+				Role string `json:"role"`
+				Content string `json:"content"`
+				ToolCallID string `json:"tool_call_id"`
+			} `json:"messages"`
+		}
+		if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		if body.Model != p.Models[0].ID || len(body.Input) != 0 || len(body.Messages) != 4 ||
+			body.Messages[0].Content != "pinned run policy" || body.Messages[1].Content != "inspect and continue" ||
+			body.Messages[3].Role != "tool" || body.Messages[3].ToolCallID != "collect-1" ||
+			!strings.Contains(body.Messages[3].Content, "read-result") {
+			t.Fatalf("unexpected wire request: %+v", body)
+		}
+		return &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": []string{"application/json"}},
+			Body: io.NopCloser(strings.NewReader(`{"id":"chat-run","model":"model-x","choices":[{"finish_reason":"stop","message":{"content":"ok"}}]}`))}, nil
+	})}
+	result, err := doChatCompletionsWithClient(context.Background(), p, "test-key", canonical, client)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if requests != 1 || result.Text != "ok" {
+		t.Fatalf("request did not reach transport exactly once: requests=%d result=%+v", requests, result)
+	}
+}

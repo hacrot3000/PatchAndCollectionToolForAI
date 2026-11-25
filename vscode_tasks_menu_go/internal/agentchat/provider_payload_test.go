@@ -26,6 +26,18 @@ func TestCanonicalPayloadBuilderMapsHistoryAndDropsOpaqueSessionState(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The run builder must return canonical input, not the wire body.
+	var canonical map[string]any
+	if err := json.Unmarshal(body, &canonical); err != nil {
+		t.Fatal(err)
+	}
+	if canonical["instructions"] != "Task policy" || canonical["input"] == nil || canonical["messages"] != nil {
+		t.Fatalf("run payload was prematurely converted: %s", body)
+	}
+	body, err = BuildChatCompletionsRequest(body)
+	if err != nil {
+		t.Fatal(err)
+	}
 	var payload map[string]any
 	if err := json.Unmarshal(body, &payload); err != nil {
 		t.Fatal(err)
@@ -64,6 +76,13 @@ func TestCanonicalPayloadBuilderReplaysToolContinuationForBothProviderAPIs(t *te
 			body, err := builder.Build(spec, provider, provider.Models[0], history)
 			if err != nil {
 				t.Fatal(err)
+			}
+			// Exactly the same conversion the production HTTP transport performs.
+			if apiType == "chat_completions" {
+				body, err = BuildChatCompletionsRequest(body)
+				if err != nil {
+					t.Fatal(err)
+				}
 			}
 			var payload struct {
 				Input    []map[string]any `json:"input"`

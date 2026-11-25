@@ -15,8 +15,9 @@ type ProviderHistoryVerifier interface {
 	VerifyHistory(RunSpec, []HistoryItem) error
 }
 
-// CanonicalProviderPayloadBuilder converts an immutable canonical snapshot to
-// a provider-specific request. It deliberately omits opaque provider session
+// CanonicalProviderPayloadBuilder builds the canonical Responses-format request.
+// The HTTP transport alone converts it to Chat Completions wire format.
+// It deliberately omits opaque provider session
 // references; implementations may add them only after proving matching lineage.
 type CanonicalProviderPayloadBuilder struct {
 	Options ProviderPromptOptions
@@ -109,22 +110,26 @@ func (b CanonicalProviderPayloadBuilder) Build(spec RunSpec, provider ProviderCo
 	if err != nil {
 		return nil, err
 	}
-	var payload []byte
-	if provider.APIType == "chat_completions" {
-		payload, err = BuildChatCompletionsRequest(canonical)
-	} else if provider.APIType == "responses" {
-		payload = canonical
-	} else {
+	// Validate the target format and its wire-size budget before egress.
+	// Do not pass the converted Chat Completions body to the invoker: both
+	// streaming and non-streaming transports expect canonical input and
+	// perform the conversion themselves.
+	wire := canonical
+	switch provider.APIType {
+	case "chat_completions":
+		wire, err = BuildChatCompletionsRequest(canonical)
+	case "responses":
+	default:
 		return nil, errors.New("unsupported provider API type")
 	}
 	if err != nil {
 		return nil, err
 	}
 	// Serialized bytes are a conservative upper bound, not an exact tokenizer.
-	if model.MaxInputTokens > 0 && len(payload) > model.MaxInputTokens {
+	if model.MaxInputTokens > 0 && len(wire) > model.MaxInputTokens {
 		return nil, ErrProviderContextBudget
 	}
-	return payload, nil
+	return canonical, nil
 }
 
 func historyRequiresTools(history []HistoryItem) bool {
