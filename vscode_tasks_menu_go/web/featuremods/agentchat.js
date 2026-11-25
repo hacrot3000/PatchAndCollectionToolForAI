@@ -1597,7 +1597,7 @@ function renderAgentProviderEgressReview(session,review,attemptAudit=null,integr
  // without becoming a different warning or clearing a prior dismissal.
  const audit=attemptAudit?.run_id===review?.run_id?attemptAudit:null;
  const latest=audit&&Array.isArray(audit.attempts)?audit.attempts[audit.attempts.length-1]:null;
- const viewKey=[key,audit?.total??'',latest?.client_request_id??'',Boolean(integrityError),Boolean(session?.collection_resume_eligible)].join('|');
+ const viewKey=[key,audit?.total??'',latest?.client_request_id??'',Boolean(integrityError),Boolean(session?.collection_resume_eligible),session?.collection_auto_recovery||''].join('|');
  if(viewKey===agentProviderReviewKey)return;
  agentProviderReviewKey=viewKey;
  agentProviderEgressNotice.replaceChildren();
@@ -1661,6 +1661,9 @@ function renderAgentProviderEgressReview(session,review,attemptAudit=null,integr
   details
  );
  if(latestLine)agentProviderEgressNotice.append(latestLine);
+ const recoveryState=session?.collection_auto_recovery;
+ const recoveryText={ready:'Automatic recovery pending · a new continuation will use the conversation provider/model.',retry_deferred:'Automatic recovery deferred · retrying admission after backoff.',retry_exhausted:'Automatic recovery retry limit reached · Send a new message to continue.',owner_grant_or_receipt_unavailable:'Automatic recovery unavailable · check Auto Continue and the native receipt.',manual_review_required:'Automatic recovery requires owner review.'}[recoveryState];
+ if(recoveryText)agentProviderEgressNotice.append(agentEl('div','',recoveryText));
  if(review.phase==='unknown'&&review.kind==='collection'&&session.collection_resume_eligible===true&&!integrityError){
   const resume=agentButton('Resume original task (new request)',()=>{
    if(agentActive!==session.id||agentSessionBusy(session.id))return;
@@ -1883,6 +1886,7 @@ async function selectAgentSession(id){
  sess.retry_runtime=data.retry_runtime||null;
  sess.auto_feedback_diagnostic=data.auto_feedback_diagnostic||null;
  sess.collection_resume_eligible=data.collection_resume_eligible===true;
+ sess.collection_auto_recovery=data.collection_auto_recovery||'';
  renderAgentProviderEgressReview(sess,data.provider_review||null,
   data.provider_attempts||null,data.provider_attempts_integrity_error===true);
  if(switched||agentToolNoticeKey!==data.patch_tool_status+':'+(sess.auto_patch?'auto':'manual')){
@@ -2110,7 +2114,8 @@ async function continueAgentTool(session,callID){
 function agentMonitorNeedsWork(sess){
  if(!sess)return false;
  const calls=sess.tool_calls||[];
- return ['requesting_ai','tool_queuing'].includes(sess.status)||
+ return ['ready','retry_deferred'].includes(sess.collection_auto_recovery)||
+  ['requesting_ai','tool_queuing'].includes(sess.status)||
   calls.some(call=>['queuing','running','dispatching','queued','unknown'].includes(call.status))||
   (sess.status==='waiting_tool'&&calls.some(call=>call.status==='pending'&&!call.manual_retry_only&&(sess.auto_patch||call.auto_run_once)))||
   (['failed','completed','tool_unknown','tool_queuing'].includes(sess.status)&&

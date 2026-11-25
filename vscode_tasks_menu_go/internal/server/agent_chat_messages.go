@@ -301,6 +301,13 @@ func (s *Server) agentChatAuthorizedMessage(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	resumeCollection:=req.ResumeCollectionRunID!=""
+	autoResumeID:=collectionAutoResumeRunID(r.Context())
+	autoResumeCollection:=autoResumeID!=""
+	if autoResumeCollection&&(!resumeCollection||autoResumeID!=req.ResumeCollectionRunID||
+		owner!="local"||!agentUnknownCollectionResumeCandidate(session)){
+		http.Error(w,"automatic Collection continuation no longer authorized or eligible",409)
+		return
+	}
 	if resumeCollection{
 		_,eligible:=agentchat.CollectionResumeReceipt(session)
 		if !eligible||session.ProviderRun.ID!=req.ResumeCollectionRunID||s.Config.SharedServerEnabled||len(runRecords)!=0{
@@ -369,6 +376,16 @@ func (s *Server) agentChatAuthorizedMessage(w http.ResponseWriter, r *http.Reque
 	secret, err := s.ConnectionSecrets.Get(agentProviderSecretID(s.Workspace, owner, p.ID))
 	if err != nil || len(secret) == 0 {
 		http.Error(w, "Agent provider API key unavailable", 503)
+		return
+	}
+	// Automatic recovery may not silently route prior project context through
+	// a changed endpoint or credential. Explicit Send may choose a new agent.
+	if autoResumeCollection&&(session.ProviderRun.ProviderFingerprint!=agentchat.CapabilityFingerprint(p,model)||
+		(session.TurnBinding!=nil&&(session.TurnBinding.ProviderID!=p.ID||
+		 session.TurnBinding.ModelID!=model.ID||
+		 session.TurnBinding.ProviderConfigVersion!=agentchat.RunProviderConfigVersion(p,model)||
+		 session.TurnBinding.CredentialFingerprint!=agentchat.RunCredentialFingerprint(secret)))){
+		http.Error(w,"automatic Collection recovery provider binding changed; send a new message to confirm the selection",409)
 		return
 	}
 	identity, err := patchtool.EnsureProjectIdentity(s.Workspace)
@@ -442,7 +459,7 @@ func (s *Server) agentChatAuthorizedMessage(w http.ResponseWriter, r *http.Reque
 	// The first consented turn performs a harmless, project-data-free tool
 	// schema probe when a configured model has not yet been verified.
 	patchToolAvailable := model.ToolCalling && s.agentToolCapabilityVerified(owner, p, model)
-	if !patchToolAvailable && agentNeedsWorkspaceTools(msg) {
+	if !autoResumeCollection && !patchToolAvailable && agentNeedsWorkspaceTools(msg) {
 		patchToolAvailable = s.agentChatEnsureTools(r.Context(), owner, p, model, string(secret))
 	}
 	instructions := agentChatInstructionsWithAutomation(session, patchToolAvailable, identity.Key)
@@ -479,7 +496,9 @@ func (s *Server) agentChatAuthorizedMessage(w http.ResponseWriter, r *http.Reque
 	oldRevision := session.Revision
 	if resumeCollection{
 		bindLegacyCollectionObjective(collectionContinuationContext(r.Context()),&session,"Continue")
-		session.AppendEvent("collection_resume_new",session.Status,session.ProviderRun.CallID,session.ProviderRun.ID)
+		kind:="collection_resume_new"
+		if autoResumeCollection{kind="collection_auto_resume_new"}
+		session.AppendEvent(kind,session.Status,session.ProviderRun.CallID,session.ProviderRun.ID)
 	}else{
 		bindLegacyCollectionObjective(r.Context(), &session, strings.TrimSpace(req.Message))
 		if newAfterCollection {

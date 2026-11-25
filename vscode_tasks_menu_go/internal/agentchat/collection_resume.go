@@ -81,7 +81,6 @@ func CollectionResumeReceipt(x Session)(string,bool){
  run:=x.ProviderRun
  if x.Owner!="local"||x.Archived||x.Status!="failed"||x.PendingUserTurn!=nil||
   run==nil||run.Kind!="collection"||run.Phase!="unknown"||
-  len(x.CollectionResumeHistory)>=maxCollectionResumeCheckpoints||
   (x.AutoCollection!=nil&&!*x.AutoCollection)||len(x.History)==0{return "",false}
  for _,c:=range x.ToolCalls{
   if c.Status!="done"&&c.Status!="error"&&c.Status!="rejected"{return "",false}
@@ -111,6 +110,17 @@ func CollectionResumeReceipt(x Session)(string,bool){
  return ProviderPayloadDigest([]byte(last.Content)),true
 }
 
+// CollectionAutoResumeAllowed is checked again against the canonical journal
+// at admission, including owner opt-out while the payload is being built.
+func CollectionAutoResumeAllowed(x Session) bool {
+ if _,ok:=CollectionResumeReceipt(x);!ok{return false}
+ if x.TaskPlan!=nil{
+  return x.TaskPlan.State=="active"&&x.TaskPlan.AutoContinue&&TaskPlanNext(x.TaskPlan)!=nil&&
+   x.TaskPlan.NoProgressTurns<MaxContinuationNoWorkTurns
+ }
+ return x.AutoContinueText&&(x.Continuation==nil||x.Continuation.NoProgressTurns<MaxContinuationNoWorkTurns)
+}
+
 // retainCollectionResumeCheckpoint must run under the existing store lock
 // after CAS/owner/staged-payload verification. A caller cannot inject or erase
 // prior checkpoints. No attempt sidecar is overwritten here.
@@ -126,14 +136,15 @@ func(s *Store) retainCollectionResumeCheckpoint(x *Session,previous Session)erro
  kind:=""
  for _,e:=range x.Events{
   if e.Seq>previous.EventSeq&&e.Detail==old.ID&&e.CallID==old.CallID&&
-   (e.Kind=="collection_resume_new"||e.Kind=="collection_new_message"){kind=e.Kind;break}
+   (e.Kind=="collection_resume_new"||e.Kind=="collection_auto_resume_new"||e.Kind=="collection_new_message"){kind=e.Kind;break}
  }
  var receipt string
  switch kind {
- case "collection_resume_new":
+ case "collection_resume_new","collection_auto_resume_new":
   var ok bool
   receipt,ok=CollectionResumeReceipt(previous)
   if !ok||x.LastRequestKey==""{return ErrInvalidSession}
+  if kind=="collection_auto_resume_new"&&!CollectionAutoResumeAllowed(previous){return ErrInvalidSession}
  case "collection_new_message":
   if !CanSendAfterUnknownCollection(previous){return ErrInvalidSession}
   receipt=unknownCollectionReceiptDigest(previous)

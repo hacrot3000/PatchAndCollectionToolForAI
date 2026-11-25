@@ -6,6 +6,7 @@ import (
  "net/http"
  "strings"
  "testing"
+ "time"
 
  "bletonfc/vscode_tasks_menu/internal/agentchat"
  "bletonfc/vscode_tasks_menu/internal/patchtool"
@@ -118,4 +119,68 @@ func TestAgentCollectionDiagnosticsContainOnlyFingerprints(t *testing.T){
  raw:=[]byte(`{"instructions":"Installed native COLLECT contract version test, SHA-256 `+digest+`","tools":[{"name":"taskdeck_collect_workspace","parameters":{"type":"object"}}],"input":[{"type":"function_call_output","output":"{\"repair_attempt\":1,\"secret\":\"do-not-export\"}"}]}`)
  tool,contract,repair:=agentCollectionRequestDiagnostics(raw)
  if len(tool)!=64||contract!=digest||!repair{t.Fatal("missing safe Collection diagnostics")}
+}
+
+func TestAgentUnknownCollectionRecoveryPolicy(t *testing.T){
+ now:=time.Now().UTC()
+ fixture:=func()agentchat.Session{
+  return agentchat.Session{Owner:"local",Status:"failed",AutoContinueText:true,RetryMode:agentchat.RetryUnlimited,
+   ProviderRun:&agentchat.ProviderRun{ID:"r50-e61",Kind:"collection",Phase:"unknown",CallID:"read"},
+   History:[]agentchat.HistoryItem{{Type:"user",Content:"original task"},{Type:"function_call",Name:"taskdeck_collect_workspace",CallID:"read",Arguments:`{}`},{Type:"function_call_output",CallID:"read",Content:`{"status":"PASS"}`}}}
+ }
+ x:=fixture()
+ if !agentAutoFeedbackNeedsWork(x)||agentUnknownCollectionRecoveryState(x,now)!="ready"{t.Fatal("interrupted Collection not scheduled")}
+ for _,mutate:=range []func(*agentchat.Session){
+  func(x *agentchat.Session){x.AutoContinueText=false},
+  func(x *agentchat.Session){off:=false;x.AutoCollection=&off},
+  func(x *agentchat.Session){x.Status="cancelled"},
+  func(x *agentchat.Session){x.Owner="other"},
+  func(x *agentchat.Session){x.ToolCalls=[]agentchat.ToolCallRecord{{CallID:"patch",Status:"unknown"}}},
+  func(x *agentchat.Session){x.History=x.History[:2]},
+  func(x *agentchat.Session){x.Continuation=&agentchat.TurnContinuation{NoProgressTurns:agentchat.MaxContinuationNoWorkTurns}},
+ }{
+  blocked:=fixture();mutate(&blocked)
+  if agentUnknownCollectionResumeCandidate(blocked){t.Fatal("unsafe automatic recovery")}
+ }
+ x.AppendEvent("collection_auto_resume_deferred","failed","read","r50-e61")
+ if agentUnknownCollectionRecoveryState(x,now)!="retry_deferred"{t.Fatal("missing recovery backoff")}
+ if agentUnknownCollectionRecoveryState(x,now.Add(time.Minute))!="ready"{t.Fatal("unlimited retry did not become eligible")}
+ x.RetryMode=agentchat.RetryOff
+ if agentUnknownCollectionRecoveryState(x,now.Add(time.Minute))!="retry_exhausted"{t.Fatal("retry off loop")}
+ x.RetryMode=agentchat.RetryLimited
+ for i:=0;i<5;i++{x.AppendEvent("collection_auto_resume_deferred","failed","read","r50-e61")}
+ if agentUnknownCollectionRecoveryState(x,now.Add(time.Minute))!="retry_exhausted"{t.Fatal("limited retry loop")}
+}
+
+func TestAgentUnknownCollectionAutoResumeAfterRestart(t *testing.T){
+ s,id:=newAgentConversationFixture(t,"stateless")
+ store,err:=s.agentChatStore();if err!=nil{t.Fatal(err)}
+ x,err:=store.Get(id,"local");if err!=nil{t.Fatal(err)}
+ p:=agentProviderFixture()
+ receipt:=`{"status":"PASS","read_only":true}`
+ x.History=[]agentchat.HistoryItem{{Type:"user",Content:"original unfinished task"},{Type:"function_call",Name:"taskdeck_collect_workspace",CallID:"read",Arguments:`{}`},{Type:"function_call_output",CallID:"read",Content:receipt}}
+ x.Status="requesting_ai"
+ x.AutoContinueText=true
+ x.RetryMode=agentchat.RetryUnlimited
+ x.ProviderRun=&agentchat.ProviderRun{ID:"r50-e61",Kind:"collection",Phase:"sending",CallID:"read",PayloadSHA256:agentchat.ProviderPayloadDigest([]byte("old payload")),ProviderFingerprint:agentchat.CapabilityFingerprint(p,p.Models[0]),CreatedAt:time.Now().UTC(),UpdatedAt:time.Now().UTC()}
+ x.AppendEvent("provider_egress","requesting_ai","read","collection")
+ x,err=store.Save(x,x.Revision);if err!=nil{t.Fatal(err)}
+ s.agentReconcileOneStartupSession(context.Background(),store,id)
+ old,err:=store.Get(id,"local");if err!=nil{t.Fatal(err)}
+ if old.Status!="failed"||old.ProviderRun.Phase!="unknown"||!agentUnknownCollectionResumeCandidate(old){t.Fatalf("startup failed to schedule recovery: %+v",old.ProviderRun)}
+ calls:=0
+ s.AgentChatCall=func(_ context.Context,provider agentchat.ProviderConfig,key string,body []byte)(agentchat.ResponsesResult,error){
+  calls++
+  if provider.ID!=p.ID||modelFromAgentPayload(body)!=p.Models[0].ID||key!="TEST-KEY"{t.Fatal("wrong recovery provider binding")}
+  if agentchat.ProviderPayloadDigest(body)==old.ProviderRun.PayloadSHA256||!strings.Contains(string(body),"NEW continuation"){t.Fatal("old payload replayed or recovery instruction missing")}
+  return agentchat.ResponsesResult{ResponseID:"fresh-response",Text:"recovered response"},nil
+ }
+ s.processAgentAutoFeedbackSession(context.Background(),store,id)
+ y,err:=store.Get(id,"local");if err!=nil{t.Fatal(err)}
+ if calls!=1||y.Status!="completed"||y.ProviderRun.ID==old.ProviderRun.ID||len(y.CollectionResumeHistory)!=1||
+  y.CollectionResumeHistory[0].Previous.Phase!="unknown"||y.CollectionResumeHistory[0].ReceiptSHA256!=agentchat.ProviderPayloadDigest([]byte(receipt)){
+  t.Fatalf("recovery did not preserve old unknown checkpoint: calls=%d status=%s checkpoints=%+v",calls,y.Status,y.CollectionResumeHistory)
+ }
+ s.processAgentAutoFeedbackSession(context.Background(),store,id)
+ if calls!=1{t.Fatal("recovered checkpoint dispatched twice")}
 }

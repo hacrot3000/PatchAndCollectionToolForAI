@@ -210,7 +210,7 @@ func (s *Server) processAgentAutoFeedbackSession(ctx context.Context, store *age
 func agentAutoFeedbackNeedsWork(x agentchat.Session) bool {
 	if x.Owner != "local" || x.Archived { return false }
 	if x.Status=="requesting_ai" && x.ProviderRun!=nil && x.ProviderRun.Phase=="prepared"{return true}
-	if agentRecoveredCollectionResumeCandidate(x){return true}
+	if agentRecoveredCollectionResumeCandidate(x)||agentUnknownCollectionResumeCandidate(x){return true}
 	if agentchat.TaskPlanAutoContinueCandidate(x){return true}
 	if agentchat.StandaloneAutoContinueCandidate(x){return true}
 	if agentchat.TaskAutoCheckReady(x){return true}

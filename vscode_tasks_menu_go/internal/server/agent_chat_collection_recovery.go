@@ -3,6 +3,7 @@ package server
 import (
  "strconv"
  "strings"
+ "time"
 
  "bletonfc/vscode_tasks_menu/internal/agentchat"
 )
@@ -87,4 +88,33 @@ func agentRecoveredCollectionResumeCandidate(x agentchat.Session)bool{
   if e.Kind=="provider_ack_recovered"&&e.CallID==x.ProviderRun.CallID&&strings.HasPrefix(e.Detail,x.ProviderRun.ID+": "){return true}
  }
  return false
+}
+
+// Unknown Collection delivery is not an acknowledgement. It is eligible for
+// a NEW user-authorized stateless continuation only, with exact read evidence
+// and no unresolved mutation. Respect the live retry policy and bound retries.
+func agentUnknownCollectionRecoveryState(x agentchat.Session, now time.Time) string {
+ if !agentchat.HasUnknownCollectionDelivery(x)||x.Status!="failed"||x.Owner!="local"||x.Archived{return ""}
+ if !agentchat.CollectionAutoResumeAllowed(x){return "owner_grant_or_receipt_unavailable"}
+ run:=x.ProviderRun
+ attempts:=0
+ var deferredAt time.Time
+ for i:=len(x.Events)-1;i>=0;i--{
+  e:=x.Events[i]
+  if e.Kind=="turn_finished"||e.Kind=="feedback_turn_finished"||e.Kind=="provider_resume_finished"{break}
+  if e.Kind=="collection_auto_resume_new"{attempts++}
+  if e.Kind=="collection_auto_resume_deferred"&&e.Detail==run.ID&&e.CallID==run.CallID{
+   attempts++
+   if deferredAt.IsZero(){deferredAt=e.At}
+  }
+ }
+ limit:=1
+ if x.RetryMode==agentchat.RetryLimited{limit=6}
+ if x.RetryMode!=agentchat.RetryUnlimited&&attempts>=limit{return "retry_exhausted"}
+ if !deferredAt.IsZero()&&now.Before(deferredAt.Add(30*time.Second)){return "retry_deferred"}
+ return "ready"
+}
+
+func agentUnknownCollectionResumeCandidate(x agentchat.Session)bool{
+ return agentUnknownCollectionRecoveryState(x,time.Now().UTC())=="ready"
 }

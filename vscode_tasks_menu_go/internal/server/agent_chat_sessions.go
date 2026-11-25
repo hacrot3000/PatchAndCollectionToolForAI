@@ -322,12 +322,17 @@ func (s *Server) agentChatSessionItemAPI(w http.ResponseWriter, r *http.Request)
  attempts,attemptErr:=store.ProviderAttempts(id,aiPlanOwner(r))
  _,resumeEligible:=agentchat.CollectionResumeReceipt(item)
  if s.Config.SharedServerEnabled||attemptErr!=nil{resumeEligible=false}
+ recoveryState:=agentUnknownCollectionRecoveryState(item,time.Now().UTC())
+ if recoveryState!=""&&(s.Config.SharedServerEnabled||s.agentConversationRequiresRunContinuation(item.Owner,id)||attemptErr!=nil){
+  recoveryState="manual_review_required"
+ }
 	// The API currently exposes a transcript only to its authenticated owner.
 	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, http.StatusOK, map[string]any{"session": item, "execution_enabled": false,
 		"retry_runtime": agentRetrySnapshot(s.Workspace,aiPlanOwner(r),id),
 		"provider_review": review,
 		"collection_resume_eligible": resumeEligible,
+		"collection_auto_recovery": recoveryState,
 		"auto_feedback_diagnostic":agentAutoFeedbackDiagnostic(item),
   "provider_attempts":attempts,
   "provider_attempts_integrity_error":attemptErr!=nil,
