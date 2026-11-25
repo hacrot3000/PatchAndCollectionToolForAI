@@ -96,6 +96,7 @@ func (e ownerBoundAgentRunExecutor) ResolveWaitingTool(ctx context.Context, run 
 	defer release()
 	repairCount:=agentRunCollectionRepairCount(run.History,run.Spec.ParentTurnID)
 	observed := ""
+	nativeRead:=false
 	request, validationErr := agentNativeCollectionRequest(call.Arguments, identity, false)
 	if !s.agentRunCollectionAllowed(e.owner, run.Spec, inputs) {
 		observed = runCollectionDiagnostic("COLLECTION_NOT_AUTHORIZED", "Native Collection is disabled or outside the approved run scope; no files were read.", false)
@@ -110,9 +111,11 @@ func (e ownerBoundAgentRunExecutor) ResolveWaitingTool(ctx context.Context, run 
 		if s.AgentCollectionCall != nil {
 			// Same test-only seam as the legacy native Collection flow.
 			observed = s.AgentCollectionCall(inputs.ExecutionWorkspacePath, identity, request)
+			nativeRead=true
 		} else {
 			child := s.agentExecutionServer(inputs.ExecutionWorkspacePath)
 			observed, err = child.agentRunNativeCollection(ctx, e.owner, request, identity)
+			nativeRead=err==nil
 			if err != nil {
 				var schemaErr *agentNativeCollectValidationError
 				repairable := errors.As(err, &schemaErr)
@@ -126,6 +129,7 @@ func (e ownerBoundAgentRunExecutor) ResolveWaitingTool(ctx context.Context, run 
 	}
 	exhausted:=false
 	if code,message,repair:=agentCollectionRepairError(observed);repair {
+		nativeRead=false
 		observed=agentCollectionRepairFeedback(code,message,repairCount+1)
 		exhausted=repairCount>=agentCollectionRepairBudget
 	}
@@ -133,6 +137,7 @@ func (e ownerBoundAgentRunExecutor) ResolveWaitingTool(ctx context.Context, run 
 		return nil, "", ctx.Err()
 	}
 	if len(observed) == 0 || len(observed) > 512<<10 || !json.Valid([]byte(observed)) {
+		nativeRead=false
 		observed = runCollectionDiagnostic("COLLECTION_RESULT_UNAVAILABLE", "No bounded verified native observation was returned. Inspect native history; do not claim success or replay an ambiguous operation.", false)
 	}
 	result := agentchat.HistoryItem{Type: "function_call_output", CallID: call.CallID, Content: observed,
@@ -144,7 +149,13 @@ func (e ownerBoundAgentRunExecutor) ResolveWaitingTool(ctx context.Context, run 
 	}
 	// Preserve the original pinned prompt and workspace binding. Do not
 	// silently rebase onto a changed AI Pack after a tool operation.
-	snapshot, err := store.CreateWithPolicy(run.Spec.OwnerWorkspaceID, run.Spec.ConversationID, inputs.ProjectID, history, inputs.Snapshot.SourceRefs, inputs.Snapshot.Policy)
+	policy:=inputs.Snapshot.Policy
+	if policy!=nil{
+		updated:=*policy
+		updated.CollectionProgress=runCollectionProgressUpdate(e.owner,run,inputs,identity,call,request,observed,nativeRead)
+		policy=&updated
+	}
+	snapshot, err := store.CreateWithPolicy(run.Spec.OwnerWorkspaceID, run.Spec.ConversationID, inputs.ProjectID, history, inputs.Snapshot.SourceRefs, policy)
 	if err != nil {
 		return nil, "", err
 	}

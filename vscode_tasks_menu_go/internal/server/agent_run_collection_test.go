@@ -175,9 +175,10 @@ func TestAgentRunCollectionRepeatedShapeReadsChangedSource(t *testing.T){
  s,_,_,spec:=providerToolRunFixture(t,"run-native-repeated")
  spec,history:=enableRunAutomationFixture(t,s,spec,true,false)
  var requests,reads atomic.Int32
- s.AgentCollectionCall=func(_ string,_ patchtool.ProjectIdentity,_ []byte)string{
-  n:=reads.Add(1)
-  return `{"source":"native_patch_tool_collect","status":"PASS","text_excerpt":"read-marker-`+string(rune('0'+n))+`"}`
+ s.AgentCollectionCall=func(_ string,identity patchtool.ProjectIdentity,_ []byte)string{
+  n:=reads.Add(1);digest:=strings.Repeat("a",64);if n>=3{digest=strings.Repeat("b",64)}
+  raw,_:=json.Marshal(map[string]any{"source":"native_patch_tool_collect","project":identity,"status":"PASS","native_status":"PASS","rc":0,"evidence_verified":true,"native_session_id":"native","run_id":"read-"+string(rune('0'+n)),"text_excerpt":"read-marker-"+string(rune('0'+n)),"text_excerpt_truncated":false,"native_full_file_reads":[]any{map[string]any{"path":"main.go","action_index":1,"total_lines":1,"report_sha256":digest}}})
+  return string(raw)
  }
  s.AgentChatCall=func(_ context.Context,p agentchat.ProviderConfig,_ string,payload []byte)(agentchat.ResponsesResult,error){
   n:=requests.Add(1)
@@ -199,4 +200,10 @@ func TestAgentRunCollectionRepeatedShapeReadsChangedSource(t *testing.T){
   }
  }
  if n!=4{t.Fatalf("receipt count %d",n)}
+ inputs,err:=s.ResolveAgentRunInputs(agentrun.WithPrincipalOwner(context.Background(),"local"),rec.Spec);if err!=nil{t.Fatal(err)}
+ g,ok:=readRunCollectionProgress("local",rec.Spec,inputs)
+ if !ok||g.Counters.Requested!=4||g.Counters.NativeReads!=4||g.Counters.NewEvidence!=2||g.Counters.DuplicateEvidence!=2{t.Fatalf("guard not retained: %+v",g)}
+ if _,ok:=readRunCollectionProgress("foreign",rec.Spec,inputs);ok{t.Fatal("cross-owner progress accepted")}
+ foreign:=rec.Spec;foreign.ExecutionWorkspaceID="foreign-worktree"
+ if _,ok:=readRunCollectionProgress("local",foreign,inputs);ok{t.Fatal("cross-worktree progress accepted")}
 }
