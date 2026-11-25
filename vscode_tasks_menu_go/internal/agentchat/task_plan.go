@@ -218,20 +218,34 @@ func VerifyTaskPlanEvidence(x Session,kind,ref,note string)(TaskPlanEvidence,err
   }
   return TaskPlanEvidence{},fmt.Errorf("no acknowledged final Native Patch receipt for %q",ref)
  case "collection":
-  var call,output bool
-  var content string
-  for _,item:=range x.History{
-   if item.CallID!=ref{continue}
-   if item.Type=="function_call"&&item.Name=="taskdeck_collect_workspace"{call=true}
-   if item.Type=="function_call_output"{output=true;content=item.Content}
-  }
-  if call&&output&&validateTaskCollectionSuccess(content)==nil{
-   return TaskPlanEvidence{Kind:"collection",Ref:ref,Digest:taskPlanDigest(content),Note:strings.TrimSpace(note)},nil
-  }
-  return TaskPlanEvidence{},fmt.Errorf("no paired verified Collection observation for %q",ref)
+  return verifyTaskCollectionPair(x.History,x.ProjectID,ref,note)
  default: return TaskPlanEvidence{},ErrInvalidSession
  }
 }
+ // Resolve a single ordered, unambiguous canonical call/output pair. Native
+ // receipt text is never accepted from a user or assistant history message.
+ func verifyTaskCollectionPair(history []HistoryItem,projectID,ref,note string)(TaskPlanEvidence,error){
+  var call,output *HistoryItem
+  for i:=range history{
+   item:=&history[i]
+   if item.CallID!=ref{continue}
+   switch item.Type{
+   case "function_call":
+    if call!=nil||output!=nil||item.Name!="taskdeck_collect_workspace"{return TaskPlanEvidence{},ErrInvalidSession}
+    call=item
+   case "function_call_output":
+    if call==nil||output!=nil{return TaskPlanEvidence{},ErrInvalidSession}
+    output=item
+   }
+  }
+  if call==nil||output==nil||call.OriginRunID!=output.OriginRunID||
+   call.ProviderID!=output.ProviderID||call.ModelID!=output.ModelID||call.ParentTurnID!=output.ParentTurnID||
+   validateTaskCollectionObservation(output.Content,projectID)!=nil{
+   return TaskPlanEvidence{},fmt.Errorf("no paired verified Collection observation for %q",ref)
+  }
+  return TaskPlanEvidence{Kind:"collection",Ref:ref,Digest:taskPlanDigest(output.Content),Note:strings.TrimSpace(note)},nil
+ }
+
 func UpdateTaskPlanStep(x *Session,id,status string,evidence *TaskPlanEvidence)error{
  if x==nil||x.TaskPlan==nil{return ErrInvalidSession}
  switch status{case "pending","active","blocked","done":default:return ErrInvalidSession}
@@ -360,13 +374,7 @@ func verifyArchivedTaskPlanEvidenceWithReaders(
   for part:=x.HistoryArchiveParts;part>0;part--{
    items,e:=readCollection(part)
    if e!=nil{return TaskPlanEvidence{},fmt.Errorf("cannot verify Collection archive %d: %w",part,e)}
-   for i:=0;i+1<len(items);i++{
-    call,output:=items[i],items[i+1]
-    if call.CallID==ref&&call.Type=="function_call"&&call.Name=="taskdeck_collect_workspace"&&
-     output.Type=="function_call_output"&&output.CallID==ref&&validateTaskCollectionSuccess(output.Content)==nil{
-     return TaskPlanEvidence{Kind:"collection",Ref:ref,Digest:taskPlanDigest(output.Content),Note:strings.TrimSpace(note)},nil
-    }
-   }
+   if evidence,e:=verifyTaskCollectionPair(items,x.ProjectID,ref,note);e==nil{return evidence,nil}
   }
  }
  return TaskPlanEvidence{},err

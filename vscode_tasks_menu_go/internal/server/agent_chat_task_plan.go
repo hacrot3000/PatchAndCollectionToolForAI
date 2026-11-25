@@ -146,9 +146,18 @@ func (s *Server) agentChatTaskPlanAPI(w http.ResponseWriter,r *http.Request,id s
  // status/done transitions use the bounded 32-step CAS writer.
  // Native Task/Go proof and all unpaged/inline operations retain the full
  // validator path below. The Store itself validates ALL offscreen pages.
+ // Run-qualified Collection proofs are pre-read from the durable owner
+ // journal and immutable snapshot, then scope-checked inside the plan CAS.
+ runCollectionDone:=r.Method==http.MethodPost&&req.Action=="set_step"&&req.Status=="done"&&
+  req.EvidenceKind=="collection"&&strings.HasPrefix(req.EvidenceRef,"run:")
+ var runCollectionProof verifiedRunCollectionEvidence
+ if runCollectionDone{
+  runCollectionProof,err=s.resolveRunCollectionEvidence(owner,id,req.EvidenceRef,req.EvidenceNote)
+  if err!=nil{http.Error(w,"run Collection completion evidence not verified",409);return}
+ }
  eligiblePagedNativeDone:=req.Action=="set_step"&&req.Status=="done"&&
   (req.EvidenceKind=="task_run"||req.EvidenceKind=="go_test_case"||
-   req.EvidenceKind=="go_test_suite")
+   req.EvidenceKind=="go_test_suite"||runCollectionDone)
  eligiblePagedStep:=req.Action=="set_step"&&
   (req.Status=="pending"||req.Status=="active"||req.Status=="blocked"||
    (req.Status=="done"&&(req.EvidenceKind=="manual"||
@@ -174,6 +183,8 @@ func (s *Server) agentChatTaskPlanAPI(w http.ResponseWriter,r *http.Request,id s
      id,owner,req.ExpectedRevision,req.StepID,req.EvidenceKind,req.EvidenceRef,
      postOffset,postLimit,func(snapshot agentchat.Session)(agentchat.TaskPlanEvidence,error){
       switch req.EvidenceKind{
+      case "collection":
+       return runCollectionProof.forSession(snapshot)
       case "task_run":
        return s.verifyNativeTaskRunEvidence(snapshot,req.EvidenceRef,req.EvidenceTaskID,
         req.EvidenceNote,req.StepID)
@@ -332,7 +343,9 @@ func (s *Server) agentChatTaskPlanAPI(w http.ResponseWriter,r *http.Request,id s
    }
    var verified agentchat.TaskPlanEvidence
    var e error
-   if req.EvidenceKind=="task_run"{
+   if runCollectionDone{
+    verified,e=runCollectionProof.forSession(x)
+   }else if req.EvidenceKind=="task_run"{
     verified,e=s.verifyNativeTaskRunEvidence(x,req.EvidenceRef,req.EvidenceTaskID,req.EvidenceNote,req.StepID)
    }else if req.EvidenceKind=="go_test_case"{
     verified,e=s.verifyNativeGoTestCaseEvidence(x,req.EvidenceRef,req.EvidenceTaskID,

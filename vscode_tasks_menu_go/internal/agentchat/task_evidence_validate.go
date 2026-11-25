@@ -4,6 +4,7 @@ import (
  "encoding/json"
  "errors"
  "fmt"
+ "path"
  "strconv"
  "strings"
 )
@@ -51,13 +52,14 @@ func validateTaskNativePatchSuccess(call ToolCallRecord) error {
 // response must not become evidence that the requested research succeeded.
 func validateTaskCollectionSuccess(content string) error {
  var envelope struct{
+  Source string `json:"source"`
   Error json.RawMessage `json:"error"`
   Results []struct{
    Error json.RawMessage `json:"error"`
    Files []struct{Error string `json:"error"`} `json:"files"`
   } `json:"results"`
  }
- if json.Unmarshal([]byte(content),&envelope)!=nil||len(envelope.Results)==0{
+ if json.Unmarshal([]byte(content),&envelope)!=nil||envelope.Source=="native_patch_tool_collect"||len(envelope.Results)==0{
   return errors.New("Collection observation is missing verified results")
  }
  if hasTaskEvidenceError(envelope.Error){return errors.New("Collection returned an error")}
@@ -69,6 +71,56 @@ func validateTaskCollectionSuccess(content string) error {
  }
  return nil
 }
+
+// Native COLLECT now returns a server-created artifact receipt, not the
+// historical inline results array. This proves wrapper/manifest PASS only.
+// It is intentionally not used for exact full-file Auto-check.
+func validateTaskCollectionObservation(content, projectID string) error {
+ var receipt struct {
+  Source string `json:"source"`
+  Project struct { ID string `json:"id"` } `json:"project"`
+  Status string `json:"status"`
+  NativeStatus string `json:"native_status"`
+  NativeSessionID string `json:"native_session_id"`
+  RunID string `json:"run_id"`
+  ResultZIP string `json:"result_zip"`
+  ResultText string `json:"result_text"`
+  Verified bool `json:"evidence_verified"`
+  Partial *bool `json:"partial_evidence_available"`
+  RC *int `json:"rc"`
+  Error json.RawMessage `json:"error"`
+  ArtifactError json.RawMessage `json:"artifact_error"`
+  TextError json.RawMessage `json:"text_error"`
+  FailureReason string `json:"failure_reason"`
+ }
+ if json.Unmarshal([]byte(content), &receipt)!=nil {
+  return errors.New("invalid Collection observation JSON")
+ }
+ if receipt.Source!="native_patch_tool_collect" {
+  return validateTaskCollectionSuccess(content)
+ }
+ if projectID=="" || receipt.Project.ID!=projectID ||
+  receipt.Status!="PASS" || receipt.NativeStatus!="PASS" || !receipt.Verified ||
+  receipt.Partial==nil || *receipt.Partial || receipt.RC==nil || *receipt.RC!=0 ||
+  strings.TrimSpace(receipt.NativeSessionID)=="" || strings.TrimSpace(receipt.RunID)=="" ||
+  strings.TrimSpace(receipt.FailureReason)!="" ||
+  hasTaskEvidenceError(receipt.Error) || hasTaskEvidenceError(receipt.ArtifactError) ||
+  hasTaskEvidenceError(receipt.TextError) {
+  return errors.New("native Collection receipt is incomplete, unsuccessful or outside the project")
+ }
+ validArtifact:=func(name,ext string)bool{
+  const prefix="artifacts/patch_tool_code_collections/CODE_COLLECTION_RESULT_"
+  return strings.HasPrefix(name,prefix) && path.Clean(name)==name &&
+   path.Dir(name)=="artifacts/patch_tool_code_collections" && path.Ext(name)==ext &&
+   !strings.ContainsAny(name,"\\\r\n\x00") && len(name)>len(prefix)+len(ext)
+ }
+ if !validArtifact(receipt.ResultZIP,".zip") || !validArtifact(receipt.ResultText,".txt") ||
+  strings.TrimSuffix(receipt.ResultZIP,".zip")!=strings.TrimSuffix(receipt.ResultText,".txt"){
+  return errors.New("native Collection receipt lacks matching artifact identities")
+ }
+ return nil
+}
+
 func hasTaskEvidenceError(raw json.RawMessage)bool{
  v:=strings.TrimSpace(string(raw))
  return v!=""&&v!="null"&&v!="false"&&v!=string([]byte{34,34})

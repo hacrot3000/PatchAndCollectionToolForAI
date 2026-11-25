@@ -47,33 +47,58 @@ func readRunRecords(dir string) ([]Record, error) {
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
 			continue
 		}
-		path := filepath.Join(dir, entry.Name())
-		info, err := os.Lstat(path)
-		if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm()&0077 != 0 || info.Size() > 8<<20 {
-			return nil, errors.New("unsafe run journal record")
-		}
-		body, err := os.ReadFile(path)
-		if err != nil {
-			return nil, err
-		}
-		var record Record
-		if err := json.Unmarshal(body, &record); err != nil {
-			return nil, errors.New("invalid run journal record")
-		}
-		if err := record.Spec.Validate(); err != nil || filepath.Base(path) != record.Spec.RunID+".json" {
-			return nil, errors.New("invalid run journal binding")
-		}
-		switch record.Status {
-		case Queued, Running, WaitingTool, Completed, Failed, Stopped, Interrupted:
-		default:
-			return nil, errors.New("invalid run status")
-		}
+		record, err := readRunRecord(filepath.Join(dir, entry.Name()))
+		if err != nil { return nil, err }
 		records = append(records, record)
 		if len(records) > maxStoredRuns {
 			return nil, errors.New("run journal exceeds capacity")
 		}
 	}
 	return records, nil
+}
+
+// ReadCompletedRecord resolves one exact private run journal without loading
+// unrelated runs or starting a Manager. Active and ambiguous runs are never
+// returned as successful evidence.
+func ReadCompletedRecord(dir, runID string) (Record, error) {
+ if dir=="" || !filepath.IsAbs(dir) || len(runID)==0 || len(runID)>64 ||
+  strings.Trim(runID,"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_.-")!="" ||
+  runID=="." || runID==".." {
+  return Record{},errors.New("invalid run journal lookup")
+ }
+ info,err:=os.Lstat(dir)
+ if err!=nil{return Record{},err}
+ if !info.IsDir()||info.Mode()&os.ModeSymlink!=0||info.Mode().Perm()&0077!=0{
+  return Record{},errors.New("unsafe run journal directory")
+ }
+ record,err:=readRunRecord(filepath.Join(dir,runID+".json"))
+ if err!=nil{return Record{},err}
+ if record.Status!=Completed||record.FinishedAt==nil{return Record{},errors.New("run has no completed durable receipt")}
+ return record,nil
+}
+
+func readRunRecord(path string)(Record,error){
+	info, err := os.Lstat(path)
+	if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm()&0077 != 0 || info.Size() > 8<<20 {
+		return Record{}, errors.New("unsafe run journal record")
+	}
+	body, err := os.ReadFile(path)
+	if err != nil {
+		return Record{}, err
+	}
+	var record Record
+	if err := json.Unmarshal(body, &record); err != nil {
+		return Record{}, errors.New("invalid run journal record")
+	}
+	if err := record.Spec.Validate(); err != nil || filepath.Base(path) != record.Spec.RunID+".json" {
+		return Record{}, errors.New("invalid run journal binding")
+	}
+	switch record.Status {
+	case Queued, Running, WaitingTool, Completed, Failed, Stopped, Interrupted:
+	default:
+		return Record{}, errors.New("invalid run status")
+	}
+ return record,nil
 }
 
 func markInterrupted(record *Record) {
