@@ -335,90 +335,59 @@ assert.equal(sessionsButton.attributes['aria-expanded'], 'true');
 sessionsButton.onclick();
 assert.equal(sessionsList.classList.contains('open'), false, 'Saved conversations close on second click');
 assert.equal(sessionsButton.attributes['aria-expanded'], 'false');
-// Compact flyout lives beside Saved conversations and the nested menu must
-// reflect the *selected* model's efforts, including Chat Completions.
-const setupButton=find(viewTabs,node=>node.tagName==='button'&&node.textContent==='AI setup ▾');
-assert.ok(setupButton,'AI setup flyout must exist');
-assert.equal(setupButton.parentElement.parentElement,viewTabs,'AI setup must share Saved conversations row');
-const setupContainer=setupButton.parentElement, configPanel=setupContainer.children[1];
-const setupGroup=name=>configPanel.children.find(node=>node.className==='agentchat-config-category'&&node.children[0].textContent.startsWith(name+' ·'));
+// The composer options replace the old header setup menu. Provider/model
+// are selected only in the existing lower selector.
+assert.equal(find(viewTabs,node=>node.tagName==='button'&&/AI setup/i.test(node.textContent)),undefined);
+const setupContainer=vm.runInNewContext('agentConfigMenu',context);
+const setupButton=setupContainer.children[0],configPanel=setupContainer.children[1];
+assert.equal(setupContainer.parentElement,composerParts.agentRunSelectorMount);
+const setupGroup=name=>configPanel.children.find(node=>node.className==='agentchat-config-category'&&node.children[0].textContent.startsWith(name));
 const setupChoice=(name,value)=>find(setupGroup(name).children[1],node=>node.tagName==='button'&&node.dataset?.value===value);
 vm.runInNewContext([
  "agentProviders=[{id:'custom-r2d',name:'Custom Endpoint',api_type:'chat_completions',has_api_key:true,models:[",
- "{id:'composer-2.5',name:'composer-2.5',reasoning_efforts:['low','medium','high'],default_reasoning_effort:'medium'},",
- "{id:'gpt-6.1-sol',name:'gpt-6.1-sol',reasoning_efforts:['low','medium','high','xhigh','max'],default_reasoning_effort:'xhigh'}",
- "]}];providerSelect.value='custom-r2d';modeSelect.value='stateless';updateAgentModels();"
+ "{id:'composer-2.5',name:'composer-2.5',reasoning_efforts:['low','medium','high'],default_reasoning_effort:'medium',max_input_tokens:1280000},",
+ "{id:'gpt-6.1-sol',name:'gpt-6.1-sol',reasoning_efforts:['low','medium','high','xhigh','max'],default_reasoning_effort:'xhigh',max_input_tokens:1400000}",
+ "]}];providerSelect.value='custom-r2d';modeSelect.value='stateless';updateAgentModels();agentRunUI.setProviders(agentProviders);"
 ].join('\n'),context);
 setupButton.onclick();
 assert.equal(setupContainer.classList.contains('open'),true);
-for(const name of ['Provider','Model','Effort','Context'])assert.ok(setupGroup(name),'missing '+name+' category');
-// Clicking options must never dismiss AI setup or its current submenu.
-const providerGroup=setupGroup('Provider');
-providerGroup.children[0].onclick();
-assert.equal(providerGroup.getAttribute('aria-expanded'),'true','Provider must expand on click');
-setupChoice('Provider','custom-r2d').onclick();
-assert.equal(setupContainer.classList.contains('open'),true,'selecting Provider must keep AI setup open');
-assert.equal(providerGroup.getAttribute('aria-expanded'),'true','selecting Provider must leave choices visible');
-assert.ok(setupChoice('Provider','custom-r2d'),'provider absent');
-assert.ok(setupChoice('Model','composer-2.5')&&setupChoice('Model','gpt-6.1-sol'),'model absent');
-for(const effort of ['low','medium','high'])assert.ok(setupChoice('Effort',effort),'composer effort absent: '+effort);
-assert.equal(setupChoice('Effort','xhigh'),undefined,'unsupported composer effort must be hidden');
+assert.ok(setupGroup('Effort')&&setupGroup('Context'));
+assert.equal(setupGroup('Provider'),undefined);assert.equal(setupGroup('Model'),undefined);
+for(const effort of ['low','medium','high'])assert.ok(setupChoice('Effort',effort));
+assert.equal(setupChoice('Effort','xhigh'),undefined);
 assert.equal(vm.runInNewContext('effortSelect.value',context),'medium');
-const modelGroup=setupGroup('Model');
-modelGroup.children[0].onclick();
-assert.equal(modelGroup.getAttribute('aria-expanded'),'true','nested category opens only on click');
-assert.equal(providerGroup.getAttribute('aria-expanded'),'false','opening Model closes Provider choices');
-setupChoice('Model','gpt-6.1-sol').onclick();
-assert.equal(modelGroup.getAttribute('aria-expanded'),'true','selecting Model keeps its choices expanded');
-assert.equal(setupContainer.classList.contains('open'),true,'selecting Model does not close AI setup');
+const visibleModel=vm.runInNewContext('agentRunUI.element.children[1]',context);
+visibleModel.value='gpt-6.1-sol';visibleModel.listeners.change[0]({type:'change'});
 assert.equal(vm.runInNewContext('modelSelect.value',context),'gpt-6.1-sol');
 assert.equal(vm.runInNewContext('effortSelect.value',context),'xhigh');
-for(const effort of ['low','medium','high','xhigh','max'])assert.ok(setupChoice('Effort',effort),'gpt-6.1-sol effort absent: '+effort);
+assert.match(setupButton.textContent,/Extra High · 1.4M/);
+for(const effort of ['low','medium','high','xhigh','max'])assert.ok(setupChoice('Effort',effort));
 const effortGroup=setupGroup('Effort');
 effortGroup.children[0].onclick();
-assert.equal(modelGroup.getAttribute('aria-expanded'),'false','Model remains closed when navigating to Effort');
+assert.equal(effortGroup.getAttribute('aria-expanded'),'true');
 setupChoice('Effort','max').onclick();
-assert.equal(effortGroup.getAttribute('aria-expanded'),'true','Effort remains open after selection');
-assert.equal(setupContainer.classList.contains('open'),true);
 assert.equal(vm.runInNewContext('effortSelect.value',context),'max');
+assert.match(setupButton.textContent,/Max · 1.4M/);
+assert.equal(effortGroup.getAttribute('aria-expanded'),'true');
 const contextGroup=setupGroup('Context');
 contextGroup.children[0].onclick();
-assert.equal(effortGroup.getAttribute('aria-expanded'),'false','only clicked category expands');
-assert.ok(setupChoice('Context','conversation').textContent.includes('local history'),
- 'Chat Completions must explain canonical replay rather than claim provider-side state');
-setupChoice('Context','conversation').onclick();
-assert.equal(vm.runInNewContext('modeSelect.value',context),'conversation');
-assert.equal(contextGroup.getAttribute('aria-expanded'),'true','Context remains expanded after selection');
-setupChoice('Context','previous_response').onclick();
-assert.equal(vm.runInNewContext('modeSelect.value',context),'previous_response');
+assert.equal(effortGroup.getAttribute('aria-expanded'),'false');
+assert.ok(setupChoice('Context','conversation').textContent.includes('local history'));
 setupChoice('Context','conversation').onclick();
 assert.equal(vm.runInNewContext('modeSelect.value',context),'conversation');
 const contextHelp=find(configPanel,node=>node.className==='agentchat-context-help');
-assert.ok(contextHelp?.textContent.includes('Chat Completions')&&contextHelp.textContent.includes('conversation ID'),
- 'Context help must explain the selected provider fallback and real conversation-state requirements');
-assert.ok(contextHelp.textContent.includes('Selected Context')&&
- contextHelp.textContent.includes('new conversations only')&&
- contextHelp.textContent.includes('TaskDeck replays compacted local history'),
- 'Context guidance must be in English, including when Chat Completions falls back');
+assert.ok(contextHelp.textContent.includes('conversation ID')&&contextHelp.textContent.includes('new conversations only')&&contextHelp.textContent.includes('TaskDeck replays compacted local history'));
 setupChoice('Context','previous_response').onclick();
-assert.ok(contextHelp.textContent.includes('previous_response_id')&&
- contextHelp.textContent.includes('response chaining'),
- 'Response chain must have clear English guidance');
+assert.ok(contextHelp.textContent.includes('previous_response_id'));
 setupChoice('Context','stateless').onclick();
-assert.ok(contextHelp.textContent.includes('token usage')&&
- contextHelp.textContent.includes('No stateful capability probe is required'),
- 'Stateless must have clear English guidance');
+assert.ok(contextHelp.textContent.includes('No stateful capability probe is required'));
 setupChoice('Context','conversation').onclick();
-assert.equal(setupContainer.classList.contains('open'),true,'choices stay visible until user closes AI setup');
+assert.equal(setupContainer.classList.contains('open'),true);
 const css=vm.runInNewContext('agentCSS.textContent',context);
-assert.ok(css.includes('.agentchat-config-category[aria-expanded="true"]>.agentchat-config-category-values'),
- 'only explicitly expanded config categories should display submenus');
-assert.ok(!css.includes('.agentchat-config-category:hover>.agentchat-config-category-values'),
- 'hover traversal must never switch config submenus');
-assert.ok(css.includes('.agentchat-config-category-values{display:none;position:static;'),
- 'config choices must expand inline, not below unrelated categories');
+assert.ok(css.includes('.agentchat-config-panel{display:none;position:fixed;'));
+assert.ok(css.includes('.agentchat-config-category[aria-expanded="true"]>.agentchat-config-category-values'));
 setupButton.onclick();
-assert.equal(setupContainer.classList.contains('open'),false,'AI setup closes by explicit toggle');
+assert.equal(setupContainer.classList.contains('open'),false);
 // The saved conversation selector must include a separate scoped Delete action
 // without forcing the user to open the conversation first.
 vm.runInNewContext('agentSessions=[{id:"deleted-view-only",title:"Old conversation",model_id:"m",status:"completed",archived:false}];updateAgentSessionRows()', context);
@@ -1543,7 +1512,7 @@ console.log('PASS: safe Markdown, syntax-highlighted PHP/Python, per-block Copy,
   context.hotSession=hotSession;
   context.hotProviders=[
    {id:'composer',name:'Composer',has_api_key:true,api_type:'responses',base_url:'https://composer.example/v1',models:[{id:'composer-2.5',name:'Composer 2.5'}]},
-   {id:'gpt',name:'GPT',has_api_key:true,api_type:'responses',base_url:'https://gpt.example/v1',models:[{id:'gpt-6.1-sol',name:'GPT 6.1'}]},
+   {id:'gpt',name:'GPT',has_api_key:true,api_type:'responses',base_url:'https://gpt.example/v1',models:[{id:'gpt-6.1-sol',name:'GPT 6.1',reasoning_efforts:['high','xhigh'],default_reasoning_effort:'high'}]},
   ];
   const runRequests=[],apiCalls=[];let acceptedRun=null,continuedRun=null;
   let nativeTool={call_id:'provider-call-ui',agent_run_id:'run-native-ui',name:'taskdeck_submit_patch',status:'pending',arguments_sha256:'abc',result:''};
@@ -1567,6 +1536,7 @@ console.log('PASS: safe Markdown, syntax-highlighted PHP/Python, per-block Copy,
     assert.ok(['gpt','composer'].includes(request.provider_id));
     const expectedModel=request.provider_id==='gpt'?'gpt-6.1-sol':'composer-2.5';
     assert.equal(request.model_id,expectedModel);
+    if(request.provider_id==='gpt')assert.equal(request.reasoning_effort,'xhigh','next request pins selected effort');
     return {context_snapshot_id:'0123456789abcdef0123456789abcdef',owner_workspace_id:'owner-hash',execution_workspace_id:'owner-hash',parent_turn_id:'run-101',excluded_pending_run_ids:['run-101'],provider_config_version:'config-'+request.provider_id,credential_fingerprint:'credential-'+request.provider_id,retry_mode:'limited'};
    }
    if(url==='/api/agent/runs'&&opts.method==='POST'){
@@ -1587,16 +1557,18 @@ console.log('PASS: safe Markdown, syntax-highlighted PHP/Python, per-block Copy,
    if(url==='/api/agent/runs')return {runs:allRuns.slice(),max_concurrent:5};
    throw new Error('Unexpected Hot-Switch request '+url);
   };
-  vm.runInNewContext("agentRunUI.setProviders(hotProviders);agentActive=hotSession.id;agentCurrentSession=hotSession;agentBusySessions.add(hotSession.id);prompt.value='Use GPT now';",context);
+  vm.runInNewContext("agentProviders=hotProviders;agentRunUI.setProviders(hotProviders);agentActive=hotSession.id;agentCurrentSession=hotSession;agentBusySessions.add(hotSession.id);prompt.value='Use GPT now';",context);
   await vm.runInNewContext('agentRunUI.selectConversation(hotSession)',context);
   const runSelector=vm.runInNewContext('agentRunUI.element',context);
   const nextProviderSelect=runSelector.children[0];
   nextProviderSelect.value='gpt';nextProviderSelect.listeners.change[0]({type:'change'});
+  setupChoice('Effort','xhigh').onclick();
   const otherSession={id:'other-session',provider_id:'composer',model_id:'composer-2.5'};
   await vm.runInNewContext('agentRunUI.selectConversation(otherHotSession)',Object.assign(context,{otherHotSession:otherSession}));
   assert.equal(vm.runInNewContext('agentRunUI.value().providerId',context),'composer','another conversation keeps its own default');
   await vm.runInNewContext('agentRunUI.selectConversation(hotSession)',context);
   assert.equal(vm.runInNewContext('agentRunUI.value().providerId',context),'gpt','returning restores the saved conversation preference');
+  assert.equal(vm.runInNewContext('effortSelect.value',context),'xhigh','returning restores model-specific effort preference');
   const reloadedRunsUI=context.TaskMenuAgentRunsUI.create({document,selectorMount:new FakeElement('div'),runsMount:new FakeElement('div'),
     jsonFetch:(...args)=>context.TaskMenuApp.jsonFetch(...args)});
   reloadedRunsUI.setProviders(context.hotProviders);

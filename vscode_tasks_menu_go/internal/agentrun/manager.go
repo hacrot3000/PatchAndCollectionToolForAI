@@ -348,12 +348,12 @@ func (m *Manager) ResumeAfterReview(runID string, confirmedNoSideEffect bool) (R
 }
 
 func (m *Manager) ContinueWithToolResults(runID string, results []agentchat.HistoryItem, snapshotID string) (Record, error) {
-	return m.continueWithToolResults(runID, results, snapshotID, "")
+	return m.continueWithToolResults(runID, results, snapshotID, "",nil)
 }
 
 // A nonempty expectedAttempt identifies an automatic, still-live continuation.
 // It must never resurrect a stopped/interrupted run or continue a newer attempt.
-func (m *Manager) continueWithToolResults(runID string, results []agentchat.HistoryItem, snapshotID, expectedAttempt string) (Record, error) {
+func (m *Manager) continueWithToolResults(runID string, results []agentchat.HistoryItem, snapshotID, expectedAttempt string, terminalErr error) (Record, error) {
 	if snapshotID == "" || len(snapshotID) > 256 || len(results) == 0 {
 		return Record{}, errors.New("tool continuation requires result items and a new context snapshot")
 	}
@@ -425,6 +425,15 @@ func (m *Manager) continueWithToolResults(runID string, results []agentchat.Hist
 		record.Events = append(record.Events, Event{RunID: runID, AttemptID: record.Spec.AttemptID, ProviderID: record.Spec.ProviderID, Sequence: uint64(len(record.Events) + 1), Type: agentchat.RunEventToolResult, Payload: payload, At: time.Now().UTC()})
 	}
 	record.Spec.ContextSnapshotID = snapshotID
+	if terminalErr!=nil {
+		now:=time.Now().UTC()
+		record.Status,record.RetrySafe,record.LastError=Failed,false,safeRunError(terminalErr)
+		record.FinishedAt=&now;record.UpdatedAt=now
+		if err:=m.saveLocked(record);err!=nil{m.mu.Unlock();return Record{},err}
+		m.runs[runID]=record
+		m.mu.Unlock()
+		return cloneRecord(record),nil
+	}
 	record.Spec.AttemptID, record.Spec.IdempotencyKey = attemptID, idempotencyKey
 	record.Attempt++
 	record.Status, record.RetrySafe, record.LastError = Queued, false, ""
@@ -638,11 +647,10 @@ func (m *Manager) execute(runID string, slotContext context.Context) {
 	if resolver, supported := m.executor.(WaitingToolResolver); supported && err == nil && ctx.Err() == nil {
 		if pending, exists := m.Get(runID); exists && pending.Status == WaitingTool && pending.Spec.AttemptID == spec.AttemptID {
 			results, snapshotID, resolveErr := resolver.ResolveWaitingTool(ctx, pending)
-			if resolveErr != nil {
-				err = resolveErr
-			} else if len(results) != 0 && ctx.Err() == nil {
-				_, err = m.continueWithToolResults(runID, results, snapshotID, spec.AttemptID)
-			}
+			if len(results)!=0&&ctx.Err()==nil {
+				_,err=m.continueWithToolResults(runID,results,snapshotID,spec.AttemptID,resolveErr)
+				if err==nil&&resolveErr!=nil{err=resolveErr}
+			}else if resolveErr!=nil{err=resolveErr}
 		}
 	}
 	var decision TurnDecision
@@ -657,7 +665,7 @@ func (m *Manager) execute(runID string, slotContext context.Context) {
 	defer m.mu.Unlock()
 	delete(m.cancel, runID)
 	record = m.runs[runID]
-	if record.Status == Stopped || (record.Status == Queued && record.Spec.AttemptID != spec.AttemptID) {
+	if record.Status == Stopped || record.Status==Failed || (record.Status == Queued && record.Spec.AttemptID != spec.AttemptID) {
 		return
 	}
 	if record.Status == WaitingTool && err == nil {

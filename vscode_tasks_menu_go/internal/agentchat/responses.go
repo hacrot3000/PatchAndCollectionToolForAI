@@ -48,6 +48,7 @@ type RequestConfig struct {
 	ReasoningEffort      string
 	EnablePatchTool      bool // gated, approval-required native Patch function
 	EnableCollectionTool bool // bounded, read-only project inspection
+	NativeCollectionContract string // current installed native schema document, advisory only
 	// ProbeToolName advertises a single harmless function with no required
 	// arguments. It exists only for a user-triggered capability probe and can
 	// never dispatch a Patch or any other side effect.
@@ -143,6 +144,13 @@ func validateStatelessToolPairs(items []HistoryItem) error {
 // In the absence of a verified reference, stateful modes fail closed by
 // replaying local history rather than assuming the provider remembers it.
 func BuildResponsesRequest(c RequestConfig) ([]byte, error) {
+	if strings.TrimSpace(c.Instructions)=="" {return nil,errors.New("mandatory instructions required")}
+	var collectionParameters map[string]any
+	if c.EnableCollectionTool || c.NativeCollectionContract != "" {
+		var guidance string
+		collectionParameters, guidance = collectionToolContract(c.NativeCollectionContract)
+		c.Instructions += "\n\n" + guidance
+	}
 	if strings.TrimSpace(c.Model) == "" || len(c.Model) > 128 {
 		return nil, errors.New("invalid model")
 	}
@@ -232,20 +240,7 @@ func BuildResponsesRequest(c RequestConfig) ([]byte, error) {
 			"type": "function", "name": "taskdeck_collect_workspace",
 			"description": "Run the SAME native Python Patch Tool COLLECT as its manual Queue/Paste text workflow. Use current COLLECT_ACTION_SCHEMA.json. Actions include overview, find, search, file, range, head, tail, symbol, references, dependencies, directory, decompile, ida, ghidra, database_select, git, command and pack. For a 150 MB decompile/source dump prefer targeted decompile/address/symbol/search instead of pack. Tool produces ZIP + TXT, and INCOMPLETE rc=3 retains usable evidence; never assume missing matches prove absence. Do not print Collection JSON as chat text.",
 			"strict": false,
-			"parameters": map[string]any{
-				"type":"object",
-				"properties":map[string]any{
-					"id":map[string]string{"type":"string"},
-					"title":map[string]string{"type":"string"},
-					"actions":map[string]any{"type":"array","minItems":1,
-						"items":map[string]any{"type":"object",
-							"properties":map[string]any{"type":map[string]string{"type":"string"}},
-							"required":[]string{"type"},"additionalProperties":true}},
-					"limits":map[string]any{"type":"object","additionalProperties":true},
-					"ai_context":map[string]any{"type":"object","additionalProperties":true},
-				},
-				"required":[]string{"actions"},"additionalProperties":false,
-			},
+			"parameters": collectionParameters,
 		}}
 		req["parallel_tool_calls"]=false
 	}

@@ -47,9 +47,9 @@ func (s *Server) agentChatSyncAPI(w http.ResponseWriter, r *http.Request, id str
 	}
 	// The same turn lease used by approval is held. A leftover QUEUING
 	// marker cannot still be owned by a live approval handler.
-	changed := false
+	changed := agentRecoverAcknowledgedCollection(&x)
 	if !s.agentConversationRequiresRunContinuation(owner,id) {
-		changed = agentRestoreRejectedSession(&x, "")
+		if agentRestoreRejectedSession(&x, "") {changed=true}
 	}
 	if agentParkInterruptedQueue(&x) { changed = true }
 	for i, record := range x.ToolCalls {
@@ -120,9 +120,9 @@ func (s *Server) agentReconcileOneStartupSession(ctx context.Context,store *agen
  sess,err:=store.Get(id,"local")
  if err!=nil||sess.Workspace!=s.Workspace{return}
  if ctx.Err()!=nil{return}
-	changed := false
+	changed := agentRecoverAcknowledgedCollection(&sess)
 	if !s.agentConversationRequiresRunContinuation("local",id) {
-		changed = agentRestoreRejectedSession(&sess, "")
+		if agentRestoreRejectedSession(&sess, "") {changed=true}
 	}
 	if agentParkInterruptedQueue(&sess) { changed = true }
 	// The per-session lease proves no other local daemon currently owns
@@ -136,8 +136,11 @@ func (s *Server) agentReconcileOneStartupSession(ctx context.Context,store *agen
 			// crossing the network boundary.
 		} else {
 			sess.Status="failed"
+			agentCloseInterruptedCollection(&sess)
 			markAgentProviderOutcome(&sess,"unknown")
-			sess.AppendEvent("turn_interrupted","failed","","provider_egress_after_restart_unknown")
+			detail:="provider_egress_after_restart_unknown"
+			if sess.ProviderRun!=nil&&(sess.ProviderRun.Phase=="acknowledged"||sess.ProviderRun.Phase=="completed"){detail="acknowledged_response_local_processing_interrupted"}
+			sess.AppendEvent("turn_interrupted","failed","",detail)
 			for j:=range sess.ToolCalls{
 				if sess.ToolCalls[j].FeedbackStatus=="sending"{
 					sess.ToolCalls[j].FeedbackStatus="unknown"

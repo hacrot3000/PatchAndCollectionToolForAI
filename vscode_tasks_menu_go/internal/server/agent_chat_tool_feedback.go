@@ -183,6 +183,20 @@ func agentCanDeliverRejectedToolCall(x agentchat.Session,call agentchat.ToolCall
  return false
 }
 
+// Reject historical, unresolved machine denials rather than choosing the
+// wrong provider turn. An explicit native receipt remains governed by its
+// independent execution/feedback ledger. Empty histories are handled by
+// the caller's existing source-call validation (including pure unit fixtures).
+func agentFeedbackCallIsCurrent(x agentchat.Session,callID string)bool{
+ hasCall:=false
+ for _,it:=range x.History{if it.Type=="function_call"{hasCall=true}}
+ if !hasCall{return true}
+ for i:=len(x.History)-1;i>=0&&x.History[i].Type=="function_call";i--{
+  if x.History[i].CallID==callID{return true}
+ }
+ return false
+}
+
 // agentDeliverToolResult performs the once-only function_call_output delivery.
 // The caller MUST hold the session turn lock and have already re-authorized
 // the owner, project identity and provider. When consent is true the caller
@@ -190,6 +204,15 @@ func agentCanDeliverRejectedToolCall(x agentchat.Session,call agentchat.ToolCall
 func (s *Server) agentDeliverToolResult(ctx context.Context, store *agentchat.Store, x agentchat.Session, idx int, consent bool) (agentDeliverResult, error) {
 	owner := x.Owner
 	call := x.ToolCalls[idx]
+	if !agentFeedbackCallIsCurrent(x,call.CallID){
+		return agentDeliverResult{},agentContinueError{409,"historical tool result does not belong to the current provider tool batch; continue the current conversation instead"}
+	}
+	for _,old:=range x.ToolCalls{
+		if old.FeedbackStatus=="prepared"||old.FeedbackStatus=="sending"||
+		 (old.FeedbackStatus=="unknown"&&!agentchat.HistoricalUnconfirmedFeedback(x,old)){
+			return agentDeliverResult{},agentContinueError{409,"unconfirmed feedback in the active turn requires reconciliation; no result was resent"}
+		}
+	}
 	if call.Status != "done" && call.Status != "error" && call.Status != "rejected" {
 		return agentDeliverResult{}, agentContinueError{409, "Patch result has no verified final status; do not send success prematurely"}
 	}
@@ -261,6 +284,7 @@ func (s *Server) agentDeliverToolResult(ctx context.Context, store *agentchat.St
     next:=make([]agentchat.HistoryItem,0,len(indices))
     for _,i:=range indices{
         sibling:=x.ToolCalls[i]
+        if sibling.Status=="rejected"&&!agentFeedbackCallIsCurrent(x,sibling.CallID){return agentDeliverResult{},agentContinueError{409,"rejection group contains historical call; no result was sent"}}
         if sibling.FeedbackSent || sibling.FeedbackStatus!="" {
             return agentDeliverResult{},agentContinueError{409,"sibling tool output is not pending"}
         }
@@ -297,6 +321,7 @@ func (s *Server) agentDeliverToolResult(ctx context.Context, store *agentchat.St
 		History: agentContextForRequest(x, model, agentChatInstructionsWithAutomation(x, toolAvailable, identity.Key), next), Next: next,
 		MaxOutputTokens: limit, ReasoningEffort: reasoning,
 		EnablePatchTool: toolAvailable, EnableCollectionTool: toolAvailable,
+		NativeCollectionContract: agentInstalledCollectionContract(s.Workspace),
 	})
 	if err != nil {
 		return agentDeliverResult{}, agentContinueError{413, "cannot format tool-result model request"}
@@ -356,13 +381,17 @@ func (s *Server) agentDeliverToolResult(ctx context.Context, store *agentchat.St
 			_, _ = store.Save(x, x.Revision)
 			return agentDeliverResult{}, agentContinueError{409, "continuation cancelled; the tool result was already recorded and will not be resent"}
 		}
-		s.recordAgentDebugEvent(owner, x.ID, call.CallID, "feedback", "feedback.unknown", "FEEDBACK_DELIVERY_UNKNOWN", "Provider acknowledgement was not confirmed; result will not be resent")
+		// Preserve the actual safe provider error code. A received HTTP
+		// rejection is different from a missing transport response, but
+		// neither proves that earlier attempts were not processed.
+		detail := agentRetryFailureDetail(err)
+		s.recordAgentDebugEvent(owner, x.ID, call.CallID, "feedback", "feedback.unknown", "FEEDBACK_DELIVERY_UNKNOWN", "Provider continuation failed: "+detail+"; result remains recorded; no native Patch replay")
 		x.Status = "failed"
 		for _,i:=range indices{x.ToolCalls[i].FeedbackStatus="unknown"}
 		markAgentProviderOutcome(&x,"unknown")
-		x.AppendEvent("feedback_unknown", "failed", call.CallID, "provider_acknowledgement_unconfirmed")
+		x.AppendEvent("feedback_unknown", "failed", call.CallID, "provider_acknowledgement_unconfirmed: "+detail)
 		_, _ = store.Save(x, x.Revision)
-		return agentDeliverResult{}, agentContinueError{502, "provider continuation failed; tool result was saved and will not be resent automatically"}
+		return agentDeliverResult{}, agentContinueError{502, "provider continuation failed ("+detail+"); tool result was saved; inspect the conversation before sending a fresh continuation"}
 	}
 for _,i:=range indices{x.ToolCalls[i].FeedbackStatus="acknowledged"}
 	markAgentProviderOutcome(&x,"acknowledged")
@@ -373,7 +402,8 @@ for _,i:=range indices{x.ToolCalls[i].FeedbackStatus="acknowledged"}
 	result, statelessCollection, err := s.agentChatRunCollection(continuationCtx, store, &x, result, p, model, string(secret), identity, toolAvailable)
 	if err != nil {
 		x.Status = "failed"
-		markAgentProviderOutcome(&x,"unknown")
+		// Collection flow already marks actual provider errors UNKNOWN.
+		agentCloseInterruptedCollection(&x)
 		x.AppendEvent("collect_failed", "failed", "", "")
 		_, _ = store.Save(x, x.Revision)
 		return agentDeliverResult{}, agentContinueError{502, "Collection continuation after Patch result failed; inspect the Agent journal"}

@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"strings"
 
 	"bletonfc/vscode_tasks_menu/internal/agentchat"
 	"bletonfc/vscode_tasks_menu/internal/agentrun"
@@ -95,30 +94,21 @@ func (e ownerBoundAgentRunExecutor) ResolveWaitingTool(ctx context.Context, run 
 		return nil, "", errors.New("conversation is busy; native Collection was not started")
 	}
 	defer release()
+	repairCount:=agentRunCollectionRepairCount(run.History,run.Spec.ParentTurnID)
 	observed := ""
 	request, validationErr := agentNativeCollectionRequest(call.Arguments, identity, false)
 	if !s.agentRunCollectionAllowed(e.owner, run.Spec, inputs) {
 		observed = runCollectionDiagnostic("COLLECTION_NOT_AUTHORIZED", "Native Collection is disabled or outside the approved run scope; no files were read.", false)
 	} else if validationErr != nil {
 		reason := scrubAIContext(validationErr.Error(), 512)
-		if strings.Contains(strings.ToLower(reason), "identity") || strings.Contains(strings.ToLower(reason), "project.key") {
-			return nil, "", errors.New("native Collection project identity rejected")
-		}
-		observed = runCollectionDiagnostic("INVALID_COLLECTION_REQUEST", reason, true)
+		code:="INVALID_COLLECTION_REQUEST"
+		if agentCollectionIdentityKind(validationErr)=="foreign"{code="COLLECTION_IDENTITY_REJECTED"}
+		observed = runCollectionDiagnostic(code, reason, true)
 	} else {
-		repeats := 0
-		for _, item := range run.History {
-			if item.Type == "function_call" && item.Name == call.Name {
-				previous, parseErr := agentNativeCollectionRequest(item.Arguments, identity, false)
-				if parseErr == nil && string(previous) == string(request) {
-					repeats++
-				}
-			}
-		}
-		if repeats > 3 {
-			return nil, "", errors.New("repeated identical Collection without progress; review required")
-		}
-		if repeats == 3 {
+		// Count only consecutive completed matching observations from this
+		// parent turn. Old failures and earlier tasks do not consume a read budget.
+		repeats := agentConsecutiveMatchingCollectionReads(run.History,call,request,identity)
+		if repeats >= 2 {
 			observed = runCollectionDiagnostic("COLLECTION_NO_PROGRESS", "Choose a narrower native read-only action instead of repeating the same request.", true)
 		} else if s.AgentCollectionCall != nil {
 			// Same test-only seam as the legacy native Collection flow.
@@ -136,6 +126,11 @@ func (e ownerBoundAgentRunExecutor) ResolveWaitingTool(ctx context.Context, run 
 				observed = runCollectionDiagnostic(code, scrubAIContext(err.Error(), 700), repairable)
 			}
 		}
+	}
+	exhausted:=false
+	if code,message,repair:=agentCollectionRepairError(observed);repair {
+		observed=agentCollectionRepairFeedback(code,message,repairCount+1)
+		exhausted=repairCount>=agentCollectionRepairBudget
 	}
 	if ctx.Err() != nil {
 		return nil, "", ctx.Err()
@@ -156,6 +151,7 @@ func (e ownerBoundAgentRunExecutor) ResolveWaitingTool(ctx context.Context, run 
 	if err != nil {
 		return nil, "", err
 	}
+	if exhausted{return []agentchat.HistoryItem{result},snapshot.ID,errors.New("Collection repair budget exhausted; resume from verified conversation evidence; rejected request provided no evidence")}
 	return []agentchat.HistoryItem{result}, snapshot.ID, nil
 }
 

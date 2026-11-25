@@ -373,3 +373,54 @@ func TestAgentInterruptedQueueReconcilesOnlyAfterTurnLease(t *testing.T) {
 	again,err:=store.Get(id,"local")
 	if err!=nil||again.Revision!=recovered.Revision {t.Fatal("reconciliation not idempotent")}
 }
+
+
+func TestAgentAutoFeedbackHistoricalUnknownDoesNotBlockNewNativeFail(t *testing.T){
+ s,id:=autoFeedbackReadySession(t)
+ store,err:=s.agentChatStore();if err!=nil{t.Fatal(err)}
+ x,err:=store.Get(id,"local");if err!=nil{t.Fatal(err)}
+ old:=x.ToolCalls[0]
+ old.FeedbackSent=true;old.FeedbackStatus="unknown"
+ current:=old
+ current.CallID="new-failed-patch";current.Status="error";current.Result=`{"status":"FAIL","run_id":"1795589464744451_575193","rc":2,"project_unchanged":false,"automatic_retry":false}`
+ current.FeedbackSent=false;current.FeedbackStatus=""
+ var source agentchat.HistoryItem
+ for _,it:=range x.History{if it.Type=="function_call"&&it.CallID==old.CallID{source=it}}
+ if source.CallID==""{t.Fatal("missing fixture source")}
+ next:=source;next.CallID=current.CallID
+ x.History=append(x.History,agentchat.HistoryItem{Type:"function_call_output",CallID:old.CallID,Content:old.Result},
+  agentchat.HistoryItem{Type:"user",Content:"tiếp"},agentchat.HistoryItem{Type:"assistant",Content:"Continue with a new proposal."},next)
+ x.ToolCalls=[]agentchat.ToolCallRecord{old,current}
+ // The new assistant call came from a completed provider request.
+ if x.ProviderRun==nil{t.Fatal("missing provider run")}
+ x.ProviderRun.Phase="completed"
+ x,err=store.Save(x,x.Revision);if err!=nil{t.Fatal(err)}
+ if idx,ok:=agentAutoFeedbackCandidate(x);!ok||idx!=1{t.Fatalf("new native FAIL blocked: %d %v",idx,ok)}
+ calls:=0
+ s.AgentChatCall=func(_ context.Context,_ agentchat.ProviderConfig,_ string,payload []byte)(agentchat.ResponsesResult,error){
+  calls++
+  if !strings.Contains(string(payload),"new-failed-patch")||!strings.Contains(string(payload),"1795589464744451_575193"){t.Fatal("wrong receipt")}
+  return agentchat.ResponsesResult{ResponseID:"after-fail",Text:"Inspect workspace before a corrected patch."},nil
+ }
+ s.runAgentAutoFeedback(context.Background())
+ x,err=store.Get(id,"local");if err!=nil{t.Fatal(err)}
+ if calls!=1{t.Fatalf("provider calls=%d",calls)}
+ for _,call:=range x.ToolCalls{
+  if call.CallID==old.CallID&&call.FeedbackStatus!="unknown"{t.Fatal("historical acknowledgement manufactured")}
+  if call.CallID==current.CallID&&call.FeedbackStatus!="acknowledged"{t.Fatal("native FAIL not delivered")}
+ }
+ s.runAgentAutoFeedback(context.Background())
+ if calls!=1{t.Fatal("receipt resent")}
+}
+
+func TestAgentAutoFeedbackCurrentUnknownStillBlocks(t *testing.T){
+ old:=agentchat.ToolCallRecord{CallID:"old",Name:"taskdeck_submit_patch",Status:"done",Result:`{"status":"PASS"}`,FeedbackSent:true,FeedbackStatus:"unknown"}
+ fresh:=agentchat.ToolCallRecord{CallID:"new",Name:"taskdeck_submit_patch",Status:"error",Result:`{"status":"FAIL"}`}
+ x:=agentchat.Session{Owner:"local",Status:"waiting_tool",AutoFeedback:true,AutoFeedbackPersistent:true,ProviderRun:&agentchat.ProviderRun{Phase:"completed"},
+ ToolCalls:[]agentchat.ToolCallRecord{fresh,old},History:[]agentchat.HistoryItem{{Type:"function_call",Name:old.Name,CallID:old.CallID},{Type:"function_call_output",CallID:old.CallID,Content:old.Result},{Type:"function_call",Name:fresh.Name,CallID:fresh.CallID}}}
+ if _,reason:=agentAutoFeedbackAdmission(x);reason!="current_feedback_unconfirmed"{t.Fatalf("unresolved feedback bypassed: %s",reason)}
+ x.History=append(x.History[:2],agentchat.HistoryItem{Type:"user",Content:"continue"},x.History[2])
+ if idx,ok:=agentAutoFeedbackCandidate(x);!ok||idx!=0{t.Fatal("historical feedback blocked current result")}
+ x.ProviderRun.Phase="unknown"
+ if _,ok:=agentAutoFeedbackCandidate(x);ok{t.Fatal("active provider ambiguity bypassed")}
+}

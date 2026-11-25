@@ -58,11 +58,11 @@
   let providers=[],currentSession=null,runs=[],toolCalls=[],toolCallLoadError='',timer=0,loading=false;
   const pendingSpecs=new Map(),attemptedRunIDs=new Set();
   const preferencePrefix='taskdeck.agent.next-provider.v1.';
+  function notifySelection(){if(typeof options.onSelectionChange==='function')options.onSelectionChange(currentValue(),currentSession);}
   function onSelectionChange(value){
-   if(!currentSession)return;
    const preference={providerId:value.providerId,modelId:value.modelId};
-   storageWrite(preferencePrefix+currentSession.id,JSON.stringify(preference));
-   if(typeof options.onSelectionChange==='function')options.onSelectionChange(preference);
+   if(currentSession)storageWrite(preferencePrefix+currentSession.id,JSON.stringify(preference));
+   notifySelection();
   }
   function currentValue(){return selector.value;}
   function canSend(){const value=currentValue();return Boolean(currentSession&&value.providerId&&value.modelId);}
@@ -78,6 +78,7 @@
   function setProviders(values){
    providers=Array.isArray(values)?values.slice():[];
    selector.update(providers,currentSession?preferenceFor(currentSession):{});
+   notifySelection();
   }
   function stopPolling(){if(timer){root.clearTimeout(timer);timer=0;}}
   function decodeRunEvents(record){
@@ -248,8 +249,8 @@
   }
   async function selectConversation(session){
    currentSession=session||null;stopPolling();
-   if(currentSession){selector.update(providers,preferenceFor(currentSession));await refresh();}
-   else{runs=[];toolCalls=[];toolCallLoadError='';render();}
+   if(currentSession){selector.update(providers,preferenceFor(currentSession));notifySelection();await refresh();}
+   else{notifySelection();runs=[];toolCalls=[];toolCallLoadError='';render();}
   }
   async function loadToolCalls(sessionID){
    if(!sessionID)return;
@@ -261,7 +262,7 @@
     if(currentSession?.id===sessionID){toolCalls=[];toolCallLoadError='Native Patch ledger unavailable: '+String(error?.message||error);}
    }
   }
-  async function submit(session,message,attachments,requestID){
+  async function submit(session,message,attachments,requestID,reasoningEffort){
    if(!session?.id)throw new Error('Select a conversation before sending an Agent Run.');
    const runID=String(requestID||newID());
    if(attemptedRunIDs.has(runID)){
@@ -280,6 +281,7 @@
     if(!provider?.has_api_key||!model)throw new Error('Select a configured provider and model.');
     const snapshot=await options.jsonFetch('/api/agent/context-snapshots',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
      conversation_id:session.id,prompt,provider_id:provider.id,model_id:model.id,run_id:runID,
+     ...(reasoningEffort!==undefined?{reasoning_effort:reasoningEffort}:{}),
     })});
     spec={run_id:runID,conversation_id:session.id,parent_turn_id:snapshot.parent_turn_id||('turn-'+session.id+'-'+String(session.revision||0)), 
      owner_workspace_id:snapshot.owner_workspace_id,execution_workspace_id:snapshot.execution_workspace_id,

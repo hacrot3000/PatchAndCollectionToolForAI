@@ -182,5 +182,6 @@ func (o serverAgentRunPromptOptions) Options(spec agentchat.RunSpec, provider ag
 	return agentchat.RequestConfig{
 		Instructions: instructions, Mode: agentchat.Stateless, MaxOutputTokens: limit,
 		ReasoningEffort: reasoning,
+		NativeCollectionContract: agentInstalledCollectionContract(inputs.ExecutionWorkspacePath),
 	}, nil
 }
