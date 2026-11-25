@@ -183,17 +183,17 @@ Không bỏ qua function output của call đã nhận. Nếu checkpoint trướ
     - [ ] **CLP-01.03.02** — Cài streak/watermark/cooldown, phân biệt last PATCH proposal, executed, meaningful progress. (`VERIFY_PENDING` — distinct counters and existing hysteresis; real receipts adapter pending)
     - [ ] **CLP-01.03.03** — Đảm bảo rejected/no-op/partial PATCH và retry không reset sai; dùng receipt thật. (`TODO`)
     - [ ] **CLP-01.03.04** — Test idempotence, boundaries, repeated warnings và progress reset hợp lệ. (`TODO`)
-- [ ] **CLP-01.04 — Checkpoint và bounded recovery policy** (`TODO`, P1)
+- [ ] **CLP-01.04 — Checkpoint và bounded recovery policy** (`IN_PROGRESS`, P1)
   - Tạo decisions `CONTINUE`, `ADVISE`, `REPLAN`, `CHECKPOINT` (tên có thể điều chỉnh). Recovery dùng tiếp continuation framework đã có; phân biệt stalled với user stop/unknown delivery. Ghi next action và reason; không tự báo completed.
   - **Acceptance:** sau nhiều lượt không novelty, tạo checkpoint và tối đa số recovery cho phép theo generation; khi có bằng chứng mới thì tiếp tục; không mất tool pair.
-    - [ ] **CLP-01.04.01** — Cài decisions continue/advisory/replan/checkpoint với reason và next action có schema bounded. (`TODO`)
+    - [ ] **CLP-01.04.01** — Cài decisions continue/advisory/replan/checkpoint với reason và next action có schema bounded. (`VERIFY_PENDING` — pure recovery decision and gates; actual checkpoint wiring/CI pending)
     - [ ] **CLP-01.04.02** — Nối recovery generation/budget vào framework continuation, giữ stop/unknown là trạng thái riêng. (`TODO`)
     - [ ] **CLP-01.04.03** — Định nghĩa cách đóng pending call thật khi checkpoint, không invent output hoặc mark task done. (`TODO`)
     - [ ] **CLP-01.04.04** — Test stall lặp, recovery tối đa, novelty xuất hiện lại, pending pair và no continuation storm. (`TODO`)
-- [ ] **CLP-01.05 — Policy configuration và compatibility** (`TODO`, P1)
+- [ ] **CLP-01.05 — Policy configuration và compatibility** (`IN_PROGRESS`, P1)
   - Central defaults + validate range; không rải magic numbers. Dùng internal config trước nếu UI không cần chỉnh. Policy version/snapshot phù hợp unified run; tránh thay policy giữa active immutable run.
   - **Acceptance:** legacy session thiếu config dùng defaults an toàn; invalid values không phá workflow; 55+ unique reads hợp lệ vẫn chạy.
-    - [ ] **CLP-01.05.01** — Đặt defaults tập trung, validate ranges/cooldown và version; ghi policy semantics. (`TODO`)
+    - [ ] **CLP-01.05.01** — Đặt defaults tập trung, validate ranges/cooldown và version; ghi policy semantics. (`VERIFY_PENDING` — bounded thresholds, default fallback and tests; snapshot policy still pending)
     - [ ] **CLP-01.05.02** — Áp dụng defaults an toàn cho session cũ; cấu hình immutable snapshot cho Run. (`TODO`)
     - [ ] **CLP-01.05.03** — Test invalid config, restart, policy change giữa active run và 55+ unique reads. (`TODO`)
     - [ ] **CLP-01.05.04** — Viết tài liệu tuning; không biến thresholds thành quota hoặc giới hạn tổng. (`TODO`)
@@ -584,6 +584,12 @@ Reconciled concurrent merge `4cf2e8d69941164cdedf75270843fb6f72688410` (two comm
 
 #### CLP-01.03 — Ordered counter reducer
 Added counter.go/counter_test.go: separate requested/observed/native-read/verified-new/duplicate/unknown/error/HTTP-attempt/PATCH proposal/execution/rejection/uncertain/verified-progress counters. Preflight rejection is not a native read; HTTP retry never increases COLLECT counters. Only verified objective progress clears the existing progress/warning state. Stable ordered source sequence + event digest gives idempotent reduction for the same durable event and rejects conflicting latest sequence. This requires future journal adapters to reuse the original event sequence; does not yet prove end-to-end logical dedupe or persistence. Added tests for boundaries, no-op/failed/uncertain PATCH, preflight, retry, stale replay and conflicting sequence. CI pending. On earlier `c4a86276`, [CI 45583368471](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/45583368471) completed SUCCESS; both original failing tests passed with unchanged assertions. Concurrent UAG-02 merges subsequently added stricter PREPARED admission; fixture repair and combined incident test at `ae58b99c431fffe5092845d90fb9c3512df314b6` awaiting named CI receipts.
+
+#### CLP-01.04/01.05 — Bounded recovery policy groundwork
+Pure recovery.go + recovery_test.go: one reserved replan per objective generation after 3 verified duplicates + 5 further duplicate observations, then at least 5 actual reads before another stall checkpoint. Requires a committed canonical output, safe new egress and current owner continuation grant; Stop, unresolved provider egress, pending call and invalid state have separate checkpoint reasons. Repeated evaluation of the same reserved checkpoint cannot reserve another replan. New verified evidence breaks the duplicate streak without refilling recovery allowance. Adds central range bounds to advisory thresholds (not an execution quota); 200 distinct verified reads tested in source. Recovery decision is not a scheduler or authorization grant; integration, durable reservation and exact call closure still pending. CI verification pending.
+
+#### CLP-00.03 — Baseline regression receipt
+At `c4a8627620274d98421be62d72dd7978614064e6`, CI [45583368471](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/45583368471) completed SUCCESS (jobs 139098695930/139098696278). Linux Go 1.25.x: agentchat race 15.256s, collectionprogress race 1.013s, contextcompact race 1.350s, agentrun race 1.346s, all TestAgent server 22.674s, focused server race 7.938s, taskmanifest race 1.018s; both go vet, Node checks/tests, Python preflight 3 tests, macOS arm64/amd64 crosscompile and failed-queue job success. Subsequent UAG-02 merges introduced PREPARED fixture failure; corrected fixture at ae58b99c, CI still pending. Not a claim that HEAD or 28 handoff gates pass.
 
 Mẫu bản ghi task (điền dữ liệu thật):
 
