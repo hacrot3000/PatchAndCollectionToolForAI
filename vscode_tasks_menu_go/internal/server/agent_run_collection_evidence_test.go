@@ -5,6 +5,7 @@ import (
  "encoding/json"
  "net/http"
  "reflect"
+ "strings"
  "sync/atomic"
  "testing"
 
@@ -22,6 +23,9 @@ func TestAgentRunNativeCollectionEvidenceOwnerPlanCAS(t *testing.T){
  for i:=range steps{steps[i]=agentchat.TaskPlanStep{ID:"step-"+formatPlanStepIndex(i),Title:"Inspect source",Acceptance:"Review successful native Collection"}}
  x.History=append(x.History,agentchat.HistoryItem{Type:"user",Content:"Existing conversation history must survive evidence adoption"})
  x.TaskPlan,err=agentchat.NewTaskPlan("Review native observations",steps);if err!=nil{t.Fatal(err)}
+ ref:="run:"+spec.RunID+"/collect-exact"
+ x.TaskPlan.Steps[2].AutoCheck=&agentchat.TaskAutoCheck{Kind:"full_file_read",CallID:ref,Path:"main.go"}
+ x.TaskPlan.Steps[4].AutoCheck=&agentchat.TaskAutoCheck{Kind:"full_file_read",CallID:ref,Path:"other.go"}
  x,err=store.Save(x,x.Revision);if err!=nil{t.Fatal(err)}
  var reads,requests atomic.Int32
  s.AgentCollectionCall=func(_ string,identity patchtool.ProjectIdentity,_ []byte)string{
@@ -31,6 +35,7 @@ func TestAgentRunNativeCollectionEvidenceOwnerPlanCAS(t *testing.T){
    "evidence_verified":true,"partial_evidence_available":false,"native_session_id":"native-session","run_id":"agent_collect_fixture",
    "result_zip":"artifacts/patch_tool_code_collections/CODE_COLLECTION_RESULT_fixture.zip",
    "result_text":"artifacts/patch_tool_code_collections/CODE_COLLECTION_RESULT_fixture.txt",
+   "text_excerpt_truncated":false,"native_full_file_reads":[]any{map[string]any{"path":"main.go","action_index":1,"total_lines":1,"report_sha256":strings.Repeat("a",64)}},
   })
   return string(raw)
  }
@@ -45,7 +50,7 @@ func TestAgentRunNativeCollectionEvidenceOwnerPlanCAS(t *testing.T){
  x,err=store.Get(id,"local");if err!=nil{t.Fatal(err)}
  before:=append([]agentchat.HistoryItem(nil),x.History...)
  path:="/api/agent/sessions/"+id+"/plan"
- ref:="run:"+spec.RunID+"/collect-exact"
+ if x.TaskPlan.Steps[2].Status!="done"||len(x.TaskPlan.Steps[2].Evidence)!=1||x.TaskPlan.Steps[2].Evidence[0].Ref!=ref||x.TaskPlan.Steps[4].Status=="done"{t.Fatal("live exact Auto-check did not enforce path and run scope")}
  action:=func(target,step,receipt string,revision uint64)int{
   result:=invokeAI(t,s.agentChatSessionItemAPI,http.MethodPost,target,map[string]any{
    "action":"set_step","expected_revision":revision,"step_id":step,"status":"done",
@@ -65,6 +70,13 @@ func TestAgentRunNativeCollectionEvidenceOwnerPlanCAS(t *testing.T){
  x,err=store.Get(id,"local");if err!=nil{t.Fatal(err)}
  if x.TaskPlan.State!="active"||x.TaskPlan.Steps[1].Evidence[0].Ref!=ref{t.Fatalf("incorrect plan state or receipt: %s %+v",x.TaskPlan.State,x.TaskPlan.Steps[1].Evidence)}
  if !reflect.DeepEqual(before,x.History){t.Fatalf("proof adoption changed history: before=%+v after=%+v",before,x.History)}
+ checked:=invokeAI(t,s.agentChatSessionItemAPI,http.MethodPost,path,map[string]any{
+  "action":"set_auto_check","expected_revision":x.Revision,"step_id":"step-0003",
+  "enabled":true,"confirm_auto_accept":true,"auto_kind":"full_file_read","auto_call_id":ref,"auto_path":"main.go",
+ })
+ if checked.Code!=200{t.Fatalf("historical auto-check failed: %d %s",checked.Code,checked.Body)}
+ x,err=store.Get(id,"local");if err!=nil{t.Fatal(err)}
+ if x.TaskPlan.Steps[3].Status!="done"||len(x.TaskPlan.Steps[3].Evidence)!=1||x.TaskPlan.State!="active"||!reflect.DeepEqual(before,x.History){t.Fatal("historical exact auto-check did not preserve plan and history")}
  if reads.Load()!=1||requests.Load()!=2{t.Fatal("proof adoption replayed native work or provider request")}
  proof,err:=s.resolveRunCollectionEvidence("local",id,ref,"");if err!=nil{t.Fatal(err)}
  other:=x;other.Owner="other"

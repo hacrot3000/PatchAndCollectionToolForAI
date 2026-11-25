@@ -57,7 +57,7 @@ func finalRunTurnText(run agentrun.Record) string {
 
 // Native read-only receipts and owner-accepted milestones are progress signals,
 // not semantic acceptance. Repeated identical reads do not reset the brake.
-// Patch/Collection proof adoption remains exclusively in the existing plan API.
+// Owner-pinned exact Collection proofs are adopted before this signature is used.
 func runVerifiedProgressSignature(run agentrun.Record, session agentchat.Session) string {
 	calls := map[string]string{}
 	verified := map[string]bool{}
@@ -102,7 +102,7 @@ func runVerifiedProgressSignature(run agentrun.Record, session agentchat.Session
 
 func (e ownerBoundAgentRunExecutor) ResolveCompletedTurn(ctx context.Context, run agentrun.Record) (agentrun.TurnDecision, error) {
 	text := finalRunTurnText(run)
-	if strings.TrimSpace(text) == "" { return agentrun.TurnDecision{}, nil }
+	// Even an empty successful provider turn can acknowledge an exact native receipt.
 	progress := agentchat.AnalyzeTurnText(text)
 	decision := agentrun.TurnDecision{Progress:progress}
 	s := e.server
@@ -119,6 +119,17 @@ func (e ownerBoundAgentRunExecutor) ResolveCompletedTurn(ctx context.Context, ru
 	if err != nil { return decision, err }
 	x, err := store.Get(run.Spec.ConversationID, e.owner)
 	if err != nil || x.ProjectID != inputs.ProjectID { return decision, errorsRunContinuationScope() }
+	// Adopt only explicitly owner-pinned, run-qualified mechanical proofs
+	// before choosing the next milestone. A failed CAS must not send the
+	// next prompt using an obsolete plan.
+	if changed, proofErr := applyRunCollectionAutoChecks(ctx, &x, run, inputs.Snapshot); proofErr != nil {
+		return decision, proofErr
+	} else if changed {
+		if ctx.Err()!=nil{return decision,ctx.Err()}
+		x, err = store.Save(x, x.Revision)
+		if err != nil { return decision, err }
+	}
+	if strings.TrimSpace(text)=="" {return agentrun.TurnDecision{},nil}
 	mode := runAutoContinueMode(x, inputs.Snapshot.Policy.Automation)
 	signature := runVerifiedProgressSignature(run,x)
 	progress.LastWorkSignature = signature

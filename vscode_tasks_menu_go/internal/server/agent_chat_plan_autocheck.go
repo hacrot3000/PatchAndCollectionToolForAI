@@ -22,7 +22,7 @@ func (s *Server) autoCheckTaskPlanOne(ctx context.Context,store *agentchat.Store
  changed:=false
  for i:=range x.TaskPlan.Steps{
   step:=&x.TaskPlan.Steps[i]
-  if step.AutoCheck==nil||step.Status=="done"{continue}
+  if step.AutoCheck==nil||step.Status=="done"||step.GoTestRequirements!=nil||!agentchat.TaskPlanStepCriteriaReviewed(*step){continue}
   evidence,e:=agentchat.VerifyArchivedTaskAutoCheck(store,x,step.AutoCheck)
   if e!=nil{
    // The rule remains pending; record which archive generations were

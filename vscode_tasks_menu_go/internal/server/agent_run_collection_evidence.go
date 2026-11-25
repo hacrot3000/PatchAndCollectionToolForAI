@@ -61,6 +61,10 @@ func runCollectionEvidencePair(history []agentchat.HistoryItem,spec agentchat.Ru
 // and returns this immutable result, avoiding reentrant Store calls. No
 // run is started/resumed and no provider or native tool is contacted.
 func(s *Server) resolveRunCollectionEvidence(owner,conversation,ref,note string)(verifiedRunCollectionEvidence,error){
+ return s.resolveRunCollectionEvidenceForPath(owner,conversation,ref,note,"")
+}
+
+func(s *Server) resolveRunCollectionEvidenceForPath(owner,conversation,ref,note,requiredPath string)(verifiedRunCollectionEvidence,error){
  var empty verifiedRunCollectionEvidence
  runID,callID,ok:=parseRunCollectionEvidenceRef(ref)
  if !ok||len(note)>512{return empty,agentchat.ErrInvalidSession}
@@ -80,12 +84,27 @@ func(s *Server) resolveRunCollectionEvidence(owner,conversation,ref,note string)
  snapshot,err:=snapshots.Get(spec.ContextSnapshotID,workspaceID,conversation,identity.ID)
  if err!=nil{return empty,err}
  if err=verifyAgentRunSnapshotBinding(spec,snapshot);err!=nil{return empty,err}
+ proof,err:=verifyRunCollectionProof(record,snapshot,identity.ID,callID,note,requiredPath)
+ if err!=nil{return empty,err}
+ proof.Ref=ref
+ return verifiedRunCollectionEvidence{owner:owner,workspace:workspace,project:identity.ID,conversation:conversation,proof:proof},nil
+}
+
+func verifyRunCollectionProof(record agentrun.Record,snapshot agentrun.ContextSnapshot,projectID,callID,note,requiredPath string)(agentchat.TaskPlanEvidence,error){
+ var empty agentchat.TaskPlanEvidence
+ spec:=record.Spec
+ if snapshot.ID!=spec.ContextSnapshotID||snapshot.ProjectID!=projectID||
+  snapshot.ConversationID!=spec.ConversationID||snapshot.OwnerWorkspaceID!=spec.OwnerWorkspaceID{
+  return empty,errors.New("Collection snapshot scope mismatch")
+ }
+ if err:=verifyAgentRunSnapshotBinding(spec,snapshot);err!=nil{return empty,err}
  pair,err:=runCollectionEvidencePair(record.History,spec,callID)
  if err!=nil{return empty,err}
  pinned,err:=runCollectionEvidencePair(snapshot.History,spec,callID)
  if err!=nil||!reflect.DeepEqual(pair,pinned){return empty,errors.New("Collection receipt differs from its immutable run snapshot")}
- proof,err:=agentchat.VerifyTaskPlanEvidence(agentchat.Session{ProjectID:identity.ID,History:pair},"collection",callID,note)
- if err!=nil{return empty,err}
- proof.Ref=ref
- return verifiedRunCollectionEvidence{owner:owner,workspace:workspace,project:identity.ID,conversation:conversation,proof:proof},nil
+ session:=agentchat.Session{ProjectID:projectID,History:pair}
+ if requiredPath!=""{
+  return agentchat.VerifyTaskAutoCheck(session,&agentchat.TaskAutoCheck{Kind:"full_file_read",CallID:callID,Path:requiredPath})
+ }
+ return agentchat.VerifyTaskPlanEvidence(session,"collection",callID,note)
 }

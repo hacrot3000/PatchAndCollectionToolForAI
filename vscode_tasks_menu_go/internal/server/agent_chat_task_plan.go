@@ -517,6 +517,11 @@ func (s *Server) agentChatTaskPlanAPI(w http.ResponseWriter,r *http.Request,id s
    if err:=agentchat.ValidateTaskAutoCheck(rule);err!=nil{
     http.Error(w,"invalid automatic evidence rule",400);return
    }
+   if strings.HasPrefix(rule.CallID,"run:"){
+    if _,_,ok:=parseRunCollectionEvidenceRef(rule.CallID);!ok||rule.Kind!="full_file_read"{
+     http.Error(w,"invalid run-qualified full-file rule",400);return
+    }
+   }
    // Baseline archive generations before accepting the rule. Future
    // compaction will wake the worker if the exact receipt moved to disk.
    rule.CheckedHistoryParts=x.HistoryArchiveParts
@@ -526,12 +531,23 @@ func (s *Server) agentChatTaskPlanAPI(w http.ResponseWriter,r *http.Request,id s
    // A historical native receipt may already be in an archived segment.
    // A checked, immutable result can be recorded immediately; otherwise the
    // background scheduler examines this exact rule after future tool work.
-   if agentchat.TaskPlanStepCriteriaReviewed(*step) {
-    if evidence,err:=agentchat.VerifyArchivedTaskAutoCheck(store,x,rule);err==nil{
-    if err:=agentchat.UpdateTaskPlanStep(&x,step.ID,"done",&evidence);err!=nil{
-     http.Error(w,"could not persist verified evidence",409);return
+   if step.GoTestRequirements==nil&&agentchat.TaskPlanStepCriteriaReviewed(*step) {
+    var evidence agentchat.TaskPlanEvidence
+    var proofErr error
+    if strings.HasPrefix(rule.CallID,"run:"){
+     // A qualified reference resolves only an exact completed run; an
+     // active run is handled at its verified turn-completion boundary.
+     proof,err:=s.resolveRunCollectionEvidenceForPath(owner,id,rule.CallID,"",rule.Path)
+     proofErr=err
+     if proofErr==nil{evidence,proofErr=proof.forSession(x)}
+    }else{
+     evidence,proofErr=agentchat.VerifyArchivedTaskAutoCheck(store,x,rule)
     }
-   }
+    if proofErr==nil{
+     if err:=agentchat.UpdateTaskPlanStep(&x,step.ID,"done",&evidence);err!=nil{
+      http.Error(w,"could not persist verified evidence",409);return
+     }
+    }
    }
    break
   }
