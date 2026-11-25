@@ -5,6 +5,7 @@ import (
  "encoding/json"
  "os"
  "path/filepath"
+ "bletonfc/vscode_tasks_menu/internal/patchtool"
  "strings"
  "testing"
  "time"
@@ -267,4 +268,80 @@ func TestAgentEveryNonWhitelistedFunctionInBatchGetsSingleSafeFeedbackTurn(t *te
  if _,err:=os.Stat(filepath.Join(s.Workspace,"patchs"));!os.IsNotExist(err){t.Fatalf("denied batch created native queue: %v",err)}
  s.runAgentAutoFeedback(context.Background())
  if calls!=2{t.Fatalf("batch replayed after acknowledgement: %d",calls)}
+}
+
+func TestAgentAutoContinueRecoversDeniedShellAfterTextCollection(t *testing.T) {
+ s,id,identity:=agentTextOnlyFixture(t)
+ store,err:=s.agentChatStore();if err!=nil{t.Fatal(err)}
+ x,err:=store.Get(id,"local");if err!=nil{t.Fatal(err)}
+ x.AutoContinueText=true
+ x.AutoFeedback=false
+ x,err=store.Save(x,x.Revision);if err!=nil{t.Fatal(err)}
+ collection,err:=json.Marshal(agentCollectionArguments{
+  Project:identity,Actions:[]agentCollectionAction{{Type:"ls",Path:".",MaxEntries:100}},
+ });if err!=nil{t.Fatal(err)}
+ reads,calls:=0,0
+ s.AgentCollectionCall=func(_ string,_ patchtool.ProjectIdentity,_ []byte)string{
+  reads++;return `{"results":[{"type":"ls","entries":[]}]}`
+ }
+ proposal:=agentTextOnlyHelloProposal(t,identity)
+ s.AgentChatCall=func(_ context.Context,p agentchat.ProviderConfig,_ string,payload []byte)(agentchat.ResponsesResult,error){
+  calls++
+  if p.ID!=x.ProviderID{t.Fatal("provider binding drift")}
+  var req map[string]any
+  if err:=json.Unmarshal(payload,&req);err!=nil{t.Fatal(err)}
+  if _,ok:=req["tools"];ok{t.Fatal("unverified tool schemas advertised")}
+  switch calls{
+  case 1:return agentchat.ResponsesResult{ResponseID:"collection",Text:string(collection)},nil
+  case 2:return agentchat.ResponsesResult{ResponseID:"denied",Calls:[]agentchat.FunctionCall{{CallID:"shell-after-collect",Name:"shell",Arguments:`{"command":"whoami"}`}}},nil
+  case 3:
+   found:=false
+   for _,raw:=range req["input"].([]any){
+    item:=raw.(map[string]any)
+    if item["type"]=="function_call_output"&&item["call_id"]=="shell-after-collect"{
+     output,_:=item["output"].(string)
+     found=agentRepairableDenialOutput(output)&&strings.Contains(output,"text JSON fallback")
+    }
+   }
+   if !found{t.Fatal("denial not sent on the original call ID with fallback guidance")}
+   return agentchat.ResponsesResult{ResponseID:"corrected",Text:proposal},nil
+  default:t.Fatalf("unexpected provider request %d",calls);return agentchat.ResponsesResult{},nil
+  }
+ }
+ reply:=invokeAI(t,s.agentChatSessionItemAPI,"POST","/api/agent/sessions/"+id+"/messages",map[string]any{
+  "message":"inspect then patch","confirm_external":true,"expected_revision":x.Revision,
+ })
+ if reply.Code!=200{t.Fatalf("initial request: %d %s",reply.Code,reply.Body)}
+ x,err=store.Get(id,"local");if err!=nil{t.Fatal(err)}
+ if x.Status!="tool_rejected"||reads!=1||calls!=2{t.Fatalf("unexpected initial state: %s reads=%d calls=%d",x.Status,reads,calls)}
+ s.runAgentAutoFeedback(context.Background())
+ x,err=store.Get(id,"local");if err!=nil{t.Fatal(err)}
+ if calls!=3||x.Status!="waiting_tool"||len(x.ToolCalls)!=2||x.ToolCalls[0].FeedbackStatus!="acknowledged"||
+  x.ToolCalls[0].QueuePath!=""||x.ToolCalls[1].Status!="pending"||!x.ToolCalls[1].TextFallback{
+  t.Fatalf("denial recovery failed: calls=%d state=%+v",calls,x)
+ }
+ if _,err:=os.Stat(filepath.Join(s.Workspace,"helloworld.php"));!os.IsNotExist(err){t.Fatal("unapproved patch changed source")}
+ s.runAgentAutoFeedback(context.Background())
+ if calls!=3{t.Fatal("denial replayed")}
+}
+
+func TestAgentDenialAutoContinueRespectsConsentAndLoopBrake(t *testing.T){
+ denial:=agentchat.ToolCallRecord{CallID:"denied",Name:"shell",Status:"rejected",Result:agentRejectedUnsupportedToolFeedback("shell","UNSUPPORTED_TOOL")}
+ x:=agentchat.Session{Owner:"local",Status:"tool_rejected",ToolCalls:[]agentchat.ToolCallRecord{denial}}
+ if _,ok:=agentAutoFeedbackCandidate(x);ok{t.Fatal("no owner opt-in")}
+ x.AutoContinueText=true
+ if _,ok:=agentAutoFeedbackCandidate(x);!ok{t.Fatal("auto continue cannot recover machine denial")}
+ x.ToolCalls[0].Result=agentRejectedPatchFeedback("USER_REJECTED","owner rejected",false)
+ if _,ok:=agentAutoFeedbackCandidate(x);ok{t.Fatal("owner rejection bypassed")}
+ x.ToolCalls[0]=denial
+ x.ProviderRun=&agentchat.ProviderRun{Phase:"unknown"}
+ if _,ok:=agentAutoFeedbackCandidate(x);ok{t.Fatal("unknown provider egress replayed")}
+ x.ProviderRun=nil
+ for i:=0;i<agentMaxConsecutiveDenials;i++{
+  x.History=append(x.History,agentchat.HistoryItem{Type:"function_call_output",Content:denial.Result})
+ }
+ x.AutoFeedback=true;x.AutoFeedbackPersistent=true
+ if _,ok:=agentAutoFeedbackCandidate(x);ok{t.Fatal("rejection loop exceeded bounded recovery")}
+ x.History=append(x.History,agentchat.HistoryItem{Type:"user",Content:"New task"})
+ if _,ok:=agentAutoFeedbackCandidate(x);!ok{t.Fatal("new user turn did not reset brake")}
 }

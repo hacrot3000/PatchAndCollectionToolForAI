@@ -564,3 +564,9 @@ func TestAgentChatCompletionsAcceptsDeclaredModelReasoningEfforts(t *testing.T) 
 		if w.Code!=400{t.Fatalf("unsupported effort %s/%s accepted: %d",tc.model,tc.effort,w.Code)}
 	}
 }
+
+// A reasoning model can exhaust a 32-token probe before emitting OK.
+func TestAgentCapabilityProbeOutputBudgetRespectsModelLimit(t *testing.T){
+ if got:=agentCapabilityProbeOutputBudget(agentchat.ModelConfig{MaxOutputTokens:160000});got<512||got>2048{t.Fatalf("probe budget=%d",got)}
+ if got:=agentCapabilityProbeOutputBudget(agentchat.ModelConfig{MaxOutputTokens:256});got!=256{t.Fatalf("model ceiling ignored: %d",got)}
+}

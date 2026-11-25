@@ -1853,7 +1853,7 @@ async function syncAgentPatch(id,{quiet=false}={}){
 }
 async function continueAgentTool(session,callID){
  if(agentSessionBusy(session.id))return;
- if(!window.confirm('Send the verified native Patch execution result back to the external AI provider to continue this conversation?'))return;
+ if(!window.confirm('Send the recorded tool result or rejection back to the external AI provider to continue this conversation? No tool will be re-executed.'))return;
  const turn={message:'',phase:'feedback',error:'',baseHistoryLength:session.history?.length||0,
   baseEventSeq:session.event_seq||0,optimisticNode:null,acknowledged:false};
  agentLiveTurns.set(session.id,turn);
