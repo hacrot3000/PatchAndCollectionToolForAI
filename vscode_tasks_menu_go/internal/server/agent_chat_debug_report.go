@@ -76,6 +76,11 @@ func (s *Server) agentChatDebugReportAPI(w http.ResponseWriter, r *http.Request)
    if limit>32{limit=32;report["sessions_truncated"]=true}
    out:=make([]map[string]any,0,limit)
    for _,sess:=range visible[:limit] {
+    continuationDiagnostic:=agentSafeContinuationDiagnostic(sess)
+    if continuationDiagnostic["eligible"]==true&&s.agentConversationRequiresRunContinuation(owner,sess.ID){
+     continuationDiagnostic["eligible"]=false
+     continuationDiagnostic["admission_reason"]="provider_bound_run_or_ledger_unavailable"
+    }
     if cursor,seen:=marker.Sessions[sess.ID];seen && !marker.At.IsZero(){
      // Existing sessions remain operational after clear. Expose only the
      // new journal tail; earlier history/tool metadata stays in the
@@ -142,7 +147,7 @@ func (s *Server) agentChatDebugReportAPI(w http.ResponseWriter, r *http.Request)
      "tool_calls":calls,
      "auto_continue_text":sess.AutoContinueText,
      "auto_continue_plan":sess.TaskPlan!=nil&&sess.TaskPlan.AutoContinue,
-     "continuation":agentSafeContinuationDiagnostic(sess),
+     "continuation":continuationDiagnostic,
     })
    }
    report["sessions"]=out

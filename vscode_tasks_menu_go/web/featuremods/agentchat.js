@@ -561,7 +561,9 @@ function updateAgentFooterSession(session,last){
   (session.auto_feedback?' · auto-send ON':'');
  // A revision-only poll must not restart the four-second rotation or erase
  // a useful transient notice. A real state change clears stale notices.
- const key=[session.id,session.status,last?.status,last?.feedback_sent].join(':');
+ const key=[session.id,session.status,last?.status,last?.feedback_sent,session.auto_continue_text,
+   session.task_plan?.auto_continue,session.continuation?.disposition,session.continuation?.reason,
+   session.continuation?.next_retry_at,session.task_plan?.next_retry_at].join(':');
  if(key!==agentFooterSessionKey){
   agentFooterSessionKey=key;
   let notice='';
@@ -573,7 +575,7 @@ function updateAgentFooterSession(session,last){
    else if(last?.status==='running')notice='Patch Tool running · monitoring native status';
    else if(last?.status==='unknown')notice='Native Patch result unknown · inspect History';
   }
-  if(!notice)notice=agentLivePhase(session)?.message||'';
+  if(!notice)notice=agentContinuationNotice(session)||agentLivePhase(session)?.message||'';
   setAgentStatusNotice(notice);
  }else renderAgentFooter();
 }
@@ -1996,6 +1998,25 @@ async function continueAgentTool(session,callID){
 }
 // One bounded reconciliation call per polling interval. Never combine a
 // second events fetch plus /sync plus unconditional full-session fetch.
+function agentContinuationNotice(sess){
+ if(sess?.status!=='completed')return '';
+ const c=sess.continuation,p=sess.task_plan;
+ if(!['NEEDS_CONTINUATION','IN_PROGRESS'].includes(c?.disposition)&&!(p?.state==='active'&&p.auto_continue))return '';
+ if(c?.reason==='stalled_without_verified_work'||Number(c?.no_progress_turns||0)>=5||Number(p?.no_progress_turns||0)>=5)
+  return 'Task unfinished · Auto continue paused: no verified new work. Review or re-enable after inspection.';
+ if(p?!p.auto_continue:!sess.auto_continue_text)
+  return 'Task unfinished · Auto continue OFF. Enable it in '+(p?'Tools → Task plan.':'Automation → Auto continue (no plan).');
+ if(['prepared','sending','unknown'].includes(sess.provider_run?.phase))
+  return 'Task unfinished · provider delivery requires reconciliation.';
+ if((sess.tool_calls||[]).some(t=>['pending','queuing','queued','dispatching','running','unknown'].includes(t.status)||
+  (['done','error','rejected'].includes(t.status)&&(!t.feedback_sent||t.feedback_status!=='acknowledged'))))
+  return 'Task unfinished · waiting for native work or verified tool feedback.';
+ const retry=p?.next_retry_at||c?.next_retry_at;
+ if(retry&&Date.parse(retry)>Date.now())return 'Task unfinished · Auto continue deferred until '+new Date(retry).toLocaleTimeString()+'.';
+ if(['BLOCKED','WAITING_TOOL'].includes(c?.disposition))return 'Task unfinished · review the reported blocker or pending tool.';
+ if(p&&p.state!=='active')return 'Task unfinished · Task plan is '+p.state+'.';
+ return 'Task unfinished · Auto continue enabled; awaiting scheduler.';
+}
 function agentMonitorNeedsWork(sess){
  if(!sess)return false;
  const calls=sess.tool_calls||[];
