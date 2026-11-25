@@ -114,19 +114,13 @@ func (b CanonicalProviderPayloadBuilder) Build(spec RunSpec, provider ProviderCo
 	// Do not pass the converted Chat Completions body to the invoker: both
 	// streaming and non-streaming transports expect canonical input and
 	// perform the conversion themselves.
-	wire := canonical
-	switch provider.APIType {
-	case "chat_completions":
-		wire, err = BuildChatCompletionsRequest(canonical)
-	case "responses":
-	default:
-		return nil, errors.New("unsupported provider API type")
-	}
+	measurement, err := MeasureProviderPayload(provider.APIType, canonical)
 	if err != nil {
 		return nil, err
 	}
-	// Serialized bytes are a conservative upper bound, not an exact tokenizer.
-	if model.MaxInputTokens > 0 && len(wire) > model.MaxInputTokens {
+	// Preserve the existing Unified conservative byte budget. The shared
+	// token estimate is diagnostic, not a new admission rule.
+	if model.MaxInputTokens > 0 && measurement.WireBytes > model.MaxInputTokens {
 		return nil, ErrProviderContextBudget
 	}
 	return canonical, nil

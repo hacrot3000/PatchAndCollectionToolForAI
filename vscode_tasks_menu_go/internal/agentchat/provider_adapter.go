@@ -201,6 +201,12 @@ func (a ConfiguredProviderAdapter) Execute(ctx context.Context, spec RunSpec, hi
 
 func (a ConfiguredProviderAdapter) invokeWithRetry(ctx context.Context, spec RunSpec, resolved ResolvedProvider, payload []byte, sink EventSink) (ResponsesResult, bool, map[string]bool, error) {
 	attempt := 1
+	// Every transport retry in Unified uses these same canonical bytes.
+	// Measurement failure must not change the retry policy of an injected
+	// builder; the production canonical builder validates before egress.
+	measurement, _ := MeasureProviderPayload(resolved.Config.APIType, payload)
+	digest := BodyDigest(payload)
+	stagnant := 0
 	for {
 		requestTimeout := a.RequestTimeout
 		if requestTimeout <= 0 {
@@ -270,13 +276,31 @@ func (a ConfiguredProviderAdapter) invokeWithRetry(ctx context.Context, spec Run
 		if err == nil || !runProviderRetryAllowed(spec.RetryMode, attempt, err) {
 			return result, streamedText, publishedCalls, err
 		}
+		outcome := ClassifyProviderAttemptOutcome(ctx.Err(), err)
+		if outcome.StagnantTransport() {
+			stagnant++
+		} else {
+			stagnant = 0
+		}
 		if sink != nil {
+			// Existing retry event only: no extra journal events, no prompt,
+			// credential or response contents, and no claim of delivery ACK.
 			retryEvent, marshalErr := json.Marshal(struct {
 				Attempt      int    `json:"attempt"`
 				NextAttempt  int    `json:"next_attempt"`
 				ErrorCode    string `json:"error_code"`
 				ResetPartial bool   `json:"reset_partial_output"`
-			}{attempt, attempt + 1, runProviderRetryCode(err), true})
+				Outcome ProviderAttemptOutcome `json:"outcome"`
+				RetryMode RetryMode `json:"retry_mode"`
+				PayloadSHA256 string `json:"payload_sha256"`
+				CanonicalBytes int `json:"canonical_bytes,omitempty"`
+				WireTemplateBytes int `json:"wire_template_bytes,omitempty"`
+				EstimatedInputTokens int `json:"estimated_input_tokens,omitempty"`
+				OutputBudget int `json:"output_budget,omitempty"`
+				SameDigestFailures int `json:"same_digest_failures"`
+			}{attempt, attempt + 1, runProviderRetryCode(err), true, outcome,
+				spec.RetryMode, digest, measurement.CanonicalBytes, measurement.WireBytes,
+				measurement.EstimatedInputTokens, measurement.OutputBudget, stagnant})
 			if marshalErr != nil {
 				return ResponsesResult{}, streamedText, publishedCalls, marshalErr
 			}
