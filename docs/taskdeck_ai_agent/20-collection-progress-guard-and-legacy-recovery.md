@@ -10,7 +10,7 @@
 | Nhánh triển khai | **`main` — không tạo feature branch/PR thay cho yêu cầu này** |
 | Baseline audit | `1c1e2ba0d5004bf5cee75b3fd8a2baa6be9c5422` (25/11/2026, 15:40:33 ICT) |
 | Vị trí tài liệu trong repo (đề xuất) | `docs/taskdeck_ai_agent/20-collection-progress-guard-and-legacy-recovery.md` |
-| Trạng thái hiện tại | `IN_PROGRESS` — baseline remote audit bắt đầu; full checkout/test blocked |
+| Trạng thái hiện tại | `IN_PROGRESS` — local checkout blocked; latest core CI FAIL; see verification checkpoint |
 | Tiến độ | **0/10 phase · 1/36 task · 5/144 subtask DONE** |
 | Phạm vi | Legacy Agent Chat, unified Agent Run, native COLLECT/PATCH, provider retry, compact context, journal, UI và migration |
 | Ưu tiên | P1: tránh lặp/gián đoạn và bảo toàn dữ liệu; P2: quan sát, tuning và vận hành |
@@ -548,6 +548,26 @@ All paths below are relative to `vscode_tasks_menu_go/internal/server/`, read at
 - CI: `.github/workflows/taskdeck_agentchat_core.yml` runs `go test -race -count=1 ./internal/agentchat/...`, `go test -v -race -count=1 ./internal/agentrun/...`, `go test -count=1 ./internal/server -run '^TestAgent'`, focused race tests, vet, Node checks and Python preflight/failed queue. These were read, not executed.
 - At this initial trace checkpoint no source had changed. No local checkout; cannot assert local cleanliness or full baseline test success. Continue source audit via authenticated connector without force push; integration/test status remains unverified.
 
+#### CLP-00.01 — Additional Unified trace (pinned `fe4cc344f1b82bfbeb4cab82b580cb7127cbd165`)
+
+| Stage | Legacy | Unified |
+|---|---|---|
+| Entry / ownership | agent_chat_messages.go, mutable Session with revision CAS | agent_run_api.go:49,84; agent_run_provider_executor.go:27,72,119,138; immutable RunSpec and owner-bound snapshot |
+| Tool resolution | agent_chat_collection_flow.go:181–359; journal before native start and provider egress | agent_run_collection.go:77–155; exact run provenance, execution identity, turn lock, native-only collector, exact result, snapshot with original policy |
+| Durable scheduling | Session.Save and provider journal; PREPARED-only recovery | internal/agentrun/manager.go:356–467,621–715; attempt ID, pending-call exact pairing, locked record persistence, new idempotency key and queue; store.go:129 saveLocked |
+| PATCH / ACK | agent_chat_tool_feedback.go; canonical native receipt | agent_run_patch.go:144–255; sync native result, refuse existing feedback intent/unknown, persist Session prepared before manager continuation; agent_run_feedback_ack.go:13 |
+| Auto Continue / plan | agent_chat_plan_coordinator.go:19,107; agent_chat_continuation.go | agent_run_continuation.go:103–187; owner-pinned mechanical proofs, CAS, verified work signature, consent and no-progress guard; manager.go:788–819 validates run-bound history before queue |
+| Existing gaps | inner collection loop has no durable cross-round progress guard | collection matching counts consecutive prior requests only; guard must not treat attempt IDs as objective IDs. Existing 256-item run history capacity at manager.go:415/797 is a separate storage limit, not a legitimate-read quota. |
+
+No scheduler, permission, journal, fence, or PATCH recovery semantics changed by this audit. Local Git checkout and full build unavailable. Source trace is partial until all call sites and current runtime fixtures can be validated.
+
+#### Verification checkpoint — CI on `fe4cc344f1b82bfbeb4cab82b580cb7127cbd165`
+
+- [Agent Chat core run 45582342217](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/45582342217), job 139095247757: **FAIL**. Actual CI logs show PASS for `internal/agentchat` (14.584s), `internal/agentchat/collectionprogress` (1.013s), `internal/agentchat/contextcompact` (1.226s), `internal/agentrun` (1.304s). Server suite `go test -count=1 ./internal/server -run '^TestAgent'` FAIL (22.243s).
+- Server failures: `TestAgentRefreshDuringRequestOffersCancelNotDuplicate` at agent_chat_sessions_test.go:348, expected HTTP 409, got HTTP 202 queued; `TestAgentVisibleHistoryCompactsHistoricalPatchAndCollectionWithoutMutatingCanonical` at agent_chat_text_patch_test.go:214, historical PATCH provenance omitted from bounded catalog. Neither production path nor these tests changed by CLP-01.01 or the incident fixture. Need reconcile expected pending-turn behavior and fix catalog retention without weakening assertions.
+- `agent-failed-queue` job 139095247358: **PASS**. Prior run-fence and nil mock failures no longer appear in latest CI logs. No separate verbose named PASS receipt for new CLP-00.02 fixture; leave VERIFY_PENDING, as full fixture requirements also include payload growth, progressive retry and fake-clock matrix.
+- Remote commit `fe4cc344f1b82bfbeb4cab82b580cb7127cbd165` confirmed as main before this checkpoint. No deployment or full regression gate completion. Next safe work: CLP-00.01 trace completion, CLP-00.02 targeted fixture verification and growth/retry, CLP-00.03 two server failures; then CLP-01.02. Do not widen permissions or alter unknown/ACK recovery to clear the gate.
+
 Mẫu bản ghi task (điền dữ liệu thật):
 
 ```text
@@ -573,7 +593,8 @@ Next task:
 | D-002 | PLAN | Log redacted, không xác nhận số COLLECT thừa hoặc exact old binary SHA | Cần test dựa trên synthetic evidence | CLP-00.02, CLP-07.04 | OPEN |
 | D-003 | PLAN | Chưa chạy local/CI hoặc deploy build | Chưa xác nhận runtime fix | CLP-00.03, CLP-09 | OPEN |
 | D-004 | CLP-00.01 | Sandbox has no repository checkout; direct Git DNS unavailable; connector remote API available | Cannot run full baseline/test/build locally; remote Git writes via connector only | Provide a checked-out repository/test runner or obtain actual CI receipts; no false PASS | OPEN |
-| D-005 | CLP-00.03 | Pre-existing CI failure: run fence fixture used t.TempDir without ensuring 0700 | Prevents subsequent server tests from executing | Fix fixture precondition, retain all assertions and add unsafe-directory rejection test; verify full CI | VERIFY_PENDING |
+| D-005 | CLP-00.03 | Pre-existing CI failure: run fence fixture used t.TempDir without ensuring 0700 | Prevents subsequent server tests from executing | Fixed fixture precondition; local isolated race test and latest CI agentrun package PASS | RESOLVED |
+| D-006 | CLP-00.03 | Latest core CI fails on pending-turn HTTP 202 vs 409 and lost historical PATCH provenance | Full server/race/remaining CI acceptance not green | Reconcile pending-turn contract; preserve bounded PATCH catalog; rerun server suite with exact named receipts | OPEN |
 
 ## 9. Definition of Done toàn handoff
 
