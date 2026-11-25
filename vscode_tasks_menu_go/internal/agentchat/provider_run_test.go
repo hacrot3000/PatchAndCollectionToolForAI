@@ -30,6 +30,10 @@ func TestProviderRunPreparedPayloadSurvivesRestartAndIsNotReplayableAfterSending
  if _,_,err=reopened.PreparedProviderPayload(x.ID,"other-owner");!errors.Is(err,ErrNotFound){
   t.Fatal("cross-owner egress payload was exposed")
  }
+ if err=store.DeleteProviderPayload(x.ID);!errors.Is(err,ErrInvalidSession){t.Fatalf("prepared cleanup accepted: %v",err)}
+ reopened,err=NewStore(dir);if err!=nil{t.Fatal(err)}
+ got,data,err=reopened.PreparedProviderPayload(x.ID,"local")
+ if err!=nil||got.ProviderRun==nil||got.ProviderRun.ID!="r2-e1"||string(data)!=string(payload){t.Fatalf("prepared payload lost after cleanup: %v",err)}
  x.ProviderRun.Phase="sending"
  x.ProviderRun.UpdatedAt=time.Now().UTC()
  x,err=store.Save(x,x.Revision)
@@ -40,6 +44,73 @@ func TestProviderRunPreparedPayloadSurvivesRestartAndIsNotReplayableAfterSending
  if err=store.DeleteProviderPayload(x.ID);err!=nil{t.Fatal(err)}
  if _,err=os.Stat(store.providerRunFile(x.ID));!os.IsNotExist(err){t.Fatal("prepared private source persisted after deletion")}
 }
+func TestProviderRunStageDoesNotOverwritePreparedPayload(t *testing.T) {
+ dir:=filepath.Join(t.TempDir(),"private","agent")
+ store,err:=NewStore(dir);if err!=nil{t.Fatal(err)}
+ x,err:=NewSession("local","/workspace","project-id","provider","model",Stateless);if err!=nil{t.Fatal(err)}
+ x,err=store.Save(x,0);if err!=nil{t.Fatal(err)}
+ first:=[]byte(`{"model":"model","input":"first"}`)
+ now:=time.Now().UTC()
+ x.Status="requesting_ai"
+ x.ProviderRun=&ProviderRun{ID:"first",Kind:"message",Phase:"prepared",PayloadSHA256:ProviderPayloadDigest(first),CreatedAt:now,UpdatedAt:now}
+ if err=store.StageProviderPayload(x,first);err!=nil{t.Fatal(err)}
+ x,err=store.Save(x,x.Revision);if err!=nil{t.Fatal(err)}
+ second:=[]byte(`{"model":"model","input":"second"}`)
+ replacement:=x
+ replacement.ProviderRun=&ProviderRun{ID:"second",Kind:"message",Phase:"prepared",PayloadSHA256:ProviderPayloadDigest(second),CreatedAt:now,UpdatedAt:now}
+ if err=store.StageProviderPayload(replacement,second);!errors.Is(err,ErrInvalidSession){t.Fatalf("replacement staging accepted: %v",err)}
+ reopened,err:=NewStore(dir);if err!=nil{t.Fatal(err)}
+ recovered,data,err:=reopened.PreparedProviderPayload(x.ID,"local")
+ if err!=nil||recovered.ProviderRun.ID!="first"||string(data)!=string(first){t.Fatalf("original prepared request lost after reopen: %v",err)}
+}
+
+func TestProviderRunConcurrentStagingPreservesCommittedPrepared(t *testing.T) {
+ dir:=filepath.Join(t.TempDir(),"private","agent")
+ store,err:=NewStore(dir);if err!=nil{t.Fatal(err)}
+ x,err:=NewSession("local","/workspace","project-id","provider","model",Stateless);if err!=nil{t.Fatal(err)}
+ x,err=store.Save(x,0);if err!=nil{t.Fatal(err)}
+ first:=[]byte(`{"model":"model","input":"first"}`)
+ now:=time.Now().UTC()
+ x.Status="requesting_ai"
+ x.ProviderRun=&ProviderRun{ID:"first",Kind:"message",Phase:"prepared",PayloadSHA256:ProviderPayloadDigest(first),CreatedAt:now,UpdatedAt:now}
+ if err=store.StageProviderPayload(x,first);err!=nil{t.Fatal(err)}
+ x,err=store.Save(x,x.Revision);if err!=nil{t.Fatal(err)}
+ second:=[]byte(`{"model":"model","input":"second"}`)
+ replacement:=x
+ replacement.ProviderRun=&ProviderRun{ID:"second",Kind:"message",Phase:"prepared",PayloadSHA256:ProviderPayloadDigest(second),CreatedAt:now,UpdatedAt:now}
+ results:=make(chan error,8)
+ for i:=0;i<cap(results);i++ { go func(){results<-store.StageProviderPayload(replacement,second)}() }
+ for i:=0;i<cap(results);i++ { if err:=<-results;!errors.Is(err,ErrInvalidSession){t.Fatalf("concurrent staging accepted: %v",err)} }
+ reopened,err:=NewStore(dir);if err!=nil{t.Fatal(err)}
+ recovered,data,err:=reopened.PreparedProviderPayload(x.ID,"local")
+ if err!=nil{t.Fatal(err)}
+ if recovered.ProviderRun==nil || recovered.ProviderRun.ID!="first" || string(data)!=string(first){t.Fatal("concurrent staging damaged committed payload")}
+}
+
+func TestProviderRunCompetingStagedPayloadCAS(t *testing.T) {
+ dir:=filepath.Join(t.TempDir(),"private","agent")
+ store,err:=NewStore(dir);if err!=nil{t.Fatal(err)}
+ base,err:=NewSession("local","/workspace","project-id","provider","model",Stateless);if err!=nil{t.Fatal(err)}
+ base,err=store.Save(base,0);if err!=nil{t.Fatal(err)}
+ now:=time.Now().UTC()
+ first:=base;first.Status="requesting_ai"
+ a:=[]byte(`{"input":"first"}`)
+ first.ProviderRun=&ProviderRun{ID:"first",Kind:"message",Phase:"prepared",PayloadSHA256:ProviderPayloadDigest(a),CreatedAt:now,UpdatedAt:now}
+ second:=base;second.Status="requesting_ai"
+ b:=[]byte(`{"input":"second"}`)
+ second.ProviderRun=&ProviderRun{ID:"second",Kind:"message",Phase:"prepared",PayloadSHA256:ProviderPayloadDigest(b),CreatedAt:now,UpdatedAt:now}
+ if err=store.StageProviderPayload(first,a);err!=nil{t.Fatal(err)}
+ if err=store.StageProviderPayload(second,b);err!=nil{t.Fatal(err)}
+ if _,err=store.Save(first,base.Revision);!errors.Is(err,ErrInvalidSession){t.Fatalf("mismatched sidecar committed: %v",err)}
+ current,err:=store.Get(base.ID,"local");if err!=nil{t.Fatal(err)}
+ if current.Revision!=base.Revision||current.ProviderRun!=nil{t.Fatal("failed CAS changed journal")}
+ saved,err:=store.Save(second,base.Revision);if err!=nil{t.Fatal(err)}
+ if _,err=store.Save(first,base.Revision);!errors.Is(err,ErrStaleRevision){t.Fatalf("stale CAS accepted: %v",err)}
+ reopened,err:=NewStore(dir);if err!=nil{t.Fatal(err)}
+ got,data,err:=reopened.PreparedProviderPayload(saved.ID,"local")
+ if err!=nil||got.ProviderRun==nil||got.ProviderRun.ID!="second"||string(data)!=string(b){t.Fatalf("winning payload lost: %v",err)}
+}
+
 func TestProviderRunPayloadTamperingFailsClosed(t *testing.T){
  dir:=filepath.Join(t.TempDir(),"private","agent")
  store,err:=NewStore(dir);if err!=nil{t.Fatal(err)}

@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"sync"
 	"testing"
+	"time"
 )
 
 func TestSessionStoreOwnerIsolationRevisionAndRecovery(t *testing.T) {
@@ -179,6 +180,46 @@ func TestSessionLifecycleEventsPreserveChronologicalHistoryPosition(t *testing.T
 		reloaded.Events[2].Detail!="collection_continuation"{
 		t.Fatalf("history event anchors incorrect: %+v",reloaded.Events)
 	}
+}
+
+// Ordinary journal saves must not silently change provider/model selection.
+// A future owner-scoped admission path must not weaken this generic CAS guard.
+func TestStoreRejectsUnscopedProviderSelectionChanges(t *testing.T) {
+ store, err := NewStore(filepath.Join(t.TempDir(), "private", "agent"))
+ if err != nil { t.Fatal(err) }
+ x, err := NewSession("user:alice", "/workspace/a", "project-uuid", "provider", "model", Stateless)
+ if err != nil { t.Fatal(err) }
+ x, err = store.Save(x, 0)
+ if err != nil { t.Fatal(err) }
+ for _, tc := range []struct{name, provider, model string}{
+  {"provider", "other-provider", "model"}, {"model", "provider", "other-model"},
+ } {
+  t.Run(tc.name, func(t *testing.T) {
+   changed := x
+   changed.ProviderID, changed.ModelID = tc.provider, tc.model
+   if _, err := store.Save(changed, x.Revision); !errors.Is(err, ErrInvalidSession) {
+    t.Fatalf("unscoped selection change accepted: %v", err)
+   }
+   got, err := store.Get(x.ID, "user:alice")
+   if err != nil { t.Fatal(err) }
+   if got.Revision != x.Revision || got.ProviderID != x.ProviderID || got.ModelID != x.ModelID {
+    t.Fatal("rejected selection change modified the journal")
+   }
+  })
+ }
+}
+
+func TestStoreRejectsPendingTurnRemoval(t *testing.T) {
+ dir := filepath.Join(t.TempDir(), "private", "agent")
+ store, err := NewStore(dir); if err != nil { t.Fatal(err) }
+ x, err := NewSession("user:alice", "/workspace/a", "project-uuid", "provider", "model", Stateless); if err != nil { t.Fatal(err) }
+ x.PendingUserTurn = &PendingUserTurn{Message:"queued", RequestID:"req", RequestDigest:"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", ProviderID:"provider", ModelID:"model", ProviderConfigVersion:"v1", QueuedAt:time.Now().UTC()}
+ x, err = store.Save(x, 0); if err != nil { t.Fatal(err) }
+ changed := x; changed.PendingUserTurn = nil
+ if _, err = store.Save(changed, x.Revision); !errors.Is(err, ErrInvalidSession) { t.Fatalf("pending removal accepted: %v", err) }
+ reopened, err := NewStore(dir); if err != nil { t.Fatal(err) }
+ got, err := reopened.Get(x.ID, "user:alice"); if err != nil { t.Fatal(err) }
+ if got.Revision != x.Revision || got.PendingUserTurn == nil || got.PendingUserTurn.Message != "queued" || got.PendingUserTurn.RequestID != "req" { t.Fatal("rejected removal altered durable pending turn") }
 }
 
 func TestStoreListIgnoresThousandsOfCollectionArchiveSegments(t *testing.T) {

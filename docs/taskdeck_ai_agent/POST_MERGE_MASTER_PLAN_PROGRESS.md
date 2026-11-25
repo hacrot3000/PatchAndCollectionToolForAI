@@ -1175,3 +1175,27 @@ Status: IMPLEMENTED_UNVERIFIED
 ### UAG-02 follow-up — PREPARED binding recovery fence
 - Inspection of `agent_chat_provider_resume.go` found that recovery checks provider capability fingerprint but previously did not compare a persisted turn binding against the current credential/configuration. This patch adds a fail-closed check for bound turns; legacy unbound recovery is unchanged. A regression test was added but not executed.
 - COLLECT run `agent_collect_c488c5e3799e9c2fc152ab44`; exact pending-to-PREPARED handoff, busy admission, provider switching, crash/concurrency and browser validation remain open. Pending dispatch stays suspended; UAG-02 is unverified and UAG-03–08 and M17–M19 remain gated.
+
+### UAG-02 follow-up — protect committed PREPARED sidecar
+- Reject staging over a committed PREPARED sidecar and add a retention regression. The two prior failed packages were deleted from the normal queue; current source was recollected before this successor.
+- Tests have not been executed for this change. Atomic owner-scoped pending handoff, crash and concurrency coverage, busy admission and provider switching remain open; pending dispatch stays disabled and UAG-02 is unverified. M17–M19 remain deferred.
+
+### UAG-02 follow-up — focused verification runner
+- Added a project-local runner for existing PREPARED retention, restart, credential drift, ambiguous egress and suspended-dispatch tests. It disables Go dependency downloads and was not run by this patch.
+- Next: execute this already-existing runner in a separate native PATCH, record its actual result, and continue owner-scoped atomic pending adoption. UAG-02 remains unverified; UAG-03–08 and M17–M19 remain gated.
+
+### UAG-02 follow-up — PREPARED cleanup protection
+- Native PATCH runs 1795597453889617_1172930 and 1795597489858536_1175688 passed for the cleanup guard and its regression source respectively. COLLECT agent_collect_7dafb5cb8ab3560d8dd97437 confirms both are present. The regression checks retention after reopen and cleanup after SENDING.
+- No tests were executed by these PATCHes. The focused runner remains unverified. Atomic owner-scoped pending adoption, crash and concurrency tests, busy admission and provider switching remain open; pending dispatch remains disabled and UAG-02 is not accepted. UAG-03–08 and M17–M19 remain gated.
+
+### UAG-02 follow-up — provider selection persistence investigation
+- COLLECT agent_collect_2d2081fafb34824447a80ed5 found that Store.Save rejects changes to ProviderID or ModelID, while agentResolveTurnModel changes the session selection for a requested next turn. Provider switching persistence therefore requires a separately designed and tested admission path; do not weaken owner, revision or active-binding checks.
+- The focused runner now uses verbose output and rejects zero matching tests, but no test execution is confirmed. The Python-only submission interface does not expose command-only manifest or post_patch commands; do not invoke the runner from a Python payload as a workaround. Pending dispatch stays disabled; UAG-02 remains unverified and UAG-03–08 and M17–M19 remain gated. Next: obtain a supported command-capable native route for the existing runner, then implement and test atomic owner-scoped admission and provider switching.
+
+### UAG-02 follow-up — provider selection regression checkpoint
+- Native PATCH runs 1795597684738931_1188169 and 1795597714702393_1190013 passed for the unscoped provider/model selection regression and its inclusion in the focused runner. COLLECT agent_collect_16dd9699d36dfe44254ad7ff confirms both source entries.
+- These receipts confirm source changes only; no test execution is confirmed. The exposed Python-only PATCH interface cannot submit the command-only manifest required to run the existing runner. Atomic owner-scoped pending adoption, crash/concurrency checks, busy admission and provider switching remain open; dispatch stays disabled, UAG-02 remains unverified, and UAG-03–08 and M17–M19 remain gated.
+
+### UAG-02 follow-up — staged payload CAS checkpoint
+- Native PATCH runs 1795597792691129_1195340, 1795597831687017_1197800 and 1795597870694471_1200163 passed for the PREPARED sidecar journal fence, its competing-stage regression source, and inclusion in the focused runner. COLLECT agent_collect_ea8a19b480bdbb0e6eb81911 confirmed the regression and runner entry.
+- These are source-change receipts, not test results. No execution of this focused regression is confirmed. Owner-scoped atomic pending adoption, provider switching and crash/concurrency verification remain open; pending dispatch stays disabled. UAG-02 remains unverified; UAG-03–08 and M17–M19 remain gated. Next: implement the atomic handoff and obtain supported command-capable native execution for the existing focused checks.

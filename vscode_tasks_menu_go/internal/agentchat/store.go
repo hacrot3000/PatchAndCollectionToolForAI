@@ -618,6 +618,26 @@ func (s *Store) Save(x Session, expectedRevision uint64) (Session, error) {
 				return ErrInvalidSession
 			}
 		}
+		// Generic Save must not discard a queued message before an atomic
+		// owner-scoped pending-to-PREPARED handoff exists.
+		if e == nil && existing.PendingUserTurn != nil && x.PendingUserTurn == nil {
+			return ErrInvalidSession
+		}
+		// A staged sidecar may have been replaced before this journal CAS.
+		// Never publish a newly PREPARED reference to different request bytes.
+		if x.ProviderRun != nil && x.ProviderRun.Phase == "prepared" &&
+			(e != nil || existing.ProviderRun == nil || existing.ProviderRun.Phase != "prepared" || existing.ProviderRun.ID != x.ProviderRun.ID) {
+			fi, err := os.Lstat(s.providerRunFile(x.ID))
+			if err != nil { return err }
+			if !fi.Mode().IsRegular() || fi.Mode().Perm()&0077 != 0 || fi.Size() > 2*maxProviderRunPayload { return ErrInvalidSession }
+			raw, err := os.ReadFile(s.providerRunFile(x.ID))
+			if err != nil { return err }
+			var record providerPayloadRecord
+			if json.Unmarshal(raw, &record) != nil || record.Version != 1 ||
+				record.RunID != x.ProviderRun.ID || record.SHA256 != x.ProviderRun.PayloadSHA256 ||
+				len(record.Payload) == 0 || len(record.Payload) > maxProviderRunPayload ||
+				ProviderPayloadDigest(record.Payload) != record.SHA256 { return ErrInvalidSession }
+		}
 		if err:=s.archivePatchHistory(&x);err!=nil{return err}
         if err:=s.archiveCollectionHistory(&x);err!=nil{return err}
 		if err:=validateSession(x);err!=nil{return err}

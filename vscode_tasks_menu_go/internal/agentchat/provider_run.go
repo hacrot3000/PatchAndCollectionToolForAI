@@ -70,6 +70,8 @@ func (s *Store) StageProviderPayload(x Session,payload []byte)error{
   if previous.Revision!=x.Revision{return ErrStaleRevision}
   if previous.Owner!=x.Owner||previous.Workspace!=x.Workspace||
    previous.ProjectID!=x.ProjectID||!s.matchesProject(previous){return ErrInvalidSession}
+  // A committed PREPARED journal still references the existing sidecar.
+  if previous.ProviderRun!=nil && previous.ProviderRun.Phase=="prepared"{return ErrInvalidSession}
   record:=providerPayloadRecord{Version:1,RunID:x.ProviderRun.ID,
    SHA256:x.ProviderRun.PayloadSHA256,Payload:payload}
   encoded,err:=json.Marshal(record)
@@ -127,7 +129,11 @@ func (s *Store) PreparedProviderPayload(id,owner string)(Session,[]byte,error){
 func (s *Store) DeleteProviderPayload(id string) error{
  if !validID(id){return errors.New("invalid session")}
  return s.withLock(func()error{
-  err:=os.Remove(s.providerRunFile(id))
+  current,err:=s.readLocked(id)
+  if err!=nil{return err}
+  // Never delete the payload referenced by a committed PREPARED run.
+  if current.ProviderRun!=nil && current.ProviderRun.Phase=="prepared"{return ErrInvalidSession}
+  err=os.Remove(s.providerRunFile(id))
   if os.IsNotExist(err){return nil} // already removed; no metadata change
   if err!=nil{return err}
   // The canonical SENDING/UNKNOWN journal is authoritative regardless of
