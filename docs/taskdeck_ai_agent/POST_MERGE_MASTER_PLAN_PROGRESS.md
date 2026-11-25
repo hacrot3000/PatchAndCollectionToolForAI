@@ -1199,3 +1199,7 @@ Status: IMPLEMENTED_UNVERIFIED
 ### UAG-02 follow-up — staged payload CAS checkpoint
 - Native PATCH runs 1795597792691129_1195340, 1795597831687017_1197800 and 1795597870694471_1200163 passed for the PREPARED sidecar journal fence, its competing-stage regression source, and inclusion in the focused runner. COLLECT agent_collect_ea8a19b480bdbb0e6eb81911 confirmed the regression and runner entry.
 - These are source-change receipts, not test results. No execution of this focused regression is confirmed. Owner-scoped atomic pending adoption, provider switching and crash/concurrency verification remain open; pending dispatch stays disabled. UAG-02 remains unverified; UAG-03–08 and M17–M19 remain gated. Next: implement the atomic handoff and obtain supported command-capable native execution for the existing focused checks.
+
+### UAG-02 follow-up — pending-turn removal guard checkpoint
+- Native PATCH runs 1795597954768110_1205690 and 1795597993696379_1208591 passed for the generic Save pending-removal guard and regression source. COLLECT agent_collect_4d8c5a2f648a735bb243f15b and agent_collect_691107e2362a9136b36734c8 confirm the guard, regression, and disabled dispatch gate.
+- The regression is included in the focused runner by this source change; no test execution is confirmed. Owner-scoped atomic pending adoption, provider switching and crash/concurrency verification remain open. UAG-02 is unverified; UAG-03–08 and M17–M19 remain gated. Next: implement atomic admission and obtain a supported command-capable native route to execute focused checks.

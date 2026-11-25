@@ -618,9 +618,10 @@ func (s *Store) Save(x Session, expectedRevision uint64) (Session, error) {
 				return ErrInvalidSession
 			}
 		}
-		// Generic Save must not discard a queued message before an atomic
-		// owner-scoped pending-to-PREPARED handoff exists.
-		if e == nil && existing.PendingUserTurn != nil && x.PendingUserTurn == nil {
+		// Generic Save must not discard or replace a queued message before an
+		// atomic owner-scoped pending-to-PREPARED handoff exists.
+		if e == nil && existing.PendingUserTurn != nil &&
+			(x.PendingUserTurn == nil || *existing.PendingUserTurn != *x.PendingUserTurn) {
 			return ErrInvalidSession
 		}
 		// A staged sidecar may have been replaced before this journal CAS.

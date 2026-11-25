@@ -209,6 +209,22 @@ func TestStoreRejectsUnscopedProviderSelectionChanges(t *testing.T) {
  }
 }
 
+func TestStoreRejectsPendingTurnReplacement(t *testing.T) {
+ dir := filepath.Join(t.TempDir(), "private", "agent")
+ store, err := NewStore(dir); if err != nil { t.Fatal(err) }
+ x, err := NewSession("user:alice", "/workspace/a", "project-uuid", "provider", "model", Stateless); if err != nil { t.Fatal(err) }
+ x.PendingUserTurn = &PendingUserTurn{Message:"queued", RequestID:"req", RequestDigest:"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", ProviderID:"provider", ModelID:"model", ProviderConfigVersion:"v1", QueuedAt:time.Now().UTC()}
+ x, err = store.Save(x, 0); if err != nil { t.Fatal(err) }
+ changed := x
+ replacement := *x.PendingUserTurn
+ replacement.Message = "different"
+ changed.PendingUserTurn = &replacement
+ if _, err = store.Save(changed, x.Revision); !errors.Is(err, ErrInvalidSession) { t.Fatalf("pending replacement accepted: %v", err) }
+ reopened, err := NewStore(dir); if err != nil { t.Fatal(err) }
+ got, err := reopened.Get(x.ID, "user:alice"); if err != nil { t.Fatal(err) }
+ if got.Revision != x.Revision || got.PendingUserTurn == nil || got.PendingUserTurn.Message != "queued" || got.PendingUserTurn.RequestID != "req" { t.Fatal("rejected replacement altered durable pending turn") }
+}
+
 func TestStoreRejectsPendingTurnRemoval(t *testing.T) {
  dir := filepath.Join(t.TempDir(), "private", "agent")
  store, err := NewStore(dir); if err != nil { t.Fatal(err) }
