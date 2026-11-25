@@ -407,11 +407,19 @@ for _,i:=range indices{x.ToolCalls[i].FeedbackStatus="acknowledged"}
 	result, statelessCollection, err := s.agentChatRunCollection(continuationCtx, store, &x, result, p, model, string(secret), identity, toolAvailable)
 	if err != nil {
 		x.Status = "failed"
+		code:=502
+		stage:="collection_continuation"
+		if errors.Is(continuationCtx.Err(),context.Canceled){
+			x.Status="cancelled";code=409;stage="collection_cancelled"
+		}
 		// Collection flow already marks actual provider errors UNKNOWN.
 		agentCloseInterruptedCollection(&x)
-		x.AppendEvent("collect_failed", "failed", "", "")
-		_, _ = store.Save(x, x.Revision)
-		return agentDeliverResult{}, agentContinueError{502, "Collection continuation after Patch result failed; inspect the Agent journal"}
+		x.AppendEvent("collect_failed",x.Status,"",stage)
+		if _,saveErr:=store.Save(x,x.Revision);saveErr!=nil{
+			s.recordAgentDebugEvent(owner,x.ID,call.CallID,"collection","collection.checkpoint_save_failed","COLLECTION_JOURNAL_WRITE_FAILED","Collection terminal checkpoint could not be persisted; use Cancel to reconcile the acknowledged local checkpoint")
+			return agentDeliverResult{},agentContinueError{409,"Collection terminal checkpoint could not be saved; inspect journal and cancel the interrupted local Collection"}
+		}
+		return agentDeliverResult{}, agentContinueError{code, "Collection continuation after Patch result stopped; inspect the Agent journal"}
 	}
 	appendAgentProviderResult(&x, result, toolAvailable)
 	if mode==agentchat.Stateless || statelessCollection {
