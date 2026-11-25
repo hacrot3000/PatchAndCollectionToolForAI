@@ -345,3 +345,67 @@ func TestAgentDenialAutoContinueRespectsConsentAndLoopBrake(t *testing.T){
  x.History=append(x.History,agentchat.HistoryItem{Type:"user",Content:"New task"})
  if _,ok:=agentAutoFeedbackCandidate(x);!ok{t.Fatal("new user turn did not reset brake")}
 }
+
+func TestAgentRejectedSessionRecoveryAfterRestart(t *testing.T) {
+ for _,manual:=range []bool{false,true}{
+  t.Run(map[bool]string{false:"automatic",true:"manual"}[manual],func(t *testing.T){
+   s,id:=newAgentConversationFixture(t,"stateless")
+   store,err:=s.agentChatStore();if err!=nil{t.Fatal(err)}
+   x,err:=store.Get(id,"local");if err!=nil{t.Fatal(err)}
+   x.AutoFeedback=!manual
+   x.AutoFeedbackPersistent=!manual
+   appendAgentProviderResult(&x,agentchat.ResponsesResult{ResponseID:"denied-turn",Calls:[]agentchat.FunctionCall{
+    {CallID:"rejected-after-update",Name:"shell",Arguments:`{"command":"whoami"}`},
+   }},true)
+   x.Status="failed"
+   x,err=store.Save(x,x.Revision);if err!=nil{t.Fatal(err)}
+   requests:=0
+   s.AgentChatCall=func(_ context.Context,_ agentchat.ProviderConfig,_ string,payload []byte)(agentchat.ResponsesResult,error){
+    requests++
+    if !strings.Contains(string(payload),`"call_id":"rejected-after-update"`)||
+       !strings.Contains(string(payload),"UNSUPPORTED_TOOL"){t.Fatal("missing original rejection")}
+    return agentchat.ResponsesResult{ResponseID:"recovered-response",Text:"Continuing safely."},nil
+   }
+   if manual{
+    reply:=invokeAI(t,s.agentChatSessionItemAPI,"POST","/api/agent/sessions/"+id+"/tools/rejected-after-update/continue",
+      map[string]any{"expected_revision":x.Revision,"confirm_external":true})
+    if reply.Code!=200{t.Fatalf("manual recovery: %d %s",reply.Code,reply.Body)}
+   }else{
+    s.agentReconcileOneStartupSession(context.Background(),store,id)
+    recovered,e:=store.Get(id,"local");if e!=nil||recovered.Status!="tool_rejected"{t.Fatalf("startup did not restore rejection: %s %v",recovered.Status,e)}
+    s.runAgentAutoFeedback(context.Background())
+   }
+   y,err:=store.Get(id,"local");if err!=nil{t.Fatal(err)}
+   if requests!=1||y.ToolCalls[0].FeedbackStatus!="acknowledged"||y.Status!="completed"{t.Fatalf("recovery failed: requests=%d status=%s",requests,y.Status)}
+   s.runAgentAutoFeedback(context.Background())
+   if requests!=1{t.Fatal("rejection replayed")}
+  })
+ }
+}
+
+func TestAgentRejectionRecoveryRefusesAmbiguousOrHistoricalCalls(t *testing.T){
+ makeSession:=func()agentchat.Session{
+  x:=agentchat.Session{Owner:"local"}
+  appendAgentProviderResult(&x,agentchat.ResponsesResult{ResponseID:"denied-turn",Calls:[]agentchat.FunctionCall{
+   {CallID:"denial",Name:"shell",Arguments:`{}`},
+  }},true)
+  x.Status="failed"
+  return x
+ }
+ x:=makeSession()
+ if !agentRestoreRejectedSession(&x,"denial")||x.Status!="tool_rejected"{t.Fatal("safe denial not restored")}
+ for _,tc:=range []struct{name string; change func(*agentchat.Session)}{
+  {"stop",func(x *agentchat.Session){x.Status="cancelled"}},
+  {"unknown provider",func(x *agentchat.Session){x.ProviderRun=&agentchat.ProviderRun{Phase:"unknown"}}},
+  {"prepared",func(x *agentchat.Session){x.ProviderRun=&agentchat.ProviderRun{Phase:"prepared"}}},
+  {"sending",func(x *agentchat.Session){x.ProviderRun=&agentchat.ProviderRun{Phase:"sending"}}},
+  {"old card",func(x *agentchat.Session){x.History=append(x.History,agentchat.HistoryItem{Type:"user",Content:"new task"})}},
+  {"output exists",func(x *agentchat.Session){x.History=append(x.History,agentchat.HistoryItem{Type:"function_call_output",CallID:"denial",Content:"old output"})}},
+  {"previous attempt",func(x *agentchat.Session){x.ToolCalls[0].RunID="native"}},
+  {"run owned",func(x *agentchat.Session){x.ToolCalls[0].AgentRunID="run"}},
+  {"sent",func(x *agentchat.Session){x.ToolCalls[0].FeedbackSent=true}},
+  {"changed payload",func(x *agentchat.Session){x.History[0].Arguments=`{"other":true}`}},
+ }{
+  t.Run(tc.name,func(t *testing.T){x:=makeSession();tc.change(&x);if agentRestoreRejectedSession(&x,"denial"){t.Fatal("unsafe recovery")}})
+ }
+}

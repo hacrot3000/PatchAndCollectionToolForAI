@@ -78,8 +78,16 @@ func (s *Server) agentChatToolContinueAPI(w http.ResponseWriter, r *http.Request
 		return
 	}
 	if x.Status != "waiting_tool" && x.Status != "tool_rejected" {
-		http.Error(w, "Agent session not awaiting a final tool result", 409)
-		return
+		if s.agentConversationRequiresRunContinuation(owner, id) ||
+			!agentRestoreRejectedSession(&x, callID) {
+			http.Error(w, "Agent session not awaiting a final tool result; refresh the current conversation and inspect pending or unconfirmed delivery. No tool result was resent.", 409)
+			return
+		}
+		x, err = store.Save(x, x.Revision)
+		if err != nil {
+			http.Error(w, "cannot persist recovered rejection state", 409)
+			return
+		}
 	}
 	idx := -1
 	for i, item := range x.ToolCalls {
@@ -172,8 +180,16 @@ func (s *Server) agentDeliverToolResult(ctx context.Context, store *agentchat.St
 	if call.Status != "done" && call.Status != "error" && call.Status != "rejected" {
 		return agentDeliverResult{}, agentContinueError{409, "Patch result has no verified final status; do not send success prematurely"}
 	}
-	if call.FeedbackSent {
-		return agentDeliverResult{}, agentContinueError{409, "tool result not pending"}
+	if call.FeedbackSent || call.FeedbackStatus != "" {
+		return agentDeliverResult{}, agentContinueError{409, "tool result not pending; delivery may already have been attempted"}
+	}
+	if x.Archived || (x.ProviderRun != nil && x.ProviderRun.Phase != "completed" && x.ProviderRun.Phase != "acknowledged") {
+		return agentDeliverResult{}, agentContinueError{409, "previous provider delivery requires reconciliation; no result was resent"}
+	}
+	for _, item := range x.History {
+		if item.Type == "function_call_output" && item.CallID == call.CallID {
+			return agentDeliverResult{}, agentContinueError{409, "tool output already exists in canonical history"}
+		}
 	}
 	// Consent must precede both the PREPARED journal and SENDING fence.
 	// A denied request never creates a replayable provider intent.
@@ -232,6 +248,14 @@ func (s *Server) agentDeliverToolResult(ctx context.Context, store *agentchat.St
     next:=make([]agentchat.HistoryItem,0,len(indices))
     for _,i:=range indices{
         sibling:=x.ToolCalls[i]
+        if sibling.FeedbackSent || sibling.FeedbackStatus!="" {
+            return agentDeliverResult{},agentContinueError{409,"sibling tool output is not pending"}
+        }
+        for _,item:=range x.History{
+            if item.Type=="function_call_output"&&item.CallID==sibling.CallID{
+                return agentDeliverResult{},agentContinueError{409,"sibling output already exists in canonical history"}
+            }
+        }
         if sibling.Name!="taskdeck_submit_patch"&&!agentCanDeliverRejectedToolCall(x,sibling){
             return agentDeliverResult{},agentContinueError{409,"unsupported tool has no source call"}
         }

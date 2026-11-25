@@ -305,6 +305,17 @@ func (s *Server) agentChatToolDecisionAPI(w http.ResponseWriter, r *http.Request
 	// moved between the approval request and this write, stop and require a
 	// fresh review instead of applying the patch to an unreviewed state.
 	if err := s.agentVerifyApprovalStillValid(r.Context(), &x.ToolCalls[idx]); err != nil {
+		// We still own the turn lease and have not called native paste.
+		// The QUEUING marker alone does not make this live refusal ambiguous.
+		if agentPatchHasNoNativeAttempt(x.ToolCalls[idx]) && x.ToolCalls[idx].AgentRunID == "" {
+			agentRecordStalePatchDenial(&x, idx)
+			if _, err = store.Save(x, x.Revision); err != nil {
+				http.Error(w, "cannot persist pre-handoff Patch rejection", 409)
+				return
+			}
+			writeJSON(w, 200, map[string]any{"session_id":sessionID,"call_id":callID,"status":"rejected","execution_enabled":false,"note":"Workspace changed before native paste; request a new proposal."})
+			return
+		}
 		x.ToolCalls[idx].Status = "unknown"
 		x.ToolCalls[idx].Result = "Workspace changed before queue handoff; no patch was queued. Request a new proposal."
 		x.Status = "tool_unknown"

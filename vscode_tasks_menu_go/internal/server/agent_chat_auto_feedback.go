@@ -105,7 +105,7 @@ func agentAutoFeedbackCandidate(x agentchat.Session) (int, bool) {
     }
 	for _, call := range x.ToolCalls {
 		switch call.Status {
-		case "running", "dispatching", "queued":
+		case "queuing", "running", "dispatching", "queued", "unknown":
 			return 0, false // wait until the native item is final
 		}
 	}
@@ -191,6 +191,7 @@ func agentAutoFeedbackNeedsWork(x agentchat.Session) bool {
 	if agentchat.TaskAutoCheckReady(x){return true}
 	if _, ok := agentAutoPatchCandidate(x); ok { return true }
 	if _, ok := agentAutoFeedbackCandidate(x); ok { return true }
+	if _, ok := agentRecoverableRejection(x, ""); ok { return true }
 	// A native operation can finish while the GUI is closed; it still
 	// requires reconciliation, even when auto-feedback was not selected.
 	for _, call := range x.ToolCalls {
@@ -283,7 +284,8 @@ func (s *Server) reconcileAgentSession(ctx context.Context, store *agentchat.Sto
 	if err != nil || x.Owner != "local" || x.Workspace != s.Workspace {
 		return
 	}
-	changed := agentParkInterruptedQueue(&x)
+	changed := agentRestoreRejectedSession(&x, "")
+	if agentParkInterruptedQueue(&x) { changed = true }
 	for i, record := range x.ToolCalls {
 		if ctx.Err() != nil {
 			return

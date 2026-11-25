@@ -1920,6 +1920,16 @@ async function syncAgentPatch(id,{quiet=false}={}){
 async function continueAgentTool(session,callID){
  if(agentSessionBusy(session.id))return;
  if(!window.confirm('Send the recorded tool result or rejection back to the external AI provider to continue this conversation? No tool will be re-executed.'))return;
+ // Refresh before sending: the background scheduler may already have
+ // recovered or delivered this exact result while the old card was visible.
+ const current=await selectAgentSession(session.id);
+ if(!current)return;
+ const pending=(current.tool_calls||[]).find(call=>call.call_id===callID);
+ if(!pending||pending.feedback_sent||pending.feedback_status){
+  setAgentStatusNotice('This tool result is no longer pending. Current conversation refreshed; no result was resent.');
+  return;
+ }
+ session=current;
  const turn={message:'',phase:'feedback',error:'',baseHistoryLength:session.history?.length||0,
   baseEventSeq:session.event_seq||0,optimisticNode:null,acknowledged:false};
  agentLiveTurns.set(session.id,turn);
@@ -1956,6 +1966,11 @@ function agentMonitorNeedsWork(sess){
  return ['requesting_ai','tool_queuing'].includes(sess.status)||
   calls.some(call=>['queuing','running','dispatching','queued','unknown'].includes(call.status))||
   (sess.auto_patch&&sess.status==='waiting_tool'&&calls.some(call=>call.status==='pending'))||
+  (['failed','completed','tool_unknown','tool_queuing'].includes(sess.status)&&
+   (!sess.provider_run||sess.provider_run.phase==='completed')&&
+   sess.history?.at(-1)?.type==='function_call'&&
+   calls.some(call=>call.call_id===sess.history.at(-1).call_id&&call.status==='rejected'&&
+    !call.feedback_sent&&!call.feedback_status&&(sess.auto_feedback||sess.auto_continue_text||sess.task_plan?.auto_continue)))||
   (['waiting_tool','tool_rejected'].includes(sess.status)&&calls.some(call=>!call.feedback_sent&&(
    (sess.auto_feedback&&['done','error','rejected'].includes(call.status))||
    (call.status==='rejected'&&(sess.auto_continue_text||sess.task_plan?.auto_continue)))));

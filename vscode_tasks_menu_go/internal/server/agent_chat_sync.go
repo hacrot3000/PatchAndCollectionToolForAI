@@ -47,7 +47,11 @@ func (s *Server) agentChatSyncAPI(w http.ResponseWriter, r *http.Request, id str
 	}
 	// The same turn lease used by approval is held. A leftover QUEUING
 	// marker cannot still be owned by a live approval handler.
-	changed := agentParkInterruptedQueue(&x)
+	changed := false
+	if !s.agentConversationRequiresRunContinuation(owner,id) {
+		changed = agentRestoreRejectedSession(&x, "")
+	}
+	if agentParkInterruptedQueue(&x) { changed = true }
 	for i, record := range x.ToolCalls {
 		if (record.Status != "running" && record.Status != "unknown" && record.Status != "dispatching") || record.PatchSessionID == "" {
 			continue
@@ -116,7 +120,11 @@ func (s *Server) agentReconcileOneStartupSession(ctx context.Context,store *agen
  sess,err:=store.Get(id,"local")
  if err!=nil||sess.Workspace!=s.Workspace{return}
  if ctx.Err()!=nil{return}
-	changed := agentParkInterruptedQueue(&sess)
+	changed := false
+	if !s.agentConversationRequiresRunContinuation("local",id) {
+		changed = agentRestoreRejectedSession(&sess, "")
+	}
+	if agentParkInterruptedQueue(&sess) { changed = true }
 	// The per-session lease proves no other local daemon currently owns
 	// this turn. A crashed worker may leave requesting_ai SENDING behind.
 	// Do not leave it stuck or blindly replay an ambiguous provider request.
