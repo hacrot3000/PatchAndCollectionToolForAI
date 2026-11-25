@@ -29,6 +29,11 @@ func (s *Server) syncAgentRunConversation(owner string, run agentrun.Record, exe
 	if err != nil || executionIdentity.ID != session.ProjectID {
 		return agentchat.Session{}, errors.New("execution workspace project identity mismatch")
 	}
+	// F03: a late sync from a stale run must not hide history already recorded
+	// from a newer sibling run, nor mirror an older status over it.
+	if agentRunHistorySnapshotIsStale(session.History, run.History, run.Spec.RunID) {
+		return agentchat.Session{}, errors.New("run history is stale relative to current conversation history")
+	}
 	// The run history may include already-reconciled Collection calls and
 	// historical calls from other turns. Only its current pending Patch
 	// calls may create approval records.
@@ -85,4 +90,29 @@ func (s *Server) syncAgentRunConversation(owner string, run agentrun.Record, exe
 		return agentchat.Session{}, err
 	}
 	return saved, nil
+}
+
+// agentRunHistorySnapshotIsStale reports whether applying run's history
+// snapshot to a session would hide history the session already holds from a
+// different, superseding run. A snapshot is stale when the session carries
+// a final-answer item (assistant text or tool result) whose OriginRunID is
+// neither this run nor one already represented in the snapshot itself.
+// Prior runs present in the snapshot were part of the run's immutable
+// context and are therefore not treated as stale.
+func agentRunHistorySnapshotIsStale(sessionHistory, runHistory []agentchat.HistoryItem, runID string) bool {
+	inSnapshot := make(map[string]bool, len(runHistory))
+	for _, item := range runHistory {
+		if item.OriginRunID != "" {
+			inSnapshot[item.OriginRunID] = true
+		}
+	}
+	for _, item := range sessionHistory {
+		if item.OriginRunID == "" || item.OriginRunID == runID || inSnapshot[item.OriginRunID] {
+			continue
+		}
+		if item.Type == "assistant" || item.Type == "function_call_output" {
+			return true
+		}
+	}
+	return false
 }

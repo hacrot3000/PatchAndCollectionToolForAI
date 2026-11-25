@@ -4,8 +4,10 @@ on:
   push:
     paths:
       - 'vscode_tasks_menu_go/internal/agentchat/**'
+      - 'vscode_tasks_menu_go/internal/agentrun/**'
       - 'vscode_tasks_menu_go/internal/taskmanifest/**'
       - 'vscode_tasks_menu_go/internal/server/agent_chat_task_manifest*'
+      - 'vscode_tasks_menu_go/internal/server/agent_run_*'
       - 'vscode_tasks_menu_go/web/featuremods/agentchat.js'
       - 'vscode_tasks_menu_go/web/featuremods/agentchatformat.js'
       - 'vscode_tasks_menu_go/web/agentchat_bootstrap_test.cjs'
@@ -13,6 +15,10 @@ on:
       - 'vscode_tasks_menu_go/web/featuremods/terminalchatcontext.js'
       - 'vscode_tasks_menu_go/web/terminalchatcontext_test.cjs'
       - 'vscode_tasks_menu_go/web/featuremods/menus.js'
+      - 'vscode_tasks_menu_go/web/featuremods/agentchat_runs_ui.js'
+      - 'vscode_tasks_menu_go/web/featuremods/agentchat_coordination.js'
+      - 'vscode_tasks_menu_go/web/agentchat_runs_isolation_test.cjs'
+      - 'vscode_tasks_menu_go/web/agentchat_coordination_test.cjs'
       - 'vscode_tasks_menu_go/internal/server/agent_chat_*'
       - 'vscode_tasks_menu_go/internal/server/server.go'
       - 'vscode_tasks_menu_go/internal/server/patch_work_exclusivity.go'
@@ -24,8 +30,10 @@ on:
   pull_request:
     paths:
       - 'vscode_tasks_menu_go/internal/agentchat/**'
+      - 'vscode_tasks_menu_go/internal/agentrun/**'
       - 'vscode_tasks_menu_go/internal/taskmanifest/**'
       - 'vscode_tasks_menu_go/internal/server/agent_chat_task_manifest*'
+      - 'vscode_tasks_menu_go/internal/server/agent_run_*'
       - 'vscode_tasks_menu_go/web/featuremods/agentchat.js'
       - 'vscode_tasks_menu_go/web/featuremods/agentchatformat.js'
       - 'vscode_tasks_menu_go/web/agentchat_bootstrap_test.cjs'
@@ -33,6 +41,10 @@ on:
       - 'vscode_tasks_menu_go/web/featuremods/terminalchatcontext.js'
       - 'vscode_tasks_menu_go/web/terminalchatcontext_test.cjs'
       - 'vscode_tasks_menu_go/web/featuremods/menus.js'
+      - 'vscode_tasks_menu_go/web/featuremods/agentchat_runs_ui.js'
+      - 'vscode_tasks_menu_go/web/featuremods/agentchat_coordination.js'
+      - 'vscode_tasks_menu_go/web/agentchat_runs_isolation_test.cjs'
+      - 'vscode_tasks_menu_go/web/agentchat_coordination_test.cjs'
       - 'vscode_tasks_menu_go/internal/server/agent_chat_*'
       - 'vscode_tasks_menu_go/internal/server/server.go'
       - 'vscode_tasks_menu_go/internal/server/patch_work_exclusivity.go'
@@ -49,7 +61,7 @@ permissions:
 jobs:
   agentchat-core:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -60,15 +72,20 @@ jobs:
         working-directory: vscode_tasks_menu_go
         run: |
           go test -race -count=1 ./internal/agentchat/...
+          go test -v -race -count=1 ./internal/agentrun/...
           go test -count=1 ./internal/server -run '^TestAgent'
+          go test -v -race -count=1 ./internal/server -run '^(TestAgentRun|TestAgentConversation|TestAgentCoordination|TestAgentContext|TestAgentTask|TestAgentProvider)'
           go test -race -count=1 ./internal/taskmanifest
-          go vet ./internal/agentchat/... ./internal/taskmanifest
+          go vet ./internal/agentchat/... ./internal/agentrun/... ./internal/taskmanifest
           go vet ./internal/server
           node --check web/featuremods/agentchat.js
           node --check web/featuremods/agentchatformat.js
+          node --check web/featuremods/agentchat_runs_ui.js
+          node --check web/featuremods/agentchat_coordination.js
           node --check web/featuremods/terminalchatcontext.js
           node web/terminalchatcontext_test.cjs
           node web/agentchat_bootstrap_test.cjs
+          node --test web/agentchat_runs_isolation_test.cjs web/agentchat_coordination_test.cjs
           node test_ai_smart_terminal.cjs
       - uses: actions/setup-python@v5
         with:
