@@ -181,7 +181,7 @@ Không bỏ qua function output của call đã nhận. Nếu checkpoint trướ
   - **Acceptance:** test duplicates, retry, rejected/no-op PATCH, actual change, read-only progress, threshold không spam.
     - [x] **CLP-01.03.01** — Định nghĩa counters riêng requested, observed, verified-new, duplicate, unknown, error, HTTP attempts. (`DONE` — pure counters; full core CI 45584061420 PASS; runtime adapter pending)
     - [x] **CLP-01.03.02** — Cài streak/watermark/cooldown, phân biệt last PATCH proposal, executed, meaningful progress. (`DONE` — independent counters/hysteresis verified in CI 45584061420; runtime receipt adapter pending)
-    - [ ] **CLP-01.03.03** — Đảm bảo rejected/no-op/partial PATCH và retry không reset sai; dùng receipt thật. (`TODO`)
+    - [ ] **CLP-01.03.03** — Đảm bảo rejected/no-op/partial PATCH và retry không reset sai; dùng receipt thật. (`VERIFY_PENDING` — real native PATCH ledger adapter; HTTP attempt integration pending)
     - [ ] **CLP-01.03.04** — Test idempotence, boundaries, repeated warnings và progress reset hợp lệ. (`TODO`)
 - [ ] **CLP-01.04 — Checkpoint và bounded recovery policy** (`IN_PROGRESS`, P1)
   - Tạo decisions `CONTINUE`, `ADVISE`, `REPLAN`, `CHECKPOINT` (tên có thể điều chỉnh). Recovery dùng tiếp continuation framework đã có; phân biệt stalled với user stop/unknown delivery. Ghi next action và reason; không tự báo completed.
@@ -226,7 +226,7 @@ Không bỏ qua function output của call đã nhận. Nếu checkpoint trướ
 - [ ] **CLP-02.04 — Source mutation invalidation & resource bounds** (`IN_PROGRESS`, P1)
   - Invalidate coverage sau PATCH hoặc external change/worktree drift; dùng receipt changed-files nếu đáng tin, fallback invalidate rộng khi mutation unknown/partial. Bounded memory/index size, TTL hoặc eviction; không làm mất lịch sử gốc.
   - **Acceptance:** đọc lại sau sửa file không bị chặn sai; failed partial patch, external edit, rename/delete, source lớn ~150 MB; benchmark metadata bounded, không thêm full-source scan.
-    - [ ] **CLP-02.04.01** — Nối invalidation với native PATCH receipt, changed files và external/worktree drift signal. (`TODO`)
+    - [ ] **CLP-02.04.01** — Nối invalidation với native PATCH receipt, changed files và external/worktree drift signal. (`VERIFY_PENDING` — session CAS native ledger transitions; external drift/path adapter pending)
     - [ ] **CLP-02.04.02** — Invalidate theo path khi proof đầy đủ, scope rộng khi partial/unknown mutation; xử lý rename/delete. (`VERIFY_PENDING` — pure invalidation; authoritative mutation adapter pending)
     - [ ] **CLP-02.04.03** — Cài TTL/eviction/size cap và benchmark metadata; không scan/hash lại toàn source. (`VERIFY_PENDING` — bounded metadata index; benchmark pending)
     - [ ] **CLP-02.04.04** — Test read-after-patch, failed partial patch, external edit, 150MB source và bounded overhead. (`TODO`)
@@ -644,6 +644,9 @@ Only a verified duplicate streak after earlier advice can trigger stall recovery
 
 #### CLP-00.03 / drain-only UI regression
 CI 45587460818 at 078801df passed Go server suites, race and vet, then failed old bootstrap Hot-Switch fixture: composer correctly used Legacy /messages after concurrent UAG-02 disabled Unified creation, but test expected new RunManager POST. Added early same-conversation busy fence (preserve draft/live turn/AbortController, no new send/cancel). Updated regression to assert public busy composer refuses without egress; retained independent RunManager module mocked submission/binding, card isolation, retry/stop and native approval/continuation assertions as module-level tests, not public creation. No Unified route reenabled. CI pending.
+
+#### CLP-01.03 / 02.04 — Native PATCH transition invalidation
+At existing Session.Save CAS, compare previous vs new server-owned ToolCalls before archival. Count newly registered Legacy proposal/rejection, exact native final run receipt execution, uncertain outcome separately; ACK or same terminal ledger transition cannot double count. Any potential source mutation invalidates exact-request evidence broadly (including unknown or Unified ledger transitions; do not attribute Unified execution count to Legacy). Explicit native preflight no-change does not claim execution. Wrapper PASS never resets meaningful progress or acceptance; clear only duplicate streak on potential mutation. Preserve opaque guard during normal saves. Added store CAS test for proposal → running → final → ACK with unchanged progress and evidence invalidation. External drift/path-specific proof and HTTP attempts pending. CI pending.
 
 ### 8.2. Blockers và quyết định (append)
 

@@ -141,3 +141,74 @@ func (x *Session) BindCollectionGuard(goal,step string,continuation bool)bool{
   Policy:cp.Defaults(),Counters:counters,Evidence:cp.NewEvidenceIndex(binding),Legacy:legacy,
  })
 }
+
+
+// Record only new transitions in the server-owned native Patch ledger.
+// Called after successful session CAS validation, before archive/atomic write.
+// A failed Save cannot publish either the transition or its guard metadata.
+// The model's proposed Python, wrapper PASS and provider completion do not
+// establish objective progress or acceptance.
+func (x *Session) recordCollectionGuardPatchTransitions(previous Session){
+ g,ok:=x.ReadCollectionGuard();if !ok{return}
+ oldGuard,oldOK:=previous.ReadCollectionGuard()
+ if oldOK&&oldGuard.Counters.Objective.Key!=g.Counters.Objective.Key{
+  // Different owner objective: do not attribute previous work to it.
+  return
+ }
+ old:=map[string]ToolCallRecord{}
+ for _,call:=range previous.ToolCalls{old[call.CallID]=call}
+ emit:=func(call ToolCallRecord,kind cp.EventKind){
+  if x.EventSeq==^uint64(0){return}
+  seq:=x.EventSeq+1
+  event:=cp.CounterEvent{Sequence:seq,Identity:guardDigest([]any{x.ID,call.CallID,call.PatchSessionID,call.RunID,kind,seq}),Kind:kind}
+  updated,_,applied,err:=cp.ApplyCounterEvent(g.Policy,g.Counters,event,true)
+  if err!=nil||!applied{return}
+  g.Counters=updated
+  x.AppendEvent("clp_"+string(kind),x.Status,call.CallID,"")
+ }
+ dirty:=false
+ for _,call:=range x.ToolCalls{
+  if call.Name!="taskdeck_submit_patch"{continue}
+  prior,found:=old[call.CallID]
+  if found&&prior.Status==call.Status&&prior.RunID==call.RunID&&prior.PatchSessionID==call.PatchSessionID{continue}
+  // This is the Legacy objective; a Unified record may be from a
+  // different worktree. Conservatively invalidate potential writes but
+  // do not attribute its execution count to this objective.
+  attributable:=call.AgentRunID==""
+  switch call.Status{
+  case "pending":
+   if !found&&attributable{emit(call,cp.PatchProposed)}
+  case "rejected":
+   if attributable{emit(call,cp.PatchRejected)}
+  case "queuing","queued","dispatching","running":
+   dirty=true
+  case "unknown":
+   dirty=true
+   if attributable{emit(call,cp.PatchUncertain)}
+  case "done","error":
+   var receipt struct{
+    RunID string `json:"run_id"`
+    Status string `json:"status"`
+    ProjectUnchanged bool `json:"project_unchanged"`
+   }
+   exact:=call.RunID!=""&&call.PatchSessionID!=""&&json.Unmarshal([]byte(call.Result),&receipt)==nil&&receipt.RunID==call.RunID
+   if exact&&receipt.Status=="PREFLIGHT_FAIL"&&receipt.ProjectUnchanged&&call.Status=="error"{
+    if attributable{emit(call,cp.PatchRejected)}
+    continue
+   }
+   dirty=true
+   if attributable{
+    if exact&&((receipt.Status=="PASS"&&call.Status=="done")||((receipt.Status=="FAIL"||receipt.Status=="INCOMPLETE")&&call.Status=="error")){
+     emit(call,cp.PatchExecuted)
+    }else{emit(call,cp.PatchUncertain)}
+   }
+  }
+ }
+ if dirty{
+  g.Evidence=cp.InvalidateEvidence(g.Evidence,false)
+  // Earlier duplicate streak is not proof about source after a potential
+  // mutation. Keep reads-since-meaningful-progress and recovery budget.
+  g.Counters.Progress.DuplicateStreak=0
+ }
+ x.SetCollectionGuard(g)
+}

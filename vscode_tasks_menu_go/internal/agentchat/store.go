@@ -641,6 +641,16 @@ func (s *Store) Save(x Session, expectedRevision uint64) (Session, error) {
 				len(record.Payload) == 0 || len(record.Payload) > maxProviderRunPayload ||
 				ProviderPayloadDigest(record.Payload) != record.SHA256 { return ErrInvalidSession }
 		}
+		if e==nil {
+			// Guard metadata follows the same CAS as actual Patch ledger
+			// transitions. Never drop an opaque future guard in a normal save.
+			if len(existing.CollectionGuard)>0 {
+				if _,ok:=existing.ReadCollectionGuard();!ok||len(x.CollectionGuard)==0 {
+					x.CollectionGuard=existing.CollectionGuard
+				}
+			}
+			x.recordCollectionGuardPatchTransitions(existing)
+		}
 		if err:=s.archivePatchHistory(&x);err!=nil{return err}
         if err:=s.archiveCollectionHistory(&x);err!=nil{return err}
 		if err:=validateSession(x);err!=nil{return err}
