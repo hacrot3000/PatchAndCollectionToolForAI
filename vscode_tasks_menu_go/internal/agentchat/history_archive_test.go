@@ -131,7 +131,7 @@ func TestArchiveStandaloneContinuationsAtLegacyHistoryLimit(t *testing.T){
  if err:=validateSession(x);err!=nil{t.Fatal(err)}
  raw,err:=json.Marshal(x);if err!=nil{t.Fatal(err)}
  // Seed an old valid session directly, before new archival takes effect.
- if err=os.WriteFile(store.file(x.ID),raw,0600);err!=nil{t.Fatal(err)}
+ if err=store.withLock(func() error { return os.WriteFile(store.file(x.ID),raw,0600) });err!=nil{t.Fatal(err)}
  x,err=store.Get(x.ID,"local");if err!=nil{t.Fatal(err)}
  if len(x.History)!=256{t.Fatal("old saturation fixture not reproduced")}
  x.History=append(x.History,HistoryItem{Type:"function_call_output",CallID:"pending-read",Content:"verified native receipt"})
