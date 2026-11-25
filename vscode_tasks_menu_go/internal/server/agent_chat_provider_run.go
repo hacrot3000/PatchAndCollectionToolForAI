@@ -49,6 +49,9 @@ func markAgentProviderSending(store *agentchat.Store,x *agentchat.Session)error{
 func markAgentProviderOutcome(x *agentchat.Session,phase string){
  if x==nil||x.ProviderRun==nil{return}
  switch phase{case "acknowledged","unknown","completed","blocked":default:return}
+ // A successful response cannot become ambiguous merely because downstream
+ // processing failed. New provider egress always gets a new run.
+ if phase=="unknown"&&(x.ProviderRun.Phase=="acknowledged"||x.ProviderRun.Phase=="completed"){return}
  x.ProviderRun.Phase=phase
  x.ProviderRun.UpdatedAt=time.Now().UTC()
 }

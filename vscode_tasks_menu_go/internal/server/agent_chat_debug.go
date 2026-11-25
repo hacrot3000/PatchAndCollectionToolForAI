@@ -65,6 +65,9 @@ type agentDebugEvent struct {
 	Reasoning         string    `json:"reasoning,omitempty"`
 	HistoryItems      int       `json:"history_items,omitempty"`
 	ToolCount         int       `json:"tool_count"`
+ CollectionToolSHA256 string `json:"collection_tool_sha256,omitempty"`
+ CollectionContractSHA256 string `json:"collection_contract_sha256,omitempty"`
+ CollectionRepairIncluded bool `json:"collection_repair_included,omitempty"`
 	Streaming         bool      `json:"streaming"`
 	APIKeyPresent     *bool     `json:"api_key_present,omitempty"`
 }
@@ -217,6 +220,7 @@ func (r *agentDebugRecorder) RecordProviderDiagnostic(ev agentchat.DiagnosticEve
 	}
 	event := agentDebugEvent{TraceID: r.traceID, At: ev.At, Level: ev.Level, Stage: ev.Stage, Event: ev.Event, Code: ev.Code, Endpoint: sanitizeAgentEndpoint(ev.Endpoint), APIType: ev.APIType, ProviderID: ev.ProviderID, ModelID: ev.ModelID, HTTPStatus: ev.HTTPStatus, ContentType: safeHeaderValue(ev.ContentType), RetryAfter: safeHeaderValue(ev.RetryAfter), ProviderRequestID: safeHeaderValue(ev.ProviderRequestID), DurationMS: ev.Duration.Milliseconds(), DNSMS:ev.Timing.DNSMS, TCPMS:ev.Timing.TCPMS, TLSMS:ev.Timing.TLSMS, UploadMS:ev.Timing.UploadMS, HeaderWaitMS:ev.Timing.HeaderWaitMS, TTFBMS:ev.Timing.TTFBMS, RequestBytes: ev.RequestBytes, ResponseBytes: ev.ResponseBytes, RequestSHA256: ev.RequestSHA256, ResponseSHA256: ev.ResponseSHA256, Redacted: true, Truncated: ev.Truncated, ContextMode: ev.ContextMode, Reasoning: ev.Reasoning, HistoryItems: ev.HistoryItems, ToolCount: ev.ToolCount, Streaming: ev.Streaming}
 	if ev.Event == "request.built" {
+		event.CollectionToolSHA256,event.CollectionContractSHA256,event.CollectionRepairIncluded=agentCollectionRequestDiagnostics(ev.RequestBody)
 		present := ev.APIKeyPresent
 		event.APIKeyPresent = &present
 	}
@@ -610,4 +614,28 @@ func debugErrorJSON(err error, traceID, fallbackCode, fallbackStage, fallbackMes
 func writeAgentStructuredError(w http.ResponseWriter, status int, err error, traceID, code, stage, message string) {
 	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, status, debugErrorJSON(err, traceID, code, stage, message))
+}
+
+
+// Derive only fingerprints and a boolean from the actual outgoing wire body.
+// Never store instructions, original arguments, source or tool output here.
+func agentCollectionRequestDiagnostics(raw []byte)(toolHash,contractHash string,repair bool){
+ var req struct{
+  Instructions string `json:"instructions"`
+  Tools []struct{ Name string `json:"name"`; Parameters json.RawMessage `json:"parameters"`; Function *struct{Name string `json:"name"`;Parameters json.RawMessage `json:"parameters"`} `json:"function"` } `json:"tools"`
+  Input []struct{Role string `json:"role"`;Type string `json:"type"`;Content string `json:"content"`;Output string `json:"output"`} `json:"input"`
+  Messages []struct{Role string `json:"role"`;Content json.RawMessage `json:"content"`} `json:"messages"`
+ }
+ if json.Unmarshal(raw,&req)!=nil{return}
+ for _,t:=range req.Tools{if t.Name=="taskdeck_collect_workspace"{toolHash=agentchat.BodyDigest(t.Parameters)}else if t.Function!=nil&&t.Function.Name=="taskdeck_collect_workspace"{toolHash=agentchat.BodyDigest(t.Function.Parameters)}}
+ instruction:=req.Instructions
+ for _,m:=range req.Messages{if m.Role=="system"||m.Role=="developer"{var s string;if json.Unmarshal(m.Content,&s)==nil{instruction+="\n"+s}};if m.Role=="tool"&&strings.Contains(string(m.Content),"repair_attempt"){repair=true}}
+ for _,m:=range req.Input{if (m.Type=="function_call_output"||m.Role=="user")&&(strings.Contains(m.Output,"repair_attempt")||strings.Contains(m.Content,"repair_attempt")){repair=true}}
+ const marker="Installed native COLLECT contract version "
+ if i:=strings.LastIndex(instruction,marker);i>=0{
+  tail:=instruction[i+len(marker):];if j:=strings.Index(tail,", SHA-256 ");j>=0{
+   value:=tail[j+len(", SHA-256 "):];if len(value)>=64{candidate:=value[:64];if _,err:=hex.DecodeString(candidate);err==nil{contractHash=candidate}}
+  }
+ }
+ return
 }

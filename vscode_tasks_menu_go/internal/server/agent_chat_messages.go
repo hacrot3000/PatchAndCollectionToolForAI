@@ -386,6 +386,7 @@ func (s *Server) agentChatMessageAPI(w http.ResponseWriter, r *http.Request, id 
 		History: agentContextForRequest(session, model, instructions, []agentchat.HistoryItem{next}), Next: []agentchat.HistoryItem{next}, MaxOutputTokens: limit,
 		ReasoningEffort: reasoning,
 		EnablePatchTool: patchToolAvailable, EnableCollectionTool: patchToolAvailable,
+		NativeCollectionContract: agentInstalledCollectionContract(s.Workspace),
 	})
 	if err != nil {
 		http.Error(w, "cannot build bounded AI context: "+err.Error(), 413)
@@ -482,7 +483,8 @@ func (s *Server) agentChatMessageAPI(w http.ResponseWriter, r *http.Request, id 
 			session.Status = "cancelled"
 			stage = "collection_cancelled"
 		}
-		markAgentProviderOutcome(&session,"unknown")
+		// Local Collection failures do not make acknowledged egress ambiguous.
+		agentCloseInterruptedCollection(&session)
 		session.AppendEvent("collect_failed", session.Status, "", stage)
 		if _, saveErr := store.Save(session, session.Revision); saveErr != nil {
 			http.Error(w, "Collection continuation failed; inspect the persisted Agent session", 409)
@@ -505,6 +507,10 @@ func (s *Server) agentChatMessageAPI(w http.ResponseWriter, r *http.Request, id 
 				code, httpStatus = "COLLECTION_IDENTITY_REJECTED", http.StatusConflict
 			}
 		}
+		var nested *agentCollectionProviderError
+		if errors.As(callErr,&nested)&&nested.TraceID!=""{traceID=nested.TraceID}
+		var local *agentCollectionLocalError
+		if errors.As(callErr,&local)&&local.TraceID!=""{traceID=local.TraceID}
 		s.recordAgentDebugEvent(owner, id, "", "collection", "collection.failed", code,
 			"stage="+stage+" trace="+traceID+" cause="+scrubAIContext(agentchat.SafeProviderText(callErr.Error()), 600))
 		publicMessage := "Collection result or request was saved, but continuation could not finish. No Patch was executed. Inspect the provider trace and Agent events."

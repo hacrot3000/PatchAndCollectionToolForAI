@@ -1485,8 +1485,13 @@ function renderAgentProviderEgressReview(session,review,attemptAudit=null,integr
  const ambiguous=Boolean(review?.requires_reconciliation)&&
   (review.phase==='sending'||review.phase==='unknown')&&
   review.automatic_replay_allowed===false;
- const key=ambiguous?
-  [session?.id,review.run_id,review.phase,review.payload_sha256].join('|'):'';
+ const localRun=session?.provider_run;
+  const hasCollectionCheckpoint=localRun?.kind==='collection'||(session?.events||[]).some(e=>e.kind==='collect_response_checkpoint'&&e.detail===localRun?.id);
+  const recoverableCollection=session?.status==='failed'&&hasCollectionCheckpoint&&localRun?.phase==='acknowledged'&&
+   !agentConversationUnresolved(session)&&!session.archived;
+  const key=ambiguous?
+   [session?.id,review.run_id,review.phase,review.payload_sha256].join('|'):
+   recoverableCollection?[session.id,localRun.id,'local-collection-checkpoint'].join('|'):'';
  // The same unresolved run may acquire a new pre-send attempt during retry,
  // without becoming a different warning or clearing a prior dismissal.
  const audit=attemptAudit?.run_id===review?.run_id?attemptAudit:null;
@@ -1495,7 +1500,18 @@ function renderAgentProviderEgressReview(session,review,attemptAudit=null,integr
  if(viewKey===agentProviderReviewKey)return;
  agentProviderReviewKey=viewKey;
  agentProviderEgressNotice.replaceChildren();
- if(!ambiguous){agentProviderEgressNotice.hidden=true;return;}
+ if(!ambiguous){
+   if(!recoverableCollection){agentProviderEgressNotice.hidden=true;return;}
+   const resume=agentButton('Resume conversation',()=>{
+    if(agentActive!==session.id||agentSessionBusy(session.id))return;
+    if(prompt.value.trim()||(agentAttachments||[]).length){showAgentError(new Error('Preserve or send the current draft/attachments before resuming.'));return;}
+    setAgentPromptValue('Resume the original unfinished task from the verified conversation checkpoint after local Collection failure (run '+String(localRun.id)+'). This is a NEW continuation, not a replay. Do not repeat executed Patches or assume rejected Collection evidence exists. Correct the invalid request using the current native COLLECT contract and choose a narrower action.');
+    sendAgentMessage().catch(showAgentError);
+   });
+   agentProviderEgressNotice.append(agentEl('strong','','Collection processing interrupted · provider response acknowledged'),
+    agentEl('div','','Resume the original task with a new continuation. The old provider request will not be replayed automatically.'),resume);
+   agentProviderEgressNotice.hidden=false;return;
+  }
  if(agentDismissedProviderReviews.has(key)){
   agentProviderEgressNotice.hidden=true;
   return;

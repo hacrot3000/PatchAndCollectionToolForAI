@@ -109,10 +109,15 @@ func agentAutoFeedbackCandidate(x agentchat.Session) (int, bool) {
 			return 0, false // wait until the native item is final
 		}
 	}
+	recorded:=map[string]bool{}
+	for _,item:=range x.History{if item.Type=="function_call_output"&&item.CallID!=""{recorded[item.CallID]=true}}
 	for i, call := range x.ToolCalls {
 		if call.FeedbackSent {
+			if call.FeedbackStatus=="unknown"||call.FeedbackStatus=="sending"||call.FeedbackStatus=="prepared"{return 0,false}
 			continue
 		}
+		if recorded[call.CallID]{continue} // historical result, never re-send
+		if call.Status=="rejected"&&!agentFeedbackCallIsCurrent(x,call.CallID){continue}
 		switch call.Status {
 		case "done", "error", "rejected":
             if call.FeedbackStatus == "" && agentFeedbackGrantForCall(x, call) {return i,true}
@@ -168,6 +173,7 @@ func (s *Server) processAgentAutoFeedbackSession(ctx context.Context, store *age
 	s.autoPatchOne(ctx, store, id)
 	// Adopt verified native final results without requiring a browser poll.
 	s.reconcileAgentSession(ctx, store, id)
+	if s.autoResumeRecoveredCollectionOne(ctx,store,id){return}
 	fresh, err := store.Get(id, "local")
 	if err != nil { return }
 	if _, ok := agentAutoFeedbackCandidate(fresh); ok {
@@ -186,12 +192,15 @@ func (s *Server) processAgentAutoFeedbackSession(ctx context.Context, store *age
 func agentAutoFeedbackNeedsWork(x agentchat.Session) bool {
 	if x.Owner != "local" || x.Archived { return false }
 	if x.Status=="requesting_ai" && x.ProviderRun!=nil && x.ProviderRun.Phase=="prepared"{return true}
+	if agentRecoveredCollectionResumeCandidate(x){return true}
 	if agentchat.TaskPlanAutoContinueCandidate(x){return true}
 	if agentchat.StandaloneAutoContinueCandidate(x){return true}
 	if agentchat.TaskAutoCheckReady(x){return true}
 	if _, ok := agentAutoPatchCandidate(x); ok { return true }
 	if _, ok := agentAutoFeedbackCandidate(x); ok { return true }
 	if _, ok := agentRecoverableRejection(x, ""); ok { return true }
+ // A copy prevents the readiness predicate from mutating the journal.
+ if x.ProviderRun!=nil{run:=*x.ProviderRun;x.ProviderRun=&run;x.Events=append([]agentchat.SessionEvent(nil),x.Events...);if agentRecoverAcknowledgedCollection(&x){return true}}
 	// A native operation can finish while the GUI is closed; it still
 	// requires reconciliation, even when auto-feedback was not selected.
 	for _, call := range x.ToolCalls {
@@ -284,7 +293,8 @@ func (s *Server) reconcileAgentSession(ctx context.Context, store *agentchat.Sto
 	if err != nil || x.Owner != "local" || x.Workspace != s.Workspace {
 		return
 	}
-	changed := agentRestoreRejectedSession(&x, "")
+	changed := agentRecoverAcknowledgedCollection(&x)
+	if agentRestoreRejectedSession(&x, "") {changed=true}
 	if agentParkInterruptedQueue(&x) { changed = true }
 	for i, record := range x.ToolCalls {
 		if ctx.Err() != nil {
