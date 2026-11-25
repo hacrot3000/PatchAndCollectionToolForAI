@@ -76,7 +76,7 @@ func shortFlagsOK(token, allowed string) bool {
 	return true
 }
 
-func searchArgs(name string, args []string) error {
+func searchArgs(name string, args []string, checkPath func(int) bool) error {
 	allowed := "niFEwlcrqov"
 	if name == "rg" {
 		allowed = "niFwlcvq"
@@ -140,19 +140,19 @@ func searchArgs(name string, args []string) error {
 	if len(args)-i > 8 {
 		return fmt.Errorf("too many search paths")
 	}
-	for _, path := range args[i:] {
-		if !RelativePath(path) {
-			return fmt.Errorf("search path must be relative")
+	for j := i; j < len(args); j++ {
+		if !checkPath(j) {
+			return fmt.Errorf("search path outside SSH path whitelist")
 		}
 	}
 	return nil
 }
 
-func findArgs(args []string) error {
+func findArgs(args []string, checkPath func(int) bool) error {
 	i := 0
 	if i < len(args) && !strings.HasPrefix(args[i], "-") {
-		if !RelativePath(args[i]) {
-			return fmt.Errorf("find path must be relative")
+		if !checkPath(i) {
+			return fmt.Errorf("find path outside SSH path whitelist")
 		}
 		i++
 	}
@@ -201,32 +201,30 @@ func findArgs(args []string) error {
 	return nil
 }
 
-func readArgs(name string, args []string) error {
+func readArgs(name string, args []string, checkPath func(int) bool) error {
 	switch name {
 	case "cat":
 		if len(args) < 1 || len(args) > 8 {
 			return fmt.Errorf("cat requires 1-8 file paths")
 		}
-		for _, path := range args {
-			if !RelativePath(path) {
-				return fmt.Errorf("cat path must be relative")
+		for i := range args {
+			if !checkPath(i) {
+				return fmt.Errorf("cat path outside SSH path whitelist")
 			}
 		}
 	case "head", "tail":
-		file := ""
 		if len(args) == 1 {
-			file = args[0]
+			// Single file operand.
 		} else if len(args) == 3 && args[0] == "-n" {
 			n, err := strconv.Atoi(args[1])
 			if err != nil || n < 1 || n > 5000 {
 				return fmt.Errorf("%s -n must be 1..5000", name)
 			}
-			file = args[2]
 		} else {
 			return fmt.Errorf("%s accepts only -n 1..5000 and one file", name)
 		}
-		if !RelativePath(file) {
-			return fmt.Errorf("%s path must be relative", name)
+		if !checkPath(len(args)-1) {
+			return fmt.Errorf("%s path outside SSH path whitelist", name)
 		}
 	case "wc":
 		i := 0
@@ -242,20 +240,17 @@ func readArgs(name string, args []string) error {
 		if len(args)-i < 1 || len(args)-i > 8 {
 			return fmt.Errorf("wc requires 1-8 file paths")
 		}
-		for _, file := range args[i:] {
-			if !RelativePath(file) {
-				return fmt.Errorf("wc path must be relative")
+		for j := i; j < len(args); j++ {
+			if !checkPath(j) {
+				return fmt.Errorf("wc path outside SSH path whitelist")
 			}
 		}
 	case "nl":
-		if len(args) == 2 && args[0] == "-ba" {
-			args = args[1:]
-		}
-		if len(args) != 1 || !RelativePath(args[0]) {
+		if !((len(args) == 1) || (len(args) == 2 && args[0] == "-ba")) || !checkPath(len(args)-1) {
 			return fmt.Errorf("nl accepts only optional -ba and one file")
 		}
 	case "sed":
-		if len(args) != 3 || args[0] != "-n" || !RelativePath(args[2]) {
+		if len(args) != 3 || args[0] != "-n" || !checkPath(2) {
 			return fmt.Errorf("sed requires -n RANGEp file")
 		}
 		match := safeSedRange.FindStringSubmatch(args[1])
@@ -295,6 +290,7 @@ func Validate(argv []string) (string, error) {
 	if total > 4096 {
 		return "", fmt.Errorf("remote SSH command forbidden: command too large")
 	}
+	paths := newRemotePathOperands(argv)
 	var err error
 	switch argv[0] {
 	case "pwd":
@@ -303,14 +299,14 @@ func Validate(argv []string) (string, error) {
 		}
 	case "ls":
 		pathSeen := false
-		for _, token := range argv[1:] {
+		for i, token := range argv[1:] {
 			if strings.HasPrefix(token, "-") {
 				if pathSeen || !shortFlagsOK(token, "alh1") {
 					err = fmt.Errorf("ls accepts only -a/-l/-h/-1 before the path")
 					break
 				}
-			} else if pathSeen || !RelativePath(token) {
-				err = fmt.Errorf("ls accepts one relative path")
+			} else if pathSeen || !paths.check(i+1) {
+				err = fmt.Errorf("ls accepts one path within SSH whitelist")
 				break
 			} else {
 				pathSeen = true
@@ -336,8 +332,8 @@ func Validate(argv []string) (string, error) {
 				}
 				levelSeen = true
 			default:
-				if pathSeen || !RelativePath(token) {
-					err = fmt.Errorf("tree accepts one relative path")
+				if pathSeen || !paths.check(i) {
+					err = fmt.Errorf("tree accepts one path within SSH whitelist")
 				} else {
 					pathSeen = true
 				}
@@ -347,22 +343,21 @@ func Validate(argv []string) (string, error) {
 			}
 		}
 	case "find":
-		err = findArgs(argv[1:])
+		err = findArgs(argv[1:], paths.checkArgument)
 	case "grep", "rg":
-		err = searchArgs(argv[0], argv[1:])
+		err = searchArgs(argv[0], argv[1:], paths.checkArgument)
 	case "cat", "head", "tail", "wc", "nl", "sed":
-		err = readArgs(argv[0], argv[1:])
+		err = readArgs(argv[0], argv[1:], paths.checkArgument)
 	default:
 		err = fmt.Errorf("executable outside SSH read-only whitelist (no scripts/interpreters)")
 	}
 	if err != nil {
 		return "", fmt.Errorf("remote SSH command forbidden: %w", err)
 	}
-	quoted := make([]string, len(argv))
-	for i, token := range argv {
-		quoted[i] = quoteArg(token)
+	out, err := paths.command()
+	if err != nil {
+		return "", err
 	}
-	out := strings.Join(quoted, " ")
 	if len(out) > 8192 {
 		return "", fmt.Errorf("remote SSH command forbidden: command too long")
 	}
