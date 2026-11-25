@@ -169,6 +169,29 @@ assert.equal(debugButtons[1].textContent,'Clear history','second Debug action mu
 const find = (node, predicate) => predicate(node) ? node : node.children.map(child => find(child, predicate)).find(Boolean);
 const nodeText = node => String(node.textContent||'')+(node.children||[]).map(nodeText).join('');
 
+// Routine agent status must be folded by default, with a native accessible
+// summary. Live refresh must not collapse a disclosure the owner opened.
+const statusParts=vm.runInNewContext('({agentStatusDetails,toolNotice,agentCollectionProgressLine,agentRunListMount,agentProviderEgressNotice,main,transcript})',context);
+const fold=statusParts.agentStatusDetails;
+assert.equal(fold.tagName,'details');
+assert.equal(fold.open,false);
+assert.equal(fold.hidden,true);
+assert.equal(fold.children[0].tagName,'summary');
+assert.equal(fold.children[0].textContent,'Agent status & Runs');
+assert.deepEqual(fold.children.slice(1),[statusParts.toolNotice,statusParts.agentCollectionProgressLine,statusParts.agentRunListMount]);
+assert.equal(statusParts.agentProviderEgressNotice.parentElement,statusParts.main,'provider warnings remain outside the disclosure');
+assert.equal(statusParts.transcript.parentElement,statusParts.main,'live transcript remains outside the disclosure');
+vm.runInNewContext('renderAgentStatusDetails({id:"status-a"})',context);
+assert.equal(fold.hidden,false);
+assert.equal(fold.open,false);
+fold.open=true;
+vm.runInNewContext('renderAgentStatusDetails({id:"status-a",revision:2})',context);
+assert.equal(fold.open,true,'same-conversation polling preserves expansion');
+vm.runInNewContext('renderAgentStatusDetails({id:"status-b"})',context);
+assert.equal(fold.open,false,'a different conversation starts collapsed');
+vm.runInNewContext('renderAgentStatusDetails(null)',context);
+assert.equal(fold.hidden,true,'no status disclosure without a selected conversation');
+
 // Composer remains a single action row, with an independent one-line footer.
 const composerParts=vm.runInNewContext('({composer,actionLine,composerButtons,agentRunSelectorMount,cancel,send,footer,status,sessionStatus,prompt})',context);
 assert.deepEqual(composerParts.actionLine.children,[composerParts.agentRunSelectorMount,composerParts.composerButtons]);

@@ -196,6 +196,11 @@ agentCSS.textContent=[
 '.agentchat-composer textarea{width:100%;min-width:0;flex:0 1 auto;box-sizing:border-box;padding:7px;border-width:1px;font-size:12px;line-height:18px;height:34px;min-height:34px;max-height:196px;resize:none;overflow-y:auto;overflow-x:hidden;overflow-wrap:anywhere}',
 '.agentchat-token-usage{font:11px ui-monospace,monospace;opacity:.8;text-align:right;padding:3px 10px 5px;line-height:1.45;white-space:normal}',
 '.agentchat-info{font-size:11px;color:#b6cce2;line-height:1.5;padding:4px 8px}',
+'.agentchat-status-details{flex:none;min-width:0;max-height:35%;overflow:auto;font-size:11px;line-height:1.5}',
+'.agentchat-status-details[hidden]{display:none}',
+'.agentchat-status-details>summary{cursor:pointer;padding:3px 8px;color:inherit;user-select:none}',
+'.agentchat-status-details>summary:focus-visible{outline:1px solid currentColor;outline-offset:-2px}',
+'html[data-taskmenu-theme="light"] .agentchat-status-details .agentchat-info{color:#405a72}',
 '.agentchat-settings-overlay{position:fixed;inset:0;z-index:17110;display:none;align-items:center;justify-content:center;background:#000a;padding:15px}',
 '.agentchat-settings-overlay.visible{display:flex}',
 '.agentchat-settings-box{width:min(730px,97vw);max-height:90vh;overflow:auto;background:#141c27;color:#e6eef9;border:1px solid #55657a;border-radius:12px;padding:16px;display:flex;flex-direction:column;gap:10px}',
@@ -407,6 +412,17 @@ agentTaskPlanButton.title='Create and review an evidence-gated long-running task
 
 const agentRunSelectorMount=agentEl('div','agentchat-run-selector-mount');
 const agentRunListMount=agentEl('div','agentchat-run-list');
+// Routine status and run history share one compact native disclosure. Keep
+// provider delivery warnings and the live transcript outside this fold.
+const agentStatusDetails=agentEl('details','agentchat-status-details');
+agentStatusDetails.hidden=true;agentStatusDetails.open=false;
+agentStatusDetails.append(agentEl('summary','','Agent status & Runs'),toolNotice,agentCollectionProgressLine,agentRunListMount);
+let agentStatusDetailsSessionID=null;
+function renderAgentStatusDetails(session){
+ const id=session?.id||null;
+ if(id!==agentStatusDetailsSessionID){agentStatusDetails.open=false;agentStatusDetailsSessionID=id;}
+ agentStatusDetails.hidden=!id;
+}
 let agentComposerSelectionSession=null;
 const agentEffortPreferences=new Map();
 const agentRunUI=globalThis.TaskMenuAgentRunsUI?.create({selectorMount:agentRunSelectorMount,runsMount:agentRunListMount,jsonFetch:(...args)=>agentApp.jsonFetch(...args),
@@ -549,7 +565,7 @@ const composerButtons=agentEl('div','agentchat-composer-buttons');
 composerButtons.append(cancel,send);
 actionLine.append(agentRunSelectorMount,composerButtons);
 composer.append(attachToggle,prompt,actionLine);
-main.append(tabbar,toolNotice,agentCollectionProgressLine,agentProviderEgressNotice,agentRunListMount,transcript,agentExecutionPanel,agentTaskPlanPanel,agentTokenUsageLine,composer,attachPopup);layout.append(main);
+main.append(tabbar,agentStatusDetails,agentProviderEgressNotice,transcript,agentExecutionPanel,agentTaskPlanPanel,agentTokenUsageLine,composer,attachPopup);layout.append(main);
 const footer=agentEl('div','agentchat-info agentchat-footer-status');
 footer.append(status,sessionStatus);
 function renderAgentFooter(){
@@ -1707,6 +1723,7 @@ function renderAgentCollectionProgress(session){
  agentCollectionProgressLine.hidden=false;
 }
 function displayAgentSession(session){
+ renderAgentStatusDetails(session);
  renderAgentCollectionProgress(session);
  if(!session){
   closeAgentAttachmentsPopup();
