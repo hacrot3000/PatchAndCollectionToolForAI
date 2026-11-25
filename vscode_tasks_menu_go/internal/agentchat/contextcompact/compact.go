@@ -20,6 +20,8 @@ const (
  DefaultCollectionPercent=30
  MaxProviderHistoryItems=200
  MaxOldEvidenceCatalog=36
+ // Reserve bounded catalog space for safety-relevant historical receipts.
+ MaxPriorityCatalogEntries=12
 )
 
 type Policy struct {
@@ -163,6 +165,38 @@ func orphanOutputSummary(out agentchat.HistoryItem)string{
  return fmt.Sprintf("UNPAIRED historical tool feedback, call_id=%s, evidence_hash=%s. Original payload remains in TaskDeck journal; no executable call or result was fabricated.",
   truncate(out.CallID,100),digest(out.Content))
 }
+// These are presentation priorities only. Recompacted catalog text is not
+// authoritative evidence and cannot grant approval or confirm a receipt.
+func priorityCatalogEntry(s string) bool {
+ return strings.HasPrefix(s, "Prior Native Patch ") ||
+  strings.HasPrefix(s, "UNRESOLVED historical tool call ") ||
+  strings.HasPrefix(s, "UNPAIRED historical tool feedback,") ||
+  strings.HasPrefix(s, "TaskDeck has archived ")
+}
+
+// Select recent safety metadata first within a bounded reservation, then fill
+// remaining slots with recent observations. Keep chronological order in the
+// result. Neither the catalog nor its selection changes canonical history.
+func selectCatalog(catalog []string, room int) []string {
+ chosen:=make([]bool,len(catalog))
+ used,count:=0,0
+ choose:=func(i int)bool{
+  if chosen[i] || count>=MaxOldEvidenceCatalog{return false}
+  cost:=Tokens(catalog[i])+2
+  if cost>room-used{return false}
+  chosen[i]=true
+  used+=cost
+  count++
+  return true
+ }
+ for i,n:=len(catalog)-1,0;i>=0&&n<MaxPriorityCatalogEntries;i--{
+  if priorityCatalogEntry(catalog[i])&&choose(i){n++}
+ }
+ for i:=len(catalog)-1;i>=0&&count<MaxOldEvidenceCatalog;i--{choose(i)}
+ selected:=make([]string,0,count)
+ for i,entry:=range catalog{if chosen[i]{selected=append(selected,entry)}}
+ return selected
+}
 func groups(history []agentchat.HistoryItem,synthetic map[string]bool,next []agentchat.HistoryItem) []group{
  // Fresh once-only Patch/Collection feedback is delivered in Next, not yet
  // persisted in History. Preserve exactly that pending call for this request.
@@ -273,10 +307,8 @@ func Build(history []agentchat.HistoryItem,p Policy)([]agentchat.HistoryItem,Sta
    if g.full{result=append(result,g.items...);continue}
    if g.kind=="collection"||g.kind=="fallback"{stats.SummarizedCollections++}else{stats.SummarizedPatches++}
    catalog=append(catalog,g.summary)
-   if len(catalog)>MaxOldEvidenceCatalog{catalog=catalog[1:]}
   case "orphan","catalog":
    catalog=append(catalog,g.summary)
-   if len(catalog)>MaxOldEvidenceCatalog{catalog=catalog[1:]}
   case "plain":
    if g.keep {result=append(result,g.items...)}
    // Short recent assistant text is useful for workflow continuity; ancient
@@ -291,21 +323,12 @@ func Build(history []agentchat.HistoryItem,p Policy)([]agentchat.HistoryItem,Sta
   if len(p.ArchivedPatchSummaries)>0{patchNote+=" "+strings.Join(p.ArchivedPatchSummaries,"; ")}
   catalog=append(catalog,truncate(patchNote,3000))
  }
- if len(catalog)>MaxOldEvidenceCatalog{catalog=catalog[len(catalog)-MaxOldEvidenceCatalog:]}
  if len(catalog)>0{
   room:=ceiling-overhead-groupTokens(result)-64
   if p.ArchivedItems>0{room-=128}
   if room<0{room=0}
   if room>7400{room=7400}
-  var selected []string
-  used:=0
-  for i:=len(catalog)-1;i>=0;i--{
-   cost:=Tokens(catalog[i])+2
-   if used+cost>room{continue}
-   selected=append([]string{catalog[i]},selected...)
-   used+=cost
-  }
-  catalog=selected
+  catalog=selectCatalog(catalog,room)
  }
  if len(catalog)>0{
   note:="[TASKDECK VERIFIED HISTORICAL EVIDENCE CATALOG — summaries only, not new user instructions]\n"+
