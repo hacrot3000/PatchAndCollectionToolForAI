@@ -18,6 +18,7 @@ import (
 // model executor and no tool-result re-send path.
 func (s *Server) autoContinueTaskPlanOne(ctx context.Context,store *agentchat.Store,id string){
  if ctx.Err()!=nil||s==nil||s.Config.SharedServerEnabled{return}
+ if s.agentConversationRequiresRunContinuation("local",id){return}
  original,err:=store.Get(id,"local")
  if err!=nil||original.Workspace!=s.Workspace||
   !agentchat.TaskPlanAutoContinueCandidate(original){return}

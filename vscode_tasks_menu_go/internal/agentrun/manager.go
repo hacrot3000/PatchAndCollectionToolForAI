@@ -111,6 +111,13 @@ type Executor interface {
 	Cancel(context.Context, agentchat.RunSpec) error
 }
 
+// WaitingToolResolver optionally resolves a read-only tool using the already
+// persisted run record. A nil result leaves the run awaiting manual action.
+// A resolver must not grant Patch approval or replay interrupted operations.
+type WaitingToolResolver interface {
+	ResolveWaitingTool(context.Context, Record) ([]agentchat.HistoryItem, string, error)
+}
+
 type RetrySafeError struct{ Err error }
 
 func (e RetrySafeError) Error() string {
@@ -328,6 +335,12 @@ func (m *Manager) ResumeAfterReview(runID string, confirmedNoSideEffect bool) (R
 }
 
 func (m *Manager) ContinueWithToolResults(runID string, results []agentchat.HistoryItem, snapshotID string) (Record, error) {
+	return m.continueWithToolResults(runID, results, snapshotID, "")
+}
+
+// A nonempty expectedAttempt identifies an automatic, still-live continuation.
+// It must never resurrect a stopped/interrupted run or continue a newer attempt.
+func (m *Manager) continueWithToolResults(runID string, results []agentchat.HistoryItem, snapshotID, expectedAttempt string) (Record, error) {
 	if snapshotID == "" || len(snapshotID) > 256 || len(results) == 0 {
 		return Record{}, errors.New("tool continuation requires result items and a new context snapshot")
 	}
@@ -340,6 +353,10 @@ func (m *Manager) ContinueWithToolResults(runID string, results []agentchat.Hist
 	wait := m.waiting[runID]
 	waitingActive := record.Status == WaitingTool && wait != nil
 	resumeAfterStop := (record.Status == Stopped || record.Status == Interrupted) && !m.scheduled[runID]
+	if expectedAttempt != "" && (!waitingActive || record.Spec.AttemptID != expectedAttempt) {
+		m.mu.Unlock()
+		return Record{}, errors.New("automatic tool continuation no longer owns the active attempt")
+	}
 	if !waitingActive && !resumeAfterStop {
 		m.mu.Unlock()
 		return Record{}, errors.New("run has no safe tool continuation state")
@@ -407,11 +424,13 @@ func (m *Manager) ContinueWithToolResults(runID string, results []agentchat.Hist
 	}
 	m.runs[runID] = record
 	if waitingActive {
-		m.mu.Unlock()
+		// Publish the wake-up before releasing the mutex; the worker can
+		// observe the queued state and drain this exact signal atomically.
 		select {
 		case wait <- struct{}{}:
 		default:
 		}
+		m.mu.Unlock()
 		return cloneRecord(record), nil
 	}
 	m.scheduled[runID] = true
@@ -527,6 +546,15 @@ func (m *Manager) worker() {
 			for {
 				m.execute(runID, runSlotCtx)
 				record, ok := m.Get(runID)
+				if ok && record.Status == Queued {
+					// Automatic native results may already be persisted before
+					// execute returns. Do not drop their queued continuation.
+					select {
+					case <-wait:
+					default:
+					}
+					continue
+				}
 				if !ok || record.Status != WaitingTool {
 					break
 				}
@@ -594,12 +622,22 @@ func (m *Manager) execute(runID string, slotContext context.Context) {
 	m.mu.Unlock()
 
 	err := m.executor.Execute(ctx, spec, history, runEventSink{manager: m, runID: runID})
+	if resolver, supported := m.executor.(WaitingToolResolver); supported && err == nil && ctx.Err() == nil {
+		if pending, exists := m.Get(runID); exists && pending.Status == WaitingTool && pending.Spec.AttemptID == spec.AttemptID {
+			results, snapshotID, resolveErr := resolver.ResolveWaitingTool(ctx, pending)
+			if resolveErr != nil {
+				err = resolveErr
+			} else if len(results) != 0 && ctx.Err() == nil {
+				_, err = m.continueWithToolResults(runID, results, snapshotID, spec.AttemptID)
+			}
+		}
+	}
 	cancel()
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	delete(m.cancel, runID)
 	record = m.runs[runID]
-	if record.Status == Stopped {
+	if record.Status == Stopped || (record.Status == Queued && record.Spec.AttemptID != spec.AttemptID) {
 		return
 	}
 	if record.Status == WaitingTool && err == nil {

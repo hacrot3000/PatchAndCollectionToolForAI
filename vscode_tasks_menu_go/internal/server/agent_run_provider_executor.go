@@ -122,10 +122,9 @@ func (o serverAgentRunPromptOptions) ToolSupport(spec agentchat.RunSpec, provide
 	if !model.ToolCalling || !o.server.agentToolCapabilityVerified(o.owner, provider, model) {
 		return support, nil
 	}
-	// Native Patch has a TaskDeck bridge for Agent Runs: approval, queue,
-	// execution in the execution workspace and reconciliation. Read-only
-	// Collection has no run bridge yet, so it is not advertised to a run;
-	// PLAN 01 owns adding that bridge.
+	// Advertise read-only Collection only with pinned and current permission.
+	// The run worker resolves it through the existing native COLLECT backend.
+	support.CollectionTool = o.server.agentRunCollectionAllowed(o.owner, spec, inputs)
 	if scopeIncludes(inputs.Binding.PermissionScope, "patch.propose") &&
 		scopeIncludes(inputs.Binding.PermissionScope, "patch.execute.approval_required") {
 		support.PatchTool = true
@@ -170,12 +169,10 @@ func (o serverAgentRunPromptOptions) Options(spec agentchat.RunSpec, provider ag
 	if support.PatchTool {
 		instructions += " You may call taskdeck_submit_patch to propose a Python Patch. TaskDeck executes it only after approval in the isolated execution workspace; never claim a proposal was applied."
 	}
-	limit := 4096
-	if model.MaxOutputTokens > 0 && model.MaxOutputTokens < limit {
-		limit = model.MaxOutputTokens
-	}
+	reasoning := agentProviderReasoningEffort(provider, policy.ReasoningEffort, model)
+	limit := agentInitialOutputBudget(model, reasoning, support.PatchTool || support.CollectionTool)
 	return agentchat.RequestConfig{
 		Instructions: instructions, Mode: agentchat.Stateless, MaxOutputTokens: limit,
-		ReasoningEffort: agentProviderReasoningEffort(provider, policy.ReasoningEffort, model),
+		ReasoningEffort: reasoning,
 	}, nil
 }

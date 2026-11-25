@@ -91,6 +91,13 @@ func (s *Server) runAgentAutoFeedback(ctx context.Context) {
 // all other conversations.
 func (s *Server) processAgentAutoFeedbackSession(ctx context.Context, store *agentchat.Store, id string) {
 	if ctx.Err() != nil { return }
+	// A provider-bound run must not be continued by the legacy session
+	// scheduler using the session's original provider. Existing exact proof
+	// checks remain read-only; native run feedback stays in the run.
+	if s.agentConversationRequiresRunContinuation("local", id) {
+		s.autoCheckTaskPlanOne(ctx, store, id)
+		return
+	}
 	// Resume a pre-egress, exact-payload provider request if it was durably
 	// PREPARED before a daemon restart. Never replay SENDING/UNKNOWN.
 	if s.resumePreparedAgentProviderRun(ctx,store,id){return}
@@ -237,6 +244,9 @@ func (s *Server) reconcileAgentSession(ctx context.Context, store *agentchat.Sto
 }
 
 func (s *Server) autoFeedbackOne(ctx context.Context, store *agentchat.Store, id string) {
+	if s.agentConversationRequiresRunContinuation("local", id) {
+		return
+	}
 	release, ok := lockAgentTurn(s.Workspace, "local", id)
 	if !ok {
 		return

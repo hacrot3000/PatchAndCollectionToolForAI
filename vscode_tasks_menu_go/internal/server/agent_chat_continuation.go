@@ -19,6 +19,7 @@ import (
 // remains the authority for network consent and native tool restrictions.
 func (s *Server) autoContinueConversationOne(ctx context.Context,store *agentchat.Store,id string){
  if ctx.Err()!=nil||s==nil||s.Config.SharedServerEnabled{return}
+ if s.agentConversationRequiresRunContinuation("local",id){return}
  original,err:=store.Get(id,"local")
  if err!=nil||original.Workspace!=s.Workspace||
   !agentchat.StandaloneAutoContinueCandidate(original){return}

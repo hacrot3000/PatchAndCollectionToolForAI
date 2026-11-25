@@ -204,7 +204,7 @@ func (a ConfiguredProviderAdapter) invokeWithRetry(ctx context.Context, spec Run
 	for {
 		requestTimeout := a.RequestTimeout
 		if requestTimeout <= 0 {
-			requestTimeout = 60 * time.Second
+			requestTimeout = 600 * time.Second
 		}
 		callCtx, cancel := context.WithTimeout(ctx, requestTimeout)
 		streamedText := false
@@ -307,7 +307,7 @@ func runProviderRetryAllowed(mode RetryMode, attempt int, err error) bool {
 	var providerErr *ProviderError
 	retryable := false
 	if errors.As(err, &providerErr) {
-		retryable = providerErr.Retryable || providerErr.HTTPStatus == 408 || providerErr.HTTPStatus == 429 || providerErr.HTTPStatus >= 500 || providerErr.Ambiguous && providerErr.HTTPStatus == 0
+		retryable = providerErr.Retryable || providerErr.HTTPStatus == 408 || providerErr.HTTPStatus == 429 || providerErr.HTTPStatus == 499 || providerErr.HTTPStatus >= 500 || providerErr.Ambiguous && providerErr.HTTPStatus == 0
 	} else {
 		retryable = errors.Is(err, context.DeadlineExceeded) || errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF)
 	}
