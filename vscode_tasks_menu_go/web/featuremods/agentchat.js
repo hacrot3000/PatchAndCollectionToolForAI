@@ -849,14 +849,11 @@ function renderAgentConfigMenu(){
  agentConfigButton.title='Effort: '+effort+' · Context: '+(capacity?capacity+' configured input tokens':'model limit not configured');
  agentConfigCategories.get('Context').button.textContent='Context (new chat) · '+(specs[1][1].find(([v])=>v===modeSelect.value)?.[1]||'Stateless')+' ▸';
  const active=agentComposerSelectionSession;
- const nextRun=active&&(agentRunUI?.hasRun(active.id)||active.provider_id!==providerSelect.value||
-  active.model_id!==modelSelect.value||agentSessionBusy(active.id)||
-  (effortSelect.value||model?.default_reasoning_effort||'')!==(active.reasoning_effort||model?.default_reasoning_effort||''));
- const actual=nextRun?'Stateless (Agent Run)':active?.mode||modeSelect.value||'stateless';
+ const actual=active?.mode||modeSelect.value||'stateless';
  agentConfigNote.textContent=(model?.name||model?.id||'No model selected')+
   (capacity?' · Max input: '+capacity+' tokens':' · Max input: not configured')+
   '\nNext request context: '+actual+
-  '\nEffort applies to the next request. Running requests retain their pinned settings. Context mode selections apply only to new conversations; existing Agent Runs use stateless replay.';
+  '\nEffort applies to the next request. Running requests retain their pinned settings. Context mode selections apply only to new conversations.';
  agentConfigNote.style.whiteSpace='pre-line';
 }
 async function loadAgentProviders(){
@@ -2173,7 +2170,7 @@ async function sendAgentMessage(){
  const effortChanged=nextEffort!==undefined&&
   (nextEffort||selectedModel?.default_reasoning_effort||'')!==(current.reasoning_effort||selectedModel?.default_reasoning_effort||'');
  // UAG-02: Legacy Agent owns ordinary sends; Run Manager remains drain-only.
-const useRunManager=Boolean(canStartAgentRun&&agentRunUI.hasRun(sessionID));
+const useRunManager=false;
  if(useRunManager){
   const fingerprint=JSON.stringify({message:msg,attachments:wireAttachments,provider:nextProvider.providerId,model:nextProvider.modelId,effort:nextEffort});
   const requestKey=sessionID+'\0'+fingerprint;

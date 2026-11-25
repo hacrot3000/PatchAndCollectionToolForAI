@@ -86,6 +86,10 @@ func (s *Server) agentRunAPI(w http.ResponseWriter, r *http.Request) {
 	if !s.requireSharedActionPermission(w, r, identity.PermissionSettingsRead, "agent.run", "agent_runs") {
 		return
 	}
+	if r.Method == http.MethodPost {
+		http.Error(w, "Agent Run creation is temporarily disabled.\nUse Legacy Agent Chat.", http.StatusConflict)
+		return
+	}
 	manager, err := s.agentRunManager(owner)
 	if err != nil {
 		http.Error(w, "Agent Run Manager unavailable", http.StatusServiceUnavailable)

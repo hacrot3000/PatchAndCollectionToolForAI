@@ -136,6 +136,19 @@ func waitForAgentRunStatus(t *testing.T, manager *agentrun.Manager, runID string
 	t.Fatalf("Agent Run status=%s, want %s", record.Status, want)
 }
 
+func TestAgentRunCreationTemporarilyDisabled(t *testing.T) {
+	s, session, provider := prepareRunAPIServer(t, false)
+	w := invokeAI(t, s.agentRunAPI, http.MethodPost, "/api/agent/runs", map[string]any{
+		"spec": runSpecFor(s, session, provider), "confirm_external": true,
+	})
+	if w.Code != http.StatusConflict || !strings.Contains(w.Body.String(), "Agent Run creation is temporarily disabled.\nUse Legacy Agent Chat.") {
+		t.Fatalf("unexpected response: %d %s", w.Code, w.Body)
+	}
+	if s.agentRunManagers["local"] != nil {
+		t.Fatal("disabled creation initialized the run manager")
+	}
+}
+
 func TestAgentRunAPIUsesOwnerConversationAndImmutableRunBinding(t *testing.T) {
 	s, session, provider := prepareRunAPIServer(t, false)
 	spec := runSpecFor(s, session, provider)
