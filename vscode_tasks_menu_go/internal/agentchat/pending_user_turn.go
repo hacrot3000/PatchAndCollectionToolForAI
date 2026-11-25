@@ -19,6 +19,34 @@ type PendingUserTurn struct {
 	QueuedAt                time.Time `json:"queued_at"`
 }
 
+// pendingAdmissionBindingMatches checks the immutable identities needed for a
+// pending-to-PREPARED transition. It does not authorize or commit a transition;
+// the caller must check ownership, revision and current state under the lock.
+func pendingAdmissionBindingMatches(p *PendingUserTurn, b *TurnBinding, r *ProviderRun) bool {
+	return p != nil && ValidPendingUserTurn(p) && b != nil && ValidTurnBinding(b) &&
+		r != nil && validProviderRun(r) && r.Kind == "message" && r.Phase == "prepared" &&
+		b.TurnID == r.ID && b.AttemptID == r.ID && b.PayloadDigest == r.PayloadSHA256 &&
+		b.RequestID == p.RequestID && b.ProviderID == p.ProviderID && b.ModelID == p.ModelID &&
+		b.ReasoningEffort == p.ReasoningEffort && b.ProviderConfigVersion == p.ProviderConfigVersion &&
+		b.CredentialFingerprint == p.CredentialFingerprint
+}
+
+// pendingAdmissionCandidateMatches is a prerequisite only, not authorization
+// to dispatch. Call with the authoritative current session under the store
+// lock; the caller must still check project identity and commit atomically.
+func pendingAdmissionCandidateMatches(current, candidate Session, owner string, expectedRevision uint64, payload []byte) bool {
+	return owner != "" && current.Owner == owner && candidate.Owner == owner &&
+		current.ID == candidate.ID && current.Workspace == candidate.Workspace && current.ProjectID == candidate.ProjectID &&
+		current.Revision == expectedRevision && candidate.Revision == expectedRevision &&
+		current.PendingUserTurn != nil && candidate.PendingUserTurn == nil &&
+		(current.ProviderRun == nil || current.ProviderRun.Phase == "completed") &&
+		candidate.Status == "requesting_ai" &&
+		pendingAdmissionBindingMatches(current.PendingUserTurn, candidate.TurnBinding, candidate.ProviderRun) &&
+		candidate.Mode == current.Mode && candidate.TurnBinding.ContextMode == current.Mode &&
+		len(payload) > 0 && len(payload) <= maxProviderRunPayload &&
+		ProviderPayloadDigest(payload) == candidate.ProviderRun.PayloadSHA256
+}
+
 // ValidPendingUserTurn enforces bounded queued-turn records.
 func ValidPendingUserTurn(p *PendingUserTurn) bool {
 	if p == nil {

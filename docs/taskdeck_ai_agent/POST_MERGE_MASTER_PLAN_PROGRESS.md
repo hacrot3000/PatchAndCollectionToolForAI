@@ -1207,3 +1207,38 @@ Status: IMPLEMENTED_UNVERIFIED
 ### UAG-02 follow-up — pending replacement guard
 - Native PATCH runs 1795598065707055_1213046 and 1795598098827468_1215058 passed for the generic Save replacement guard and regression source. COLLECT agent_collect_729b628a062dbc5bdda24960 and agent_collect_3ec024ad6d15e4b678840c48 confirmed the guard and regression. The focused runner includes the regression in this change.
 - No test execution is confirmed. Owner-scoped atomic pending admission and provider switching remain open; dispatch stays disabled pending verification. UAG-02 is unverified; UAG-03–08 and M17–M19 remain gated. Next: implement atomic handoff and obtain a supported command-capable native route for focused tests.
+
+### UAG-02 follow-up — admission prerequisites checkpoint
+- Native PATCH runs 1795599779962736_1345281 and 1795599821963111_1348059 passed for extracted lock-held provider staging and journal-save helpers; run 1795599860956165_1350654 passed for staging input validation. COLLECT agent_collect_c6b4ffef4626eb86a4969b1d confirms the helpers and generic pending-turn guard.
+- The focused runner includes the staging validation and concurrent pending journal regressions, but test execution is not confirmed. Dispatch remains disabled. Atomic owner-scoped pending-to-PREPARED admission, crash/concurrency verification and provider switching remain open; UAG-02 is not accepted and UAG-03–08 and M17–M19 remain gated. Next: implement the lock-held admission transaction and obtain actual test evidence.
+
+### UAG-02 follow-up — admission guard evidence
+- Native PATCH runs 1795600445962008_1386045, 1795600472966578_1387793 and 1795600502947787_1390261 passed for context-mode guard and candidate drift regression source. COLLECT agent_collect_086612284086ce780308fcdf confirms the candidate-owner regression and the generic pending preservation guard.
+- These receipts do not establish test execution. The atomic pending-to-PREPARED transaction is not implemented; pending dispatch remains disabled. UAG-02 remains unverified and UAG-03–08 and M17–M19 remain gated. Next: implement the owner-scoped transaction and obtain actual focused crash/concurrency evidence.
+
+### UAG-02 follow-up — staged admission checkpoint
+- Native PATCH run 1795600583949522_1395811 passed for a lock-held pending-admission primitive; COLLECT agent_collect_ca5a820d951f42fae5684bb5 inspected its staging and commit path. The primitive is not yet integrated with pending dispatch.
+- Native PATCH runs 1795600703950171_1404381, 1795600766958707_1408231 and 1795600842002335_1413854 passed for concurrent admission, staging-failure and staged-sidecar boundary regression source. COLLECT agent_collect_1a294e9a0c855aec336e1e05 inspected the boundary regression and confirmed its inclusion in focused checks. This simulates a state boundary, not a process-kill or power-loss test.
+- No focused test execution is confirmed. Pending dispatch remains disabled; integration, provider switching and actual concurrency/crash verification remain open. UAG-02 is not accepted; UAG-03–08 and M17–M19 remain gated. Next: obtain native test execution evidence and complete the safe handoff integration.
+
+### UAG-02 follow-up — concurrent admission payload assertion
+- Native PATCH run 1795600952963745_1420763 passed for the recovered-payload assertion. COLLECT agent_collect_9b21064dc17a3dbba9dfbe43 confirms the assertion in TestPendingAdmissionConcurrentCommit and its inclusion in the focused runner.
+- This is source inspection, not test execution. Pending dispatch remains disabled; focused execution, process-crash verification, integration and provider switching are outstanding. UAG-02 remains unaccepted; UAG-03–08 and M17–M19 remain gated. Next: obtain supported native test execution evidence and continue safe handoff integration.
+
+
+### UAG-02 follow-up — cross-owner regression checkpoint
+- Native PATCH run 1795601018965794_1425194 passed for the cross-owner admission regression. COLLECT agent_collect_70db925e55f8afffed5b737e inspected its assertions: rejected admission must leave the pending turn and revision intact and must not create a sidecar. COLLECT agent_collect_da9a9404d1e665d5968d27eb confirmed its inclusion in focused checks.
+- This is source evidence, not a test result. Focused execution and process-crash evidence remain unconfirmed; pending dispatch remains disabled and the admission primitive is not integrated. UAG-02 is not accepted; UAG-03–08 and M17–M19 remain gated. Next: obtain a supported command-capable native test execution route and integrate the handoff only with its safety invariants verified.
+
+### UAG-02 follow-up — public admission boundary
+- Native PATCH runs 1795601090960952_1429741 and 1795601120953835_1431750 passed for the exported owner-scoped admission wrapper and public-wrapper regression source. COLLECT agent_collect_43b5783c04e6fb1c1b90750d and agent_collect_0737829b0e05ea7a214aaec5 inspected the wrapper and regression.
+- These are source and patch receipts, not test execution. Server pending dispatch remains disabled and is not integrated; its old path removes pending before admission. Focused test execution, crash evidence, integration and provider switching remain outstanding. UAG-02 is not accepted; UAG-03–08 and M17–M19 remain gated. Next: obtain focused test evidence through a supported command-capable native route and integrate the authorized atomic handoff while keeping dispatch disabled until verified.
+
+
+### UAG-02 follow-up — prepared intent construction
+- Native PATCH runs 1795601180955408_1435611, 1795601210948961_1437557 and 1795601237986755_1439899 passed for separating prepared intent construction, its regression source and focused-check inclusion. COLLECT agent_collect_9d2f0fefb3f464eb3384e4bb confirms the construction helper, runner entry and disabled dispatch.
+- These are patch and source evidence, not executed test results. Atomic server handoff integration, focused execution, process-crash verification and provider switching remain open. UAG-02 is not accepted; UAG-03–08 and M17–M19 remain gated. Next: integrate the authorized handoff while keeping dispatch disabled and obtain actual test evidence.
+
+### UAG-02 follow-up — suspended dispatch owner boundary
+- Native PATCH runs 1795601313050173_1445458, 1795601348989172_1447871 and 1795601379007017_1449598 passed for passing the owner to the dormant message handoff, the suspended foreign-owner regression, and its focused-check inclusion. COLLECT agent_collect_0e2a2b10bb82ef2c24fb3e07 inspected the regression and runner entry.
+- These are source and PATCH receipts, not test execution. The regression does not verify owner propagation through enabled dispatch. Atomic handoff integration, focused tests, crash verification and provider switching remain outstanding. Dispatch stays disabled; UAG-02 is unaccepted, and UAG-03–08 and M17–M19 remain gated. Next: integrate the owner-scoped atomic handoff and obtain actual test evidence before enabling dispatch.

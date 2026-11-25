@@ -49,6 +49,40 @@ func agentPendingTurnBindingMatches(pending agentchat.PendingUserTurn, provider 
 		pending.CredentialFingerprint == agentchat.RunCredentialFingerprint(secret)
 }
 
+// agentAdmitPreparedPendingTurn commits an already-built request without sending it.
+// Its caller must authorize egress, validate project identity and acquire the turn
+// lease. Dispatch stays disabled until the entire handoff is verified.
+func agentAdmitPreparedPendingTurn(store *agentchat.Store, owner string, x agentchat.Session, provider agentchat.ProviderConfig, model agentchat.ModelConfig, secret, payload []byte) (agentchat.Session, error) {
+	if store == nil || owner == "" || x.Owner != owner || x.PendingUserTurn == nil || !agentSessionAcceptsUserMessage(x.Status) {
+		return agentchat.Session{}, agentchat.ErrInvalidSession
+	}
+	pending := *x.PendingUserTurn
+	if !agentPendingTurnBindingMatches(pending, provider, model, secret) {
+		return agentchat.Session{}, agentchat.ErrInvalidSession
+	}
+	// Require the exact queued message in the candidate's canonical history;
+	// payload construction and all other authorization remain the caller's job.
+	if len(x.History) == 0 || x.History[len(x.History)-1].Type != "user" || x.History[len(x.History)-1].Content != pending.Message {
+		return agentchat.Session{}, agentchat.ErrInvalidSession
+	}
+	x.PendingUserTurn = nil
+	x.Status = "requesting_ai"
+	x.AppendEvent("turn_started", "requesting_ai", "", "")
+	if err := setAgentPreparedProviderRun(&x, "message", "", provider, model, payload); err != nil {
+		return agentchat.Session{}, err
+	}
+	if err := agentPinActiveTurnBinding(&x, x.Mode, provider, model, pending.ReasoningEffort, secret, payload, pending.RequestID); err != nil {
+		return agentchat.Session{}, err
+	}
+	if pending.RequestID != "" {
+		x.LastRequestKey = pending.RequestID
+		x.LastRequestSHA = pending.RequestDigest
+		x.LastRequestCode = 0
+		x.LastRequestResponse = ""
+	}
+	return store.AdmitPendingUserTurn(x, owner, x.Revision, payload)
+}
+
 // agentReleaseAndDispatchPending releases the active lease before dispatch may run.
 func agentReleaseAndDispatchPending(release, dispatch func()) {
 	release()
@@ -118,5 +152,6 @@ func (s *Server) agentChatDispatchPendingUserTurn(owner, id string) {
 	req := httptest.NewRequest(http.MethodPost, "/api/agent/sessions/"+id+"/messages", bytes.NewReader(body)).WithContext(context.Background())
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
-	s.agentChatMessageAPI(w, req, id)
+	// Preserve the authenticated owner; synthetic requests carry no user identity.
+	s.agentChatMessageForOwner(w, req, id, owner)
 }

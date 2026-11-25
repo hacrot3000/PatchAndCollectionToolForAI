@@ -8,13 +8,32 @@ env = os.environ.copy()
 env["GOPROXY"] = "off"
 env["GOSUMDB"] = "off"
 checks = [
-    ("./internal/agentchat", "TestProviderRun(StageDoesNotOverwritePreparedPayload|ConcurrentStagingPreservesCommittedPrepared|PreparedPayloadSurvivesRestartAndIsNotReplayableAfterSending|PayloadTamperingFailsClosed)$"),
+    ("./internal/agentchat", "^TestProviderRunStageDoesNotOverwritePreparedPayload$"),
+    ("./internal/agentchat", "^TestProviderRunConcurrentStagingPreservesCommittedPrepared$"),
+    ("./internal/agentchat", "^TestProviderRunPreparedPayloadSurvivesRestartAndIsNotReplayableAfterSending$"),
+    ("./internal/agentchat", "^TestProviderRunPayloadTamperingFailsClosed$"),
+    ("./internal/agentchat", "^TestStageProviderPayloadLockedRejectsInvalidInput$"),
     ("./internal/agentchat", "^TestObsoletePreparedPayloadUnlinkFsyncIsIndependentFromProviderACK$"),
     ("./internal/agentchat", "^TestStoreRejectsUnscopedProviderSelectionChanges$"),
     ("./internal/agentchat", "^TestProviderRunCompetingStagedPayloadCAS$"),
     ("./internal/agentchat", "^TestStoreRejectsPendingTurnRemoval$"),
     ("./internal/agentchat", "^TestStoreRejectsPendingTurnReplacement$"),
-    ("./internal/server", "TestAgent(PreparedResumeRejectsCredentialDrift|PreparedProviderRunResumesExactlyOnceAfterRestart|SendingRunRestartBecomesAmbiguousWithoutProviderReplay|SuspendedPendingDispatchRetainsTurn)$"),
+    ("./internal/agentchat", "^TestPreservesPendingUserTurnInvariant$"),
+    ("./internal/agentchat", "^TestPendingAdmissionRejectsEmptyOwner$"),
+    ("./internal/agentchat", "^TestPendingAdmissionBindingMatches$"),
+    ("./internal/agentchat", "^TestPendingAdmissionCandidateMatches$"),
+    ("./internal/agentchat", "^TestPendingAdmissionConcurrentCommit$"),
+    ("./internal/agentchat", "^TestPendingAdmissionStagingFailurePreservesTurn$"),
+    ("./internal/agentchat", "^TestPendingAdmissionRejectsOtherOwner$"),
+    ("./internal/agentchat", "^TestPendingAdmissionStagedSidecarBeforeCommit$"),
+    ("./internal/agentchat", "^TestPendingTurnSurvivesUnrelatedJournalSave$"),
+    ("./internal/agentchat", "^TestPendingTurnConcurrentJournalCAS$"),
+    ("./internal/server", "^TestAgentPreparedIntentConstruction$"),
+    ("./internal/server", "^TestAgentPreparedResumeRejectsCredentialDrift$"),
+    ("./internal/server", "^TestAgentPreparedProviderRunResumesExactlyOnceAfterRestart$"),
+    ("./internal/server", "^TestAgentSendingRunRestartBecomesAmbiguousWithoutProviderReplay$"),
+    ("./internal/server", "^TestAgentSuspendedPendingDispatchRetainsTurn$"),
+    ("./internal/server", "^TestAgentSuspendedPendingDispatchRejectsForeignOwner$"),
 ]
 for package, pattern in checks:
     print("Checking", package, pattern, flush=True)

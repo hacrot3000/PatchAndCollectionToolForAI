@@ -111,6 +111,18 @@ func TestProviderRunCompetingStagedPayloadCAS(t *testing.T) {
  if err!=nil||got.ProviderRun==nil||got.ProviderRun.ID!="second"||string(data)!=string(b){t.Fatalf("winning payload lost: %v",err)}
 }
 
+func TestStageProviderPayloadLockedRejectsInvalidInput(t *testing.T) {
+ dir := filepath.Join(t.TempDir(), "private", "agent")
+ store, err := NewStore(dir); if err != nil { t.Fatal(err) }
+ x, err := NewSession("local", "/workspace", "project-id", "provider", "model", Stateless); if err != nil { t.Fatal(err) }
+ payload := []byte("valid payload")
+ now := time.Now().UTC()
+ x.ProviderRun = &ProviderRun{ID:"run", Kind:"message", Phase:"prepared", PayloadSHA256:ProviderPayloadDigest(payload), CreatedAt:now, UpdatedAt:now}
+ err = store.withLock(func() error { return store.stageProviderPayloadLocked(x, []byte("different")) })
+ if !errors.Is(err, ErrInvalidSession) { t.Fatalf("mismatched payload accepted: %v", err) }
+ if _, err = os.Lstat(store.providerRunFile(x.ID)); !os.IsNotExist(err) { t.Fatalf("rejected input created sidecar: %v", err) }
+}
+
 func TestProviderRunPayloadTamperingFailsClosed(t *testing.T){
  dir:=filepath.Join(t.TempDir(),"private","agent")
  store,err:=NewStore(dir);if err!=nil{t.Fatal(err)}

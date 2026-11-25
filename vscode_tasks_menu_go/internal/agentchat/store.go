@@ -584,8 +584,57 @@ func (s *Store) Get(id, owner string) (Session, error) {
 // Save creates a new session when expectedRevision == 0; otherwise it requires
 // an exact match to prevent stale model responses overwriting another turn.
 func (s *Store) Save(x Session, expectedRevision uint64) (Session, error) {
+	return s.saveSession(x, expectedRevision)
+}
+
+// saveSession retains the common journal CAS and durability path for admission.
+func (s *Store) saveSession(x Session, expectedRevision uint64) (Session, error) {
 	var saved Session
 	err := s.withLock(func() error {
+		var err error
+		saved, err = s.saveSessionLocked(x, expectedRevision)
+		return err
+	})
+	return saved, err
+}
+
+// preservesPendingUserTurn applies the generic journal save invariant.
+// A future atomic admission path must not bypass this without its own checks.
+func preservesPendingUserTurn(existing, candidate *PendingUserTurn) bool {
+	return existing == nil || (candidate != nil && *existing == *candidate)
+}
+
+// saveSessionLocked requires the store lock; callers must preserve all CAS and
+// owner checks below when composing a larger atomic admission transaction.
+func (s *Store) saveSessionLocked(x Session, expectedRevision uint64) (Session, error) {
+	return s.saveSessionWithAdmissionLocked(x, expectedRevision, "", nil)
+}
+
+// admitPendingUserTurn commits a staged payload and pending removal under the
+// same store lock. The caller must independently authorize provider egress;
+// this primitive does not initiate dispatch.
+// AdmitPendingUserTurn atomically stages an authorized payload and commits its
+// pending-to-PREPARED journal transition. The caller must independently check
+// provider configuration, credentials, and authorization before egress. This
+// operation does not send a provider request.
+func (s *Store) AdmitPendingUserTurn(x Session, owner string, expectedRevision uint64, payload []byte) (Session, error) {
+	return s.admitPendingUserTurn(x, owner, expectedRevision, payload)
+}
+
+func (s *Store) admitPendingUserTurn(x Session, owner string, expectedRevision uint64, payload []byte) (Session, error) {
+	if owner == "" { return Session{}, ErrInvalidSession }
+	var saved Session
+	err := s.withLock(func() error {
+		var err error
+		saved, err = s.saveSessionWithAdmissionLocked(x, expectedRevision, owner, payload)
+		return err
+	})
+	return saved, err
+}
+
+func (s *Store) saveSessionWithAdmissionLocked(x Session, expectedRevision uint64, owner string, payload []byte) (Session, error) {
+	var saved Session
+	err := func() error {
 		// A long-running Collection session can temporarily exceed the active
 		// history budget. Archive old completed reads before validating it.
 		// Other fields are still validated after the archival transformation.
@@ -620,8 +669,14 @@ func (s *Store) Save(x Session, expectedRevision uint64) (Session, error) {
 		}
 		// Generic Save must not discard or replace a queued message before an
 		// atomic owner-scoped pending-to-PREPARED handoff exists.
-		if e == nil && existing.PendingUserTurn != nil &&
-			(x.PendingUserTurn == nil || *existing.PendingUserTurn != *x.PendingUserTurn) {
+		if owner != "" {
+			if e != nil || !s.matchesProject(existing) || !pendingAdmissionCandidateMatches(existing, x, owner, expectedRevision, payload) {
+				return ErrInvalidSession
+			}
+			// A crash before the journal rename leaves only an unreferenced
+			// sidecar; a committed PREPARED journal always has staged bytes.
+			if err := s.stageProviderPayloadLocked(x, payload); err != nil { return err }
+		} else if e == nil && !preservesPendingUserTurn(existing.PendingUserTurn, x.PendingUserTurn) {
 			return ErrInvalidSession
 		}
 		// Every PREPARED journal save must still reference the exact staged
@@ -705,7 +760,7 @@ func (s *Store) Save(x Session, expectedRevision uint64) (Session, error) {
 		if e==nil{s.cleanupTaskPlanSegments(existing.TaskPlanSegments,x.TaskPlanSegments,x.ID)}
 		saved = x
 		return nil
-	})
+	}()
 	if err != nil {
 		return Session{}, err
 	}

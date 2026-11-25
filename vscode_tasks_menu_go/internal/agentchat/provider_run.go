@@ -72,6 +72,18 @@ func (s *Store) StageProviderPayload(x Session,payload []byte)error{
    previous.ProjectID!=x.ProjectID||!s.matchesProject(previous){return ErrInvalidSession}
   // A committed PREPARED journal still references the existing sidecar.
   if previous.ProviderRun!=nil && previous.ProviderRun.Phase=="prepared"{return ErrInvalidSession}
+  return s.stageProviderPayloadLocked(x,payload)
+ })
+}
+
+// stageProviderPayloadLocked requires the store lock and a validated run.
+// Its directory sync makes the sidecar durable before journal admission.
+func (s *Store) stageProviderPayloadLocked(x Session,payload []byte) error {
+  // This helper is also used by lock-held admission paths: validate again so
+  // callers cannot persist an invalid or differently bound provider payload.
+  if !validID(x.ID)||x.ProviderRun==nil||!validProviderRun(x.ProviderRun)||
+   x.ProviderRun.Phase!="prepared"||len(payload)==0||len(payload)>maxProviderRunPayload||
+   x.ProviderRun.PayloadSHA256!=ProviderPayloadDigest(payload){return ErrInvalidSession}
   record:=providerPayloadRecord{Version:1,RunID:x.ProviderRun.ID,
    SHA256:x.ProviderRun.PayloadSHA256,Payload:payload}
   encoded,err:=json.Marshal(record)
@@ -85,11 +97,7 @@ func (s *Store) StageProviderPayload(x Session,payload []byte)error{
   if err=f.Sync();err!=nil{f.Close();return err}
   if err=f.Close();err!=nil{return err}
   if err=os.Rename(f.Name(),s.providerRunFile(x.ID));err!=nil{return err}
-  // The PREPARED reference is committed separately in the session journal.
-  // This exact checksummed payload's filename must survive a sudden crash
-  // BEFORE that journal can declare it safely replayable.
   return s.syncDirectory()
- })
 }
 
 // PreparedProviderPayload is a strictly read-only restart recovery lookup.

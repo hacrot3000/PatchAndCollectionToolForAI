@@ -15,6 +15,14 @@ import (
 // The retry/resume path cannot silently regenerate different prompt content.
 func prepareAgentProviderRun(store *agentchat.Store,x *agentchat.Session,
  kind,callID string,p agentchat.ProviderConfig,model agentchat.ModelConfig,payload []byte)error{
+ if err:=setAgentPreparedProviderRun(x,kind,callID,p,model,payload);err!=nil{return err}
+ return store.StageProviderPayload(*x,payload)
+}
+
+// setAgentPreparedProviderRun only constructs the intent; it does not stage,
+// persist, authorize or send. Atomic pending admission can use it before commit.
+func setAgentPreparedProviderRun(x *agentchat.Session,kind,callID string,
+ p agentchat.ProviderConfig,model agentchat.ModelConfig,payload []byte)error{
  if x==nil{return agentchat.ErrInvalidSession}
  now:=time.Now().UTC()
  x.ProviderRun=&agentchat.ProviderRun{
@@ -25,7 +33,7 @@ func prepareAgentProviderRun(store *agentchat.Store,x *agentchat.Session,
   EstimatedInputTokens:uint64(contextcompact.Tokens(string(payload))),
   CreatedAt:now,UpdatedAt:now,
  }
- return store.StageProviderPayload(*x,payload)
+ return nil
 }
 
 // Committing SENDING BEFORE the network is the only safe retry boundary.

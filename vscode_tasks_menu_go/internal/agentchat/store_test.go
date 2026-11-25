@@ -209,6 +209,240 @@ func TestStoreRejectsUnscopedProviderSelectionChanges(t *testing.T) {
  }
 }
 
+func TestPendingTurnConcurrentJournalCAS(t *testing.T) {
+ dir := filepath.Join(t.TempDir(), "private", "agent")
+ store, err := NewStore(dir); if err != nil { t.Fatal(err) }
+ x, err := NewSession("user:alice", "/workspace/a", "project-uuid", "provider", "model", Stateless); if err != nil { t.Fatal(err) }
+ x.PendingUserTurn = &PendingUserTurn{Message:"queued", RequestID:"req", RequestDigest:"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", ProviderID:"provider", ModelID:"model", ProviderConfigVersion:"v1", QueuedAt:time.Now().UTC()}
+ x, err = store.Save(x, 0); if err != nil { t.Fatal(err) }
+ expected := *x.PendingUserTurn
+ results := make(chan error, 2)
+ var wg sync.WaitGroup
+ for i := 0; i < 2; i++ {
+  wg.Add(1)
+  go func() { defer wg.Done(); _, err := store.Save(x, x.Revision); results <- err }()
+ }
+ wg.Wait(); close(results)
+ successes, stale := 0, 0
+ for err := range results { if err == nil { successes++ } else if errors.Is(err, ErrStaleRevision) { stale++ } else { t.Fatalf("unexpected save error: %v", err) } }
+ if successes != 1 || stale != 1 { t.Fatalf("successes=%d stale=%d", successes, stale) }
+ reopened, err := NewStore(dir); if err != nil { t.Fatal(err) }
+ got, err := reopened.Get(x.ID, "user:alice"); if err != nil { t.Fatal(err) }
+ if got.Revision != x.Revision+1 || got.PendingUserTurn == nil || *got.PendingUserTurn != expected { t.Fatal("concurrent saves altered pending turn") }
+}
+
+func TestPendingTurnSurvivesUnrelatedJournalSave(t *testing.T) {
+ dir := filepath.Join(t.TempDir(), "private", "agent")
+ store, err := NewStore(dir); if err != nil { t.Fatal(err) }
+ x, err := NewSession("user:alice", "/workspace/a", "project-uuid", "provider", "model", Stateless); if err != nil { t.Fatal(err) }
+ x.PendingUserTurn = &PendingUserTurn{Message:"queued", RequestID:"req", RequestDigest:"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", ProviderID:"provider", ModelID:"model", ProviderConfigVersion:"v1", QueuedAt:time.Now().UTC()}
+ x, err = store.Save(x, 0); if err != nil { t.Fatal(err) }
+ expected := *x.PendingUserTurn
+ x.AppendEvent("test_checkpoint", x.Status, "", "")
+ saved, err := store.Save(x, x.Revision); if err != nil { t.Fatal(err) }
+ reopened, err := NewStore(dir); if err != nil { t.Fatal(err) }
+ got, err := reopened.Get(x.ID, "user:alice"); if err != nil { t.Fatal(err) }
+ if got.Revision != saved.Revision || got.PendingUserTurn == nil || *got.PendingUserTurn != expected {
+  t.Fatal("unrelated journal save lost or changed pending turn")
+ }
+}
+
+func TestPendingAdmissionBindingMatches(t *testing.T) {
+ now := time.Now().UTC()
+ digest := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+ p := PendingUserTurn{Message:"queued", RequestID:"req", RequestDigest:digest, ProviderID:"provider", ModelID:"model", ReasoningEffort:"low", ProviderConfigVersion:"v1", QueuedAt:now}
+ r := ProviderRun{ID:"run", Kind:"message", Phase:"prepared", PayloadSHA256:digest, CreatedAt:now, UpdatedAt:now}
+ b := TurnBinding{Version:TurnBindingVersion, TurnID:"run", AttemptID:"run", RequestID:"req", ProviderID:"provider", ModelID:"model", ReasoningEffort:"low", ProviderConfigVersion:"v1", ContextMode:Stateless, PayloadDigest:digest, AdmittedAt:now}
+ if !pendingAdmissionBindingMatches(&p,&b,&r) { t.Fatal("valid binding rejected") }
+ cases := []struct{name string; mutate func(*PendingUserTurn,*TurnBinding,*ProviderRun)}{
+  {"request",func(p *PendingUserTurn,b *TurnBinding,r *ProviderRun){b.RequestID="other"}},
+  {"provider",func(p *PendingUserTurn,b *TurnBinding,r *ProviderRun){b.ProviderID="other"}},
+  {"model",func(p *PendingUserTurn,b *TurnBinding,r *ProviderRun){b.ModelID="other"}},
+  {"effort",func(p *PendingUserTurn,b *TurnBinding,r *ProviderRun){b.ReasoningEffort="high"}},
+  {"config",func(p *PendingUserTurn,b *TurnBinding,r *ProviderRun){b.ProviderConfigVersion="v2"}},
+  {"credential",func(p *PendingUserTurn,b *TurnBinding,r *ProviderRun){b.CredentialFingerprint=digest}},
+  {"run",func(p *PendingUserTurn,b *TurnBinding,r *ProviderRun){b.TurnID="other"}},
+  {"attempt",func(p *PendingUserTurn,b *TurnBinding,r *ProviderRun){b.AttemptID="other"}},
+  {"payload",func(p *PendingUserTurn,b *TurnBinding,r *ProviderRun){b.PayloadDigest="bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}},
+  {"phase",func(p *PendingUserTurn,b *TurnBinding,r *ProviderRun){r.Phase="sending"}},
+  {"kind",func(p *PendingUserTurn,b *TurnBinding,r *ProviderRun){r.Kind="collection"}},
+  {"invalid pending digest",func(p *PendingUserTurn,b *TurnBinding,r *ProviderRun){p.RequestDigest="not-a-sha256"}},
+  {"invalid binding mode",func(p *PendingUserTurn,b *TurnBinding,r *ProviderRun){b.ContextMode="invalid"}},
+  {"invalid run timestamps",func(p *PendingUserTurn,b *TurnBinding,r *ProviderRun){r.CreatedAt=time.Time{}}},
+ }
+ for _, tc := range cases { t.Run(tc.name,func(t *testing.T){ pp,bb,rr:=p,b,r; tc.mutate(&pp,&bb,&rr); if pendingAdmissionBindingMatches(&pp,&bb,&rr){t.Fatal("mismatch accepted")} }) }
+ if pendingAdmissionBindingMatches(nil,&b,&r)||pendingAdmissionBindingMatches(&p,nil,&r)||pendingAdmissionBindingMatches(&p,&b,nil){t.Fatal("nil binding accepted")}
+}
+
+// Simulate restart at the durable-sidecar, pre-journal-commit boundary.
+// This is a state-boundary test, not a process-kill or power-loss test.
+func TestPendingAdmissionStagedSidecarBeforeCommit(t *testing.T) {
+ dir := filepath.Join(t.TempDir(), "private", "agent")
+ store, err := NewStore(dir); if err != nil { t.Fatal(err) }
+ x, err := NewSession("user:alice", "/workspace/a", "project-uuid", "provider", "model", Stateless); if err != nil { t.Fatal(err) }
+ now := time.Now().UTC()
+ payload := []byte("prepared payload")
+ digest := ProviderPayloadDigest(payload)
+ x.PendingUserTurn = &PendingUserTurn{Message:"queued", RequestID:"req", RequestDigest:digest, ProviderID:"provider", ModelID:"model", ProviderConfigVersion:"v1", QueuedAt:now}
+ x, err = store.Save(x, 0); if err != nil { t.Fatal(err) }
+ expected := *x.PendingUserTurn
+ candidate := x
+ candidate.PendingUserTurn = nil
+ candidate.Status = "requesting_ai"
+ candidate.ProviderRun = &ProviderRun{ID:"run", Kind:"message", Phase:"prepared", PayloadSHA256:digest, CreatedAt:now, UpdatedAt:now}
+ candidate.TurnBinding = &TurnBinding{Version:TurnBindingVersion, TurnID:"run", AttemptID:"run", RequestID:"req", ProviderID:"provider", ModelID:"model", ProviderConfigVersion:"v1", ContextMode:Stateless, PayloadDigest:digest, AdmittedAt:now}
+ if err := store.StageProviderPayload(candidate, payload); err != nil { t.Fatal(err) }
+ reopened, err := NewStore(dir); if err != nil { t.Fatal(err) }
+ got, err := reopened.Get(x.ID, "user:alice"); if err != nil { t.Fatal(err) }
+ if got.Revision != x.Revision || got.PendingUserTurn == nil || *got.PendingUserTurn != expected || got.ProviderRun != nil { t.Fatal("staged sidecar changed journal") }
+ if _, _, err := reopened.PreparedProviderPayload(x.ID, "user:alice"); err == nil { t.Fatal("uncommitted sidecar was replayable") }
+ if _, err := reopened.admitPendingUserTurn(candidate, "user:alice", x.Revision, payload); err != nil { t.Fatal(err) }
+ _, recovered, err := reopened.PreparedProviderPayload(x.ID, "user:alice"); if err != nil { t.Fatal(err) }
+ if string(recovered) != string(payload) { t.Fatal("committed payload differs") }
+}
+
+func TestPendingAdmissionStagingFailurePreservesTurn(t *testing.T) {
+ dir := filepath.Join(t.TempDir(), "private", "agent")
+ store, err := NewStore(dir); if err != nil { t.Fatal(err) }
+ x, err := NewSession("user:alice", "/workspace/a", "project-uuid", "provider", "model", Stateless); if err != nil { t.Fatal(err) }
+ now := time.Now().UTC()
+ payload := []byte("prepared payload")
+ digest := ProviderPayloadDigest(payload)
+ x.PendingUserTurn = &PendingUserTurn{Message:"queued", RequestID:"req", RequestDigest:digest, ProviderID:"provider", ModelID:"model", ProviderConfigVersion:"v1", QueuedAt:now}
+ x, err = store.Save(x, 0); if err != nil { t.Fatal(err) }
+ expected := *x.PendingUserTurn
+ candidate := x
+ candidate.PendingUserTurn = nil
+ candidate.Status = "requesting_ai"
+ candidate.ProviderRun = &ProviderRun{ID:"run", Kind:"message", Phase:"prepared", PayloadSHA256:digest, CreatedAt:now, UpdatedAt:now}
+ candidate.TurnBinding = &TurnBinding{Version:TurnBindingVersion, TurnID:"run", AttemptID:"run", RequestID:"req", ProviderID:"provider", ModelID:"model", ProviderConfigVersion:"v1", ContextMode:Stateless, PayloadDigest:digest, AdmittedAt:now}
+ // An existing directory makes the sidecar rename fail without changing the journal.
+ if err := os.Mkdir(store.providerRunFile(x.ID), 0700); err != nil { t.Fatal(err) }
+ if _, err := store.admitPendingUserTurn(candidate, "user:alice", x.Revision, payload); err == nil { t.Fatal("admission unexpectedly succeeded") }
+ reopened, err := NewStore(dir); if err != nil { t.Fatal(err) }
+ got, err := reopened.Get(x.ID, "user:alice"); if err != nil { t.Fatal(err) }
+ if got.Revision != x.Revision || got.PendingUserTurn == nil || *got.PendingUserTurn != expected || got.ProviderRun != nil { t.Fatal("failed staging altered persisted admission") }
+}
+
+func TestPendingAdmissionRejectsOtherOwner(t *testing.T) {
+ dir := filepath.Join(t.TempDir(), "private", "agent")
+ store, err := NewStore(dir); if err != nil { t.Fatal(err) }
+ x, err := NewSession("user:alice", "/workspace/a", "project-uuid", "provider", "model", Stateless); if err != nil { t.Fatal(err) }
+ now := time.Now().UTC()
+ payload := []byte("prepared payload")
+ digest := ProviderPayloadDigest(payload)
+ x.PendingUserTurn = &PendingUserTurn{Message:"queued", RequestID:"req", RequestDigest:digest, ProviderID:"provider", ModelID:"model", ProviderConfigVersion:"v1", QueuedAt:now}
+ x, err = store.Save(x, 0); if err != nil { t.Fatal(err) }
+ expected := *x.PendingUserTurn
+ candidate := x
+ candidate.PendingUserTurn = nil
+ candidate.Status = "requesting_ai"
+ candidate.ProviderRun = &ProviderRun{ID:"run", Kind:"message", Phase:"prepared", PayloadSHA256:digest, CreatedAt:now, UpdatedAt:now}
+ candidate.TurnBinding = &TurnBinding{Version:TurnBindingVersion, TurnID:"run", AttemptID:"run", RequestID:"req", ProviderID:"provider", ModelID:"model", ProviderConfigVersion:"v1", ContextMode:Stateless, PayloadDigest:digest, AdmittedAt:now}
+ if _, err := store.AdmitPendingUserTurn(candidate, "user:bob", x.Revision, payload); !errors.Is(err, ErrInvalidSession) { t.Fatalf("cross-owner admission: %v", err) }
+ if _, err := os.Lstat(store.providerRunFile(x.ID)); !errors.Is(err, os.ErrNotExist) { t.Fatalf("cross-owner admission staged sidecar: %v", err) }
+ reopened, err := NewStore(dir); if err != nil { t.Fatal(err) }
+ got, err := reopened.Get(x.ID, "user:alice"); if err != nil { t.Fatal(err) }
+ if got.Revision != x.Revision || got.PendingUserTurn == nil || *got.PendingUserTurn != expected || got.ProviderRun != nil { t.Fatal("failed staging altered persisted admission") }
+}
+
+func TestPendingAdmissionConcurrentCommit(t *testing.T) {
+ dir := filepath.Join(t.TempDir(), "private", "agent")
+ store, err := NewStore(dir); if err != nil { t.Fatal(err) }
+ x, err := NewSession("user:alice", "/workspace/a", "project-uuid", "provider", "model", Stateless); if err != nil { t.Fatal(err) }
+ now := time.Now().UTC()
+ payload := []byte("prepared payload")
+ digest := ProviderPayloadDigest(payload)
+ x.PendingUserTurn = &PendingUserTurn{Message:"queued", RequestID:"req", RequestDigest:digest, ProviderID:"provider", ModelID:"model", ProviderConfigVersion:"v1", QueuedAt:now}
+ x, err = store.Save(x, 0); if err != nil { t.Fatal(err) }
+ candidate := x
+ candidate.PendingUserTurn = nil
+ candidate.Status = "requesting_ai"
+ candidate.ProviderRun = &ProviderRun{ID:"run", Kind:"message", Phase:"prepared", PayloadSHA256:digest, CreatedAt:now, UpdatedAt:now}
+ candidate.TurnBinding = &TurnBinding{Version:TurnBindingVersion, TurnID:"run", AttemptID:"run", RequestID:"req", ProviderID:"provider", ModelID:"model", ProviderConfigVersion:"v1", ContextMode:Stateless, PayloadDigest:digest, AdmittedAt:now}
+ results := make(chan error, 2)
+ var wg sync.WaitGroup
+ for i := 0; i < 2; i++ { wg.Add(1); go func() { defer wg.Done(); _, err := store.admitPendingUserTurn(candidate, "user:alice", x.Revision, payload); results <- err }() }
+ wg.Wait(); close(results)
+ successes, stale := 0, 0
+ for err := range results { if err == nil { successes++ } else if errors.Is(err, ErrStaleRevision) { stale++ } else { t.Fatalf("unexpected admission error: %v", err) } }
+ if successes != 1 || stale != 1 { t.Fatalf("successes=%d stale=%d", successes, stale) }
+ reopened, err := NewStore(dir); if err != nil { t.Fatal(err) }
+ got, err := reopened.Get(x.ID, "user:alice"); if err != nil { t.Fatal(err) }
+ if got.Revision != x.Revision+1 || got.PendingUserTurn != nil || got.ProviderRun == nil || got.ProviderRun.Phase != "prepared" || got.ProviderRun.PayloadSHA256 != digest { t.Fatal("committed admission not retained after reopen") }
+ _, recovered, err := reopened.PreparedProviderPayload(x.ID, "user:alice"); if err != nil { t.Fatal(err) }
+ if string(recovered) != string(payload) { t.Fatal("concurrent admission persisted wrong payload") }
+}
+
+func TestPendingAdmissionRejectsEmptyOwner(t *testing.T) {
+ var store *Store
+ _, err := store.admitPendingUserTurn(Session{}, "", 0, nil)
+ if !errors.Is(err, ErrInvalidSession) {
+  t.Fatalf("empty owner admission: got %v, want ErrInvalidSession", err)
+ }
+}
+
+func TestPreservesPendingUserTurnInvariant(t *testing.T) {
+ original := &PendingUserTurn{Message: "queued"}
+ same := *original
+ changed := same
+ changed.Message = "different"
+ if !preservesPendingUserTurn(nil, nil) || !preservesPendingUserTurn(nil, original) || !preservesPendingUserTurn(original, &same) {
+  t.Fatal("valid pending preservation rejected")
+ }
+ if preservesPendingUserTurn(original, nil) || preservesPendingUserTurn(original, &changed) {
+  t.Fatal("pending removal or replacement accepted")
+ }
+}
+
+func TestPendingAdmissionCandidateMatches(t *testing.T) {
+ now := time.Now().UTC()
+ payload := []byte("prepared payload")
+ digest := ProviderPayloadDigest(payload)
+ current, err := NewSession("user:alice", "/workspace/a", "project-uuid", "provider", "model", Stateless)
+ if err != nil { t.Fatal(err) }
+ current.Revision = 4
+ current.PendingUserTurn = &PendingUserTurn{Message:"queued", RequestID:"req", RequestDigest:digest, ProviderID:"provider", ModelID:"model", ProviderConfigVersion:"v1", QueuedAt:now}
+ candidate := current
+ candidate.PendingUserTurn = nil
+ candidate.Status = "requesting_ai"
+ candidate.ProviderRun = &ProviderRun{ID:"run", Kind:"message", Phase:"prepared", PayloadSHA256:digest, CreatedAt:now, UpdatedAt:now}
+ candidate.TurnBinding = &TurnBinding{Version:TurnBindingVersion, TurnID:"run", AttemptID:"run", RequestID:"req", ProviderID:"provider", ModelID:"model", ProviderConfigVersion:"v1", ContextMode:Stateless, PayloadDigest:digest, AdmittedAt:now}
+ if !pendingAdmissionCandidateMatches(current, candidate, "user:alice", 4, payload) { t.Fatal("valid candidate rejected") }
+ completed := *candidate.ProviderRun
+ completed.Phase = "completed"
+ prior := current
+ prior.ProviderRun = &completed
+ if !pendingAdmissionCandidateMatches(prior, candidate, "user:alice", 4, payload) { t.Fatal("completed prior run rejected") }
+ cases := []struct{name string; mutate func(*Session,*Session,*string,*uint64,*[]byte)}{
+  {"owner", func(c,x *Session,o *string,r *uint64,p *[]byte){*o="user:bob"}},
+  {"candidate owner", func(c,x *Session,o *string,r *uint64,p *[]byte){x.Owner="user:bob"}},
+  {"revision", func(c,x *Session,o *string,r *uint64,p *[]byte){*r=5}},
+  {"session ID", func(c,x *Session,o *string,r *uint64,p *[]byte){x.ID="other"}},
+  {"candidate revision", func(c,x *Session,o *string,r *uint64,p *[]byte){x.Revision++}},
+  {"workspace", func(c,x *Session,o *string,r *uint64,p *[]byte){x.Workspace="other"}},
+  {"project", func(c,x *Session,o *string,r *uint64,p *[]byte){x.ProjectID="other"}},
+  {"pending retained", func(c,x *Session,o *string,r *uint64,p *[]byte){x.PendingUserTurn=c.PendingUserTurn}},
+  {"no pending", func(c,x *Session,o *string,r *uint64,p *[]byte){c.PendingUserTurn=nil}},
+  {"prepared already", func(c,x *Session,o *string,r *uint64,p *[]byte){c.ProviderRun=x.ProviderRun}},
+  {"sending unresolved", func(c,x *Session,o *string,r *uint64,p *[]byte){run:=*x.ProviderRun; run.Phase="sending"; c.ProviderRun=&run}},
+  {"unknown unresolved", func(c,x *Session,o *string,r *uint64,p *[]byte){run:=*x.ProviderRun; run.Phase="unknown"; c.ProviderRun=&run}},
+  {"acknowledged unresolved", func(c,x *Session,o *string,r *uint64,p *[]byte){run:=*x.ProviderRun; run.Phase="acknowledged"; c.ProviderRun=&run}},
+  {"blocked unresolved", func(c,x *Session,o *string,r *uint64,p *[]byte){run:=*x.ProviderRun; run.Phase="blocked"; c.ProviderRun=&run}},
+  {"missing run", func(c,x *Session,o *string,r *uint64,p *[]byte){x.ProviderRun=nil}},
+  {"missing binding", func(c,x *Session,o *string,r *uint64,p *[]byte){x.TurnBinding=nil}},
+  {"binding context mode drift", func(c,x *Session,o *string,r *uint64,p *[]byte){binding:=*x.TurnBinding; binding.ContextMode=Conversation; x.TurnBinding=&binding}},
+  {"candidate context mode drift", func(c,x *Session,o *string,r *uint64,p *[]byte){x.Mode=Conversation}},
+  {"status", func(c,x *Session,o *string,r *uint64,p *[]byte){x.Status="idle"}},
+  {"payload", func(c,x *Session,o *string,r *uint64,p *[]byte){*p=[]byte("different")}},
+ }
+ for _, tc := range cases { t.Run(tc.name, func(t *testing.T) {
+  c,x,o,r,p := current,candidate,"user:alice",uint64(4),payload
+  tc.mutate(&c,&x,&o,&r,&p)
+  if pendingAdmissionCandidateMatches(c,x,o,r,p) { t.Fatal("invalid candidate accepted") }
+ }) }
+}
+
 func TestStoreRejectsPendingTurnReplacement(t *testing.T) {
  dir := filepath.Join(t.TempDir(), "private", "agent")
  store, err := NewStore(dir); if err != nil { t.Fatal(err) }

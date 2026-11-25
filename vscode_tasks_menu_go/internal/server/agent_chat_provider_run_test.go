@@ -10,6 +10,17 @@ import (
  "bletonfc/vscode_tasks_menu/internal/agentchat"
 )
 
+func TestAgentPreparedIntentConstruction(t *testing.T) {
+ p := agentProviderFixture()
+ model := p.Models[0]
+ payload := []byte("prepared intent payload")
+ if err := setAgentPreparedProviderRun(nil, "message", "", p, model, payload); err == nil { t.Fatal("nil session accepted") }
+ x := agentchat.Session{Revision: 3, EventSeq: 4}
+ if err := setAgentPreparedProviderRun(&x, "message", "", p, model, payload); err != nil { t.Fatal(err) }
+ if x.ProviderRun == nil || x.ProviderRun.ID != "r4-e5" || x.ProviderRun.Kind != "message" || x.ProviderRun.Phase != "prepared" || x.ProviderRun.PayloadSHA256 != agentchat.ProviderPayloadDigest(payload) || x.ProviderRun.ProviderFingerprint != agentchat.CapabilityFingerprint(p, model) { t.Fatalf("incorrect intent: %+v", x.ProviderRun) }
+ if x.ProviderRun.CreatedAt.IsZero() || !x.ProviderRun.CreatedAt.Equal(x.ProviderRun.UpdatedAt) { t.Fatal("invalid intent timestamps") }
+}
+
 func TestAgentPreparedProviderRunResumesExactlyOnceAfterRestart(t *testing.T){
  s,id:=newAgentConversationFixture(t,"stateless")
  store,err:=s.agentChatStore();if err!=nil{t.Fatal(err)}

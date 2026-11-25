@@ -590,6 +590,27 @@ func TestAgentMessageForOwnerRejectsForeignConversation(t *testing.T) {
     }
 }
 
+// While dispatch is suspended, a foreign owner must not consume the queued turn.
+func TestAgentSuspendedPendingDispatchRejectsForeignOwner(t *testing.T) {
+    s, id := newAgentConversationFixture(t, "stateless")
+    store, err := s.agentChatStore()
+    if err != nil { t.Fatal(err) }
+    x, err := store.Get(id, "local")
+    if err != nil { t.Fatal(err) }
+    p := agentProviderFixture()
+    if err := s.agentChatQueuePendingUserTurn(store, "local", &x, "queued message", "queued-id", agentRequestDigest("queued message"), p, p.Models[0], "", []byte("TEST-KEY")); err != nil { t.Fatal(err) }
+    before := *x.PendingUserTurn
+    revision := x.Revision
+    calls := 0
+    s.AgentChatCall = func(ctx context.Context, p agentchat.ProviderConfig, key string, payload []byte) (agentchat.ResponsesResult, error) { calls++; return agentchat.ResponsesResult{}, nil }
+    s.agentChatDispatchPendingUserTurn("user:other", id)
+    after, err := store.Get(id, "local")
+    if err != nil { t.Fatal(err) }
+    if calls != 0 || after.Revision != revision || after.PendingUserTurn == nil || *after.PendingUserTurn != before {
+        t.Fatalf("foreign dispatch changed pending turn: calls=%d revision=%d", calls, after.Revision)
+    }
+}
+
 func TestAgentSuspendedPendingDispatchRetainsTurn(t *testing.T) {
     s, id := newAgentConversationFixture(t, "stateless")
     store, err := s.agentChatStore()
