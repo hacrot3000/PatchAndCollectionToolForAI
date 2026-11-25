@@ -1133,3 +1133,41 @@ Status: IMPLEMENTED_UNVERIFIED
 
 ### Next actionable step
 - **UAG-03 start:** port native tool probe/fallback + approval parity exclusively through Legacy `agent_chat_messages` / tool feedback paths; keep Run Manager tool path frozen.
+
+
+### UAG-02 follow-up — synchronized baseline and pending binding safety
+- Inspected local HEAD `dbbdc55fd` (main and locally known origin/main equal); initial staged and unstaged diffs were empty. Native COLLECT run `agent_collect_6460e864ad29126b20833784`.
+- A later collection observed an independent unstaged edit to `agent_chat_messages.go` guarding idle dispatch; it was not modified by this patch. Do not assume the worktree remains clean.
+- `Store.Save` currently rejects changed provider/model fields; pending dispatch previously cleared the pending record before using a stale revision and did not compare its stored provider/config/credential fingerprints. The source-only change checks those fingerprints before clearing and uses the returned revision. It does not solve atomic queue handoff, provider/model hot-switch persistence, or the active-turn lock preventing busy admission.
+- Added a binding-comparison unit test; no tests executed by this patch. Prior UAG-02 failures and browser/CI verification remain open. UAG-02 is IMPLEMENTED_UNVERIFIED; UAG-03 through UAG-08 are not complete; M17–M19 remain deferred.
+- Next: verify this exact change and triage queue handoff, owner identity, active-turn admission, provider/model switch and the recorded race/fence failures before the UAG-02 gate can close. Preserve queued requests and never replay ambiguous egress.
+
+### UAG-02 follow-up — pending dispatcher lease ordering
+- On locally synchronized HEAD `dbbdc55fd`, native COLLECT run `agent_collect_75d1dc55f8f44a4373fbe864` confirmed the pending binding guard and tracked follow-up. Subsequent COLLECT `agent_collect_d0cb709a94fc107b527fa9f6` showed the pending dispatcher attempts the same nonblocking turn lock while the message handler still holds it.
+- Release the idempotent handler lease before launching a pending dispatcher; this removes that particular scheduling race. This does not make the queue handoff atomic, enable admission while a turn owns the lock, resolve provider/model Store.Save restrictions, or fix owner identity. No tests have been executed for this change.
+- UAG-02 remains IMPLEMENTED_UNVERIFIED. Next: verify queue/lock behavior and repair the atomic handoff and busy admission without losing messages or replaying ambiguous work; then complete the documented test and browser gate before UAG-03. M17–M19 remain deferred.
+
+
+### UAG-02 follow-up — lease ordering regression
+- Extracted the existing release-then-dispatch ordering into a helper and added a deterministic ordering test. This test does not validate atomic handoff, real lease behavior, owner scoping, or busy admission.
+- Native COLLECT inspected current files before this change; no tests were executed for this patch. UAG-02 remains IMPLEMENTED_UNVERIFIED; M17–M19 remain deferred.
+- Next: run the focused server regression and resolve queued-turn data loss, admission and provider-switch defects before advancing.
+
+### UAG-02 follow-up — pending turn admission guard
+- A new ordinary message could overtake an existing durable pending turn when the session otherwise accepted messages. Added a fail-closed conflict after previous-request replay and a focused regression test asserting no provider call and retention of the queued turn.
+- Source-only change; test execution and full queue handoff are not verified. This does not make pending dispatch atomic, enable busy admission, or solve provider-switch persistence. UAG-02 remains IMPLEMENTED_UNVERIFIED; UAG-03–08 and M17–M19 remain gated.
+- Next: run focused server tests and implement crash-safe atomic handoff with owner and binding preservation before enabling queued egress.
+
+### UAG-02 follow-up — unsafe pending dispatch suspended
+- COLLECT `agent_collect_beb9c63549969506dc388d4c` showed the dispatcher removes the pending record in a separate journal save before re-entering message admission. A crash or admission failure after that save can lose the queued turn.
+- Temporarily fail closed before removal or provider egress; retain the pending turn for owner review. This deliberately suspends automatic pending dispatch until atomic PREPARED admission is implemented; it is not UAG-02 completion. Existing implementation remains below the gate.
+- No tests executed by this source-only patch. Ordering, pending admission, busy admission, provider switching and previous failures remain unverified. M17–M19 remain deferred.
+- Next: implement an owner-scoped atomic pending-to-PREPARED transition without replaying ambiguous egress; add crash and concurrency tests, then verify the UAG-02 gate.
+
+### UAG-02 follow-up — explicit owner admission seam
+- COLLECT `agent_collect_ef340c412233d8b26b5bc8ec` confirmed the retention test is present and the message path derives owner from request context. The public handler now passes that owner explicitly to a private admission function; existing dispatch remains suspended. This is a refactor only, not atomic queue handoff or permission to impersonate an owner.
+- No tests executed in this patch. UAG-02 remains IMPLEMENTED_UNVERIFIED; M17–M19 remain deferred. Next: implement atomic pending-to-PREPARED adoption, preserving owner, exact payload, CAS and ambiguous-egress safety; run crash/concurrency and owner-scope tests.
+
+### UAG-02 follow-up — owner admission isolation regression
+- Added a focused test for the explicit-owner admission seam: a foreign owner must receive not-found, produce no provider egress, and leave the local journal unchanged. Test is source-only and has not been executed.
+- COLLECT `agent_collect_6210784d45aaf47069c9c736` confirmed the seam and suspended dispatcher. Atomic pending-to-PREPARED handoff, busy admission, provider switching and the recorded verification failures remain open. UAG-02 is not verified; UAG-03–08 and M17–M19 remain gated.

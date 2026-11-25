@@ -154,6 +154,12 @@ func lockAgentTurn(workspace, owner, id string) (func(), bool) {
 // failed provider request leaves a recoverable FAILED session; it never
 // silently replays the pending request or executes a tool.
 func (s *Server) agentChatMessageAPI(w http.ResponseWriter, r *http.Request, id string) {
+	s.agentChatMessageForOwner(w, r, id, aiPlanOwner(r))
+}
+
+// agentChatMessageForOwner receives an owner established by the authenticated caller.
+// Internal callers must not infer identity from a synthetic HTTP request.
+func (s *Server) agentChatMessageForOwner(w http.ResponseWriter, r *http.Request, id, owner string) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", 405)
 		return
@@ -219,7 +225,6 @@ func (s *Server) agentChatMessageAPI(w http.ResponseWriter, r *http.Request, id 
 		http.Error(w, "external model data sharing consent required", 403)
 		return
 	}
-	owner := aiPlanOwner(r)
 	release, ok := lockAgentTurn(s.Workspace, owner, id)
 	if !ok {
 		http.Error(w, "another model turn is running in this session", 409)
@@ -268,6 +273,12 @@ func (s *Server) agentChatMessageAPI(w http.ResponseWriter, r *http.Request, id 
 			"session_id": id, "revision": session.Revision, "status": session.Status,
 			"replay": true, "execution_enabled": false,
 		})
+		return
+	}
+	// A durable queued turn must not be overtaken by a newer user request.
+	// Replays of the previous request were handled above without egress.
+	if session.PendingUserTurn != nil {
+		http.Error(w, "a queued message is already waiting for this conversation", http.StatusConflict)
 		return
 	}
 	if session.Revision != req.ExpectedRevision {
@@ -583,5 +594,9 @@ func (s *Server) agentChatMessageAPI(w http.ResponseWriter, r *http.Request, id 
 		"response_id": result.ResponseID, "input_tokens": result.InputTokens,
 		"output_tokens": result.OutputTokens, "execution_enabled": false,
 	})
-	go s.agentChatDispatchPendingUserTurn(owner, id)
+	if session.PendingUserTurn != nil {
+		// The dispatcher takes the same nonblocking turn lease. Release it
+		// before starting the goroutine; the deferred release is idempotent.
+		agentReleaseAndDispatchPending(release, func() { s.agentChatDispatchPendingUserTurn(owner, id) })
+	}
 }

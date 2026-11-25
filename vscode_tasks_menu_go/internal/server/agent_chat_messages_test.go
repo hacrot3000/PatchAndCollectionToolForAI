@@ -545,3 +545,66 @@ func TestAgentChatCompletionsProviderUsesStatelessCanonicalInput(t *testing.T) {
 		t.Fatalf("Chat Completions turn failed: %d %s", w.Code, w.Body)
 	}
 }
+
+// A pending turn must not be overtaken while awaiting safe dispatch or review.
+func TestAgentPendingTurnBlocksNewMessage(t *testing.T) {
+	s, id := newAgentConversationFixture(t, "stateless")
+	store, err := s.agentChatStore()
+	if err != nil { t.Fatal(err) }
+	x, err := store.Get(id, "local")
+	if err != nil { t.Fatal(err) }
+	p := agentProviderFixture()
+	if err := s.agentChatQueuePendingUserTurn(store, "local", &x, "queued message", "queued-id", agentRequestDigest("queued message"), p, p.Models[0], "", []byte("TEST-KEY")); err != nil { t.Fatal(err) }
+	calls := 0
+	s.AgentChatCall = func(ctx context.Context, p agentchat.ProviderConfig, key string, payload []byte) (agentchat.ResponsesResult, error) { calls++; return agentchat.ResponsesResult{}, nil }
+	w := invokeAI(t, s.agentChatSessionItemAPI, http.MethodPost, "/api/agent/sessions/"+id+"/messages", map[string]any{"message":"newer message", "confirm_external":true, "expected_revision":x.Revision, "request_id":"new-id"})
+	if w.Code != http.StatusConflict || calls != 0 { t.Fatalf("newer message bypassed pending turn: status=%d calls=%d", w.Code, calls) }
+	after, err := store.Get(id, "local")
+	if err != nil { t.Fatal(err) }
+	if after.PendingUserTurn == nil || after.PendingUserTurn.RequestID != "queued-id" { t.Fatal("pending turn was not retained") }
+}
+
+
+// While atomic admission is unavailable, dispatch must retain the queued turn.
+// An explicit owner must not access another owner's conversation or send egress.
+func TestAgentMessageForOwnerRejectsForeignConversation(t *testing.T) {
+    s, id := newAgentConversationFixture(t, "stateless")
+    calls := 0
+    s.AgentChatCall = func(ctx context.Context, p agentchat.ProviderConfig, key string, payload []byte) (agentchat.ResponsesResult, error) {
+        calls++
+        return agentchat.ResponsesResult{}, nil
+    }
+    body := []byte(`{"message":"hello","confirm_external":true,"expected_revision":1}`)
+    req := httptest.NewRequest(http.MethodPost, "/api/agent/sessions/"+id+"/messages", bytes.NewReader(body))
+    w := httptest.NewRecorder()
+    s.agentChatMessageForOwner(w, req, id, "user:other")
+    if w.Code != http.StatusNotFound || calls != 0 {
+        t.Fatalf("foreign owner: status=%d provider calls=%d", w.Code, calls)
+    }
+    store, err := s.agentChatStore()
+    if err != nil { t.Fatal(err) }
+    session, err := store.Get(id, "local")
+    if err != nil { t.Fatal(err) }
+    if session.Revision != 1 || len(session.History) != 0 {
+        t.Fatal("foreign owner modified the conversation")
+    }
+}
+
+func TestAgentSuspendedPendingDispatchRetainsTurn(t *testing.T) {
+    s, id := newAgentConversationFixture(t, "stateless")
+    store, err := s.agentChatStore()
+    if err != nil { t.Fatal(err) }
+    x, err := store.Get(id, "local")
+    if err != nil { t.Fatal(err) }
+    p := agentProviderFixture()
+    if err := s.agentChatQueuePendingUserTurn(store, "local", &x, "queued message", "queued-id", agentRequestDigest("queued message"), p, p.Models[0], "", []byte("TEST-KEY")); err != nil { t.Fatal(err) }
+    beforeRevision := x.Revision
+    calls := 0
+    s.AgentChatCall = func(ctx context.Context, p agentchat.ProviderConfig, key string, payload []byte) (agentchat.ResponsesResult, error) { calls++; return agentchat.ResponsesResult{}, nil }
+    s.agentChatDispatchPendingUserTurn("local", id)
+    after, err := store.Get(id, "local")
+    if err != nil { t.Fatal(err) }
+    if calls != 0 || after.Revision != beforeRevision || after.PendingUserTurn == nil || after.PendingUserTurn.RequestID != "queued-id" {
+        t.Fatalf("suspended dispatch modified or sent queued turn: calls=%d revision=%d", calls, after.Revision)
+    }
+}

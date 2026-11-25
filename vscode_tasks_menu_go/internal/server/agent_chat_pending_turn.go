@@ -41,6 +41,23 @@ func (s *Server) agentChatQueuePendingUserTurn(store *agentchat.Store, owner str
 	return err
 }
 
+// agentPendingTurnBindingMatches refuses to reinterpret a queued turn under a
+// different provider/model configuration or credential.
+func agentPendingTurnBindingMatches(pending agentchat.PendingUserTurn, provider agentchat.ProviderConfig, model agentchat.ModelConfig, secret []byte) bool {
+	return len(secret) > 0 && pending.ProviderID == provider.ID && pending.ModelID == model.ID &&
+		pending.ProviderConfigVersion == agentchat.RunProviderConfigVersion(provider, model) &&
+		pending.CredentialFingerprint == agentchat.RunCredentialFingerprint(secret)
+}
+
+// agentReleaseAndDispatchPending releases the active lease before dispatch may run.
+func agentReleaseAndDispatchPending(release, dispatch func()) {
+	release()
+	go dispatch()
+}
+
+// Pending dispatch remains fail-closed until atomic journal handoff is implemented.
+const agentPendingDispatchHandoffReady = false
+
 // agentChatDispatchPendingUserTurn starts a queued Legacy turn after the active
 // turn finishes. It reuses the public message admission path internally.
 func (s *Server) agentChatDispatchPendingUserTurn(owner, id string) {
@@ -61,10 +78,30 @@ func (s *Server) agentChatDispatchPendingUserTurn(owner, id string) {
 		release()
 		return
 	}
+	// Dispatch is suspended until pending removal and PREPARED admission can
+	// commit atomically. Clearing it before admission can permanently lose it.
+	// Keep the existing implementation below for the forthcoming safe handoff.
+	if !agentPendingDispatchHandoffReady {
+		release()
+		return
+	}
 	pending := *x.PendingUserTurn
+	// Do not discard or dispatch a queued request under changed credentials or
+	// provider configuration. Keep it durable for explicit owner review.
+	provider, model, _, resolveErr := s.agentResolveTurnModel(owner, &x, pending.ProviderID, pending.ModelID, pending.ReasoningEffort)
+	if resolveErr != nil || s.ConnectionSecrets == nil {
+		release()
+		return
+	}
+	secret, secretErr := s.ConnectionSecrets.Get(agentProviderSecretID(s.Workspace, owner, provider.ID))
+	if secretErr != nil || !agentPendingTurnBindingMatches(pending, provider, model, secret) {
+		release()
+		return
+	}
 	x.PendingUserTurn = nil
 	_ = agentApplyNextTurnSelection(&x, pending.ProviderID, pending.ModelID, pending.ReasoningEffort)
-	if _, err = store.Save(x, x.Revision); err != nil {
+	x, err = store.Save(x, x.Revision)
+	if err != nil {
 		release()
 		return
 	}
