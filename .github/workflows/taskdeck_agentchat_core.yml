@@ -109,10 +109,26 @@ jobs:
           python-version: '3.12'
       - name: Test canonical Python COLLECT schema preflight (no queue side effects)
         run: python test_agent_collect_preflight.py
-      - name: Test native failed-queue retirement and PASS protection
-        run: python test_agent_failed_queue.py
       - name: Cross-compile Agent state filesystem guard for macOS
         working-directory: vscode_tasks_menu_go
         run: |
           CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go test -c -o "$RUNNER_TEMP/agentchat-darwin-arm64.test" ./internal/agentchat
           CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go test -c -o "$RUNNER_TEMP/agentchat-darwin-amd64.test" ./internal/agentchat
+
+  agent-failed-queue:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Test native failed-queue retirement and PASS protection
+        run: python test_agent_failed_queue.py
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.x'
+          cache-dependency-path: vscode_tasks_menu_go/go.sum
+      - name: Test Agent failed-queue admission
+        working-directory: vscode_tasks_menu_go
+        run: go test -count=1 ./internal/server -run '^TestAgentFailedQueue'

@@ -9818,9 +9818,10 @@ def _retire_failed_agent_package(root: Path, project_key: str, project_id: str,
         raise QueueSafetyError("invalid native run id")
     # Require an already initialized project, rather than creating identity
     # on an unrelated directory.
-    if not load_project_config(root):
+    project = load_project_config(root).get("project")
+    if not isinstance(project, dict) or not project.get("key") or not project.get("id"):
         raise QueueSafetyError("project identity unavailable")
-    identity = ensure_project_identity(root)
+    identity = {"key": project["key"], "id": project["id"]}
     if identity != {"key": project_key, "id": project_id}:
         raise QueueSafetyError("project identity mismatch")
     queue = root / "patchs"
@@ -9855,6 +9856,8 @@ def _retire_failed_agent_package(root: Path, project_key: str, project_id: str,
             raise QueueSafetyError("unreadable native History record")
         if report.get("project_identity") != identity:
             continue
+        if report.get("format") != "python-patch-tool-last-run" or report.get("format_version") != 2 or not report.get("finished_at"):
+            continue
         for row in report.get("results") or []:
             if not isinstance(row, dict):
                 continue
@@ -9882,6 +9885,16 @@ def _retire_failed_agent_package(root: Path, project_key: str, project_id: str,
         if any(isinstance(v, dict) and v.get("sha256") == digest and v.get("last_status") == "PASS" for v in ledger["entries"].values()):
             raise QueueSafetyError("PASS ledger evidence protects this package")
 
+    # Validate registry BEFORE removing any queue input. Its failure rows
+    # must not be fabricated or resolved by a filename-only match.
+    registry = _unresolved_registry_path(root)
+    if registry.exists() or registry.is_symlink():
+        if registry.is_symlink() or not registry.is_file() or registry.stat().st_size > 8 * 1024 * 1024:
+            raise QueueSafetyError("unsafe failure registry")
+        data = _load_json(registry)
+        if not isinstance(data, dict) or data.get("format") != "python-patch-tool-unresolved-failures" or not isinstance(data.get("entries"), list):
+            raise QueueSafetyError("invalid failure registry")
+
     # Publish an immutable recovery copy first, then retire ONLY the same
     # input bytes using the existing native COLLECT archive lifecycle helper.
     # Never touch source files, result archives, FAIL_HANDOFF or History.
@@ -9901,7 +9914,6 @@ def _retire_failed_agent_package(root: Path, project_key: str, project_id: str,
     if lifecycle != "removed_executed_input":
         raise QueueSafetyError("queue changed during retirement: " + lifecycle)
     # Resolve exactly the retired identity. Retained History is not rewritten.
-    registry = _unresolved_registry_path(root)
     if registry.exists() or registry.is_symlink():
         if registry.is_symlink() or not registry.is_file():
             raise QueueSafetyError("unsafe failure registry")

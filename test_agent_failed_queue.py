@@ -36,7 +36,9 @@ class FailedQueueTests(unittest.TestCase):
         else:
             row["request_sha256"] = self.sha
             row["native_run_id"] = run
-        report = {"project_identity": self.identity, "run_id": run, "results": [row]}
+        report = {"format": "python-patch-tool-last-run", "format_version": 2,
+                  "finished_at": "2026-11-25T00:00:00Z",
+                  "project_identity": self.identity, "run_id": run, "results": [row]}
         (self.history / (run + ".json")).write_text(json.dumps(report))
         _update_unresolved_registry(self.root, report)
         return report
@@ -79,6 +81,18 @@ class FailedQueueTests(unittest.TestCase):
         (self.queue/self.name).write_bytes(self.body)
         self.report("INCOMPLETE","COLLECT")
         self.assertEqual(self.retire("COLLECT")["status"], "retired")
+    def test_invalid_registry_does_not_remove_failed_queue_item(self):
+        self.report()
+        (self.history.parent/"UNRESOLVED_FAILURES.json").write_text("invalid")
+        with self.assertRaises(QueueSafetyError): self.retire()
+        self.assertEqual((self.queue/self.name).read_bytes(), self.body)
+    def test_collect_pass_protected(self):
+        (self.queue/self.name).unlink()
+        self.name = "CODE_COLLECTION_REQUEST_CLEAR_TEXT_test.zip"
+        (self.queue/self.name).write_bytes(self.body)
+        self.report("PASS", "COLLECT")
+        with self.assertRaises(QueueSafetyError): self.retire("COLLECT")
+        self.assertEqual((self.queue/self.name).read_bytes(),self.body)
     def test_success_archive_protected(self):
         self.report()
         (self.queue/"patched").mkdir(exist_ok=True)
