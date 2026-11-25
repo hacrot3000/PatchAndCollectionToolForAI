@@ -497,6 +497,7 @@ func (s *Server) agentChatSessionCancelAPI(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	cancelled := cancelAgentRequest(s.Workspace, owner, id)
+	recoveredCollection := false
 	// A PREPARED request has not crossed the network and may be waiting in
 	// the recovery queue with no active request cancellation handle yet.
 	// Honor Stop by revision-fencing the journal under the normal turn lock.
@@ -515,6 +516,24 @@ func (s *Server) agentChatSessionCancelAPI(w http.ResponseWriter, r *http.Reques
 			unlock()
 		}
 	}
+	// A worker may exit after native COLLECT but fail to commit the
+	// observation. Without a live cancellation handle, only the exact turn
+	// lease and an acknowledged local read checkpoint permit closing it.
+	if !cancelled && !agentRequestActive(s.Workspace,owner,id) {
+		if unlock,acquired:=lockAgentTurn(s.Workspace,owner,id);acquired{
+			fresh,e:=store.Get(id,owner)
+			if e==nil && fresh.Workspace==s.Workspace && agentCancelOrphanedCollection(&fresh){
+				if saved,e:=store.Save(fresh,fresh.Revision);e==nil{
+					x=saved;cancelled=true;recoveredCollection=true
+				}else{
+					unlock()
+					http.Error(w,"Cannot persist interrupted Collection cancellation; existing journal retained",409)
+					return
+				}
+			}
+			unlock()
+		}
+	}
 	// A tool call that already left the proposal stage cannot be declared
 	// cancelled from here; the native Patch session owns that execution.
 	unresolved := false
@@ -524,7 +543,7 @@ func (s *Server) agentChatSessionCancelAPI(w http.ResponseWriter, r *http.Reques
 			unresolved = true
 		}
 	}
-	if cancelled {
+	if cancelled && !recoveredCollection {
 		// A currently executing provider turn owns the journal CAS until it
 		// observes the cancelled context. Do not race it with a second Save:
 		// that could prevent the worker from persisting its final cancellation.
@@ -544,11 +563,13 @@ func (s *Server) agentChatSessionCancelAPI(w http.ResponseWriter, r *http.Reques
 	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, 200, map[string]any{
 		"session_id": id, "cancelled": cancelled, "status": x.Status,
+		"recovered_local_collection": recoveredCollection,
 		"patch_execution_untouched": unresolved,
 		"note": func() string {
 			if unresolved {
 				return "A native Patch execution may still be running. Reconcile it before assuming the work stopped."
 			}
+			if recoveredCollection {return "Interrupted local Collection closed. Existing native History is retained; send a new message to resume the conversation."}
 			if !cancelled {
 				return "No active model request was registered for this session."
 			}
