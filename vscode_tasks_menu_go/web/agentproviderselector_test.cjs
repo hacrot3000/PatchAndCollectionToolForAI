@@ -41,8 +41,11 @@ test('selector keeps independent provider/model choice and emits the next-run bi
   {id:'composer',name:'Composer',has_api_key:true,models:[{id:'composer-2.5'}]},
   {id:'gpt',name:'GPT',has_api_key:true,models:[{id:'gpt-fast'},{id:'gpt-reasoning'}]},
  ],providerId:'composer',modelId:'composer-2.5',onChange:binding=>changes.push(binding)});
- const providerSelect=component.element.children[0].children[0];
- const modelSelect=component.element.children[1].children[0];
+ const providerSelect=component.element.children[0];
+ const modelSelect=component.element.children[1];
+ assert.equal(providerSelect.tag,'select');assert.equal(modelSelect.tag,'select');
+ assert.equal(providerSelect.attributes['aria-label'],'Next request provider');
+ assert.equal(modelSelect.attributes['aria-label'],'Next request model');
  assert.deepEqual(component.value,{providerId:'composer',modelId:'composer-2.5'});
  providerSelect.value='gpt';providerSelect.handlers.change();
  assert.deepEqual(component.value,{providerId:'gpt',modelId:'gpt-fast'});

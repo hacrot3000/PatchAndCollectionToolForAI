@@ -169,6 +169,38 @@ assert.equal(debugButtons[1].textContent,'Clear history','second Debug action mu
 const find = (node, predicate) => predicate(node) ? node : node.children.map(child => find(child, predicate)).find(Boolean);
 const nodeText = node => String(node.textContent||'')+(node.children||[]).map(nodeText).join('');
 
+// Composer remains a single action row, with an independent one-line footer.
+const composerParts=vm.runInNewContext('({composer,actionLine,composerButtons,agentRunSelectorMount,cancel,send,footer,status,sessionStatus,prompt})',context);
+assert.deepEqual(composerParts.actionLine.children,[composerParts.agentRunSelectorMount,composerParts.composerButtons]);
+assert.deepEqual(composerParts.composerButtons.children,[composerParts.cancel,composerParts.send]);
+assert.deepEqual(composerParts.footer.children,[composerParts.status,composerParts.sessionStatus]);
+assert.ok(source.includes('text-overflow:ellipsis;white-space:nowrap'));
+assert.ok(source.includes('flex-wrap:nowrap;overflow-x:auto'));
+vm.runInNewContext("updateAgentFooterSession({id:'5764cb35-test',status:'requesting_ai',revision:135,auto_feedback:true},null)",context);
+assert.match(composerParts.status.textContent,/AI request is running on the server/);
+assert.match(composerParts.sessionStatus.textContent,/Session 5764cb35 · requesting_ai · revision 135 · auto-send ON/);
+assert.equal(composerParts.status.hidden,false);
+assert.equal(composerParts.sessionStatus.hidden,true);
+vm.runInNewContext('rotateAgentFooter()',context);
+assert.equal(composerParts.status.hidden,true);
+assert.equal(composerParts.sessionStatus.hidden,false);
+vm.runInNewContext("updateAgentFooterSession({id:'5764cb35-test',status:'requesting_ai',revision:136,auto_feedback:true},null)",context);
+assert.equal(composerParts.status.hidden,true,'revision-only poll does not restart rotation');
+assert.match(composerParts.sessionStatus.textContent,/revision 136/);
+vm.runInNewContext('rotateAgentFooter()',context);
+assert.equal(composerParts.status.hidden,false);
+assert.equal(composerParts.sessionStatus.hidden,true);
+vm.runInNewContext('updateAgentFooterSession(null)',context);
+assert.equal(composerParts.sessionStatus.hidden,true);
+const composerPrompt=composerParts.prompt;
+composerPrompt.clientWidth=300;
+for(const [height,expected] of [[32,'34px'],[104,'106px'],[374,'196px'],[32,'34px']]){
+ composerPrompt.scrollHeight=height;
+ vm.runInNewContext('resizeAgentPrompt()',context);
+ assert.equal(composerPrompt.style.height,expected,'textarea expands, caps at ten lines and shrinks again');
+}
+composerPrompt.clientWidth=0;
+
 // Persisted provider context contains the complete attachment envelope. It
 // must remain available to the AI while the conversation only displays a
 // compact button which opens an on-demand viewer (including older history).
@@ -1529,7 +1561,7 @@ console.log('PASS: safe Markdown, syntax-highlighted PHP/Python, per-block Copy,
   vm.runInNewContext("agentRunUI.setProviders(hotProviders);agentActive=hotSession.id;agentCurrentSession=hotSession;agentBusySessions.add(hotSession.id);prompt.value='Use GPT now';",context);
   await vm.runInNewContext('agentRunUI.selectConversation(hotSession)',context);
   const runSelector=vm.runInNewContext('agentRunUI.element',context);
-  const nextProviderSelect=runSelector.children[0].children[0];
+  const nextProviderSelect=runSelector.children[0];
   nextProviderSelect.value='gpt';nextProviderSelect.listeners.change[0]({type:'change'});
   const otherSession={id:'other-session',provider_id:'composer',model_id:'composer-2.5'};
   await vm.runInNewContext('agentRunUI.selectConversation(otherHotSession)',Object.assign(context,{otherHotSession:otherSession}));
@@ -1548,7 +1580,7 @@ console.log('PASS: safe Markdown, syntax-highlighted PHP/Python, per-block Copy,
   assert.equal(runRequests[0].spec.retry_mode,'limited');
   assert.equal(vm.runInNewContext("agentBusySessions.has('hot-switch-session')",context),true,
     'sending the GPT run did not cancel/clear the active Composer request');
-  assert.equal(runSelector.children[0].children[0].value,'gpt','next-provider choice stays selected');
+  assert.equal(runSelector.children[0].value,'gpt','next-provider choice stays selected');
   assert.ok(runRequests[0].spec.context_snapshot_id,'run is pinned to its snapshot');
   assert.equal(hotRun.spec.run_id,runRequests[0].spec.run_id);
   const runList=vm.runInNewContext('agentRunListMount',context);

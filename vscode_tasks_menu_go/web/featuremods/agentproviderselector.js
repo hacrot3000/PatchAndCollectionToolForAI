@@ -23,13 +23,11 @@
   if(!doc)throw new Error('A document is required to create the provider selector');
   const providers=normalizeProviders(options.providers),rootNode=doc.createElement('div');
   rootNode.className='agentchat-provider-selector';
-  const providerLabel=doc.createElement('label'),providerSelect=doc.createElement('select');
-  providerLabel.textContent='Next request provider';
-  providerLabel.append(providerSelect);
-  const modelLabel=doc.createElement('label'),modelSelect=doc.createElement('select');
-  modelLabel.textContent='Model';modelLabel.append(modelSelect);
-  const status=doc.createElement('span');status.setAttribute('role','status');status.setAttribute('aria-live','polite');
-  rootNode.append(providerLabel,modelLabel,status);
+  const providerSelect=doc.createElement('select'),modelSelect=doc.createElement('select');
+  providerSelect.setAttribute('aria-label','Next request provider');
+  modelSelect.setAttribute('aria-label','Next request model');
+  const status=doc.createElement('span');status.className='agentchat-provider-selector-status';status.setAttribute('role','status');status.setAttribute('aria-live','polite');
+  rootNode.append(providerSelect,modelSelect,status);
   let selectedProvider=String(options.providerId||''),selectedModel=String(options.modelId||'');
   function currentProvider(){return providers.find(p=>p.id===selectedProvider)||null;}
   function renderModels(){
@@ -41,6 +39,9 @@
    modelSelect.value=selectedModel;
    status.textContent=provider?.enabled?'':(provider?.reason||'Configure an available provider.');
    modelSelect.disabled=!provider?.enabled;
+   const model=provider?.models.find(m=>m.id===selectedModel);
+   providerSelect.title=provider?.enabled?'Next request provider: '+provider.name:status.textContent;
+   modelSelect.title=model?'Next request model: '+model.name:status.textContent;
   }
   providerSelect.replaceChildren();
   for(const provider of providers){
@@ -52,7 +53,10 @@
   renderModels();
   function notify(){if(typeof options.onChange==='function'&&selectedProvider&&selectedModel)options.onChange({providerId:selectedProvider,modelId:selectedModel});}
   providerSelect.addEventListener('change',()=>{selectedProvider=providerSelect.value;selectedModel='';renderModels();notify();});
-  modelSelect.addEventListener('change',()=>{selectedModel=modelSelect.value;notify();});
+  modelSelect.addEventListener('change',()=>{selectedModel=modelSelect.value;
+   const model=currentProvider()?.models.find(m=>m.id===selectedModel);
+   modelSelect.title=model?'Next request model: '+model.name:'Next request model';
+   notify();});
   return {
    element:rootNode,
    get value(){return {providerId:selectedProvider,modelId:selectedModel};},

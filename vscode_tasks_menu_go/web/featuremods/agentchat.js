@@ -158,7 +158,7 @@ agentCSS.textContent=[
 'html[data-taskmenu-theme="light"] .agentchat-taskplan-body textarea,html[data-taskmenu-theme="light"] .agentchat-taskplan-body input,html[data-taskmenu-theme="light"] .agentchat-taskplan-body select{background:#fff;color:#182b42}',
 'html[data-taskmenu-theme="light"] .agentchat-execution-panel{background:#fff;color:#17283a}',
 
-'.agentchat-composer{padding:9px;border-top:1px solid #35445c;display:flex;flex-direction:column;gap:6px}',
+'.agentchat-composer{padding:9px;border-top:1px solid #35445c;display:flex;flex:0 1 auto;min-width:0;min-height:0;flex-direction:column;gap:6px}',
 '.agentchat-attachments-trigger{align-self:flex-start;padding:4px 8px!important;font-size:11px!important;border:1px solid #506986;background:#1c3044;color:#d7eaff}',
 '.agentchat-attachments-trigger[aria-expanded="true"]{background:#304d6a}',
 '.agentchat-message-with-attachments{display:flex;flex-direction:column;align-items:flex-end;gap:4px;min-width:0}',
@@ -190,7 +190,7 @@ agentCSS.textContent=[
 '.agentchat-attach-context-menu{position:fixed;z-index:17200;display:none;min-width:190px;padding:5px;background:#192330;color:#e6eef9;border:1px solid #55657a;border-radius:7px;box-shadow:0 8px 28px #0009}',
 '.agentchat-attach-context-menu.open{display:block}.agentchat-attach-context-menu button{width:100%;text-align:left}',
 'html[data-taskmenu-theme="light"] .agentchat-attach-context-menu{background:#fff;color:#17283a}',
-'.agentchat-composer textarea{width:100%;min-height:66px;max-height:160px;resize:vertical}',
+'.agentchat-composer textarea{width:100%;min-width:0;flex:0 1 auto;box-sizing:border-box;padding:7px;border-width:1px;font-size:12px;line-height:18px;height:34px;min-height:34px;max-height:196px;resize:none;overflow-y:auto;overflow-x:hidden;overflow-wrap:anywhere}',
 '.agentchat-token-usage{font:11px ui-monospace,monospace;opacity:.8;text-align:right;padding:3px 10px 5px;line-height:1.45;white-space:normal}',
 '.agentchat-info{font-size:11px;color:#b6cce2;line-height:1.5;padding:4px 8px}',
 '.agentchat-settings-overlay{position:fixed;inset:0;z-index:17110;display:none;align-items:center;justify-content:center;background:#000a;padding:15px}',
@@ -206,7 +206,15 @@ agentCSS.textContent=[
 'html[data-taskmenu-theme="light"] .agentchat-bubble.assistant{background:transparent;border-color:transparent}',
 'html[data-taskmenu-theme="light"] .agentchat-bubble.tool{background:#f4f7fa;color:#17283a;border-color:#d4dce6}',
 '.agentchat-dock-floating>.agentchat-dock-resizer{display:none}',
-'.agentchat-composer-actions{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:11px;flex-wrap:wrap}',
+'.agentchat-composer-actions{display:flex;flex:none;min-width:0;align-items:center;gap:5px;font-size:11px;flex-wrap:nowrap;overflow-x:auto}',
+'.agentchat-run-selector-mount{flex:1 1 0;min-width:0;max-width:100%}',
+'.agentchat-run-selector-mount:empty{display:none}',
+'.agentchat-composer-buttons{display:flex;flex:none;align-items:center;gap:4px;margin-left:auto}',
+'.agentchat-composer-buttons button{white-space:nowrap;padding:6px 8px}',
+'.agentchat-footer-status{flex:none;min-width:0;overflow:hidden;white-space:nowrap;line-height:1.5;height:1.5em;box-sizing:content-box}',
+'.agentchat-footer-status>span{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
+'.agentchat-footer-status>span[hidden]{display:none}',
+'html[data-taskmenu-theme="light"] .agentchat-footer-status{color:#405a72}',
 '@media(max-width:700px){.agentchat-modelbar select{max-width:120px}.task-agent-dock-section.agent-dock-right:not(.agent-dock-floating){grid-template-columns:minmax(0,1fr) 6px minmax(290px,55vw)}}'
 ].join('\n');document.head.append(agentCSS);
 function agentEl(tag,cls,text){
@@ -420,9 +428,28 @@ let agentAttachments=[];
 const agentPendingAttachments=[];
 const agentMaxAttachmentBytes=32*1024,agentMaxAttachmentTotal=64*1024,agentMaxAttachmentCount=4;
 prompt.setAttribute('placeholder','Type an AI request for this TaskDeck project…');
-prompt.addEventListener('input',()=>{if(agentActive){agentDrafts.set(agentActive,prompt.value);agentRequestIDs.delete(agentActive);}});
+prompt.setAttribute('rows','1');
+function resizeAgentPrompt(){
+ // Hidden panels have no meaningful wrapping width; remeasure when opened.
+ if(!prompt.clientWidth)return;
+ const computed=window.getComputedStyle?.(prompt);
+ const line=parseFloat(computed?.lineHeight)||18;
+ const padding=computed?(parseFloat(computed.paddingTop)||0)+(parseFloat(computed.paddingBottom)||0):14;
+ const border=computed?(parseFloat(computed.borderTopWidth)||0)+(parseFloat(computed.borderBottomWidth)||0):2;
+ const min=Math.ceil(line+padding+border),max=Math.ceil(10*line+padding+border);
+ const previousScroll=prompt.scrollTop||0;
+ prompt.style.height='auto';
+ const desired=Math.ceil(prompt.scrollHeight+border);
+ prompt.style.height=Math.min(max,Math.max(min,desired||min))+'px';
+ if(desired>max)prompt.scrollTop=previousScroll;
+}
+function setAgentPromptValue(value){prompt.value=value;resizeAgentPrompt();}
+prompt.addEventListener('input',()=>{resizeAgentPrompt();if(agentActive){agentDrafts.set(agentActive,prompt.value);agentRequestIDs.delete(agentActive);}});
 const actionLine=agentEl('div','agentchat-composer-actions');
 const status=agentEl('span','', 'No session selected. Patch execution requires per-call approval.');
+const sessionStatus=agentEl('span');
+sessionStatus.hidden=true;
+let agentFooterSessionKey='',agentFooterShowingNotice=true;
 const send=agentButton('Send',()=>sendAgentMessage().catch(showAgentError));
 const cancel=agentButton('Cancel request',()=>cancelAgentTurn().catch(showAgentError));
 cancel.disabled=true;
@@ -499,9 +526,59 @@ const layoutGroup=makeAgentHeaderGroup('Layout',[dockPositionButton,autoHideButt
 const agentHeaderGroups=[conversationGroup,automationGroup,toolsGroup,layoutGroup];
 for(const group of agentHeaderGroups)toolbarActions.append(group);
 heading.append(title,toolbarActions,moreButton,close,moreMenu);
-actionLine.append(status,cancel,send);composer.append(agentRunSelectorMount,attachToggle,prompt,actionLine);
+const composerButtons=agentEl('div','agentchat-composer-buttons');
+composerButtons.append(cancel,send);
+actionLine.append(agentRunSelectorMount,composerButtons);
+composer.append(attachToggle,prompt,actionLine);
 main.append(tabbar,toolNotice,agentProviderEgressNotice,agentRunListMount,transcript,agentExecutionPanel,agentTaskPlanPanel,agentTokenUsageLine,composer,attachPopup);layout.append(main);
-const footer=agentEl('div','agentchat-info','Agent automation is configured per conversation. Native Patch results are verified before being sent to AI.');
+const footer=agentEl('div','agentchat-info agentchat-footer-status');
+footer.append(status,sessionStatus);
+function renderAgentFooter(){
+ const hasNotice=Boolean(status.textContent),hasSession=Boolean(sessionStatus.textContent);
+ const showNotice=hasNotice&&(!hasSession||agentFooterShowingNotice);
+ status.hidden=!showNotice;
+ sessionStatus.hidden=showNotice||!hasSession;
+ status.title=status.textContent;
+ sessionStatus.title=sessionStatus.textContent;
+}
+function setAgentStatusNotice(message){
+ const next=String(message||'');
+ if(status.textContent!==next){status.textContent=next;agentFooterShowingNotice=true;}
+ renderAgentFooter();
+}
+function rotateAgentFooter(){
+ if(status.textContent&&sessionStatus.textContent)agentFooterShowingNotice=!agentFooterShowingNotice;
+ renderAgentFooter();
+}
+function updateAgentFooterSession(session,last){
+ if(!session){
+  agentFooterSessionKey='';
+  sessionStatus.textContent='';
+  setAgentStatusNotice('No session selected. Patch execution requires per-call approval.');
+  return;
+ }
+ sessionStatus.textContent='Session '+session.id.slice(0,8)+' · '+session.status+' · revision '+session.revision+
+  (session.auto_feedback?' · auto-send ON':'');
+ // A revision-only poll must not restart the four-second rotation or erase
+ // a useful transient notice. A real state change clears stale notices.
+ const key=[session.id,session.status,last?.status,last?.feedback_sent].join(':');
+ if(key!==agentFooterSessionKey){
+  agentFooterSessionKey=key;
+  let notice='';
+  if(session.status==='requesting_ai'){
+   notice='AI request is running on the server · new responses will appear automatically. Use Cancel only to stop the request.';
+  }else if(session.status==='waiting_tool'){
+   if(last?.status==='done')notice='Patch PASS · '+(last.feedback_sent?'result sent to AI':'result ready to send to AI');
+   else if(last?.status==='error')notice='Patch failed · inspect verified result';
+   else if(last?.status==='running')notice='Patch Tool running · monitoring native status';
+   else if(last?.status==='unknown')notice='Native Patch result unknown · inspect History';
+  }
+  if(!notice)notice=agentLivePhase(session)?.message||'';
+  setAgentStatusNotice(notice);
+ }else renderAgentFooter();
+}
+renderAgentFooter();
+setInterval(()=>{if(root.classList.contains('visible'))rotateAgentFooter();},4000);
 windowBox.append(heading,viewTabs,layout,debugPanel,footer);root.append(windowBox);
 const agentToolbarItems=agentHeaderGroups;
 mountAgentDock();
@@ -598,7 +675,7 @@ let agentMonitorTimer=0;
 function showAgentError(error){
  let message=String(error?.message||error);
  try{const parsed=JSON.parse(message);const detail=parsed?.error;if(detail)message='FAILED · '+String(detail.code||'UNKNOWN')+' · '+String(detail.stage||'unknown stage')+' · '+String(detail.message||'No safe provider message')+(detail.http_status?' · HTTP '+detail.http_status:'')+(detail.trace_id?' · Trace '+detail.trace_id:'')+(detail.ambiguous?' · outcome may be ambiguous':'');}catch{}
- status.textContent='Error: '+message;
+ setAgentStatusNotice('Error: '+message);
  settingsStatus.textContent='Error: '+message;
  agentDebugClientErrors.push({at:new Date().toISOString(),message:message.slice(0,2000),session_id:agentActive||null});
  if(agentDebugClientErrors.length>64)agentDebugClientErrors.shift();
@@ -1311,7 +1388,7 @@ function agentStartProgressPoll(sessionID){
   if(!agentSessionBusy(sessionID)||agentActive!==sessionID)return;
   try{await selectAgentSession(sessionID);}
   catch(error){ // Keep the current live row; network polling errors are not new user turns.
-   if(agentActive===sessionID)status.textContent='Live status unavailable · '+String(error?.message||error);
+   if(agentActive===sessionID)setAgentStatusNotice('Live status unavailable · '+String(error?.message||error));
   }
   if(agentSessionBusy(sessionID)&&agentActive===sessionID)agentStartProgressPoll(sessionID);
  };
@@ -1466,6 +1543,7 @@ function displayAgentSession(session){
    agentRenderedToolVersions.clear();
   }
   agentCurrentSession=null;
+  updateAgentFooterSession(null);
   agentUpdateTokenUsage(null);
   renderAgentProviderEgressReview(null,null);
 
@@ -1541,18 +1619,7 @@ function displayAgentSession(session){
  // The live status is appended after the history scroll decision.
  if(followLatest)agentScrollToLatest(session.id);
  const last=(session.tool_calls||[]).slice(-1)[0];
- let stateNote='Session '+session.id.slice(0,8)+' · '+session.status+' · revision '+session.revision;
- if(last&&session.status==='waiting_tool'){
-  if(last.status==='done')stateNote='Patch PASS · '+(last.feedback_sent?'result sent to AI':'result ready to send to AI');
-  else if(last.status==='error')stateNote='Patch failed · inspect verified result';
-  else if(last.status==='running')stateNote='Patch Tool running · monitoring native status';
-  else if(last.status==='unknown')stateNote='Native Patch result unknown · inspect History';
- }
- const nextStatus=stateNote+(session.auto_feedback?' · auto-send ON':'');
- // The in-conversation activity row is the only busy status. Keep this
- // footer for terminal metadata, not a second competing progress display.
- const footer=agentLivePhase(session)?'':nextStatus;
- if(status.textContent!==footer)status.textContent=footer;
+ updateAgentFooterSession(session,last);
  const nextFeedback=session.auto_feedback?'Auto-send: ON':'Auto-send results';
  if(autoFeedback.textContent!==nextFeedback)autoFeedback.textContent=nextFeedback;
 }
@@ -1688,7 +1755,7 @@ async function selectAgentSession(id){
  agentActive=id;
  if(switched)await agentRunUI?.selectConversation(sess);
  if(switched){
-  prompt.value=agentDrafts.get(id)||'';
+  setAgentPromptValue(agentDrafts.get(id)||'');
   agentAttachments=(agentAttachmentDrafts.get(id)||[]).map(a=>({...a}));
   renderAgentAttachments();
   const p=agentProviders.find(p=>p.id===sess.provider_id);
@@ -1704,7 +1771,7 @@ async function selectAgentSession(id){
    const staged=normalizeStagedAttachments([...agentAttachments,...pendingToTransfer]);
    agentAttachments=staged;agentAttachmentDrafts.set(id,staged.map(a=>({...a})));
    agentPendingAttachments.splice(0,pendingToTransfer.length);renderAgentAttachments();
-  }catch(error){status.textContent='Pending attachments need room: '+String(error?.message||error);}
+  }catch(error){setAgentStatusNotice('Pending attachments need room: '+String(error?.message||error));}
  }
  renderAgentAutomationControls(sess);
  send.disabled=(agentSessionBusy(id)||(sess.status==='requesting_ai'))&&!agentRunUI?.canSend();
@@ -1719,9 +1786,7 @@ async function selectAgentSession(id){
  }
  openAgentTab(id);
  displayAgentSession(sess);
- if(sess.status==='requesting_ai'&&!agentSessionBusy(id))
-  status.textContent='AI request is running on the server · new responses will appear automatically. Use Cancel only to stop the request.';
- scheduleAgentMonitor(sess);
+  scheduleAgentMonitor(sess);
  return sess;
 }
 async function agentToolDecision(session,callID,action){
@@ -1733,11 +1798,11 @@ async function agentToolDecision(session,callID,action){
  if(!session)return;
  const record=(session.tool_calls||[]).find(call=>call.call_id===callID);
  if(!record||record.status!=='pending'){
-  status.textContent='Patch has already advanced to '+(record?.status||'another state')+' · no repeat approval was sent.';
+  setAgentStatusNotice('Patch has already advanced to '+(record?.status||'another state')+' · no repeat approval was sent.');
   return;
  }
  if(action==='approve' && session.auto_patch){
-  status.textContent='Auto apply Patch is ON · Native Patch Tool is managing this proposal.';
+  setAgentStatusNotice('Auto apply Patch is ON · Native Patch Tool is managing this proposal.');
   return;
  }
  const review=(session.history||[]).find(item=>item.type==='function_call'&&item.call_id===callID);
@@ -1752,9 +1817,9 @@ async function agentToolDecision(session,callID,action){
    body:JSON.stringify({action,expected_revision:session.revision,confirm_execution:action==='approve'}),
   });
   await selectAgentSession(session.id);
-  status.textContent=action==='approve'
+  setAgentStatusNotice(action==='approve'
    ?('Native Patch '+result.status+' · '+(result.note||'Inspect Patch Tool for execution progress.'))
-   :'Patch was rejected; nothing executed.';
+   :'Patch was rejected; nothing executed.');
  }finally{agentBusy=false;}
 }
 async function recoverAgentPatch(session,callID,action){
@@ -1776,11 +1841,11 @@ async function recoverAgentPatch(session,callID,action){
     confirm_external:action==='send_existing'||action==='rerun_and_send'}),
  });
  if(agentActive===session.id)await selectAgentSession(session.id);
- status.textContent=action==='rerun_and_send'
+ setAgentStatusNotice(action==='rerun_and_send'
   ?'One re-apply approved; Native Patch will execute, then the final result will be sent to AI.'
   :action==='rerun_patch'
   ?'Previous attempt preserved. Review the pending Patch and approve a new native execution.'
-  :'Latest verified native result delivered to AI without re-execution.';
+  :'Latest verified native result delivered to AI without re-execution.');
  return result;
 }
 async function showAgentExecution(sessionID,callID){
@@ -1817,7 +1882,7 @@ async function syncAgentPatch(id,{quiet=false}={}){
   // POST. GET shows persisted progress and cannot replay a Patch or feedback.
   if(agentSessionBusy(id)||agentCurrentSession?.id===id&&agentCurrentSession.status==='requesting_ai'){
    if(agentActive===id)await selectAgentSession(id);
-   if(!quiet&&agentActive===id)status.textContent='AI request is active · native Patch progress is updating from saved results.';
+   if(!quiet&&agentActive===id)setAgentStatusNotice('AI request is active · native Patch progress is updating from saved results.');
    return null;
   }
   let result;
@@ -1830,7 +1895,7 @@ async function syncAgentPatch(id,{quiet=false}={}){
    // A timer can race the background Auto-feedback worker and lose the turn
    // lock between scheduling and POST. This is not a native Patch failure.
    if(agentActive===id)await selectAgentSession(id);
-   if(!quiet&&agentActive===id)status.textContent='AI request is active · native Patch progress is updating from saved results.';
+   if(!quiet&&agentActive===id)setAgentStatusNotice('AI request is active · native Patch progress is updating from saved results.');
    return null;
   }
   if(agentActive!==id)return result;
@@ -1841,10 +1906,10 @@ async function syncAgentPatch(id,{quiet=false}={}){
   }
   if(!quiet){
    const last=(result.tool_calls||[]).slice(-1)[0];
-   if(last?.status==='done')status.textContent='Native Patch PASS · '+(last.feedback_sent?'result sent to AI':'click Send verified result to AI, or enable Auto-send results');
-   else if(last?.status==='error')status.textContent='Native Patch finished with errors · review its result';
-   else if(last?.status==='running')status.textContent='Native Patch still running or awaiting final verifiable evidence';
-   else if(last?.status==='unknown')status.textContent='Native Patch evidence unavailable · inspect Patch History';
+   if(last?.status==='done')setAgentStatusNotice('Native Patch PASS · '+(last.feedback_sent?'result sent to AI':'click Send verified result to AI, or enable Auto-send results'));
+   else if(last?.status==='error')setAgentStatusNotice('Native Patch finished with errors · review its result');
+   else if(last?.status==='running')setAgentStatusNotice('Native Patch still running or awaiting final verifiable evidence');
+   else if(last?.status==='unknown')setAgentStatusNotice('Native Patch evidence unavailable · inspect Patch History');
   }
   return result;
  }finally{
@@ -1915,7 +1980,7 @@ function scheduleAgentMonitor(sess){
     }
    }
   }catch(error){
-   status.textContent='Native Patch polling failed: '+String(error?.message||error);
+   setAgentStatusNotice('Native Patch polling failed: '+String(error?.message||error));
    agentMonitorTimer=setTimeout(()=>scheduleAgentMonitor(agentCurrentSession||sess),5000);
   }
  },2800);
@@ -1929,7 +1994,7 @@ async function createSession(){
  await loadAgentSessions();
  await selectAgentSession(result.session.id);
  prompt.focus();
- if(agentPendingAttachments.length){const pending=agentPendingAttachments.slice();try{const merged=normalizeStagedAttachments([...agentAttachments,...pending]);agentAttachments=merged;agentAttachmentDrafts.set(result.session.id,merged.map(a=>({...a})));agentPendingAttachments.splice(0,pending.length);renderAgentAttachments();}catch(error){status.textContent='Pending attachments need room in this session: '+String(error?.message||error);}}
+ if(agentPendingAttachments.length){const pending=agentPendingAttachments.slice();try{const merged=normalizeStagedAttachments([...agentAttachments,...pending]);agentAttachments=merged;agentAttachmentDrafts.set(result.session.id,merged.map(a=>({...a})));agentPendingAttachments.splice(0,pending.length);renderAgentAttachments();}catch(error){setAgentStatusNotice('Pending attachments need room in this session: '+String(error?.message||error));}}
 }
 async function sendAgentMessage(){
  if(!agentActive)throw new Error('Create a session first.');
@@ -1953,16 +2018,16 @@ async function sendAgentMessage(){
    agentRunRequestIDs.set(requestKey,requestID);
   }
   const pending=agentRunUI.submit(current,msg,attachments,requestID);
-  if(prompt.value.trim()===msg){prompt.value='';agentDrafts.set(sessionID,'');}
+  if(prompt.value.trim()===msg){setAgentPromptValue('');agentDrafts.set(sessionID,'');}
   if(agentActive===sessionID){agentAttachments=[];agentAttachmentDrafts.delete(sessionID);renderAgentAttachments();}
   try{
    const run=await pending;
    agentRunRequestIDs.delete(requestKey);
-   if(agentActive===sessionID)status.textContent='Run '+String(run?.spec?.run_id||'')+' · '+nextProvider.providerId+'/'+nextProvider.modelId+' · '+String(run?.status||'queued');
+   if(agentActive===sessionID)setAgentStatusNotice('Run '+String(run?.spec?.run_id||'')+' · '+nextProvider.providerId+'/'+nextProvider.modelId+' · '+String(run?.status||'queued'));
    return run;
   }catch(error){
    if(agentActive===sessionID){
-    if(!prompt.value.trim())prompt.value=msg;
+    if(!prompt.value.trim())setAgentPromptValue(msg);
     agentDrafts.set(sessionID,prompt.value);
     if(agentAttachments.length===0){agentAttachments=attachments.map(a=>({...a}));renderAgentAttachments();}
    }
@@ -1987,7 +2052,7 @@ async function sendAgentMessage(){
  agentUpdateLiveRow(agentCurrentSession||{id:sessionID,status:'created',history:[],events:[]});
  // Sending is an explicit user action; show the message and sending status.
  agentScrollToLatest(sessionID);
- prompt.value='';
+ setAgentPromptValue('');
  agentDrafts.set(sessionID,'');
  // Sending is explicit authorization to contact the configured provider.
  // Never block the optimistic append on a redundant confirmation dialog.
@@ -2029,7 +2094,7 @@ async function sendAgentMessage(){
   if(turn.optimisticNode)turn.optimisticNode.append(agentEl('div','agentchat-info','(Not confirmed sent)'));
   agentAttachmentDrafts.set(sessionID,attachments);
   if(agentActive===sessionID){
-   if(!prompt.value.trim())prompt.value=msg;
+   if(!prompt.value.trim())setAgentPromptValue(msg);
    agentDrafts.set(sessionID,prompt.value);
    agentAttachments=attachments.map(a=>({...a}));
    renderAgentAttachments();
@@ -2468,10 +2533,10 @@ async function toggleAgentAutomation(option){
  });
  const latest=await selectAgentSession(session.id);
  renderAgentAutomationControls(latest||result.session);
- status.textContent=(option==='patch'?'Automatic native Patch approval':
+ setAgentStatusNotice((option==='patch'?'Automatic native Patch approval':
   option==='collection'?'Read-only Collection':option==='continue'?'Unfinished conversation continuation':'Automatic provider feedback')+
   (enabled?' enabled for this conversation.':' disabled for this conversation.')+
-  (option==='feedback'&&enabled?' Enabled until you turn it off.':'');
+  (option==='feedback'&&enabled?' Enabled until you turn it off.':''));
 }
 function toggleAgentRetryMenu(force){
  const open=Boolean(agentActive)&&!aiRetry.disabled&&
@@ -2496,7 +2561,7 @@ async function setAgentRetryMode(mode){
  });
  const latest=await selectAgentSession(session.id);
  renderAgentAutomationControls(latest||result.session);
- status.textContent='AI provider retry: '+(mode==='off'?'OFF':mode==='limited'?'up to 5 retries every 10s':'unlimited every 10s until Stop')+'.';
+ setAgentStatusNotice('AI provider retry: '+(mode==='off'?'OFF':mode==='limited'?'up to 5 retries every 10s':'unlimited every 10s until Stop')+'.');
 }
 async function toggleAutoFeedback(){return toggleAgentAutomation('feedback');}
 
@@ -2936,7 +3001,7 @@ async function previewAgentContext(){
   (data.oversize?' · OVERSIZE (the first send will be refused)':'')));
  box.append(agentEl('pre','agentchat-tool-code',String(data.preview||'')));
  transcript.append(box);transcript.scrollTop=transcript.scrollHeight;
- status.textContent=data.note||'Preview only.';
+ setAgentStatusNotice(data.note||'Preview only.');
 }
 async function cancelAgentTurn(){
  if(!agentActive)return;
@@ -2945,13 +3010,13 @@ async function cancelAgentTurn(){
   const result=await agentApp.jsonFetch('/api/agent/sessions/'+encodeURIComponent(id)+'/cancel',{
    method:'POST',headers:{'Content-Type':'application/json'},body:'{}',
   });
-  status.textContent=result.note||(result.cancelled?'Request cancelled.':'Nothing to cancel.');
+  setAgentStatusNotice(result.note||(result.cancelled?'Request cancelled.':'Nothing to cancel.'));
   // A server-side cancel is authoritative; the browser abort only stops the
   // local fetch from lingering.
   try{agentAbort?.abort();}catch{}
   await selectAgentSession(id);
  }catch(error){
-  status.textContent='Cancel request failed: '+String(error?.message||error);
+  setAgentStatusNotice('Cancel request failed: '+String(error?.message||error));
   throw error;
  }
 }
@@ -2972,7 +3037,7 @@ async function deleteAgentSession(id){
   agentActive=null;agentCurrentSession=null;
   agentExecutionPanel.classList.remove('visible');agentExecutionTarget=null;
   agentRenderedSessionID=null;agentRenderedHistory=[];agentRenderedNodes=[];agentRenderedToolVersions.clear();
-  prompt.value='';agentAttachments=[];renderAgentAttachments();
+  setAgentPromptValue('');agentAttachments=[];renderAgentAttachments();
  }
  toggleAgentSessions(false);
  await loadAgentSessions();
@@ -2980,7 +3045,7 @@ async function deleteAgentSession(id){
  else if(agentTabs.length)await selectAgentSession(agentTabs[agentTabs.length-1]);
  else if(agentSessions.length)await selectAgentSession(agentSessions[0].id);
  else {displayAgentSession(null);renderAgentAutomationControls(null);}
- status.textContent='Conversation deleted.';
+ setAgentStatusNotice('Conversation deleted.');
 }
 function closeAgentRename(){
  agentRenameTargetID=null;
@@ -3030,7 +3095,7 @@ async function saveAgentRename(){
   updateAgentSessionRows();renderAgentTabs();
   await loadAgentSessions();
   closeAgentRename();
-  status.textContent='Renamed conversation: '+label;
+  setAgentStatusNotice('Renamed conversation: '+label);
  }catch(error){
   agentRenameError.textContent='Could not rename: '+String(error?.message||error)+
    '. The save result may be unknown. Refresh History to verify the title before retrying.';
@@ -3075,6 +3140,7 @@ function applyAgentDock(){
  const size=agentDock.position==='right'?agentDock.rightWidth:agentDock.bottomHeight;
  section.style.setProperty('--agent-dock-size',size+'px');
  root.classList.toggle('visible',agentDock.expanded);
+ if(agentDock.expanded)resizeAgentPrompt();
  agentStrip.setAttribute('aria-expanded',String(agentDock.expanded));
  dockPositionButton.textContent=agentDock.position==='right'?'Bottom':'Right';
  dockPositionButton.setAttribute('aria-label','Move Agent Chat to '+(agentDock.position==='right'?'bottom':'right'));
@@ -3104,12 +3170,12 @@ function mountAgentDock(){
  if(typeof ResizeObserver==='function'){
   let lastSize='';
   agentDock.observer=new ResizeObserver(()=>{
-   const size=section.clientWidth+':'+section.clientHeight+':'+heading.clientWidth;
+   const size=section.clientWidth+':'+section.clientHeight+':'+heading.clientWidth+':'+composer.clientWidth;
    if(size===lastSize)return;
    lastSize=size;
    applyAgentDock();rebalanceAgentToolbar();
   });
-  agentDock.observer.observe(heading);agentDock.observer.observe(section);
+  agentDock.observer.observe(heading);agentDock.observer.observe(section);agentDock.observer.observe(composer);
  }
  rebalanceAgentToolbar();applyAgentDock();
 }
