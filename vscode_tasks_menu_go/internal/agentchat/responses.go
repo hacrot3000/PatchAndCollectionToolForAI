@@ -249,15 +249,16 @@ func BuildResponsesRequest(c RequestConfig) ([]byte, error) {
 		req["tools"] = append(tools, map[string]any{
 			"type":        "function",
 			"name":        "taskdeck_submit_patch",
-			"description": "Submit a Python Patch Tool package. TaskDeck validates the project identity and executes only via Native Patch Tool with either a user-enabled per-conversation Auto apply grant or explicit per-Patch approval. Never claim that submission means execution.",
+			"description": "Submit a Python Patch or a strict native command-only manifest. Set exactly one of patch_python and patch_manifest nonempty; set the other to an empty string. TaskDeck validates the project identity and executes only via Native Patch Tool with either a user-enabled per-conversation Auto apply grant or explicit per-Patch approval. Never claim that submission means execution.",
 			"strict":      true,
 			"parameters": map[string]any{
 				"type": "object",
 				"properties": map[string]any{
 					"name":         map[string]string{"type": "string", "description": "Short descriptive patch name"},
-					"patch_python": map[string]string{"type": "string", "description": "Complete TaskDeck Python patch with TASKDECK_PROJECT_KEY and TASKDECK_PROJECT_ID headers"},
+					"patch_python": map[string]string{"type": "string", "description": "Complete TaskDeck Python patch with identity headers, or empty when submitting a command-only manifest"},
+					"patch_manifest": map[string]string{"type": "string", "description": "JSON string of a native command-only PATCH_TOOL_MANIFEST.json, or empty for Python. Exactly one existing project-local command, legacy_strict, no payload or predecessor override."},
 				},
-				"required":             []string{"name", "patch_python"},
+				"required":             []string{"name", "patch_python", "patch_manifest"},
 				"additionalProperties": false,
 			},
 		})

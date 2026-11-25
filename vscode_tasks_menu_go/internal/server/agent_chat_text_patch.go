@@ -24,6 +24,7 @@ type agentTextPatchEnvelope struct {
     Project patchtool.ProjectIdentity `json:"project"`
     Name string `json:"name"`
     PatchPython string `json:"patch_python"`
+    PatchManifest string `json:"patch_manifest,omitempty"`
 }
 
 func parseAgentTextPatchProposal(raw string, identity patchtool.ProjectIdentity) (agentPatchArguments, error) {
@@ -49,7 +50,7 @@ func parseAgentTextPatchProposal(raw string, identity patchtool.ProjectIdentity)
     if envelope.Type != agentTextPatchProposalType || envelope.Project != identity {
         return agentPatchArguments{}, errors.New("text Patch proposal type or project identity mismatch")
     }
-    args := agentPatchArguments{Name: strings.TrimSpace(envelope.Name), PatchPython: envelope.PatchPython}
+    args := agentPatchArguments{Name: strings.TrimSpace(envelope.Name), PatchPython: envelope.PatchPython, PatchManifest: envelope.PatchManifest}
     encoded, err := json.Marshal(args)
     if err != nil { return agentPatchArguments{}, err }
     if _, err := parseAgentPatchArguments(string(encoded)); err != nil {
@@ -57,7 +58,7 @@ func parseAgentTextPatchProposal(raw string, identity patchtool.ProjectIdentity)
     }
     // Validate the same identity headers and native cleartext Patch package
     // contract that the approval endpoint will validate again on execution.
-    if _, err := pastedPythonPackage(args.PatchPython, identity, patchPasteSlug(args.Name)); err != nil {
+    if _, err := agentPatchPackage(args, identity); err != nil {
         return agentPatchArguments{}, err
     }
     return args, nil

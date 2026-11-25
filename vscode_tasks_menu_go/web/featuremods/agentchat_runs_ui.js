@@ -107,7 +107,7 @@
     const label=doc.createElement('div');label.textContent='Tool: '+String(historyCall.name||'unknown')+' · Call ID: '+String(call.call_id);details.append(label);
     let args={};try{args=JSON.parse(historyCall.arguments||'{}');}catch{}
     if(args.name){const name=doc.createElement('div');name.textContent='Patch: '+String(args.name);details.append(name);}
-    if(args.patch_python){const patch=doc.createElement('pre');patch.className='agentchat-run-tool';patch.textContent=String(args.patch_python);details.append(patch);}
+    if(args.patch_python||args.patch_manifest){const patch=doc.createElement('pre');patch.className='agentchat-run-tool';patch.textContent=String(args.patch_manifest||args.patch_python);details.append(patch);}
    }else{
     const missing=doc.createElement('div');missing.className='agentchat-run-warning';missing.textContent='Tool arguments are unavailable in run history; review server-side record before acting.';details.append(missing);
    }

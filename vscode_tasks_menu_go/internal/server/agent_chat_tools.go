@@ -27,6 +27,7 @@ const agentApprovalTTL = 10 * time.Minute
 type agentPatchArguments struct {
 	Name        string `json:"name"`
 	PatchPython string `json:"patch_python"`
+	PatchManifest string `json:"patch_manifest,omitempty"`
 }
 
 func parseAgentPatchArguments(raw string) (agentPatchArguments, error) {
@@ -44,8 +45,17 @@ func parseAgentPatchArguments(raw string) (agentPatchArguments, error) {
 		return agentPatchArguments{}, errors.New("patch function must contain exactly one JSON object")
 	}
 	args.Name = strings.TrimSpace(args.Name)
-	if args.Name == "" || len(args.Name) > 80 || len(args.PatchPython) == 0 || len(args.PatchPython) > 480<<10 || strings.ContainsRune(args.PatchPython, 0) {
-		return agentPatchArguments{}, errors.New("invalid patch name or Python body size")
+	if args.Name == "" || len(args.Name) > 80 {
+		return agentPatchArguments{}, errors.New("invalid patch name")
+	}
+	if (strings.TrimSpace(args.PatchPython) == "") == (strings.TrimSpace(args.PatchManifest) == "") {
+		return agentPatchArguments{}, errors.New("provide exactly one nonempty patch_python or patch_manifest")
+	}
+	if len(args.PatchPython) > 480<<10 || strings.ContainsRune(args.PatchPython, 0) || len(args.PatchManifest)>64<<10 || strings.ContainsRune(args.PatchManifest,0) {
+		return agentPatchArguments{}, errors.New("invalid or oversized patch body")
+	}
+	if strings.TrimSpace(args.PatchManifest)!="" {
+		if _,err:=parseCommandOnlyManifest(args.PatchManifest);err!=nil{return agentPatchArguments{},err}
 	}
 	return args, nil
 }
@@ -63,7 +73,8 @@ func findAgentToolCall(history []agentchat.HistoryItem, callID string) (agentcha
 // entrypoint in-process. It DOES NOT execute Python or bypass native Patch
 // schema / project-key checks. The caller must separately authorize patch.run.
 func (s *Server) agentQueueViaNativePaste(r *http.Request, args agentPatchArguments) (patchUploadResult, error) {
-	input, err := json.Marshal(patchPasteRequest{Kind: "patch-python", Name: args.Name, Text: args.PatchPython})
+	kind,body:=args.pastePayload()
+	input, err := json.Marshal(patchPasteRequest{Kind: kind, Name: args.Name, Text: body})
 	if err != nil {
 		return patchUploadResult{}, err
 	}
@@ -263,7 +274,7 @@ func (s *Server) agentChatToolDecisionAPI(w http.ResponseWriter, r *http.Request
 		return
 	}
 	// Native validation checks BOTH identity headers against this workspace.
-	if _, err = pastedPythonPackage(arguments.PatchPython, identity, patchPasteSlug(arguments.Name)); err != nil {
+	if _, err = agentPatchPackage(arguments, identity); err != nil {
 		if denyInvalidAutomatic() { return }
 		http.Error(w, "Patch Tool contract validation failed: "+err.Error(), 400)
 		return

@@ -201,7 +201,7 @@ func (s *Server) agentChatPatchRecoveryAPI(w http.ResponseWriter, r *http.Reques
 		http.Error(w, "invalid original Patch proposal", 409)
 		return
 	}
-	if _, err = pastedPythonPackage(args.PatchPython, identityOfWorkspace, patchPasteSlug(args.Name)); err != nil {
+	if _, err = agentPatchPackage(args, identityOfWorkspace); err != nil {
 		http.Error(w, "original proposal no longer meets Patch contract", 409)
 		return
 	}

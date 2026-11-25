@@ -163,12 +163,14 @@ func (s *Server) patchPaste(w http.ResponseWriter, r *http.Request) {
  switch request.Kind {
  case "patch-python":
   body, err = pastedPythonPackage(request.Text, identity, slug)
+ case "patch-manifest":
+  body, err = pastedCommandOnlyPackage(request.Text, identity)
  case "collect":
   var data []byte
   data, err = parsePastedCollectJSON(request.Text)
   if err == nil { body, err = pastedCollectionPackage(data, identity, slug) }
  default:
-  http.Error(w, "paste kind must be patch-python or collect", http.StatusBadRequest); return
+  http.Error(w, "paste kind must be patch-python, patch-manifest or collect", http.StatusBadRequest); return
  }
  if err != nil { http.Error(w, err.Error(), http.StatusBadRequest); return }
  dir, err := s.patchUploadDir()

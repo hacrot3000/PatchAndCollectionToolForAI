@@ -1207,7 +1207,9 @@ function renderAgentTool(session,item){
  box.append(agentEl('strong','',(record?.text_fallback?'Text-only Patch proposal':'Patch proposal')+' · '+state.toUpperCase()));
  let args=null;
  try{args=JSON.parse(item.arguments||'');}catch{}
- if(!record||!args||typeof args.patch_python!=='string'){
+ const pythonBody=typeof args?.patch_python==='string'?args.patch_python:'';
+ const manifestBody=typeof args?.patch_manifest==='string'?args.patch_manifest:'';
+ if(!record||!args||Boolean(pythonBody.trim())===Boolean(manifestBody.trim())){
   const rejected=[...(session.events||[])].reverse().find(event=>
    event.kind==='tool_proposal_rejected'&&event.call_id===item.call_id);
   const reason=rejected?.detail||(!record?'No executable Patch proposal was registered.':'The saved Patch arguments are incomplete.');
@@ -1230,7 +1232,7 @@ function renderAgentTool(session,item){
   appendRecordedRejectionNotice();
   return box;
  }
- box.append(detail('Review Python patch · '+String(args.name||'unnamed'),args.patch_python,'patch-code'));
+ box.append(detail((manifestBody.trim()?'Review command-only manifest · ':'Review Python patch · ')+String(args.name||'unnamed'),manifestBody.trim()?manifestBody:pythonBody,'patch-code'));
  if(record.queue_path)box.append(agentEl('p','agentchat-tool-summary','Native queue: '+record.queue_path));
  if(record.patch_session_id)box.append(agentEl('p','agentchat-tool-summary','Patch Session: '+record.patch_session_id));
  if(record.result)box.append(detail('Verified native result / diagnosis',record.result,'patch-result'));
