@@ -105,16 +105,10 @@ func (e ownerBoundAgentRunExecutor) ResolveWaitingTool(ctx context.Context, run 
 		if agentCollectionIdentityKind(validationErr)=="foreign"{code="COLLECTION_IDENTITY_REJECTED"}
 		observed = runCollectionDiagnostic(code, reason, true)
 	} else {
-		repeats := 0
-		for _, item := range run.History {
-			if item.Type == "function_call" && item.Name == call.Name && item.ParentTurnID==call.ParentTurnID {
-				previous, parseErr := agentNativeCollectionRequest(item.Arguments, identity, false)
-				if parseErr == nil && agentCollectionRequestFingerprint(previous) == agentCollectionRequestFingerprint(request) {
-					repeats++
-				}
-			}
-		}
-		if repeats >= 3 {
+		// Count only consecutive completed matching observations from this
+		// parent turn. Old failures and earlier tasks do not consume a read budget.
+		repeats := agentConsecutiveMatchingCollectionReads(run.History,call,request,identity)
+		if repeats >= 2 {
 			observed = runCollectionDiagnostic("COLLECTION_NO_PROGRESS", "Choose a narrower native read-only action instead of repeating the same request.", true)
 		} else if s.AgentCollectionCall != nil {
 			// Same test-only seam as the legacy native Collection flow.
@@ -133,11 +127,10 @@ func (e ownerBoundAgentRunExecutor) ResolveWaitingTool(ctx context.Context, run 
 			}
 		}
 	}
+	exhausted:=false
 	if code,message,repair:=agentCollectionRepairError(observed);repair {
 		observed=agentCollectionRepairFeedback(code,message,repairCount+1)
-		if repairCount>=agentCollectionRepairBudget{
-			return nil,"",errors.New("Collection repair budget exhausted; resume from verified conversation evidence; rejected request provided no evidence")
-		}
+		exhausted=repairCount>=agentCollectionRepairBudget
 	}
 	if ctx.Err() != nil {
 		return nil, "", ctx.Err()
@@ -158,6 +151,7 @@ func (e ownerBoundAgentRunExecutor) ResolveWaitingTool(ctx context.Context, run 
 	if err != nil {
 		return nil, "", err
 	}
+	if exhausted{return []agentchat.HistoryItem{result},snapshot.ID,errors.New("Collection repair budget exhausted; resume from verified conversation evidence; rejected request provided no evidence")}
 	return []agentchat.HistoryItem{result}, snapshot.ID, nil
 }
 

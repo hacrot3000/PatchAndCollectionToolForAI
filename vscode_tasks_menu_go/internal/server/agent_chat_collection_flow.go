@@ -174,7 +174,7 @@ func (s *Server) agentChatRunCollection(
 			kind:=agentCollectionIdentityKind(validationErr)
 			reason:=scrubAIContext(validationErr.Error(),256)
 			if kind!=""{
-				reason+=". No files were read. Typed calls must omit project; standalone text must use the exact active AI Pack identity."
+				reason="Collection rejected before any file read or execution: "+reason+". project must be an object, not a string. Typed calls must omit project; standalone text must use the exact active AI Pack identity."
 			}
 			if !typed&&(kind=="foreign"||kind=="missing"){
 				// Preserve the standalone-text authorization boundary.
@@ -232,12 +232,13 @@ func (s *Server) agentChatRunCollection(
 		// A model repeating the same read of identical content is not making
 		// progress. Warn on the second repeat, and checkpoint instead of burning
 		// further provider requests if the model does not change its approach.
-		if validationErr == nil {
+		_,_,repairError:=agentCollectionRepairError(observed)
+		if validationErr == nil && (!repairError || lastReadSignature==agentCollectionRequestFingerprint(nativeRequest)&&repeatedRead>=2) {
 			// Native artifact paths have unique run IDs even when the model
 			// repeats an identical request. Deduplicate by canonical request.
 			signature := agentCollectionRequestFingerprint(nativeRequest)
 			if signature == lastReadSignature { repeatedRead++ } else { lastReadSignature, repeatedRead = signature, 1 }
-			if repeatedRead >= agentCollectionMaxIdenticalObservations && func()bool{_,_,bad:=agentCollectionRepairError(observed);return !bad}() {
+			if repeatedRead >= agentCollectionMaxIdenticalObservations {
 				// Never terminate a legitimate long task because of read counts.
 				// Return a truthful, bounded tool error requesting a different
 				// inspection strategy, then let the model continue the original task.
@@ -253,7 +254,7 @@ func (s *Server) agentChatRunCollection(
 					}
 				}
 			}
-		}
+		}else if repairError {lastReadSignature="";repeatedRead=0}
 		repairExhausted:=false
 		if code,message,repair:=agentCollectionRepairError(observed);repair {
 			consecutiveRepairs++

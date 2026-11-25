@@ -1486,7 +1486,8 @@ function renderAgentProviderEgressReview(session,review,attemptAudit=null,integr
   (review.phase==='sending'||review.phase==='unknown')&&
   review.automatic_replay_allowed===false;
  const localRun=session?.provider_run;
-  const recoverableCollection=session?.status==='failed'&&localRun?.kind==='collection'&&localRun?.phase==='acknowledged'&&
+  const hasCollectionCheckpoint=localRun?.kind==='collection'||(session?.events||[]).some(e=>e.kind==='collect_response_checkpoint'&&e.detail===localRun?.id);
+  const recoverableCollection=session?.status==='failed'&&hasCollectionCheckpoint&&localRun?.phase==='acknowledged'&&
    !agentConversationUnresolved(session)&&!session.archived;
   const key=ambiguous?
    [session?.id,review.run_id,review.phase,review.payload_sha256].join('|'):

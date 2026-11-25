@@ -52,13 +52,13 @@ func agentCloseInterruptedCollection(x *agentchat.Session)bool{
   found:=false
   for _,it:=range x.History{
    if it.CallID!=event.CallID{continue}
-   if it.Type=="function_call_output"{return false}
+   if it.Type=="function_call_output"{x.PreviousResponseID="";x.ConversationID="";return false}
    if it.Type=="function_call"&&it.Name=="taskdeck_collect_workspace"{found=true}
   }
   if !found{return false}
   x.History=append(x.History,agentchat.HistoryItem{Type:"function_call_output",CallID:event.CallID,Content:diagnostic})
  }else{
-  if len(x.History)==0||x.History[len(x.History)-1].Type!="assistant"{return false}
+  if len(x.History)==0||x.History[len(x.History)-1].Type!="assistant"{x.PreviousResponseID="";x.ConversationID="";return false}
   x.History=append(x.History,agentchat.HistoryItem{Type:"user",Content:"TaskDeck local Collection checkpoint: "+diagnostic})
  }
  x.PreviousResponseID="";x.ConversationID=""

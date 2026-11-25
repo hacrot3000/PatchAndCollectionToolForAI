@@ -8,6 +8,7 @@ import (
  "strings"
 
  "bletonfc/vscode_tasks_menu/internal/agentchat"
+ "bletonfc/vscode_tasks_menu/internal/patchtool"
 )
 
 const agentCollectionRepairBudget = 4
@@ -90,4 +91,25 @@ func agentCollectionRequestFingerprint(raw []byte)string{
  var value any
  if dec.Decode(&value)==nil{b,_=json.Marshal(value)}
  return fmt.Sprintf("%x",sha256.Sum256(b))
+}
+
+func agentConsecutiveMatchingCollectionReads(history []agentchat.HistoryItem,call agentchat.HistoryItem,request []byte,identity patchtool.ProjectIdentity)int{
+ calls:=map[string]agentchat.HistoryItem{}
+ for _,it:=range history{if it.Type=="function_call"{calls[it.CallID]=it}}
+ count:=0
+ signature:=agentCollectionRequestFingerprint(request)
+ for i:=len(history)-1;i>=0;i--{
+  it:=history[i]
+  if it.Type=="user"{break}
+  if it.Type!="function_call_output"{continue}
+  prior,ok:=calls[it.CallID]
+  if !ok||prior.Name!=call.Name||prior.ParentTurnID!=call.ParentTurnID{break}
+  raw,err:=agentNativeCollectionRequest(prior.Arguments,identity,false)
+  if err!=nil||agentCollectionRequestFingerprint(raw)!=signature{break}
+  var observation struct{Error struct{Code string `json:"code"`} `json:"error"`}
+  if json.Unmarshal([]byte(it.Content),&observation)!=nil{break}
+  if observation.Error.Code!=""&&observation.Error.Code!="COLLECTION_NO_PROGRESS"{break}
+  count++
+ }
+ return count
 }
