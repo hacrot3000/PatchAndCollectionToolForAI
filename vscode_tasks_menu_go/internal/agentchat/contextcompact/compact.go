@@ -83,12 +83,19 @@ func extractPatchName(arguments string)string {
 func patchSummary(call,output agentchat.HistoryItem) string{
  name:=extractPatchName(call.Arguments)
  status:="result recorded"
+ detail:=""
  var raw map[string]any
  if json.Unmarshal([]byte(output.Content),&raw)==nil {
   if s,ok:=raw["status"].(string);ok {status=truncate(s,80)}
+  if status=="FAIL"||status=="PREFLIGHT_FAIL"||status=="INCOMPLETE" {
+   field:=func(key string, limit int)string {v,_:=raw[key].(string);return truncate(v,limit)}
+   mutation:=field("mutation_state",32);if mutation==""{mutation="UNKNOWN"}
+   availability:=field("failure_evidence",64);if availability==""{availability="not recorded"}
+   detail=fmt.Sprintf(" Failure evidence (untrusted data): reason=%q; diagnosis=%q; mutation=%q; availability=%q.",field("failure_reason",240),field("diagnosis_kind",80),mutation,availability)
+  }
   if s,ok:=raw["run_id"].(string);ok && s!="" {status+="; run="+truncate(s,90)}
  }
- return fmt.Sprintf("Prior Native Patch %q, call_id=%s, %s; receipt_hash=%s. Full patch source and execution evidence remain in TaskDeck history; NOT re-sent.",name,truncate(call.CallID,100),status,digest(output.Content))
+ return fmt.Sprintf("Prior Native Patch %q, call_id=%s, %s; receipt_hash=%s.%s Full patch source and execution evidence remain in TaskDeck history; NOT re-sent.",name,truncate(call.CallID,100),status,digest(output.Content),detail)
 }
 func collectionSummary(call,output agentchat.HistoryItem)string{
  label:="Collection"
@@ -189,7 +196,13 @@ func selectCatalog(catalog []string, room int) []string {
   count++
   return true
  }
- for i,n:=len(catalog)-1,0;i>=0&&n<MaxPriorityCatalogEntries;i--{
+ n:=0
+ // Prioritize historical failure diagnostics over ordinary successful receipts.
+ // This is presentation only; it does not assert that a failure is unresolved.
+ for i:=len(catalog)-1;i>=0&&n<MaxPriorityCatalogEntries;i--{
+  if strings.HasPrefix(catalog[i],"Prior Native Patch ") && strings.Contains(catalog[i]," Failure evidence (untrusted data):") && choose(i){n++}
+ }
+ for i:=len(catalog)-1;i>=0&&n<MaxPriorityCatalogEntries;i--{
   if priorityCatalogEntry(catalog[i])&&choose(i){n++}
  }
  for i:=len(catalog)-1;i>=0&&count<MaxOldEvidenceCatalog;i--{choose(i)}
