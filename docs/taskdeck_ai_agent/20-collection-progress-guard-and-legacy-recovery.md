@@ -698,6 +698,9 @@ CI 45602516248: agentchat (including adaptive TTL concurrency), collectionprogre
 #### CLP-04.02 — Scoped immutable snapshot guard
 Added bounded optional progress metadata to checksummed Unified continuation snapshot, with neutral objective for historical drain-only runs, exact owner/project/owner workspace/execution workspace/run/parent scope; stable history-position counters and actual native proof comparisons; conservative mutation invalidation and trusted advisory-only instructions. Preserve opaque invalid state and old snapshot checksum compatibility, never skip native reads or re-enable creation. Existing repeated-read fixture now verifies 2 new/2 duplicate full-file observations and owner/worktree isolation. Full Unified recovery parity and long snapshot budget handling pending. CI pending.
 
+#### CLP-08.01 — Authoritative bounded Legacy progress projection
+Added owner-scoped GET projection derived only from committed versioned Collection guard and current session events/phase. English compact labels Reading / Replanning / Waiting provider / Waiting tool / Stalled / Recovery required / Stopped; distinguish recorded HTTP attempts from native observations, no objective/proof hashes or paths, clear old view on session switch. Unknown/future metadata shows unavailable rather than invented counts. UI does not authorize actions. Tests redacted projection, stale checkpoint and tab switch. Unified progress is still confined to run snapshots; no merged counters implied. CI pending.
+
 ### 8.2. Blockers và quyết định (append)
 
 | ID | Task | Vấn đề / quyết định | Ảnh hưởng | Hành động tiếp theo | Trạng thái |

@@ -1232,6 +1232,15 @@ console.log('PASS: safe Markdown, syntax-highlighted PHP/Python, per-block Copy,
   console.log('PASS: AI Pack preview dismiss/stale-response isolation without chat mutation or provider request');
 
   
+   // Committed Collection counters are presentation-only and must clear
+   // when another conversation has no guard projection.
+   const collectionLine=vm.runInNewContext('agentCollectionProgressLine',context);
+   vm.runInNewContext("renderAgentCollectionProgress({collection_progress:{state:'stalled',native_reads:8,observed:9,verified_new:1,verified_duplicate:7,unknown:1,recorded_http_attempts:12,reason:'recovery_budget_exhausted'}})",context);
+   assert.equal(collectionLine.hidden,false);
+   assert.ok(nodeText(collectionLine).includes('Stalled')&&nodeText(collectionLine).includes('8 native reads')&&nodeText(collectionLine).includes('12 recorded HTTP attempts'));
+   vm.runInNewContext("renderAgentCollectionProgress({id:'other-session'})",context);
+   assert.equal(collectionLine.hidden,true,'stale Collection progress leaked across tabs');
+   assert.equal(collectionLine.textContent,'');
    // A visible SENDING/UNKNOWN warning is dismissible per exact run identity,
    // without changing the canonical journal, starting a retry or hiding a
    // later UNKNOWN/new run acknowledgement warning.
