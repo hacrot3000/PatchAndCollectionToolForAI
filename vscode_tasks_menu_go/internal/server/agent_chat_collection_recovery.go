@@ -118,3 +118,25 @@ func agentUnknownCollectionRecoveryState(x agentchat.Session, now time.Time) str
 func agentUnknownCollectionResumeCandidate(x agentchat.Session)bool{
  return agentUnknownCollectionRecoveryState(x,time.Now().UTC())=="ready"
 }
+
+
+// Called only with the exact conversation turn lease held and a freshly read
+// canonical revision. Close an acknowledged local read checkpoint without
+// replaying provider egress or inventing a successful native receipt.
+func agentCancelOrphanedCollection(x *agentchat.Session) bool {
+ if x==nil||x.Owner!="local"||x.Archived||x.Status!="requesting_ai"||
+  x.ProviderRun==nil||x.ProviderRun.Phase!="acknowledged"{return false}
+ candidate:=*x
+ candidate.Status="cancelled"
+ if agentchat.HasUnresolvedWork(candidate){return false}
+ for _,call:=range candidate.ToolCalls{
+  if call.Name=="taskdeck_submit_patch"&&(!call.FeedbackSent||call.FeedbackStatus!="acknowledged"){return false}
+ }
+ // Avoid mutating shared backing arrays if the candidate fails validation.
+ candidate.History=append([]agentchat.HistoryItem(nil),x.History...)
+ candidate.Events=append([]agentchat.SessionEvent(nil),x.Events...)
+ if !agentCloseInterruptedCollection(&candidate){return false}
+ candidate.AppendEvent("turn_cancelled","cancelled","","user_stop_orphaned_collect")
+ *x=candidate
+ return true
+}
