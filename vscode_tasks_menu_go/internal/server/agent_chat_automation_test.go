@@ -9,6 +9,7 @@ import (
  "path/filepath"
  "strings"
  "testing"
+ "time"
 
  "bletonfc/vscode_tasks_menu/internal/agentchat"
  "bletonfc/vscode_tasks_menu/internal/agentrun"
@@ -317,4 +318,58 @@ func TestAgentAutoPatchAdmissionBlocksActiveProviderOrNativeWork(t *testing.T) {
  x.ProviderRun=nil
  x.ToolCalls=append(x.ToolCalls,agentchat.ToolCallRecord{CallID:"other",Status:"running"})
  if _,ok:=agentAutoPatchCandidate(x);ok {t.Fatal("later in-flight native record must prevent dispatch")}
+}
+
+func TestAgentAutoPatchExpiredApprovalBecomesDefiniteRejection(t *testing.T) {
+ s,id,_:=agentPendingCallFixture(t,true)
+ store,err:=s.agentChatStore()
+ if err!=nil {t.Fatal(err)}
+ x,err:=store.Get(id,"local")
+ if err!=nil {t.Fatal(err)}
+ x.AutoPatch=true
+ expired:=time.Now().UTC().Add(-time.Minute)
+ x.ToolCalls[0].ApprovalExpiresAt=&expired
+ if _,err=store.Save(x,x.Revision);err!=nil {t.Fatal(err)}
+ s.runAgentAutoFeedback(context.Background())
+ y,err:=store.Get(id,"local")
+ if err!=nil {t.Fatal(err)}
+ if y.Status!="tool_rejected"||y.ToolCalls[0].Status!="rejected"||
+  !agentPatchHasNoNativeAttempt(y.ToolCalls[0])||!strings.Contains(y.ToolCalls[0].Result,"PATCH_APPROVAL_STALE"){
+  t.Fatalf("expired proposal did not produce a definite rejection: %+v",y.ToolCalls[0])
+ }
+}
+
+func TestAgentAutoPatchInvalidContractBecomesDefiniteRejection(t *testing.T) {
+ s,id,_:=agentPendingCallFixture(t,false)
+ store,err:=s.agentChatStore()
+ if err!=nil {t.Fatal(err)}
+ x,err:=store.Get(id,"local")
+ if err!=nil {t.Fatal(err)}
+ x.AutoPatch=true
+ if _,err=store.Save(x,x.Revision);err!=nil {t.Fatal(err)}
+ s.runAgentAutoFeedback(context.Background())
+ y,err:=store.Get(id,"local")
+ if err!=nil {t.Fatal(err)}
+ if y.Status!="tool_rejected"||y.ToolCalls[0].Status!="rejected"||
+  !agentPatchHasNoNativeAttempt(y.ToolCalls[0])||!strings.Contains(y.ToolCalls[0].Result,"INVALID_PATCH_ARGUMENTS"){
+  t.Fatalf("invalid contract did not produce a definite rejection: %+v",y.ToolCalls[0])
+ }
+}
+
+func TestAgentPendingAutoPatchBlockIsDurableAndIdempotent(t *testing.T) {
+ s,id,_:=agentPendingCallFixture(t,true)
+ store,err:=s.agentChatStore()
+ if err!=nil {t.Fatal(err)}
+ x,err:=store.Get(id,"local")
+ if err!=nil {t.Fatal(err)}
+ callID:=x.ToolCalls[0].CallID
+ s.notePendingAutoPatchBlock(store,id,callID,"http_409")
+ y,err:=store.Get(id,"local")
+ if err!=nil {t.Fatal(err)}
+ if y.ToolCalls[0].Status!="pending"||y.Events[len(y.Events)-1].Detail!="http_409" {
+  t.Fatal("pending refusal not durably recorded")
+ }
+ s.notePendingAutoPatchBlock(store,id,callID,"http_409")
+ z,err:=store.Get(id,"local")
+ if err!=nil||z.Revision!=y.Revision {t.Fatal("same refusal must not churn the journal")}
 }

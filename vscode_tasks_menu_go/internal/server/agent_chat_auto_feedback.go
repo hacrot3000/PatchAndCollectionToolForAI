@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strconv"
 	"net/http"
 	"net/http/httptest"
 	"sort"
@@ -327,7 +328,10 @@ func (s *Server) autoPatchOne(ctx context.Context, store *agentchat.Store, id st
 	if err!=nil || x.Workspace!=s.Workspace {return}
 	callID,ok:=agentAutoPatchCandidate(x)
 	if !ok {return}
-	if !s.agentLegacyPatchSchedulerAllowed(x, callID) { return }
+	if !s.agentLegacyPatchSchedulerAllowed(x, callID) {
+		s.notePendingAutoPatchBlock(store,id,callID,"run_ownership_unresolved")
+		return
+	}
 	body,err:=json.Marshal(map[string]any{
 		"action":"approve","automatic":true,
 		"confirm_execution":true,"expected_revision":x.Revision,
@@ -356,9 +360,36 @@ func (s *Server) autoPatchOne(ctx context.Context, store *agentchat.Store, id st
           }
           release()
         }
+		s.notePendingAutoPatchBlock(store,id,callID,"http_"+strconv.Itoa(w.Code))
 		s.recordAgentDebugEvent("local",id,callID,"tool","tool.auto_patch_blocked",
-			"AUTO_PATCH_FAILED","Auto Patch was refused or became stale; no automatic retry")
+			"AUTO_PATCH_FAILED","Auto Patch approval was refused; inspect pending state or exact native receipt")
 	}
+}
+
+// Record only a stable, bounded reason while the same call is still pending.
+// A refusal must not turn a QUEUING/UNKNOWN call back into a retryable proposal.
+func (s *Server) notePendingAutoPatchBlock(store *agentchat.Store,id,callID,reason string) {
+	release,ok:=lockAgentTurn(s.agentOwnerWorkspace(),"local",id)
+	if !ok{return}
+	defer release()
+	x,err:=store.Get(id,"local")
+	if err!=nil||x.Archived||x.Workspace!=s.agentOwnerWorkspace()||x.Status!="waiting_tool"{return}
+	pending:=false
+	for _,call:=range x.ToolCalls{
+		if call.CallID==callID&&call.Status=="pending"&&!call.FeedbackSent&&call.FeedbackStatus==""{
+			pending=true;break
+		}
+	}
+	if !pending{return}
+	for i:=len(x.Events)-1;i>=0;i--{
+		e:=x.Events[i]
+		if e.CallID==callID&&e.Kind=="tool_auto_patch_blocked"{
+			if e.Detail==reason{return}
+			break
+		}
+	}
+	x.AppendEvent("tool_auto_patch_blocked",x.Status,callID,reason)
+	_,_=store.Save(x,x.Revision)
 }
 
 // reconcileAgentSession adopts final evidence directly from the native
@@ -572,10 +603,10 @@ func (s *Server) scheduleAgentAutoFeedback(ctx context.Context) {
  patchEligible:=make([]string,0,len(sessions))
  for _,sess:=range sessions{
   if ctx.Err()!=nil{return}
-  if callID,ok:=agentAutoPatchCandidate(sess);ok && !s.Config.SharedServerEnabled {
-   if s.agentLegacyPatchSchedulerAllowed(sess,callID) {
-    patchEligible=append(patchEligible,sess.ID)
-   }
+  if _,ok:=agentAutoPatchCandidate(sess);ok && !s.Config.SharedServerEnabled {
+   // Ownership is revalidated in the native lane; persist a bounded
+   // refusal reason there if the ledger is unavailable or ambiguous.
+   patchEligible=append(patchEligible,sess.ID)
    // No provider worker is needed while this proposal is pending.
    continue
   }

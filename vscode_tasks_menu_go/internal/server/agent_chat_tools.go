@@ -210,8 +210,31 @@ func (s *Server) agentChatToolDecisionAPI(w http.ResponseWriter, r *http.Request
 		http.Error(w, "original model call missing", 409)
 		return
 	}
+	// The exact pending, never-dispatched legacy proposal can be refused
+	// durably before native side effects. The existing feedback scheduler
+	// sends this structured denial under the user's existing consent.
+	denyInvalidAutomatic := func() bool {
+		if !request.Automatic || x.ToolCalls[idx].AgentRunID != "" ||
+			!agentPatchHasNoNativeAttempt(x.ToolCalls[idx]) {
+			return false
+		}
+		x.ToolCalls[idx].Status = "rejected"
+		x.ToolCalls[idx].Result = agentRejectedPatchFeedback("INVALID_PATCH_ARGUMENTS",
+			"Native Patch contract validation refused the proposal before queueing. No Patch was queued or executed. Correct the project-bound arguments and produce a NEW proposal with a new call ID.", true)
+		x.ToolCalls[idx].AutoRunOnce = false
+		x.ToolCalls[idx].SendAfterRetry = false
+		x.Status = "tool_rejected"
+		x.AppendEvent("tool_rejected", x.Status, callID, "pre_queue_contract_invalid")
+		if _, saveErr := store.Save(x, x.Revision); saveErr != nil {
+			http.Error(w, "cannot persist invalid Patch rejection", 409)
+			return true
+		}
+		writeJSON(w, 200, map[string]any{"session_id":sessionID,"call_id":callID,"status":"rejected","execution_enabled":false})
+		return true
+	}
 	arguments, err := parseAgentPatchArguments(call.Arguments)
 	if err != nil {
+		if denyInvalidAutomatic() { return }
 		http.Error(w, "invalid original tool arguments", 400)
 		return
 	}
@@ -241,6 +264,7 @@ func (s *Server) agentChatToolDecisionAPI(w http.ResponseWriter, r *http.Request
 	}
 	// Native validation checks BOTH identity headers against this workspace.
 	if _, err = pastedPythonPackage(arguments.PatchPython, identity, patchPasteSlug(arguments.Name)); err != nil {
+		if denyInvalidAutomatic() { return }
 		http.Error(w, "Patch Tool contract validation failed: "+err.Error(), 400)
 		return
 	}

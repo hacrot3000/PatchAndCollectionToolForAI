@@ -1428,6 +1428,8 @@ function agentLivePhase(session){
  if(['queued','dispatching','running'].includes(lastCall?.status))return {message:'Running native Patch…'};
  if(session.status==='waiting_tool'&&lastCall?.status==='pending'&&(session.auto_patch||lastCall.auto_run_once)){
   if(lastCall.manual_retry_only)return {message:'Patch requires manual approval · no automatic dispatch'};
+  const blocked=[...(session.events||[])].reverse().find(e=>e.kind==='tool_auto_patch_blocked'&&e.call_id===lastCall.call_id);
+  if(blocked)return {message:'Patch dispatch blocked · '+(blocked.detail||'approval refused')+' · approve or reject in the proposal card',error:true};
   const finished=[...(session.events||[])].reverse().find(e=>e.kind==='turn_finished'&&e.status==='waiting_tool');
   const age=finished?Date.now()-Date.parse(finished.at||''):0;
   return {message:age>30000?'Patch dispatch delayed · not confirmed queued · approve or reject in the proposal card':'Waiting for automatic Patch dispatch · not yet queued'};
