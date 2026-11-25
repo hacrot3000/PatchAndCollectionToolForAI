@@ -1,6 +1,7 @@
 package agentchat
 
 import (
+ "encoding/json"
  "errors"
  "fmt"
  "os"
@@ -105,4 +106,48 @@ func TestCurrentTextCollectionFallbackArchivesWithoutLosingHumanMessages(t *test
   for _,it:=range items{if strings.HasPrefix(it.Content,NativeCollectionTextObservationPrefix){total++}}
  }
  if total!=90||!strings.Contains(fmt.Sprint(x.History),"A real owner instruction: preserve this"){t.Fatal("fallback receipt or owner goal lost")}
+}
+
+
+// The old prefix contained 137 scheduler messages and Patch pairs, but
+// no archivable Collection pairs. Adding the 257th item must not fail.
+func TestArchiveStandaloneContinuationsAtLegacyHistoryLimit(t *testing.T){
+ store,err:=NewStore(filepath.Join(t.TempDir(),"private"));if err!=nil{t.Fatal(err)}
+ x,err:=NewSession("local","/project","id","provider","model",Stateless);if err!=nil{t.Fatal(err)}
+ x.History=[]HistoryItem{{Type:"user",Content:"Original owner goal"}}
+ template:=func(i int)string{return fmt.Sprintf("TaskDeck user-authorized continuation of the ORIGINAL unfinished conversation, NOT a new task. The previous provider turn is NEEDS_CONTINUATION (advisory only). Its proposed next step is %q. Verify this against the ORIGINAL user goal and actual native receipts; inspect the claimed checkpoint with read-only Collection before relying on it. Do not repeat a generic progress report. Do the next feasible concrete action and report actual evidence. Never claim success without independent proof; never bypass native Patch approval or reissue an ambiguous tool request.",fmt.Sprintf("step %d",i))}
+ generated:=map[string]int{}
+ for i:=0;i<137;i++{msg:=template(i);generated[msg]++;x.History=append(x.History,HistoryItem{Type:"user",Content:msg})}
+ x.History=append(x.History,HistoryItem{Type:"user",Content:"Owner instruction: do not enable pending dispatch"})
+ for i:=0;i<11;i++{
+  id:=fmt.Sprintf("patch-%d",i)
+  x.History=append(x.History,HistoryItem{Type:"function_call",Name:"taskdeck_submit_patch",CallID:id,Arguments:"{}"},HistoryItem{Type:"function_call_output",CallID:id,Content:"PASS"})
+  x.ToolCalls=append(x.ToolCalls,ToolCallRecord{Name:"taskdeck_submit_patch",CallID:id,Status:"done",Result:"PASS",FeedbackSent:true,FeedbackStatus:"acknowledged"})
+ }
+ for len(x.History)<255{x.History=append(x.History,HistoryItem{Type:"assistant",Content:"recent update"})}
+ x.History=append(x.History,HistoryItem{Type:"function_call",Name:"taskdeck_collect_workspace",CallID:"pending-read",Arguments:"{}"})
+ x.Status="requesting_ai"
+ x.Revision=1
+ if err:=validateSession(x);err!=nil{t.Fatal(err)}
+ raw,err:=json.Marshal(x);if err!=nil{t.Fatal(err)}
+ // Seed an old valid session directly, before new archival takes effect.
+ if err=os.WriteFile(store.file(x.ID),raw,0600);err!=nil{t.Fatal(err)}
+ x,err=store.Get(x.ID,"local");if err!=nil{t.Fatal(err)}
+ if len(x.History)!=256{t.Fatal("old saturation fixture not reproduced")}
+ x.History=append(x.History,HistoryItem{Type:"function_call_output",CallID:"pending-read",Content:"verified native receipt"})
+ x.AppendEvent("collect_observed","requesting_ai","pending-read","")
+ x,err=store.Save(x,x.Revision);if err!=nil{t.Fatalf("257th item failed: %v",err)}
+ if len(x.History)>=256||x.HistoryArchiveParts==0||len(x.ToolCalls)!=11{t.Fatal("history capacity or Patch commitments lost")}
+ if x.History[0].Content!="Original owner goal"||!strings.Contains(fmt.Sprint(x.History),"Owner instruction: do not enable pending dispatch"){t.Fatal("owner goal lost")}
+ if x.History[len(x.History)-1].Content!="verified native receipt"{t.Fatal("current receipt lost")}
+ for _,it:=range x.History{if _,ok:=generated[it.Content];ok{generated[it.Content]--}}
+ for part:=uint64(1);part<=x.HistoryArchiveParts;part++{
+  rows,e:=store.ArchivedCollectionHistory(x.ID,"local",part);if e!=nil{t.Fatal(e)}
+  for _,it:=range rows{if _,ok:=generated[it.Content];ok{generated[it.Content]--}}
+ }
+ for msg,n:=range generated{if n!=0{t.Fatalf("generated message not preserved exactly once: %d %s",n,msg)}}
+ for i:=137;i<450;i++{
+  x.History=append(x.History,HistoryItem{Type:"user",Content:template(i)})
+  x,err=store.Save(x,x.Revision);if err!=nil{t.Fatalf("continuation %d: %v",i,err)}
+ }
 }
