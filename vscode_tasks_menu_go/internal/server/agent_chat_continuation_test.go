@@ -101,3 +101,22 @@ func TestAgentStandaloneContinuationRespectsNativeAndProviderFences(t *testing.T
  x.ProviderRun=&agentchat.ProviderRun{Phase:"unknown"}
  if agentchat.StandaloneAutoContinueCandidate(x){t.Fatal("ambiguous provider outcome bypassed")}
 }
+
+func TestAgentStandaloneRecoversPersistedRawProgressAfterUpdate(t *testing.T){
+ s,store,id:=newStandaloneAutoContinueFixture(t)
+ x,err:=store.Get(id,"local");if err!=nil{t.Fatal(err)}
+ x.AutoContinueText=true
+ x.Continuation=nil
+ x.History=append(x.History,agentchat.HistoryItem{Type:"assistant",Content:"Report.\ntaskdeck-progress\n"+`{"status":"NEEDS_CONTINUATION","next_action":"Read fixture X22-X64 before writing reducer","checkpoint_path":"docs/tracker.md"}`})
+ x,err=store.Save(x,x.Revision);if err!=nil{t.Fatal(err)}
+ calls:=0
+ s.AgentChatCall=func(_ context.Context,_ agentchat.ProviderConfig,_ string,payload []byte)(agentchat.ResponsesResult,error){
+  calls++
+  if !strings.Contains(string(payload),"X22-X64"){t.Fatal("concrete continuation action lost")}
+  return agentchat.ResponsesResult{ResponseID:"resumed",Text:"\x60\x60\x60taskdeck-progress\n"+`{"status":"CLAIMED_COMPLETE"}`+"\n\x60\x60\x60"},nil
+ }
+ s.runAgentAutoFeedback(context.Background())
+ if calls!=1{t.Fatalf("scheduler did not recover and continue: %d",calls)}
+ s.runAgentAutoFeedback(context.Background())
+ if calls!=1{t.Fatal("completion claim replayed")}
+}

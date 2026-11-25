@@ -274,7 +274,8 @@ func TaskPlanAutoContinueCandidate(x Session)bool{
  p:=x.TaskPlan
  if p==nil||x.Owner!="local"||x.Archived||p.State!="active"||
   !p.AutoContinue||x.Status!="completed"||TaskPlanNext(p)==nil||
-  HasUnresolvedWork(x){return false}
+  HasUnresolvedWork(x)||p.NoProgressTurns>=MaxContinuationNoWorkTurns||
+  (x.Continuation!=nil&&(x.Continuation.Disposition==TurnBlocked||x.Continuation.Disposition==TurnWaitingTool)){return false}
  if p.NextRetryAt!=nil&&time.Now().UTC().Before(*p.NextRetryAt){return false}
  if x.ProviderRun!=nil && (x.ProviderRun.Phase=="sending"||
   x.ProviderRun.Phase=="unknown"||x.ProviderRun.Phase=="prepared"){return false}

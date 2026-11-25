@@ -69,6 +69,7 @@ func (s *Server) agentChatAutomationAPI(w http.ResponseWriter, r *http.Request, 
  switch req.Option {
  case "continue":
   x.AutoContinueText=req.Enabled
+  if req.Enabled{agentchat.RecoverTurnProgress(&x)}
   if req.Enabled && x.Continuation!=nil{
    x.Continuation.NoProgressTurns=0
    x.Continuation.LastWorkSignature=""

@@ -46,7 +46,107 @@ type declaredTurnProgress struct {
  CheckpointPath string `json:"checkpoint_path,omitempty"`
  EvidenceRefs []string `json:"evidence_refs,omitempty"`
 }
-var progressFence=regexp.MustCompile(`(?is)\x60{3}taskdeck-progress[ \t]*\r?\n([\s\S]+?)\r?\n\x60{3}`)
+var progressFence=regexp.MustCompile(`(?is)\x60{3}taskdeck-progress[ \t]*\r?\n([\s\S]+?)\r?\n\x60{3}[ \t]*\s*package agentchat
+
+import (
+ "crypto/sha256"
+ "encoding/hex"
+ "encoding/json"
+ "io"
+ "path"
+ "regexp"
+ "strings"
+ "time"
+)
+
+const (
+ TurnInProgress = "IN_PROGRESS"
+ TurnNeedsContinuation = "NEEDS_CONTINUATION"
+ TurnWaitingTool = "WAITING_TOOL"
+ TurnBlocked = "BLOCKED"
+ TurnClaimedComplete = "CLAIMED_COMPLETE"
+ TurnUnknown = "UNKNOWN"
+ // This is a verified-work brake, not a number of permitted provider turns.
+ MaxContinuationNoWorkTurns = 5
+)
+
+// TurnContinuation is an untrusted provider-turn advisory and a trusted,
+// server-owned scheduling ledger. Neither its metadata nor a model assertion
+// grants a native tool permission or a task-plan acceptance.
+type TurnContinuation struct {
+ Disposition string `json:"disposition"`
+ NextAction string `json:"next_action,omitempty"`
+ CheckpointPath string `json:"checkpoint_path,omitempty"`
+ EvidenceRefs []string `json:"evidence_refs,omitempty"`
+ Reason string `json:"reason,omitempty"`
+ ResponseDigest string `json:"response_digest,omitempty"`
+ ProgressSignature string `json:"progress_signature,omitempty"`
+ RepeatedTurns int `json:"repeated_turns,omitempty"`
+ NoProgressTurns int `json:"no_progress_turns,omitempty"`
+ LastWorkSignature string `json:"last_work_signature,omitempty"`
+ LastContinuationKey string `json:"last_continuation_key,omitempty"`
+ RetryStreak int `json:"retry_streak,omitempty"`
+ NextRetryAt *time.Time `json:"next_retry_at,omitempty"`
+}
+type declaredTurnProgress struct {
+ Status string `json:"status"`
+ NextAction string `json:"next_action,omitempty"`
+ CheckpointPath string `json:"checkpoint_path,omitempty"`
+ EvidenceRefs []string `json:"evidence_refs,omitempty"`
+}
+)
+// Some providers strip the language fence or return the progress object alone.
+// Accept exactly one terminal object, not arbitrary embedded JSON or examples.
+var progressLabel=regexp.MustCompile(`(?im)^[ \t]*taskdeck-progress[ \t]*:?[ \t]*\r?\n`)
+var progressJSONFence=regexp.MustCompile(`(?is)^\x60{3}(?:json)?[ \t]*\r?\n([\s\S]+?)\r?\n\x60{3}[ \t]*package agentchat
+
+import (
+ "crypto/sha256"
+ "encoding/hex"
+ "encoding/json"
+ "io"
+ "path"
+ "regexp"
+ "strings"
+ "time"
+)
+
+const (
+ TurnInProgress = "IN_PROGRESS"
+ TurnNeedsContinuation = "NEEDS_CONTINUATION"
+ TurnWaitingTool = "WAITING_TOOL"
+ TurnBlocked = "BLOCKED"
+ TurnClaimedComplete = "CLAIMED_COMPLETE"
+ TurnUnknown = "UNKNOWN"
+ // This is a verified-work brake, not a number of permitted provider turns.
+ MaxContinuationNoWorkTurns = 5
+)
+
+// TurnContinuation is an untrusted provider-turn advisory and a trusted,
+// server-owned scheduling ledger. Neither its metadata nor a model assertion
+// grants a native tool permission or a task-plan acceptance.
+type TurnContinuation struct {
+ Disposition string `json:"disposition"`
+ NextAction string `json:"next_action,omitempty"`
+ CheckpointPath string `json:"checkpoint_path,omitempty"`
+ EvidenceRefs []string `json:"evidence_refs,omitempty"`
+ Reason string `json:"reason,omitempty"`
+ ResponseDigest string `json:"response_digest,omitempty"`
+ ProgressSignature string `json:"progress_signature,omitempty"`
+ RepeatedTurns int `json:"repeated_turns,omitempty"`
+ NoProgressTurns int `json:"no_progress_turns,omitempty"`
+ LastWorkSignature string `json:"last_work_signature,omitempty"`
+ LastContinuationKey string `json:"last_continuation_key,omitempty"`
+ RetryStreak int `json:"retry_streak,omitempty"`
+ NextRetryAt *time.Time `json:"next_retry_at,omitempty"`
+}
+type declaredTurnProgress struct {
+ Status string `json:"status"`
+ NextAction string `json:"next_action,omitempty"`
+ CheckpointPath string `json:"checkpoint_path,omitempty"`
+ EvidenceRefs []string `json:"evidence_refs,omitempty"`
+}
+)
 var progressWhitespace=regexp.MustCompile(`[[:space:]]+`)
 var repeatedPunctuation=regexp.MustCompile(`[[:punct:]]+`)
 var progressIncomplete=regexp.MustCompile(`(?i)(chưa hoàn tất|chưa hoàn thành|chưa xong|vẫn chưa|còn phải|cần kiểm tiếp|not (yet )?(finished|complete|done)|unfinished|incomplete|remaining (work|items|cases)|still (pending|working)|work remains)`)
@@ -94,10 +194,20 @@ func normalizedTurnAction(s string)string{
  return s
 }
 func parseDeclaredTurnProgress(text string)(declaredTurnProgress,bool){
- matches:=progressFence.FindAllStringSubmatch(text,-1)
- if len(matches)!=1||len(matches[0][1])>2500{return declaredTurnProgress{},false}
+ raw:=strings.TrimSpace(text)
+ if matches:=progressFence.FindStringSubmatch(raw);len(matches)==2{
+  // Reject multiple declarations rather than choosing one arbitrarily.
+  if strings.Count(strings.ToLower(raw),"\x60\x60\x60taskdeck-progress")!=1{return declaredTurnProgress{},false}
+  raw=matches[1]
+ }else if labels:=progressLabel.FindAllStringIndex(raw,-1);len(labels)==1{
+  raw=strings.TrimSpace(raw[labels[0][1]:])
+  // Copy-button glyph can appear in exported/provider-transformed text.
+  raw=strings.TrimSpace(strings.TrimPrefix(raw,"⧉"))
+  if m:=progressJSONFence.FindStringSubmatch(raw);len(m)==2{raw=m[1]}
+ }else if !strings.HasPrefix(raw,"{"){return declaredTurnProgress{},false}
+ if len(raw)>2500{return declaredTurnProgress{},false}
  var declared declaredTurnProgress
- dec:=json.NewDecoder(strings.NewReader(matches[0][1]))
+ dec:=json.NewDecoder(strings.NewReader(raw))
  dec.DisallowUnknownFields()
  if dec.Decode(&declared)!=nil{return declaredTurnProgress{},false}
  var extra any
@@ -181,19 +291,50 @@ func RecordTurnDisposition(x *Session,text string){
  x.Continuation=next
 }
 
-func StandaloneAutoContinueCandidate(x Session)bool{
- c:=x.Continuation
- if !x.AutoContinueText||x.TaskPlan!=nil||x.Owner!="local"||x.Archived||
-  x.Status!="completed"||c==nil||c.NoProgressTurns>=MaxContinuationNoWorkTurns||
-  (c.Disposition!=TurnNeedsContinuation&&c.Disposition!=TurnInProgress)||
-  HasUnresolvedWork(x){return false}
- if c.NextRetryAt!=nil&&time.Now().UTC().Before(*c.NextRetryAt){return false}
+// Recover an old parser result only from the latest durable assistant message
+// of a completed turn. Never use a user attachment, tool output or an earlier
+// assistant message; never reset scheduling counters or an explicit pause.
+func RecoverTurnProgress(x *Session)bool{
+ if x==nil||x.Status!="completed"||len(x.History)==0{return false}
+ last:=x.History[len(x.History)-1]
+ if last.Type!="assistant"{return false}
+ if _,ok:=parseDeclaredTurnProgress(last.Content);!ok{return false}
+ old:=x.Continuation
+ if old!=nil{
+  if old.ResponseDigest!=""&&old.ResponseDigest!=turnHash(last.Content){return false}
+  if old.Reason=="model_progress_metadata_unverified"||old.Reason=="stalled_without_verified_work"||old.Reason=="nonretryable_admission_failure"{return false}
+ }
+ RecordTurnDisposition(x,last.Content)
+ if old!=nil{x.Continuation.RepeatedTurns=old.RepeatedTurns}
+ return true
+}
+
+// Shared admission reasons for the scheduler and safe diagnostics. They
+// describe a pending AI turn, not acceptance of the original task.
+func ContinuationSafetyReason(x Session)string{
+ if x.Owner!="local"||x.Archived{return "owner_or_archive"}
+ if x.Status!="completed"{return "turn_not_completed"}
+ if HasUnresolvedWork(x){return "native_work_unresolved"}
  if x.ProviderRun!=nil{
-  switch x.ProviderRun.Phase{case "prepared","sending","unknown":return false}
+  switch x.ProviderRun.Phase{case "prepared","sending","unknown":return "provider_delivery_unresolved"}
  }
  for _,call:=range x.ToolCalls{
   if (call.Status=="done"||call.Status=="error"||call.Status=="rejected")&&
-   (!call.FeedbackSent||call.FeedbackStatus!="acknowledged"){return false}
+   (!call.FeedbackSent||call.FeedbackStatus!="acknowledged"){return "tool_feedback_unresolved"}
  }
- return true
+ return ""
+}
+func StandaloneContinuationReason(x Session)string{
+ if reason:=ContinuationSafetyReason(x);reason!=""{return reason}
+ if x.TaskPlan!=nil{return "task_plan_controls_continuation"}
+ if !x.AutoContinueText{return "auto_continue_disabled"}
+ c:=x.Continuation
+ if c==nil{return "no_turn_disposition"}
+ if c.NoProgressTurns>=MaxContinuationNoWorkTurns{return "no_verified_progress_budget"}
+ if c.Disposition!=TurnNeedsContinuation&&c.Disposition!=TurnInProgress{return "turn_disposition_not_continuable"}
+ if c.NextRetryAt!=nil&&time.Now().UTC().Before(*c.NextRetryAt){return "admission_backoff"}
+ return ""
+}
+func StandaloneAutoContinueCandidate(x Session)bool{
+ return StandaloneContinuationReason(x)==""
 }

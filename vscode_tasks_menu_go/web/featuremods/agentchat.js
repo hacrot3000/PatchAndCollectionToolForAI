@@ -1999,7 +1999,16 @@ async function continueAgentTool(session,callID){
 function agentMonitorNeedsWork(sess){
  if(!sess)return false;
  const calls=sess.tool_calls||[];
- return ['requesting_ai','tool_queuing'].includes(sess.status)||
+ const turn=sess.continuation,plan=sess.task_plan;
+ const safeCompleted=sess.status==='completed'&&!sess.archived&&
+  !['prepared','sending','unknown'].includes(sess.provider_run?.phase)&&
+  !calls.some(c=>['pending','queuing','queued','dispatching','running','unknown'].includes(c.status)||
+   (['done','error','rejected'].includes(c.status)&&(!c.feedback_sent||c.feedback_status!=='acknowledged')));
+ const continuationPending=safeCompleted&&(
+  plan?plan.state==='active'&&plan.auto_continue&&Number(plan.no_progress_turns||0)<5&&
+   !['BLOCKED','WAITING_TOOL'].includes(turn?.disposition):
+   sess.auto_continue_text&&['NEEDS_CONTINUATION','IN_PROGRESS'].includes(turn?.disposition)&&Number(turn.no_progress_turns||0)<5);
+ return continuationPending||['requesting_ai','tool_queuing'].includes(sess.status)||
   calls.some(call=>['queuing','running','dispatching','queued','unknown'].includes(call.status))||
   (sess.auto_patch&&sess.status==='waiting_tool'&&calls.some(call=>call.status==='pending'))||
   (['failed','completed','tool_unknown','tool_queuing'].includes(sess.status)&&
@@ -2034,6 +2043,10 @@ function scheduleAgentMonitor(sess,delay=2800){
        refreshed.status==='tool_queuing'&&!agentSessionBusy(id)){
      await syncAgentPatch(id,{quiet:true});
     }
+   }else if(current.status==='completed'&&(current.auto_continue_text||current.task_plan?.auto_continue)){
+    // The backend scheduler owns continuation; refresh without taking its
+    // reconciliation lease or issuing a duplicate provider request.
+    await selectAgentSession(id);
    }else await syncAgentPatch(id,{quiet:true});
   }catch(error){
    if(stillCurrent())setAgentStatusNotice('Native Patch polling failed: '+String(error?.message||error));

@@ -48,6 +48,7 @@ func (s *Server) agentChatSyncAPI(w http.ResponseWriter, r *http.Request, id str
 	// The same turn lease used by approval is held. A leftover QUEUING
 	// marker cannot still be owned by a live approval handler.
 	changed := agentRecoverAcknowledgedCollection(&x)
+ if agentchat.RecoverTurnProgress(&x){changed=true}
 	if !s.agentConversationRequiresRunContinuation(owner,id) {
 		if agentRestoreRejectedSession(&x, "") {changed=true}
 	}
@@ -121,6 +122,7 @@ func (s *Server) agentReconcileOneStartupSession(ctx context.Context,store *agen
  if err!=nil||sess.Workspace!=s.Workspace{return}
  if ctx.Err()!=nil{return}
 	changed := agentRecoverAcknowledgedCollection(&sess)
+ if agentchat.RecoverTurnProgress(&sess){changed=true}
 	if !s.agentConversationRequiresRunContinuation("local",id) {
 		if agentRestoreRejectedSession(&sess, "") {changed=true}
 	}

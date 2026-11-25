@@ -140,6 +140,9 @@ func (s *Server) agentChatDebugReportAPI(w http.ResponseWriter, r *http.Request)
      "event_seq":sess.EventSeq,"events":sess.Events,
      "history_items":hist,"history_item_count":len(sess.History),
      "tool_calls":calls,
+     "auto_continue_text":sess.AutoContinueText,
+     "auto_continue_plan":sess.TaskPlan!=nil&&sess.TaskPlan.AutoContinue,
+     "continuation":agentSafeContinuationDiagnostic(sess),
     })
    }
    report["sessions"]=out
@@ -183,3 +186,21 @@ func (s *Server) agentChatDebugReportAPI(w http.ResponseWriter, r *http.Request)
 // Compile-time marker for the server's Agent journal schema referenced by the
 // report. Kept intentionally independent of a provider or Patch execution.
 var _=strings.TrimSpace
+
+
+// Do not expose model next_action, checkpoint paths or evidence identifiers.
+func agentSafeContinuationDiagnostic(x agentchat.Session)map[string]any{
+ reason:=agentchat.StandaloneContinuationReason(x)
+ if x.TaskPlan!=nil{
+  if agentchat.TaskPlanAutoContinueCandidate(x){reason=""}else if reason=="task_plan_controls_continuation"{reason="plan_not_eligible"}
+ }
+ out:=map[string]any{"eligible":reason=="","admission_reason":reason}
+ if x.ProviderRun!=nil{out["provider_phase"]=x.ProviderRun.Phase}
+ if c:=x.Continuation;c!=nil{
+  out["disposition"]=c.Disposition;out["reason"]=c.Reason;out["no_progress_turns"]=c.NoProgressTurns
+  out["repeated_turns"]=c.RepeatedTurns;out["response_digest"]=c.ResponseDigest;out["next_action_present"]=c.NextAction!=""
+  if c.NextRetryAt!=nil{out["next_retry_at"]=c.NextRetryAt}
+ }
+ if p:=x.TaskPlan;p!=nil{out["plan_state"]=p.State;out["plan_no_progress_turns"]=p.NoProgressTurns}
+ return out
+}

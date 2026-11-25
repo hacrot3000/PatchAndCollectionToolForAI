@@ -21,8 +21,16 @@ func (s *Server) autoContinueConversationOne(ctx context.Context,store *agentcha
  if ctx.Err()!=nil||s==nil||s.Config.SharedServerEnabled{return}
  if s.agentConversationRequiresRunContinuation("local",id){return}
  original,err:=store.Get(id,"local")
- if err!=nil||original.Workspace!=s.Workspace||
-  !agentchat.StandaloneAutoContinueCandidate(original){return}
+ if err!=nil||original.Workspace!=s.Workspace{return}
+ // Migration is local-only, revision-fenced and preserves the owner's grant.
+ if original.AutoContinueText&&original.TaskPlan==nil{
+  if agentchat.RecoverTurnProgress(&original){
+   saved,saveErr:=store.Save(original,original.Revision)
+   if saveErr!=nil{return}
+   original=saved
+  }
+ }
+ if !agentchat.StandaloneAutoContinueCandidate(original){return}
  c:=original.Continuation
  before:=agentchat.VerifiedWorkSignature(original)
  requestID:=fmt.Sprintf("conversation-%s-r%d",id,original.Revision)
