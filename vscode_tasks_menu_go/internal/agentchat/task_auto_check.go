@@ -69,6 +69,13 @@ func VerifyTaskAutoCheck(x Session,rule *TaskAutoCheck)(TaskPlanEvidence,error){
    if i+1>=len(x.History){break}
    output:=x.History[i+1]
    if output.Type!="function_call_output"||output.CallID!=rule.CallID{break}
+   var native struct{Source string `json:"source"`}
+   if json.Unmarshal([]byte(output.Content),&native)==nil&&native.Source=="native_patch_tool_collect"{
+    if _,err:=verifyTaskCollectionPair(x.History,x.ProjectID,rule.CallID,"");err!=nil{return TaskPlanEvidence{},err}
+    if err:=validateNativeFullFileRead(call.Arguments,output.Content,rule.Path);err!=nil{return TaskPlanEvidence{},err}
+    return TaskPlanEvidence{Kind:"collection",Ref:rule.CallID,Digest:taskPlanDigest(output.Content),
+     Note:"Auto-verified complete native file report for "+rule.Path+"; model inspection is not implied"},nil
+   }
    if err:=validateTaskCompleteRead(output.Content,rule.Path);err!=nil{return TaskPlanEvidence{},err}
    if !collectionCallRequestedPath(call.Arguments,rule.Path){
     return TaskPlanEvidence{},errors.New("Collection request did not name the required file")
@@ -79,6 +86,42 @@ func VerifyTaskAutoCheck(x Session,rule *TaskAutoCheck)(TaskPlanEvidence,error){
  }
  return TaskPlanEvidence{},fmt.Errorf("specified %s proof is not yet available",rule.Kind)
 }
+
+ // The server derives these bounded report receipts directly from the native
+ // ZIP. Match the report index to the exact original file action (not range,
+ // head, tail, or pack). Neither the model excerpt nor its claims are proof.
+ func validateNativeFullFileRead(arguments,content,required string)error{
+  var request struct{Actions []struct{
+   Type string `json:"type"`
+   Path string `json:"path"`
+   StartLine *int `json:"start_line"`
+   EndLine json.RawMessage `json:"end_line"`
+  } `json:"actions"`}
+  var receipt struct{
+   ExcerptTruncated *bool `json:"text_excerpt_truncated"`
+   Reads []struct{
+    Path string `json:"path"`
+    Index int `json:"action_index"`
+    Total *int `json:"total_lines"`
+    SHA string `json:"report_sha256"`
+   } `json:"native_full_file_reads"`
+  }
+  if json.Unmarshal([]byte(arguments),&request)!=nil||json.Unmarshal([]byte(content),&receipt)!=nil||
+   receipt.ExcerptTruncated==nil||*receipt.ExcerptTruncated||len(receipt.Reads)>32{return ErrInvalidSession}
+  seen:=map[int]bool{}
+  matched:=false
+  for _,proof:=range receipt.Reads{
+   if proof.Index<1||proof.Index>len(request.Actions)||seen[proof.Index]||
+    proof.Total==nil||*proof.Total<0||len(proof.SHA)!=64||
+    strings.Trim(proof.SHA,"0123456789abcdef")!=""{return ErrInvalidSession}
+   seen[proof.Index]=true
+   action:=request.Actions[proof.Index-1]
+   if action.Type=="file"&&action.Path==required&&proof.Path==required&&
+    (action.StartLine==nil||*action.StartLine==1)&&len(action.EndLine)==0{matched=true}
+  }
+  if !matched{return errors.New("no complete exact native file report for the requested action")}
+  return nil
+ }
 
 func TaskAutoCheckReady(x Session)bool{
  if x.TaskPlan==nil||x.TaskPlan.State!="active"{return false}
@@ -137,7 +180,7 @@ func VerifyArchivedTaskAutoCheck(store *Store,x Session,rule *TaskAutoCheck)(Tas
    if e!=nil{return TaskPlanEvidence{},e}
    for i:=0;i+1<len(items);i++{
     if items[i].Type!="function_call"||items[i].CallID!=rule.CallID{continue}
-    return VerifyTaskAutoCheck(Session{History:items[i:i+2]},rule)
+    return VerifyTaskAutoCheck(Session{ProjectID:x.ProjectID,History:items[i:i+2]},rule)
    }
   }
  }
