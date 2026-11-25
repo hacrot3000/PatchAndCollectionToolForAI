@@ -251,15 +251,22 @@ func TestAgentApprovalRefusesWorkspaceDrift(t *testing.T) {
 	}
 	blocked := invokeAI(t, s.agentChatSessionItemAPI, http.MethodPost, "/api/agent/sessions/"+id+"/tools/call_agent_001/decision",
 		map[string]any{"action": "approve", "confirm_execution": true, "expected_revision": x.Revision})
-	if blocked.Code != 409 {
-		t.Fatalf("worktree drift accepted: %d %s", blocked.Code, blocked.Body)
+	// HTTP 200 acknowledges a persisted refusal, not execution approval.
+	if blocked.Code != 200 || !strings.Contains(blocked.Body.String(), `"status":"rejected"`) ||
+		!strings.Contains(blocked.Body.String(), `"execution_enabled":false`) {
+		t.Fatalf("worktree drift did not return a definitive refusal: %d %s", blocked.Code, blocked.Body)
 	}
 	z, err := store.Get(id, "local")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if z.ToolCalls[0].Status != "unknown" || z.ToolCalls[0].QueuePath != "" {
-		t.Fatalf("drifted approval not parked as UNKNOWN without queueing: %+v", z.ToolCalls[0])
+	if z.Status != "tool_rejected" || !agentRepairableToolDenial(z.ToolCalls[0]) ||
+		!agentPatchHasNoNativeAttempt(z.ToolCalls[0]) {
+		t.Fatalf("drifted approval not rejected without queueing: %+v", z.ToolCalls[0])
+	}
+	contents, err := os.ReadFile(filepath.Join(s.Workspace, "a.txt"))
+	if err != nil || string(contents) != "dirty\n" {
+		t.Fatal("stale Patch changed the worktree")
 	}
 }
 

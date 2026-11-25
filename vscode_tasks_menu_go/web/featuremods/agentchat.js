@@ -1920,16 +1920,19 @@ async function syncAgentPatch(id,{quiet=false}={}){
 async function continueAgentTool(session,callID){
  if(agentSessionBusy(session.id))return;
  if(!window.confirm('Send the recorded tool result or rejection back to the external AI provider to continue this conversation? No tool will be re-executed.'))return;
- // Refresh before sending: the background scheduler may already have
- // recovered or delivered this exact result while the old card was visible.
- const current=await selectAgentSession(session.id);
- if(!current)return;
- const pending=(current.tool_calls||[]).find(call=>call.call_id===callID);
- if(!pending||pending.feedback_sent||pending.feedback_status){
-  setAgentStatusNotice('This tool result is no longer pending. Current conversation refreshed; no result was resent.');
-  return;
+ // Refresh rejected cards before sending: the background scheduler may
+ // already have recovered or delivered them while the old card was visible.
+ // The ordinary verified-result path retains its immediate live indicator.
+ if((session.tool_calls||[]).some(call=>call.call_id===callID&&call.status==='rejected')){
+  const current=await selectAgentSession(session.id);
+  if(!current)return;
+  const pending=(current.tool_calls||[]).find(call=>call.call_id===callID);
+  if(!pending||pending.status!=='rejected'||pending.feedback_sent||pending.feedback_status){
+   setAgentStatusNotice('This rejection is no longer pending. Current conversation refreshed; no result was resent.');
+   return;
+  }
+  session=current;
  }
- session=current;
  const turn={message:'',phase:'feedback',error:'',baseHistoryLength:session.history?.length||0,
   baseEventSeq:session.event_seq||0,optimisticNode:null,acknowledged:false};
  agentLiveTurns.set(session.id,turn);
