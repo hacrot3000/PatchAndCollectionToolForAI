@@ -209,7 +209,7 @@ func (s *Server) agentChatPatchRecoveryAPI(w http.ResponseWriter, r *http.Reques
 		Status: call.Status, Result: call.Result, QueuePath: call.QueuePath,
 		PackageSHA256: call.PackageSHA256, PackageSize: call.PackageSize,
 		PatchSessionID: call.PatchSessionID, NativeStartedAt: call.NativeStartedAt, PromptID: call.PromptID,
-		SelectedIndex: call.SelectedIndex, RunID: call.RunID,
+		SelectedIndex: call.SelectedIndex, RunID: call.RunID, FailedQueueRetirement:call.FailedQueueRetirement,
 	}
 	call.Attempts = append(call.Attempts, previous)
 	call.Status = "pending"
@@ -224,6 +224,7 @@ func (s *Server) agentChatPatchRecoveryAPI(w http.ResponseWriter, r *http.Reques
 	call.PromptID = ""
 	call.SelectedIndex = 0
 	call.RunID = ""
+	call.FailedQueueRetirement = nil
 	call.ExpectedHead = ""
 	call.ExpectedBranch = ""
 	call.WorkspaceStatusSHA256 = ""

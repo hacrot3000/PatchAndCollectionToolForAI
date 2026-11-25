@@ -201,3 +201,11 @@ func TestFailedPatchDiagnosticsSurviveRecompaction(t *testing.T) {
   for _,item:=range history {if item.Type=="function_call_output" {t.Fatal("historical feedback replayed")}}
  }
 }
+
+func TestHistoricalFailureCatalogDedupRetainsRichExactReceipt(t *testing.T){
+ call:=agentchat.HistoryItem{Type:"function_call",CallID:"failed-call",Name:"taskdeck_submit_patch",Arguments:`{"name":"tracker"}`}
+ result:=agentchat.HistoryItem{Type:"function_call_output",CallID:call.CallID,Content:`{"status":"FAIL","run_id":"failed-run","failure_reason":"anchor mismatch"}`}
+ raw:=historicalFailurePrefix+fmt.Sprintf(`{"call_id":"failed-call","run_id":"failed-run","receipt_sha256":"%s%s","failure_reason":"anchor mismatch"}`,digest(result.Content),strings.Repeat("0",48))
+ entries:=selectCatalog([]string{patchSummary(call,result),raw,raw},7400)
+ if len(entries)!=1||entries[0]!=raw{t.Fatalf("duplicate historical evidence: %+v",entries)}
+}

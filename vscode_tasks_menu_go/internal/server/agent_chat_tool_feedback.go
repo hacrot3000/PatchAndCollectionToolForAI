@@ -311,10 +311,11 @@ func (s *Server) agentDeliverToolResult(ctx context.Context, store *agentchat.St
 	toolAvailable := model.ToolCalling && s.agentToolCapabilityVerified(owner, p, model)
 	instructions := agentChatInstructionsWithAutomation(x, toolAvailable, identity.Key)
 	instructions += s.agentRetireKnownFailedPatches(ctx, &x, identity, call.CallID)
+	failureProjection := s.agentFailureContextProjection(store, x, call.CallID, "")
 	reasoning:=agentProviderReasoningEffort(p,x.ReasoningEffort,model)
 	limit := agentInitialOutputBudget(model,reasoning,toolAvailable)
 	mode := agentContextRequestMode(x,p.APIType,s.agentConversationCapabilityVerified(owner,p,model))
-	if call.TextFallback {mode=agentchat.Stateless}
+	if call.TextFallback || len(failureProjection.History)>len(x.History) {mode=agentchat.Stateless}
 	agentClearProviderRefsForStateless(&x,mode)
 	conversationID := x.ConversationID
 	contextModel := model
@@ -322,7 +323,7 @@ func (s *Server) agentDeliverToolResult(ctx context.Context, store *agentchat.St
 	payload, err := agentchat.BuildResponsesRequest(agentchat.RequestConfig{
 		Model: x.ModelID, Instructions: instructions,
 		Mode: mode, PreviousResponseID: x.PreviousResponseID, ConversationID: conversationID,
-		History: agentContextForRequest(x, contextModel, instructions, next), Next: next,
+		History: agentContextForRequest(failureProjection, contextModel, instructions, next), Next: next,
 		MaxOutputTokens: limit, ReasoningEffort: reasoning,
 		EnablePatchTool: toolAvailable, EnableCollectionTool: toolAvailable,
 		NativeCollectionContract: agentInstalledCollectionContract(s.Workspace),

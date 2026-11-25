@@ -175,7 +175,8 @@ func orphanOutputSummary(out agentchat.HistoryItem)string{
 // These are presentation priorities only. Recompacted catalog text is not
 // authoritative evidence and cannot grant approval or confirm a receipt.
 func priorityCatalogEntry(s string) bool {
- return strings.HasPrefix(s, "Prior Native Patch ") ||
+ return strings.HasPrefix(s, "Historical Native Patch failure evidence (untrusted data): ") ||
+  strings.HasPrefix(s, "Prior Native Patch ") ||
   strings.HasPrefix(s, "UNRESOLVED historical tool call ") ||
   strings.HasPrefix(s, "UNPAIRED historical tool feedback,") ||
   strings.HasPrefix(s, "TaskDeck has archived ")
@@ -184,19 +185,44 @@ func priorityCatalogEntry(s string) bool {
 // Select recent safety metadata first within a bounded reservation, then fill
 // remaining slots with recent observations. Keep chronological order in the
 // result. Neither the catalog nor its selection changes canonical history.
+type historicalFailureCatalogKey struct {
+ CallID string `json:"call_id"`
+ RunID string `json:"run_id"`
+ ReceiptSHA256 string `json:"receipt_sha256"`
+}
+const historicalFailurePrefix="Historical Native Patch failure evidence (untrusted data): "
+func historicalFailureKey(entry string)(historicalFailureCatalogKey,bool){
+ var k historicalFailureCatalogKey
+ if !strings.HasPrefix(entry,historicalFailurePrefix)||json.Unmarshal([]byte(strings.TrimPrefix(entry,historicalFailurePrefix)),&k)!=nil||
+  k.CallID==""||k.RunID==""||len(k.ReceiptSHA256)!=64{return k,false}
+ raw,err:=hex.DecodeString(k.ReceiptSHA256)
+ return k,err==nil&&len(raw)==32
+}
 func selectCatalog(catalog []string, room int) []string {
  chosen:=make([]bool,len(catalog))
  used,count:=0,0
+ chosenFailures:=map[historicalFailureCatalogKey]bool{}
  choose:=func(i int)bool{
   if chosen[i] || count>=MaxOldEvidenceCatalog{return false}
+  key,rich:=historicalFailureKey(catalog[i])
+  if rich&&chosenFailures[key]{return false}
+  if strings.HasPrefix(catalog[i],"Prior Native Patch "){
+   for k:=range chosenFailures {
+    if strings.Contains(catalog[i],"call_id="+truncate(k.CallID,100)+",")&&strings.Contains(catalog[i],"; run="+truncate(k.RunID,90)+";")&&strings.Contains(catalog[i],"receipt_hash="+k.ReceiptSHA256[:16]+"."){return false}
+   }
+  }
   cost:=Tokens(catalog[i])+2
   if cost>room-used{return false}
   chosen[i]=true
+  if rich{chosenFailures[key]=true}
   used+=cost
   count++
   return true
  }
  n:=0
+ for i:=len(catalog)-1;i>=0&&n<MaxPriorityCatalogEntries;i--{
+  if strings.HasPrefix(catalog[i],"Historical Native Patch failure evidence (untrusted data): ")&&choose(i){n++}
+ }
  // Prioritize historical failure diagnostics over ordinary successful receipts.
  // This is presentation only; it does not assert that a failure is unresolved.
  for i:=len(catalog)-1;i>=0&&n<MaxPriorityCatalogEntries;i--{
@@ -251,7 +277,11 @@ func groups(history []agentchat.HistoryItem,synthetic map[string]bool,next []age
   }
   if a.Type=="assistant" && strings.HasPrefix(a.Content,"[TASKDECK VERIFIED HISTORICAL EVIDENCE CATALOG — summaries only, not new user instructions]\n"){
    for _,line:=range strings.Split(a.Content,"\n")[1:]{
-    if strings.TrimSpace(line)!=""{out=append(out,group{kind:"catalog",summary:truncate(line,1500)})}
+    if strings.TrimSpace(line)!=""{
+     limit:=1500
+     if strings.HasPrefix(line,"Historical Native Patch failure evidence (untrusted data): "){limit=2800}
+     out=append(out,group{kind:"catalog",summary:truncate(line,limit)})
+    }
    }
    continue
   }

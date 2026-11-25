@@ -9,8 +9,10 @@ import (
  "path/filepath"
  "strings"
  "testing"
+ "time"
 
  "bletonfc/vscode_tasks_menu/internal/agentchat"
+ "bletonfc/vscode_tasks_menu/internal/agentrun"
  "bletonfc/vscode_tasks_menu/internal/patchtool"
 )
 
@@ -268,4 +270,106 @@ func TestAgentAutomationCollectionRevokedDuringProviderRequest(t *testing.T){
  if w.Code!=200||calls!=1||reads!=0{t.Fatalf("revoked read executed or provider result lost: HTTP=%d calls=%d reads=%d body=%s",w.Code,calls,reads,w.Body)}
  done,err:=store.Get(id,"local");if err!=nil{t.Fatal(err)}
  if done.AutoCollection==nil||*done.AutoCollection||done.Status!="completed"{t.Fatal("live preference or final response lost")}
+}
+
+func TestAgentHistoricalRunDoesNotOwnNewLegacyPatch(t *testing.T) {
+ s,id,_:=agentPendingCallFixture(t,true)
+ store,err:=s.agentChatStore()
+ if err!=nil {t.Fatal(err)}
+ x,err:=store.Get(id,"local")
+ if err!=nil {t.Fatal(err)}
+ call:=x.ToolCalls[0]
+ // Earlier failed Run Manager response (e.g. after switching models).
+ old:=agentrun.Record{Status:agentrun.Failed}
+ if !agentLegacyPatchWithRunHistory(x,[]agentrun.Record{old},call.CallID) {
+  t.Fatal("historical terminal run incorrectly owns the new legacy proposal")
+ }
+ old.Status=agentrun.Running
+ if agentLegacyPatchWithRunHistory(x,[]agentrun.Record{old},call.CallID) {
+  t.Fatal("active provider-bound run must prevent legacy dispatch")
+ }
+ old.Status=agentrun.Failed
+ old.History=[]agentchat.HistoryItem{{Type:"function_call",CallID:"old-unresolved",Name:"taskdeck_submit_patch"}}
+ if agentLegacyPatchWithRunHistory(x,[]agentrun.Record{old},call.CallID) {
+  t.Fatal("unresolved old run must prevent legacy dispatch")
+ }
+ old.History=nil
+ x.ToolCalls[0].AgentRunID="run-bound"
+ if agentLegacyPatchWithRunHistory(x,[]agentrun.Record{old},call.CallID) {
+  t.Fatal("run-owned call cannot use the legacy scheduler")
+ }
+ x.ToolCalls[0].AgentRunID=""
+ x.ToolCalls[0].ArgumentsSHA256="wrong"
+ if agentLegacyPatchWithRunHistory(x,[]agentrun.Record{old},call.CallID) {
+  t.Fatal("mismatched arguments must not be dispatched")
+ }
+}
+
+func TestAgentAutoPatchAdmissionBlocksActiveProviderOrNativeWork(t *testing.T) {
+ s,id,_:=agentPendingCallFixture(t,true)
+ store,err:=s.agentChatStore()
+ if err!=nil {t.Fatal(err)}
+ x,err:=store.Get(id,"local")
+ if err!=nil {t.Fatal(err)}
+ x.AutoPatch=true
+ if _,ok:=agentAutoPatchCandidate(x);!ok {t.Fatal("fresh pending Patch must be eligible")}
+ x.ProviderRun=&agentchat.ProviderRun{Phase:"unknown"}
+ if _,ok:=agentAutoPatchCandidate(x);ok {t.Fatal("ambiguous provider work cannot be bypassed")}
+ x.ProviderRun=nil
+ x.ToolCalls=append(x.ToolCalls,agentchat.ToolCallRecord{CallID:"other",Status:"running"})
+ if _,ok:=agentAutoPatchCandidate(x);ok {t.Fatal("later in-flight native record must prevent dispatch")}
+}
+
+func TestAgentAutoPatchExpiredApprovalBecomesDefiniteRejection(t *testing.T) {
+ s,id,_:=agentPendingCallFixture(t,true)
+ store,err:=s.agentChatStore()
+ if err!=nil {t.Fatal(err)}
+ x,err:=store.Get(id,"local")
+ if err!=nil {t.Fatal(err)}
+ x.AutoPatch=true
+ expired:=time.Now().UTC().Add(-time.Minute)
+ x.ToolCalls[0].ApprovalExpiresAt=&expired
+ if _,err=store.Save(x,x.Revision);err!=nil {t.Fatal(err)}
+ s.runAgentAutoFeedback(context.Background())
+ y,err:=store.Get(id,"local")
+ if err!=nil {t.Fatal(err)}
+ if y.Status!="tool_rejected"||y.ToolCalls[0].Status!="rejected"||
+  !agentPatchHasNoNativeAttempt(y.ToolCalls[0])||!strings.Contains(y.ToolCalls[0].Result,"PATCH_APPROVAL_STALE"){
+  t.Fatalf("expired proposal did not produce a definite rejection: %+v",y.ToolCalls[0])
+ }
+}
+
+func TestAgentAutoPatchInvalidContractBecomesDefiniteRejection(t *testing.T) {
+ s,id,_:=agentPendingCallFixture(t,false)
+ store,err:=s.agentChatStore()
+ if err!=nil {t.Fatal(err)}
+ x,err:=store.Get(id,"local")
+ if err!=nil {t.Fatal(err)}
+ x.AutoPatch=true
+ if _,err=store.Save(x,x.Revision);err!=nil {t.Fatal(err)}
+ s.runAgentAutoFeedback(context.Background())
+ y,err:=store.Get(id,"local")
+ if err!=nil {t.Fatal(err)}
+ if y.Status!="tool_rejected"||y.ToolCalls[0].Status!="rejected"||
+  !agentPatchHasNoNativeAttempt(y.ToolCalls[0])||!strings.Contains(y.ToolCalls[0].Result,"INVALID_PATCH_ARGUMENTS"){
+  t.Fatalf("invalid contract did not produce a definite rejection: %+v",y.ToolCalls[0])
+ }
+}
+
+func TestAgentPendingAutoPatchBlockIsDurableAndIdempotent(t *testing.T) {
+ s,id,_:=agentPendingCallFixture(t,true)
+ store,err:=s.agentChatStore()
+ if err!=nil {t.Fatal(err)}
+ x,err:=store.Get(id,"local")
+ if err!=nil {t.Fatal(err)}
+ callID:=x.ToolCalls[0].CallID
+ s.notePendingAutoPatchBlock(store,id,callID,"http_409")
+ y,err:=store.Get(id,"local")
+ if err!=nil {t.Fatal(err)}
+ if y.ToolCalls[0].Status!="pending"||y.Events[len(y.Events)-1].Detail!="http_409" {
+  t.Fatal("pending refusal not durably recorded")
+ }
+ s.notePendingAutoPatchBlock(store,id,callID,"http_409")
+ z,err:=store.Get(id,"local")
+ if err!=nil||z.Revision!=y.Revision {t.Fatal("same refusal must not churn the journal")}
 }

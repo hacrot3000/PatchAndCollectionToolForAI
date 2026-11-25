@@ -439,12 +439,13 @@ func (s *Server) agentChatAuthorizedMessage(w http.ResponseWriter, r *http.Reque
 	}
 	instructions := agentChatInstructionsWithAutomation(session, patchToolAvailable, identity.Key)
 	instructions += s.agentRetireKnownFailedPatches(r.Context(), &session, identity, "")
+	failureProjection := s.agentFailureContextProjection(store, session, "", req.Message)
 	limit := agentInitialOutputBudget(model, reasoning, patchToolAvailable)
 	// Conversations mode is only trusted with verified evidence for this exact
 	// endpoint/model. Otherwise replay canonical history statelessly; the stored
 	// session mode stays immutable for audit and a later verified retry.
 	mode := agentContextRequestMode(session,p.APIType,s.agentConversationCapabilityVerified(owner,p,model))
-	if len(runRecords) != 0 || resumeCollection {
+	if len(runRecords) != 0 || resumeCollection || len(failureProjection.History)>len(session.History) {
 		mode = agentchat.Stateless
 	}
 	agentClearProviderRefsForStateless(&session,mode)
@@ -454,7 +455,7 @@ func (s *Server) agentChatAuthorizedMessage(w http.ResponseWriter, r *http.Reque
 	payload, err := agentchat.BuildResponsesRequest(agentchat.RequestConfig{
 		Model: session.ModelID, Instructions: instructions, Mode: mode,
 		PreviousResponseID: session.PreviousResponseID, ConversationID: conversationID,
-		History: agentContextForRequest(session, contextModel, instructions, []agentchat.HistoryItem{next}), Next: []agentchat.HistoryItem{next}, MaxOutputTokens: limit,
+		History: agentContextForRequest(failureProjection, contextModel, instructions, []agentchat.HistoryItem{next}), Next: []agentchat.HistoryItem{next}, MaxOutputTokens: limit,
 		ReasoningEffort: reasoning,
 		EnablePatchTool: patchToolAvailable, EnableCollectionTool: patchToolAvailable,
 		NativeCollectionContract: agentInstalledCollectionContract(s.Workspace),

@@ -118,6 +118,7 @@ type ToolCallRecord struct {
 	// a fresh Patch retry. Never discard the old native run/receipt evidence.
 	Attempts []ToolAttemptRecord `json:"attempts,omitempty"`
 	ManualRetryOnly bool `json:"manual_retry_only,omitempty"`
+	FailedQueueRetirement *FailedQueueRetirement `json:"failed_queue_retirement,omitempty"`
 }
 
 // ToolAttemptRecord retains earlier execution attempts for audit. This is
@@ -133,6 +134,28 @@ type ToolAttemptRecord struct {
 	PromptID string `json:"prompt_id,omitempty"`
 	SelectedIndex int `json:"selected_index,omitempty"`
 	RunID string `json:"run_id,omitempty"`
+	FailedQueueRetirement *FailedQueueRetirement `json:"failed_queue_retirement,omitempty"`
+}
+
+// FailedQueueRetirement is independent lifecycle metadata, never a change to
+// an acknowledged tool result or evidence that source was restored.
+type FailedQueueRetirement struct {
+ Status string `json:"status"`
+ RunID string `json:"run_id"`
+ PackageSHA256 string `json:"package_sha256"`
+ Archive string `json:"archive,omitempty"`
+ ObservedAt time.Time `json:"observed_at"`
+}
+
+func validFailedQueueRetirement(r *FailedQueueRetirement,status,runID,sha string) bool {
+ if r==nil{return true}
+ digest,err:=hex.DecodeString(sha)
+ if status!="error"||runID==""||err!=nil||len(digest)!=32||r.RunID!=runID||r.PackageSHA256!=sha||r.ObservedAt.IsZero(){return false}
+ switch r.Status {
+ case "retired":return r.Archive=="patchs/ignore/agent-failed-"+sha+".zip"
+ case "not_queued","retained","retirement_refused","unknown":return r.Archive==""
+ default:return false
+ }
 }
 
 // RetryMode is an explicit user preference: off, limited (five retries),
@@ -368,7 +391,8 @@ func validateSession(x Session) error {
 		return ErrInvalidSession
 	}
 	for _, call := range x.ToolCalls {
-		if len(call.Attempts) > 8 { return ErrInvalidSession }
+		if len(call.Attempts) > 8 || !validFailedQueueRetirement(call.FailedQueueRetirement,call.Status,call.RunID,call.PackageSHA256) { return ErrInvalidSession }
+        for _,attempt:=range call.Attempts {if !validFailedQueueRetirement(attempt.FailedQueueRetirement,attempt.Status,attempt.RunID,attempt.PackageSHA256){return ErrInvalidSession}}
 	}
 
 	if !validID(x.ID) || x.Owner == "" || len(x.Owner) > 256 || x.Workspace == "" || x.ProjectID == "" || x.ProviderID == "" || x.ModelID == "" {
@@ -425,7 +449,7 @@ func validateSession(x Session) error {
                 call.SendAfterRetry||call.PromptID!=""||call.SelectedIndex!=0||call.RunID!=""||
                 call.ExpectedHead!=""||call.ExpectedBranch!=""||
                 call.WorkspaceStatusSHA256!=""||call.GitIsRepo||
-                call.ApprovalExpiresAt!=nil||call.ManualRetryOnly||len(call.Attempts)!=0||
+                call.ApprovalExpiresAt!=nil||call.ManualRetryOnly||len(call.Attempts)!=0||call.FailedQueueRetirement!=nil||
                 json.Unmarshal([]byte(call.Result),&feedback)!=nil||
                 feedback.Status!="REJECTED"||feedback.PatchQueued||feedback.PatchExecuted||
                 (feedback.ReasonCode!="UNSUPPORTED_TOOL"&&feedback.ReasonCode!="MULTIPLE_TOOL_CALLS"){

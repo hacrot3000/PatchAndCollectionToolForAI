@@ -22,6 +22,7 @@ type agentQueueRetirement struct {
  Name string `json:"name"`
  SHA256 string `json:"sha256"`
  Archive string `json:"archive,omitempty"`
+ RunID string `json:"run_id,omitempty"`
 }
 
 // Only server-derived immutable native receipts reach this fixed utility.
@@ -64,7 +65,7 @@ func (s *Server) agentRetireFailedQueue(ctx context.Context,owner string,identit
  lines:=strings.Split(strings.TrimSpace(stdout.String()),"\n")
  var out agentQueueRetirement
  if json.Unmarshal([]byte(lines[len(lines)-1]),&out)!=nil||out.Name!=receipt.Name||out.SHA256!=receipt.SHA256||
-   (out.Status!="retired"&&out.Status!="not_queued")||(out.Status=="retired"&&out.Archive!="patchs/ignore/agent-failed-"+receipt.SHA256+".zip"){
+   (out.Status!="retired"&&out.Status!="not_queued")||(out.Status=="retired"&&(out.RunID!=runID||out.Archive!="patchs/ignore/agent-failed-"+receipt.SHA256+".zip")){
   return empty,fmt.Errorf("native retirement receipt unavailable")
  }
  return out,nil
@@ -75,6 +76,18 @@ func agentFailedPatchRetirementEligible(call agentchat.ToolCallRecord)bool{
  var result struct{Status string `json:"status"`}
  if json.Unmarshal([]byte(call.Result),&result)!=nil{return false}
  return result.Status=="FAIL"||result.Status=="PREFLIGHT_FAIL"||result.Status=="INCOMPLETE"
+}
+
+// Keep confirmed retirement independent of the immutable result. A later
+// current-queue observation does not erase the historical confirmed receipt.
+func agentRecordFailedRetirement(call *agentchat.ToolCallRecord,status,archive string) {
+ if call==nil||call.Status!="error"||call.RunID==""{return}
+ if digest,err:=hex.DecodeString(call.PackageSHA256);err!=nil||len(digest)!=32{return}
+ old:=call.FailedQueueRetirement
+ if old!=nil&&old.RunID==call.RunID&&old.PackageSHA256==call.PackageSHA256 {
+  if old.Status=="retired" || (old.Status==status&&old.Archive==archive){return}
+ }
+ call.FailedQueueRetirement=&agentchat.FailedQueueRetirement{Status:status,RunID:call.RunID,PackageSHA256:call.PackageSHA256,Archive:archive,ObservedAt:time.Now().UTC()}
 }
 
 // For a consented feedback request, retire its failed package before sending
@@ -89,14 +102,22 @@ func(s *Server)agentRetireKnownFailedPatches(ctx context.Context,x *agentchat.Se
   if !agentFailedPatchRetirementEligible(call)||!(call.CallID==currentCall||(call.FeedbackSent&&call.FeedbackStatus=="acknowledged")){continue}
   name:=filepath.Base(call.QueuePath)
   if call.QueuePath!="patchs/"+name{continue}
-  if _,err:=os.Lstat(filepath.Join(s.Workspace,"patchs",name));os.IsNotExist(err){continue}
-  if s.agentNativePatchActive(call){continue}
+  if _,err:=os.Lstat(filepath.Join(s.Workspace,"patchs",name));os.IsNotExist(err){
+   agentRecordFailedRetirement(&x.ToolCalls[i],"not_queued","");continue
+  }else if err!=nil {
+   agentRecordFailedRetirement(&x.ToolCalls[i],"unknown","");continue
+  }
+  if s.agentNativePatchActive(call){agentRecordFailedRetirement(&x.ToolCalls[i],"retained","");continue}
   out,err:=s.agentRetireFailedQueue(ctx,x.Owner,identity,patchUploadResult{Name:name,QueuePath:call.QueuePath,SHA256:call.PackageSHA256,Size:call.PackageSize},"PATCH",call.RunID)
   if err!=nil{
+   disposition:="unknown"
+   if fi,e:=os.Lstat(filepath.Join(s.Workspace,"patchs",name));e==nil&&fi.Mode().IsRegular(){disposition="retirement_refused"}
+   agentRecordFailedRetirement(&x.ToolCalls[i],disposition,"")
    notes=append(notes,fmt.Sprintf("%s: retirement not confirmed; keep package, inspect native History (%s).",name,scrubAIContext(err.Error(),200)))
    x.AppendEvent("failed_queue_retained",x.Status,call.CallID,"native_retirement_refused")
    continue
   }
+  agentRecordFailedRetirement(&x.ToolCalls[i],out.Status,out.Archive)
   if out.Status=="retired"{
    x.AppendEvent("failed_queue_retired",x.Status,call.CallID,"native_sha_bound_retirement")
    notes=append(notes,fmt.Sprintf("%s: retired from runnable queue into %s; failure and source remain unmodified. Inspect failure and current source before successor.",name,out.Archive))

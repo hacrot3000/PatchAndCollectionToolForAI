@@ -329,7 +329,7 @@ func TestAgentAutoFeedbackWorkerPoolDoesNotStarveOtherConversations(t *testing.T
 func TestAgentAutoFeedbackNeedsWorkRecognizesLongRunningNativeAndPendingAutomation(t *testing.T) {
 	x := agentchat.Session{Owner:"local",Status:"waiting_tool"}
 	if agentAutoFeedbackNeedsWork(x) {t.Fatal("idle session incorrectly occupies background worker")}
-	x.ToolCalls=[]agentchat.ToolCallRecord{{Status:"running"}}
+	x.ToolCalls=[]agentchat.ToolCallRecord{{CallID:"patch-1",Name:"taskdeck_submit_patch",Status:"running"}}
 	if !agentAutoFeedbackNeedsWork(x) {t.Fatal("running native patch must be reconciled without browser")}
 	x.ToolCalls[0].Status="pending"
 	if agentAutoFeedbackNeedsWork(x) {t.Fatal("pending patch without AutoPatch grant is not autonomous")}
