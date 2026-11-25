@@ -662,6 +662,80 @@
     "diff_stat",
     "diff"
   ],
+  "provider_field_shapes": {
+    "paths": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string"
+      },
+      "description": "Non-empty array of project-relative paths, not a string."
+    },
+    "path": {
+      "type": "string"
+    },
+    "patterns": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string"
+      }
+    },
+    "symbols": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string"
+      }
+    },
+    "operations": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "properties": {
+          "op": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "op"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "sections": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "argv": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string"
+      }
+    },
+    "query": {
+      "type": "string"
+    },
+    "symbol": {
+      "type": "string"
+    },
+    "start_line": {
+      "type": "integer"
+    },
+    "end_line": {
+      "type": "integer"
+    },
+    "lines": {
+      "type": "integer"
+    },
+    "tree_depth": {
+      "type": "integer"
+    }
+  },
   "compatibility": {
     "public_collect_cli": "SUPERSEDED_BY_ZERO_ARGUMENT_ZIP_QUEUE",
     "historical_action_aliases": {

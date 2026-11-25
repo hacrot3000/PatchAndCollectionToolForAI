@@ -297,6 +297,7 @@ func (s *Server) agentDeliverToolResult(ctx context.Context, store *agentchat.St
 		History: agentContextForRequest(x, model, agentChatInstructionsWithAutomation(x, toolAvailable, identity.Key), next), Next: next,
 		MaxOutputTokens: limit, ReasoningEffort: reasoning,
 		EnablePatchTool: toolAvailable, EnableCollectionTool: toolAvailable,
+		NativeCollectionContract: agentInstalledCollectionContract(s.Workspace),
 	})
 	if err != nil {
 		return agentDeliverResult{}, agentContinueError{413, "cannot format tool-result model request"}

@@ -325,6 +325,7 @@ func (s *Server) agentChatRunCollection(
 			MaxOutputTokens: limit,
 			ReasoningEffort: reasoning,
 			EnablePatchTool: toolAvailable, EnableCollectionTool: toolAvailable,
+			NativeCollectionContract: agentInstalledCollectionContract(s.Workspace),
 		})
 		if err != nil {
 			return result, clearProviderRefs, &agentCollectionLocalError{Stage: "request_build", Round: round+1, Cause: err}

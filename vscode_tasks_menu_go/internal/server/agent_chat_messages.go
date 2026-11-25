@@ -386,6 +386,7 @@ func (s *Server) agentChatMessageAPI(w http.ResponseWriter, r *http.Request, id 
 		History: agentContextForRequest(session, model, instructions, []agentchat.HistoryItem{next}), Next: []agentchat.HistoryItem{next}, MaxOutputTokens: limit,
 		ReasoningEffort: reasoning,
 		EnablePatchTool: patchToolAvailable, EnableCollectionTool: patchToolAvailable,
+		NativeCollectionContract: agentInstalledCollectionContract(s.Workspace),
 	})
 	if err != nil {
 		http.Error(w, "cannot build bounded AI context: "+err.Error(), 413)
