@@ -95,6 +95,10 @@ func (e ownerBoundAgentRunExecutor) ResolveWaitingTool(ctx context.Context, run 
 		return nil, "", errors.New("conversation is busy; native Collection was not started")
 	}
 	defer release()
+	repairCount:=agentRunCollectionRepairCount(run.History,run.Spec.ParentTurnID)
+	if repairCount>=agentCollectionRepairBudget {
+		return nil,"",errors.New("Collection repair budget exhausted; no additional native request executed; resume from verified conversation evidence")
+	}
 	observed := ""
 	request, validationErr := agentNativeCollectionRequest(call.Arguments, identity, false)
 	if !s.agentRunCollectionAllowed(e.owner, run.Spec, inputs) {
@@ -136,6 +140,9 @@ func (e ownerBoundAgentRunExecutor) ResolveWaitingTool(ctx context.Context, run 
 				observed = runCollectionDiagnostic(code, scrubAIContext(err.Error(), 700), repairable)
 			}
 		}
+	}
+	if code,message,repair:=agentCollectionRepairError(observed);repair {
+		observed=agentCollectionRepairFeedback(code,message,repairCount+1)
 	}
 	if ctx.Err() != nil {
 		return nil, "", ctx.Err()

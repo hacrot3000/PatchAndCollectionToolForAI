@@ -137,7 +137,9 @@ func (s *Server) agentReconcileOneStartupSession(ctx context.Context,store *agen
 		} else {
 			sess.Status="failed"
 			markAgentProviderOutcome(&sess,"unknown")
-			sess.AppendEvent("turn_interrupted","failed","","provider_egress_after_restart_unknown")
+			detail:="provider_egress_after_restart_unknown"
+			if sess.ProviderRun!=nil&&(sess.ProviderRun.Phase=="acknowledged"||sess.ProviderRun.Phase=="completed"){detail="acknowledged_response_local_processing_interrupted"}
+			sess.AppendEvent("turn_interrupted","failed","",detail)
 			for j:=range sess.ToolCalls{
 				if sess.ToolCalls[j].FeedbackStatus=="sending"{
 					sess.ToolCalls[j].FeedbackStatus="unknown"

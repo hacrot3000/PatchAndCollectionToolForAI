@@ -373,7 +373,7 @@ for _,i:=range indices{x.ToolCalls[i].FeedbackStatus="acknowledged"}
 	result, statelessCollection, err := s.agentChatRunCollection(continuationCtx, store, &x, result, p, model, string(secret), identity, toolAvailable)
 	if err != nil {
 		x.Status = "failed"
-		markAgentProviderOutcome(&x,"unknown")
+		// Collection flow already marks actual provider errors UNKNOWN.
 		x.AppendEvent("collect_failed", "failed", "", "")
 		_, _ = store.Save(x, x.Revision)
 		return agentDeliverResult{}, agentContinueError{502, "Collection continuation after Patch result failed; inspect the Agent journal"}

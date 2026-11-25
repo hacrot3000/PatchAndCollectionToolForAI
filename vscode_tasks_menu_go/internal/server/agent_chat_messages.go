@@ -482,7 +482,7 @@ func (s *Server) agentChatMessageAPI(w http.ResponseWriter, r *http.Request, id 
 			session.Status = "cancelled"
 			stage = "collection_cancelled"
 		}
-		markAgentProviderOutcome(&session,"unknown")
+		// Local Collection failures do not make acknowledged egress ambiguous.
 		session.AppendEvent("collect_failed", session.Status, "", stage)
 		if _, saveErr := store.Save(session, session.Revision); saveErr != nil {
 			http.Error(w, "Collection continuation failed; inspect the persisted Agent session", 409)
