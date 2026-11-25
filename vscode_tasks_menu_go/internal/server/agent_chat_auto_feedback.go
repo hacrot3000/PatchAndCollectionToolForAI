@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"bletonfc/vscode_tasks_menu/internal/agentchat"
+	"bletonfc/vscode_tasks_menu/internal/agentrun"
 )
 
 // Opt-in automatic continuation. Consent is recorded per session (not implied
@@ -168,9 +169,18 @@ func (s *Server) processAgentAutoFeedbackSession(ctx context.Context, store *age
 	// Resume an exact legacy PREPARED request using its durable provider
 	// attempt record. Never replay SENDING/UNKNOWN.
 	if s.resumePreparedAgentProviderRun(ctx,store,id){return}
-	// Do not originate new legacy egress for a provider-bound run.
-	// Existing exact proof checks remain read-only.
+	// Preserve the provider-bound run fence, but a historical completed or
+	// failed run must not strand a later, independently admitted legacy Patch.
 	if s.agentConversationRequiresRunContinuation("local", id) {
+		x, err := store.Get(id, "local")
+		if err == nil && len(x.History) != 0 {
+			last := x.History[len(x.History)-1]
+			if s.agentLegacyPatchSchedulerAllowed(x, last.CallID) {
+				s.autoPatchOne(ctx, store, id)
+				s.reconcileAgentSession(ctx, store, id)
+				s.autoFeedbackOne(ctx, store, id)
+			}
+		}
 		s.autoCheckTaskPlanOne(ctx, store, id)
 		return
 	}
@@ -219,6 +229,58 @@ func agentAutoFeedbackNeedsWork(x agentchat.Session) bool {
 	return false
 }
 
+// Historical Run Manager records are not ownership of a NEW legacy call.
+// Only permit the exception for a unique current legacy Patch with matching
+// canonical arguments, no unresolved run work, and no run-owned call identity.
+// An unavailable ledger must still fail closed. Do not use this exception for
+// arbitrary text continuation or replay of a provider-bound run.
+func agentLegacyPatchWithRunHistory(x agentchat.Session, records []agentrun.Record, callID string) bool {
+	if x.Owner != "local" || x.Archived || callID == "" || len(x.History) == 0 {
+		return false
+	}
+	last := x.History[len(x.History)-1]
+	if last.Type != "function_call" || last.Name != "taskdeck_submit_patch" ||
+		last.CallID != callID || last.OriginRunID != "" {
+		return false
+	}
+	matches := 0
+	for _, call := range x.ToolCalls {
+		if call.CallID != callID { continue }
+		if call.AgentRunID != "" || call.Name != last.Name ||
+			call.ArgumentsSHA256 == "" || call.ArgumentsSHA256 != agentPatchPayloadSHA256(last.Arguments) {
+			return false
+		}
+		matches++
+	}
+	if matches != 1 { return false }
+	for _, item := range x.History[:len(x.History)-1] {
+		if item.CallID == callID && (item.Type == "function_call" || item.Type == "function_call_output") {
+			return false
+		}
+	}
+	for _, run := range records {
+		switch run.Status {
+		case agentrun.Completed, agentrun.Failed, agentrun.Stopped, agentrun.Interrupted:
+		default:
+			return false
+		}
+		if hasUnresolvedRunToolCalls(run) { return false }
+		for _, item := range run.History {
+			if item.CallID == callID { return false }
+		}
+	}
+	return true
+}
+
+func (s *Server) agentLegacyPatchSchedulerAllowed(x agentchat.Session, callID string) bool {
+	for _, call := range x.ToolCalls {
+		if call.CallID == callID && call.AgentRunID != "" { return false }
+	}
+	records, err := s.completedAgentRuns(x.Owner, x.ID)
+	if err != nil { return false }
+	return len(records) == 0 || agentLegacyPatchWithRunHistory(x, records, callID)
+}
+
 // Auto Patch performs a single exact-call approval under the existing native
 // workspace lease, identity validation, revision fence and idempotency marker.
 // No automatic retry is attempted after an ambiguous queue/dispatch result.
@@ -235,16 +297,27 @@ func agentAutoPatchCandidate(x agentchat.Session) (string, bool) {
 	if x.Owner != "local" || x.Archived || x.Status != "waiting_tool" {
 		return "",false
 	}
-	for _,call:=range x.ToolCalls {
-		if call.Status == "pending" && !call.FeedbackSent && !call.ManualRetryOnly && (x.AutoPatch || call.AutoRunOnce) {
-			return call.CallID,true
-		}
-		switch call.Status {
-		case "queuing","queued","dispatching","running","unknown":
-			return "",false
+	if x.ProviderRun != nil {
+		switch x.ProviderRun.Phase {
+		case "prepared", "sending", "unknown":
+			return "", false
 		}
 	}
-	return "",false
+	for _, call := range x.ToolCalls {
+		switch call.Status {
+		case "queuing", "queued", "dispatching", "running", "unknown":
+			return "", false
+		}
+	}
+	for _, call := range x.ToolCalls {
+		if call.Name == "taskdeck_submit_patch" && call.AgentRunID == "" &&
+			call.Status == "pending" && !call.FeedbackSent && call.FeedbackStatus == "" &&
+			!call.ManualRetryOnly && (x.AutoPatch || call.AutoRunOnce) &&
+			agentFeedbackCallIsCurrent(x, call.CallID) {
+			return call.CallID, true
+		}
+	}
+	return "", false
 }
 func (s *Server) autoPatchOne(ctx context.Context, store *agentchat.Store, id string) {
 	if s.Config.SharedServerEnabled || ctx.Err()!=nil {return}
@@ -254,6 +327,7 @@ func (s *Server) autoPatchOne(ctx context.Context, store *agentchat.Store, id st
 	if err!=nil || x.Workspace!=s.Workspace {return}
 	callID,ok:=agentAutoPatchCandidate(x)
 	if !ok {return}
+	if !s.agentLegacyPatchSchedulerAllowed(x, callID) { return }
 	body,err:=json.Marshal(map[string]any{
 		"action":"approve","automatic":true,
 		"confirm_execution":true,"expected_revision":x.Revision,
@@ -325,9 +399,6 @@ func (s *Server) reconcileAgentSession(ctx context.Context, store *agentchat.Sto
 }
 
 func (s *Server) autoFeedbackOne(ctx context.Context, store *agentchat.Store, id string) {
-	if s.agentConversationRequiresRunContinuation("local", id) {
-		return
-	}
 	release, ok := lockAgentTurn(s.Workspace, "local", id)
 	if !ok {
 		return
@@ -339,7 +410,7 @@ func (s *Server) autoFeedbackOne(ctx context.Context, store *agentchat.Store, id
 	}
 	// Re-validate the candidate under the lock: another turn may have run.
 	idx, still := agentAutoFeedbackCandidate(x)
-	if !still {
+	if !still || !s.agentLegacyPatchSchedulerAllowed(x, x.ToolCalls[idx].CallID) {
 		return
 	}
 	// Consent must still be valid at the moment of egress.
@@ -385,6 +456,10 @@ type agentAutoFeedbackWorkerPool struct {
 }
 
 var agentAutoFeedbackWorkers = agentAutoFeedbackWorkerPool{active: map[string]struct{}{}}
+
+// Native-only workers must not compete with long provider retry loops.
+// They never deliver feedback or issue a provider request.
+var agentAutoPatchWorkers = agentAutoFeedbackWorkerPool{active: map[string]struct{}{}}
 
 func (p *agentAutoFeedbackWorkerPool) acquire(key string) bool {
  p.mu.Lock()
@@ -494,11 +569,27 @@ func (s *Server) scheduleAgentAutoFeedback(ctx context.Context) {
  sessions,err:=store.List("local")
  if err!=nil{return}
  eligible:=make([]string,0,len(sessions))
+ patchEligible:=make([]string,0,len(sessions))
  for _,sess:=range sessions{
   if ctx.Err()!=nil{return}
+  if callID,ok:=agentAutoPatchCandidate(sess);ok && !s.Config.SharedServerEnabled {
+   if s.agentLegacyPatchSchedulerAllowed(sess,callID) {
+    patchEligible=append(patchEligible,sess.ID)
+   }
+   // No provider worker is needed while this proposal is pending.
+   continue
+  }
   if agentAutoFeedbackNeedsWork(sess){eligible=append(eligible,sess.ID)}
  }
  scope:=aiWorkspaceHash(s.Workspace)+":local"
+ for _,id:=range agentAutoPatchWorkers.acquireFairBatch(scope,patchEligible){
+  key:=scope+":"+id
+  if ctx.Err()!=nil{agentAutoPatchWorkers.release(key);continue}
+  go func(id,key string){
+   defer agentAutoPatchWorkers.release(key)
+   s.autoPatchOne(ctx,store,id)
+  }(id,key)
+ }
  reserved:=agentAutoFeedbackWorkers.acquireFairBatch(scope,eligible)
  for _,id:=range reserved{
   key:=scope+":"+id

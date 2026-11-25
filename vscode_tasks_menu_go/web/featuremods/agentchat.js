@@ -1225,12 +1225,13 @@ function renderAgentTool(session,item){
  const actions=agentEl('div','agentchat-tool-actions');
  if(state==='pending'){
   if((session.auto_patch||record.auto_run_once)&&!record.manual_retry_only){
-   box.append(agentEl('p','agentchat-tool-summary',record.auto_run_once?'Re-apply approved once · Native Patch will execute, then send its final result to AI.':'Auto apply is ON · Native Patch Tool will handle this proposal. No per-Patch approval needed.'));
-  }else{
-   const approve=agentButton('Approve & run in Patch Tool',()=>agentToolDecision(agentCurrentSession||session,item.call_id,'approve').catch(showAgentError));
-   approve.disabled=Boolean(agentApp.sharedMode&&!agentApp.hasPermission?.('patch.run'));
-   actions.append(approve,agentButton('Reject patch',()=>agentToolDecision(agentCurrentSession||session,item.call_id,'reject').catch(showAgentError)));
+   box.append(agentEl('p','agentchat-tool-summary','Automatic approval is enabled · proposal saved, native dispatch not yet confirmed. You can approve or reject this exact pending proposal manually.'));
   }
+  const approve=agentButton('Approve & run in Patch Tool',()=>agentToolDecision(agentCurrentSession||session,item.call_id,'approve').catch(showAgentError));
+  approve.disabled=Boolean(agentApp.sharedMode&&!agentApp.hasPermission?.('patch.run'));
+  const reject=agentButton('Reject patch',()=>agentToolDecision(agentCurrentSession||session,item.call_id,'reject').catch(showAgentError));
+  reject.disabled=approve.disabled;
+  actions.append(approve,reject);
  }
  if(['queuing','running','dispatching','queued','unknown'].includes(state)){
   const refresh=agentButton('Check native Patch status',()=>syncAgentPatch(session.id).catch(showAgentError));
@@ -1425,7 +1426,12 @@ function agentLivePhase(session){
  if(turn?.phase==='sending'&&!turn.acknowledged)return {message:'Sending request…'};
  if(session.status==='tool_queuing'||lastCall?.status==='queuing')return {message:'Submitting approved Patch to native queue…'};
  if(['queued','dispatching','running'].includes(lastCall?.status))return {message:'Running native Patch…'};
- if(session.status==='waiting_tool'&&lastCall?.status==='pending'&&session.auto_patch)return {message:'Submitting Patch to native tool…'};
+ if(session.status==='waiting_tool'&&lastCall?.status==='pending'&&(session.auto_patch||lastCall.auto_run_once)){
+  if(lastCall.manual_retry_only)return {message:'Patch requires manual approval · no automatic dispatch'};
+  const finished=[...(session.events||[])].reverse().find(e=>e.kind==='turn_finished'&&e.status==='waiting_tool');
+  const age=finished?Date.now()-Date.parse(finished.at||''):0;
+  return {message:age>30000?'Patch dispatch delayed · not confirmed queued · approve or reject in the proposal card':'Waiting for automatic Patch dispatch · not yet queued'};
+ }
  if(['waiting_tool','tool_rejected'].includes(session.status)&&['done','error','rejected'].includes(lastCall?.status)&&
     session.auto_feedback&&!lastCall.feedback_sent)return {message:agentFeedbackWaitMessage(session)};
  return null;
@@ -1942,10 +1948,6 @@ async function agentToolDecision(session,callID,action){
   setAgentStatusNotice('Patch has already advanced to '+(record?.status||'another state')+' · no repeat approval was sent.');
   return;
  }
- if(action==='approve' && session.auto_patch){
-  setAgentStatusNotice('Auto apply Patch is ON · Native Patch Tool is managing this proposal.');
-  return;
- }
  const review=(session.history||[]).find(item=>item.type==='function_call'&&item.call_id===callID);
  if(!review)throw new Error('Missing original tool call');
  if(action==='approve'){
@@ -2108,7 +2110,7 @@ function agentMonitorNeedsWork(sess){
  const calls=sess.tool_calls||[];
  return ['requesting_ai','tool_queuing'].includes(sess.status)||
   calls.some(call=>['queuing','running','dispatching','queued','unknown'].includes(call.status))||
-  (sess.auto_patch&&sess.status==='waiting_tool'&&calls.some(call=>call.status==='pending'))||
+  (sess.status==='waiting_tool'&&calls.some(call=>call.status==='pending'&&!call.manual_retry_only&&(sess.auto_patch||call.auto_run_once)))||
   (['failed','completed','tool_unknown','tool_queuing'].includes(sess.status)&&
    (!sess.provider_run||sess.provider_run.phase==='completed')&&
    sess.history?.at(-1)?.type==='function_call'&&

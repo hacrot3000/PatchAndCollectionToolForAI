@@ -182,6 +182,13 @@ func (s *Server) agentChatToolDecisionAPI(w http.ResponseWriter, r *http.Request
 		http.Error(w, "automatic approval revision changed; retry on the next scheduler pass", 409)
 		return
 	}
+	if request.Automatic && !isInternalAgentRunRequest(r) {
+		currentID, eligible := agentAutoPatchCandidate(x)
+		if !eligible || currentID != callID || !s.agentLegacyPatchSchedulerAllowed(x, callID) {
+			http.Error(w, "automatic Patch ownership or eligibility changed", 409)
+			return
+		}
+	}
 	identity, err := patchtool.EnsureProjectIdentity(s.Workspace)
 	if err != nil || identity.ID != x.ProjectID {
 		http.Error(w, "project identity changed", 409)
@@ -249,6 +256,17 @@ func (s *Server) agentChatToolDecisionAPI(w http.ResponseWriter, r *http.Request
 	// tool call. Legacy/pending records without a snapshot are captured here.
 	// An already expired approval is refused; a fresh one gets a bounded TTL.
 	if x.ToolCalls[idx].ApprovalExpiresAt != nil && time.Now().UTC().After(*x.ToolCalls[idx].ApprovalExpiresAt) {
+		// A definite pre-queue refusal must not leave Auto Patch in pending
+		// forever. Preserve the expired approval and return a real denial.
+		if request.Automatic && x.ToolCalls[idx].AgentRunID == "" && agentPatchHasNoNativeAttempt(x.ToolCalls[idx]) {
+			agentRecordStalePatchDenial(&x, idx)
+			if _, err = store.Save(x, x.Revision); err != nil {
+				http.Error(w, "cannot persist expired Patch rejection", 409)
+				return
+			}
+			writeJSON(w, 200, map[string]any{"session_id":sessionID,"call_id":callID,"status":"rejected","execution_enabled":false,"note":"Approval expired before queueing; request a new Patch proposal."})
+			return
+		}
 		http.Error(w, "approval has expired; request a new proposal", 409)
 		return
 	}
