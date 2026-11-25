@@ -474,6 +474,16 @@ func (s *Server) agentChatProviderProbeAPI(w http.ResponseWriter, r *http.Reques
 	})
 }
 
+// Reasoning tokens consume output budget even for a one-word capability
+// response. The probe remains small and respects the configured model ceiling.
+func agentCapabilityProbeOutputBudget(m agentchat.ModelConfig) int {
+	budget := 1024
+	if m.MaxOutputTokens > 0 && m.MaxOutputTokens < budget {
+		return m.MaxOutputTokens
+	}
+	return budget
+}
+
 // agentProbeCapability runs exactly one bounded, harmless probe. It never
 // executes a tool and never includes project/AI Pack data.
 func (s *Server) agentProbeCapability(r *http.Request, owner string, p agentchat.ProviderConfig, m agentchat.ModelConfig, key, capability string) (string, string) {
@@ -483,7 +493,7 @@ func (s *Server) agentProbeCapability(r *http.Request, owner string, p agentchat
 	case agentchat.ProbeText:
 		body, err := agentchat.BuildResponsesRequest(agentchat.RequestConfig{
 			Model: m.ID, Instructions: "Capability probe. Reply briefly without tools.",
-			Mode: agentchat.Stateless, Next: []agentchat.HistoryItem{{Type: "user", Content: "Reply with the word OK."}}, MaxOutputTokens: 32,
+			Mode: agentchat.Stateless, Next: []agentchat.HistoryItem{{Type: "user", Content: "Reply with the word OK."}}, MaxOutputTokens: agentCapabilityProbeOutputBudget(m),
 		})
 		if err != nil {
 			return agentchat.CapabilityInconclusive, "probe_build_failed"
@@ -499,7 +509,7 @@ func (s *Server) agentProbeCapability(r *http.Request, owner string, p agentchat
 	case agentchat.ProbeToolCalling:
 		body, err := agentchat.BuildResponsesRequest(agentchat.RequestConfig{
 			Model: m.ID, Instructions: "Capability probe. Do not call the probe function unless asked. Reply with the word OK.",
-			Mode: agentchat.Stateless, Next: []agentchat.HistoryItem{{Type: "user", Content: "Reply with the word OK."}}, MaxOutputTokens: 32,
+			Mode: agentchat.Stateless, Next: []agentchat.HistoryItem{{Type: "user", Content: "Reply with the word OK."}}, MaxOutputTokens: agentCapabilityProbeOutputBudget(m),
 			ProbeToolName: "taskdeck_capability_probe",
 		})
 		if err != nil {
@@ -518,7 +528,7 @@ func (s *Server) agentProbeCapability(r *http.Request, owner string, p agentchat
 		}
 		body, err := agentchat.BuildResponsesRequest(agentchat.RequestConfig{
 			Model: m.ID, Instructions: "Capability probe. Reply briefly.", Mode: agentchat.PreviousResponse,
-			Next: []agentchat.HistoryItem{{Type: "user", Content: "Remember the number 41. Reply OK."}}, MaxOutputTokens: 32,
+			Next: []agentchat.HistoryItem{{Type: "user", Content: "Remember the number 41. Reply OK."}}, MaxOutputTokens: agentCapabilityProbeOutputBudget(m),
 		})
 		if err != nil {
 			return agentchat.CapabilityInconclusive, "probe_build_failed"
@@ -533,7 +543,7 @@ func (s *Server) agentProbeCapability(r *http.Request, owner string, p agentchat
 		follow, err := agentchat.BuildResponsesRequest(agentchat.RequestConfig{
 			Model: m.ID, Instructions: "Capability probe. Reply briefly.", Mode: agentchat.PreviousResponse,
 			PreviousResponseID: first.ResponseID,
-			Next:               []agentchat.HistoryItem{{Type: "user", Content: "What number did I ask you to remember? Add one. Reply with only the number."}}, MaxOutputTokens: 32,
+			Next:               []agentchat.HistoryItem{{Type: "user", Content: "What number did I ask you to remember? Add one. Reply with only the number."}}, MaxOutputTokens: agentCapabilityProbeOutputBudget(m),
 		})
 		if err != nil {
 			return agentchat.CapabilityInconclusive, "probe_build_failed"
@@ -554,7 +564,7 @@ func (s *Server) agentProbeCapability(r *http.Request, owner string, p agentchat
 		// that ID back. A single response cannot prove reuse.
 		body, err := agentchat.BuildResponsesRequest(agentchat.RequestConfig{
 			Model: m.ID, Instructions: "Capability probe. Reply briefly.", Mode: agentchat.Conversation,
-			Next: []agentchat.HistoryItem{{Type: "user", Content: "Remember the number 41. Reply OK."}}, MaxOutputTokens: 32,
+			Next: []agentchat.HistoryItem{{Type: "user", Content: "Remember the number 41. Reply OK."}}, MaxOutputTokens: agentCapabilityProbeOutputBudget(m),
 		})
 		if err != nil {
 			return agentchat.CapabilityInconclusive, "probe_build_failed"
@@ -569,7 +579,7 @@ func (s *Server) agentProbeCapability(r *http.Request, owner string, p agentchat
 		second, err := agentchat.BuildResponsesRequest(agentchat.RequestConfig{
 			Model: m.ID, Instructions: "Capability probe. Reply briefly.", Mode: agentchat.Conversation,
 			ConversationID: first.ConversationID,
-			Next:           []agentchat.HistoryItem{{Type: "user", Content: "What number did I ask you to remember? Add one. Reply with only the number."}}, MaxOutputTokens: 32,
+			Next:           []agentchat.HistoryItem{{Type: "user", Content: "What number did I ask you to remember? Add one. Reply with only the number."}}, MaxOutputTokens: agentCapabilityProbeOutputBudget(m),
 		})
 		if err != nil {
 			return agentchat.CapabilityInconclusive, "probe_build_failed"
@@ -588,7 +598,7 @@ func (s *Server) agentProbeCapability(r *http.Request, owner string, p agentchat
 		}
 		body, err := agentchat.BuildResponsesRequest(agentchat.RequestConfig{
 			Model: m.ID, Instructions: "Capability probe. Reply briefly.", Mode: agentchat.Stateless,
-			Next: []agentchat.HistoryItem{{Type: "user", Content: "Reply OK."}}, MaxOutputTokens: 32,
+			Next: []agentchat.HistoryItem{{Type: "user", Content: "Reply OK."}}, MaxOutputTokens: agentCapabilityProbeOutputBudget(m),
 		})
 		if err != nil {
 			return agentchat.CapabilityInconclusive, "probe_build_failed"

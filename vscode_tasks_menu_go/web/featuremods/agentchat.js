@@ -1003,6 +1003,18 @@ function renderAgentTool(session,item){
  }
  if(item.name!=='taskdeck_submit_patch'){
   box.append(agentEl('span','','Unsupported tool request · not executed'));
+  box.append(agentEl('p','agentchat-tool-summary','Rejected tool: '+String(item.name||'unknown')+'. No command was executed.'));
+  if(record?.result)box.append(detail('Rejection feedback',record.result,'patch-result'));
+  if(record?.status==='rejected'){
+   if(record.feedback_status==='acknowledged'){
+    box.append(agentEl('p','agentchat-tool-summary','Rejection delivered to AI.'));
+   }else if(record.feedback_sent){
+    box.append(agentEl('p','agentchat-tool-summary','Rejection delivery: '+String(record.feedback_status||'unconfirmed')+'. Do not replay an uncertain request.'));
+   }else{
+    box.append(agentEl('p','agentchat-tool-summary','AI must receive the rejection before it can correct the request. Automatic continuation requires an enabled grant and stops repeated unsupported calls.'));
+    box.append(agentButton('Send rejection to AI',()=>continueAgentTool(agentCurrentSession||session,item.call_id).catch(showAgentError)));
+   }
+  }
   return box;
  }
  const state=record?.status||'rejected';
@@ -1841,7 +1853,7 @@ async function syncAgentPatch(id,{quiet=false}={}){
 }
 async function continueAgentTool(session,callID){
  if(agentSessionBusy(session.id))return;
- if(!window.confirm('Send the verified native Patch execution result back to the external AI provider to continue this conversation?'))return;
+ if(!window.confirm('Send the recorded tool result or rejection back to the external AI provider to continue this conversation? No tool will be re-executed.'))return;
  const turn={message:'',phase:'feedback',error:'',baseHistoryLength:session.history?.length||0,
   baseEventSeq:session.event_seq||0,optimisticNode:null,acknowledged:false};
  agentLiveTurns.set(session.id,turn);
@@ -1879,8 +1891,10 @@ function scheduleAgentMonitor(sess){
  const pending=(sess.tool_calls||[]).some(call=>['running','dispatching','queued','unknown'].includes(call.status));
  const awaitingAutoPatch=sess.auto_patch&&sess.status==='waiting_tool'&&
   (sess.tool_calls||[]).some(call=>call.status==='pending');
- const awaitingFeedback=sess.auto_feedback&&['waiting_tool','tool_rejected'].includes(sess.status)&&
-  (sess.tool_calls||[]).some(call=>['done','error','rejected'].includes(call.status)&&!call.feedback_sent);
+ const awaitingFeedback=['waiting_tool','tool_rejected'].includes(sess.status)&&
+  (sess.tool_calls||[]).some(call=>!call.feedback_sent&&(
+    (sess.auto_feedback&&['done','error','rejected'].includes(call.status))||
+    (call.status==='rejected'&&(sess.auto_continue_text||sess.task_plan?.auto_continue))));
  const thinking=sess.status==='requesting_ai';
  if(!pending&&!awaitingFeedback&&!awaitingAutoPatch&&!thinking)return;
  const id=sess.id;

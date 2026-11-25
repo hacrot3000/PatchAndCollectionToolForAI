@@ -137,3 +137,35 @@ func TestAgentRunContinuationNoWorkBrake(t *testing.T) {
  record,_:=manager.Get(spec.RunID)
  if requests.Load()!=int32(agentchat.MaxContinuationNoWorkTurns+1)||record.Continuation==nil||record.Continuation.Reason!="stalled_without_verified_work"{t.Fatalf("no-work brake not applied: %d %+v",requests.Load(),record.Continuation)}
 }
+
+func TestAgentRunUnsupportedToolDenialContinuesPinnedProvider(t *testing.T){
+ s,_,_,spec:=providerToolRunFixture(t,"run-denied-shell")
+ spec,history:=enableRunAutomationFixture(t,s,spec,false,false)
+ var requests,reads atomic.Int32
+ payloads:=make(chan string,2)
+ s.AgentCollectionCall=func(_ string,_ patchtool.ProjectIdentity,_ []byte)string{
+  reads.Add(1);return `{"error":"unexpected read"}`
+ }
+ s.AgentChatCall=func(_ context.Context,p agentchat.ProviderConfig,_ string,payload []byte)(agentchat.ResponsesResult,error){
+  if p.ID!=spec.ProviderID{t.Errorf("wrong provider %s",p.ID)}
+  count:=requests.Add(1)
+  if count<=2{payloads<-string(payload)}
+  if count==1{return agentchat.ResponsesResult{ResponseID:"denied-response",Calls:[]agentchat.FunctionCall{
+   {CallID:"denied-shell",Name:"shell",Arguments:`{"command":"whoami"}`},
+  }},nil}
+  return agentchat.ResponsesResult{ResponseID:"corrected-response",Text:"No command executed; continuing safely."},nil
+ }
+ manager,err:=s.agentRunManager("local");if err!=nil{t.Fatal(err)}
+ defer manager.Close()
+ if _,err:=manager.Submit(spec,history);err!=nil{t.Fatal(err)}
+ waitForAgentRunStatus(t,manager,spec.RunID,agentrun.Completed)
+ record,_:=manager.Get(spec.RunID)
+ if requests.Load()!=2||reads.Load()!=0||record.Attempt!=2{t.Fatalf("requests=%d reads=%d attempt=%d",requests.Load(),reads.Load(),record.Attempt)}
+ <-payloads
+ second:=<-payloads
+ if !strings.Contains(second,"UNSUPPORTED_TOOL")||!strings.Contains(second,`"call_id":"denied-shell"`){t.Fatal("denial absent from actual continuation payload")}
+ last:=record.History[len(record.History)-1]
+ if last.Type!="function_call_output"||last.CallID!="denied-shell"||last.OriginRunID!=spec.RunID||!agentRepairableDenialOutput(last.Content){
+  t.Fatalf("wrong run denial evidence: %+v",last)
+ }
+}

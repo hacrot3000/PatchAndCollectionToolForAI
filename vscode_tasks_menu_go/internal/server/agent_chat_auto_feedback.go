@@ -24,20 +24,82 @@ const (
 	agentAutoFeedbackPoll   = 3 * time.Second
 )
 
+// Machine denials are protocol feedback, not approval or task evidence.
+// Only explicitly opted-in continuation may schedule them in the absence
+// of the separate Auto-send results grant. Never extend this to user denial.
+func agentRepairableToolDenial(call agentchat.ToolCallRecord) bool {
+	if call.Status != "rejected" || call.Result == "" { return false }
+	return agentRepairableDenialOutput(call.Result)
+}
+
+func agentRepairableDenialOutput(output string) bool {
+	var receipt struct {
+		Status string `json:"status"`
+		Reason string `json:"reason_code"`
+		Retryable bool `json:"retryable_by_ai"`
+		Queued bool `json:"patch_queued"`
+		Executed bool `json:"patch_executed"`
+	}
+	if json.Unmarshal([]byte(output), &receipt) != nil || receipt.Status != "REJECTED" ||
+		!receipt.Retryable || receipt.Queued || receipt.Executed { return false }
+	switch receipt.Reason {
+	case "UNSUPPORTED_TOOL", "MULTIPLE_TOOL_CALLS", "INVALID_PATCH_ARGUMENTS":
+		return true
+	default:
+		return false
+	}
+}
+
+// Bound consecutive denial-only follow-ups, regardless of changes in tool
+// names/call IDs. Real user input or a successful native observation starts
+// a new repair window. Never silently replay a previously sent denial.
+const agentMaxConsecutiveDenials = 3
+
+func agentConsecutiveDenialOutputs(history []agentchat.HistoryItem) int {
+	count := 0
+	for i := len(history)-1; i >= 0; i-- {
+		item := history[i]
+		switch item.Type {
+		case "user":
+			// The legacy JSON Collection fallback stores a native observation
+			// as user content; it is also a legitimate new inspection round.
+			return count
+		case "function_call_output":
+			if !agentRepairableDenialOutput(item.Content) { return count }
+			count++
+		}
+	}
+	return count
+}
+
+func agentDenialAutoContinueGranted(x agentchat.Session, call agentchat.ToolCallRecord) bool {
+	if x.Owner != "local" || x.Archived || !agentRepairableToolDenial(call) { return false }
+	if x.TaskPlan != nil {
+		p := x.TaskPlan
+		return p.State == "active" && p.AutoContinue && agentchat.TaskPlanNext(p) != nil &&
+			p.NoProgressTurns < agentchat.MaxContinuationNoWorkTurns
+	}
+	return x.AutoContinueText && (x.Continuation == nil || x.Continuation.NoProgressTurns < agentchat.MaxContinuationNoWorkTurns)
+}
+
+func agentFeedbackGrantForCall(x agentchat.Session, call agentchat.ToolCallRecord) bool {
+	granted := x.AutoFeedback && (x.AutoFeedbackPersistent ||
+		(x.AutoFeedbackUntil != nil && !time.Now().UTC().After(*x.AutoFeedbackUntil)))
+	if agentRepairableToolDenial(call) && agentConsecutiveDenialOutputs(x.History) >= agentMaxConsecutiveDenials {
+		return false
+	}
+	return granted || call.SendAfterRetry || agentDenialAutoContinueGranted(x, call)
+}
+
 // agentAutoFeedbackCandidate reports whether a session currently qualifies.
 // It is a pure read used by both the scheduler and tests.
 func agentAutoFeedbackCandidate(x agentchat.Session) (int, bool) {
 	if x.Archived {
 		return 0, false
 	}
-	granted:=x.AutoFeedback && (x.AutoFeedbackPersistent ||
-  (x.AutoFeedbackUntil!=nil && !time.Now().UTC().After(*x.AutoFeedbackUntil)))
- if !granted {
-  for _,call:=range x.ToolCalls {
-   if call.SendAfterRetry && !call.FeedbackSent {granted=true;break}
-  }
- }
- if !granted {return 0,false}
+	if x.ProviderRun != nil && (x.ProviderRun.Phase == "prepared" || x.ProviderRun.Phase == "sending" || x.ProviderRun.Phase == "unknown") {
+		return 0, false
+	}
 	if x.Status != "waiting_tool" && x.Status != "tool_rejected" {
         return 0, false
     }
@@ -53,7 +115,7 @@ func agentAutoFeedbackCandidate(x agentchat.Session) (int, bool) {
 		}
 		switch call.Status {
 		case "done", "error", "rejected":
-            if x.AutoFeedback || call.SendAfterRetry {return i,true}
+            if call.FeedbackStatus == "" && agentFeedbackGrantForCall(x, call) {return i,true}
             return 0,false
 		}
 		return 0, false
@@ -261,8 +323,7 @@ func (s *Server) autoFeedbackOne(ctx context.Context, store *agentchat.Store, id
 		return
 	}
 	// Consent must still be valid at the moment of egress.
-	if !x.ToolCalls[idx].SendAfterRetry && (!x.AutoFeedback || (!x.AutoFeedbackPersistent &&
-        (x.AutoFeedbackUntil == nil || time.Now().UTC().After(*x.AutoFeedbackUntil)))) {
+	if s.Config.SharedServerEnabled || !agentFeedbackGrantForCall(x, x.ToolCalls[idx]) {
 		return
 	}
 	if _, err = s.agentDeliverToolResult(ctx, store, x, idx, true); err != nil {

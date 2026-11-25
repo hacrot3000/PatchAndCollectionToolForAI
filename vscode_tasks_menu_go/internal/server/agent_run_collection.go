@@ -78,7 +78,7 @@ func runCollectionDiagnostic(code, message string, retryAllowed bool) string {
 func (e ownerBoundAgentRunExecutor) ResolveWaitingTool(ctx context.Context, run agentrun.Record) ([]agentchat.HistoryItem, string, error) {
 	call, ok := pendingRunCollection(run.History)
 	if !ok {
-		return nil, "", nil // Patch/mixed/unsupported calls remain manual.
+		return e.resolveRunDeniedTools(ctx, run) // Native Patch approval remains manual.
 	}
 	if call.OriginRunID != run.Spec.RunID { return nil, "", errors.New("Collection call has no exact run provenance") }
 	s := e.server
@@ -157,4 +157,51 @@ func (e ownerBoundAgentRunExecutor) ResolveWaitingTool(ctx context.Context, run 
 		return nil, "", err
 	}
 	return []agentchat.HistoryItem{result}, snapshot.ID, nil
+}
+
+// An unsupported/mixed batch never reaches the native Patch gateway. Return
+// exact call-ID denials through the already authorized active run, using
+// the same snapshot and provider binding as Collection. No command runs.
+func (e ownerBoundAgentRunExecutor) resolveRunDeniedTools(ctx context.Context, run agentrun.Record) ([]agentchat.HistoryItem, string, error) {
+	pending := make(map[string]agentchat.HistoryItem)
+	for _, item := range run.History {
+		if item.Type == "function_call" { pending[item.CallID] = item }
+		if item.Type == "function_call_output" { delete(pending, item.CallID) }
+	}
+	if len(pending) == 0 { return nil, "", nil }
+	if len(pending) == 1 {
+		for _, call := range pending {
+			if call.Name == "taskdeck_submit_patch" { return nil, "", nil }
+		}
+	}
+	if agentConsecutiveDenialOutputs(run.History) >= agentMaxConsecutiveDenials {
+		return nil, "", errors.New("repeated unsupported tool requests; no tool was executed; manual review required")
+	}
+	if ctx.Err() != nil { return nil, "", ctx.Err() }
+	s := e.server
+	inputs, err := s.ResolveAgentRunInputs(agentrun.WithPrincipalOwner(ctx, e.owner), run.Spec)
+	if err != nil { return nil, "", err }
+	if inputs.Snapshot.Policy == nil { return nil, "", errors.New("run policy unavailable") }
+	code := "UNSUPPORTED_TOOL"
+	if len(pending) > 1 { code = "MULTIPLE_TOOL_CALLS" }
+	results := make([]agentchat.HistoryItem, 0, len(pending))
+	for _, call := range run.History {
+		if call.Type != "function_call" { continue }
+		if _, ok := pending[call.CallID]; !ok { continue }
+		if call.OriginRunID != run.Spec.RunID || call.ProviderID != run.Spec.ProviderID ||
+			call.ModelID != run.Spec.ModelID || call.CallID == "" {
+			return nil, "", errors.New("unsupported tool call is not bound to the active run")
+		}
+		results = append(results, agentchat.HistoryItem{Type:"function_call_output",
+			CallID:call.CallID, Content:agentRejectedUnsupportedToolFeedback(call.Name, code),
+			OriginRunID:run.Spec.RunID, ProviderID:run.Spec.ProviderID, ModelID:run.Spec.ModelID,
+			ParentTurnID:run.Spec.ParentTurnID})
+		delete(pending,call.CallID)
+	}
+	history := append(append([]agentchat.HistoryItem(nil),run.History...),results...)
+	store,err := s.agentContextSnapshotStore(e.owner)
+	if err != nil { return nil,"",err }
+	snapshot,err := store.CreateWithPolicy(run.Spec.OwnerWorkspaceID,run.Spec.ConversationID,inputs.ProjectID,history,inputs.Snapshot.SourceRefs,inputs.Snapshot.Policy)
+	if err != nil { return nil,"",err }
+	return results,snapshot.ID,nil
 }
