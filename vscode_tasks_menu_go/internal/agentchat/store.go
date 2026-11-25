@@ -624,10 +624,9 @@ func (s *Store) Save(x Session, expectedRevision uint64) (Session, error) {
 			(x.PendingUserTurn == nil || *existing.PendingUserTurn != *x.PendingUserTurn) {
 			return ErrInvalidSession
 		}
-		// A staged sidecar may have been replaced before this journal CAS.
-		// Never publish a newly PREPARED reference to different request bytes.
-		if x.ProviderRun != nil && x.ProviderRun.Phase == "prepared" &&
-			(e != nil || existing.ProviderRun == nil || existing.ProviderRun.Phase != "prepared" || existing.ProviderRun.ID != x.ProviderRun.ID) {
+		// Every PREPARED journal save must still reference the exact staged
+		// bytes, including updates that retain the same provider run ID.
+		if x.ProviderRun != nil && x.ProviderRun.Phase == "prepared" {
 			fi, err := os.Lstat(s.providerRunFile(x.ID))
 			if err != nil { return err }
 			if !fi.Mode().IsRegular() || fi.Mode().Perm()&0077 != 0 || fi.Size() > 2*maxProviderRunPayload { return ErrInvalidSession }

@@ -125,6 +125,12 @@ func TestProviderRunPayloadTamperingFailsClosed(t *testing.T){
  if err=store.StageProviderPayload(x,payload);err!=nil{t.Fatal(err)}
  x,err=store.Save(x,x.Revision);if err!=nil{t.Fatal(err)}
  if err=os.WriteFile(store.providerRunFile(x.ID),[]byte(`{"version":1,"run_id":"r2","sha256":"bad","payload":"YXJiaXRyYXJ5"}`),0600);err!=nil{t.Fatal(err)}
+ if _,err=store.Save(x,x.Revision);!errors.Is(err,ErrInvalidSession){
+  t.Fatalf("same-run PREPARED save accepted corrupted sidecar: %v",err)
+ }
+ reopened,err:=NewStore(dir);if err!=nil{t.Fatal(err)}
+ persisted,err:=reopened.Get(x.ID,"local");if err!=nil{t.Fatal(err)}
+ if persisted.Revision!=x.Revision||persisted.ProviderRun==nil||persisted.ProviderRun.ID!=x.ProviderRun.ID{t.Fatal("rejected save changed durable journal")}
  if _,_,err=store.PreparedProviderPayload(x.ID,"local");err==nil{
   t.Fatal("corrupted prepared provider request was replayable")
  }

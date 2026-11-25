@@ -13,6 +13,7 @@ checks = [
     ("./internal/agentchat", "^TestStoreRejectsUnscopedProviderSelectionChanges$"),
     ("./internal/agentchat", "^TestProviderRunCompetingStagedPayloadCAS$"),
     ("./internal/agentchat", "^TestStoreRejectsPendingTurnRemoval$"),
+    ("./internal/agentchat", "^TestStoreRejectsPendingTurnReplacement$"),
     ("./internal/server", "TestAgent(PreparedResumeRejectsCredentialDrift|PreparedProviderRunResumesExactlyOnceAfterRestart|SendingRunRestartBecomesAmbiguousWithoutProviderReplay|SuspendedPendingDispatchRetainsTurn)$"),
 ]
 for package, pattern in checks:
