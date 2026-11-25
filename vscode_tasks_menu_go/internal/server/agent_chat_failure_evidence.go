@@ -44,6 +44,7 @@ type agentFailureEvidence struct {
  Integrity string `json:"integrity"`
  Availability string `json:"availability"`
  Predecessor string `json:"predecessor_disposition"`
+ PredecessorSource string `json:"predecessor_source,omitempty"`
  Truncated bool `json:"truncated"`
 }
 
@@ -122,6 +123,7 @@ func agentFailureReadFile(root, rel string, limit int64) ([]byte,error) {
  }
  parts:=strings.Split(rel,"/")
  current:=root
+ var expected os.FileInfo
  for i,part:=range parts {
   if part==""||part=="."||part==".." {return nil,errors.New("unsafe evidence path")}
   current=filepath.Join(current,part)
@@ -130,12 +132,15 @@ func agentFailureReadFile(root, rel string, limit int64) ([]byte,error) {
   if info.Mode()&os.ModeSymlink!=0 || (i<len(parts)-1&&!info.IsDir()) || (i==len(parts)-1&&!info.Mode().IsRegular()){
    return nil,errors.New("unsafe evidence file")
   }
+  if i==len(parts)-1 {expected=info}
  }
  pinned,err:=openProjectPinnedFile(root,current)
  if err!=nil{return nil,err}
  defer pinned.close()
- data,_,err:=pinned.readCurrent(limit)
- return data,err
+ data,actual,err:=pinned.readCurrent(limit)
+ if err!=nil{return nil,err}
+ if expected==nil||actual==nil||!os.SameFile(expected,actual){return nil,errors.New("evidence file changed during read")}
+ return data,nil
 }
 
 func agentFailureCount(list []string,name string) int {
@@ -277,6 +282,7 @@ func (s *Server) agentResolveFailedPatchEvidence(x agentchat.Session, call agent
   out.Availability="native_history_receipt_mismatch";return out
  }
  out.Integrity="native_history_sha_bound"
+ out.Predecessor,out.PredecessorSource=s.agentFailurePredecessor(call)
  out.Availability="native_history_verified_handoff_unavailable"
  out.NativeStatus=row.Status
  out.RC=row.RC
@@ -377,3 +383,59 @@ func (s *Server) agentFailureContextProjection(store *agentchat.Store,x agentcha
 
 var agentFailureRunTextPattern=regexp.MustCompile("[0-9]{8,}_[0-9]{3,}")
 func agentFailureRunIDInText(text string) bool {return agentFailureRunTextPattern.MatchString(text)}
+
+func agentFailureSHA(data []byte) string {sum:=sha256.Sum256(data);return hex.EncodeToString(sum[:])}
+
+// Registry proof can reconstruct older native retirements, but only when the
+// exact package archive, History row and registry's latest run all match.
+func (s *Server) agentFailureRegistryRetired(call agentchat.ToolCallRecord) bool {
+ raw,err:=agentFailureReadFile(s.Workspace,"artifacts/patch_tool/UNRESOLVED_FAILURES.json",agentFailureHistoryLimit)
+ if err!=nil{return false}
+ var reg struct {
+  Format string `json:"format"`
+  Version int `json:"format_version"`
+  Entries []struct {
+   RunID string `json:"last_run_id"`
+   Resolved bool `json:"resolved"`
+   Resolution string `json:"resolution"`
+   Row agentFailureHistoryRow `json:"row"`
+  } `json:"entries"`
+ }
+ if json.Unmarshal(raw,&reg)!=nil||reg.Format!="python-patch-tool-unresolved-failures"||reg.Version!=1||len(reg.Entries)>1000{return false}
+ matched:=0
+ retired:=false
+ for _,entry:=range reg.Entries {
+  var patch agentFailurePatchResult
+  if entry.Row.Kind!="PATCH"||entry.Row.Name!=filepath.Base(call.QueuePath)||json.Unmarshal(entry.Row.PatchResult,&patch)!=nil||patch.SHA256!=call.PackageSHA256{continue}
+  matched++
+  retired=entry.RunID==call.RunID&&entry.Resolved&&entry.Resolution=="agent_retired_failed_queue_item"&&agentFailureStatus(entry.Row.Status)
+ }
+ return matched==1&&retired
+}
+
+// Current queue state is separate from a past retirement receipt. Absence
+// alone does not prove native predecessor resolution or source rollback.
+func (s *Server) agentFailurePredecessor(call agentchat.ToolCallRecord) (string,string) {
+ name:=filepath.Base(call.QueuePath)
+ if call.QueuePath!="patchs/"+name{return "unknown","invalid_queue_receipt"}
+ queue,err:=os.Lstat(filepath.Join(s.Workspace,"patchs"))
+ if err!=nil||!queue.IsDir()||queue.Mode()&os.ModeSymlink!=0{return "unknown","unsafe_or_missing_queue_directory"}
+ data,err:=agentFailureReadFile(s.Workspace,call.QueuePath,2<<20)
+ if err==nil {
+  if agentFailureSHA(data)!=call.PackageSHA256{return "retained","queue_name_reused_or_changed"}
+  if call.FailedQueueRetirement!=nil&&call.FailedQueueRetirement.Status=="retirement_refused"{return "retirement_refused","exact_package_still_queued"}
+  return "retained","exact_package_still_queued"
+ }
+ if !errors.Is(err,os.ErrNotExist){return "unknown","queue_integrity_unverified"}
+ archive:="patchs/ignore/agent-failed-"+call.PackageSHA256+".zip"
+ data,err=agentFailureReadFile(s.Workspace,archive,2<<20)
+ if err==nil&&int64(len(data))==call.PackageSize&&agentFailureSHA(data)==call.PackageSHA256 {
+  if receipt:=call.FailedQueueRetirement;receipt!=nil&&receipt.Status=="retired"&&receipt.RunID==call.RunID&&receipt.PackageSHA256==call.PackageSHA256&&receipt.Archive==archive {
+   return "retired","durable_native_retirement_and_archive"
+  }
+  if s.agentFailureRegistryRetired(call){return "retired","native_registry_and_archive"}
+  return "not_queued","archive_verified_registry_disposition_unconfirmed"
+ }
+ if err!=nil&&!errors.Is(err,os.ErrNotExist){return "unknown","retirement_archive_integrity_unverified"}
+ return "not_queued","queue_absent_retirement_not_proven"
+}
