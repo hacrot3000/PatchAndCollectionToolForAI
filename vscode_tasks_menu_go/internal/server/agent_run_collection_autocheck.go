@@ -23,11 +23,13 @@ func applyRunCollectionAutoChecks(ctx context.Context,x *agentchat.Session,run a
   if err:=ctx.Err();err!=nil{return false,err}
   step:=&x.TaskPlan.Steps[i]
   rule:=step.AutoCheck
-  if rule==nil||rule.Kind!="full_file_read"||step.Status=="done"||
+  if rule==nil||(rule.Kind!="full_file_read"&&rule.Kind!="patch_pass")||step.Status=="done"||
    step.GoTestRequirements!=nil||!agentchat.TaskPlanStepCriteriaReviewed(*step){continue}
   runID,callID,ok:=parseRunCollectionEvidenceRef(rule.CallID)
   if !ok||runID!=run.Spec.RunID{continue}
-  proof,err:=verifyRunCollectionProof(run,snapshot,x.ProjectID,callID,"",rule.Path)
+  var proof agentchat.TaskPlanEvidence
+  var err error
+  if rule.Kind=="patch_pass"{proof,err=verifyRunPatchProof(*x,run,snapshot,callID)}else{proof,err=verifyRunCollectionProof(run,snapshot,x.ProjectID,callID,"",rule.Path)}
   if err!=nil{continue}
   proof.Ref=rule.CallID
   // Work on a private plan copy: UpdateTaskPlanStep may fail validation after

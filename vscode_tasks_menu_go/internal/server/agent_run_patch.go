@@ -190,28 +190,26 @@ func (s *Server) continueAgentRunFromNativeResults(ctx context.Context, owner, r
 	}
 	results := make([]agentchat.HistoryItem, 0, len(pending))
 	for callID := range pending {
-		found := false
-		for _, call := range session.ToolCalls {
-			if call.CallID != callID || call.AgentRunID != run.Spec.RunID {
-				continue
-			}
-			found = true
-			switch call.Status {
-			case "done", "error", "rejected":
-				result := call.Result
-				if result == "" {
-					return errors.New("final Patch result is empty")
-				}
-				results = append(results, agentchat.HistoryItem{Type: "function_call_output", CallID: callID, Content: result, OriginRunID: run.Spec.RunID, ProviderID: run.Spec.ProviderID, ModelID: run.Spec.ModelID, ParentTurnID: run.Spec.ParentTurnID})
-			case "pending", "queuing", "queued", "dispatching", "running":
-				return errAgentRunPatchPending
-			default:
-				return errors.New("Patch result is unknown; explicit manual recovery is required")
-			}
-			break
+		call, err := canonicalRunToolCall(session.ToolCalls, callID, run.Spec.RunID)
+		if err != nil || call.Name != "taskdeck_submit_patch" {
+			return errors.New("run Patch call is missing or ambiguous in its conversation")
 		}
-		if !found {
-			return errors.New("run Patch call is missing from its conversation")
+		// A prior durable feedback intent cannot be reset to prepared.
+		// In particular a restart between Session CAS and manager queueing
+		// leaves a reviewable receipt, not authority to replay it.
+		if call.FeedbackSent || call.FeedbackStatus != "" {
+			return errors.New("Patch feedback already prepared or delivered; inspect the exact run before recovery")
+		}
+		switch call.Status {
+		case "done", "error", "rejected":
+			if call.Result == "" {
+				return errors.New("final Patch result is empty")
+			}
+			results = append(results, agentchat.HistoryItem{Type: "function_call_output", CallID: callID, Content: call.Result, OriginRunID: run.Spec.RunID, ProviderID: run.Spec.ProviderID, ModelID: run.Spec.ModelID, ParentTurnID: run.Spec.ParentTurnID})
+		case "pending", "queuing", "queued", "dispatching", "running":
+			return errAgentRunPatchPending
+		default:
+			return errors.New("Patch result is unknown; explicit manual recovery is required")
 		}
 	}
 	if len(results) == 0 {

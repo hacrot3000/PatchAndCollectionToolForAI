@@ -518,8 +518,8 @@ func (s *Server) agentChatTaskPlanAPI(w http.ResponseWriter,r *http.Request,id s
     http.Error(w,"invalid automatic evidence rule",400);return
    }
    if strings.HasPrefix(rule.CallID,"run:"){
-    if _,_,ok:=parseRunCollectionEvidenceRef(rule.CallID);!ok||rule.Kind!="full_file_read"{
-     http.Error(w,"invalid run-qualified full-file rule",400);return
+    if _,_,ok:=parseRunCollectionEvidenceRef(rule.CallID);!ok||(rule.Kind!="full_file_read"&&rule.Kind!="patch_pass"){
+     http.Error(w,"invalid run-qualified evidence rule",400);return
     }
    }
    // Baseline archive generations before accepting the rule. Future
@@ -537,9 +537,13 @@ func (s *Server) agentChatTaskPlanAPI(w http.ResponseWriter,r *http.Request,id s
     if strings.HasPrefix(rule.CallID,"run:"){
      // A qualified reference resolves only an exact completed run; an
      // active run is handled at its verified turn-completion boundary.
-     proof,err:=s.resolveRunCollectionEvidenceForPath(owner,id,rule.CallID,"",rule.Path)
-     proofErr=err
-     if proofErr==nil{evidence,proofErr=proof.forSession(x)}
+     if rule.Kind=="patch_pass"{
+      evidence,proofErr=s.resolveRunPatchAutoCheck(x,rule.CallID)
+     }else{
+      proof,err:=s.resolveRunCollectionEvidenceForPath(owner,id,rule.CallID,"",rule.Path)
+      proofErr=err
+      if proofErr==nil{evidence,proofErr=proof.forSession(x)}
+     }
     }else{
      evidence,proofErr=agentchat.VerifyArchivedTaskAutoCheck(store,x,rule)
     }

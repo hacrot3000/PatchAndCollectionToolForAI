@@ -49,3 +49,28 @@ func hasTaskPlanEvidenceRef(evidence []TaskPlanEvidence, ref string) bool {
 	}
 	return false
 }
+
+
+// VerifyRunNativePatchEvidence is the strict host-side entry point for a
+// run-qualified Patch Auto-check. The caller must first verify the exact
+// call/output against the pinned snapshot and authenticated session.
+// Legacy receipts without an exact native execution ID are not eligible.
+func VerifyRunNativePatchEvidence(spec RunSpec, call ToolCallRecord, projectID string) (TaskPlanEvidence,error) {
+ if call.AgentRunID!=spec.RunID || call.Name!="taskdeck_submit_patch" || call.TextFallback ||
+  len(call.ArgumentsSHA256)!=64 || strings.Trim(call.ArgumentsSHA256,"0123456789abcdef")!="" ||
+  len(call.PackageSHA256)!=64 || strings.Trim(call.PackageSHA256,"0123456789abcdef")!="" {
+  return TaskPlanEvidence{},errors.New("native Patch identity is incomplete")
+ }
+ if _,err:=VerifyTaskAutoCheck(Session{ToolCalls:[]ToolCallRecord{call}}, &TaskAutoCheck{Kind:"patch_pass",CallID:call.CallID});err!=nil{
+  return TaskPlanEvidence{},err
+ }
+ env,err:=newNativeRunReceipt(spec,call,projectID)
+ if err!=nil{return TaskPlanEvidence{},err}
+ proof,err:=adoptNativeRunReceipt(env,spec,projectID)
+ if err!=nil{return TaskPlanEvidence{},err}
+ // The reference is the explicit owner rule, not an attempt-dependent
+ // opaque identifier. The envelope digest retains the verifying attempt.
+ proof.Ref="run:"+spec.RunID+"/"+call.CallID
+ if len(proof.Ref)>256{return TaskPlanEvidence{},ErrInvalidSession}
+ return proof,nil
+}
