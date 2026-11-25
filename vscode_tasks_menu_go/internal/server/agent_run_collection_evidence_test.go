@@ -20,6 +20,7 @@ func TestAgentRunNativeCollectionEvidenceOwnerPlanCAS(t *testing.T){
  x,err:=store.Get(id,"local");if err!=nil{t.Fatal(err)}
  steps:=make([]agentchat.TaskPlanStep,160)
  for i:=range steps{steps[i]=agentchat.TaskPlanStep{ID:"step-"+formatPlanStepIndex(i),Title:"Inspect source",Acceptance:"Review successful native Collection"}}
+ x.History=append(x.History,agentchat.HistoryItem{Type:"user",Content:"Existing conversation history must survive evidence adoption"})
  x.TaskPlan,err=agentchat.NewTaskPlan("Review native observations",steps);if err!=nil{t.Fatal(err)}
  x,err=store.Save(x,x.Revision);if err!=nil{t.Fatal(err)}
  var reads,requests atomic.Int32
@@ -62,9 +63,8 @@ func TestAgentRunNativeCollectionEvidenceOwnerPlanCAS(t *testing.T){
  if action(path,"step-0001",ref,oldRevision)!=409{t.Fatal("stale revision accepted")}
  if action(path,"step-0001",ref,x.Revision)!=200{t.Fatal("inline run Collection proof rejected")}
  x,err=store.Get(id,"local");if err!=nil{t.Fatal(err)}
- if x.TaskPlan.State!="active"||x.TaskPlan.Steps[1].Evidence[0].Ref!=ref||!reflect.DeepEqual(before,x.History){
-  t.Fatal("proof adoption changed history or completed plan")
- }
+ if x.TaskPlan.State!="active"||x.TaskPlan.Steps[1].Evidence[0].Ref!=ref{t.Fatalf("incorrect plan state or receipt: %s %+v",x.TaskPlan.State,x.TaskPlan.Steps[1].Evidence)}
+ if !reflect.DeepEqual(before,x.History){t.Fatalf("proof adoption changed history: before=%+v after=%+v",before,x.History)}
  if reads.Load()!=1||requests.Load()!=2{t.Fatal("proof adoption replayed native work or provider request")}
  proof,err:=s.resolveRunCollectionEvidence("local",id,ref,"");if err!=nil{t.Fatal(err)}
  other:=x;other.Owner="other"
