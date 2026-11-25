@@ -261,6 +261,12 @@ func (s *Server) agentChatRunCollection(
 			next = agentchat.HistoryItem{Type: "user", Content:
 				agentchat.NativeCollectionTextObservationPrefix + observed}
 		}
+		if ctx.Err()!=nil {
+			x.History=append(x.History,next)
+			x.PreviousResponseID="";x.ConversationID=""
+			x.AppendEvent("collect_observed",x.Status,next.CallID,"cancelled_before_egress")
+			return result,true,&agentCollectionLocalError{Stage:"cancelled_after_native_collection",Round:round+1,Cause:ctx.Err()}
+		}
 		if repairExhausted {
 			x.History=append(x.History,next)
 			x.PreviousResponseID="";x.ConversationID=""
