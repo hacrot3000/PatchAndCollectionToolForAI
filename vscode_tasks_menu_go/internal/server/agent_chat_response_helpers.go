@@ -108,7 +108,7 @@ func agentRejectedPatchFeedback(code, message string, retryable bool) string {
 // This is a denial receipt, not an execution request. Command arguments are
 // intentionally excluded. The model receives its original call_id separately.
 func agentRejectedUnsupportedToolFeedback(name, code string) string {
- message:=fmt.Sprintf("Tool %q was rejected by TaskDeck. It was NOT executed. Only taskdeck_collect_workspace (native read-only COLLECT) and taskdeck_submit_patch (native approved Patch proposal) are supported. Choose an allowed tool or explain why this cannot be done; continue the original task.",name)
+ message:=fmt.Sprintf("Tool %q was rejected by TaskDeck. It was NOT executed. Only taskdeck_collect_workspace (native read-only COLLECT) and taskdeck_submit_patch (native approved Patch proposal) are supported when advertised. If no function schema is advertised, use the documented exact project-bound text JSON fallback instead. Choose an allowed path or explain the limitation; continue the original task.",name)
  if code=="MULTIPLE_TOOL_CALLS"{
   message="TaskDeck rejected every function call in this batch. No tool was executed. Request ONE supported tool at a time and continue the original task."
  }
@@ -155,7 +155,7 @@ func appendAgentProviderResult(x *agentchat.Session, result agentchat.ResponsesR
         // Persist denial receipts for ALL unregistered function calls. They
         // never receive a native execution intent, approval or queue path.
         reason:="unsupported_function"
-        if len(result.Calls)!=1 {reason="multiple_tool_calls"} else if !toolAvailable {
+        if len(result.Calls)!=1 {reason="multiple_tool_calls"} else if !toolAvailable && result.Calls[0].Name=="taskdeck_submit_patch" {
             reason="patch_tool_unavailable"
         } else if result.Calls[0].Name=="taskdeck_submit_patch" {
             if _,err:=parseAgentPatchArguments(result.Calls[0].Arguments);err!=nil{
