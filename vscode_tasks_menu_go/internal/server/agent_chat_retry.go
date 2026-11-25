@@ -310,8 +310,12 @@ func (s *Server) agentChatProviderWithRetry(ctx context.Context,owner,sessionID 
   // reports a generic provider error after the context was cancelled.
   if ctx.Err()!=nil{return agentchat.ResponsesResult{},ctx.Err(),trace}
   if err==nil{
-   if contextRecoveries>0&&agentLearnContextRecovery(s.Workspace,owner,p,key,contextRejectedPayload,replayPayload){
-    s.recordAgentDebugEvent(owner,sessionID,"","provider_retry","context_budget.learned","","Retained a bounded provider/model context and output budget hint for subsequent stateless requests")
+   if contextRecoveries>0{
+    if hints,e:=s.agentChatStore();e==nil{
+     if x,e:=hints.Get(sessionID,owner);e==nil&&agentLearnContextRecovery(hints,x,p,key,contextRejectedPayload,replayPayload){
+      s.recordAgentDebugEvent(owner,sessionID,"","provider_retry","context_budget.learned","","Retained a bounded durable provider/model context and output budget hint for subsequent stateless requests")
+     }
+    }
    }
    return result,nil,trace
   }

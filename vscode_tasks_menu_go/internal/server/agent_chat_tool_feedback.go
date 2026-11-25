@@ -319,7 +319,7 @@ func (s *Server) agentDeliverToolResult(ctx context.Context, store *agentchat.St
 	agentClearProviderRefsForStateless(&x,mode)
 	conversationID := x.ConversationID
 	contextModel := model
-	if mode==agentchat.Stateless{contextModel,limit=agentAdaptiveRequestBudget(x,p,model,string(secret),limit)}
+	if mode==agentchat.Stateless{contextModel,limit=agentAdaptiveRequestBudget(store,x,p,model,string(secret),limit)}
 	payload, err := agentchat.BuildResponsesRequest(agentchat.RequestConfig{
 		Model: x.ModelID, Instructions: instructions,
 		Mode: mode, PreviousResponseID: x.PreviousResponseID, ConversationID: conversationID,

@@ -32,7 +32,8 @@ func TestAgentAdaptiveBudgetLearnsAcrossRequests(t *testing.T){
   return agentchat.ResponsesResult{Text:"Recovered",ResponseID:"ack"},nil
  }
  if _,err,_=s.agentChatCallForOwner(context.Background(),"local",id,p,key,original);err!=nil{t.Fatal(err)}
- effective,limit:=agentAdaptiveRequestBudget(x,p,model,key,98304)
+ store,err=s.agentChatStore();if err!=nil{t.Fatal(err)}
+ effective,limit:=agentAdaptiveRequestBudget(store,x,p,model,key,98304)
  if calls!=2||effective.MaxInputTokens>=model.MaxInputTokens||limit!=16384{t.Fatalf("learned limits not applied: %d %+v %d",calls,effective,limit)}
  if model.MaxInputTokens!=1280000||p.Models[0].MaxOutputTokens!=98304{t.Fatal("configured model mutated")}
  old:=agentchat.HistoryItem{Type:"function_call",Name:"taskdeck_collect_workspace",CallID:"old-read",Arguments:`{"actions":[{"type":"file","path":"old.go"}]}`}
@@ -49,7 +50,7 @@ func TestAgentAdaptiveBudgetLearnsAcrossRequests(t *testing.T){
   {x,p,"other-credential"},
   {x,agentchat.ProviderConfig{ID:p.ID,APIType:p.APIType,BaseURL:"https://other.example",Models:p.Models},key},
  }{
-  got,out:=agentAdaptiveRequestBudget(tc.x,tc.p,model,tc.key,98304)
+  got,out:=agentAdaptiveRequestBudget(store,tc.x,tc.p,model,tc.key,98304)
   if got.MaxInputTokens!=model.MaxInputTokens||out!=98304{t.Fatal("budget crossed identity boundary")}
  }
 }

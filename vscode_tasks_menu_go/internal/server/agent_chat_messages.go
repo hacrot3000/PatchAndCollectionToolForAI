@@ -480,7 +480,7 @@ func (s *Server) agentChatAuthorizedMessage(w http.ResponseWriter, r *http.Reque
 	agentClearProviderRefsForStateless(&session,mode)
 	conversationID := session.ConversationID
 	contextModel := model
-	if mode==agentchat.Stateless{contextModel,limit=agentAdaptiveRequestBudget(session,p,model,string(secret),limit)}
+	if mode==agentchat.Stateless{contextModel,limit=agentAdaptiveRequestBudget(store,session,p,model,string(secret),limit)}
 	payload, err := agentchat.BuildResponsesRequest(agentchat.RequestConfig{
 		Model: session.ModelID, Instructions: instructions, Mode: mode,
 		PreviousResponseID: session.PreviousResponseID, ConversationID: conversationID,

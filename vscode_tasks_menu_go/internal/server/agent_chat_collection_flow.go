@@ -322,7 +322,7 @@ func (s *Server) agentChatRunCollection(
 		x.RefreshAutomation(latest)
 		limit := agentInitialOutputBudget(model,reasoning,toolAvailable)
 		contextModel := model
-		if mode==agentchat.Stateless{contextModel,limit=agentAdaptiveRequestBudget(*x,provider,model,key,limit)}
+		if mode==agentchat.Stateless{contextModel,limit=agentAdaptiveRequestBudget(store,*x,provider,model,key,limit)}
 		instructions := agentChatInstructionsWithAutomation(*x, toolAvailable, identity.Key) + collectionProgressAdvice(guardDecision) + requestAdvice + recoveryAdvice
 		projection:=*x
 		if nextCommitted{

@@ -680,6 +680,9 @@ Extended existing v1 attempt records additively (omitempty fields preserve old r
 - Subtask checkboxes advanced only for verified portions; full gates not claimed. 16 retained explicit UNKNOWN checkpoints is fail-closed storage bound, not read limit. Old UNKNOWN with missing current receipt, unresolved mutation, corrupt audit or cancelled status is not eligible for this action.
 - Next: durable adaptive budget hints (not committed, prior concurrent HEAD move), owner-visible retry outcome/stagnation and historical recovery diagnostics (GitHub API GraphQL failure; attempted edit NOT applied), dedicated restart/Stop/UI recovery regressions, path/source drift/coverage, existing Unified drain-only runtime. Re-check HEAD and CI before editing.
 
+#### CLP-06.01 — Durable adaptive budget hints
+Replaced process-local map with bounded private checksummed advisory cache under existing Store lock (256 entries, 24h TTL, exact owner/workspace/project/provider config/credential scope hash; no plaintext prompts/keys/identity). Atomic temp+fsync+rename+directory sync; absent/expired/corrupt hints fall back to configured limits, corrupt file preserved. Learn only after structured rejection followed by successful strictly smaller input/output reservation; not timeout. Apply before PREPARED. Tests reopen, TTL, credential rotation, foreign scope, concurrent writes, capacity, privacy, corrupt metadata and existing integration. CI pending.
+
 ### 8.2. Blockers và quyết định (append)
 
 | ID | Task | Vấn đề / quyết định | Ảnh hưởng | Hành động tiếp theo | Trạng thái |
