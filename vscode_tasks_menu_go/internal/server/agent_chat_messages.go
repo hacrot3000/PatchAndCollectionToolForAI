@@ -344,7 +344,7 @@ func (s *Server) agentChatMessageForOwner(w http.ResponseWriter, r *http.Request
 		return
 	}
 	defer releaseSlot()
-	releaseQuota, allowed := s.reserveAIRequest(aiWorkspaceHash(s.Workspace)+":"+owner, 20)
+	releaseQuota, allowed := s.reserveAgentChatQuota(s.Workspace, owner)
 	if !allowed {
 		http.Error(w, "model rate quota limit exceeded", 429)
 		return

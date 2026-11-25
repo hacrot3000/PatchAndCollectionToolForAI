@@ -165,3 +165,33 @@ func resetAgentAdmissionsForTest() {
 	agentAdmissions.total = 0
 	agentAdmissions.notify = make(chan struct{})
 }
+
+
+// Local, single-user Agent Chat is explicitly intended for multi-hour coding
+// workflows. The Smart Terminal quota also serializes all requests for an
+// owner; applying it after the Agent capacity lease both stops long tasks
+// after 20 admissions/hour and defeats independent conversation concurrency.
+// Keep quota enforcement for shared servers and authenticated nonlocal owners.
+// Callers of reserveAgentChatQuota MUST already hold an Agent capacity lease.
+const agentSharedRequestsPerHour = 20
+
+func (s *Server) localAgentChatUnmetered(owner string) bool {
+	return owner == "local" && !s.Config.SharedServerEnabled
+}
+
+func (s *Server) reserveAgentChatQuota(workspace, owner string) (func(), bool) {
+	if s.localAgentChatUnmetered(owner) {
+		return func() {}, true
+	}
+	return s.reserveAIRequest(aiWorkspaceHash(workspace)+":"+owner, agentSharedRequestsPerHour)
+}
+
+// Explicit provider probes also need bounded admission. Local probes use the
+// same process/cross-process capacity leases as Agent turns, instead of the
+// legacy hourly quota. Shared/remote probes retain their previous protection.
+func (s *Server) reserveAgentChatProbe(ctx context.Context, workspace, owner string) (func(), bool) {
+	if s.localAgentChatUnmetered(owner) {
+		return acquireAgentProviderSlot(ctx, aiWorkspaceHash(workspace)+":"+owner)
+	}
+	return s.reserveAgentChatQuota(workspace, owner)
+}

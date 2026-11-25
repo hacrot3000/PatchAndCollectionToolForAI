@@ -78,7 +78,7 @@ func (s *Server) resumePreparedAgentProviderRun(ctx context.Context,store *agent
  releaseSlot,admitted:=acquireAgentProviderSlot(ctx,aiWorkspaceHash(s.Workspace)+":local")
  if !admitted{return false}
  defer releaseSlot()
- releaseQuota,allowed:=s.reserveAIRequest(aiWorkspaceHash(s.Workspace)+":local",20)
+ releaseQuota,allowed:=s.reserveAgentChatQuota(s.Workspace,"local")
  if !allowed{return false}
  defer releaseQuota()
 

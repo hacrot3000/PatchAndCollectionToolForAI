@@ -269,7 +269,7 @@ func (s *Server) agentDeliverToolResult(ctx context.Context, store *agentchat.St
 		return agentDeliverResult{}, agentContinueError{429, "Agent concurrency limit reached; retry shortly"}
 	}
 	defer releaseSlot()
-	releaseQuota, allowed := s.reserveAIRequest(aiWorkspaceHash(s.Workspace)+":"+owner, 20)
+	releaseQuota, allowed := s.reserveAgentChatQuota(s.Workspace, owner)
 	if !allowed {
 		return agentDeliverResult{}, agentContinueError{429, "AI request rate limit exceeded"}
 	}

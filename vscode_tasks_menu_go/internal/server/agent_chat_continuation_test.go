@@ -101,3 +101,24 @@ func TestAgentStandaloneContinuationRespectsNativeAndProviderFences(t *testing.T
  x.ProviderRun=&agentchat.ProviderRun{Phase:"unknown"}
  if agentchat.StandaloneAutoContinueCandidate(x){t.Fatal("ambiguous provider outcome bypassed")}
 }
+
+
+// Reproduce the incident: existing 20 admissions from the former quota
+// must not block a consented, otherwise eligible continuation.
+func TestAgentStandaloneContinuationAfterLegacyHourlyQuota(t *testing.T) {
+ s,store,id:=newStandaloneAutoContinueFixture(t)
+ exhaustLegacyAgentQuota(t,s)
+ x,err:=store.Get(id,"local");if err!=nil{t.Fatal(err)}
+ x.AutoContinueText=true
+ if _,err=store.Save(x,x.Revision);err!=nil{t.Fatal(err)}
+ calls:=0
+ s.AgentChatCall=func(_ context.Context,_ agentchat.ProviderConfig,_ string,_ []byte)(agentchat.ResponsesResult,error){
+  calls++
+  return agentchat.ResponsesResult{ResponseID:"quota-free-continuation",Text:auditProgress},nil
+ }
+ s.autoContinueConversationOne(context.Background(),store,id)
+ x,err=store.Get(id,"local");if err!=nil{t.Fatal(err)}
+ if calls!=1||x.Status!="completed"||x.Continuation==nil||x.Continuation.NextRetryAt!=nil{
+  t.Fatalf("continuation blocked by obsolete quota: calls=%d state=%s continuation=%+v",calls,x.Status,x.Continuation)
+ }
+}

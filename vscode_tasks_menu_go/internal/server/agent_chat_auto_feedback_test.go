@@ -82,6 +82,8 @@ func TestAgentAutoFeedbackRequiresConsentAndDeliversOnce(t *testing.T) {
 
 func TestAgentAutoFeedbackSchedulerDeliversVerifiedResultOnce(t *testing.T) {
 	s, id := autoFeedbackReadySession(t)
+	// An exhausted legacy quota must not prevent exact-once receipt delivery.
+	exhaustLegacyAgentQuota(t,s)
 	calls := 0
 	s.AgentChatCall = func(ctx context.Context, p agentchat.ProviderConfig, key string, payload []byte) (agentchat.ResponsesResult, error) {
 		calls++

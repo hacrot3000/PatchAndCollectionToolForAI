@@ -273,9 +273,9 @@ func (s *Server) agentChatProviderTestAPI(w http.ResponseWriter, r *http.Request
 		http.Error(w, "provider API key not configured", 503)
 		return
 	}
-	release, allowed := s.reserveAIRequest(aiWorkspaceHash(s.agentOwnerWorkspace())+":"+owner, 20)
+	release, allowed := s.reserveAgentChatProbe(r.Context(), s.agentOwnerWorkspace(), owner)
 	if !allowed {
-		http.Error(w, "provider request quota exceeded", 429)
+		http.Error(w, "provider probe admission limit reached; retry after active work finishes", 429)
 		return
 	}
 	defer release()
@@ -438,9 +438,9 @@ func (s *Server) agentChatProviderProbeAPI(w http.ResponseWriter, r *http.Reques
 		http.Error(w, "provider API key not configured", 503)
 		return
 	}
-	release, allowed := s.reserveAIRequest(aiWorkspaceHash(s.agentOwnerWorkspace())+":"+owner, 20)
+	release, allowed := s.reserveAgentChatProbe(r.Context(), s.agentOwnerWorkspace(), owner)
 	if !allowed {
-		http.Error(w, "provider request quota exceeded", 429)
+		http.Error(w, "provider probe admission limit reached; retry after active work finishes", 429)
 		return
 	}
 	defer release()
