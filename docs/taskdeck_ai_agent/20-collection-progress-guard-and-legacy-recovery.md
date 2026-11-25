@@ -717,24 +717,24 @@ Incident: native run `1795598230725789_1225262`; historical diagnostics missing 
 - [ ] CLP-10.02 — Preserve compacted diagnostics (IMPLEMENTED_UNVERIFIED)
   - [ ] CLP-10.02.01 — Preserve bounded reason and diagnosis (source implemented; test pending).
   - [ ] CLP-10.02.02 — Preserve identifiers, mutation and evidence state (source implemented; test pending).
-  - [ ] CLP-10.02.03 — Prioritize historical failures (source implemented; unresolved disposition not yet available).
+  - [ ] CLP-10.02.03 — Prioritize historical failures (source implemented; bounded failure-first ranking, rich projection includes predecessor disposition; not a general proof that every historical failure remains unresolved).
   - [ ] CLP-10.02.04 — Recompaction without duplicate tool output (regression source added; test pending).
-- [ ] CLP-10.03 — Read-only historical evidence resolver (TODO)
-  - [ ] CLP-10.03.01 — Owner/conversation/call/run and verified archives.
-  - [ ] CLP-10.03.02 — Native History and package verification, including retired packages.
-  - [ ] CLP-10.03.03 — Authoritative FAIL_HANDOFF binding, safe paths and archive validation.
-  - [ ] CLP-10.03.04 — Bounded diagnostic excerpt and explicit availability/integrity/truncation.
-- [ ] CLP-10.04 — Automatically expose unresolved failures (TODO)
-  - [ ] CLP-10.04.01 — Identify relevant failures before consented new Legacy request.
-  - [ ] CLP-10.04.02 — Include verified bounded evidence as untrusted data.
-  - [ ] CLP-10.04.03 — Explicit continuation of archived/blocked conversations.
-  - [ ] CLP-10.04.04 — Dedup and budget, no receipt or PREPARED mutation/replay.
-- [ ] CLP-10.05 — Durable failed-queue retirement evidence (TODO)
-  - [ ] CLP-10.05.01 — Durable exact failure/retirement association.
-  - [ ] CLP-10.05.02 — Distinguish retired/not queued/retained/unknown/refused.
-  - [ ] CLP-10.05.03 — Recover after compaction/restart/update.
-  - [ ] CLP-10.05.04 — Expose disposition, never infer rollback or unchanged source.
-- [ ] CLP-10.06 — Regression matrix (TODO)
+- [ ] CLP-10.03 — Read-only historical evidence resolver (IMPLEMENTED_UNVERIFIED)
+  - [ ] CLP-10.03.01 — Owner/conversation/call/run and verified archives (implemented; test pending).
+  - [ ] CLP-10.03.02 — Native History and package verification, including retired packages (implemented; test pending).
+  - [ ] CLP-10.03.03 — Authoritative FAIL_HANDOFF binding, safe paths and archive validation (implemented; test pending).
+  - [ ] CLP-10.03.04 — Bounded diagnostic excerpt and explicit availability/integrity/truncation (implemented; test pending).
+- [ ] CLP-10.04 — Automatically expose unresolved failures (IMPLEMENTED_UNVERIFIED)
+  - [ ] CLP-10.04.01 — Identify relevant failures before consented new Legacy request (implemented; test pending).
+  - [ ] CLP-10.04.02 — Include verified bounded evidence as untrusted data (implemented; test pending).
+  - [ ] CLP-10.04.03 — Explicit continuation of archived/blocked conversations (implemented; test pending).
+  - [ ] CLP-10.04.04 — Dedup and budget, no receipt or PREPARED mutation/replay (implemented; test pending).
+- [ ] CLP-10.05 — Durable failed-queue retirement evidence (IMPLEMENTED_UNVERIFIED)
+  - [ ] CLP-10.05.01 — Durable exact failure/retirement association (implemented; test pending).
+  - [ ] CLP-10.05.02 — Distinguish retired/not queued/retained/unknown/refused (implemented; test pending).
+  - [ ] CLP-10.05.03 — Recover after compaction/restart/update (implemented; archive/restart test source added; self-update verification pending).
+  - [ ] CLP-10.05.04 — Expose disposition, never infer rollback or unchanged source (implemented; test pending).
+- [ ] CLP-10.06 — Regression matrix (TEST_SOURCE_ADDED / VERIFY_PENDING)
   - [ ] T01 oversized FAIL identity.
   - [ ] T02 4000-byte limit.
   - [ ] T03 compacted diagnostics.
@@ -755,3 +755,8 @@ Incident: native run `1795598230725789_1225262`; historical diagnostics missing 
 #### CLP-10 progress log
 
 - 2026-11-25: inspected `63da4f10`; source slices `25d3ce1a`, `54ff0b89`, `f82175e8`, `b25a36f5`, `cbc1eba1`, `010e25dc`: bounded protocol and History feedback; shared 4000-byte limit; compact historical diagnostics; focused test source added. No test execution claimed (container cannot fetch repository via git: DNS unavailable). Next: CLP-10.03 read-only ledger and native artifact binding. Keep all existing progress entries unchanged.
+
+- 2026-11-25: CLP-10.03: `b4bda33a`, `6fd8ee75`, `7ab3f93a`, `ff8e1e3e`, `a7915526` add read-only historical resolver, canonical conversation/attempt/archive binding, native History project/run/selection/SHA checks, duplicate report refusal, safe bounded ZIP summary verification, and diagnostic availability. No raw ZIP or arbitrary file content is forwarded. Older reports without enough binding remain unavailable rather than guessed.
+- 2026-11-25: CLP-10.04: `0c68b5ce`, `dc19c2f5`, `3c87d988`, `0242b446`, `ae1166a1`, `cceee807`: bounded transient historical evidence catalog in consented local Legacy requests and current feedback, dedup by call/run/receipt digest; exact canonical receipts and PREPARED payload remain separate. Selection uses explicit run reference, last assistant run reference for continuation, or relevant recent terminal failure; archive inspection is bounded. No Agent Run Manager expansion.
+- 2026-11-25: CLP-10.05: `43d414ac`, `de1357c8`, `e9d049ac`, `0eff12d5`, `67366f6d`: typed durable retirement receipt on exact call/attempt, verified native disposition, historical registry+archive recovery, validation of digest/run identity. No new authority to retire packages or infer rollback.
+- 2026-11-25: CLP-10.06 regression source: `b25a36f5`, `010e25dc`, `a5bc4705`, `cceee807` cover oversized results, compaction, exact synthetic incident run recovery, partial mutation, retired package, archive/restart, owner/project/run/SHA mismatch, ambiguous/missing/unsafe/oversized artifacts, duplicate receipt prevention and continuation to corrected successor proposal. T10/T11/T15 require actual existing safety-suite verification; T14 native successor execution still needs end-to-end verification, not merely a mocked proposal. Self-update behavior still requires runtime verification. No Go regression executed in this environment; repository checkout blocked by DNS; GitHub combined-status response provided no status records and workflow query did not expose push-run evidence. All checkboxes intentionally remain unchecked. Actual incident artifacts were not available. Next: run focused and full core regression suites, inspect exact failing checks, fix only CLP-10 regressions, and mark VERIFIED only with real execution evidence.
