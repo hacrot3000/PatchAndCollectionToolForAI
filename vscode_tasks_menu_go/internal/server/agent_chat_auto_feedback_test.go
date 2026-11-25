@@ -342,3 +342,34 @@ func TestAgentAutoFeedbackNeedsWorkRecognizesLongRunningNativeAndPendingAutomati
 	x.Archived=true
 	if agentAutoFeedbackNeedsWork(x) {t.Fatal("archived session must never be resumed")}
 }
+
+func TestAgentInterruptedQueueReconcilesOnlyAfterTurnLease(t *testing.T) {
+	s,id,_ := agentPendingCallFixture(t,true)
+	store,err := s.agentChatStore()
+	if err != nil { t.Fatal(err) }
+	x,err := store.Get(id,"local")
+	if err != nil { t.Fatal(err) }
+	x.Status="tool_queuing"
+	x.ToolCalls[0].Status="queuing"
+	x.AppendEvent("tool_queuing",x.Status,x.ToolCalls[0].CallID,"")
+	x,err=store.Save(x,x.Revision)
+	if err != nil {t.Fatal(err)}
+	if !agentAutoFeedbackNeedsWork(x) {t.Fatal("QUEUING omitted from background reconciliation")}
+	unlock,ok:=lockAgentTurn(s.Workspace,"local",id)
+	if !ok {t.Fatal("cannot acquire approval lease")}
+	s.reconcileAgentSession(context.Background(),store,id)
+	locked,err:=store.Get(id,"local")
+	unlock()
+	if err!=nil||locked.Status!="tool_queuing" {t.Fatalf("live approval changed: %+v %v",locked,err)}
+	s.reconcileAgentSession(context.Background(),store,id)
+	recovered,err:=store.Get(id,"local")
+	if err!=nil {t.Fatal(err)}
+	if recovered.Status!="tool_unknown"||recovered.ToolCalls[0].Status!="unknown"||recovered.ToolCalls[0].FeedbackSent {
+		t.Fatalf("interrupted queue not safely parked: %+v",recovered)
+	}
+	if _,ok:=agentAutoPatchCandidate(recovered);ok {t.Fatal("ambiguous queue became eligible for replay")}
+	if _,ok:=agentAutoFeedbackCandidate(recovered);ok {t.Fatal("ambiguous queue became eligible for feedback")}
+	s.reconcileAgentSession(context.Background(),store,id)
+	again,err:=store.Get(id,"local")
+	if err!=nil||again.Revision!=recovered.Revision {t.Fatal("reconciliation not idempotent")}
+}

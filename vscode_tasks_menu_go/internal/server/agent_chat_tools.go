@@ -323,7 +323,15 @@ func (s *Server) agentChatToolDecisionAPI(w http.ResponseWriter, r *http.Request
 	}
 	// The hash/filename receipt is verified against the native queue result.
 	if len(receipt.SHA256) != 64 {
-		http.Error(w, "invalid native Patch queue receipt", 502)
+		x.ToolCalls[idx].Status = "unknown"
+		x.ToolCalls[idx].Result = "Invalid native Patch queue receipt; queue outcome unconfirmed. Inspect Patch Tool before recovery."
+		x.Status = "tool_unknown"
+		x.AppendEvent("tool_queue_interrupted", x.Status, callID, "invalid_queue_receipt")
+		if _, err = store.Save(x, x.Revision); err != nil {
+			http.Error(w, "invalid native Patch receipt and journal update failed; inspect queue, do not retry", 409)
+			return
+		}
+		http.Error(w, "invalid native Patch queue receipt; marked UNKNOWN, do not retry automatically", 502)
 		return
 	}
 	x.ToolCalls[idx].Status = "queued"

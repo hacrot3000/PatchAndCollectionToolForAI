@@ -41,7 +41,13 @@ func (s *Server) agentChatSyncAPI(w http.ResponseWriter, r *http.Request, id str
 		http.Error(w, "agent journal unavailable", 500)
 		return
 	}
-	changed := false
+	if x.Workspace != s.agentOwnerWorkspace() {
+		http.Error(w, "workspace mismatch", 403)
+		return
+	}
+	// The same turn lease used by approval is held. A leftover QUEUING
+	// marker cannot still be owned by a live approval handler.
+	changed := agentParkInterruptedQueue(&x)
 	for i, record := range x.ToolCalls {
 		if (record.Status != "running" && record.Status != "unknown" && record.Status != "dispatching") || record.PatchSessionID == "" {
 			continue
@@ -110,7 +116,7 @@ func (s *Server) agentReconcileOneStartupSession(ctx context.Context,store *agen
  sess,err:=store.Get(id,"local")
  if err!=nil||sess.Workspace!=s.Workspace{return}
  if ctx.Err()!=nil{return}
-	changed := false
+	changed := agentParkInterruptedQueue(&sess)
 	// The per-session lease proves no other local daemon currently owns
 	// this turn. A crashed worker may leave requesting_ai SENDING behind.
 	// Do not leave it stuck or blindly replay an ambiguous provider request.
@@ -314,4 +320,25 @@ func (s *Server) agentChatEventsAPI(w http.ResponseWriter, r *http.Request, id s
 		"event_seq": x.EventSeq, "events": events, "cursor": x.EventSeq,
 		"execution_enabled": false,
 	})
+}
+
+// Only call under the exact conversation turn lease, after a fresh store.Get.
+// QUEUING was persisted before native I/O. An abandoned marker does not prove
+// that no package was created. Never resubmit or send a fabricated result.
+func agentParkInterruptedQueue(x *agentchat.Session) bool {
+	if x.Archived || x.Status != "tool_queuing" { return false }
+	if x.ProviderRun != nil && (x.ProviderRun.Phase == "prepared" || x.ProviderRun.Phase == "sending" || x.ProviderRun.Phase == "unknown") { return false }
+	changed := false
+	for i := range x.ToolCalls {
+		call := &x.ToolCalls[i]
+		if call.Status != "queuing" || call.Name != "taskdeck_submit_patch" || call.AgentRunID != "" || call.FeedbackSent { continue }
+		call.Status = "unknown"
+		call.Result = "Native Patch queue handoff interrupted; inspect the exact queue package and Patch History. Execution is not confirmed. No automatic requeue or feedback was sent."
+		call.AutoRunOnce = false
+		call.SendAfterRetry = false
+		x.AppendEvent("tool_queue_interrupted", "tool_unknown", call.CallID, "queue_outcome_unconfirmed")
+		changed = true
+	}
+	if changed { x.Status = "tool_unknown" }
+	return changed
 }

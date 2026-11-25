@@ -1059,6 +1059,33 @@ console.log('PASS: safe Markdown, syntax-highlighted PHP/Python, per-block Copy,
     Object.assign(context,{readySyncSnapshot:awaitingFeedback}));
   assert.match(readyMessage,/awaiting Auto-send worker/,
     'a result not yet sent to provider must be labeled ready, not sending');
+  // An intermediate QUEUING snapshot must not stop the monitor. An
+  // unchanged GET must permit reconciliation, and no stale poll may
+  // cancel the newly selected conversation's monitoring timer.
+  const queueSnapshot={...edited,status:'tool_queuing',revision:253,
+    tool_calls:[{...patchDone.tool_calls[0],status:'queuing',feedback_sent:false}]};
+  context.queueSnapshot=queueSnapshot;
+  assert.equal(vm.runInNewContext('agentMonitorNeedsWork(queueSnapshot)',context),true);
+  assert.match(vm.runInNewContext('agentLivePhase(queueSnapshot).message',context),/native queue/);
+  const timerBefore=context.setTimeout;
+  let scheduled;
+  context.setTimeout=(cb,delay)=>{scheduled={cb,delay};return 17;};
+  requests=[];
+  context.TaskMenuApp.jsonFetch=async url=>{
+    requests.push(url);
+    if(url.endsWith('/sync'))return {revision:254,tool_calls:patchDone.tool_calls};
+    if(url.endsWith('/sessions/test-session'))return {session:{...edited,revision:254,status:'requesting_ai'},patch_tool_status:'enabled'};
+    throw Error('unexpected poll '+url);
+  };
+  vm.runInNewContext("agentActive='test-session';agentCurrentSession=queueSnapshot;root.classList.add('visible');scheduleAgentMonitor(queueSnapshot)",context);
+  assert.ok(scheduled,'QUEUING must arm a monitor');
+  await scheduled.cb();
+  assert.ok(requests.some(url=>url.endsWith('/sessions/test-session')),'QUEUING polls server journal');
+  assert.equal(vm.runInNewContext('agentCurrentSession.revision',context),254);
+  assert.equal(vm.runInNewContext('agentCurrentSession.status',context),'requesting_ai');
+  assert.ok(scheduled,'monitor remains armed while AI is processing');
+  context.setTimeout=timerBefore;
+  console.log('PASS: QUEUING never stops journal polling');
   console.log('PASS: busy native polling uses read-only journal and pending feedback wording');
 
   console.log('PASS: append-only transcript, single-card status updates and revision-gated polling');

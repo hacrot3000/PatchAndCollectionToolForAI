@@ -671,7 +671,7 @@ function markAgentSessionBusy(id,busy){
   cancel.disabled=!busy;updateAgentModels();
  }
 }
-let agentMonitorTimer=0;
+let agentMonitorTimer=0,agentMonitorGeneration=0;
 function showAgentError(error){
  let message=String(error?.message||error);
  try{const parsed=JSON.parse(message);const detail=parsed?.error;if(detail)message='FAILED · '+String(detail.code||'UNKNOWN')+' · '+String(detail.stage||'unknown stage')+' · '+String(detail.message||'No safe provider message')+(detail.http_status?' · HTTP '+detail.http_status:'')+(detail.trace_id?' · Trace '+detail.trace_id:'')+(detail.ambiguous?' · outcome may be ambiguous':'');}catch{}
@@ -1141,7 +1141,7 @@ function renderAgentTool(session,item){
    actions.append(approve,agentButton('Reject patch',()=>agentToolDecision(agentCurrentSession||session,item.call_id,'reject').catch(showAgentError)));
   }
  }
- if(['running','dispatching','queued','unknown'].includes(state)){
+ if(['queuing','running','dispatching','queued','unknown'].includes(state)){
   const refresh=agentButton('Check native Patch status',()=>syncAgentPatch(session.id).catch(showAgentError));
   refresh.disabled=Boolean(agentApp.sharedMode&&!agentApp.hasPermission?.('patch.view'));
   const consoleButton=agentButton('View console',()=>showAgentExecution(session.id,item.call_id).catch(showAgentError));
@@ -1315,6 +1315,7 @@ function agentLivePhase(session){
  }
  if(turn?.phase==='feedback'&&!turn.acknowledged)return {message:'Sending native Patch result to AI…'};
  if(turn?.phase==='sending'&&!turn.acknowledged)return {message:'Sending request…'};
+ if(session.status==='tool_queuing'||lastCall?.status==='queuing')return {message:'Submitting approved Patch to native queue…'};
  if(['queued','dispatching','running'].includes(lastCall?.status))return {message:'Running native Patch…'};
  if(session.status==='waiting_tool'&&lastCall?.status==='pending'&&session.auto_patch)return {message:'Submitting Patch to native tool…'};
  if(['waiting_tool','tool_rejected'].includes(session.status)&&['done','error','rejected'].includes(lastCall?.status)&&
@@ -1949,41 +1950,49 @@ async function continueAgentTool(session,callID){
 }
 // One bounded reconciliation call per polling interval. Never combine a
 // second events fetch plus /sync plus unconditional full-session fetch.
-function scheduleAgentMonitor(sess){
+function agentMonitorNeedsWork(sess){
+ if(!sess)return false;
+ const calls=sess.tool_calls||[];
+ return ['requesting_ai','tool_queuing'].includes(sess.status)||
+  calls.some(call=>['queuing','running','dispatching','queued','unknown'].includes(call.status))||
+  (sess.auto_patch&&sess.status==='waiting_tool'&&calls.some(call=>call.status==='pending'))||
+  (['waiting_tool','tool_rejected'].includes(sess.status)&&calls.some(call=>!call.feedback_sent&&(
+   (sess.auto_feedback&&['done','error','rejected'].includes(call.status))||
+   (call.status==='rejected'&&(sess.auto_continue_text||sess.task_plan?.auto_continue)))));
+}
+function scheduleAgentMonitor(sess,delay=2800){
  clearTimeout(agentMonitorTimer);agentMonitorTimer=0;
- if(!root.classList.contains('visible')||!sess)return;
+ const generation=++agentMonitorGeneration;
+ if(!root.classList.contains('visible')||!sess||agentActive!==sess.id)return;
  if(agentApp.sharedMode&&!agentApp.hasPermission?.('patch.view'))return;
- const pending=(sess.tool_calls||[]).some(call=>['running','dispatching','queued','unknown'].includes(call.status));
- const awaitingAutoPatch=sess.auto_patch&&sess.status==='waiting_tool'&&
-  (sess.tool_calls||[]).some(call=>call.status==='pending');
- const awaitingFeedback=['waiting_tool','tool_rejected'].includes(sess.status)&&
-  (sess.tool_calls||[]).some(call=>!call.feedback_sent&&(
-    (sess.auto_feedback&&['done','error','rejected'].includes(call.status))||
-    (call.status==='rejected'&&(sess.auto_continue_text||sess.task_plan?.auto_continue))));
- const thinking=sess.status==='requesting_ai';
- if(!pending&&!awaitingFeedback&&!awaitingAutoPatch&&!thinking)return;
+ if(!agentMonitorNeedsWork(sess))return;
  const id=sess.id;
+ const stillCurrent=()=>generation===agentMonitorGeneration&&agentActive===id&&root.classList.contains('visible');
  agentMonitorTimer=setTimeout(async()=>{
-  if(agentActive!==id||!root.classList.contains('visible'))return;
-  if(agentBusy||agentSessionBusy(id)){
-   scheduleAgentMonitor(agentCurrentSession||sess);return;
-  }
+  if(!stillCurrent())return;
+  agentMonitorTimer=0;
+  let nextDelay=2800;
   try{
-   if(thinking){
-    // An auto-feedback provider call may continue in another HTTP request.
-    // GET its journal while thinking; native /sync is for Patch executions.
-    await selectAgentSession(id);
-   }else{
-    const result=await syncAgentPatch(id,{quiet:true});
-    if(agentActive===id&&result&&result.revision===(agentCurrentSession?.revision)){
-     scheduleAgentMonitor(agentCurrentSession);
+   const current=agentCurrentSession?.id===id?agentCurrentSession:sess;
+   if(agentSessionBusy(id)||['requesting_ai','tool_queuing'].includes(current.status)||
+      (current.tool_calls||[]).some(call=>call.status==='queuing')){
+    // QUEUING is a durable intermediate state. Use GET while approval may
+    // still own the turn lock, then reconcile an unchanged marker via /sync.
+    const refreshed=await selectAgentSession(id);
+    if(refreshed&&agentActive===id&&refreshed.revision===current.revision&&
+       refreshed.status==='tool_queuing'&&!agentSessionBusy(id)){
+     await syncAgentPatch(id,{quiet:true});
     }
-   }
+   }else await syncAgentPatch(id,{quiet:true});
   }catch(error){
-   setAgentStatusNotice('Native Patch polling failed: '+String(error?.message||error));
-   agentMonitorTimer=setTimeout(()=>scheduleAgentMonitor(agentCurrentSession||sess),5000);
+   if(stillCurrent())setAgentStatusNotice('Native Patch polling failed: '+String(error?.message||error));
+   nextDelay=5000;
+  }finally{
+   // selectAgentSession may already have armed a newer timer. Otherwise
+   // rearm even after a no-op, busy/in-flight null result, or a failed poll.
+   if(stillCurrent())scheduleAgentMonitor(agentCurrentSession?.id===id?agentCurrentSession:sess,nextDelay);
   }
- },2800);
+ },delay);
 }
 async function createSession(){
  if(agentBusy)return;

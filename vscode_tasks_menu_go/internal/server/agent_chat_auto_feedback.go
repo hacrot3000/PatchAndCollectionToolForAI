@@ -195,7 +195,7 @@ func agentAutoFeedbackNeedsWork(x agentchat.Session) bool {
 	// requires reconciliation, even when auto-feedback was not selected.
 	for _, call := range x.ToolCalls {
 		switch call.Status {
-		case "running", "unknown", "dispatching":
+		case "queuing", "running", "unknown", "dispatching":
 			return true
 		}
 	}
@@ -283,7 +283,7 @@ func (s *Server) reconcileAgentSession(ctx context.Context, store *agentchat.Sto
 	if err != nil || x.Owner != "local" || x.Workspace != s.Workspace {
 		return
 	}
-	changed := false
+	changed := agentParkInterruptedQueue(&x)
 	for i, record := range x.ToolCalls {
 		if ctx.Err() != nil {
 			return
