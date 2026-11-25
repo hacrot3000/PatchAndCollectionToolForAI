@@ -433,6 +433,7 @@ func (s *Server) agentChatMessageForOwner(w http.ResponseWriter, r *http.Request
 		return
 	}
 	oldRevision := session.Revision
+	bindLegacyCollectionObjective(r.Context(), &session, strings.TrimSpace(req.Message))
 	session.History = append(session.History, next)
 	session.Status = "requesting_ai"
 	session.AppendEvent("turn_started", "requesting_ai", "", "")

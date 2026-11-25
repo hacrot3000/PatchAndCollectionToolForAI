@@ -242,11 +242,11 @@ Không bỏ qua function output của call đã nhận. Nếu checkpoint trướ
     - [ ] **CLP-03.01.02** — Tích hợp revision/CAS/locks; persist guard state và scope, tránh competing journal. (`VERIFY_PENDING` — Session.Save uses existing CAS; CI pending)
     - [ ] **CLP-03.01.03** — Xử lý missing fields/corrupt state/future version fail-safe, không mất canonical history. (`VERIFY_PENDING` — opaque unknown/corrupt advisory metadata; tests pending)
     - [ ] **CLP-03.01.04** — Test round-trip, legacy load, concurrent save, failure injection và atomicity. (`VERIFY_PENDING` — round-trip/stale CAS/opaque tests added; crash injection pending)
-- [ ] **CLP-03.02 — Exactly-once logical observation** (`TODO`, P1)
+- [ ] **CLP-03.02 — Exactly-once logical observation** (`IN_PROGRESS`, P1)
   - Persist observation và guard transition tại checkpoint hiện có; nếu phải hai bước thì reconcile idempotently sau crash. Dedupe bằng scoped logical call/receipt identity; không double-count retry, reconcile hoặc reload.
   - **Acceptance:** crash trước/sau native run, receipt save, provider egress; restart và auto continuation giữ streak; không replay native call do guard.
-    - [ ] **CLP-03.02.01** — Xác định logical observation key từ scoped call/receipt identity, không dùng HTTP attempt. (`TODO`)
-    - [ ] **CLP-03.02.02** — Gắn guard transition vào durable observation checkpoint; reconcile hai bước nếu transaction không chung. (`TODO`)
+    - [ ] **CLP-03.02.01** — Xác định logical observation key từ scoped call/receipt identity, không dùng HTTP attempt. (`VERIFY_PENDING` — Legacy stable event sequence plus run/call binding; full recovery adapter pending)
+    - [ ] **CLP-03.02.02** — Gắn guard transition vào durable observation checkpoint; reconcile hai bước nếu transaction không chung. (`VERIFY_PENDING` — Legacy request and observation same CAS checkpoints; Unified pending)
     - [ ] **CLP-03.02.03** — Cài idempotent replay metadata sau crash; không rerun native action hoặc resend ACK. (`TODO`)
     - [ ] **CLP-03.02.04** — Test crash trước/sau tool, receipt, egress; retry/reconcile/reload chỉ count một lần. (`TODO`)
 - [ ] **CLP-03.03 — Legacy hydration và bounded history** (`IN_PROGRESS`, P1)
@@ -261,11 +261,11 @@ Không bỏ qua function output của call đã nhận. Nếu checkpoint trướ
 
 - [ ] **Phase gate** — `TODO`; chỉ đánh dấu khi tất cả task cấp 2 DONE và remote delivery đã xác minh.
 
-- [ ] **CLP-04.01 — Legacy Agent Chat inner loop** (`TODO`, P1)
+- [ ] **CLP-04.01 — Legacy Agent Chat inner loop** (`IN_PROGRESS`, P1)
   - Tích hợp guard trong `agent_chat_collection_flow.go` trước native execution và sau observation/receipt; refresh settings theo logic hiện có. Duy trì canonical tool call/output, journal phases và repair budget.
   - **Acceptance:** 27-round fixture nhận advisory/checkpoint đúng policy, duplicate guard cũ vẫn đúng, cancellation và disabled COLLECT không bị bypass; 55 rounds unique → PATCH PASS test logic giữ nguyên.
-    - [ ] **CLP-04.01.01** — Gắn guard precheck sau validation/permission trong legacy collection loop. (`TODO`)
-    - [ ] **CLP-04.01.02** — Gắn post-observation decision vào checkpoint trước provider egress, giữ original output và repair. (`TODO`)
+    - [ ] **CLP-04.01.01** — Gắn guard precheck sau validation/permission trong legacy collection loop. (`VERIFY_PENDING` — after existing permission check; no new admission grant)
+    - [ ] **CLP-04.01.02** — Gắn post-observation decision vào checkpoint trước provider egress, giữ original output và repair. (`VERIFY_PENDING` — counters and advisory at existing checkpoint; legacy duplicate suppression still outstanding)
     - [ ] **CLP-04.01.03** — Nối warning/checkpoint/cancel vào existing state transitions; không nuốt pending tool pair. (`TODO`)
     - [ ] **CLP-04.01.04** — Test incident 27 reads, duplicate, disabled collection, cancellation và 55 reads → PATCH. (`TODO`)
 - [ ] **CLP-04.02 — Unified Agent Run waiting-tool path** (`TODO`, P1)
@@ -282,7 +282,7 @@ Không bỏ qua function output của call đã nhận. Nếu checkpoint trướ
     - [ ] **CLP-04.03.02** — Thống nhất ownership counters inner/outer, không double count hoặc reset do provider completed. (`TODO`)
     - [ ] **CLP-04.03.03** — Nối checkpoint, reason, next action và auto-continue policy; bounded replan theo generation. (`TODO`)
     - [ ] **CLP-04.03.04** — Test stall storm, read-only progress, pending plan step và verified/attested acceptance. (`TODO`)
-- [ ] **CLP-04.04 — Model-visible bounded feedback** (`TODO`, P1)
+- [ ] **CLP-04.04 — Model-visible bounded feedback** (`IN_PROGRESS`, P1)
   - Tạo advisory ngắn, có structured reason, counts, missing evidence và next strategy; giữ exact receipt gốc riêng, không sửa nội dung bằng chứng để chèn cảnh báo. Tôn trọng output budget, prompt untrusted tool data boundary và fallback protocol.
   - **Acceptance:** model mock nhận warning sau threshold, có thể chọn targeted COLLECT hoặc submit PATCH; read-only không bị ép patch; no fabricated tool output; metadata không cấp quyền.
     - [ ] **CLP-04.04.01** — Thiết kế advisory schema ngắn với reason, counters, verified/missing scope và next strategy. (`TODO`)
@@ -629,6 +629,9 @@ Next task:
 #### CLP-03.01/03.03 — Additive Legacy session guard
 Reconciled HEAD caa93714e695668130127c9e7014644a13dcbd9e (2 commits ahead, no divergence). CI 45585091261 failed server tests: PREPARED corrupt-digest fixture now rejected at Save; public Unified creation deliberately disabled by concurrent UAG-02 work (three old API/E2E fixtures). Do not restore public creation or weaken PREPARED fence to clear tests. Agentchat/collectionprogress coverage tests passed; full server suite not green.
 Added agentchat/collection_guard.go and tests, Session.collection_guard raw additive field in existing revision-CAS journal, versioned metadata (96KiB), hashed scope/goal, generation, pinned policy, counters/evidence/recovery; invalid/future guard remains opaque and does not block canonical history. Bounded legacy retained-history summary separate from new objective counters, never claims old novelty or verified progress. Tests reopen, stale CAS, owner/step scope, legacy and future/invalid metadata. No separate journal. Legacy admission/checkpoint integration and Unified policy snapshot pending; CI pending.
+
+#### CLP-01.02/03.02/04.01 — Legacy runtime admission and observation
+Added agent_chat_collection_guard.go, wired real owner admission before original turn PREPARED save; synthetic scheduler/repair continuation distinguished via private in-process context marker (not request_id or user-controlled JSON). Explicit Continue preserves current binding; server-owned plan continuation binds plan goal/step; unbound legacy continuation stays neutral and retains only historical summary. Legacy loop records requested after permission and response checkpoint, observed after existing native collector, using session EventSeq and existing CAS. Schema rejection is not a native read; native proof adapter runs only on server-produced observation. Fixed-size advisory goes into trusted instructions separately from raw output, with budget estimator using identical instructions. No additional collector or network call; no new mutation authority. Legacy pre-existing fingerprint skip/receipt mutation still to remove under CLP-02.03, recovery reservation not enabled, HTTP/PATCH event adapters and Unified still pending. CI pending.
 
 ### 8.2. Blockers và quyết định (append)
 

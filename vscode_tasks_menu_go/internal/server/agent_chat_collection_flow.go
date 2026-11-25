@@ -177,6 +177,7 @@ func (s *Server) agentChatRunCollection(
 			call:=result.Calls[0];callID=call.CallID
 			x.History=append(x.History,agentchat.HistoryItem{Type:"function_call",CallID:call.CallID,Name:call.Name,Arguments:call.Arguments})
 		}
+		legacyCollectionRequested(x, callID, toolAvailable)
 		if x.ProviderRun!=nil&&x.ProviderRun.Phase=="acknowledged"{
 			x.AppendEvent("collect_response_checkpoint",x.Status,callID,x.ProviderRun.ID)
 			saved,err:=store.Save(*x,x.Revision)
@@ -184,6 +185,7 @@ func (s *Server) agentChatRunCollection(
 			*x=saved
 		}
 		observed := ""
+		nativeRead := false
 		if validationErr != nil {
 			kind:=agentCollectionIdentityKind(validationErr)
 			reason:=scrubAIContext(validationErr.Error(),256)
@@ -209,6 +211,8 @@ func (s *Server) agentChatRunCollection(
 			// Only tests install this mock. Production has exactly one Collection
 			// backend: the existing native Python Patch Tool runner/queue.
 			observed = s.AgentCollectionCall(s.Workspace,identity,nativeRequest)
+			nativeRead = true
+			if code,_,_:=agentCollectionRepairError(observed);code=="COLLECT_SCHEMA_INVALID"{nativeRead=false}
 		} else {
 			// A native large-file COLLECT may run for minutes. Persist its phase
 			// BEFORE the local process starts so browser polling shows a truthful
@@ -223,6 +227,7 @@ func (s *Server) agentChatRunCollection(
 			*x=saved
 			var nativeErr error
 			observed,nativeErr = s.agentRunNativeCollection(ctx,x.Owner,nativeRequest,identity)
+			nativeRead = nativeErr == nil
 			if nativeErr!=nil {
 				code:="NATIVE_COLLECTION_FAILED"
 				message:="A native COLLECT did not provide verified evidence. Do not claim inspection succeeded. Inspect the native session; never automatically replay an ambiguous run."
@@ -243,6 +248,7 @@ func (s *Server) agentChatRunCollection(
 				observed=string(data)
 			}
 		}
+		guardDecision := legacyCollectionObserved(x, callID, identity, nativeRequest, observed, nativeRead, toolAvailable)
 		// A model repeating the same read of identical content is not making
 		// progress. Warn on the second repeat, and checkpoint instead of burning
 		// further provider requests if the model does not change its approach.
@@ -332,10 +338,11 @@ func (s *Server) agentChatRunCollection(
 		limit := agentInitialOutputBudget(model,reasoning,toolAvailable)
 		contextModel := model
 		if mode==agentchat.Stateless{contextModel,limit=agentAdaptiveRequestBudget(*x,provider,model,key,limit)}
+		instructions := agentChatInstructionsWithAutomation(*x, toolAvailable, identity.Key) + collectionProgressAdvice(guardDecision)
 		payload, err := agentchat.BuildResponsesRequest(agentchat.RequestConfig{
-			Model: x.ModelID, Instructions: agentChatInstructionsWithAutomation(*x, toolAvailable, identity.Key),
+			Model: x.ModelID, Instructions: instructions,
 			Mode: mode, PreviousResponseID: x.PreviousResponseID, ConversationID: conversationID,
-			History: agentContextForRequest(*x, contextModel, agentChatInstructionsWithAutomation(*x, toolAvailable, identity.Key), []agentchat.HistoryItem{next}), Next: []agentchat.HistoryItem{next},
+			History: agentContextForRequest(*x, contextModel, instructions, []agentchat.HistoryItem{next}), Next: []agentchat.HistoryItem{next},
 			MaxOutputTokens: limit,
 			ReasoningEffort: reasoning,
 			EnablePatchTool: toolAvailable, EnableCollectionTool: toolAvailable,

@@ -52,7 +52,7 @@ func (s *Server) autoContinueConversationOne(ctx context.Context,store *agentcha
  })
  if err!=nil{return}
  req:=httptest.NewRequest(http.MethodPost,
-  "/api/agent/sessions/"+id+"/messages",bytes.NewReader(body)).WithContext(ctx)
+  "/api/agent/sessions/"+id+"/messages",bytes.NewReader(body)).WithContext(collectionContinuationContext(ctx))
  req.Header.Set("Content-Type","application/json")
  w:=httptest.NewRecorder()
  s.agentChatMessageAPI(w,req,id)

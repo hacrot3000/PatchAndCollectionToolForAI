@@ -27,7 +27,7 @@ func(s *Server)autoResumeRecoveredCollectionOne(ctx context.Context,store *agent
  msg:="TaskDeck user-authorized recovery of the ORIGINAL unfinished conversation after a verified local Collection validation failure. This is a new continuation, not replay of provider run "+runID+". Preserve all native Patch receipts and plan acceptance. Correct the rejected request using the current native COLLECT contract, choose a narrower action, and never assume the rejected request produced evidence."
  body,err:=json.Marshal(map[string]any{"message":msg,"confirm_external":true,"expected_revision":saved.Revision,"request_id":"collect-resume-"+id+"-"+runID})
  if err!=nil{return true}
- req:=httptest.NewRequest(http.MethodPost,"/api/agent/sessions/"+id+"/messages",bytes.NewReader(body)).WithContext(ctx)
+ req:=httptest.NewRequest(http.MethodPost,"/api/agent/sessions/"+id+"/messages",bytes.NewReader(body)).WithContext(collectionContinuationContext(ctx))
  req.Header.Set("Content-Type","application/json")
  w:=httptest.NewRecorder()
  s.agentChatMessageAPI(w,req,id)
