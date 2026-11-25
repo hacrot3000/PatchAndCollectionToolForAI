@@ -13,6 +13,25 @@ Durable progress tracker for the post-merge Master Plan (M17-01 ... M17-19).
 
 NOT_STARTED | INVESTIGATING | IMPLEMENTING | IMPLEMENTED_UNVERIFIED | VERIFIED | BLOCKED | NOT_APPLICABLE
 
+## ACTIVE EXECUTION GATE — P0 Unified Agent transition (2026-11-25)
+
+Owner-directed priority supersession: [Handoff 17 — active single-engine directive](17-objective-task-evidence-autocheck.md#active-owner-directive--p0-mandatory-single-engine-transition-2026-11-25). All outstanding M17-01…M17-19 work below is **DEFERRED_BY_UAG** until UAG-08 is accepted. This is a scheduling overlay, not a replacement for the recorded implementation/verification status values. Preserve the old rows, source evidence, and pending tests. Do not extend Agent Run Manager as an independent engine. Required migration and parity work takes precedence over the old next-action instructions anywhere below.
+
+Planning baseline: `33e845d91df0bac09bb7d74c47e34e29f926e8d4`. Re-fetch latest main before any implementation. **Current next action: UAG-01** — inventory and checkpoint current dependencies, journal formats, safety invariants, CI and capabilities. No UAG implementation or test execution is claimed by this docs-only change.
+
+| ID | Status | Next action / gate |
+|----|--------|--------------------|
+| UAG-01 | NOT_STARTED | Audit dependencies, storage, capability preservation and exact HEAD build/test baseline; freeze unrelated backlog. |
+| UAG-02 | NOT_STARTED | After UAG-01: implement immutable per-turn provider/model/effort binding, serialized hot-switch, bounded context and five-conversation admission. |
+| UAG-03 | NOT_STARTED | After UAG-02: unify native tool gateway, probe/fallback, approvals, feedback, retry, continuation and exact evidence. |
+| UAG-04 | NOT_STARTED | After UAG-03: unified transcript and composer, fence new Run Manager admissions at UI and API, drain only. |
+| UAG-05 | NOT_STARTED | After UAG-04: migrate old run records safely, exact receipts/archives/plan references and same-ID resume; verify restart/rollback. |
+| UAG-06 | NOT_STARTED | After UAG-05: port required coordination, workspace and other consumers to the unified engine or neutral components. |
+| UAG-07 | NOT_STARTED | After UAG-06: remove all independent Run Manager execution paths; retain only necessary historical reader/migration compatibility. |
+| UAG-08 | NOT_STARTED | After UAG-07: full exact-head build/test/CI, native/browser/Self Update regression, migration/evidence audit, owner acceptance and backlog reconciliation. |
+
+For each UAG package append a durable checkpoint: exact inspected HEAD; files/symbols and capability mapping; changed files; native Patch/Collection receipt IDs; commands actually executed and exit status; CI URLs and SHA; migration/recovery evidence; blockers; next actionable step. A source-only change is IMPLEMENTED_UNVERIFIED, not VERIFIED. Record explicit owner acceptance and exact commit for UAG-08; until then no unrelated M17/Handoff 18/19 package is eligible. If a legacy backlog item is replaced by UAG, preserve the original record and document the replacement/test and final disposition rather than erasing it or falsely marking it complete.
+
 ## Work package summary
 
 | ID | Title | Status | Next action |
