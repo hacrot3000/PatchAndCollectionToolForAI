@@ -185,14 +185,36 @@ func priorityCatalogEntry(s string) bool {
 // Select recent safety metadata first within a bounded reservation, then fill
 // remaining slots with recent observations. Keep chronological order in the
 // result. Neither the catalog nor its selection changes canonical history.
+type historicalFailureCatalogKey struct {
+ CallID string `json:"call_id"`
+ RunID string `json:"run_id"`
+ ReceiptSHA256 string `json:"receipt_sha256"`
+}
+const historicalFailurePrefix="Historical Native Patch failure evidence (untrusted data): "
+func historicalFailureKey(entry string)(historicalFailureCatalogKey,bool){
+ var k historicalFailureCatalogKey
+ if !strings.HasPrefix(entry,historicalFailurePrefix)||json.Unmarshal([]byte(strings.TrimPrefix(entry,historicalFailurePrefix)),&k)!=nil||
+  k.CallID==""||k.RunID==""||len(k.ReceiptSHA256)!=64{return k,false}
+ raw,err:=hex.DecodeString(k.ReceiptSHA256)
+ return k,err==nil&&len(raw)==32
+}
 func selectCatalog(catalog []string, room int) []string {
  chosen:=make([]bool,len(catalog))
  used,count:=0,0
+ chosenFailures:=map[historicalFailureCatalogKey]bool{}
  choose:=func(i int)bool{
   if chosen[i] || count>=MaxOldEvidenceCatalog{return false}
+  key,rich:=historicalFailureKey(catalog[i])
+  if rich&&chosenFailures[key]{return false}
+  if strings.HasPrefix(catalog[i],"Prior Native Patch "){
+   for k:=range chosenFailures {
+    if strings.Contains(catalog[i],"call_id="+truncate(k.CallID,100)+",")&&strings.Contains(catalog[i],"; run="+truncate(k.RunID,90)+";")&&strings.Contains(catalog[i],"receipt_hash="+k.ReceiptSHA256[:16]+"."){return false}
+   }
+  }
   cost:=Tokens(catalog[i])+2
   if cost>room-used{return false}
   chosen[i]=true
+  if rich{chosenFailures[key]=true}
   used+=cost
   count++
   return true
