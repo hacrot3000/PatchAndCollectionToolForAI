@@ -11,7 +11,7 @@
 | Baseline audit | `1c1e2ba0d5004bf5cee75b3fd8a2baa6be9c5422` (25/11/2026, 15:40:33 ICT) |
 | Vị trí tài liệu trong repo (đề xuất) | `docs/taskdeck_ai_agent/20-collection-progress-guard-and-legacy-recovery.md` |
 | Trạng thái hiện tại | `IN_PROGRESS` — baseline remote audit bắt đầu; full checkout/test blocked |
-| Tiến độ | **0/10 phase · 1/36 task · 4/144 subtask DONE** |
+| Tiến độ | **0/10 phase · 1/36 task · 5/144 subtask DONE** |
 | Phạm vi | Legacy Agent Chat, unified Agent Run, native COLLECT/PATCH, provider retry, compact context, journal, UI và migration |
 | Ưu tiên | P1: tránh lặp/gián đoạn và bảo toàn dữ liệu; P2: quan sát, tuning và vận hành |
 
@@ -143,17 +143,17 @@ Không bỏ qua function output của call đã nhận. Nếu checkpoint trướ
     - [ ] **CLP-00.01.02** — Trace Legacy từ message/feedback qua collection flow, provider journal, Patch gateway và Auto Continue; ghi file/function. (`IN_PROGRESS`)
     - [ ] **CLP-00.01.03** — Trace Unified từ RunSpec/snapshot đến waiting-tool resolver, scheduler, receipt và TaskPlan; lập bảng khác biệt. (`IN_PROGRESS`)
     - [ ] **CLP-00.01.04** — Đối chiếu handoff 13–19, CI/Makefile/go.mod, quyền Git/test và các fix đã merge; cập nhật dependency map. (`IN_PROGRESS`)
-- [ ] **CLP-00.02 — Synthetic incident replay fixture** (`TODO`, P1)
+- [ ] **CLP-00.02 — Synthetic incident replay fixture** (`VERIFY_PENDING`, P1)
   - Dùng fake provider/native collector và journal fixture dạng legacy, chuỗi 12/7/8 COLLECT, 2 ACKed PATCH, schema invalid, timeout, HTTP 400, cancellation. Không ngủ 600s; dùng fake clock/injected delay. Test old behavior trước khi sửa, không chứa source thật.
   - **Acceptance:** tái hiện stall/unknown với ACK PATCH giữ nguyên; ghi rõ phần mô phỏng và các giả định; fixture deterministic, không gọi network.
-    - [ ] **CLP-00.02.01** — Tạo fixture journal/session cũ với 12/7/8 COLLECT, hai PATCH ACK và metadata redacted giả lập. (`TODO`)
-    - [ ] **CLP-00.02.02** — Inject fake native collector + provider, tạo lỗi grep, 400 context, timeout, cancellation bằng fake clock. (`TODO`)
-    - [ ] **CLP-00.02.03** — Viết assertions cho sequence, ACK, unknown phase, payload size và native execution count; không dùng mạng. (`TODO`)
-    - [ ] **CLP-00.02.04** — Chạy fixture baseline, lưu observed behavior và đánh dấu phần synthetic không phải bằng chứng production. (`TODO`)
+    - [ ] **CLP-00.02.01** — Tạo fixture journal/session cũ với 12/7/8 COLLECT, hai PATCH ACK và metadata redacted giả lập. (`VERIFY_PENDING` — synthetic baseline fixture added; repository execution pending; combined retry-growth scenario still outstanding)
+    - [ ] **CLP-00.02.02** — Inject fake native collector + provider, tạo lỗi grep, 400 context, timeout, cancellation bằng fake clock. (`VERIFY_PENDING` — synthetic baseline fixture added; repository execution pending; combined retry-growth scenario still outstanding)
+    - [ ] **CLP-00.02.03** — Viết assertions cho sequence, ACK, unknown phase, payload size và native execution count; không dùng mạng. (`VERIFY_PENDING` — synthetic baseline fixture added; repository execution pending; combined retry-growth scenario still outstanding)
+    - [ ] **CLP-00.02.04** — Chạy fixture baseline, lưu observed behavior và đánh dấu phần synthetic không phải bằng chứng production. (`VERIFY_PENDING` — synthetic baseline fixture added; repository execution pending; combined retry-growth scenario still outstanding)
 - [ ] **CLP-00.03 — Baseline regression và invariants** (`IN_PROGRESS`, P1)
   - Chạy targeted tests hiện có: collection, repair, native proof, compact, retry, session/store, provider recovery, continuation, plan acceptance. Lưu kết quả thực tế và lỗi đã tồn tại.
   - **Acceptance:** có baseline test command/exit code; test chưa chạy phải `VERIFY_PENDING`/`BLOCKED`, không đánh dấu PASS giả. Không chỉnh test unrelated để che lỗi.
-    - [ ] **CLP-00.03.01** — Liệt kê test hiện có và giữ baseline 55 unique reads → PATCH; xác nhận test names thực sự match. (`IN_PROGRESS`)
+    - [x] **CLP-00.03.01** — Liệt kê test hiện có và giữ baseline 55 unique reads → PATCH; xác nhận test names thực sự match. (`DONE` — pinned source test inventory confirmed; unchanged 55-read regression)
     - [ ] **CLP-00.03.02** — Chạy suite collection/schema/native proof/compact trên baseline và ghi exit code. (`IN_PROGRESS`)
     - [ ] **CLP-00.03.03** — Chạy retry/recovery/session/store/continuation/TaskPlan acceptance; ghi failures sẵn có. (`IN_PROGRESS`)
     - [ ] **CLP-00.03.04** — Ghi môi trường, lệnh, kết quả và blockers; không sửa test để che regression. (`IN_PROGRESS`)
@@ -507,7 +507,7 @@ Kiểm tra cả các Python/native Patch Tool test hiện có nếu sửa contra
 
 | Phase | Phase DONE | Task DONE / total | Subtask DONE / total |
 |---|---:|---:|---:|
-| CLP-00 | 0/1 | 0/3 | 0/12 |
+| CLP-00 | 0/1 | 0/3 | 1/12 |
 | CLP-01 | 0/1 | 1/5 | 4/20 |
 | CLP-02 | 0/1 | 0/4 | 0/16 |
 | CLP-03 | 0/1 | 0/3 | 0/12 |
@@ -517,7 +517,7 @@ Kiểm tra cả các Python/native Patch Tool test hiện có nếu sửa contra
 | CLP-07 | 0/1 | 0/4 | 0/16 |
 | CLP-08 | 0/1 | 0/2 | 0/8 |
 | CLP-09 | 0/1 | 0/3 | 0/12 |
-| **Total** | **0/10** | **1/36** | **4/144** |
+| **Total** | **0/10** | **1/36** | **5/144** |
 
 Regression gates: **0/28 PASS**. Mỗi lần cập nhật, ghi ID subtask cụ thể, file/test/receipt, trạng thái; chỉ roll up sau khi xác minh. Commit từng subtask có thay đổi độc lập hoặc nhóm nhỏ coherent, không để toàn phase mới commit. Không tạo commit rỗng chỉ để tick.
 
@@ -534,12 +534,17 @@ Regression gates: **0/28 PASS**. Mỗi lần cập nhật, ghi ID subtask cụ t
 | 25/11/2026 | CLP-01.01 | DONE | Local isolated policy tests and race tests exit 0; remote blobs exactly match locally tested files; main confirmed at 1cc1d402a0208962de6aaa1b6ebce5d2325f7773. No runtime integration claimed. | [1cc1d402](https://github.com/hacrot3000/PatchAndCollectionToolForAI/commit/1cc1d402a0208962de6aaa1b6ebce5d2325f7773); [CI 45581659480](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/45581659480) observed in progress | CLP-00.03 baseline CI |
 | 25/11/2026 | CLP-00.03 | IN_PROGRESS | Baseline CI [45580850787](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/45580850787) failure, agentchat-core job 139090221857: TestAcquireRunFenceExcludesSecondOwner: first fence acquire failed: same-host run fence unavailable, exit 1; server tests not reached. agent-failed-queue job 139090222198 PASS. Isolated reproduction with exact run_fencing.go/unix.go/test blobs and Status definitions from manager.go: umask 022; GO111MODULE=off go test -v -count=1 exit 1. Corrected fixture directory chmod 0700, added explicit 0755 refusal/no lock file assertion; GO111MODULE=off go test -v -race -count=1 exit 0. Production fence unchanged. Tested fixture blob 6f78342313f1cd4c8f712c708f3a86f30d495017. | Full CI pending. No skipped baseline tests marked PASS. | Verify CI and finish baseline trace/incident fixture |
 
+| 25/11/2026 | CLP-00.03 | IN_PROGRESS | CI [45581920052](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/45581920052) on ab1f30d6: fence test now passes; agentchat/agentrun reached server suite; TestAgentRecoverLatestOfRepeatedPreflightFailuresWithoutRerun panic in fakeAgentPatchProtocol.List (embedded nil Service), agent_chat_failed_queue.go:42. Added faithful mock List returning its synthetic Metadata. No production retirement/fence changed. | Remote CI exit 1; subsequent checks skipped. New fixture verification pending. | CLP-00.02 / CLP-00.03 |
+| 25/11/2026 | CLP-00.02 | VERIFY_PENDING | Added TestAgentCLP20LegacyCollectionFailurePreservesAcknowledgedPatches: seeded 12/7 historical COLLECT pairs with two ACKed synthetic PATCH receipts, 8 fresh valid mock reads plus grep schema rejection, actual Legacy provider/journal loop with immediate timeout/400/Stop variants, exact receipt/ACK/no resend assertions. No production data or real provider/native mutation. | New Go server test not run locally (no checkout); CI pending. Combined growth + progressive retry, fake-clock attempt matrix and runtime replay remain outstanding. | Verify test; continue baseline matrix |
+
 #### CLP-00.01 — Partial pinned-source trace
 All paths below are relative to `vscode_tasks_menu_go/internal/server/`, read at `a7cc2a1711bfc25efca51676150a4f5d300c7aa1`.
 - Legacy: `agent_chat_messages.go:162,356–448,512–586` message admission, request projection, Save, collection and Patch proposal. `agent_chat_collection_flow.go:113–359` validates native request, saves provider response checkpoint (181–184), saves native start (218–223), executes native (225), handles repair (279–301), builds exact next output/request (285–349), saves before egress (355–359). Inner loop has no fixed round cap (139).
 - Feedback: `agent_chat_tool_feedback.go:204–425` checks duplicate canonical outputs, builds sibling output pairs, saves and continues; 406–413 handles Collection continuation failure separately from Patch feedback delivery. `agent_chat_continuation.go:20` outer auto continuation. `agent_chat_provider_resume.go:15` prepared recovery. `agent_chat_retry.go:241` provider retry.
 - Unified: `agent_run_collection.go:21,45,77–155` RunSpec permission check, pending call resolution, schema/fingerprint repair, native execution, function output, snapshot CreateWithPolicy. `agent_run_continuation.go:61,103` verified progress signature and completed-turn decision. Different ownership: immutable RunSpec/snapshot vs mutable Legacy session/CAS. Full scheduler/lease/TaskPlan tracing remains pending.
 - Native: `agent_chat_native_collection.go:37,149,198,307`; canonical request, manifest, observation, native runner. `agent_collection_repair.go:78,96` fingerprint and matching reads. New `agent_chat_failed_queue.go:29,73` retirement admission must be preserved.
+- Pinned handoffs 13–19 (including both 18 documents) retrieved; 13/14 canonical compact/checkpoints, 15 PREPARED-only replay, 16/17 owner acceptance and authoritative native receipt, 18 native-only and completion-aware continuation, 19 immutable run-bound continuation. Handoff 17 active single-engine owner directive must be respected: reusable engine-neutral guard, no independent execution path. Full source reconciliation pending.
+- Baseline test inventory: `agent_chat_collection_continuation_test.go` includes TestAgentCollectionContinuesWithoutRoundLimitToPatchProposal, TestAgentCollectionAlternatingIdenticalReadsDoNotExecuteAgain, TestAgentCollectionUnlimitedRetriesTimeoutAndHTTP499WithoutDuplicateRead; `agent_collection_repair_test.go` includes TestAgentProviderAcknowledgementCannotRegressToUnknown and TestAgentRecoverLegacyCollectionAcknowledgementRequiresExactJournal; `agent_chat_native_collection_test.go` includes TestAgentNativeCollectionArtifactSecurityAnd150MBSparseTXT; `agent_chat_retry_test.go` includes TestAgentContextRecoveryPreservesFreshReceiptAndShrinksHistory; `agent_chat_provider_run_test.go` includes TestAgentSendingRunRestartBecomesAmbiguousWithoutProviderReplay; `agent_run_collection_test.go` includes TestAgentRunCollectionContinuesExactProviderWithNativeObservation and TestAgentRunContinuationConsentAndUnknownEgressFence. Existing test source preserved; exact names inspected at baseline remote.
 - CI: `.github/workflows/taskdeck_agentchat_core.yml` runs `go test -race -count=1 ./internal/agentchat/...`, `go test -v -race -count=1 ./internal/agentrun/...`, `go test -count=1 ./internal/server -run '^TestAgent'`, focused race tests, vet, Node checks and Python preflight/failed queue. These were read, not executed.
 - At this initial trace checkpoint no source had changed. No local checkout; cannot assert local cleanliness or full baseline test success. Continue source audit via authenticated connector without force push; integration/test status remains unverified.
 

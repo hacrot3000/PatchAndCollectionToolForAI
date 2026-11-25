@@ -25,6 +25,16 @@ type fakeAgentPatchProtocol struct {
 	expectedID string
 }
 
+// List exposes the same synthetic session as Metadata. Queue retirement now
+// inspects this Service method; the embedded nil Service must not be invoked.
+func (f *fakeAgentPatchProtocol) List() []session.Metadata {
+	if f.expectedID == "" {
+		return nil
+	}
+	meta, _ := f.Metadata(f.expectedID)
+	return []session.Metadata{meta}
+}
+
 func (f *fakeAgentPatchProtocol) Metadata(id string) (session.Metadata, bool) {
 	if id != f.expectedID {
 		return session.Metadata{}, false
