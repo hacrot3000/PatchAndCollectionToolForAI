@@ -169,9 +169,12 @@ func (s *Server) agentFailureHistory(call agentchat.ToolCallRecord, identity pat
  if len(entries)>1000{return empty,patch,errors.New("native History inspection bound exceeded")}
  name:=filepath.Base(call.QueuePath)
  found:=false
+ reportSeen:=false
  var matched agentFailureHistoryRow
  for _,entry:=range entries {
   if !strings.HasSuffix(entry.Name(),"_"+call.RunID+".json"){continue}
+  if reportSeen{return empty,patch,errors.New("ambiguous native History reports")}
+  reportSeen=true
   raw,err:=agentFailureReadFile(s.Workspace,"artifacts/patch_tool/history/"+entry.Name(),agentFailureHistoryLimit)
   if err!=nil{return empty,patch,err}
   var report agentFailureHistoryReport
