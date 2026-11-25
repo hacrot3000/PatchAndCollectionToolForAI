@@ -12,8 +12,8 @@ import (
  "testing"
  "time"
 
- "bletonfc/vscode_tasks_menu_go/internal/agentchat"
- "bletonfc/vscode_tasks_menu_go/internal/patchtool"
+ "bletonfc/vscode_tasks_menu/internal/agentchat"
+ "bletonfc/vscode_tasks_menu/internal/patchtool"
 )
 
 // Native failure fixture deliberately models an old acknowledged result
