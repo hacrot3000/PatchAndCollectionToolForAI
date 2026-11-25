@@ -43,7 +43,7 @@ func agentRepairableDenialOutput(output string) bool {
 	if json.Unmarshal([]byte(output), &receipt) != nil || receipt.Status != "REJECTED" ||
 		!receipt.Retryable || receipt.Queued || receipt.Executed { return false }
 	switch receipt.Reason {
-	case "UNSUPPORTED_TOOL", "MULTIPLE_TOOL_CALLS", "INVALID_PATCH_ARGUMENTS":
+	case "UNSUPPORTED_TOOL", "MULTIPLE_TOOL_CALLS", "INVALID_PATCH_ARGUMENTS", "PATCH_APPROVAL_STALE":
 		return true
 	default:
 		return false
@@ -164,6 +164,7 @@ func (s *Server) processAgentAutoFeedbackSession(ctx context.Context, store *age
 	}
 	// Auto Patch uses exactly the existing revision-fenced native approval
 	// gateway; it must not reexecute an ambiguous native Patch.
+	s.recoverLegacyStalePatch(ctx, store, id)
 	s.autoPatchOne(ctx, store, id)
 	// Adopt verified native final results without requiring a browser poll.
 	s.reconcileAgentSession(ctx, store, id)

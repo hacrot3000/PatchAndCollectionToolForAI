@@ -104,6 +104,19 @@ func (s *Server) agentChatPatchRecoveryAPI(w http.ResponseWriter, r *http.Reques
 		http.Error(w, "cannot recover a non-Patch tool", 409)
 		return
 	}
+	// Old versions recorded a definite pre-queue refusal as UNKNOWN.
+	// Adopt only the exact known legacy reason and complete no-side-effect
+	// journal, never an unknown native outcome or a provider-bound run.
+	if req.Action == "send_existing" && agentLegacyStalePatchCanRecover(x, idx) &&
+		!s.agentConversationRequiresRunContinuation(owner, sessionID) {
+		agentRecordStalePatchDenial(&x, idx)
+		x, err = store.Save(x, x.Revision)
+		if err != nil {
+			http.Error(w, "cannot persist pre-queue rejection", 409)
+			return
+		}
+		call = x.ToolCalls[idx]
+	}
 	if call.Status == "running" || call.Status == "dispatching" || call.Status == "unknown" {
 		view := agentToolReconcileView{Record: call}
 		s.agentReconcilePatchRecord(&view)
@@ -154,7 +167,7 @@ func (s *Server) agentChatPatchRecoveryAPI(w http.ResponseWriter, r *http.Reques
 		w.Header().Set("Cache-Control", "no-store")
 		writeJSON(w, 200, map[string]any{
 			"session": result.Session, "answer": result.Result.Text, "recovery": "old_verified_result_sent",
-			"old_run_id": call.RunID, "patch_reexecuted": false,
+			"old_run_id": call.RunID, "patch_reexecuted": false, "result_status": call.Status,
 		})
 		return
 	}

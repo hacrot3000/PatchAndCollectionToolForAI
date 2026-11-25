@@ -267,8 +267,18 @@ func (s *Server) agentChatToolDecisionAPI(w http.ResponseWriter, r *http.Request
 		expires := time.Now().UTC().Add(agentApprovalTTL)
 		x.ToolCalls[idx].ApprovalExpiresAt = &expires
 	}
-	// Verify the recorded snapshot now; drift is parked as UNKNOWN below.
+	// A stale approval before the durable QUEUING marker is a definite
+	// refusal, not an ambiguous execution. Never reuse the old approval.
 	if err := s.agentVerifyApprovalStillValid(r.Context(), &x.ToolCalls[idx]); err != nil {
+		if agentPatchHasNoNativeAttempt(x.ToolCalls[idx]) {
+			agentRecordStalePatchDenial(&x, idx)
+			if _, err = store.Save(x, x.Revision); err != nil {
+				http.Error(w, "cannot persist stale Patch rejection", 409)
+				return
+			}
+			writeJSON(w, 200, map[string]any{"session_id": sessionID, "call_id": callID, "status": "rejected", "execution_enabled": false, "note": "Workspace changed before queueing; request a new Patch proposal."})
+			return
+		}
 		x.ToolCalls[idx].Status = "unknown"
 		x.ToolCalls[idx].Result = "Workspace changed since review; no patch was queued. Request a new proposal."
 		x.Status = "tool_unknown"
