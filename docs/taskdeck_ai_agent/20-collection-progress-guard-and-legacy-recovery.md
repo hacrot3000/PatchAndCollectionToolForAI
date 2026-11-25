@@ -666,6 +666,9 @@ Reconciled concurrent UAG-02 HEAD f4408666 (two commits, no overlap with text pa
 #### CLP-07.03 — Canonical UNKNOWN collection resume checkpoint
 Added narrow CollectionResumeReceipt eligibility (failed local owner, exact current COLLECT output, no pending/orphan tool calls, all retained PATCH feedback ACKed, no stopped/archived/pending user turn). Existing Session.Save CAS retains old UNKNOWN provider marker and bounded matching attempt audit alongside receipt digest and new PREPARED run identity; no ACK fabrication or replay. Existing history is immutable to generic Save. Bound 16 explicit UNKNOWN recovery checkpoints (fail closed, no silent eviction); no limit on ordinary native reads. Message/UI admission integration pending. CI pending.
 
+#### CLP-07.03 — Explicit new continuation admission
+Added owner-confirmed resume_collection_run_id to existing message API (same lease/revision/idempotency/credential/workspace checks, no alternate provider route). Failed UNKNOWN Collection normal sends fail closed; explicit exact run + safe canonical receipt + all PATCH ACK + no pending/orphan work + local owner + consent permits NEW stateless message with fixed server-owned recovery instruction; old unknown audit committed in same PREPARED CAS. Browser offers distinct "Resume original task (new request)" only on server eligibility; no resend button, no automatic invocation. Named synthetic test old ACK plus unknown read → new pending PATCH, no repeated native read, no duplicate click egress, denied consent/cancelled/pending feedback. CI pending.
+
 ### 8.2. Blockers và quyết định (append)
 
 | ID | Task | Vấn đề / quyết định | Ảnh hưởng | Hành động tiếp theo | Trạng thái |
