@@ -642,6 +642,9 @@ Core CI 45586888166 and 45587045914 passed agentchat/race, collectionprogress/ra
 #### CLP-01.04/04.01 — Legacy bounded verified-stall checkpoint
 Only a verified duplicate streak after earlier advice can trigger stall recovery. Save the exact native receipt and counter state before evaluating recovery; use original ACK, absence of unresolved PATCH/pending turn and current owner automation grant. One replan within existing next continuation (stateless rebase and fixed advisory, no replay); reserve in guard before PREPARED egress. Exhaustion returns recoverable local checkpoint preserving exact output and ACK, not task completion. Reprojection removes just-saved output from History only for the current Next pair; no canonical truncation. Recovery pure logic also checks exact event digest. Added named synthetic full-file proof integration test (14 actual reads, one replan, no 15th egress before explicit Continue; novel result resumes same objective without resetting budget). CI pending. Unified and legacy recovery UI remain pending.
 
+#### CLP-00.03 / drain-only UI regression
+CI 45587460818 at 078801df passed Go server suites, race and vet, then failed old bootstrap Hot-Switch fixture: composer correctly used Legacy /messages after concurrent UAG-02 disabled Unified creation, but test expected new RunManager POST. Added early same-conversation busy fence (preserve draft/live turn/AbortController, no new send/cancel). Updated regression to assert public busy composer refuses without egress; retained independent RunManager module mocked submission/binding, card isolation, retry/stop and native approval/continuation assertions as module-level tests, not public creation. No Unified route reenabled. CI pending.
+
 ### 8.2. Blockers và quyết định (append)
 
 | ID | Task | Vấn đề / quyết định | Ảnh hưởng | Hành động tiếp theo | Trạng thái |
