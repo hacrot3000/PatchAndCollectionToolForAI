@@ -698,3 +698,55 @@ Extended existing v1 attempt records additively (omitempty fields preserve old r
 - [ ] Code + tài liệu tiến độ đã commit/push trực tiếp `main`, remote được xác minh; báo final SHA và các commit chính.
 
 **Chỉ thị bắt đầu:** Bắt đầu từ `CLP-00.01`, đọc HEAD hiện tại, cập nhật trạng thái và thực hiện task đầu tiên. Sau khi hoàn tất từng task, commit/push và tiếp tục task kế tiếp. Không dừng ở việc trả lời bằng một plan khác; file này là source of truth tiến độ. Không đánh dấu toàn bộ plan hoàn thành khi chỉ thực hiện một phần.
+
+
+### CLP-10 — Automatic Failed PATCH Evidence Recovery (P0)
+
+Incident: native run `1795598230725789_1225262`; historical diagnostics missing from model context. Actual local handoff unavailable here. Legacy-only stabilization; UAG gates unchanged.
+
+- [ ] CLP-10.01 — Preserve mandatory failure diagnostics (IMPLEMENTED_UNVERIFIED)
+  - [ ] CLP-10.01.01 — Replace destructive fallback (source implemented; test pending).
+  - [ ] CLP-10.01.02 — Preserve status, run, name, reason, diagnosis, RC, mutation and evidence state (source implemented; test pending).
+  - [ ] CLP-10.01.03 — Bound optional command and output detail (source implemented; test pending).
+  - [ ] CLP-10.01.04 — Share 4000-byte limit with delivery (source implemented; test pending).
+- [ ] CLP-10.02 — Preserve compacted diagnostics (IMPLEMENTED_UNVERIFIED)
+  - [ ] CLP-10.02.01 — Preserve bounded reason and diagnosis (source implemented; test pending).
+  - [ ] CLP-10.02.02 — Preserve identifiers, mutation and evidence state (source implemented; test pending).
+  - [ ] CLP-10.02.03 — Prioritize historical failures (source implemented; unresolved disposition not yet available).
+  - [ ] CLP-10.02.04 — Recompaction without duplicate tool output (regression source added; test pending).
+- [ ] CLP-10.03 — Read-only historical evidence resolver (TODO)
+  - [ ] CLP-10.03.01 — Owner/conversation/call/run and verified archives.
+  - [ ] CLP-10.03.02 — Native History and package verification, including retired packages.
+  - [ ] CLP-10.03.03 — Authoritative FAIL_HANDOFF binding, safe paths and archive validation.
+  - [ ] CLP-10.03.04 — Bounded diagnostic excerpt and explicit availability/integrity/truncation.
+- [ ] CLP-10.04 — Automatically expose unresolved failures (TODO)
+  - [ ] CLP-10.04.01 — Identify relevant failures before consented new Legacy request.
+  - [ ] CLP-10.04.02 — Include verified bounded evidence as untrusted data.
+  - [ ] CLP-10.04.03 — Explicit continuation of archived/blocked conversations.
+  - [ ] CLP-10.04.04 — Dedup and budget, no receipt or PREPARED mutation/replay.
+- [ ] CLP-10.05 — Durable failed-queue retirement evidence (TODO)
+  - [ ] CLP-10.05.01 — Durable exact failure/retirement association.
+  - [ ] CLP-10.05.02 — Distinguish retired/not queued/retained/unknown/refused.
+  - [ ] CLP-10.05.03 — Recover after compaction/restart/update.
+  - [ ] CLP-10.05.04 — Expose disposition, never infer rollback or unchanged source.
+- [ ] CLP-10.06 — Regression matrix (TODO)
+  - [ ] T01 oversized FAIL identity.
+  - [ ] T02 4000-byte limit.
+  - [ ] T03 compacted diagnostics.
+  - [ ] T04 archive/restart.
+  - [ ] T05 retired package.
+  - [ ] T06 missing handoff.
+  - [ ] T07 identity mismatch.
+  - [ ] T08 unsafe artifact.
+  - [ ] T09 acknowledged feedback.
+  - [ ] T10 immutable PREPARED.
+  - [ ] T11 UNKNOWN no replay.
+  - [ ] T12 partial mutation.
+  - [ ] T13 old blocked continuation.
+  - [ ] T14 safe successor.
+  - [ ] T15 queue restrictions.
+  - [ ] T16 owner isolation.
+
+#### CLP-10 progress log
+
+- 2026-11-25: inspected `63da4f10`; source slices `25d3ce1a`, `54ff0b89`, `f82175e8`, `b25a36f5`, `cbc1eba1`, `010e25dc`: bounded protocol and History feedback; shared 4000-byte limit; compact historical diagnostics; focused test source added. No test execution claimed (container cannot fetch repository via git: DNS unavailable). Next: CLP-10.03 read-only ledger and native artifact binding. Keep all existing progress entries unchanged.
