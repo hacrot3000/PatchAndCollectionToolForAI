@@ -9,13 +9,26 @@ import (
  "syscall"
 )
 
-var errAgentTurnLockUnavailable = errors.New("agent session OS lease unavailable")
+var errAgentTurnLockUnavailable=errors.New("agent session OS lease unavailable")
+
+// validateAgentTurnLockFile rejects a stale/renamed lock inode, hardlink or
+// unsafe path. Check before AND after nonblocking flock: a path can change
+// between the first inspection and acquiring the actual OS lease.
+func validateAgentTurnLockFile(f *os.File,path string)bool{
+ info,err:=f.Stat()
+ if err!=nil||!info.Mode().IsRegular()||info.Mode().Perm()&0077!=0{return false}
+ stat,ok:=info.Sys().(*syscall.Stat_t)
+ if !ok||stat.Nlink!=1{return false}
+ current,err:=os.Lstat(path)
+ return err==nil&&current.Mode().IsRegular()&&current.Mode().Perm()&0077==0&&
+  os.SameFile(info,current)
+}
 
 // acquireAgentTurnOSLock is a nonblocking per-session lease. It spans provider
-// network I/O, Auto-continue and native feedback decisions, unlike the short
-// Store.withLock journal CAS. A second daemon sharing this private state
-// directory cannot start the same Agent turn. The kernel drops flock on
-// process death; it does NOT resolve a durable SENDING/UNKNOWN egress.
+// network I/O, Auto Continue and native feedback decisions, unlike the short
+// Store.withLock journal CAS. A second daemon sharing a supported private
+// LOCAL directory cannot start the same turn. This is NOT a distributed
+// lease; process death drops flock but NEVER acknowledges provider egress.
 func acquireAgentTurnOSLock(workspace,id string)(func(),error){
  if len(id)!=32{return nil,errAgentTurnLockUnavailable}
  for _,c:=range id{
@@ -31,16 +44,13 @@ func acquireAgentTurnOSLock(workspace,id string)(func(),error){
  path:=filepath.Join(dir,".agent-turn-"+id+".lock")
  f,err:=os.OpenFile(path,os.O_RDWR|os.O_CREATE|syscall.O_NOFOLLOW,0600)
  if err!=nil{return nil,errAgentTurnLockUnavailable}
- closeOnFail:=func()(func(),error){_ = f.Close();return nil,errAgentTurnLockUnavailable}
- info,err:=f.Stat()
- if err!=nil||!info.Mode().IsRegular()||info.Mode().Perm()&0077!=0{
-  return closeOnFail()
- }
- current,err:=os.Lstat(path)
- if err!=nil||!current.Mode().IsRegular()||!os.SameFile(info,current){
-  return closeOnFail()
- }
+ closeOnFail:=func()(func(),error){_ =f.Close();return nil,errAgentTurnLockUnavailable}
+ if !validateAgentTurnLockFile(f,path){return closeOnFail()}
  if err=syscall.Flock(int(f.Fd()),syscall.LOCK_EX|syscall.LOCK_NB);err!=nil{
+  return closeOnFail()
+ }
+ if !validateAgentTurnLockFile(f,path){
+  _=syscall.Flock(int(f.Fd()),syscall.LOCK_UN)
   return closeOnFail()
  }
  return func(){
