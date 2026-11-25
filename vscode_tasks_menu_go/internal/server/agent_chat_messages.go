@@ -289,6 +289,12 @@ func (s *Server) agentChatMessageForOwner(w http.ResponseWriter, r *http.Request
 	// was executed and the user turn is retained. waiting_tool and terminal tool
 	// states still require the approval/reconciliation flow instead.
 	if !agentSessionAcceptsUserMessage(session.Status) {
+		// Admission must not advertise a queued turn that cannot be dispatched
+		// safely. Retain any already-durable pending turn for owner review.
+		if !agentPendingDispatchHandoffReady {
+			http.Error(w, "conversation is busy; queued turn handoff is unavailable; retry after the active turn finishes", http.StatusConflict)
+			return
+		}
 		p, model, effort, resolveErr := s.agentResolveTurnModel(owner, &session, req.ProviderID, req.ModelID, req.ReasoningEffort)
 		if resolveErr != nil {
 			http.Error(w, resolveErr.Error(), http.StatusConflict)

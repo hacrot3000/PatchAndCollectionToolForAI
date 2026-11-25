@@ -148,3 +148,30 @@ func TestRecentCatalogRetainedAcrossRecompaction(t *testing.T){
  if !strings.Contains(fmt.Sprint(second),"native-44"){t.Fatal("recent catalog lost during retry compaction")}
  if strings.Contains(fmt.Sprint(second),strings.Repeat("x",100)){t.Fatal("full old result replayed")}
 }
+
+func TestPriorityCatalogPreservesPatchAndUnknownAfterLongCollectionAndRetry(t *testing.T) {
+ history:=[]agentchat.HistoryItem{
+  {Type:"user",Content:"Original objective"},
+  {Type:"function_call",CallID:"old-patch",Name:"taskdeck_submit_patch",Arguments:`{"name":"Fix safety","patch_python":"print('private source')"}`},
+  {Type:"function_call_output",CallID:"old-patch",Content:`{"status":"PASS","run_id":"native-old"}`},
+  {Type:"function_call",CallID:"orphan-patch",Name:"taskdeck_submit_patch",Arguments:`{"name":"Unconfirmed","patch_python":"print('never replay')"}`},
+ }
+ for i:=0;i<70;i++{
+  id:=fmt.Sprintf("collection-%d",i)
+  history=append(history,agentchat.HistoryItem{Type:"function_call",CallID:id,Name:"taskdeck_collect_workspace",Arguments:fmt.Sprintf(`{"actions":[{"type":"read","path":"file-%d.go"}]}`,i)},agentchat.HistoryItem{Type:"function_call_output",CallID:id,Content:strings.Repeat("source",8000)})
+ }
+ before:=fmt.Sprint(history)
+ for _,budget:=range []int{32768,18000,10000}{
+  visible,stats:=Build(history,Policy{MaxInputTokens:budget})
+  for i:=0;i<2;i++{
+   joined:=fmt.Sprint(visible)
+   for _,want:=range []string{"Original objective","Prior Native Patch","native-old","orphan-patch","Execution status UNKNOWN","file-69.go"}{
+    if !strings.Contains(joined,want){t.Fatalf("budget=%d recompaction=%d lost %q",budget,i,want)}
+   }
+   if strings.Contains(joined,"private source")||strings.Contains(joined,"never replay")||strings.Contains(joined,strings.Repeat("source",100)){t.Fatal("historical source leaked")}
+   if stats.BudgetExceeded{t.Fatalf("budget=%d: %+v",budget,stats)}
+   visible,stats=Build(visible,Policy{MaxInputTokens:budget})
+  }
+ }
+ if fmt.Sprint(history)!=before{t.Fatal("canonical history mutated")}
+}

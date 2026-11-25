@@ -301,11 +301,11 @@ Không bỏ qua function output của call đã nhận. Nếu checkpoint trướ
     - [ ] **CLP-05.01.02** — Audit History/Next duplicate, schema overhead, initial pack và legacy fallback grouping. (`TODO`)
     - [ ] **CLP-05.01.03** — Thêm final budget validation cho Responses/Chat Completions/rebase, explicit mandatory-overflow reason. (`TODO`)
     - [ ] **CLP-05.01.04** — Test synthetic 304→942 KB, no duplicate pair, mandatory receipt intact và estimator error bounds. (`TODO`)
-- [ ] **CLP-05.02 — Evidence catalog có ích cho bước tiếp theo** (`TODO`, P1)
+- [ ] **CLP-05.02 — Evidence catalog có ích cho bước tiếp theo** (`IN_PROGRESS`, P1)
   - Mở rộng compact catalog bounded: objective, canonical scope, coverage/status, hash/proof ref, exact missing scope, invalidation marker. Giữ current receipt byte-exact; prior PATCH metadata only; recent COLLECT theo budget. Đảm bảo legacy text fallback được phân loại đúng.
   - **Acceptance:** prior evidence có thể reuse không đọc lại toàn file, incomplete không thành success, old patch không resend source, no tool orphan; test compact/rebase nhiều ngày.
     - [ ] **CLP-05.02.01** — Mở rộng catalog metadata objective/scope/coverage/status/proof/hash/invalidation; bound size. (`TODO`)
-    - [ ] **CLP-05.02.02** — Giữ current receipt byte-exact, prior PATCH metadata-only, recent COLLECT theo budget. (`TODO`)
+    - [ ] **CLP-05.02.02** — Giữ current receipt byte-exact, prior PATCH metadata-only, recent COLLECT theo budget. (`VERIFY_PENDING` — priority retention regression fix and tests; full CI pending)
     - [ ] **CLP-05.02.03** — Nhận diện đúng legacy fallback prefix, orphan pairs và stale evidence; không mark incomplete success. (`TODO`)
     - [ ] **CLP-05.02.04** — Test long/multiday compact, rebase, catalog reuse và no lost user goal. (`TODO`)
 - [ ] **CLP-05.03 — AI Pack/contract refresh cho conversation cũ** (`TODO`, P1)
@@ -567,6 +567,12 @@ No scheduler, permission, journal, fence, or PATCH recovery semantics changed by
 - Server failures: `TestAgentRefreshDuringRequestOffersCancelNotDuplicate` at agent_chat_sessions_test.go:348, expected HTTP 409, got HTTP 202 queued; `TestAgentVisibleHistoryCompactsHistoricalPatchAndCollectionWithoutMutatingCanonical` at agent_chat_text_patch_test.go:214, historical PATCH provenance omitted from bounded catalog. Neither production path nor these tests changed by CLP-01.01 or the incident fixture. Need reconcile expected pending-turn behavior and fix catalog retention without weakening assertions.
 - `agent-failed-queue` job 139095247358: **PASS**. Prior run-fence and nil mock failures no longer appear in latest CI logs. No separate verbose named PASS receipt for new CLP-00.02 fixture; leave VERIFY_PENDING, as full fixture requirements also include payload growth, progressive retry and fake-clock matrix.
 - Remote commit `fe4cc344f1b82bfbeb4cab82b580cb7127cbd165` confirmed as main before this checkpoint. No deployment or full regression gate completion. Next safe work: CLP-00.01 trace completion, CLP-00.02 targeted fixture verification and growth/retry, CLP-00.03 two server failures; then CLP-01.02. Do not widen permissions or alter unknown/ACK recovery to clear the gate.
+
+#### CLP-00.03 — Baseline repair continuation
+- Rechecked remote main `6321781a90efbb81c2c5f93640558bee1c357c82`; no concurrent change.
+- Fixed stale busy-session admission: `agent_chat_messages.go` refuses new pending turns while `agentPendingDispatchHandoffReady=false`. Existing queued turns remain durable; do not enable non-atomic dispatch or discard owner data. Existing failing TestAgentRefreshDuringRequestOffersCancelNotDuplicate remains unchanged.
+- Fixed historical catalog eviction in `contextcompact/compact.go`: reserve up to 12 of the existing 36 bounded entries for recent PATCH/unknown/archived safety metadata, then fill remaining slots with recent observations under existing token budget; chronological rendering, no canonical mutations or replay. These are presentation priorities only, not authoritative receipt verification. Recompaction preserves priority summaries. Existing failing server provenance regression remains unchanged; added TestPriorityCatalogPreservesPatchAndUnknownAfterLongCollectionAndRetry (70 reads, 3 budgets, recompaction).
+- Source changes and tests submitted for CI; no local repository checkout; no PASS claimed before actual CI receipt. CLP-05.02.02 partial fix advanced specifically to clear baseline regression, not full catalog acceptance.
 
 Mẫu bản ghi task (điền dữ liệu thật):
 
