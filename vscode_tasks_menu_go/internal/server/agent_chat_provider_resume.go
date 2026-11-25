@@ -50,6 +50,13 @@ func (s *Server) resumePreparedAgentProviderRun(ctx context.Context,store *agent
  if s.ConnectionSecrets==nil{fail("credentials_unavailable");return true}
  secret,err:=s.ConnectionSecrets.Get(agentProviderSecretID(s.Workspace,"local",p.ID))
  if err!=nil||len(secret)==0{fail("credentials_unavailable");return true}
+ // Legacy records without a binding remain compatible; bound turns must not
+ // be replayed under a changed credential or provider/model configuration.
+ if x.TurnBinding!=nil && (x.TurnBinding.ProviderID!=p.ID || x.TurnBinding.ModelID!=model.ID ||
+  x.TurnBinding.ProviderConfigVersion!=agentchat.RunProviderConfigVersion(p,model) ||
+  x.TurnBinding.CredentialFingerprint!=agentchat.RunCredentialFingerprint(secret)) {
+  fail("turn_binding_changed");return true
+ }
  current,payload,err:=store.PreparedProviderPayload(id,"local")
  if err!=nil{fail("prepared_payload_invalid");return true}
  if current.Revision!=x.Revision||current.ProviderRun==nil||

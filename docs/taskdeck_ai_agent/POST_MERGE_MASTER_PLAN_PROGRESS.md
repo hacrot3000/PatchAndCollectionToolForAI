@@ -1171,3 +1171,7 @@ Status: IMPLEMENTED_UNVERIFIED
 ### UAG-02 follow-up — owner admission isolation regression
 - Added a focused test for the explicit-owner admission seam: a foreign owner must receive not-found, produce no provider egress, and leave the local journal unchanged. Test is source-only and has not been executed.
 - COLLECT `agent_collect_6210784d45aaf47069c9c736` confirmed the seam and suspended dispatcher. Atomic pending-to-PREPARED handoff, busy admission, provider switching and the recorded verification failures remain open. UAG-02 is not verified; UAG-03–08 and M17–M19 remain gated.
+
+### UAG-02 follow-up — PREPARED binding recovery fence
+- Inspection of `agent_chat_provider_resume.go` found that recovery checks provider capability fingerprint but previously did not compare a persisted turn binding against the current credential/configuration. This patch adds a fail-closed check for bound turns; legacy unbound recovery is unchanged. A regression test was added but not executed.
+- COLLECT run `agent_collect_c488c5e3799e9c2fc152ab44`; exact pending-to-PREPARED handoff, busy admission, provider switching, crash/concurrency and browser validation remain open. Pending dispatch stays suspended; UAG-02 is unverified and UAG-03–08 and M17–M19 remain gated.

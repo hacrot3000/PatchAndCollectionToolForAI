@@ -49,6 +49,24 @@ func TestAgentPreparedProviderRunResumesExactlyOnceAfterRestart(t *testing.T){
  s.processAgentAutoFeedbackSession(context.Background(),store,id)
  if counts!=1{t.Fatal("completed provider run was replayed")}
 }
+func TestAgentPreparedResumeRejectsCredentialDrift(t *testing.T) {
+ s,id:=newAgentConversationFixture(t,"stateless")
+ store,err:=s.agentChatStore();if err!=nil{t.Fatal(err)}
+ x,err:=store.Get(id,"local");if err!=nil{t.Fatal(err)}
+ p:=agentProviderFixture(); model:=p.Models[0]
+ payload:=[]byte(`{"model":"model","input":"queued request"}`)
+ x.History=append(x.History,agentchat.HistoryItem{Type:"user",Content:"queued request"})
+ x.Status="requesting_ai"
+ if err=prepareAgentProviderRun(store,&x,"message","",p,model,payload);err!=nil{t.Fatal(err)}
+ if err=agentPinActiveTurnBinding(&x,agentchat.Stateless,p,model,"",[]byte("old-test-key"),payload,"req-1");err!=nil{t.Fatal(err)}
+ if _,err=store.Save(x,x.Revision);err!=nil{t.Fatal(err)}
+ calls:=0
+ s.AgentChatCall=func(_ context.Context,_ agentchat.ProviderConfig,_ string,_ []byte)(agentchat.ResponsesResult,error){calls++;return agentchat.ResponsesResult{},nil}
+ if !s.resumePreparedAgentProviderRun(context.Background(),store,id){t.Fatal("prepared run not inspected")}
+ got,err:=store.Get(id,"local");if err!=nil{t.Fatal(err)}
+ if calls!=0 || got.ProviderRun==nil || got.ProviderRun.Phase!="blocked" {t.Fatalf("credential drift crossed boundary: calls=%d run=%+v",calls,got.ProviderRun)}
+}
+
 func TestAgentSendingRunRestartBecomesAmbiguousWithoutProviderReplay(t *testing.T){
  s,id:=newAgentConversationFixture(t,"stateless")
  store,err:=s.agentChatStore();if err!=nil{t.Fatal(err)}
