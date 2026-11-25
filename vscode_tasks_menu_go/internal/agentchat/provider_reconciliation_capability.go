@@ -56,8 +56,10 @@ func ProviderReconciliationCapabilityFor(spec RunSpec, provider ProviderConfig, 
 		return ProviderReconciliationReview{Capability: ReconciliationUnsupported, Reason: reason, ManualSupportRoute: providerReconciliationManualRoute}
 	}
 	if provider.ID != spec.ProviderID { return u("provider_binding_mismatch") }
-	if model.ID != spec.ModelID || provider.FindModel(spec.ModelID).ID == "" { return u("model_binding_mismatch") }
-	if RunProviderConfigVersion(provider, model) != spec.ProviderConfigVersion { return u("config_version_revoked") }
+	configuredModel, ok := provider.FindModel(spec.ModelID)
+	if !ok || model.ID != spec.ModelID { return u("model_binding_mismatch") }
+	if RunProviderConfigVersion(provider, model) != spec.ProviderConfigVersion ||
+		RunProviderConfigVersion(provider, configuredModel) != spec.ProviderConfigVersion { return u("config_version_revoked") }
 	if spec.CredentialFingerprint != "" && (len(spec.CredentialFingerprint) != 64 || strings.Trim(spec.CredentialFingerprint, "0123456789abcdef") != "") { return u("invalid_credential_fingerprint") }
 	c := DocumentedProviderReconciliation(provider)
 	if !validReconciliationContract(c) { return u("no_documented_contract") }

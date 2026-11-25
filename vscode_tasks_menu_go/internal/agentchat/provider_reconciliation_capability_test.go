@@ -86,3 +86,22 @@ func TestReconciliationCredentialBinding(t *testing.T) {
 	b.CredentialFingerprint = s.CredentialFingerprint
 	if ClassifyProviderReconciliation(m177Doc(), s, strings.Repeat("b", 64), b).Outcome != ReconcileAdopt { t.Fatal("matching credential should adopt") }
 }
+
+
+func TestReconciliationCapabilityRejectsMissingOrChangedConfiguredModel(t *testing.T) {
+	p := m177Provider()
+	m := p.Models[0]
+	s := m177Spec()
+	s.ProviderConfigVersion = RunProviderConfigVersion(p, m)
+
+	p.Models = nil
+	if got := ProviderReconciliationCapabilityFor(s, p, m); got.Reason != "model_binding_mismatch" || got.Capability != ReconciliationUnsupported {
+		t.Fatalf("missing configured model must fail closed: %+v", got)
+	}
+
+	p.Models = []ModelConfig{m}
+	p.Models[0].ToolCalling = !m.ToolCalling
+	if got := ProviderReconciliationCapabilityFor(s, p, m); got.Reason != "config_version_revoked" || got.Capability != ReconciliationUnsupported {
+		t.Fatalf("stale model configuration must fail closed: %+v", got)
+	}
+}
