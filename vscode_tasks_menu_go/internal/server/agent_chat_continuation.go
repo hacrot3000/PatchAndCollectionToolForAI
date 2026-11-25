@@ -21,8 +21,16 @@ func (s *Server) autoContinueConversationOne(ctx context.Context,store *agentcha
  if ctx.Err()!=nil||s==nil||s.Config.SharedServerEnabled{return}
  if s.agentConversationRequiresRunContinuation("local",id){return}
  original,err:=store.Get(id,"local")
- if err!=nil||original.Workspace!=s.Workspace||
-  !agentchat.StandaloneAutoContinueCandidate(original){return}
+ if err!=nil||original.Workspace!=s.Workspace{return}
+ // Migration is local-only, revision-fenced and preserves the owner's grant.
+ if original.AutoContinueText&&original.TaskPlan==nil{
+  if agentchat.RecoverTurnProgress(&original){
+   saved,saveErr:=store.Save(original,original.Revision)
+   if saveErr!=nil{return}
+   original=saved
+  }
+ }
+ if !agentchat.StandaloneAutoContinueCandidate(original){return}
  c:=original.Continuation
  before:=agentchat.VerifiedWorkSignature(original)
  requestID:=fmt.Sprintf("conversation-%s-r%d",id,original.Revision)
@@ -57,7 +65,7 @@ func (s *Server) autoContinueConversationOne(ctx context.Context,store *agentcha
  w:=httptest.NewRecorder()
  s.agentChatMessageAPI(w,req,id)
  if w.Code!=http.StatusOK{
-  if ctx.Err()==nil{s.deferStandaloneAdmission(store,id,w.Code)}
+  if ctx.Err()==nil{s.deferStandaloneAdmission(store,id,w.Code,original.Revision)}
   return
  }
  release,ok:=lockAgentTurn(s.Workspace,"local",id)
@@ -90,15 +98,15 @@ func (s *Server) autoContinueConversationOne(ctx context.Context,store *agentcha
 
 // A scheduler admission failure may be retried only while the prior request
 // was rejected before provider egress. SENDING/UNKNOWN are never replayed.
-func (s *Server) deferStandaloneAdmission(store *agentchat.Store,id string,httpCode int){
+func (s *Server) deferStandaloneAdmission(store *agentchat.Store,id string,httpCode int,expectedRevision uint64){
  release,ok:=lockAgentTurn(s.Workspace,"local",id)
  if !ok{return}
  defer release()
  x,err:=store.Get(id,"local")
- if err!=nil||!x.AutoContinueText||x.Continuation==nil||x.Status!="completed"{return}
+ if err!=nil||x.Revision!=expectedRevision||!agentchat.StandaloneAutoContinueCandidate(x){return}
  c:=x.Continuation
  switch httpCode {
- case http.StatusTooManyRequests,http.StatusInternalServerError,http.StatusServiceUnavailable:
+ case http.StatusTooManyRequests,http.StatusInternalServerError,http.StatusServiceUnavailable,http.StatusConflict:
   if c.RetryStreak<8{c.RetryStreak++}
   shift:=c.RetryStreak-1
   if shift>6{shift=6}
@@ -107,8 +115,6 @@ func (s *Server) deferStandaloneAdmission(store *agentchat.Store,id string,httpC
   until:=time.Now().UTC().Add(delay)
   c.NextRetryAt=&until
   x.AppendEvent("continuation_deferred",x.Status,"",fmt.Sprintf("http_%d_retry_after_%ds",httpCode,int(delay.Seconds())))
- case http.StatusConflict:
-  return
  default:
   x.AutoContinueText=false
   c.Reason="nonretryable_admission_failure"

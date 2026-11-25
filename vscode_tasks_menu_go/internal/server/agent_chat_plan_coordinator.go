@@ -62,7 +62,7 @@ func (s *Server) autoContinueTaskPlanOne(ctx context.Context,store *agentchat.St
   // Admission backoff is safe only if the request was rejected BEFORE
   // provider egress. Any ambiguous provider response already changes
   // the canonical session status and cannot be scheduled again.
-  if ctx.Err()==nil{s.deferTaskPlanAdmission(store,id,w.Code)}
+  if ctx.Err()==nil{s.deferTaskPlanAdmission(store,id,w.Code,original.Revision)}
   return
  }
  release,acquired:=lockAgentTurn(s.Workspace,"local",id)
@@ -104,15 +104,14 @@ func (s *Server) autoContinueTaskPlanOne(ctx context.Context,store *agentchat.St
 // Admission failures occur before the model provider is contacted. Retry
 // them with a durable exponential delay instead of hitting the scheduler
 // every three seconds. Post-egress failures are NEVER retried from here.
-func (s *Server) deferTaskPlanAdmission(store *agentchat.Store,id string,httpCode int){
+func (s *Server) deferTaskPlanAdmission(store *agentchat.Store,id string,httpCode int,expectedRevision uint64){
  release,ok:=lockAgentTurn(s.Workspace,"local",id)
  if !ok{return}
  defer release()
  x,err:=store.Get(id,"local")
- if err!=nil||x.TaskPlan==nil||x.TaskPlan.State!="active"||
-  !x.TaskPlan.AutoContinue||x.Status!="completed"{return}
+ if err!=nil||x.Revision!=expectedRevision||!agentchat.TaskPlanAutoContinueCandidate(x){return}
  p:=x.TaskPlan
- if httpCode==429||httpCode==500||httpCode==503{
+ if httpCode==429||httpCode==500||httpCode==503||httpCode==409{
   if p.RetryStreak<8{p.RetryStreak++}
   shift:=p.RetryStreak-1
   if shift>6{shift=6}
@@ -121,14 +120,12 @@ func (s *Server) deferTaskPlanAdmission(store *agentchat.Store,id string,httpCod
   until:=time.Now().UTC().Add(delay)
   p.NextRetryAt=&until
   x.AppendEvent("plan_deferred",x.Status,"",fmt.Sprintf("http_%d_retry_after_%ds",httpCode,int(delay.Seconds())))
- }else if httpCode!=409{
+ }else{
   // Invalid or unauthorized plan requests need an explicit user decision.
   // Never keep retrying an impossible prompt or exhausted context.
   p.AutoContinue=false
   p.State="paused"
   x.AppendEvent("plan_blocked",x.Status,"",fmt.Sprintf("http_%d_requires_review",httpCode))
- }else{
-  return
  }
  p.UpdatedAt=time.Now().UTC()
  _,_=store.Save(x,x.Revision)

@@ -70,3 +70,21 @@ func TestTextRephrasingDoesNotResetDurableNoProgress(t *testing.T){
  }
  if !ValidTurnContinuation(x.Continuation){t.Fatal("invalid durable continuation")}
 }
+
+func TestTurnProgressProviderCompatibilityAndRecovery(t *testing.T){
+ raw:=`{"status":"NEEDS_CONTINUATION","next_action":"Đọc nốt fixture mock_endpoint_switch_v1.json dòng 700-2356 (X22-X64, P01-P11, K01-K03), sau đó implement EndpointSwitchModels + SyntheticEndpointSwitch reducer + xUnit tests đủ 78 ca, chạy scripts/run_dotnet_research_tests.sh, rồi thêm integration test multi-endpoint cutover thật trên localhost trước khi cập nhật tracker P1.1.1.4.","checkpoint_path":"implementing_doc/coder_tasks/TASK_EXECUTION_STATUS.md","evidence_refs":["agent_collect_d47a2097be680c2ea65816f9","agent_collect_42c6deefbb0c3b3fb86f0a42","agent_collect_98293a3440a45cff95db6fd8"]}`
+ for _,text:=range []string{raw,"Report.\ntaskdeck-progress\n"+raw,"Report.\ntaskdeck-progress\n⧉\n\n"+raw,"Report.\ntaskdeck-progress\n\x60\x60\x60json\n"+raw+"\n\x60\x60\x60","Report.\n\x60\x60\x60taskdeck-progress\n"+raw+"\n\x60\x60\x60"}{
+  c:=AnalyzeTurnText(text)
+  if c.Disposition!=TurnNeedsContinuation||c.Reason!="model_progress_metadata_unverified"||!strings.Contains(c.NextAction,"P1.1.1.4")||len(c.EvidenceRefs)!=3{t.Fatalf("metadata lost: %+v",c)}
+ }
+ for _,text:=range []string{"Example object: "+raw,"taskdeck-progress\n"+raw+"\nnot final","taskdeck-progress\n"+raw+"\ntaskdeck-progress\n"+raw}{
+  if _,ok:=parseDeclaredTurnProgress(text);ok{t.Fatalf("ambiguous metadata accepted: %q",text)}
+ }
+ x:=Session{Owner:"local",Status:"completed",AutoContinueText:true,History:[]HistoryItem{{Type:"assistant",Content:raw}},Continuation:&TurnContinuation{Disposition:TurnUnknown,ResponseDigest:turnHash(raw),NoProgressTurns:2}}
+ if !RecoverTurnProgress(&x)||!StandaloneAutoContinueCandidate(x)||x.Continuation.NoProgressTurns!=2{t.Fatalf("legacy recovery failed: %+v",x.Continuation)}
+ if RecoverTurnProgress(&x){t.Fatal("recovery not idempotent")}
+ x.AutoContinueText=false
+ if StandaloneAutoContinueCandidate(x){t.Fatal("recovery granted consent")}
+ x.Continuation=nil;x.History[0].Type="user"
+ if RecoverTurnProgress(&x){t.Fatal("user input treated as model metadata")}
+}

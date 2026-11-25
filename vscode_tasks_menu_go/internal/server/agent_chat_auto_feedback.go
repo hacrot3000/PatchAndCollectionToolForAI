@@ -195,6 +195,7 @@ func agentAutoFeedbackNeedsWork(x agentchat.Session) bool {
 	if agentRecoveredCollectionResumeCandidate(x){return true}
 	if agentchat.TaskPlanAutoContinueCandidate(x){return true}
 	if agentchat.StandaloneAutoContinueCandidate(x){return true}
+ if x.AutoContinueText&&x.TaskPlan==nil&&agentchat.RecoverTurnProgress(&x)&&agentchat.StandaloneAutoContinueCandidate(x){return true}
 	if agentchat.TaskAutoCheckReady(x){return true}
 	if _, ok := agentAutoPatchCandidate(x); ok { return true }
 	if _, ok := agentAutoFeedbackCandidate(x); ok { return true }

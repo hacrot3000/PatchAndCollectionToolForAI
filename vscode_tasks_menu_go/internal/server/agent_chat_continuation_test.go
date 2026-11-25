@@ -8,6 +8,7 @@ import (
  "testing"
 
  "bletonfc/vscode_tasks_menu/internal/agentchat"
+ "bletonfc/vscode_tasks_menu/internal/patchtool"
 )
 
 const auditProgress="Đã tiếp tục thu thập bằng chứng cho M03–M06 và lưu checkpoint bền vững. "+
@@ -100,4 +101,64 @@ func TestAgentStandaloneContinuationRespectsNativeAndProviderFences(t *testing.T
  if calls!=0{t.Fatal("unresolved tool unexpectedly sent provider data")}
  x.ProviderRun=&agentchat.ProviderRun{Phase:"unknown"}
  if agentchat.StandaloneAutoContinueCandidate(x){t.Fatal("ambiguous provider outcome bypassed")}
+}
+
+func TestAgentStandaloneRecoversPersistedRawProgressAfterUpdate(t *testing.T){
+ s,store,id:=newStandaloneAutoContinueFixture(t)
+ x,err:=store.Get(id,"local");if err!=nil{t.Fatal(err)}
+ x.AutoContinueText=true
+ x.Continuation=nil
+ x.History=append(x.History,agentchat.HistoryItem{Type:"assistant",Content:"Report.\ntaskdeck-progress\n"+`{"status":"NEEDS_CONTINUATION","next_action":"Read fixture X22-X64 before writing reducer","checkpoint_path":"docs/tracker.md"}`})
+ x,err=store.Save(x,x.Revision);if err!=nil{t.Fatal(err)}
+ calls:=0
+ s.AgentChatCall=func(_ context.Context,_ agentchat.ProviderConfig,_ string,payload []byte)(agentchat.ResponsesResult,error){
+  calls++
+  if !strings.Contains(string(payload),"X22-X64"){t.Fatal("concrete continuation action lost")}
+  return agentchat.ResponsesResult{ResponseID:"resumed",Text:"\x60\x60\x60taskdeck-progress\n"+`{"status":"CLAIMED_COMPLETE"}`+"\n\x60\x60\x60"},nil
+ }
+ s.runAgentAutoFeedback(context.Background())
+ if calls!=1{t.Fatalf("scheduler did not recover and continue: %d",calls)}
+ s.runAgentAutoFeedback(context.Background())
+ if calls!=1{t.Fatal("completion claim replayed")}
+}
+
+func TestAgentFeedbackToCollectionToRawProgressContinuesAutomatically(t *testing.T){
+ s,id:=autoFeedbackReadySession(t)
+ store,err:=s.agentChatStore();if err!=nil{t.Fatal(err)}
+ x,err:=store.Get(id,"local");if err!=nil{t.Fatal(err)}
+ x.AutoContinueText=true
+ if _,err=store.Save(x,x.Revision);err!=nil{t.Fatal(err)}
+ calls:=0
+ s.AgentCollectionCall=func(_ string,_ patchtool.ProjectIdentity,_ []byte)string{return `{"status":"PASS","results":[]}`}
+ s.AgentChatCall=func(_ context.Context,_ agentchat.ProviderConfig,_ string,payload []byte)(agentchat.ResponsesResult,error){
+  calls++
+  switch calls{
+  case 1:
+   return agentchat.ResponsesResult{ResponseID:"after-patch",Calls:[]agentchat.FunctionCall{{CallID:"read-fixture",Name:"taskdeck_collect_workspace",Arguments:`{"actions":[{"type":"overview","path":"."}]}`}}},nil
+  case 2:
+   return agentchat.ResponsesResult{ResponseID:"after-collect",Text:"Fixture partially read.\ntaskdeck-progress\n"+`{"status":"NEEDS_CONTINUATION","next_action":"Read X22-X64 and implement tests","checkpoint_path":"docs/tracker.md"}`},nil
+  case 3:
+   if !strings.Contains(string(payload),"Read X22-X64 and implement tests"){t.Fatal("missing next step")}
+   return agentchat.ResponsesResult{ResponseID:"finished",Text:`{"status":"CLAIMED_COMPLETE"}`},nil
+  default:t.Fatal("unexpected replay");return agentchat.ResponsesResult{},nil
+  }
+ }
+ s.runAgentAutoFeedback(context.Background())
+ if calls!=3{t.Fatalf("feedback/collect/continuation stalled at %d",calls)}
+ x,err=store.Get(id,"local");if err!=nil{t.Fatal(err)}
+ if !x.ToolCalls[0].FeedbackSent||x.ToolCalls[0].FeedbackStatus!="acknowledged"||x.Continuation.Disposition!=agentchat.TurnClaimedComplete{t.Fatal("terminal journal incorrect")}
+ s.runAgentAutoFeedback(context.Background())
+ if calls!=3{t.Fatal("duplicate egress")}
+}
+func TestAgentContinuationConflictBackoffAndRevisionFence(t *testing.T){
+ s,store,id:=newStandaloneAutoContinueFixture(t)
+ x,err:=store.Get(id,"local");if err!=nil{t.Fatal(err)}
+ x.AutoContinueText=true
+ x,err=store.Save(x,x.Revision);if err!=nil{t.Fatal(err)}
+ s.deferStandaloneAdmission(store,id,409,x.Revision-1)
+ y,err:=store.Get(id,"local");if err!=nil{t.Fatal(err)}
+ if y.Revision!=x.Revision{t.Fatal("stale scheduler changed a newer revision")}
+ s.deferStandaloneAdmission(store,id,409,x.Revision)
+ y,err=store.Get(id,"local");if err!=nil{t.Fatal(err)}
+ if y.Continuation.NextRetryAt==nil||agentchat.StandaloneAutoContinueCandidate(y)||!y.AutoContinueText{t.Fatal("conflict not deferred safely")}
 }

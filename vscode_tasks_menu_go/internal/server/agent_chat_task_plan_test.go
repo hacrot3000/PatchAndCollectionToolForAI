@@ -156,7 +156,7 @@ func TestAgentTaskPlanAdmissionBackoffPersistsWithoutProviderEgress(t *testing.T
  x.TaskPlan.AutoContinue=true
  x.Status="completed"
  x,err=store.Save(x,x.Revision);if err!=nil{t.Fatal(err)}
- s.deferTaskPlanAdmission(store,id,http.StatusTooManyRequests)
+ s.deferTaskPlanAdmission(store,id,http.StatusTooManyRequests,x.Revision)
  got,err:=store.Get(id,"local");if err!=nil{t.Fatal(err)}
  if got.TaskPlan.RetryStreak!=1||got.TaskPlan.NextRetryAt==nil||
   time.Until(*got.TaskPlan.NextRetryAt)<=0||
@@ -173,7 +173,9 @@ func TestAgentTaskPlanAdmissionBackoffPersistsWithoutProviderEgress(t *testing.T
  }
  // A permanently invalid provider request pauses, but never marks
  // the user's unfinished task complete.
- s.deferTaskPlanAdmission(store,id,http.StatusRequestEntityTooLarge)
+ afterRestart.TaskPlan.NextRetryAt=nil // simulate expiration of the durable admission delay
+ afterRestart,err=store.Save(afterRestart,afterRestart.Revision);if err!=nil{t.Fatal(err)}
+ s.deferTaskPlanAdmission(store,id,http.StatusRequestEntityTooLarge,afterRestart.Revision)
  blocked,err:=store.Get(id,"local");if err!=nil{t.Fatal(err)}
  if blocked.TaskPlan.State!="paused"||blocked.TaskPlan.AutoContinue||
   agentchat.TaskPlanAllDone(blocked.TaskPlan) {
