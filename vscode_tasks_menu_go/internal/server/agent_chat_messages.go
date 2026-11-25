@@ -180,6 +180,11 @@ func (s *Server) agentChatMessageAPI(w http.ResponseWriter, r *http.Request, id 
 		// request with the same key replays the recorded outcome instead of
 		// contacting the provider a second time.
 		RequestID string `json:"request_id,omitempty"`
+		// Optional next-turn composer binding (UAG-02). Empty fields keep the
+		// persisted session selection.
+		ProviderID      string `json:"provider_id,omitempty"`
+		ModelID         string `json:"model_id,omitempty"`
+		ReasoningEffort string `json:"reasoning_effort,omitempty"`
 		// Attachments are bounded UTF-8 text snippets. Binary, office documents and
 		// images are refused rather than silently base64-inlined into the context.
 		Attachments []agentAttachment `json:"attachments,omitempty"`
@@ -272,27 +277,39 @@ func (s *Server) agentChatMessageAPI(w http.ResponseWriter, r *http.Request, id 
 	// failed/cancelled turns are recoverable by an explicit new message: no tool
 	// was executed and the user turn is retained. waiting_tool and terminal tool
 	// states still require the approval/reconciliation flow instead.
-	switch session.Status {
-	case "created", "ready", "completed", "failed", "cancelled", "tool_rejected":
-	default:
-		http.Error(w, "session is not ready for another message", 409)
+	if !agentSessionAcceptsUserMessage(session.Status) {
+		p, model, effort, resolveErr := s.agentResolveTurnModel(owner, &session, req.ProviderID, req.ModelID, req.ReasoningEffort)
+		if resolveErr != nil {
+			http.Error(w, resolveErr.Error(), http.StatusConflict)
+			return
+		}
+		if s.ConnectionSecrets == nil {
+			http.Error(w, "encrypted credential store unavailable", 503)
+			return
+		}
+		secret, secretErr := s.ConnectionSecrets.Get(agentProviderSecretID(s.Workspace, owner, p.ID))
+		if secretErr != nil || len(secret) == 0 {
+			http.Error(w, "Agent provider API key unavailable", 503)
+			return
+		}
+		if err := s.agentChatQueuePendingUserTurn(store, owner, &session, msg, requestKey, requestDigest, p, model, effort, secret); err != nil {
+			if errors.Is(err, agentchat.ErrInvalidSession) && session.PendingUserTurn != nil {
+				http.Error(w, "a queued message is already waiting for this conversation", 409)
+				return
+			}
+			http.Error(w, "cannot queue message for the next turn", 409)
+			return
+		}
+		writeAgentQueuedTurn(w, id, session.Revision)
 		return
 	}
-	// Legacy advisory provider keys are not implicitly promoted into an
-	// executable Agent model. Only expressly registered Responses models work.
-	registry, err := s.agentChatProviders()
+	p, model, reasoning, err := s.agentResolveTurnModel(owner, &session, req.ProviderID, req.ModelID, req.ReasoningEffort)
 	if err != nil {
-		http.Error(w, "provider store unavailable", 500)
-		return
-	}
-	p, err := registry.Get(owner, session.ProviderID)
-	if err != nil {
-		http.Error(w, "Agent Responses provider not configured", 409)
-		return
-	}
-	model, exists := p.FindModel(session.ModelID)
-	if !exists {
-		http.Error(w, "Agent model is no longer configured", 409)
+		code := http.StatusConflict
+		if strings.Contains(err.Error(), "unavailable") {
+			code = http.StatusServiceUnavailable
+		}
+		http.Error(w, err.Error(), code)
 		return
 	}
 	if s.ConnectionSecrets == nil {
@@ -372,8 +389,7 @@ func (s *Server) agentChatMessageAPI(w http.ResponseWriter, r *http.Request, id 
 		patchToolAvailable = s.agentChatEnsureTools(r.Context(), owner, p, model, string(secret))
 	}
 	instructions := agentChatInstructionsWithAutomation(session, patchToolAvailable, identity.Key)
-	reasoning:=agentProviderReasoningEffort(p,session.ReasoningEffort,model)
-	limit := agentInitialOutputBudget(model,reasoning,patchToolAvailable)
+	limit := agentInitialOutputBudget(model, reasoning, patchToolAvailable)
 	// Conversations mode is only trusted with verified evidence for this exact
 	// endpoint/model. Otherwise replay canonical history statelessly; the stored
 	// session mode stays immutable for audit and a later verified retry.
@@ -403,6 +419,10 @@ func (s *Server) agentChatMessageAPI(w http.ResponseWriter, r *http.Request, id 
 	// process failure occurred before the durable SENDING transition.
 	if err=prepareAgentProviderRun(store,&session,"message","",p,model,payload);err!=nil{
 		http.Error(w,"cannot persist prepared provider request",409)
+		return
+	}
+	if err=agentPinActiveTurnBinding(&session,mode,p,model,reasoning,secret,payload,requestKey);err!=nil{
+		http.Error(w,"cannot persist turn binding",409)
 		return
 	}
 	// Persist the idempotency intent BEFORE egress so a crash/retry cannot send
@@ -531,6 +551,7 @@ func (s *Server) agentChatMessageAPI(w http.ResponseWriter, r *http.Request, id 
 	}
 	appendAgentTextPatchProposal(&session, result, identity)
 	markAgentProviderOutcome(&session,"completed")
+	agentClearActiveTurnBinding(&session)
 	session.AppendEvent("turn_finished", session.Status, "", "")
 	// Capture the reviewed workspace state now, at proposal time, so a later
 	// approval can detect drift. Best effort: an unreadable workspace records no
@@ -562,4 +583,5 @@ func (s *Server) agentChatMessageAPI(w http.ResponseWriter, r *http.Request, id 
 		"response_id": result.ResponseID, "input_tokens": result.InputTokens,
 		"output_tokens": result.OutputTokens, "execution_enabled": false,
 	})
+	go s.agentChatDispatchPendingUserTurn(owner, id)
 }

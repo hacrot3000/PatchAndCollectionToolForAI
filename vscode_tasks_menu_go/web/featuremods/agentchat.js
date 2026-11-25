@@ -2172,8 +2172,8 @@ async function sendAgentMessage(){
   providerSelect.value===nextProvider.providerId&&modelSelect.value===nextProvider.modelId?effortSelect.value:undefined;
  const effortChanged=nextEffort!==undefined&&
   (nextEffort||selectedModel?.default_reasoning_effort||'')!==(current.reasoning_effort||selectedModel?.default_reasoning_effort||'');
- const useRunManager=Boolean(canStartAgentRun&&(agentSessionBusy(sessionID)||current.status==='requesting_ai'||
-  nextProvider.providerId!==current.provider_id||nextProvider.modelId!==current.model_id||effortChanged||agentRunUI.hasRun(sessionID)));
+ // UAG-02: Legacy Agent owns ordinary sends; Run Manager remains drain-only.
+const useRunManager=Boolean(canStartAgentRun&&agentRunUI.hasRun(sessionID));
  if(useRunManager){
   const fingerprint=JSON.stringify({message:msg,attachments:wireAttachments,provider:nextProvider.providerId,model:nextProvider.modelId,effort:nextEffort});
   const requestKey=sessionID+'\0'+fingerprint;
@@ -2199,7 +2199,6 @@ async function sendAgentMessage(){
    throw error;
   }
  }
- if(agentSessionBusy(sessionID))return;
  const old=agentLiveTurns.get(sessionID);
  if(old?.optimisticNode&&old.error)old.optimisticNode.remove();
  // Render the user's message synchronously, before session preflight, provider
@@ -2234,12 +2233,24 @@ async function sendAgentMessage(){
    agentRequestIDs.set(sessionID,request);
   }
   const requestID=request.id;
+  const composerProvider=canStartAgentRun?nextProvider:{providerId:s.provider_id,modelId:s.model_id};
+  const composerEffort=nextEffort!==undefined?nextEffort:(s.reasoning_effort||'');
   const response=await agentApp.jsonFetch('/api/agent/sessions/'+encodeURIComponent(sessionID)+'/messages',{
    method:'POST',headers:{'Content-Type':'application/json'},
    body:JSON.stringify({message:msg,confirm_external:true,expected_revision:s.revision,
-    request_id:requestID,attachments:wireAttachments}),
+    request_id:requestID,attachments:wireAttachments,
+    provider_id:composerProvider.providerId,model_id:composerProvider.modelId,
+    reasoning_effort:composerEffort}),
    signal:agentAbort.signal
   });
+  if(response?.queued){
+   turn.acknowledged=true;
+   turn.phase='queued';
+   if(agentActive===sessionID)setAgentStatusNotice('Message queued for the next turn · '+composerProvider.providerId+'/'+composerProvider.modelId);
+   agentLiveTurns.delete(sessionID);
+   if(agentActive===sessionID)await selectAgentSession(sessionID);
+   return response;
+  }
   agentRequestIDs.delete(sessionID);
   agentAttachmentDrafts.delete(sessionID);
   if(agentActive===sessionID){

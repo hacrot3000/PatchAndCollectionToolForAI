@@ -205,6 +205,10 @@ type Session struct {
 	Status            string           `json:"status"`
  TokenUsage TokenUsage `json:"token_usage,omitempty"`
 	ProviderRun       *ProviderRun     `json:"provider_run,omitempty"`
+	// TurnBinding pins the active turn's provider admission; nil when idle.
+	TurnBinding *TurnBinding `json:"turn_binding,omitempty"`
+	// PendingUserTurn holds the next user message while a turn is still active.
+	PendingUserTurn *PendingUserTurn `json:"pending_user_turn,omitempty"`
 	TaskPlan          *TaskPlan        `json:"task_plan,omitempty"`
 	Continuation *TurnContinuation `json:"continuation,omitempty"`
  TaskPlanSegments []TaskPlanSegmentRef `json:"task_plan_segments,omitempty"`
@@ -343,6 +347,9 @@ func (s *Store) withLock(fn func() error) error {
 }
 func validateSession(x Session) error {
 	if !validProviderRun(x.ProviderRun) {return ErrInvalidSession}
+	if !ValidTurnBinding(x.TurnBinding) || !ValidPendingUserTurn(x.PendingUserTurn) {
+		return ErrInvalidSession
+	}
  if x.TokenUsage.EstimatedRequests>x.TokenUsage.Requests||
     x.TokenUsage.Requests>1000000000||
     x.TokenUsage.InputTokens>100000000000000||

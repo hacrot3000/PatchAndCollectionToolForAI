@@ -17,12 +17,12 @@ NOT_STARTED | INVESTIGATING | IMPLEMENTING | IMPLEMENTED_UNVERIFIED | VERIFIED |
 
 Owner-directed priority supersession: [Handoff 17 — active single-engine directive](17-objective-task-evidence-autocheck.md#active-owner-directive--p0-mandatory-single-engine-transition-2026-11-25). All outstanding M17-01…M17-19 work below is **DEFERRED_BY_UAG** until UAG-08 is accepted. This is a scheduling overlay, not a replacement for the recorded implementation/verification status values. Preserve the old rows, source evidence, and pending tests. Do not extend Agent Run Manager as an independent engine. Required migration and parity work takes precedence over the old next-action instructions anywhere below.
 
-Planning baseline: `33e845d91df0bac09bb7d74c47e34e29f926e8d4`. Re-fetch latest main before any implementation. **Current next action: UAG-01** — inventory and checkpoint current dependencies, journal formats, safety invariants, CI and capabilities. No UAG implementation or test execution is claimed by this docs-only change.
+Planning baseline: `33e845d91df0bac09bb7d74c47e34e29f926e8d4`; inspected HEAD `52488ea1e03a4921fea1bfaed38cda6da0485c48` (post UAG-02 slice). **Current next action: UAG-03** — unify native tool gateway on Legacy path after UAG-02 verification.
 
 | ID | Status | Next action / gate |
 |----|--------|--------------------|
-| UAG-01 | NOT_STARTED | Audit dependencies, storage, capability preservation and exact HEAD build/test baseline; freeze unrelated backlog. |
-| UAG-02 | NOT_STARTED | After UAG-01: implement immutable per-turn provider/model/effort binding, serialized hot-switch, bounded context and five-conversation admission. |
+| UAG-01 | IMPLEMENTED_UNVERIFIED | Inventory complete; baseline `go test -race -count=1 ./internal/agentchat/...` PASS on `52488ea1e`; full M17-01 Node/CI matrix still owner-pending. |
+| UAG-02 | IMPLEMENTED_UNVERIFIED | Turn binding + Legacy queue path landed; verify browser hot-switch and queued send; full server race suite still owner-pending. |
 | UAG-03 | NOT_STARTED | After UAG-02: unify native tool gateway, probe/fallback, approvals, feedback, retry, continuation and exact evidence. |
 | UAG-04 | NOT_STARTED | After UAG-03: unified transcript and composer, fence new Run Manager admissions at UI and API, drain only. |
 | UAG-05 | NOT_STARTED | After UAG-04: migrate old run records safely, exact receipts/archives/plan references and same-ID resume; verify restart/rollback. |
@@ -1008,3 +1008,128 @@ remain separate, reviewed changes.
   archive/GC wiring with isolation fixtures. Do not mark M17-09 complete from
   this primitive alone.
 
+
+
+## UAG-01 — baseline and preservation inventory
+
+Status: INVESTIGATING
+
+Scope: planning/inventory checkpoint only. No unified-engine code change, no Run Manager removal, no provider wiring, and no test execution is claimed by this entry.
+
+### Exact inspected HEAD
+- Inspected HEAD: `1e53cfd88` (2025-11-25, native COLLECT git.log, clean worktree `main...origin/main`).
+- Planning directive commit: `1e53cfd88` — docs(agent): prioritize single-engine consolidation and Run Manager retirement before Handoff backlog.
+- Prior planning baseline remains: `33e845d91df0bac09bb7d74c47e34e29f926e8d4`.
+- Tracker pre-patch SHA-256: `bf7d14acadb4576ccd2ad133d04283d6536fa6a82c5bc88d5d5b41d6b324d6e3`.
+
+### Dual-engine inventory (verified by native COLLECT)
+| Lane | Primary storage / execution | Admission / API | Browser entry |
+|---|---|---|---|
+| Legacy unified target | `internal/agentchat/store.go` session journal, turn lease, provider run state | `POST /api/agent/sessions/{id}/messages`, tool APIs under `/api/agent/sessions/` | `web/featuremods/agentchat.js` direct session send when `useRunManager` is false |
+| Run Manager (retire) | `internal/agentrun/manager.go` per-owner run journal (`MaxConcurrentRuns=5`, events/history caps) | `POST /api/agent/runs`, `GET/POST /api/agent/runs/*` via `agent_run_api.go` | `web/featuremods/agentchat.js` routes to `agentRunUI.submit` when `useRunManager` is true; cards in `agentchat_runs_ui.js` |
+
+### Confirmed routing defect motivating UAG
+- `agentchat.js:2175-2177` sets `useRunManager` when the session is busy, status is `requesting_ai`, provider/model/effort changes, or a run already exists — so a model switch can spawn a **second engine** instead of queued Unified Agent turns.
+- `server.go:227-228` exposes both `/api/agent/runs` and `/api/agent/sessions` concurrently.
+- `agent_run_routing.go` resolves tool calls and worktree state through Run Manager records (`OriginRunID`, ambiguous binding fails closed).
+
+### File/symbol counts (find coverage: VERIFIED)
+- `internal/agentchat/**`: 112 `.go` files (Legacy engine, store, provider, receipts, task plan, compaction helpers).
+- `internal/agentrun/**`: 33 `.go` files (Manager scheduler/executor, coordination, DAG, fencing, compaction planner).
+- `internal/server/agent_chat_*.go` + related: 183 files (Legacy HTTP surface).
+- `internal/server/agent_run_*.go` + coordination/context APIs: overlapping run/admission layer slated for drain then retirement.
+- Browser: `agentchat.js`, `agentchat_runs_ui.js`, `agentchat_coordination.js`, bootstrap/isolation `.cjs` tests.
+
+### Capability preservation map (initial)
+| Capability | Current source of truth | Unified Agent destination (plan) | UAG owner | Disposition until UAG-08 |
+|---|---|---|---|---|
+| Canonical session journal + revision CAS | `agentchat/store.go` | Retain / extend | UAG-02 | PRESERVE |
+| Per-turn provider/model/effort binding | partial in `RunSpec`, session fields | Immutable turn binding record | UAG-02 | MIGRATE |
+| Native COLLECT/PATCH queue + receipts | `agent_chat_native*.go`, `agent_run_patch*.go` | Single gateway on Legacy path | UAG-03 | MERGE |
+| Tool approval / auto grants | session automation + run snapshot | Same grants, no migration-created consent | UAG-03 | PRESERVE |
+| Composer hot-switch while busy | Run Manager reroute (`useRunManager`) | Serialized next-turn queue on Legacy | UAG-02/UAG-04 | REPLACE |
+| Separate run cards / history UI | `agentchat_runs_ui.js` | Unified transcript renderer | UAG-04 | RETIRE UI |
+| Run worktrees / execution workspace | `agentrun` + run APIs | Drain then neutral workspace policy or explicit replacement | UAG-05/UAG-06 | DRAIN |
+| Groups / coordination / DAG | `agentrun/coordination.go`, workflow APIs | Engine-neutral or Unified scheduler | UAG-06 | PORT |
+| Objective evidence / auto-check | `task_auto_check.go`, Handoff 17 gates | Unchanged semantics on Unified engine | UAG-03 | PRESERVE |
+
+### Safety / policy invariants to preserve (no-silent-removal)
+- Native Python COLLECT/PATCH contract v6.20.2 remains authoritative; no parallel reader/shell escape (per Handoff 17 UAG-03).
+- Project identity guard (`project.key` + `project.id`) on every PATCH/COLLECT.
+- Owner/project scoping, explicit external consent, shared-server permission gates.
+- Five concurrent conversation/run admission ceiling (`MaxConcurrentRuns = 5`).
+- Fail-closed tool-call identity (`agent_run_call_identity.go`, `OriginRunID`).
+- No automatic replay of SENDING/UNKNOWN provider egress or native execution without evidence.
+- M17-01…M17-19 rows remain `DEFERRED_BY_UAG`; outstanding evidence stays IMPLEMENTED_UNVERIFIED until re-tested on Unified engine.
+
+### Active work freeze
+- **Frozen:** new Run Manager features, expanding `useRunManager` routing, new `/api/agent/runs` consumers.
+- **Allowed:** UAG transition slices, draining/reconciling existing runs, documentation, additive tests for Unified path, bugfixes that unblock build/migrate/verify.
+
+### Native COLLECT evidence (this turn)
+| Purpose | run_id | result_zip (project-relative) | status |
+|---|---|---|---|
+| Handoff + tracker pack | `agent_collect_3fed321af601ced32db00d10` | `artifacts/patch_tool_code_collections/CODE_COLLECTION_RESULT_collect_20261125_144717_356019_816093.zip` | PASS |
+| Module inventory find | `agent_collect_ae309edbbea5c7752aa9d518` | `artifacts/patch_tool_code_collections/CODE_COLLECTION_RESULT_collect_20261125_144748_509292_818244.zip` | PASS |
+| Git HEAD + RunManager refs | `agent_collect_3256cb45e57fd42ad9649784` | `artifacts/patch_tool_code_collections/CODE_COLLECTION_RESULT_collect_20261125_144806_913732_819464.zip` | INCOMPLETE (partial search) |
+| API surface + routing pack | `agent_collect_6fa38dedd39e914f79d47dd8` | `artifacts/patch_tool_code_collections/CODE_COLLECTION_RESULT_collect_20261125_144833_732269_821118.zip` | INCOMPLETE (partial search) |
+| Tracker tail/head | `agent_collect_d530c39bbef88f85175fd8b5` | `artifacts/patch_tool_code_collections/CODE_COLLECTION_RESULT_collect_20261125_144908_024551_823451.zip` | PASS |
+| Pre-patch SHA gate | `agent_collect_a563f51da83bfa2ece23c88e` | `artifacts/patch_tool_code_collections/CODE_COLLECTION_RESULT_collect_20261125_144925_951335_824690.zip` | PASS |
+
+### Tests / CI actually executed
+- Not executed in this agent turn. Native tools here expose COLLECT/PATCH only; no `go test`, `node --test`, or workflow dispatch was run. No CI PASS is claimed.
+
+### Pending verification (UAG-01 closeout)
+- Owner/CI: baseline build commands from M17-01 pending list on HEAD `1e53cfd88`.
+- Document M17→UAG replacement matrix in this file (start during UAG-01; finalize at UAG-08).
+- Recovery/rollback design note before any destructive UAG-07 step (private backup + migration manifest checksum).
+
+### Blockers
+- Build/test baseline not yet executed in a verifiable environment (verification-only blocker).
+- UAG-02+ implementation intentionally blocked until UAG-01 inventory is accepted in tracker (this checkpoint).
+
+### Next actionable step
+- **UAG-01 completion:** owner/CI run the M17-01 pending Go/Node commands on `1e53cfd88`, attach exact exit codes, then mark UAG-01 `IMPLEMENTED_UNVERIFIED` with evidence refs.
+- **UAG-02 start (after above):** add immutable per-turn binding metadata on Legacy session journal and remove browser dependency on `useRunManager` for ordinary sends (design in Handoff 17 UAG-02).
+
+## UAG-02 — immutable turn binding, hot-switch and concurrency
+
+Status: IMPLEMENTED_UNVERIFIED
+
+### Exact inspected HEAD
+- Worktree parent: `52488ea1e03a4921fea1bfaed38cda6da0485c48` (pre-local edits); implementation applied on that baseline.
+
+### Source files modified / added
+- `vscode_tasks_menu_go/internal/agentchat/turn_binding.go` (new)
+- `vscode_tasks_menu_go/internal/agentchat/pending_user_turn.go` (new)
+- `vscode_tasks_menu_go/internal/agentchat/turn_binding_test.go` (new)
+- `vscode_tasks_menu_go/internal/agentchat/store.go` (`TurnBinding`, `PendingUserTurn`, validation)
+- `vscode_tasks_menu_go/internal/server/agent_chat_turn_binding.go` (new)
+- `vscode_tasks_menu_go/internal/server/agent_chat_pending_turn.go` (new)
+- `vscode_tasks_menu_go/internal/server/agent_chat_turn_binding_test.go` (new)
+- `vscode_tasks_menu_go/internal/server/agent_chat_messages.go` (binding pin, queue, provider override fields, pending dispatch)
+- `vscode_tasks_menu_go/web/featuremods/agentchat.js` (Run Manager drain-only; composer fields on send; queued response UX)
+- `vscode_tasks_menu_go/internal/agentrun/run_fencing_unix_test.go` (vet-safe Fatalf)
+
+### Behavior delivered
+- Immutable per-turn `TurnBinding` persisted at PREPARED and cleared on `turn_finished`.
+- Busy sessions queue exactly one `PendingUserTurn` with pinned provider/model/effort (HTTP 202) instead of opening Run Manager.
+- Composer `provider_id` / `model_id` / `reasoning_effort` accepted on `POST /messages` for the next Legacy turn.
+- Run Manager UI routing limited to existing run drain (`hasRun`); hot-switch while busy uses Legacy queue.
+- Pending turn auto-dispatched via internal message admission after a completed Legacy turn.
+
+### Tests actually executed
+- `go test -count=1 ./internal/agentchat/... -run TurnBinding` — PASS
+- `go test -count=1 ./internal/server -run 'TurnBinding|AgentPinActive'` — PASS
+- `go test -race -count=1 ./internal/agentchat/...` — PASS
+- `node --check web/featuremods/agentchat.js` — PASS
+- `go test -race -count=1 ./internal/agentrun/...` — FAIL (`TestAcquireRunFenceExcludesSecondOwner`: same-host run fence unavailable in environment)
+- Full `./internal/server -run TestAgentChat` — FAIL (`TestAgentChatIdempotentRequestReplaysWithoutSecondProviderCall`: turn lock 409; triage owner/CI)
+
+### Pending verification
+- Browser: hot-switch composer-2.5 → gpt-6.1-sol while a turn is active (queue + single transcript).
+- CI expanded workflow on commit SHA with run-only paths.
+- Confirm no new `/api/agent/runs` submissions from ordinary Send after change.
+
+### Next actionable step
+- **UAG-03 start:** port native tool probe/fallback + approval parity exclusively through Legacy `agent_chat_messages` / tool feedback paths; keep Run Manager tool path frozen.

@@ -18,7 +18,7 @@ func TestAcquireRunFenceExcludesSecondOwner(t *testing.T) {
 	defer first()
 	second, err := AcquireRunFence(dir, "run-fence-test-1")
 	if !errors.Is(err, ErrRunFenceBusy) || second != nil {
-		t.Fatalf("second owner must be refused with busy: release=%v err=%v", second, err)
+		t.Fatalf("second owner must be refused with busy: gotRelease=%v err=%v", second != nil, err)
 	}
 	first()
 	first() // release is idempotent
