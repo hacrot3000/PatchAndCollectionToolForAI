@@ -149,7 +149,7 @@ func collectionSummary(call,output agentchat.HistoryItem)string{
   truncate(label,180),truncate(call.CallID,100),strings.Join(evidence,"; "),digest(output.Content))
 }
 func plainSummary(text string)string{
- return "Earlier Collection fallback evidence: "+truncate(strings.TrimSpace(text),240)+"; full evidence remains in TaskDeck history."
+ return "Earlier Collection fallback observation (not proof of success); receipt_hash="+digest(text)+"; full evidence remains in TaskDeck history."
 }
 // An orphan is a historical tool call without verified feedback in the
 // canonical journal. Keep that journal untouched, but never replay an
@@ -242,7 +242,7 @@ func groups(history []agentchat.HistoryItem,synthetic map[string]bool,next []age
    }
    continue
   }
-  if a.Type=="user" && strings.HasPrefix(a.Content,"TaskDeck local read-only Collection tool returned this VERIFIED observation"){
+  if agentchat.CollectionTextObservation(history,i){
    g:=group{items:[]agentchat.HistoryItem{a},kind:"fallback",summary:plainSummary(a.Content)}
    g.tokens=groupTokens(g.items);out=append(out,g);continue
   }

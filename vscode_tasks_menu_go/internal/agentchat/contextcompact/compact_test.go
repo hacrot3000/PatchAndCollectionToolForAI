@@ -175,3 +175,17 @@ func TestPriorityCatalogPreservesPatchAndUnknownAfterLongCollectionAndRetry(t *t
  }
  if fmt.Sprint(history)!=before{t.Fatal("canonical history mutated")}
 }
+
+
+func TestCurrentTextFallbackReceiptsDoNotConsumeHumanInstructionBudget(t *testing.T){
+ history:=[]agentchat.HistoryItem{{Type:"user",Content:"Original owner goal"}}
+ for i:=0;i<20;i++{
+  history=append(history,agentchat.HistoryItem{Type:"assistant",Content:`{"project":{"key":"p","id":"id"},"actions":[{"type":"file","path":"a"}]}`},agentchat.HistoryItem{Type:"user",Content:agentchat.NativeCollectionTextObservationPrefix+fmt.Sprintf(`{"status":"INCOMPLETE","text":%q}`,strings.Repeat("large-receipt-",3000))})
+ }
+ history=append(history,agentchat.HistoryItem{Type:"user",Content:"Keep my latest instruction"})
+ next:=agentchat.HistoryItem{Type:"user",Content:agentchat.NativeCollectionTextObservationPrefix+`{"status":"PASS","marker":"current receipt"}`}
+ visible,stats:=Build(history,Policy{MaxInputTokens:24000,Next:[]agentchat.HistoryItem{next}})
+ got:=fmt.Sprint(visible)
+ if stats.BudgetExceeded||stats.SummarizedCollections!=20||strings.Contains(got,"large-receipt-")||!strings.Contains(got,"Original owner goal")||!strings.Contains(got,"Keep my latest instruction"){t.Fatalf("bad fallback projection: %+v",stats)}
+ if !strings.Contains(next.Content,"current receipt"){t.Fatal("current receipt changed")}
+}

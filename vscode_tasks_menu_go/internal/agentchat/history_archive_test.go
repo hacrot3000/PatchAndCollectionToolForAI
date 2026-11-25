@@ -85,3 +85,24 @@ func TestCollectionHistoryArchiveNeverSeparatesOrDropsPatchEvidence(t *testing.T
  }
  if !call||!output||len(x.ToolCalls)!=1{t.Fatal("archiving altered a native Patch approval/result pair")}
 }
+
+
+func TestCurrentTextCollectionFallbackArchivesWithoutLosingHumanMessages(t *testing.T){
+ store,err:=NewStore(filepath.Join(t.TempDir(),"private"));if err!=nil{t.Fatal(err)}
+ x,err:=NewSession("local","/project","id","provider","model",Stateless);if err!=nil{t.Fatal(err)}
+ x.History=[]HistoryItem{{Type:"user",Content:"Original task"}}
+ x,err=store.Save(x,0);if err!=nil{t.Fatal(err)}
+ for i:=0;i<90;i++{
+  x.History=append(x.History,HistoryItem{Type:"assistant",Content:`{"project":{"key":"p","id":"id"},"actions":[{"type":"file","path":"a"}]}`},HistoryItem{Type:"user",Content:NativeCollectionTextObservationPrefix+`{"status":"INCOMPLETE","sequence":`+fmt.Sprint(i)+`}`})
+  if i==5{x.History=append(x.History,HistoryItem{Type:"user",Content:"A real owner instruction: preserve this"})}
+  x,err=store.Save(x,x.Revision);if err!=nil{t.Fatal(err)}
+ }
+ if x.HistoryArchiveParts==0{t.Fatal("text observations were not archived")}
+ total:=0
+ for _,it:=range x.History{if strings.HasPrefix(it.Content,NativeCollectionTextObservationPrefix){total++}}
+ for i:=uint64(1);i<=x.HistoryArchiveParts;i++{
+  items,err:=store.ArchivedCollectionHistory(x.ID,x.Owner,i);if err!=nil{t.Fatal(err)}
+  for _,it:=range items{if strings.HasPrefix(it.Content,NativeCollectionTextObservationPrefix){total++}}
+ }
+ if total!=90||!strings.Contains(fmt.Sprint(x.History),"A real owner instruction: preserve this"){t.Fatal("fallback receipt or owner goal lost")}
+}

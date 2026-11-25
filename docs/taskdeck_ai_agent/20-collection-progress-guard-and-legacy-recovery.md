@@ -657,6 +657,9 @@ At existing Session.Save CAS, compare previous vs new server-owned ToolCalls bef
 #### CLP-03.02 / CLP-06.02 — Attempt reconciliation
 CI 45588106909 and 45588285483 both jobs SUCCESS, including full core Go/race/vet/Node/Python/macOS crosscompile. At existing Session.Save CAS project the existing private provider-attempt sidecar Total delta into guard HTTPAttempts, retaining run ID/cursor; reconcile previous run before replacement, including restart UNKNOWN. The count represents durable pre-egress reservations, not verified transmissions. No extra journal, no native count or ACK changes; corrupt audit marks incomplete and cannot fabricate counts. Bounded sidecar truncation still supports exact Total; test 132 attempts, restart/repeated Save/new run, corrupt audit. CI pending.
  
+#### CLP-05.02 — Current text fallback compaction/archive
+Shared exact native text observation prefix between Legacy producer, archive and compactor. Recognize current full generated envelope with preceding assistant COLLECT JSON and object receipt; preserve compatibility with historical prefix. Old fallback receipts become bounded catalog hash summaries (not verified success or mandatory human instructions), and durable private archive can retain them. Current Next stays exact; no canonical receipt deleted. Tests 20 large historical fallback receipts within context budget; 90 text reads across archive retaining all receipts and real owner instruction. CI pending.
+
 ### 8.2. Blockers và quyết định (append)
 
 | ID | Task | Vấn đề / quyết định | Ảnh hưởng | Hành động tiếp theo | Trạng thái |
