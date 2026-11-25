@@ -210,11 +210,12 @@ func TestAgentContextRecoveryPreservesFreshReceiptAndShrinksHistory(t *testing.T
  for _,got:=range after.Input{if got["call_id"]=="old-collect"{t.Fatal("large historical collection should be summarized")}}
 }
 func TestAgentContextRecoveryIsBoundedAndOptIn(t *testing.T){
- for _,tc:=range []struct{name string;mode agentchat.RetryMode;code string;alwaysFail bool;want int}{
-  {"success",agentchat.RetryUnlimited,"context_length_exceeded",false,2},
-  {"bounded",agentchat.RetryUnlimited,"context_window_exceeded",true,2},
-  {"off",agentchat.RetryOff,"context_length_exceeded",true,1},
-  {"generic_400",agentchat.RetryUnlimited,"invalid_request_error",true,1},
+ for _,tc:=range []struct{name string;mode agentchat.RetryMode;code string;rejects int;alwaysFail bool;want int}{
+  {"success",agentchat.RetryUnlimited,"context_length_exceeded",1,false,2},
+  {"progressive",agentchat.RetryUnlimited,"context_length_exceeded",2,false,3},
+  {"bounded",agentchat.RetryUnlimited,"context_window_exceeded",4,true,4},
+  {"off",agentchat.RetryOff,"context_length_exceeded",1,true,1},
+  {"generic_400",agentchat.RetryUnlimited,"invalid_request_error",1,true,1},
  }{
   t.Run(tc.name,func(t *testing.T){
    s,id:=newAgentConversationFixture(t,"stateless")
@@ -225,12 +226,21 @@ func TestAgentContextRecoveryIsBoundedAndOptIn(t *testing.T){
    oldDelay:=agentRetryDelay;agentRetryDelay=time.Millisecond
    defer func(){agentRetryDelay=oldDelay}()
    original:=agentContextRecoveryFixture(t)
+   var req map[string]json.RawMessage
+   if err=json.Unmarshal(original,&req);err!=nil{t.Fatal(err)}
+   req["max_output_tokens"]=json.RawMessage("65536")
+   original,err=json.Marshal(req);if err!=nil{t.Fatal(err)}
    calls:=0
+   previousInput,previousOutput:=0,0
    s.AgentChatCall=func(_ context.Context,_ agentchat.ProviderConfig,_ string,payload []byte)(agentchat.ResponsesResult,error){
     calls++
     if calls>tc.want{t.Fatalf("unexpected attempt %d",calls)}
-    if calls==2&&len(payload)>=len(original){t.Fatal("recovery did not shrink payload")}
-    if calls==1||tc.alwaysFail{return agentchat.ResponsesResult{},&agentchat.ProviderError{Code:"PROVIDER_HTTP_400",HTTPStatus:400,ProviderErrorCode:tc.code}}
+    var wire struct{Input json.RawMessage `json:"input"`;Output int `json:"max_output_tokens"`}
+    if err:=json.Unmarshal(payload,&wire);err!=nil{t.Fatal(err)}
+    if calls>1&&(len(wire.Input)>previousInput||wire.Output>previousOutput||(len(wire.Input)==previousInput&&wire.Output==previousOutput)){t.Fatal("recovery did not strictly reduce input or output")}
+    previousInput,previousOutput=len(wire.Input),wire.Output
+    if !strings.Contains(string(wire.Input),"fresh-patch")||!strings.Contains(string(wire.Input),"native-1"){t.Fatal("current receipt was lost")}
+    if calls<=tc.rejects||tc.alwaysFail{return agentchat.ResponsesResult{},&agentchat.ProviderError{Code:"PROVIDER_HTTP_400",HTTPStatus:400,ProviderErrorCode:tc.code}}
     return agentchat.ResponsesResult{Text:"Recovered",ResponseID:"ack"},nil
    }
    res,err,_:=s.agentChatCallForOwner(context.Background(),"local",id,agentchat.ProviderConfig{ID:"fake",APIType:"responses"},"test-key",original)

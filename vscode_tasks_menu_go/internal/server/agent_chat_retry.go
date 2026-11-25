@@ -145,6 +145,8 @@ func agentRetryConstrainedOutputPayload(payload []byte,p agentchat.ProviderConfi
 
 // Only a structured context-limit rejection authorizes a changed request.
 // A generic 400, lost response or unknown provider state is not proof.
+const agentMaxContextRecoveries = 3
+
 func agentContextLimitRejected(err error) bool {
  var pe *agentchat.ProviderError
  if !errors.As(err,&pe)||pe.HTTPStatus!=400||pe.Ambiguous {return false}
@@ -226,7 +228,8 @@ func agentRetryContextPayload(payload []byte)([]byte,bool){
  if json.Unmarshal(payload,&old)!=nil{return nil,false}
  var oldLimit int
  _=json.Unmarshal(old["max_output_tokens"],&oldLimit)
- if len(req["input"])>=len(old["input"])&&!(limit>0&&limit<oldLimit){return nil,false}
+ if len(req["input"])>len(old["input"])||limit>oldLimit{return nil,false}
+ if len(req["input"])==len(old["input"])&&!(limit>0&&limit<oldLimit){return nil,false}
  return b,true
 }
 
@@ -239,7 +242,7 @@ func (s *Server) agentChatProviderWithRetry(ctx context.Context,owner,sessionID 
  mode:=agentRetryModeForSession(s,owner,sessionID)
  replayPayload:=payload
  incompleteRecoverySent:=false
- contextRecoverySent:=false
+ contextRecoveries:=0
  var contextRejectedPayload []byte
  // The durable SENDING journal is the only origin of correlation data.
  // Direct capability probes and legacy tests without a live egress marker
@@ -285,7 +288,7 @@ func (s *Server) agentChatProviderWithRetry(ctx context.Context,owner,sessionID 
   // reports a generic provider error after the context was cancelled.
   if ctx.Err()!=nil{return agentchat.ResponsesResult{},ctx.Err(),trace}
   if err==nil{
-   if contextRecoverySent&&agentLearnContextRecovery(s.Workspace,owner,p,key,contextRejectedPayload,replayPayload){
+   if contextRecoveries>0&&agentLearnContextRecovery(s.Workspace,owner,p,key,contextRejectedPayload,replayPayload){
     s.recordAgentDebugEvent(owner,sessionID,"","provider_retry","context_budget.learned","","Retained a bounded provider/model context and output budget hint for subsequent stateless requests")
    }
    return result,nil,trace
@@ -294,13 +297,19 @@ func (s *Server) agentChatProviderWithRetry(ctx context.Context,owner,sessionID 
    return result,err,trace
   }
   if agentContextLimitRejected(err){
-   if contextRecoverySent{return result,err,trace}
+   if contextRecoveries>=agentMaxContextRecoveries{
+    s.recordAgentDebugEvent(owner,sessionID,"","provider_retry","context_budget.exhausted",agentRetryFailureDetail(err),"Stopped after three progressively reduced stateless requests were rejected; inspect model limits and mandatory current input. Native tool receipt preserved.")
+    return result,err,trace
+   }
    reduced,ok:=agentRetryContextPayload(replayPayload)
-   if !ok{return result,err,trace}
+   if !ok{
+    s.recordAgentDebugEvent(owner,sessionID,"","provider_retry","context_budget.minimum",agentRetryFailureDetail(err),"No safely smaller stateless request remains; mandatory current input and receipt cannot be discarded. Check provider limits or use a narrower next task.")
+    return result,err,trace
+   }
    contextRejectedPayload=replayPayload
    replayPayload=reduced
-   contextRecoverySent=true
-   s.recordAgentDebugEvent(owner,sessionID,"","provider_retry","context_budget.recovery",agentRetryFailureDetail(err),"Retrying one smaller stateless context after explicit provider rejection; native tool receipt preserved")
+   contextRecoveries++
+   s.recordAgentDebugEvent(owner,sessionID,"","provider_retry","context_budget.recovery",agentRetryFailureDetail(err),"Progressive context recovery "+strconv.Itoa(contextRecoveries)+"/"+strconv.Itoa(agentMaxContextRecoveries)+"; exact current tool receipt preserved")
   }else if !agentProviderRetryable(err){
    return result,err,trace
   }
