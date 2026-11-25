@@ -107,7 +107,8 @@ func (s *Server) agentChatDispatchPendingUserTurn(owner, id string) {
 		release()
 		return
 	}
-	// Fail closed: the prepared admission bridge is not yet wired into the
-	// authorized message-building path. Never clear a durable pending turn here.
+	// Fail closed: authorized message building has a prepared-only admission
+	// branch, but automatic dispatch and recovery are not yet verified.
+	// Never clear a durable pending turn here.
 	release()
 }

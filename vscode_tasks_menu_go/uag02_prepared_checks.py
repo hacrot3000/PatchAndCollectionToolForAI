@@ -34,6 +34,9 @@ checks = [
     ("./internal/server", "^TestAgentSendingRunRestartBecomesAmbiguousWithoutProviderReplay$"),
     ("./internal/server", "^TestAgentPendingAdmissionBridgeRejectsInvalidCandidates$"),
     ("./internal/server", "^TestAgentPendingAdmissionBridgeCommitsPrepared$"),
+    ("./internal/server", "^TestAgentPendingAdmissionWithoutPendingFailsClosed$"),
+    ("./internal/server", "^TestAgentPendingAdmissionRejectsEffectiveModeDrift$"),
+    ("./internal/server", "^TestAgentPendingFirstTurnRetainedWhenPackChangesHistory$"),
     ("./internal/server", "^TestAgentSuspendedPendingDispatchRetainsTurn$"),
     ("./internal/server", "^TestAgentSuspendedPendingDispatchRejectsForeignOwner$"),
 ]

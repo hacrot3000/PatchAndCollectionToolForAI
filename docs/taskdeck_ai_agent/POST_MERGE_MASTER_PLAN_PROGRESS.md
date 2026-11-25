@@ -1260,3 +1260,36 @@ Status: IMPLEMENTED_UNVERIFIED
 ### UAG-02 follow-up — pending admission isolation regressions
 - Native PATCH runs 1795601772024200_1471980 and 1795601802117679_1473553 passed for mismatched-history and foreign-owner prepared-payload regression source. COLLECT agent_collect_346429f8830e9a0f4a6b4dbc and agent_collect_41c29d9a264eb0b57ca4e77c inspected those assertions.
 - Source and PATCH receipts are not test execution. The owner-scoped bridge is not wired to message admission; dispatch remains disabled. UAG-02 is not accepted, and UAG-03–08 and M17–M19 remain gated. Next: integrate authorized atomic handoff without enabling dispatch and obtain focused and process-crash test evidence.
+
+
+### UAG-02 follow-up — prepared replay regression evidence
+- Native PATCH run 1795601946036916_1482402 passed for the stale pending-admission replay regression. COLLECT agent_collect_f32409db3c8f540881a22188 inspected the assertion and confirmed dispatch remains suspended.
+- This is source and PATCH evidence, not an executed test. The bridge is unwired; authorized integration, focused tests, process-crash verification and provider switching remain outstanding. UAG-02 is not accepted; UAG-03–08 and M17–M19 remain gated. Next: integrate the authorized atomic handoff without enabling dispatch and obtain actual test evidence.
+
+
+### UAG-02 follow-up — effective mode guard evidence
+- Native PATCH runs 1795602024055773_1487771, 1795602060090504_1490746 and 1795602093011184_1493345 passed for the owner-scoped admission entry point, prepared-only bridge and mode-drift guard. Runs 1795602138018756_1496669 and 1795602167965488_1499093 passed for the regression source and focused-check inclusion. COLLECT agent_collect_8b7ffcba43544cde7a090823 inspected the test and runner entry.
+- These are PATCH and source-inspection receipts, not executed tests. The message path contains a prepared-only admission branch; automatic pending dispatch remains disabled. UAG-02 is unaccepted; UAG-03–08 and M17–M19 remain gated. Next: run focused checks, add queued-history integration and process-crash coverage, and verify before enabling dispatch.
+
+### UAG-02 follow-up — first queued turn retention
+- Native PATCH runs 1795602239953259_1504631 and 1795602287959844_1508389 passed for regression source and focused-check inclusion. COLLECT agent_collect_e6e8e43f53da913fa391227e inspected the test, focused entry and admission history guard.
+- This is source and PATCH evidence, not executed tests. The first-turn AI Pack changes the history item and the current exact-message guard rejects admission; pending dispatch remains disabled. UAG-02 is unaccepted; UAG-03–08 and M17–M19 remain gated. Next: obtain focused test evidence, fix first-turn history safely, and verify process-crash recovery before enabling dispatch.
+
+
+### UAG-02 follow-up — first-turn early safety gate
+- Native PATCH run 1795602354072121_1513491 passed for the early fail-closed gate and regression assertion. COLLECT agent_collect_b190b3990994d11003b327f4 inspected both.
+- This is source and PATCH evidence, not an executed test. First-turn pending admission remains unsupported; dispatch remains disabled. UAG-02 is unaccepted, with UAG-03–08 and M17–M19 gated. Next: preserve the queued message and AI Pack context safely, then obtain focused and process-crash test evidence before enabling dispatch.
+
+
+### UAG-02 follow-up — first-turn pack construction regression
+- Native PATCH run 1795602414060199_1517513 passed for the additional regression assertion. COLLECT agent_collect_6c1b918a8625a2368f94bf28 inspected the assertion and confirmed pending dispatch remains disabled.
+- This is source and PATCH evidence, not executed tests. First-turn admission remains unsupported. UAG-02 is unaccepted; UAG-03–08 and M17–M19 remain gated. Next: implement safe queued first-turn history and AI Pack handling, then obtain focused and process-crash evidence before enabling dispatch.
+
+
+### UAG-02 follow-up — dispatch comment clarification
+- Native PATCH run 1795602591137967_1529250 passed for the dispatch comment clarification. COLLECT agent_collect_8e4e473fdb4885d064393c21 confirms the comment and that automatic pending dispatch remains disabled.
+- This is not test execution evidence. First-turn admission and crash recovery remain unverified; UAG-02 is unaccepted and UAG-03–08 and M17–M19 remain gated. Next: obtain focused test evidence and implement safe first-turn admission before considering dispatch.
+
+### UAG-02 follow-up — queued history rejection coverage
+- Native PATCH runs 1795602662969193_1533858 and 1795602704937462_1536399 passed for forged AI Pack and non-user history regression assertions. COLLECT agent_collect_341cd3ea46176ea8bb08f6d7 inspected both assertions and confirmed pending dispatch remains disabled.
+- These receipts do not demonstrate test execution. First-turn admission and crash recovery remain unverified; UAG-02 is not accepted and UAG-03–08 and M17–M19 remain gated. Next: obtain focused test results, implement safe first-turn admission, and verify crash recovery before enabling dispatch.

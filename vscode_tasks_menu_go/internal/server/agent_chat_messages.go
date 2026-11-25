@@ -160,6 +160,11 @@ func (s *Server) agentChatMessageAPI(w http.ResponseWriter, r *http.Request, id 
 // agentChatMessageForOwner receives an owner established by the authenticated caller.
 // Internal callers must not infer identity from a synthetic HTTP request.
 func (s *Server) agentChatMessageForOwner(w http.ResponseWriter, r *http.Request, id, owner string) {
+	s.agentChatAuthorizedMessage(w, r, id, owner, false)
+}
+
+// agentChatAuthorizedMessage retains the authenticated owner through admission.
+func (s *Server) agentChatAuthorizedMessage(w http.ResponseWriter, r *http.Request, id, owner string, admitPending bool) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", 405)
 		return
@@ -275,8 +280,12 @@ func (s *Server) agentChatMessageForOwner(w http.ResponseWriter, r *http.Request
 	}
 	// A durable queued turn must not be overtaken by a newer user request.
 	// Replays of the previous request were handled above without egress.
-	if session.PendingUserTurn != nil {
+	if session.PendingUserTurn != nil && !admitPending {
 		http.Error(w, "a queued message is already waiting for this conversation", http.StatusConflict)
+		return
+	}
+	if admitPending && (session.PendingUserTurn == nil || session.PendingUserTurn.Message != msg || session.PendingUserTurn.RequestID != requestKey || req.ResumeCollectionRunID != "") {
+		http.Error(w, "queued message binding mismatch", http.StatusConflict)
 		return
 	}
 	if session.Revision != req.ExpectedRevision {
@@ -376,6 +385,13 @@ func (s *Server) agentChatMessageForOwner(w http.ResponseWriter, r *http.Request
 	// Provider context is compacted independently by contextcompact.
 	// Never destroy verified canonical source evidence to reduce request size.
 	first := len(session.History) == 0
+	// The first turn embeds the AI Pack in canonical history. Until admission
+	// can validate that representation, retain the queued turn without probing
+	// provider capabilities or constructing an uncommittable request.
+	if admitPending && first {
+		http.Error(w, "first queued message requires history reconciliation", http.StatusConflict)
+		return
+	}
 	next := agentchat.HistoryItem{Type: "user", Content: msg}
 	if first {
 		executable, err := os.Executable()
@@ -453,6 +469,23 @@ func (s *Server) agentChatMessageForOwner(w http.ResponseWriter, r *http.Request
 		session.AppendEvent("collection_resume_new",session.Status,session.ProviderRun.CallID,session.ProviderRun.ID)
 	}else{bindLegacyCollectionObjective(r.Context(), &session, strings.TrimSpace(req.Message))}
 	session.History = append(session.History, next)
+	if admitPending {
+		// The durable binding currently records session.Mode. Do not admit a
+		// request built in a different effective mode: recovery must replay the
+		// same context semantics, not merely the same payload bytes.
+		if mode != session.Mode {
+			http.Error(w, "queued message context mode changed; retain for review", http.StatusConflict)
+			return
+		}
+		_, err = agentAdmitPreparedPendingTurn(store, owner, session, p, model, secret, payload)
+		if err != nil {
+			http.Error(w, "cannot atomically admit queued message", http.StatusConflict)
+			return
+		}
+		// Egress remains disabled until the handoff and recovery are verified.
+		w.WriteHeader(http.StatusAccepted)
+		return
+	}
 	session.Status = "requesting_ai"
 	session.AppendEvent("turn_started", "requesting_ai", "", "")
 	// Write the EXACT future request to private disk before publishing
