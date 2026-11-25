@@ -13,7 +13,7 @@ import (
 
 // A run's original provider binding is not the legacy Session.ProviderID.
 // Fail closed when the durable run ledger is unavailable. This fence is
-// temporary until long-task continuation/evidence share the run ledger.
+// separates the legacy scheduler from provider-bound run continuation.
 func (s *Server) agentConversationRequiresRunContinuation(owner, id string) bool {
 	records, err := s.completedAgentRuns(owner, id)
 	return err != nil || len(records) != 0
@@ -30,6 +30,10 @@ func (s *Server) agentRunCollectionAllowed(owner string, spec agentchat.RunSpec,
 	if pinned == nil || !*pinned {
 		return false
 	}
+	providers, err := s.agentChatProviders()
+	if err != nil { return false }
+	provider, model, err := providers.GetVersion(owner, spec.ProviderID, spec.ModelID, spec.ProviderConfigVersion)
+	if err != nil || !model.ToolCalling || !s.agentToolCapabilityVerified(owner, provider, model) { return false }
 	store, err := s.agentChatStore()
 	if err != nil {
 		return false

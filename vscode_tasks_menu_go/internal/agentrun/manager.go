@@ -104,6 +104,7 @@ type Record struct {
 	UpdatedAt   time.Time               `json:"updated_at"`
 	FinishedAt  *time.Time              `json:"finished_at,omitempty"`
 	WorkerEpoch string                  `json:"worker_epoch,omitempty"`
+	Continuation *agentchat.TurnContinuation `json:"continuation,omitempty"`
 }
 
 type Executor interface {
@@ -116,6 +117,18 @@ type Executor interface {
 // A resolver must not grant Patch approval or replay interrupted operations.
 type WaitingToolResolver interface {
 	ResolveWaitingTool(context.Context, Record) ([]agentchat.HistoryItem, string, error)
+}
+
+// CompletedTurnResolver supplies a bounded, server-authorized continuation
+// for a confirmed provider turn. It does not accept a task or a tool result.
+type CompletedTurnResolver interface {
+	ResolveCompletedTurn(context.Context, Record) (TurnDecision, error)
+}
+
+type TurnDecision struct {
+	Progress *agentchat.TurnContinuation
+	Next []agentchat.HistoryItem
+	SnapshotID string
 }
 
 type RetrySafeError struct{ Err error }
@@ -632,6 +645,13 @@ func (m *Manager) execute(runID string, slotContext context.Context) {
 			}
 		}
 	}
+	var decision TurnDecision
+	if resolver, supported := m.executor.(CompletedTurnResolver); supported && err == nil && ctx.Err() == nil {
+		if current, exists := m.Get(runID); exists && current.Status == Running && current.Spec.AttemptID == spec.AttemptID {
+			decision, err = resolver.ResolveCompletedTurn(ctx, current)
+		}
+	}
+	canContinue := ctx.Err() == nil
 	cancel()
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -645,6 +665,33 @@ func (m *Manager) execute(runID string, slotContext context.Context) {
 		_ = m.saveLocked(record)
 		m.runs[runID] = record
 		return
+	}
+	if decision.Progress != nil && agentchat.ValidTurnContinuation(decision.Progress) {
+		record.Continuation = decision.Progress
+	}
+	if err == nil && len(decision.Next) != 0 && canContinue && record.Status == Running &&
+		record.Spec.AttemptID == spec.AttemptID {
+		// The conversation may have received another run while the provider
+		// was answering. Never choose an ambiguous automatic continuation.
+		otherRun := false
+		for _, other := range m.runs {
+			if other.Spec.RunID != runID && other.Spec.ConversationID == spec.ConversationID &&
+				(other.CreatedAt.After(record.CreatedAt) || other.Status == Queued ||
+					other.Status == Running || other.Status == WaitingTool) {
+				otherRun = true
+				break
+			}
+		}
+		if otherRun {
+			if record.Continuation != nil {
+				record.Continuation.Reason = "another_run_owns_conversation"
+			}
+		} else if queued, queueErr := m.queueCompletedTurnLocked(record, decision); queueErr == nil {
+			m.runs[runID] = queued
+			return
+		} else {
+			err = queueErr
+		}
 	}
 	now := time.Now().UTC()
 	record.UpdatedAt, record.FinishedAt = now, &now
@@ -727,7 +774,53 @@ func (m *Manager) appendEvent(runID string, event agentchat.RunEvent) error {
 	return nil
 }
 
+// Called only by execute while holding m.mu. The worker which owns the
+// current slot observes the new queued attempt and continues it. No second
+// worker, provider selection, or legacy session request is created.
+func (m *Manager) queueCompletedTurnLocked(record Record, decision TurnDecision) (Record, error) {
+	select {
+	case <-m.closed:
+		return Record{}, errors.New("run manager is closed")
+	default:
+	}
+	if decision.Progress == nil || !agentchat.ValidTurnContinuation(decision.Progress) ||
+		decision.SnapshotID == "" || len(decision.Next) != 2 ||
+		decision.Next[0].Type != "assistant" || decision.Next[1].Type != "user" ||
+		len(record.History)+len(decision.Next) > 256 {
+		return Record{}, errors.New("invalid automatic continuation")
+	}
+	for _, item := range decision.Next {
+		if !validSnapshotHistoryItem(item) || item.OriginRunID != record.Spec.RunID ||
+			item.ProviderID != record.Spec.ProviderID || item.ModelID != record.Spec.ModelID ||
+			item.ParentTurnID != record.Spec.ParentTurnID {
+			return Record{}, errors.New("automatic continuation history is not run-bound")
+		}
+	}
+	attemptID, err := newID()
+	if err != nil { return Record{}, err }
+	key, err := newID()
+	if err != nil { return Record{}, err }
+	record.History = append(append([]agentchat.HistoryItem(nil), record.History...), decision.Next...)
+	record.Spec.ContextSnapshotID = decision.SnapshotID
+	record.Spec.AttemptID, record.Spec.IdempotencyKey = attemptID, key
+	record.Attempt++
+	record.Status, record.LastError, record.RetrySafe = Queued, "", false
+	record.WorkerEpoch, record.FinishedAt = "", nil
+	record.UpdatedAt = time.Now().UTC()
+	if err := m.saveLocked(record); err != nil { return Record{}, err }
+	return record, nil
+}
+
 func cloneRecord(record Record) Record {
+	if record.Continuation != nil {
+		copy := *record.Continuation
+		copy.EvidenceRefs = append([]string(nil), copy.EvidenceRefs...)
+		if copy.NextRetryAt != nil {
+			at := *copy.NextRetryAt
+			copy.NextRetryAt = &at
+		}
+		record.Continuation = &copy
+	}
 	record.History = append([]agentchat.HistoryItem(nil), record.History...)
 	record.Events = append([]Event(nil), record.Events...)
 	for i := range record.Events {

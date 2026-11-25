@@ -47,10 +47,20 @@ func completedAgentRunHistory(base []agentchat.HistoryItem, records []agentrun.R
 	out := append([]agentchat.HistoryItem(nil), base...)
 	for _, record := range conversationRuns {
 		var prompt string
-		for i := len(record.History) - 1; i >= 0; i-- {
-			if record.History[i].Type == "user" {
-				prompt = record.History[i].Content
+		// A server-generated auto-continuation is not the original user
+		// request. Preserve the first submitted turn for this run lineage.
+		for _, item := range record.History {
+			if item.Type == "user" && item.ParentTurnID == record.Spec.ParentTurnID && item.OriginRunID != record.Spec.RunID {
+				prompt = item.Content
 				break
+			}
+		}
+		if prompt == "" {
+			for i := len(record.History) - 1; i >= 0; i-- {
+				if record.History[i].Type == "user" {
+					prompt = record.History[i].Content
+					break
+				}
 			}
 		}
 		if prompt == "" {

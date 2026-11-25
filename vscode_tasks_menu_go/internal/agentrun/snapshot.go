@@ -17,6 +17,11 @@ const maxSnapshotBytes = 4 << 20
 const maxSnapshotHistory = 256
 
 type AutomationSnapshot struct {
+	AutoContinueText bool `json:"auto_continue_text,omitempty"`
+	AutoContinuePlan bool `json:"auto_continue_plan,omitempty"`
+	// ContinuationMode is set only by the server when an automatic turn is
+	// queued. The immutable snapshot revalidates current owner consent at egress.
+	ContinuationMode string `json:"continuation_mode,omitempty"`
 	AutoPatch              bool       `json:"auto_patch,omitempty"`
 	AutoCollection         *bool      `json:"auto_collection,omitempty"`
 	AutoFeedback           bool       `json:"auto_feedback,omitempty"`
@@ -196,6 +201,15 @@ func validateSnapshotPolicy(policy *ContextSnapshotPolicy, ownerWorkspaceID, con
 	}
 	if len(policy.SystemInstructions) > 512<<10 || strings.ContainsRune(policy.SystemInstructions, 0) {
 		return errors.New("context snapshot instructions exceed limit or contain NUL")
+	}
+	switch policy.Automation.ContinuationMode {
+	case "", "conversation", "plan":
+	default:
+		return errors.New("invalid run continuation mode")
+	}
+	if policy.Automation.ContinuationMode == "conversation" && !policy.Automation.AutoContinueText ||
+		policy.Automation.ContinuationMode == "plan" && !policy.Automation.AutoContinuePlan {
+		return errors.New("run continuation is missing pinned owner consent")
 	}
 	switch policy.RetryMode {
 	case "", agentchat.RetryOff, agentchat.RetryLimited, agentchat.RetryUnlimited:
