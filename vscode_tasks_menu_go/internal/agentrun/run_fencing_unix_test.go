@@ -10,7 +10,12 @@ import (
 )
 
 func TestAcquireRunFenceExcludesSecondOwner(t *testing.T) {
+	// TempDir's child directory can be created with mode 0777 subject to
+	// the runner's umask. The production fence requires private storage.
 	dir := t.TempDir()
+	if err := os.Chmod(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
 	first, err := AcquireRunFence(dir, "run-fence-test-1")
 	if err != nil {
 		t.Fatalf("first fence acquire failed: %v", err)
@@ -41,6 +46,16 @@ func TestAcquireRunFenceExcludesSecondOwner(t *testing.T) {
 }
 
 func TestAcquireRunFenceRejectsUnsafeDirectory(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.Chmod(dir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if release, err := AcquireRunFence(dir, "run-unsafe"); release != nil || !errors.Is(err, ErrRunFenceUnavailable) {
+		t.Fatalf("non-private directory must fail closed: release_present=%t err=%v", release != nil, err)
+	}
+	if _, err := os.Lstat(filepath.Join(dir, ".run-fence-"+runFenceDigest("run-unsafe")+".lock")); !os.IsNotExist(err) {
+		t.Fatalf("unsafe directory must not get a lock file: %v", err)
+	}
 	if _, err := AcquireRunFence("relative-dir", "run-1"); !errors.Is(err, ErrRunFenceUnavailable) {
 		t.Fatalf("relative directory must fail closed: %v", err)
 	}

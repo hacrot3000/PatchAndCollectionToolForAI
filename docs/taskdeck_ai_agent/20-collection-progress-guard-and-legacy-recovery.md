@@ -11,7 +11,7 @@
 | Baseline audit | `1c1e2ba0d5004bf5cee75b3fd8a2baa6be9c5422` (25/11/2026, 15:40:33 ICT) |
 | Vị trí tài liệu trong repo (đề xuất) | `docs/taskdeck_ai_agent/20-collection-progress-guard-and-legacy-recovery.md` |
 | Trạng thái hiện tại | `IN_PROGRESS` — baseline remote audit bắt đầu; full checkout/test blocked |
-| Tiến độ | **0/10 phase · 0/36 task · 0/144 subtask DONE** |
+| Tiến độ | **0/10 phase · 1/36 task · 4/144 subtask DONE** |
 | Phạm vi | Legacy Agent Chat, unified Agent Run, native COLLECT/PATCH, provider retry, compact context, journal, UI và migration |
 | Ưu tiên | P1: tránh lặp/gián đoạn và bảo toàn dữ liệu; P2: quan sát, tuning và vận hành |
 
@@ -150,25 +150,25 @@ Không bỏ qua function output của call đã nhận. Nếu checkpoint trướ
     - [ ] **CLP-00.02.02** — Inject fake native collector + provider, tạo lỗi grep, 400 context, timeout, cancellation bằng fake clock. (`TODO`)
     - [ ] **CLP-00.02.03** — Viết assertions cho sequence, ACK, unknown phase, payload size và native execution count; không dùng mạng. (`TODO`)
     - [ ] **CLP-00.02.04** — Chạy fixture baseline, lưu observed behavior và đánh dấu phần synthetic không phải bằng chứng production. (`TODO`)
-- [ ] **CLP-00.03 — Baseline regression và invariants** (`TODO`, P1)
+- [ ] **CLP-00.03 — Baseline regression và invariants** (`IN_PROGRESS`, P1)
   - Chạy targeted tests hiện có: collection, repair, native proof, compact, retry, session/store, provider recovery, continuation, plan acceptance. Lưu kết quả thực tế và lỗi đã tồn tại.
   - **Acceptance:** có baseline test command/exit code; test chưa chạy phải `VERIFY_PENDING`/`BLOCKED`, không đánh dấu PASS giả. Không chỉnh test unrelated để che lỗi.
-    - [ ] **CLP-00.03.01** — Liệt kê test hiện có và giữ baseline 55 unique reads → PATCH; xác nhận test names thực sự match. (`TODO`)
-    - [ ] **CLP-00.03.02** — Chạy suite collection/schema/native proof/compact trên baseline và ghi exit code. (`TODO`)
-    - [ ] **CLP-00.03.03** — Chạy retry/recovery/session/store/continuation/TaskPlan acceptance; ghi failures sẵn có. (`TODO`)
-    - [ ] **CLP-00.03.04** — Ghi môi trường, lệnh, kết quả và blockers; không sửa test để che regression. (`TODO`)
+    - [ ] **CLP-00.03.01** — Liệt kê test hiện có và giữ baseline 55 unique reads → PATCH; xác nhận test names thực sự match. (`IN_PROGRESS`)
+    - [ ] **CLP-00.03.02** — Chạy suite collection/schema/native proof/compact trên baseline và ghi exit code. (`IN_PROGRESS`)
+    - [ ] **CLP-00.03.03** — Chạy retry/recovery/session/store/continuation/TaskPlan acceptance; ghi failures sẵn có. (`IN_PROGRESS`)
+    - [ ] **CLP-00.03.04** — Ghi môi trường, lệnh, kết quả và blockers; không sửa test để che regression. (`IN_PROGRESS`)
 
 ### CLP-01 — Shared Collection Progress Guard (5 task, P1)
 
 - [ ] **Phase gate** — `TODO`; chỉ đánh dấu khi tất cả task cấp 2 DONE và remote delivery đã xác minh.
 
-- [ ] **CLP-01.01 — Shared policy/module và typed decision** (`VERIFY_PENDING`, P1)
+- [x] **CLP-01.01 — Shared policy/module và typed decision** (`DONE`, P1)
   - Tạo module dùng chung (ví dụ `internal/agentchat/collectionprogress` nếu phù hợp dependency graph). Định nghĩa `State`, `Observation`, `Decision`, policy version, threshold, reason codes và intent. Pure decision logic, không phụ thuộc HTTP/UI/collector. Tái sử dụng fingerprint hiện có.
   - **Acceptance:** unit test state transitions, 5/10 advisory, cooldown, read-only/unknown; không đặt hard cap số lượt đọc.
-    - [ ] **CLP-01.01.01** — Thiết kế package pure logic với State/Observation/Decision, reason codes, policy version; tránh dependency cycle. (`VERIFY_PENDING` — isolated unit tests PASS; remote byte verification and repo CI pending)
-    - [ ] **CLP-01.01.02** — Cài decision function tách verified novelty, objective progress và unknown; không cấp quyền tool. (`VERIFY_PENDING` — isolated unit tests PASS; remote byte verification and repo CI pending)
-    - [ ] **CLP-01.01.03** — Cài soft thresholds 5/10/3 và cooldown; không hard cap reads. (`VERIFY_PENDING` — isolated unit tests PASS; remote byte verification and repo CI pending)
-    - [ ] **CLP-01.01.04** — Viết table-driven unit tests cho transitions, read-only/unknown, threshold boundary và long reads. (`VERIFY_PENDING` — isolated unit tests PASS; remote byte verification and repo CI pending)
+    - [x] **CLP-01.01.01** — Thiết kế package pure logic với State/Observation/Decision, reason codes, policy version; tránh dependency cycle. (`DONE` — isolated unit/race PASS; exact remote blobs verified)
+    - [x] **CLP-01.01.02** — Cài decision function tách verified novelty, objective progress và unknown; không cấp quyền tool. (`DONE` — isolated unit/race PASS; exact remote blobs verified)
+    - [x] **CLP-01.01.03** — Cài soft thresholds 5/10/3 và cooldown; không hard cap reads. (`DONE` — isolated unit/race PASS; exact remote blobs verified)
+    - [x] **CLP-01.01.04** — Viết table-driven unit tests cho transitions, read-only/unknown, threshold boundary và long reads. (`DONE` — isolated unit/race PASS; exact remote blobs verified)
 - [ ] **CLP-01.02 — Objective binding và intent** (`TODO`, P1)
   - Bind scope vào current task/user intent/TaskPlan step/generation; đổi task, user intervention, plan revision, worktree change phải có transition rõ ràng. Model hints chỉ là advisory. Không reset toàn bộ counters chỉ vì model/provider đổi.
   - **Acceptance:** coding/read-only/mixed/unknown, task switch, user Stop, no plan, task plan pending/accepted được test; không nâng quyền mutating.
@@ -492,7 +492,7 @@ Kiểm tra cả các Python/native Patch Tool test hiện có nếu sửa contra
 | Phase | Tổng | DONE | Trạng thái |
 |---|---:|---:|---|
 | CLP-00 Baseline | 3 | 0 | IN_PROGRESS |
-| CLP-01 Guard | 5 | 0 | VERIFY_PENDING |
+| CLP-01 Guard | 5 | 1 | IN_PROGRESS |
 | CLP-02 Evidence | 4 | 0 | TODO |
 | CLP-03 Durability | 3 | 0 | TODO |
 | CLP-04 Integration | 4 | 0 | TODO |
@@ -501,14 +501,14 @@ Kiểm tra cả các Python/native Patch Tool test hiện có nếu sửa contra
 | CLP-07 Legacy recovery | 4 | 0 | TODO |
 | CLP-08 UI/Debug | 2 | 0 | TODO |
 | CLP-09 Validation | 3 | 0 | TODO |
-| **Total** | **36** | **0** | **IN_PROGRESS** |
+| **Total** | **36** | **1** | **IN_PROGRESS** |
 
 ### 8.0. Roll-up ba cấp (cập nhật cùng checklist)
 
 | Phase | Phase DONE | Task DONE / total | Subtask DONE / total |
 |---|---:|---:|---:|
 | CLP-00 | 0/1 | 0/3 | 0/12 |
-| CLP-01 | 0/1 | 0/5 | 0/20 |
+| CLP-01 | 0/1 | 1/5 | 4/20 |
 | CLP-02 | 0/1 | 0/4 | 0/16 |
 | CLP-03 | 0/1 | 0/3 | 0/12 |
 | CLP-04 | 0/1 | 0/4 | 0/16 |
@@ -517,7 +517,7 @@ Kiểm tra cả các Python/native Patch Tool test hiện có nếu sửa contra
 | CLP-07 | 0/1 | 0/4 | 0/16 |
 | CLP-08 | 0/1 | 0/2 | 0/8 |
 | CLP-09 | 0/1 | 0/3 | 0/12 |
-| **Total** | **0/10** | **0/36** | **0/144** |
+| **Total** | **0/10** | **1/36** | **4/144** |
 
 Regression gates: **0/28 PASS**. Mỗi lần cập nhật, ghi ID subtask cụ thể, file/test/receipt, trạng thái; chỉ roll up sau khi xác minh. Commit từng subtask có thay đổi độc lập hoặc nhóm nhỏ coherent, không để toàn phase mới commit. Không tạo commit rỗng chỉ để tick.
 
@@ -531,6 +531,9 @@ Regression gates: **0/28 PASS**. Mỗi lần cập nhật, ghi ID subtask cụ t
 
 | 25/11/2026 | CLP-01.01.01–04 | VERIFY_PENDING | Added pure advisory-only collectionprogress policy and unit tests. Local isolated Go 1.23.2: gofmt; GO111MODULE=off go test -v -count=1 (exit 0); GO111MODULE=off go test -race -count=1 (exit 0). Three tests with four intent subtests; 100 useful reads per intent, advisory 5/10, duplicate streak 3, cooldown 5, unknown/error, meaningful progress reset. Tested blob SHA policy.go c6c2f15e4eaf38dd3a8a1860c6a05a759f7a10ca; policy_test.go edbb28d49a6be1e580a0a845d883d00920fa4ec7. | Full repository checkout unavailable; no pipeline integration, no fixture or CI PASS asserted. Work isolated per §1 while baseline tests blocked. | CLP-00.02/03 when runner available; then CLP-01.02 |
 
+| 25/11/2026 | CLP-01.01 | DONE | Local isolated policy tests and race tests exit 0; remote blobs exactly match locally tested files; main confirmed at 1cc1d402a0208962de6aaa1b6ebce5d2325f7773. No runtime integration claimed. | [1cc1d402](https://github.com/hacrot3000/PatchAndCollectionToolForAI/commit/1cc1d402a0208962de6aaa1b6ebce5d2325f7773); [CI 45581659480](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/45581659480) observed in progress | CLP-00.03 baseline CI |
+| 25/11/2026 | CLP-00.03 | IN_PROGRESS | Baseline CI [45580850787](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/45580850787) failure, agentchat-core job 139090221857: TestAcquireRunFenceExcludesSecondOwner: first fence acquire failed: same-host run fence unavailable, exit 1; server tests not reached. agent-failed-queue job 139090222198 PASS. Isolated reproduction with exact run_fencing.go/unix.go/test blobs and Status definitions from manager.go: umask 022; GO111MODULE=off go test -v -count=1 exit 1. Corrected fixture directory chmod 0700, added explicit 0755 refusal/no lock file assertion; GO111MODULE=off go test -v -race -count=1 exit 0. Production fence unchanged. Tested fixture blob 6f78342313f1cd4c8f712c708f3a86f30d495017. | Full CI pending. No skipped baseline tests marked PASS. | Verify CI and finish baseline trace/incident fixture |
+
 #### CLP-00.01 — Partial pinned-source trace
 All paths below are relative to `vscode_tasks_menu_go/internal/server/`, read at `a7cc2a1711bfc25efca51676150a4f5d300c7aa1`.
 - Legacy: `agent_chat_messages.go:162,356–448,512–586` message admission, request projection, Save, collection and Patch proposal. `agent_chat_collection_flow.go:113–359` validates native request, saves provider response checkpoint (181–184), saves native start (218–223), executes native (225), handles repair (279–301), builds exact next output/request (285–349), saves before egress (355–359). Inner loop has no fixed round cap (139).
@@ -538,7 +541,7 @@ All paths below are relative to `vscode_tasks_menu_go/internal/server/`, read at
 - Unified: `agent_run_collection.go:21,45,77–155` RunSpec permission check, pending call resolution, schema/fingerprint repair, native execution, function output, snapshot CreateWithPolicy. `agent_run_continuation.go:61,103` verified progress signature and completed-turn decision. Different ownership: immutable RunSpec/snapshot vs mutable Legacy session/CAS. Full scheduler/lease/TaskPlan tracing remains pending.
 - Native: `agent_chat_native_collection.go:37,149,198,307`; canonical request, manifest, observation, native runner. `agent_collection_repair.go:78,96` fingerprint and matching reads. New `agent_chat_failed_queue.go:29,73` retirement admission must be preserved.
 - CI: `.github/workflows/taskdeck_agentchat_core.yml` runs `go test -race -count=1 ./internal/agentchat/...`, `go test -v -race -count=1 ./internal/agentrun/...`, `go test -count=1 ./internal/server -run '^TestAgent'`, focused race tests, vet, Node checks and Python preflight/failed queue. These were read, not executed.
-- No source changed yet. No local checkout; cannot assert local cleanliness or full baseline test success. Continue source audit via authenticated connector without force push; integration/test status remains unverified.
+- At this initial trace checkpoint no source had changed. No local checkout; cannot assert local cleanliness or full baseline test success. Continue source audit via authenticated connector without force push; integration/test status remains unverified.
 
 Mẫu bản ghi task (điền dữ liệu thật):
 
@@ -565,6 +568,7 @@ Next task:
 | D-002 | PLAN | Log redacted, không xác nhận số COLLECT thừa hoặc exact old binary SHA | Cần test dựa trên synthetic evidence | CLP-00.02, CLP-07.04 | OPEN |
 | D-003 | PLAN | Chưa chạy local/CI hoặc deploy build | Chưa xác nhận runtime fix | CLP-00.03, CLP-09 | OPEN |
 | D-004 | CLP-00.01 | Sandbox has no repository checkout; direct Git DNS unavailable; connector remote API available | Cannot run full baseline/test/build locally; remote Git writes via connector only | Provide a checked-out repository/test runner or obtain actual CI receipts; no false PASS | OPEN |
+| D-005 | CLP-00.03 | Pre-existing CI failure: run fence fixture used t.TempDir without ensuring 0700 | Prevents subsequent server tests from executing | Fix fixture precondition, retain all assertions and add unsafe-directory rejection test; verify full CI | VERIFY_PENDING |
 
 ## 9. Definition of Done toàn handoff
 

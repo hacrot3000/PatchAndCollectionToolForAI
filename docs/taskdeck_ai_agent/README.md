@@ -21,6 +21,10 @@ Ngày lập: 2026-11-19. Tài liệu nguồn và checklist chính: [handoff](../
 
 Mỗi dòng Fxx/Fxx.y/Fxx.y.z trong checklist nguồn liên kết trực tiếp đến tài liệu nhóm tương ứng. Khi thực hiện một mục, đọc cả phần nguyên tắc chung và phần ID cụ thể; không diễn giải mục `[x]` là được kiểm thử live.
 
+## HANDOFF 20
+
+- [Collection Progress Guard, Context Budget & Legacy Conversation Recovery](20-collection-progress-guard-and-legacy-recovery.md) — living checklist 10 phase / 36 task / 144 subtask; consult recorded test and remote receipts before claiming completion.
+
 ## Thứ tự và phụ thuộc thực tế
 
 1. F01.3 chốt ranh giới parser/queue/runtime và xác minh test nền. F07 theo xuyên suốt, không chờ cuối.
