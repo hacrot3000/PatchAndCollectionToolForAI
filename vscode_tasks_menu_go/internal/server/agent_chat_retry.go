@@ -196,10 +196,8 @@ func agentRetryContextPayload(payload []byte)([]byte,bool){
  }
  // The latest user message or trailing batch of verified tool outputs is
  // mandatory. The compactor keeps each source call for Next in full.
- cut:=len(items)-1
- if items[cut].Type=="function_call_output"{
-  for cut>0&&items[cut-1].Type=="function_call_output"{cut--}
- }else if items[cut].Type!="user"{return nil,false}
+ if items[len(items)-1].Type!="function_call_output"&&items[len(items)-1].Type!="user"{return nil,false}
+ cut:=agentMandatoryRetrySuffix(items)
  next:=items[cut:]
  budget:=contextcompact.Tokens(string(payload))/2
  if budget<4096{budget=4096}

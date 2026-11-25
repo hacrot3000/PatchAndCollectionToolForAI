@@ -313,7 +313,7 @@ func (s *Server) agentChatAuthorizedMessage(w http.ResponseWriter, r *http.Reque
 		if !eligible||session.ProviderRun.ID!=req.ResumeCollectionRunID||s.Config.SharedServerEnabled||len(runRecords)!=0{
 			http.Error(w,"Collection resume is not safe for this checkpoint; reconcile the exact prior provider run and any unresolved tool work",409);return
 		}
-		msg="Resume the original unfinished task from the canonical conversation and current verified native receipts. This is a NEW continuation after an unconfirmed read-only Collection provider response, not a replay. Do not re-execute prior Patches or resend acknowledged results. Inspect only the specific missing scope using the current native COLLECT contract; never claim the prior provider received the result. Preserve the existing task plan and approval rules."
+		msg=agentCollectionResumeInstruction
 	}
 	// Send itself authorizes a new request, not replay of an old delivery.
 	newAfterCollection := !resumeCollection && agentchat.HasUnknownCollectionDelivery(session)
@@ -481,10 +481,16 @@ func (s *Server) agentChatAuthorizedMessage(w http.ResponseWriter, r *http.Reque
 	conversationID := session.ConversationID
 	contextModel := model
 	if mode==agentchat.Stateless{contextModel,limit=agentAdaptiveRequestBudget(store,session,p,model,string(secret),limit)}
+	requestNext:=[]agentchat.HistoryItem{next}
+	if resumeCollection{
+		var ok bool
+		failureProjection.History,requestNext,ok=agentCollectionResumeProjection(session,failureProjection.History,next)
+		if !ok{http.Error(w,"cannot project the exact saved Collection checkpoint; canonical history retained",409);return}
+	}
 	payload, err := agentchat.BuildResponsesRequest(agentchat.RequestConfig{
 		Model: session.ModelID, Instructions: instructions, Mode: mode,
 		PreviousResponseID: session.PreviousResponseID, ConversationID: conversationID,
-		History: agentContextForRequest(failureProjection, contextModel, instructions, []agentchat.HistoryItem{next}), Next: []agentchat.HistoryItem{next}, MaxOutputTokens: limit,
+		History: agentContextForRequest(failureProjection, contextModel, instructions, requestNext), Next: requestNext, MaxOutputTokens: limit,
 		ReasoningEffort: reasoning,
 		EnablePatchTool: patchToolAvailable, EnableCollectionTool: patchToolAvailable,
 		NativeCollectionContract: agentInstalledCollectionContract(s.Workspace),

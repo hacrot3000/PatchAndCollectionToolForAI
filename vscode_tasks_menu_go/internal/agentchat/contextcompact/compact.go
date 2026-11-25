@@ -316,6 +316,10 @@ func Build(history []agentchat.HistoryItem,p Policy)([]agentchat.HistoryItem,Sta
  budget:=ceiling-overhead
  if budget<0{budget=0}
  gs:=groups(history,p.SyntheticPatchIDs,p.Next)
+ if len(gs)>0&&len(history)>0&&len(p.Next)>0{
+  tail:=append(append([]agentchat.HistoryItem(nil),history[len(history)-1]),p.Next[0])
+  if agentchat.CollectionTextObservation(tail,1)&&tail[0].Type=="assistant"{gs[len(gs)-1].keep=true}
+ }
  stats:=Stats{CollectionBudgetTokens:ceiling*p.CollectionPercent/100,ArchivedItems:p.ArchivedItems}
  // Keep the original user goal and all unresolved model tool calls, plus
  // the latest human instructions. Older plain narration is supplementary.

@@ -20,7 +20,7 @@ func TestAgentCLP20ExplicitUnknownCollectionResumePreservesAuditAndAck(t *testin
   {Type:"function_call",CallID:"old-patch",Name:"taskdeck_submit_patch",Arguments:`{"name":"old","patch_python":"print(1)"}`},
   {Type:"function_call_output",CallID:"old-patch",Content:`{"status":"PASS","run_id":"patch-run"}`},
   {Type:"function_call",CallID:"read",Name:"taskdeck_collect_workspace",Arguments:`{"actions":[{"type":"ls","path":"."}]}`},
-  {Type:"function_call_output",CallID:"read",Content:`{"status":"PASS","results":[]}`}}
+  {Type:"function_call_output",CallID:"read",Content:`{"status":"PASS","results":[],"text":`+`"`+strings.Repeat("checkpoint-evidence-",10000)+`"}`}}
  x.ToolCalls=[]agentchat.ToolCallRecord{{CallID:"old-patch",Name:"taskdeck_submit_patch",Status:"done",Result:x.History[2].Content,FeedbackSent:true,FeedbackStatus:"acknowledged"}}
  x.Status="requesting_ai"
  x.LastRequestKey="old-accepted-message"
@@ -47,6 +47,11 @@ func TestAgentCLP20ExplicitUnknownCollectionResumePreservesAuditAndAck(t *testin
   calls++
   if strings.Contains(string(payload),"old ambiguous bytes")||strings.Contains(string(payload),`"previous_response_id"`){t.Fatal("old provider payload replayed")}
   if !strings.Contains(string(payload),"NEW continuation")||!strings.Contains(string(payload),"Fix the original issue"){t.Fatal("original objective lost")}
+  var wire struct{Input []map[string]any `json:"input"`}
+  if err:=json.Unmarshal(payload,&wire);err!=nil{t.Fatal(err)}
+  count:=0
+  for _,it:=range wire.Input{if it["type"]=="function_call_output"&&it["call_id"]=="read"{count++;if it["output"]!=original[4].Content{t.Fatal("exact large resume receipt changed")}}}
+  if count!=1{t.Fatalf("resume receipt count %d",count)}
   return agentchat.ResponsesResult{ResponseID:"new-response",Calls:[]agentchat.FunctionCall{{CallID:"new-patch",Name:"taskdeck_submit_patch",Arguments:string(args)}}},nil
  }
  s.AgentCollectionCall=func(_ string,_ patchtool.ProjectIdentity,_ []byte)string{t.Fatal("old native read replayed");return ""}
