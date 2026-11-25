@@ -94,38 +94,45 @@ func agentFeedbackGrantForCall(x agentchat.Session, call agentchat.ToolCallRecor
 // agentAutoFeedbackCandidate reports whether a session currently qualifies.
 // It is a pure read used by both the scheduler and tests.
 func agentAutoFeedbackCandidate(x agentchat.Session) (int, bool) {
-	if x.Archived {
-		return 0, false
-	}
-	if x.ProviderRun != nil && (x.ProviderRun.Phase == "prepared" || x.ProviderRun.Phase == "sending" || x.ProviderRun.Phase == "unknown") {
-		return 0, false
-	}
-	if x.Status != "waiting_tool" && x.Status != "tool_rejected" {
-        return 0, false
-    }
-	for _, call := range x.ToolCalls {
-		switch call.Status {
-		case "queuing", "running", "dispatching", "queued", "unknown":
-			return 0, false // wait until the native item is final
-		}
-	}
-	recorded:=map[string]bool{}
-	for _,item:=range x.History{if item.Type=="function_call_output"&&item.CallID!=""{recorded[item.CallID]=true}}
-	for i, call := range x.ToolCalls {
-		if call.FeedbackSent {
-			if call.FeedbackStatus=="unknown"||call.FeedbackStatus=="sending"||call.FeedbackStatus=="prepared"{return 0,false}
-			continue
-		}
-		if recorded[call.CallID]{continue} // historical result, never re-send
-		if call.Status=="rejected"&&!agentFeedbackCallIsCurrent(x,call.CallID){continue}
-		switch call.Status {
-		case "done", "error", "rejected":
-            if call.FeedbackStatus == "" && agentFeedbackGrantForCall(x, call) {return i,true}
-            return 0,false
-		}
-		return 0, false
-	}
-	return 0, false
+ idx,reason:=agentAutoFeedbackAdmission(x)
+ return idx,reason==""
+}
+
+// Single source of truth for scheduler eligibility and the UI/Debug reason.
+func agentAutoFeedbackAdmission(x agentchat.Session)(int,string){
+ if x.Archived{return 0,"conversation_archived"}
+ if x.ProviderRun!=nil{
+  switch x.ProviderRun.Phase{case "prepared","sending","unknown":return 0,"provider_delivery_unresolved"}
+ }
+ if x.Status!="waiting_tool"&&x.Status!="tool_rejected"{return 0,"not_awaiting_tool_result"}
+ for _,call:=range x.ToolCalls{
+  switch call.Status{case "queuing","running","dispatching","queued","unknown":return 0,"native_work_unresolved"}
+  if call.FeedbackStatus=="prepared"||call.FeedbackStatus=="sending"||
+   (call.FeedbackStatus=="unknown"&&!agentchat.HistoricalUnconfirmedFeedback(x,call)){return 0,"current_feedback_unconfirmed"}
+ }
+ recorded:=map[string]bool{}
+ for _,item:=range x.History{if item.Type=="function_call_output"&&item.CallID!=""{recorded[item.CallID]=true}}
+ for i,call:=range x.ToolCalls{
+  if call.FeedbackSent||recorded[call.CallID]||!agentFeedbackCallIsCurrent(x,call.CallID){continue}
+  switch call.Status{
+  case "done","error","rejected":
+   if call.FeedbackStatus!=""{return 0,"feedback_already_attempted"}
+   if !agentFeedbackGrantForCall(x,call){return 0,"auto_feedback_not_authorized_or_repair_limit"}
+   return i,""
+  default:return 0,"native_work_unresolved"
+  }
+ }
+ return 0,"no_current_pending_result"
+}
+
+func agentAutoFeedbackDiagnostic(x agentchat.Session)map[string]any{
+ idx,reason:=agentAutoFeedbackAdmission(x)
+ if reason==""&&x.Owner!="local"{reason="explicit_owner_action_required"}
+ out:=map[string]any{"eligible":reason=="","reason":reason,"auto_feedback":x.AutoFeedback,"persistent":x.AutoFeedbackPersistent}
+ if x.AutoFeedbackUntil!=nil{out["grant_until"]=x.AutoFeedbackUntil}
+ if x.ProviderRun!=nil{out["provider_phase"]=x.ProviderRun.Phase}
+ if reason==""{out["call_id"]=x.ToolCalls[idx].CallID}
+ return out
 }
 
 // runAgentAutoFeedback performs one bounded pass. Each session is processed
@@ -205,7 +212,7 @@ func agentAutoFeedbackNeedsWork(x agentchat.Session) bool {
 	// requires reconciliation, even when auto-feedback was not selected.
 	for _, call := range x.ToolCalls {
 		switch call.Status {
-		case "queuing", "running", "unknown", "dispatching":
+		case "queuing", "running", "unknown", "dispatching", "queued":
 			return true
 		}
 	}
@@ -344,7 +351,11 @@ func (s *Server) autoFeedbackOne(ctx context.Context, store *agentchat.Store, id
 		if errors.As(err, &sc) && sc.status == 429 {
 			return // transient admission pressure; a later pass retries safely
 		}
-		// failed/unknown is already durable; never retry automatically.
+		// Pre-egress failures need a visible reason; never claim delivery or
+		// retry native execution. Post-egress failed/unknown is already durable.
+		if errors.As(err,&sc){
+			s.recordAgentDebugEvent("local",id,x.ToolCalls[idx].CallID,"feedback","feedback.admission_blocked","AUTO_FEEDBACK_BLOCKED",sc.message)
+		}
 	}
 }
 

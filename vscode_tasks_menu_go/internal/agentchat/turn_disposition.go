@@ -193,7 +193,7 @@ func StandaloneAutoContinueCandidate(x Session)bool{
  }
  for _,call:=range x.ToolCalls{
   if (call.Status=="done"||call.Status=="error"||call.Status=="rejected")&&
-   (!call.FeedbackSent||call.FeedbackStatus!="acknowledged"){return false}
+   (!call.FeedbackSent||call.FeedbackStatus!="acknowledged")&&!HistoricalUnconfirmedFeedback(x,call){return false}
  }
  return true
 }

@@ -116,6 +116,7 @@ func (s *Server) agentChatDebugReportAPI(w http.ResponseWriter, r *http.Request)
       "prompt_id":call.PromptID,"selected_index":call.SelectedIndex,
       "run_id":call.RunID,"feedback_status":call.FeedbackStatus,
       "feedback_sent":call.FeedbackSent,
+      "historical_unconfirmed":agentchat.HistoricalUnconfirmedFeedback(sess,call),
      }
      if call.Result!="" {
       var parsed any
@@ -130,6 +131,7 @@ func (s *Server) agentChatDebugReportAPI(w http.ResponseWriter, r *http.Request)
      }
      calls=append(calls,item)
     }
+    feedbackDiagnostic:=agentAutoFeedbackDiagnostic(sess)
     out=append(out,map[string]any{
      "id":sess.ID,"status":sess.Status,"revision":sess.Revision,
      "provider_id":sess.ProviderID,"model_id":sess.ModelID,
@@ -139,7 +141,7 @@ func (s *Server) agentChatDebugReportAPI(w http.ResponseWriter, r *http.Request)
      "last_request_digest":sess.LastRequestSHA,
      "event_seq":sess.EventSeq,"events":sess.Events,
      "history_items":hist,"history_item_count":len(sess.History),
-     "tool_calls":calls,
+     "tool_calls":calls,"auto_feedback_diagnostic":feedbackDiagnostic,
     })
    }
    report["sessions"]=out

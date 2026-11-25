@@ -70,3 +70,20 @@ func TestTextRephrasingDoesNotResetDurableNoProgress(t *testing.T){
  }
  if !ValidTurnContinuation(x.Continuation){t.Fatal("invalid durable continuation")}
 }
+
+
+func TestHistoricalUnconfirmedFeedbackRequiresNewTurnAndExactReceipt(t *testing.T){
+ old:=ToolCallRecord{CallID:"old",Name:"taskdeck_submit_patch",Status:"done",Result:`{"status":"PASS"}`,FeedbackSent:true,FeedbackStatus:"unknown"}
+ x:=Session{Owner:"local",Status:"completed",AutoContinueText:true,ProviderRun:&ProviderRun{Phase:"completed"},ToolCalls:[]ToolCallRecord{old},
+ History:[]HistoryItem{{Type:"function_call",Name:old.Name,CallID:old.CallID},{Type:"function_call_output",CallID:old.CallID,Content:old.Result},{Type:"user",Content:"continue"},{Type:"assistant",Content:"Remaining work: inspect sources."}}}
+ RecordTurnDisposition(&x,x.History[3].Content)
+ if !HistoricalUnconfirmedFeedback(x,old)||!StandaloneAutoContinueCandidate(x){t.Fatal("historical ambiguity blocked new turn")}
+ x.ProviderRun.Phase="unknown"
+ if HistoricalUnconfirmedFeedback(x,old)||StandaloneAutoContinueCandidate(x){t.Fatal("active provider ambiguity bypassed")}
+ x.ProviderRun.Phase="completed"
+ x.History=x.History[:3]
+ if HistoricalUnconfirmedFeedback(x,old){t.Fatal("user input without provider response treated as recovery")}
+ x.History=append(x.History,HistoryItem{Type:"assistant",Content:"new response"})
+ x.History[1].Content="different receipt"
+ if HistoricalUnconfirmedFeedback(x,old){t.Fatal("mismatched output accepted")}
+}
