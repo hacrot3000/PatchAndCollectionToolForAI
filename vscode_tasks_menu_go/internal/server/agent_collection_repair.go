@@ -17,7 +17,7 @@ func agentCollectionRepairError(observed string) (string,string,bool) {
  var d struct { Error struct { Code string `json:"code"`; Message string `json:"message"` } `json:"error"` }
  if json.Unmarshal([]byte(observed), &d)!=nil {return "","",false}
  switch d.Error.Code {
- case "COLLECT_SCHEMA_INVALID","INVALID_COLLECTION_REQUEST","COLLECTION_NO_PROGRESS":
+ case "COLLECT_SCHEMA_INVALID","INVALID_COLLECTION_REQUEST","COLLECTION_NO_PROGRESS","COLLECTION_IDENTITY_REJECTED":
   return d.Error.Code,d.Error.Message,true
  }
  return "","",false
@@ -36,7 +36,8 @@ func agentCollectionRepairFeedback(code,message string,attempt int) string {
  }else if strings.Contains(message,"project")&&strings.Contains(message,"identity"){
   field="project";expected="Typed calls omit project; standalone text must use the verified object with key and id, never a string."
  }
- digest:=sha256.Sum256([]byte(code+"\n"+message))
+ semantic:=regexp.MustCompile(`\[[0-9]+\]`).ReplaceAllString(message,"[]")
+ digest:=sha256.Sum256([]byte(code+"\n"+semantic))
  action:="Repair the original invalid field; preserve valid actions, never invent paths. Examples demonstrate shapes only."
  if attempt>=2 {action+=" Refresh your understanding using the current native COLLECT contract."}
  if attempt>=3 {action+=" Submit only one small native action at a time."}
@@ -69,4 +70,24 @@ func agentRunCollectionRepairCount(history []agentchat.HistoryItem,parent string
   n++
  }
  return n
+}
+
+// Ignore display-only request and action metadata, not scope, arguments,
+// limits, project identity or execution-affecting ai_context fields.
+func agentCollectionRequestFingerprint(raw []byte)string{
+ var obj map[string]json.RawMessage
+ if json.Unmarshal(raw,&obj)!=nil{return fmt.Sprintf("%x",sha256.Sum256(raw))}
+ delete(obj,"id");delete(obj,"title")
+ var actions []map[string]json.RawMessage
+ if json.Unmarshal(obj["actions"],&actions)==nil{
+  for _,a:=range actions{delete(a,"id");delete(a,"title")}
+  b,_:=json.Marshal(actions);obj["actions"]=b
+ }
+ // Decode/re-encode nested objects to normalize key order and whitespace
+ // without rounding numbers or changing array order.
+ b,_:=json.Marshal(obj)
+ dec:=json.NewDecoder(strings.NewReader(string(b)));dec.UseNumber()
+ var value any
+ if dec.Decode(&value)==nil{b,_=json.Marshal(value)}
+ return fmt.Sprintf("%x",sha256.Sum256(b))
 }

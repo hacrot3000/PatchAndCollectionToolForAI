@@ -109,10 +109,14 @@ func agentAutoFeedbackCandidate(x agentchat.Session) (int, bool) {
 			return 0, false // wait until the native item is final
 		}
 	}
+	recorded:=map[string]bool{}
+	for _,item:=range x.History{if item.Type=="function_call_output"&&item.CallID!=""{recorded[item.CallID]=true}}
 	for i, call := range x.ToolCalls {
 		if call.FeedbackSent {
+			if call.FeedbackStatus=="unknown"||call.FeedbackStatus=="sending"||call.FeedbackStatus=="prepared"{return 0,false}
 			continue
 		}
+		if recorded[call.CallID]{continue} // historical result, never re-send
 		switch call.Status {
 		case "done", "error", "rejected":
             if call.FeedbackStatus == "" && agentFeedbackGrantForCall(x, call) {return i,true}

@@ -71,3 +71,25 @@ func TestAgentRecoverLegacyCollectionAcknowledgementRequiresExactJournal(t *test
   if agentRecoverAcknowledgedCollection(&x)||x.ProviderRun.Phase!="unknown"{t.Fatal("ambiguous request incorrectly reconciled")}
  }
 }
+
+func TestAgentCollectionFingerprintIgnoresDisplayMetadata(t *testing.T){
+ a:=[]byte(`{"id":"1","actions":[{"type":"pack","title":"a","paths":["x"]}],"limits":{"max_files":2}}`)
+ b:=[]byte(`{"limits":{"max_files":2},"actions":[{"paths":["x"],"type":"pack","id":"2"}],"title":"b"}`)
+ if agentCollectionRequestFingerprint(a)!=agentCollectionRequestFingerprint(b){t.Fatal("metadata bypassed fingerprint")}
+ if agentCollectionRequestFingerprint(a)==agentCollectionRequestFingerprint([]byte(strings.ReplaceAll(string(a),"\"x\"","\"y\""))){t.Fatal("different paths collapsed")}
+}
+func TestAgentCollectionIdentityClassification(t *testing.T){
+ identity:=patchtool.ProjectIdentity{Key:"key",ID:"id"}
+ for _,tc:=range []struct{raw string;required bool;kind string}{
+  {"",false,""},{"",true,"missing"},{`"id"`,false,"malformed"},{`{"key":"foreign"}`,false,"foreign"},{`{"key":"key","id":"id","extra":1}`,false,"malformed"},{`{"key":"key","id":"id"}`,true,""},
+ }{
+  err:=agentCollectionIdentity([]byte(tc.raw),identity,tc.required)
+  if agentCollectionIdentityKind(err)!=tc.kind||(tc.kind==""&&err!=nil){t.Fatalf("identity classification %q: %v",tc.raw,err)}
+ }
+}
+func TestAgentInterruptedCollectionCheckpointClosesExactCallOnce(t *testing.T){
+ x:=agentchat.Session{Status:"failed",ProviderRun:&agentchat.ProviderRun{ID:"r5-e2",Phase:"acknowledged"},History:[]agentchat.HistoryItem{{Type:"function_call",Name:"taskdeck_collect_workspace",CallID:"read-1",Arguments:`{"actions":[{"type":"overview"}]}`}}}
+ x.AppendEvent("collect_response_checkpoint","requesting_ai","read-1","r5-e2")
+ if !agentCloseInterruptedCollection(&x)||len(x.History)!=2||x.History[1].CallID!="read-1"||!strings.Contains(x.History[1].Content,"COLLECTION_LOCAL_INTERRUPTED"){t.Fatal("checkpoint not closed")}
+ if agentCloseInterruptedCollection(&x){t.Fatal("checkpoint duplicated")}
+}

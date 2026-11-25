@@ -136,6 +136,7 @@ func (s *Server) agentReconcileOneStartupSession(ctx context.Context,store *agen
 			// crossing the network boundary.
 		} else {
 			sess.Status="failed"
+			agentCloseInterruptedCollection(&sess)
 			markAgentProviderOutcome(&sess,"unknown")
 			detail:="provider_egress_after_restart_unknown"
 			if sess.ProviderRun!=nil&&(sess.ProviderRun.Phase=="acknowledged"||sess.ProviderRun.Phase=="completed"){detail="acknowledged_response_local_processing_interrupted"}

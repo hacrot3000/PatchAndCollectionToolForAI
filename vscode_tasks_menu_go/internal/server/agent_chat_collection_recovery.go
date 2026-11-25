@@ -30,6 +30,38 @@ func agentRecoverAcknowledgedCollection(x *agentchat.Session) bool {
  // Preserve task status and history. This is not recovery of the missing
  // response body and does not authorize replay of the old provider request.
  markAgentProviderOutcome(x,"acknowledged")
+ x.PreviousResponseID="";x.ConversationID=""
  x.AppendEvent("provider_ack_recovered","failed",run.CallID,"verified local response accounting and exact Collection rejection; do not replay original request")
+ return true
+}
+
+
+// A response checkpoint is an exact current-run marker in canonical local
+// history. If interrupted after acknowledgement, never re-run native work:
+// close the pending call with an explicitly unverified observation instead.
+func agentCloseInterruptedCollection(x *agentchat.Session)bool{
+ if x==nil||x.ProviderRun==nil||x.ProviderRun.Phase!="acknowledged"{return false}
+ var event *agentchat.SessionEvent
+ for i:=len(x.Events)-1;i>=0;i--{
+  e:=&x.Events[i]
+  if e.Kind=="collect_response_checkpoint"&&e.Detail==x.ProviderRun.ID{event=e;break}
+ }
+ if event==nil{return false}
+ const diagnostic=`{"status":"FAILED","error":{"code":"COLLECTION_LOCAL_INTERRUPTED","message":"The acknowledged native Collection response was interrupted during local processing. No verified evidence is available for this call. Inspect native history before any potentially mutating operation; do not replay the old request.","retry_allowed":false}}`
+ if event.CallID!=""{
+  found:=false
+  for _,it:=range x.History{
+   if it.CallID!=event.CallID{continue}
+   if it.Type=="function_call_output"{return false}
+   if it.Type=="function_call"&&it.Name=="taskdeck_collect_workspace"{found=true}
+  }
+  if !found{return false}
+  x.History=append(x.History,agentchat.HistoryItem{Type:"function_call_output",CallID:event.CallID,Content:diagnostic})
+ }else{
+  if len(x.History)==0||x.History[len(x.History)-1].Type!="assistant"{return false}
+  x.History=append(x.History,agentchat.HistoryItem{Type:"user",Content:"TaskDeck local Collection checkpoint: "+diagnostic})
+ }
+ x.PreviousResponseID="";x.ConversationID=""
+ x.AppendEvent("collect_checkpoint_closed",x.Status,event.CallID,x.ProviderRun.ID)
  return true
 }

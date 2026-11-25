@@ -46,11 +46,7 @@ func agentNativeCollectionRequest(raw string, identity patchtool.ProjectIdentity
   switch key {case "id","title","project","ai_context","actions","limits":
   default:return nil,fmt.Errorf("unexpected native COLLECT field %q",key)}
  }
- if len(request["project"])!=0&&string(request["project"])!="null"{
-  if err:=ensurePastedIdentity(request["project"],identity);err!=nil{return nil,err}
- }else if requireIdentity {
-  return nil,errors.New("text COLLECT must include exact project.key and project.id")
- }
+ if err:=agentCollectionIdentity(request["project"],identity,requireIdentity);err!=nil{return nil,err}
  var actions []json.RawMessage
  if json.Unmarshal(request["actions"],&actions)!=nil||len(actions)==0 {
   return nil,errors.New("native COLLECT requires nonempty actions array")

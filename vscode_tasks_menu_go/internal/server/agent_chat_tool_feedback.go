@@ -375,6 +375,7 @@ for _,i:=range indices{x.ToolCalls[i].FeedbackStatus="acknowledged"}
 	if err != nil {
 		x.Status = "failed"
 		// Collection flow already marks actual provider errors UNKNOWN.
+		agentCloseInterruptedCollection(&x)
 		x.AppendEvent("collect_failed", "failed", "", "")
 		_, _ = store.Save(x, x.Revision)
 		return agentDeliverResult{}, agentContinueError{502, "Collection continuation after Patch result failed; inspect the Agent journal"}

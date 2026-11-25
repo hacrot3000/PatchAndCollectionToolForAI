@@ -484,6 +484,7 @@ func (s *Server) agentChatMessageAPI(w http.ResponseWriter, r *http.Request, id 
 			stage = "collection_cancelled"
 		}
 		// Local Collection failures do not make acknowledged egress ambiguous.
+		agentCloseInterruptedCollection(&session)
 		session.AppendEvent("collect_failed", session.Status, "", stage)
 		if _, saveErr := store.Save(session, session.Revision); saveErr != nil {
 			http.Error(w, "Collection continuation failed; inspect the persisted Agent session", 409)
@@ -506,6 +507,8 @@ func (s *Server) agentChatMessageAPI(w http.ResponseWriter, r *http.Request, id 
 				code, httpStatus = "COLLECTION_IDENTITY_REJECTED", http.StatusConflict
 			}
 		}
+		var nested *agentCollectionProviderError
+		if errors.As(callErr,&nested)&&nested.TraceID!=""{traceID=nested.TraceID}
 		s.recordAgentDebugEvent(owner, id, "", "collection", "collection.failed", code,
 			"stage="+stage+" trace="+traceID+" cause="+scrubAIContext(agentchat.SafeProviderText(callErr.Error()), 600))
 		publicMessage := "Collection result or request was saved, but continuation could not finish. No Patch was executed. Inspect the provider trace and Agent events."
