@@ -10,8 +10,8 @@
 | Nhánh triển khai | **`main` — không tạo feature branch/PR thay cho yêu cầu này** |
 | Baseline audit | `1c1e2ba0d5004bf5cee75b3fd8a2baa6be9c5422` (25/11/2026, 15:40:33 ICT) |
 | Vị trí tài liệu trong repo (đề xuất) | `docs/taskdeck_ai_agent/20-collection-progress-guard-and-legacy-recovery.md` |
-| Trạng thái hiện tại | `IN_PROGRESS` — local checkout blocked; latest core CI FAIL; see verification checkpoint |
-| Tiến độ | **0/10 phase · 3/36 task · 19/144 subtask DONE** |
+| Trạng thái hiện tại | `IN_PROGRESS` — Legacy runtime guard integrated; Go regression PASS at 92656e4e; latest UI/PATCH-invalidation CI pending; local checkout unavailable |
+| Tiến độ | **0/10 phase · 3/36 task · 31/144 subtask DONE** |
 | Phạm vi | Legacy Agent Chat, unified Agent Run, native COLLECT/PATCH, provider retry, compact context, journal, UI và migration |
 | Ưu tiên | P1: tránh lặp/gián đoạn và bảo toàn dữ liệu; P2: quan sát, tuning và vận hành |
 
@@ -188,7 +188,7 @@ Không bỏ qua function output của call đã nhận. Nếu checkpoint trướ
   - **Acceptance:** sau nhiều lượt không novelty, tạo checkpoint và tối đa số recovery cho phép theo generation; khi có bằng chứng mới thì tiếp tục; không mất tool pair.
     - [x] **CLP-01.04.01** — Cài decisions continue/advisory/replan/checkpoint với reason và next action có schema bounded. (`DONE` — pure bounded decisions/reasons/actions verified in CI 45584362259)
     - [ ] **CLP-01.04.02** — Nối recovery generation/budget vào framework continuation, giữ stop/unknown là trạng thái riêng. (`VERIFY_PENDING` — Legacy verified receipt checkpoint/replan; CI and Unified pending)
-    - [ ] **CLP-01.04.03** — Định nghĩa cách đóng pending call thật khi checkpoint, không invent output hoặc mark task done. (`VERIFY_PENDING` — commit exact native output before recovery; CI pending)
+    - [x] **CLP-01.04.03** — Định nghĩa cách đóng pending call thật khi checkpoint, không invent output hoặc mark task done. (`DONE` — exact native output committed before recovery and preserved at checkpoint; named test PASS 45587765715)
     - [ ] **CLP-01.04.04** — Test stall lặp, recovery tối đa, novelty xuất hiện lại, pending pair và no continuation storm. (`TODO`)
 - [ ] **CLP-01.05 — Policy configuration và compatibility** (`IN_PROGRESS`, P1)
   - Central defaults + validate range; không rải magic numbers. Dùng internal config trước nếu UI không cần chỉnh. Policy version/snapshot phù hợp unified run; tránh thay policy giữa active immutable run.
@@ -205,21 +205,21 @@ Không bỏ qua function output của call đã nhận. Nếu checkpoint trướ
 - [ ] **CLP-02.01 — Canonical scope descriptor** (`IN_PROGRESS`, P1)
   - Tái sử dụng canonical request fingerprint; chuẩn hóa project-relative path, action semantics, source range/symbol/query, relevant limits/coverage, source revision khi có proof. Không bỏ các tham số ảnh hưởng thực thi hoặc authorization. Không tự mở file ngoài native collector.
   - **Acceptance:** title/call ID khác không né duplicate; action/limits có ý nghĩa khác không bị gộp sai; paths/worktree/identity boundary được test.
-    - [ ] **CLP-02.01.01** — Audit fingerprint hiện tại, giữ tham số action/limits/project/authorization ảnh hưởng thực thi. (`VERIFY_PENDING` — shared fingerprint/scope descriptor tests PASS, CI 45584606033; runtime scope binding still pending)
+    - [x] **CLP-02.01.01** — Audit fingerprint hiện tại, giữ tham số action/limits/project/authorization ảnh hưởng thực thi. (`DONE` — shared existing fingerprint audited and tested, CI 45584606033 PASS)
     - [ ] **CLP-02.01.02** — Định nghĩa scope descriptor cho path/range/symbol/query/worktree/source version theo metadata đáng tin. (`VERIFY_PENDING` — shared fingerprint/scope descriptor tests PASS, CI 45584606033; runtime scope binding still pending)
-    - [ ] **CLP-02.01.03** — Canonicalize an toàn, loại title/call ID volatile; không tự truy cập filesystem ngoài native COLLECT. (`VERIFY_PENDING` — shared fingerprint/scope descriptor tests PASS, CI 45584606033; runtime scope binding still pending)
-    - [ ] **CLP-02.01.04** — Test equivalence, distinct limits, path/identity isolation và invalid inputs. (`VERIFY_PENDING` — shared fingerprint/scope descriptor tests PASS, CI 45584606033; runtime scope binding still pending)
+    - [x] **CLP-02.01.03** — Canonicalize an toàn, loại title/call ID volatile; không tự truy cập filesystem ngoài native COLLECT. (`DONE` — canonical request fingerprint and malformed/duplicate key tests, CI 45584606033 PASS)
+    - [x] **CLP-02.01.04** — Test equivalence, distinct limits, path/identity isolation và invalid inputs. (`DONE` — scope equivalence, distinct limits, identity and invalid input tests, CI 45584606033 PASS)
 - [ ] **CLP-02.02 — Evidence index từ native receipt** (`IN_PROGRESS`, P1)
   - Dùng manifest/proof/native observation metadata đã xác minh. Lưu bounded index theo logical scope, content digest/coverage/partial status; loại volatile artifact paths/timestamps khỏi novelty. Không hash toàn bộ source lặp lại chỉ để guard.
   - **Acceptance:** exact duplicate, same content/different artifact, new range/symbol, incomplete/truncated, missing metadata đều phân biệt; unknown không thành verified-no-progress.
-    - [ ] **CLP-02.02.01** — Đọc cấu trúc native receipt/manifest/proof; xác định fields thực sự available ở cả hai pipeline. (`VERIFY_PENDING` — native observation/manifest fields audited; runtime integration pending)
+    - [x] **CLP-02.02.01** — Đọc cấu trúc native receipt/manifest/proof; xác định fields thực sự available ở cả hai pipeline. (`DONE` — native common receipt/manifest/full-file proof fields traced; native adapter tested)
     - [ ] **CLP-02.02.02** — Tạo adapter phân loại complete/partial/unknown/error và lấy digest/coverage chỉ khi proof hợp lệ. (`VERIFY_PENDING` — full-file proof tests PASS, CI 45584790677; partial/unsupported unknown; runtime adapter pending)
-    - [ ] **CLP-02.02.03** — Cài bounded index theo logical scope, loại timestamp/artifact run path khỏi novelty. (`VERIFY_PENDING` — bounded pure index; persistence pending)
+    - [x] **CLP-02.02.03** — Cài bounded index theo logical scope, loại timestamp/artifact run path khỏi novelty. (`DONE` — bounded evidence index with volatile artifact IDs excluded; package CI PASS and Legacy integration fixture PASS)
     - [ ] **CLP-02.02.04** — Test same content khác artifact, new range/symbol, missing/truncated metadata; unknown không thành duplicate. (`VERIFY_PENDING` — pure evidence tests PASS, CI 45584790677; native range/symbol tests pending)
 - [ ] **CLP-02.03 — Overlap/subset/alternating read detection** (`IN_PROGRESS`, P1)
   - Nhận diện range overlap/subset và chuỗi A/B/A/B, query đổi nhẹ nếu chứng minh output/coverage tương đương. Chỉ reject/skip nếu có proof tương thích và source còn hợp lệ; nếu heuristic thì advisory, không ngăn đọc.
   - **Acceptance:** A[1..100]→A[1..110] tính phần mới đúng; 55+ trang khác nhau không bị chặn; metadata thiếu không sinh false positive; test scope eviction.
-    - [ ] **CLP-02.03.01** — Tính interval union/subset/overlap và phần coverage mới trên cùng source revision. (`VERIFY_PENDING` — pure range union; verified native range adapter pending)
+    - [x] **CLP-02.03.01** — Tính interval union/subset/overlap và phần coverage mới trên cùng source revision. (`DONE` — verified same-revision union/subset/overlap pure tests passed in core Go suite 45587765715; native range adapter pending)
     - [ ] **CLP-02.03.02** — Nhận diện A/B/A/B, query biến thể với proof tương đương; heuristic chỉ advisory. (`TODO`)
     - [ ] **CLP-02.03.03** — Tách skip đã chứng minh khỏi warning; khi proof stale/thiếu phải cho đọc hợp lệ. (`VERIFY_PENDING` — Legacy proofless skip removed; Unified pending)
     - [ ] **CLP-02.03.04** — Test A1–100→A1–110, 55+ trang, eviction, changed content và false-positive cases. (`TODO`)
@@ -240,7 +240,7 @@ Không bỏ qua function output của call đã nhận. Nếu checkpoint trướ
   - **Acceptance:** save/load/round-trip, legacy missing fields, unknown future version fail safe, concurrent update và crash consistency tests.
     - [ ] **CLP-03.01.01** — Chọn authoritative session/run store; thiết kế additive versioned state và migration defaults. (`VERIFY_PENDING` — session CAS metadata implementation; Unified snapshot pending)
     - [ ] **CLP-03.01.02** — Tích hợp revision/CAS/locks; persist guard state và scope, tránh competing journal. (`VERIFY_PENDING` — Session.Save uses existing CAS; CI pending)
-    - [ ] **CLP-03.01.03** — Xử lý missing fields/corrupt state/future version fail-safe, không mất canonical history. (`VERIFY_PENDING` — opaque unknown/corrupt advisory metadata; tests pending)
+    - [x] **CLP-03.01.03** — Xử lý missing fields/corrupt state/future version fail-safe, không mất canonical history. (`DONE` — opaque unknown/corrupt guard preserved and canonical session remains readable; agentchat race suite PASS 45587765715)
     - [ ] **CLP-03.01.04** — Test round-trip, legacy load, concurrent save, failure injection và atomicity. (`VERIFY_PENDING` — round-trip/stale CAS/opaque tests added; crash injection pending)
 - [ ] **CLP-03.02 — Exactly-once logical observation** (`IN_PROGRESS`, P1)
   - Persist observation và guard transition tại checkpoint hiện có; nếu phải hai bước thì reconcile idempotently sau crash. Dedupe bằng scoped logical call/receipt identity; không double-count retry, reconcile hoặc reload.
@@ -252,7 +252,7 @@ Không bỏ qua function output của call đã nhận. Nếu checkpoint trướ
 - [ ] **CLP-03.03 — Legacy hydration và bounded history** (`IN_PROGRESS`, P1)
   - Khởi tạo lazy từ journal/canonical history/archived metadata sẵn có; phân biệt historical known vs unknown, không fabricate novelty. History compacted không làm mất guard. Bound scan, không đọc toàn bộ archive mỗi request.
   - **Acceptance:** fixture session 20/11, partial journal/archived pairs, migration idempotent, restart/self-update giữ counters và original history; nhiều conversations không lẫn state.
-    - [ ] **CLP-03.03.01** — Thiết kế bounded hydration từ journal/history/archive metadata hiện có. (`VERIFY_PENDING` — bounded retained-history summary, no archive scan)
+    - [x] **CLP-03.03.01** — Thiết kế bounded hydration từ journal/history/archive metadata hiện có. (`DONE` — bounded retained-history migration design and round-trip test PASS; archived detailed hydration still pending)
     - [ ] **CLP-03.03.02** — Khôi phục known counters/ACKs; đánh dấu unknown history không đủ proof; không đoán novelty. (`VERIFY_PENDING` — historical counts separate from current objective)
     - [ ] **CLP-03.03.03** — Persist migration marker và cursor; không rescan archive mỗi request, không sửa history. (`TODO`)
     - [ ] **CLP-03.03.04** — Test legacy fixture, partial archive, repeated migration, restart/self-update và isolation. (`TODO`)
@@ -264,9 +264,9 @@ Không bỏ qua function output của call đã nhận. Nếu checkpoint trướ
 - [ ] **CLP-04.01 — Legacy Agent Chat inner loop** (`IN_PROGRESS`, P1)
   - Tích hợp guard trong `agent_chat_collection_flow.go` trước native execution và sau observation/receipt; refresh settings theo logic hiện có. Duy trì canonical tool call/output, journal phases và repair budget.
   - **Acceptance:** 27-round fixture nhận advisory/checkpoint đúng policy, duplicate guard cũ vẫn đúng, cancellation và disabled COLLECT không bị bypass; 55 rounds unique → PATCH PASS test logic giữ nguyên.
-    - [ ] **CLP-04.01.01** — Gắn guard precheck sau validation/permission trong legacy collection loop. (`VERIFY_PENDING` — after existing permission check; no new admission grant)
-    - [ ] **CLP-04.01.02** — Gắn post-observation decision vào checkpoint trước provider egress, giữ original output và repair. (`VERIFY_PENDING` — counters and advisory at existing checkpoint; proofless Legacy skip removed)
-    - [ ] **CLP-04.01.03** — Nối warning/checkpoint/cancel vào existing state transitions; không nuốt pending tool pair. (`VERIFY_PENDING` — verified stall checkpoint with ACK preserved; CI pending)
+    - [x] **CLP-04.01.01** — Gắn guard precheck sau validation/permission trong legacy collection loop. (`DONE` — Legacy guard entry after existing permission check; server suite PASS 45587765715)
+    - [x] **CLP-04.01.02** — Gắn post-observation decision vào checkpoint trước provider egress, giữ original output và repair. (`DONE` — Legacy counters and advisory at existing durable receipt checkpoint, exact output test PASS 45587765715)
+    - [x] **CLP-04.01.03** — Nối warning/checkpoint/cancel vào existing state transitions; không nuốt pending tool pair. (`DONE` — Legacy checkpoint/replan preserves ACK and exact call/output; named test PASS 45587765715)
     - [ ] **CLP-04.01.04** — Test incident 27 reads, duplicate, disabled collection, cancellation và 55 reads → PATCH. (`TODO`)
 - [ ] **CLP-04.02 — Unified Agent Run waiting-tool path** (`TODO`, P1)
   - Tích hợp cùng guard trong `agent_run_collection.go`, authoritative run snapshot/parent turn và scheduler. Không lấy state mutable của session làm thay đổi immutable run binding. Ensure parity với legacy theo cùng input semantics.
@@ -494,9 +494,9 @@ Kiểm tra cả các Python/native Patch Tool test hiện có nếu sửa contra
 | CLP-00 Baseline | 3 | 2 | IN_PROGRESS |
 | CLP-01 Guard | 5 | 1 | IN_PROGRESS |
 | CLP-02 Evidence | 4 | 0 | IN_PROGRESS |
-| CLP-03 Durability | 3 | 0 | TODO |
-| CLP-04 Integration | 4 | 0 | TODO |
-| CLP-05 Compact/Pack | 4 | 0 | TODO |
+| CLP-03 Durability | 3 | 0 | IN_PROGRESS |
+| CLP-04 Integration | 4 | 0 | IN_PROGRESS |
+| CLP-05 Compact/Pack | 4 | 0 | IN_PROGRESS |
 | CLP-06 Budget/Retry | 4 | 0 | TODO |
 | CLP-07 Legacy recovery | 4 | 0 | TODO |
 | CLP-08 UI/Debug | 2 | 0 | TODO |
@@ -508,16 +508,16 @@ Kiểm tra cả các Python/native Patch Tool test hiện có nếu sửa contra
 | Phase | Phase DONE | Task DONE / total | Subtask DONE / total |
 |---|---:|---:|---:|
 | CLP-00 | 0/1 | 2/3 | 8/12 |
-| CLP-01 | 0/1 | 1/5 | 10/20 |
-| CLP-02 | 0/1 | 0/4 | 0/16 |
-| CLP-03 | 0/1 | 0/3 | 0/12 |
-| CLP-04 | 0/1 | 0/4 | 0/16 |
+| CLP-01 | 0/1 | 1/5 | 11/20 |
+| CLP-02 | 0/1 | 0/4 | 6/16 |
+| CLP-03 | 0/1 | 0/3 | 2/12 |
+| CLP-04 | 0/1 | 0/4 | 3/16 |
 | CLP-05 | 0/1 | 0/4 | 1/16 |
 | CLP-06 | 0/1 | 0/4 | 0/16 |
 | CLP-07 | 0/1 | 0/4 | 0/16 |
 | CLP-08 | 0/1 | 0/2 | 0/8 |
 | CLP-09 | 0/1 | 0/3 | 0/12 |
-| **Total** | **0/10** | **3/36** | **19/144** |
+| **Total** | **0/10** | **3/36** | **31/144** |
 
 Regression gates: **0/28 PASS**. Mỗi lần cập nhật, ghi ID subtask cụ thể, file/test/receipt, trạng thái; chỉ roll up sau khi xác minh. Commit từng subtask có thay đổi độc lập hoặc nhóm nhỏ coherent, không để toàn phase mới commit. Không tạo commit rỗng chỉ để tick.
 
@@ -648,6 +648,12 @@ CI 45587460818 at 078801df passed Go server suites, race and vet, then failed ol
 #### CLP-01.03 / 02.04 — Native PATCH transition invalidation
 At existing Session.Save CAS, compare previous vs new server-owned ToolCalls before archival. Count newly registered Legacy proposal/rejection, exact native final run receipt execution, uncertain outcome separately; ACK or same terminal ledger transition cannot double count. Any potential source mutation invalidates exact-request evidence broadly (including unknown or Unified ledger transitions; do not attribute Unified execution count to Legacy). Explicit native preflight no-change does not claim execution. Wrapper PASS never resets meaningful progress or acceptance; clear only duplicate streak on potential mutation. Preserve opaque guard during normal saves. Added store CAS test for proposal → running → final → ACK with unchanged progress and evidence invalidation. External drift/path-specific proof and HTTP attempts pending. CI pending.
 
+#### Verified checkpoint — Legacy runtime
+- Remote commits 0a8eee6f (session guard), 0ab64432 (admission/observation wiring), d193972f (no proofless skip), 078801df (PREPARED and drain-only regression fixtures), 92656e4e (verified-stall checkpoint), 9942f922 (busy composer protection), 2b71548c (native PATCH transition invalidation) confirmed on main.
+- CI [45587765715](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/45587765715) at 92656e4e: named TestAgentCLP20VerifiedStallPreservesReceiptAndBoundsReplan PASS (0.16s), four synthetic incident variants PASS, all TestAgent server 22.180s, focused server race 7.797s, agentchat/contextcompact/collectionprogress race and vet PASS. Full job FAIL only in old Hot-Switch Node bootstrap fixture expecting new Unified Run, corrected separately at 9942f922; no full CI success asserted.
+- [45588106909](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/45588106909) busy composer and [45588285483](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/45588285483) PATCH transition invalidation CI pending at checkpoint. Subtask ticks updated only for verified portions; 28 full gates remain unclaimed.
+- Next: verify both CI runs; reconcile any regressions; complete durable HTTP attempt reconciliation, source drift/path proof, Unified snapshot/guard integration for existing drain-only runs, and CLP-07 explicit legacy unknown-collection resume with preserved audit. Do not reenable public Unified Run creation, bypass provider journal fences or treat wrapper PASS as verified task acceptance.
+
 ### 8.2. Blockers và quyết định (append)
 
 | ID | Task | Vấn đề / quyết định | Ảnh hưởng | Hành động tiếp theo | Trạng thái |
@@ -657,7 +663,7 @@ At existing Session.Save CAS, compare previous vs new server-owned ToolCalls bef
 | D-003 | PLAN | Chưa chạy local/CI hoặc deploy build | Chưa xác nhận runtime fix | CLP-00.03, CLP-09 | OPEN |
 | D-004 | CLP-00.01 | Sandbox has no repository checkout; direct Git DNS unavailable; connector remote API available | Cannot run full baseline/test/build locally; remote Git writes via connector only | Provide a checked-out repository/test runner or obtain actual CI receipts; no false PASS | OPEN |
 | D-005 | CLP-00.03 | Pre-existing CI failure: run fence fixture used t.TempDir without ensuring 0700 | Prevents subsequent server tests from executing | Fixed fixture precondition; local isolated race test and latest CI agentrun package PASS | RESOLVED |
-| D-006 | CLP-00.03 | Latest core CI fails on pending-turn HTTP 202 vs 409 and lost historical PATCH provenance | Full server/race/remaining CI acceptance not green | Fixed both regressions in c4a86276; core CI 45583368471 and subsequent 45583866679 PASS | RESOLVED |
+| D-006 | CLP-00.03 | Earlier core CI fails on pending-turn HTTP 202 vs 409 and lost historical PATCH provenance | Full server/race/remaining CI acceptance not green | Fixed both regressions in c4a86276; core CI 45583368471 and subsequent 45583866679 PASS | RESOLVED |
 
 ## 9. Definition of Done toàn handoff
 
