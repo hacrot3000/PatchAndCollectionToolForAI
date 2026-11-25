@@ -81,7 +81,8 @@ func agentFailedPatchRetirementEligible(call agentchat.ToolCallRecord)bool{
 // Keep confirmed retirement independent of the immutable result. A later
 // current-queue observation does not erase the historical confirmed receipt.
 func agentRecordFailedRetirement(call *agentchat.ToolCallRecord,status,archive string) {
- if call==nil{return}
+ if call==nil||call.Status!="error"||call.RunID==""{return}
+ if digest,err:=hex.DecodeString(call.PackageSHA256);err!=nil||len(digest)!=32{return}
  old:=call.FailedQueueRetirement
  if old!=nil&&old.RunID==call.RunID&&old.PackageSHA256==call.PackageSHA256 {
   if old.Status=="retired" || (old.Status==status&&old.Archive==archive){return}
