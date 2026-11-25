@@ -208,3 +208,16 @@ func TestAgentPatchLogExcerptIncludesEndOfConsoleAndRedactsSecrets(t *testing.T)
  }
  if strings.Contains(got, "fake-password") {t.Fatalf("credential leaked in excerpt: %q", got)}
 }
+
+func TestAgentNativeOversizedFailurePreservesIdentity(t *testing.T) {
+ rc:=17
+ item:=session.ProtocolItemState{Name:"approved.zip",Kind:"PATCH",Status:"FAIL",Index:2,RunID:"run-oversized",RC:&rc,FailureReason:"anchor mismatch",DiagnosisKind:"source_drift",OutputTail:strings.Repeat("<>&",600)}
+ for i:=0;i<24;i++ { item.Commands=append(item.Commands,session.ProtocolCommandEvidenceState{Index:i+1,Stage:strings.Repeat("x",128),Status:"FAIL",RC:&rc}) }
+ status,result,run,ok:=agentPatchResultFromProtocol(session.ProtocolState{Items:[]session.ProtocolItemState{item}},agentPatchExpectation{Name:item.Name,ItemIndex:2})
+ if !ok || status!="error" || run!=item.RunID || len(result)>agentPatchFeedbackLimit { t.Fatalf("invalid bounded feedback: %v %s %s %d",ok,status,run,len(result)) }
+ var got map[string]any
+ if err:=json.Unmarshal([]byte(result),&got);err!=nil {t.Fatal(err)}
+ for k,want:=range map[string]any{"status":"FAIL","run_id":item.RunID,"name":item.Name,"failure_reason":"anchor mismatch","diagnosis_kind":"source_drift","rc":float64(17),"mutation_state":"UNKNOWN","diagnostics_truncated":true} {
+  if got[k]!=want {t.Fatalf("%s=%v want %v",k,got[k],want)}
+ }
+}
