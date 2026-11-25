@@ -1496,6 +1496,12 @@ console.log('PASS: safe Markdown, syntax-highlighted PHP/Python, per-block Copy,
    const passedPatchCard=vm.runInNewContext('renderAgentTool('+JSON.stringify(passedPatch)+','+JSON.stringify(passedPatch.history[0])+')',context);
    assert.equal(Boolean(find(passedPatchCard,node=>node.tagName==='button'&&node.textContent==='Re-apply Patch then send to AI')),false,
      'successful Patch must not show reapply');
+   const commandManifest=JSON.stringify({schema_version:1,project:{key:'p',id:'id'},patch:{id:'regression'},post_patch:{run_when_no_changes:true,no_change_reason:'Run existing project regression checks.',commands:[{argv:['bash','scripts/regression.sh'],cwd:'.'}]}});
+   const commandPatch={...stuckPatch,status:'waiting_tool',history:[{type:'function_call',call_id:'old-call',name:'taskdeck_submit_patch',arguments:JSON.stringify({name:'regression',patch_python:'',patch_manifest:commandManifest})}],tool_calls:[{call_id:'old-call',name:'taskdeck_submit_patch',status:'pending'}]};
+   const commandCard=vm.runInNewContext('renderAgentTool('+JSON.stringify(commandPatch)+','+JSON.stringify(commandPatch.history[0])+')',context);
+   assert.ok(find(commandCard,node=>node.tagName==='summary'&&node.textContent.includes('Review command-only manifest')),'manifest review missing');
+   assert.ok(nodeText(commandCard).includes('scripts/regression.sh'),'exact manifest must be reviewable');
+   assert.equal(nodeText(commandCard).includes('Patch proposal rejected before approval'),false,'valid manifest must not be mistaken for malformed Python');
    const rejectedTool={id:'rejected-patch',status:'tool_rejected',revision:22,
      history:[{type:'function_call',call_id:'call_rejected_patch',name:'taskdeck_submit_patch',
        arguments:JSON.stringify({patch_text:'not the required patch_python field'})}],
