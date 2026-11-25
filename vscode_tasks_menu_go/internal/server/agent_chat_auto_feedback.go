@@ -284,7 +284,8 @@ func (s *Server) reconcileAgentSession(ctx context.Context, store *agentchat.Sto
 	if err != nil || x.Owner != "local" || x.Workspace != s.Workspace {
 		return
 	}
-	changed := agentRestoreRejectedSession(&x, "")
+	changed := agentRecoverAcknowledgedCollection(&x)
+	if agentRestoreRejectedSession(&x, "") {changed=true}
 	if agentParkInterruptedQueue(&x) { changed = true }
 	for i, record := range x.ToolCalls {
 		if ctx.Err() != nil {

@@ -11,7 +11,7 @@ import (
  "bletonfc/vscode_tasks_menu/internal/patchtool"
 )
 
-func TestCollectionRepairBudgetChangingRequests(t *testing.T){
+func TestAgentCollectionRepairBudgetChangingRequests(t *testing.T){
  s,id:=newAgentConversationFixture(t,"stateless")
  calls,reads:=0,0
  s.AgentCollectionCall=func(_ string,_ patchtool.ProjectIdentity,_ []byte)string{
@@ -32,7 +32,7 @@ func TestCollectionRepairBudgetChangingRequests(t *testing.T){
  if last.Type!="function_call_output"||last.CallID!=fmt.Sprintf("call-%d",calls)||!strings.Contains(last.Content,`"retry_allowed":false`){t.Fatal("terminal rejection not bound to original call")}
 }
 
-func TestProviderAcknowledgementCannotRegressToUnknown(t *testing.T){
+func TestAgentProviderAcknowledgementCannotRegressToUnknown(t *testing.T){
  x:=agentchat.Session{ProviderRun:&agentchat.ProviderRun{Phase:"acknowledged"}}
  markAgentProviderOutcome(&x,"unknown")
  if x.ProviderRun.Phase!="acknowledged"{t.Fatal("acknowledgement regressed")}
@@ -40,11 +40,34 @@ func TestProviderAcknowledgementCannotRegressToUnknown(t *testing.T){
  if x.ProviderRun.Phase!="unknown"{t.Fatal("ambiguous delivery was not preserved")}
 }
 
-func TestRunCollectionRepairCountScopedToParentAndProgress(t *testing.T){
+func TestAgentRunCollectionRepairCountScopedToParentAndProgress(t *testing.T){
  bad:=agentCollectionRepairFeedback("COLLECT_SCHEMA_INVALID","action[1].paths must be a non-empty array of project-relative paths",1)
  h:=[]agentchat.HistoryItem{{Type:"user",Content:"task"},{Type:"function_call",CallID:"a",Name:"taskdeck_collect_workspace",ParentTurnID:"p"},{Type:"function_call_output",CallID:"a",Content:bad},{Type:"assistant",Content:"repairing"},{Type:"function_call",CallID:"b",Name:"taskdeck_collect_workspace",ParentTurnID:"p"}}
  if n:=agentRunCollectionRepairCount(h,"p");n!=1{t.Fatalf("count=%d",n)}
  if n:=agentRunCollectionRepairCount(h,"other");n!=0{t.Fatalf("cross-parent count=%d",n)}
  h=append(h,agentchat.HistoryItem{Type:"function_call_output",CallID:"b",Content:`{"status":"COMPLETE"}`})
  if n:=agentRunCollectionRepairCount(h,"p");n!=0{t.Fatalf("progress did not reset count=%d",n)}
+}
+
+func TestAgentRecoverLegacyCollectionAcknowledgementRequiresExactJournal(t *testing.T){
+ fixture:=func()agentchat.Session{
+  x:=agentchat.Session{Owner:"local",Status:"failed",EventSeq:60,ProviderRun:&agentchat.ProviderRun{ID:"r50-e61",Kind:"collection",Phase:"unknown",CallID:"call-8",PayloadSHA256:strings.Repeat("a",64),UsageRecorded:true}}
+  x.AppendEvent("provider_egress","requesting_ai","call-8","collection")
+  x.AppendEvent("collect_request_rejected","failed","","invalid project identity: json: cannot unmarshal string")
+  x.AppendEvent("collect_failed","failed","","collection_continuation")
+  return x
+ }
+ x:=fixture()
+ if !agentRecoverAcknowledgedCollection(&x)||x.ProviderRun.Phase!="acknowledged"||x.Status!="failed"{t.Fatal("confirmed local failure not recovered")}
+ if agentRecoverAcknowledgedCollection(&x){t.Fatal("recovery not idempotent")}
+ for _,mutate:=range []func(*agentchat.Session){
+  func(x *agentchat.Session){x.ProviderRun.UsageRecorded=false},
+  func(x *agentchat.Session){x.ProviderRun.ID="r50-e60"},
+  func(x *agentchat.Session){x.ProviderRun.CallID="different"},
+  func(x *agentchat.Session){x.Events[1].Detail="network timeout"},
+  func(x *agentchat.Session){x.AppendEvent("turn_interrupted","failed","","provider_egress_after_restart_unknown")},
+ }{
+  x:=fixture();mutate(&x)
+  if agentRecoverAcknowledgedCollection(&x)||x.ProviderRun.Phase!="unknown"{t.Fatal("ambiguous request incorrectly reconciled")}
+ }
 }
