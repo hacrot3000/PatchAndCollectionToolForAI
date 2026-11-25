@@ -10,6 +10,7 @@ import (
  "path/filepath"
  "sort"
  "strconv"
+ "strings"
 )
 
 // An unlimited number of read-only Collection rounds cannot fit inside a
@@ -35,6 +36,27 @@ func (s *Store) historyArchivePath(id string, sequence uint64) string {
  return filepath.Join(s.dir,id+".history."+strconv.FormatUint(sequence,10)+".json")
 }
 
+// Standalone Auto Continue historically stored this redundant boilerplate as
+// user messages, saturating the active history even after archiving reads.
+// Recognize only the complete generated template; this is a storage
+// classification, never evidence of owner consent. Preserve exact bytes
+// in the existing verified archive, and retain the original goal and recent
+// history.
+func redundantStandaloneContinuation(it HistoryItem) bool {
+ if it.Type!="user"||it.CallID!=""{return false}
+ const prefix="TaskDeck user-authorized continuation of the ORIGINAL unfinished conversation, NOT a new task. The previous provider turn is "
+ const middle=" (advisory only). Its proposed next step is "
+ const suffix=". Verify this against the ORIGINAL user goal and actual native receipts; inspect the claimed checkpoint with read-only Collection before relying on it. Do not repeat a generic progress report. Do the next feasible concrete action and report actual evidence. Never claim success without independent proof; never bypass native Patch approval or reissue an ambiguous tool request."
+ const noProgress=" No independently verified work has been recorded in the last two automatic turns. Prioritize a specific read-only Collection now; if one is impossible, report the precise blocker. Do not recycle the same advice or a newly worded status update."
+ if !strings.HasPrefix(it.Content,prefix){return false}
+ body:=strings.TrimSuffix(strings.TrimPrefix(it.Content,prefix),noProgress)
+ if !strings.HasSuffix(body,suffix){return false}
+ status,action,ok:=strings.Cut(strings.TrimSuffix(body,suffix),middle)
+ if !ok||(status!="NEEDS_CONTINUATION"&&status!="IN_PROGRESS"){return false}
+ _,err:=strconv.Unquote(action)
+ return err==nil&&strings.HasPrefix(action,"\"")
+}
+
 // archiveCollectionHistory is called ONLY under Store.withLock, after the
 // revision/project fences have passed and before the new session is written.
 // Referencing the segment happens in the primary session's atomic rename.
@@ -50,10 +72,14 @@ func (s *Store) archiveCollectionHistory(x *Session) error {
  removed:=make([]bool,count)
  archived:=make([]HistoryItem,0,until)
  // Remove only completed read-only tool pairs, generated Collection fallback
- // observations and old assistant narration. Never remove human messages,
+ // observations, old assistant narration and redundant coordinator messages.
+ // Never remove other human messages,
  // unresolved tool calls or a Patch proposal/result with provenance.
  for i:=1;i<until;i++{
   item:=x.History[i]
+  if redundantStandaloneContinuation(item) {
+   removed[i]=true;archived=append(archived,item);continue
+  }
   if item.Type=="function_call" && item.Name=="taskdeck_collect_workspace" &&
    i+1<until && x.History[i+1].Type=="function_call_output" &&
    x.History[i+1].CallID==item.CallID {
