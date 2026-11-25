@@ -672,6 +672,9 @@ Added owner-confirmed resume_collection_run_id to existing message API (same lea
 #### Resume fixture verification
 CI 45593058020 reached new named resume test and rejected invalid fixture: LastRequestCode=200 without LastRequestKey, which violates existing session validation. Corrected synthetic old accepted-message key/digest; no production invariant relaxed. Intermediate CI 45592717708 and 45592847763 both PASS.
 
+#### CLP-06.02 — Redacted durable attempt outcome telemetry
+Extended existing v1 attempt records additively (omitempty fields preserve old record hashes): effective canonical payload digest/bytes, estimated input tokens, output budget, retry mode, recovery generation and allowlisted local transport outcome. Outcome recorded only for latest exact SENDING reservation, no Session revision/ACK changes; diagnostic failure never makes a returned response ambiguous. Distinguish timeout stages available from provider adapter, 499, structured 400, incomplete, Stop, other HTTP and unknown. Three same-digest transport failures emit bounded debug advice without overriding Unlimited, mutating payload or switching provider. Existing 600s and retry semantics unchanged. Tests legacy compatibility, privacy, stale/conflicting outcome fencing and classification. Chat Completions transport conversion can differ from canonical Responses payload; estimate is not wire/token proof. CI pending.
+
 ### 8.2. Blockers và quyết định (append)
 
 | ID | Task | Vấn đề / quyết định | Ảnh hưởng | Hành động tiếp theo | Trạng thái |

@@ -26,6 +26,9 @@ type agentRetryProgress struct {
  Phase string `json:"phase"`
  NextAt *time.Time `json:"next_at,omitempty"`
  LastCode string `json:"last_code,omitempty"`
+ SameDigestFailures int `json:"same_digest_failures,omitempty"`
+ Outcome agentchat.ProviderAttemptOutcome `json:"outcome,omitempty"`
+ RecoveryGeneration int `json:"recovery_generation,omitempty"`
 }
 var agentRetryDelay = 10 * time.Second // tests may shorten this; production stays 10 seconds
 var agentRetryProgressMu sync.Mutex
@@ -244,6 +247,8 @@ func (s *Server) agentChatProviderWithRetry(ctx context.Context,owner,sessionID 
  incompleteRecoverySent:=false
  contextRecoveries:=0
  var contextRejectedPayload []byte
+ lastFailedDigest:=""
+ sameDigestFailures:=0
  // The durable SENDING journal is the only origin of correlation data.
  // Direct capability probes and legacy tests without a live egress marker
  // keep using the existing transport without manufacturing a fake receipt.
@@ -265,7 +270,10 @@ func (s *Server) agentChatProviderWithRetry(ctx context.Context,owner,sessionID 
   if err:=ctx.Err();err!=nil{return agentchat.ResponsesResult{},err,""}
   remaining:=0
   if mode==agentchat.RetryLimited{remaining=6-attempt}
-  agentRetryPublish(s.Workspace,owner,sessionID,agentRetryProgress{Mode:mode,Attempt:attempt,Remaining:remaining,Phase:"sending"})
+  generation:=contextRecoveries
+  if incompleteRecoverySent{generation++}
+  digest:=agentchat.ProviderPayloadDigest(replayPayload)
+  agentRetryPublish(s.Workspace,owner,sessionID,agentRetryProgress{Mode:mode,Attempt:attempt,Remaining:remaining,Phase:"sending",SameDigestFailures:sameDigestFailures,RecoveryGeneration:generation})
   callCtx,cancel:=context.WithTimeout(ctx,agentchat.ProviderAttemptTimeout)
   if attemptStore!=nil{
    // Flush the audit sidecar BEFORE each individual network attempt.
@@ -273,7 +281,7 @@ func (s *Server) agentChatProviderWithRetry(ctx context.Context,owner,sessionID 
    // Corrupt/missing storage blocks the attempt rather than losing the
    // correlation that a provider support investigation will need.
    clientID,e:=attemptStore.RecordProviderAttempt(
-    sessionID,owner,runID,uint64(attempt),replayPayload,headerSupported)
+    sessionID,owner,runID,uint64(attempt),replayPayload,headerSupported,agentchat.ProviderAttemptPolicy{Mode:mode,RecoveryGeneration:generation})
    if e!=nil{
     cancel()
     return agentchat.ResponsesResult{},e,""
@@ -284,6 +292,20 @@ func (s *Server) agentChatProviderWithRetry(ctx context.Context,owner,sessionID 
   }
   result,err,trace:=s.agentChatObservedCall(callCtx,owner,"provider_request",sessionID,p,key,replayPayload)
   cancel()
+  outcome:=agentchat.ClassifyProviderAttemptOutcome(ctx.Err(),err)
+  if attemptStore!=nil{
+   if e:=attemptStore.RecordProviderAttemptOutcome(sessionID,owner,runID,uint64(attempt),digest,outcome);e!=nil{
+    // Diagnostic write failure cannot change an actual returned response
+    // into an ambiguous ACK or permit another native operation.
+    s.recordAgentDebugEvent(owner,sessionID,"","provider_retry","attempt_outcome.unavailable","","Could not persist local transport outcome; the pre-egress attempt is not delivery proof.")
+   }
+  }
+  if outcome.StagnantTransport(){
+   if lastFailedDigest==digest{sameDigestFailures++}else{lastFailedDigest=digest;sameDigestFailures=1}
+   if sameDigestFailures==3{
+    s.recordAgentDebugEvent(owner,sessionID,"","provider_retry","payload.stagnation",string(outcome),"Three transport failures for the same canonical request digest. Inspect provider connectivity or Stop and start a separately authorized continuation. No automatic provider switch, payload rewrite, or native replay.")
+   }
+  }else{lastFailedDigest="";sameDigestFailures=0}
   // User Stop/daemon shutdown is authoritative even when the transport
   // reports a generic provider error after the context was cancelled.
   if ctx.Err()!=nil{return agentchat.ResponsesResult{},ctx.Err(),trace}
@@ -330,7 +352,7 @@ func (s *Server) agentChatProviderWithRetry(ctx context.Context,owner,sessionID 
   next:=time.Now().UTC().Add(agentRetryDelay)
   agentRetryPublish(s.Workspace,owner,sessionID,agentRetryProgress{
    Mode:mode,Attempt:attempt,Remaining:remaining,Phase:"waiting",
-   NextAt:&next,LastCode:agentRetryCode(err),
+   NextAt:&next,LastCode:agentRetryCode(err),SameDigestFailures:sameDigestFailures,Outcome:outcome,RecoveryGeneration:generation,
   })
   timer:=time.NewTimer(agentRetryDelay)
   select{
