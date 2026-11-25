@@ -4,6 +4,12 @@ on:
   push:
     paths:
       - 'vscode_tasks_menu_go/internal/agentchat/**'
+      - 'vscode_tasks_menu_go/internal/agentrun/**'
+      - 'vscode_tasks_menu_go/internal/server/agent_*.go'
+      - 'vscode_tasks_menu_go/web/featuremods/agentchat*.js'
+      - 'vscode_tasks_menu_go/web/featuremods/agentproviderselector.js'
+      - 'vscode_tasks_menu_go/web/agentchat*_test.cjs'
+      - 'vscode_tasks_menu_go/web/agentproviderselector_test.cjs'
       - 'vscode_tasks_menu_go/internal/taskmanifest/**'
       - 'vscode_tasks_menu_go/internal/server/agent_chat_task_manifest*'
       - 'vscode_tasks_menu_go/web/featuremods/agentchat.js'
@@ -24,6 +30,12 @@ on:
   pull_request:
     paths:
       - 'vscode_tasks_menu_go/internal/agentchat/**'
+      - 'vscode_tasks_menu_go/internal/agentrun/**'
+      - 'vscode_tasks_menu_go/internal/server/agent_*.go'
+      - 'vscode_tasks_menu_go/web/featuremods/agentchat*.js'
+      - 'vscode_tasks_menu_go/web/featuremods/agentproviderselector.js'
+      - 'vscode_tasks_menu_go/web/agentchat*_test.cjs'
+      - 'vscode_tasks_menu_go/web/agentproviderselector_test.cjs'
       - 'vscode_tasks_menu_go/internal/taskmanifest/**'
       - 'vscode_tasks_menu_go/internal/server/agent_chat_task_manifest*'
       - 'vscode_tasks_menu_go/web/featuremods/agentchat.js'
@@ -49,7 +61,7 @@ permissions:
 jobs:
   agentchat-core:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -60,15 +72,20 @@ jobs:
         working-directory: vscode_tasks_menu_go
         run: |
           go test -race -count=1 ./internal/agentchat/...
+          go test -race -count=1 ./internal/agentrun/...
           go test -count=1 ./internal/server -run '^TestAgent'
           go test -race -count=1 ./internal/taskmanifest
-          go vet ./internal/agentchat/... ./internal/taskmanifest
+          go vet ./internal/agentchat/... ./internal/agentrun/... ./internal/taskmanifest
           go vet ./internal/server
           node --check web/featuremods/agentchat.js
           node --check web/featuremods/agentchatformat.js
           node --check web/featuremods/terminalchatcontext.js
           node web/terminalchatcontext_test.cjs
           node web/agentchat_bootstrap_test.cjs
+          node --check web/featuremods/agentchat_coordination.js
+          node --check web/featuremods/agentchat_runs_ui.js
+          node --check web/featuremods/agentproviderselector.js
+          node --test web/agentchat_coordination_test.cjs web/agentchat_runs_isolation_test.cjs web/agentproviderselector_test.cjs
           node test_ai_smart_terminal.cjs
       - uses: actions/setup-python@v5
         with:
