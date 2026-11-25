@@ -13,6 +13,7 @@ import (
  "time"
 
  "bletonfc/vscode_tasks_menu/internal/agentchat"
+ "bletonfc/vscode_tasks_menu/internal/agentchat/contextcompact"
 )
 
 // Retry preferences are durable in the Agent Session. The running attempt
@@ -142,6 +143,93 @@ func agentRetryConstrainedOutputPayload(payload []byte,p agentchat.ProviderConfi
  return b,next,true
 }
 
+// Only a structured context-limit rejection authorizes a changed request.
+// A generic 400, lost response or unknown provider state is not proof.
+func agentContextLimitRejected(err error) bool {
+ var pe *agentchat.ProviderError
+ if !errors.As(err,&pe)||pe.HTTPStatus!=400||pe.Ambiguous {return false}
+ switch pe.ProviderErrorCode {
+ case "context_length_exceeded","context_window_exceeded":return true
+ default:return false
+ }
+}
+
+// Recompact the already constructed stateless wire history, preserving the
+// current input and its source call(s) byte-exact at the field level. Never
+// rewrite the session journal or send another native tool execution.
+func agentRetryContextPayload(payload []byte)([]byte,bool){
+ var req map[string]json.RawMessage
+ if json.Unmarshal(payload,&req)!=nil||req==nil{return nil,false}
+ if _,ok:=req["previous_response_id"];ok{return nil,false}
+ if _,ok:=req["conversation"];ok{return nil,false}
+ var stored bool
+ if raw,ok:=req["store"];ok&&(json.Unmarshal(raw,&stored)!=nil||stored){return nil,false}
+ var wire []struct{
+  Type string `json:"type"`
+  Role string `json:"role"`
+  Content string `json:"content"`
+  CallID string `json:"call_id"`
+  Name string `json:"name"`
+  Arguments string `json:"arguments"`
+  Output string `json:"output"`
+ }
+ var instructions,model string
+ if json.Unmarshal(req["input"],&wire)!=nil||len(wire)==0||
+  json.Unmarshal(req["instructions"],&instructions)!=nil||
+  json.Unmarshal(req["model"],&model)!=nil{return nil,false}
+ items:=make([]agentchat.HistoryItem,0,len(wire))
+ for _,w:=range wire{
+  switch {
+  case w.Type==""&&(w.Role=="user"||w.Role=="assistant"):
+   items=append(items,agentchat.HistoryItem{Type:w.Role,Content:w.Content})
+  case w.Type=="function_call":
+   items=append(items,agentchat.HistoryItem{Type:w.Type,CallID:w.CallID,Name:w.Name,Arguments:w.Arguments})
+  case w.Type=="function_call_output":
+   items=append(items,agentchat.HistoryItem{Type:w.Type,CallID:w.CallID,Content:w.Output})
+  default:return nil,false
+  }
+ }
+ // The latest user message or trailing batch of verified tool outputs is
+ // mandatory. The compactor keeps each source call for Next in full.
+ cut:=len(items)-1
+ if items[cut].Type=="function_call_output"{
+  for cut>0&&items[cut-1].Type=="function_call_output"{cut--}
+ }else if items[cut].Type!="user"{return nil,false}
+ next:=items[cut:]
+ budget:=contextcompact.Tokens(string(payload))/2
+ if budget<4096{budget=4096}
+ visible,_:=contextcompact.Build(items[:cut],contextcompact.Policy{
+  MaxInputTokens:budget,CollectionPercent:5,Instructions:instructions,Next:next,
+ })
+ // Reuse the canonical validator for every call/output pair. Take only its
+ // input field, retaining the original tools, instructions and provider options.
+ checked,err:=agentchat.BuildResponsesRequest(agentchat.RequestConfig{
+  Model:model,Instructions:instructions,Mode:agentchat.Stateless,History:visible,Next:next,
+ })
+ if err!=nil{return nil,false}
+ var validated map[string]json.RawMessage
+ if json.Unmarshal(checked,&validated)!=nil{return nil,false}
+ req["input"]=validated["input"]
+ // Context limits may include reserved output. Reduce only for this rejected
+ // request; do not change the user's persistent model configuration.
+ var limit int
+ if json.Unmarshal(req["max_output_tokens"],&limit)==nil&&limit>8192{
+  limit/=2
+  if limit<8192{limit=8192}
+  req["max_output_tokens"],_=json.Marshal(limit)
+ }
+ b,err:=json.Marshal(req)
+ if err!=nil||len(b)>4<<20{return nil,false}
+ // Never retry an equivalent or larger context unless output reservation
+ // actually decreased. Compare the input field, not JSON formatting.
+ var old map[string]json.RawMessage
+ if json.Unmarshal(payload,&old)!=nil{return nil,false}
+ var oldLimit int
+ _=json.Unmarshal(old["max_output_tokens"],&oldLimit)
+ if len(req["input"])>=len(old["input"])&&!(limit>0&&limit<oldLimit){return nil,false}
+ return b,true
+}
+
 // agentChatProviderWithRetry runs one 600-second-scoped provider attempt at a
 // time. A limited retry means ONE initial attempt + FIVE retries 10s apart.
 // Unlimited transport retries stop on success, Stop or shutdown. A repeated
@@ -151,6 +239,7 @@ func (s *Server) agentChatProviderWithRetry(ctx context.Context,owner,sessionID 
  mode:=agentRetryModeForSession(s,owner,sessionID)
  replayPayload:=payload
  incompleteRecoverySent:=false
+ contextRecoverySent:=false
  // The durable SENDING journal is the only origin of correlation data.
  // Direct capability probes and legacy tests without a live egress marker
  // keep using the existing transport without manufacturing a fake receipt.
@@ -195,8 +284,17 @@ func (s *Server) agentChatProviderWithRetry(ctx context.Context,owner,sessionID 
   // reports a generic provider error after the context was cancelled.
   if ctx.Err()!=nil{return agentchat.ResponsesResult{},ctx.Err(),trace}
   if err==nil{return result,nil,trace}
-  if mode==agentchat.RetryOff||!agentProviderRetryable(err)||
-    (mode==agentchat.RetryLimited&&attempt>=6)||ctx.Err()!=nil{
+  if mode==agentchat.RetryOff||(mode==agentchat.RetryLimited&&attempt>=6)||ctx.Err()!=nil{
+   return result,err,trace
+  }
+  if agentContextLimitRejected(err){
+   if contextRecoverySent{return result,err,trace}
+   reduced,ok:=agentRetryContextPayload(replayPayload)
+   if !ok{return result,err,trace}
+   replayPayload=reduced
+   contextRecoverySent=true
+   s.recordAgentDebugEvent(owner,sessionID,"","provider_retry","context_budget.recovery",agentRetryFailureDetail(err),"Retrying one smaller stateless context after explicit provider rejection; native tool receipt preserved")
+  }else if !agentProviderRetryable(err){
    return result,err,trace
   }
   var pe *agentchat.ProviderError
