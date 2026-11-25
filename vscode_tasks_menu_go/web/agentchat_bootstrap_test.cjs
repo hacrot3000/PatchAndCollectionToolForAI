@@ -1503,6 +1503,8 @@ console.log('PASS: safe Markdown, syntax-highlighted PHP/Python, per-block Copy,
    assert.equal(Boolean(find(rejectedCard,node=>node.tagName==='button'&&
       /approve|run|re-apply/i.test(node.textContent))),false,
      'rejected Patch must never get an approval/execution action');
+    assert.equal(vm.runInNewContext("agentHasRecordedToolOutput({history:[{type:'function_call_output',call_id:'old-denial'}]},'old-denial')",context),true);
+    assert.equal(vm.runInNewContext("agentHasRecordedToolOutput({history:[{type:'function_call_output',call_id:'other'}]},'old-denial')",context),false);
    assert.ok(find(rejectedCard,node=>node.tagName==='button'&&node.textContent==='Send rejection to AI'),
      'rejected malformed proposal must let owner forward the exact tool rejection');
    assert.ok(find(rejectedCard,node=>node.tagName==='summary'&&

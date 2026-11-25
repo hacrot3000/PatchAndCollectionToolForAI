@@ -77,6 +77,19 @@ func (s *Server) agentChatToolContinueAPI(w http.ResponseWriter, r *http.Request
 		http.Error(w, "Agent session revision/workspace mismatch", 409)
 		return
 	}
+	// An old rejection card can outlive the turn that consumed its output.
+	for _, item := range x.History {
+		if item.Type == "function_call_output" && item.CallID == callID {
+			http.Error(w, "Tool output already recorded. Do not resend it. If the subsequent turn failed, send a new continuation message in the same conversation.", 409)
+			return
+		}
+	}
+	for _, call := range x.ToolCalls {
+		if call.CallID == callID && (call.FeedbackSent || call.FeedbackStatus != "") {
+			http.Error(w, "Tool result delivery was already recorded or attempted. Inspect its delivery status; continue a failed conversation with a new message, not another tool output.", 409)
+			return
+		}
+	}
 	if x.Status != "waiting_tool" && x.Status != "tool_rejected" {
 		if s.agentConversationRequiresRunContinuation(owner, id) ||
 			!agentRestoreRejectedSession(&x, callID) {

@@ -127,6 +127,7 @@ func (s *Server) agentChatRunCollection(
 	// response was not stored and requires discarding provider references.
 	clearProviderRefs := provider.APIType == "chat_completions"
 	lastReadSignature, repeatedRead := "", 0
+	identityShapeRepairs := 0
 	for round := 0; ; round++ {
 		if err := ctx.Err(); err != nil {
 			return result, clearProviderRefs, &agentCollectionLocalError{Stage:"cancelled_before_collection",Round:round+1,Cause:err}
@@ -161,7 +162,14 @@ func (s *Server) agentChatRunCollection(
 			// Surface a durable failed turn with explicit cause; never infer
 			// project identity from a file name or another workspace.
 			lower := strings.ToLower(validationErr.Error())
-			if strings.Contains(lower,"identity") || strings.Contains(lower,"project.key") {
+			// A malformed project string can receive corrective feedback, but
+			// must never execute a read. Actual identity mismatch still blocks.
+			var shapeErr *json.UnmarshalTypeError
+			repairShape := strings.HasPrefix(lower, "invalid project identity:") &&
+				errors.As(validationErr, &shapeErr) && shapeErr.Value == "string" &&
+				shapeErr.Field == "" && identityShapeRepairs < 3
+			if repairShape { identityShapeRepairs++ }
+			if (strings.Contains(lower,"identity") || strings.Contains(lower,"project.key")) && !repairShape {
 				x.AppendEvent("collect_request_rejected","failed","",scrubAIContext(validationErr.Error(),256))
 				return result,clearProviderRefs,&agentCollectionLocalError{
 					Stage:"invalid_project_identity",Round:round+1,Cause:validationErr}
@@ -169,11 +177,14 @@ func (s *Server) agentChatRunCollection(
 			// Native COLLECT owns validation of action semantics, not Agent Chat.
 			// Do not silently repair or rewrite a mismatched project identity.
 			reason := scrubAIContext(validationErr.Error(), 256)
+			if repairShape {
+				reason = "Collection rejected before any file read or execution. project must be a JSON object with key and id matching the active AI Pack, not a string. Correct the JSON and continue the original task. No Patch or Collection was executed."
+			}
 			data, _ := json.Marshal(map[string]any{
 				"error": map[string]any{
 					"code": "INVALID_COLLECTION_REQUEST", "message": reason,
 					"schema": "COLLECT_ACTION_SCHEMA.json",
-					"retry_allowed": !strings.Contains(strings.ToLower(reason),"identity"),
+					"retry_allowed": repairShape || !strings.Contains(strings.ToLower(reason),"identity"),
 				},
 			})
 			observed = string(data)

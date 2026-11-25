@@ -1047,9 +1047,24 @@ function agentUserMessageNode(message,attachmentText,attachmentCount){
  wrapper.append(bubble,trigger);
  return wrapper;
 }
+function agentHasRecordedToolOutput(session,callID){
+ return (session?.history||[]).some(item=>item.type==='function_call_output'&&item.call_id===callID);
+}
 function renderAgentTool(session,item){
  const box=agentEl('div','agentchat-bubble tool');
  const record=(session.tool_calls||[]).find(c=>c.call_id===item.call_id);
+ const outputRecorded=agentHasRecordedToolOutput(session,item.call_id);
+ const rejectionPending=record?.status==='rejected'&&!record.feedback_sent&&!record.feedback_status&&!outputRecorded;
+ const appendRecordedRejectionNotice=()=>{
+  if(record?.status!=='rejected'||rejectionPending)return;
+  box.append(agentEl('p','agentchat-tool-summary',record.feedback_status==='acknowledged'?
+   'Rejection delivered to AI.':'Rejection output already recorded or delivery attempted. Do not resend.'));
+  if(session.status==='failed')box.append(agentButton('Continue conversation',()=>{
+   if(agentActive!==session.id)return;
+   if(!prompt.value.trim())setAgentPromptValue('Continue the original unfinished task from the last verified checkpoint. Do not repeat completed Patches. Correct the failed request and continue with the existing project identity and native tools.');
+   prompt.focus();
+  }));
+ };
  const detailKey=(suffix)=>session.id+':'+item.call_id+':'+suffix;
  const detail=(caption,body,suffix)=>{
   const d=agentEl('details');const key=detailKey(suffix);
@@ -1085,7 +1100,7 @@ function renderAgentTool(session,item){
   if(record?.status==='rejected'){
    if(record.feedback_status==='acknowledged'){
     box.append(agentEl('p','agentchat-tool-summary','Rejection delivered to AI.'));
-   }else if(record.feedback_sent){
+   }else if(record.feedback_sent||record.feedback_status||outputRecorded){
     box.append(agentEl('p','agentchat-tool-summary','Rejection delivery: '+String(record.feedback_status||'unconfirmed')+'. Do not replay an uncertain request.'));
    }else{
     box.append(agentEl('p','agentchat-tool-summary','AI must receive the rejection before it can correct the request. Automatic continuation requires an enabled grant and stops repeated unsupported calls.'));
@@ -1110,7 +1125,7 @@ function renderAgentTool(session,item){
   box.append(agentEl('p','agentchat-tool-summary',
    'No Patch was queued or executed. Send the rejection to AI so it can correct the proposal.'));
   if(record?.result)box.append(detail('Patch rejection feedback',record.result,'patch-result'));
-  if(record?.status==='rejected'&&!record.feedback_sent){
+  if(rejectionPending){
    const actions=agentEl('div','agentchat-tool-actions');
    if(session.auto_feedback)box.append(agentEl('p','agentchat-tool-summary',
     'Auto feedback is enabled · forwarding the rejection to AI when permitted.'));
@@ -1118,6 +1133,7 @@ function renderAgentTool(session,item){
     ()=>continueAgentTool(agentCurrentSession||session,item.call_id).catch(showAgentError)));
    box.append(actions);
   }
+  appendRecordedRejectionNotice();
   return box;
  }
  box.append(detail('Review Python patch · '+String(args.name||'unnamed'),args.patch_python,'patch-code'));
@@ -1164,10 +1180,11 @@ function renderAgentTool(session,item){
    actions.append(reapply);
   }
  }
- if(state==='rejected'&&!record.feedback_sent){
+ if(rejectionPending){
   actions.append(agentButton('Send rejection to AI',
    ()=>continueAgentTool(agentCurrentSession||session,item.call_id).catch(showAgentError)));
  }
+ appendRecordedRejectionNotice();
  if(state==='unknown'){
   box.append(agentEl('p','agentchat-tool-summary',
    'Native Patch execution was not confirmed for this Agent call. If you ran the queued ZIP manually, click Get the last result and send to AI: TaskDeck will look for unique matching completed native History and verify the original package hash. Re-apply is unavailable until a failed run is verified.'));
@@ -1408,7 +1425,7 @@ function agentToolRenderVersion(item,records,outputs){
   const output=outputs.get(item.call_id);
   return 'collect:'+String(output?.content||'');
  }
- return 'patch:'+JSON.stringify(records.get(item.call_id)||null);
+ return 'patch:'+JSON.stringify(records.get(item.call_id)||null)+':output:'+Boolean(outputs.get(item.call_id));
 }
 // Auto-follow recent activity without stealing scroll when the user reads history.
 function agentAtLatest(){
@@ -1927,7 +1944,7 @@ async function continueAgentTool(session,callID){
   const current=await selectAgentSession(session.id);
   if(!current)return;
   const pending=(current.tool_calls||[]).find(call=>call.call_id===callID);
-  if(!pending||pending.status!=='rejected'||pending.feedback_sent||pending.feedback_status){
+  if(!pending||pending.status!=='rejected'||pending.feedback_sent||pending.feedback_status||agentHasRecordedToolOutput(current,callID)){
    setAgentStatusNotice('This rejection is no longer pending. Current conversation refreshed; no result was resent.');
    return;
   }

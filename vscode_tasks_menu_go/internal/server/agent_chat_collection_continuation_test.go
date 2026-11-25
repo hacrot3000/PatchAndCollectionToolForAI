@@ -318,3 +318,34 @@ func TestAgentCollectionIdenticalReadsYieldRecoverableWarningWithoutStopping(t *
  if warnings==0{t.Fatal("repeated read did not yield a corrective tool warning")}
  if len(saved.ToolCalls)!=0{t.Fatal("read-only no-progress warning executed a Patch")}
 }
+
+func TestAgentCollectionMalformedProjectStringReturnsRepairFeedback(t *testing.T) {
+	s,id := newAgentConversationFixture(t,"stateless")
+	identity,err := patchtool.ReadProjectIdentity(s.Workspace)
+	if err != nil {t.Fatal(err)}
+	requests,reads:=0,0
+	s.AgentCollectionCall=func(_ string,_ patchtool.ProjectIdentity,_ []byte) string {
+		reads++
+		return `{"results":[{"type":"ls","entries":[]}]}`
+	}
+	s.AgentChatCall=func(_ context.Context,_ agentchat.ProviderConfig,_ string,payload []byte)(agentchat.ResponsesResult,error){
+		requests++
+		switch requests {
+		case 1:
+			return agentchat.ResponsesResult{ResponseID:"bad-project",Text:`{"project":"wrong-shape","actions":[{"type":"ls","path":"."}]}`},nil
+		case 2:
+			if reads!=0 || !strings.Contains(string(payload),"Collection rejected before any file read") || !strings.Contains(string(payload),"not a string") {t.Fatal("malformed request executed or repair feedback missing")}
+			fixed,_:=json.Marshal(map[string]any{"project":identity,"actions":[]map[string]string{{"type":"ls","path":"."}}})
+			return agentchat.ResponsesResult{ResponseID:"fixed-project",Text:string(fixed)},nil
+		case 3:
+			if reads!=1 {t.Fatal("corrected request not executed exactly once")}
+			return agentchat.ResponsesResult{ResponseID:"done",Text:"Inspection complete."},nil
+		default:
+			t.Fatalf("unexpected request %d",requests)
+			return agentchat.ResponsesResult{},nil
+		}
+	}
+	w:=invokeAI(t,s.agentChatSessionItemAPI,"POST","/api/agent/sessions/"+id+"/messages",
+		map[string]any{"message":"Inspect workspace","confirm_external":true,"expected_revision":1})
+	if w.Code!=200 || requests!=3 || reads!=1 {t.Fatalf("repair failed HTTP %d requests=%d reads=%d body=%s",w.Code,requests,reads,w.Body)}
+}
