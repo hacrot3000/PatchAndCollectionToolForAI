@@ -332,6 +332,7 @@ func (s *Server) agentChatSessionItemAPI(w http.ResponseWriter, r *http.Request)
 		"retry_runtime": agentRetrySnapshot(s.Workspace,aiPlanOwner(r),id),
 		"provider_review": review,
 		"collection_resume_eligible": resumeEligible,
+		"collection_progress": agentchat.CollectionProgressViewForSession(item),
 		"collection_auto_recovery": recoveryState,
 		"auto_feedback_diagnostic":agentAutoFeedbackDiagnostic(item),
   "provider_attempts":attempts,

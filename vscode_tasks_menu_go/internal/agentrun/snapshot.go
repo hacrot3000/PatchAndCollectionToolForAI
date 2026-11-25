@@ -49,6 +49,8 @@ type ContextSnapshotPolicy struct {
 	RetryMode          agentchat.RetryMode `json:"retry_mode,omitempty"`
 	ReasoningEffort    string              `json:"reasoning_effort,omitempty"`
 	RunBinding         *RunBindingSnapshot `json:"run_binding,omitempty"`
+	// Non-authorizing progress metadata from the existing drain worker.
+	CollectionProgress json.RawMessage `json:"collection_progress,omitempty"`
 }
 
 type ContextSnapshot struct {
@@ -199,6 +201,7 @@ func validateSnapshotPolicy(policy *ContextSnapshotPolicy, ownerWorkspaceID, con
 	if policy == nil {
 		return nil
 	}
+	if len(policy.CollectionProgress)>96<<10 || (len(policy.CollectionProgress)>0&&!json.Valid(policy.CollectionProgress)){return errors.New("invalid bounded collection progress metadata")}
 	if len(policy.SystemInstructions) > 512<<10 || strings.ContainsRune(policy.SystemInstructions, 0) {
 		return errors.New("context snapshot instructions exceed limit or contain NUL")
 	}
@@ -242,6 +245,8 @@ func cloneSnapshotPolicy(policy *ContextSnapshotPolicy) *ContextSnapshotPolicy {
 		return nil
 	}
 	copy := *policy
+	copy.CollectionProgress=append(json.RawMessage(nil),policy.CollectionProgress...)
+	if policy.RunBinding!=nil{binding:=*policy.RunBinding;copy.RunBinding=&binding}
 	if policy.Automation.AutoCollection != nil {
 		autoCollection := *policy.Automation.AutoCollection
 		copy.Automation.AutoCollection = &autoCollection

@@ -3,6 +3,8 @@ package server
 import (
  "archive/zip"
  "bytes"
+ "crypto/sha256"
+ "fmt"
  "encoding/json"
  "os"
  "path/filepath"
@@ -63,4 +65,17 @@ func TestAgentNativeFullFileArtifactReceipt(t *testing.T){
   if err:=json.Unmarshal([]byte(raw),&got);err!=nil{t.Fatal(err)}
   if (len(got.Reads)==1)!=tc.want{t.Fatalf("unexpected proof: %+v",got)}
  }
+}
+
+func TestAgentNativeLineProofStrict(t *testing.T){
+ report:="# range reader\n\nPath: `src/main.go`\nTotal lines: 100\nSelected: 20-21\n\n```text\n20: a\n21: b\n```\n\n"
+ p:=nativeLineReadProof{Path:"src/main.go",ActionIndex:1,TotalLines:100,StartLine:20,EndLine:21,SourceRevisionSHA256:strings.Repeat("a",64),ReportSHA256:fmt.Sprintf("%x",sha256.Sum256([]byte(report)))}
+ if got,ok:=validateNativeLineReport([]byte(report),"range",p);!ok||got.Type!="range"{t.Fatalf("valid proof rejected: %+v",got)}
+ for _,bad:=range []string{strings.Replace(report,"20: a","19: a",1),strings.Replace(report,"Selected: 20-21","Selected: 19-21",1),strings.Replace(report,"20: a","20: <REDACTED>",1),strings.Replace(report,"Path: `src/main.go`","Path: `other.go`",1)}{
+  q:=p;q.ReportSHA256=fmt.Sprintf("%x",sha256.Sum256([]byte(bad)))
+  if _,ok:=validateNativeLineReport([]byte(bad),"range",q);ok{t.Fatal("invalid proof accepted")}
+ }
+ if _,ok:=validateNativeLineReport([]byte(report+"x"),"range",p);ok{t.Fatal("digest mismatch accepted")}
+ p.SourceRevisionSHA256=""
+ if _,ok:=validateNativeLineReport([]byte(report),"range",p);ok{t.Fatal("missing revision accepted")}
 }

@@ -252,6 +252,7 @@ func UpdateTaskPlanStep(x *Session,id,status string,evidence *TaskPlanEvidence)e
  for i:=range x.TaskPlan.Steps{
   step:=&x.TaskPlan.Steps[i]
   if step.ID!=id{continue}
+  newlyAccepted:=status=="done"&&step.Status!="done"
   if status=="done"{
    if !TaskPlanStepCriteriaReviewed(*step){return errors.New("all owner-defined acceptance criteria need explicit reviews")}
    if evidence==nil {return errors.New("completion requires verified or user-attested evidence")}
@@ -265,6 +266,7 @@ func UpdateTaskPlanStep(x *Session,id,status string,evidence *TaskPlanEvidence)e
   // Never auto-complete purely because the last model message ended.
   // A verified endpoint action can close the plan only after ALL gates pass.
   if err:=ValidateTaskPlan(x.TaskPlan);err!=nil{return err}
+  if newlyAccepted&&evidence!=nil{x.recordCollectionGuardAcceptedStep(*step,*evidence)}
   return nil
  }
  return errors.New("unknown task plan step")

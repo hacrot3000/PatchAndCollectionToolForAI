@@ -8,6 +8,7 @@ import (
  "testing"
 
  "bletonfc/vscode_tasks_menu/internal/agentchat"
+ cp "bletonfc/vscode_tasks_menu/internal/agentchat/collectionprogress"
  "bletonfc/vscode_tasks_menu/internal/patchtool"
 )
 
@@ -63,4 +64,28 @@ func TestAgentCLP20VerifiedStallPreservesReceiptAndBoundsReplan(t *testing.T){
  saved,err=store.Get(id,"local");if err!=nil{t.Fatal(err)}
  after,ok:=saved.ReadCollectionGuard()
  if !ok||after.Generation!=g.Generation||after.Recovery.Attempts!=1||after.Counters.NewEvidence!=2||after.Counters.Progress.DuplicateStreak!=0{t.Fatalf("resume reset objective or recovery budget: %+v",after)}
+}
+
+
+func TestAgentCLP20StallRequiresExactDuplicateAndLiveConsent(t *testing.T){
+ x,err:=agentchat.NewSession("local","/workspace","project","provider","model",agentchat.Stateless);if err!=nil{t.Fatal(err)}
+ if !x.BindCollectionGuard("Fix issue","",false){t.Fatal("bind")}
+ x.AutoContinueText=true
+ g,_:=x.ReadCollectionGuard()
+ for i:=0;i<8;i++{
+  reduceLegacyCollectionEvent(&x,g,"read",cp.CollectionObserved,cp.VerifiedDuplicate,true,true)
+  g,_=x.ReadCollectionGuard()
+ }
+ if !legacyCollectionStallCandidate(x,"read"){t.Fatal("verified stall missed")}
+ if !legacyCollectionReplanAllowed(x){t.Fatal("grant ignored")}
+ x.AutoContinueText=false
+ if legacyCollectionReplanAllowed(x){t.Fatal("revoked continuation allowed")}
+ x.AutoContinueText=true
+ disabled:=false;x.AutoCollection=&disabled
+ if legacyCollectionReplanAllowed(x){t.Fatal("revoked collection allowed")}
+ // Even if stale/corrupt progress metadata claims a duplicate streak, the
+ // actual last counter event must have the exact duplicate digest.
+ g.Counters.LastEventDigest=strings.Repeat("a",64)
+ if !x.SetCollectionGuard(g){t.Fatal("fixture")}
+ if legacyCollectionStallCandidate(x,"read"){t.Fatal("stale duplicate caused checkpoint")}
 }

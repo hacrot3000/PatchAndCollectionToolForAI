@@ -512,7 +512,8 @@ class ResultBuilder:
         })
         return True, None
 
-    def add_report(self, index: int, kind: str, title: str, text: str) -> None:
+    def add_report(self, index: int, kind: str, title: str, text: str, *, line_proof: dict | None = None) -> None:
+        original = text if line_proof else None
         text = _redact_text(text)
         raw = text.encode("utf-8", errors="replace")
         remaining = self.limits["max_report_bytes"] - self.report_bytes
@@ -536,7 +537,11 @@ class ResultBuilder:
         arcname = f"reports/{index:03d}_{kind}.md"
         self.zf.writestr(arcname, raw)
         self.report_bytes += len(raw)
-        self.reports.append({"action": index, "type": kind, "title": title, "archive_path": arcname, "truncated": truncated})
+        report = {"action": index, "type": kind, "title": title, "archive_path": arcname, "truncated": truncated}
+        if (line_proof and "start_line" in line_proof and not truncated
+                and original == text and len(raw) <= 96 * 1024):
+            report["line_proof"] = {**line_proof, "report_sha256": hashlib.sha256(raw).hexdigest()}
+        self.reports.append(report)
         if reasons:
             self.mark_incomplete(action=index,kind=kind,reasons=list(dict.fromkeys(reasons)))
 
@@ -1742,20 +1747,36 @@ def _tree_action(root: Path, action: dict) -> str:
     return "\n".join(lines) + "\n"
 
 
-def _read_text_file_bounded(root: Path, raw: str, limits: dict) -> tuple[str, Path, str]:
+def _read_text_file_bounded(root: Path, raw: str, limits: dict, *, revision: dict | None = None) -> tuple[str, Path, str]:
     rel, src = _resolve_exact_file(root, raw)
-    size = src.stat().st_size
+    before = src.stat()
+    size = before.st_size
     cap = int(limits.get("max_search_file_bytes", 64 * 1024 * 1024))
     if size > cap:
         raise ValueError(f"text reader source exceeds max_search_file_bytes: {rel} ({size}>{cap})")
     raw_bytes = src.read_bytes()
     if b"\x00" in raw_bytes[:65536]:
         raise ValueError(f"text reader refuses binary/NUL-containing file: {rel}")
-    return rel, src, raw_bytes.decode("utf-8", errors="replace")
+    text = raw_bytes.decode("utf-8", errors="replace")
+    # Optional proof uses the bytes already read by the native reader. No
+    # second read, unbounded hashing, or claim about sensitive/redacted text.
+    if revision is not None and len(raw_bytes) <= 1024 * 1024:
+        try:
+            after = src.stat()
+            stamp = lambda st: (st.st_dev, st.st_ino, st.st_size, st.st_mtime_ns, st.st_ctime_ns)
+            if (stamp(before) == stamp(after) and len(raw_bytes) == before.st_size
+                    and src.name.lower() not in SENSITIVE_BASENAMES
+                    and src.suffix.lower() not in SENSITIVE_NAME_SUFFIXES
+                    and "\x00" not in text and "\ufffd" not in text
+                    and "<REDACTED" not in text and _redact_text(text) == text):
+                revision["source_revision_sha256"] = hashlib.sha256(raw_bytes).hexdigest()
+        except OSError:
+            pass  # Missing proof is UNKNOWN, never a collection failure.
+    return rel, src, text
 
 
-def _line_reader_action(root: Path, action: dict, limits: dict) -> str:
-    rel, _src, text = _read_text_file_bounded(root, action["path"], limits)
+def _line_reader_action(root: Path, action: dict, limits: dict, *, proof: dict | None = None) -> str:
+    rel, _src, text = _read_text_file_bounded(root, action["path"], limits, revision=proof)
     rows = text.splitlines()
     kind = action["type"]
     total = len(rows)
@@ -1775,6 +1796,8 @@ def _line_reader_action(root: Path, action: dict, limits: dict) -> str:
         for number in range(start, end + 1):
             lines.append(f"{number:>{width}}: {rows[number - 1]}")
     lines += ["```", ""]
+    if proof is not None and "source_revision_sha256" in proof and total and end >= start:
+        proof.update(path=rel, total_lines=total, start_line=start, end_line=end)
     return "\n".join(lines) + "\n"
 
 
@@ -2364,7 +2387,9 @@ def _run_request(root: Path, request_zip: Path) -> tuple[Path, Path, int, str]:
                     if result.get("incomplete"):
                         builder.mark_incomplete(action=index, kind=kind, reasons=list(result.get("reasons") or []))
                 elif kind in {"file", "range", "head", "tail"}:
-                    builder.add_report(index, kind, title, _line_reader_action(root, action, request_data["limits"]))
+                    line_proof: dict = {}
+                    report = _line_reader_action(root, action, request_data["limits"], proof=line_proof)
+                    builder.add_report(index, kind, title, report, line_proof=line_proof)
                 elif kind == "symbol":
                     builder.add_report(index, kind, title, _symbol_action(root, action, request_data["limits"]))
                 elif kind == "references":

@@ -350,6 +350,9 @@ let agentPatchSyncInFlight=new Set();
 // Transient phases are one row per conversation, separate from canonical
 // history. The user's just-submitted text is visible before any network await.
 const agentLiveTurns=new Map();
+const agentCollectionProgressLine=agentEl('div','agentchat-info');
+agentCollectionProgressLine.hidden=true;
+agentCollectionProgressLine.setAttribute('role','status');
 const agentProviderEgressNotice=agentEl('section','agentchat-provider-egress-review');
 agentProviderEgressNotice.hidden=true;
 agentProviderEgressNotice.setAttribute('role','status');
@@ -546,7 +549,7 @@ const composerButtons=agentEl('div','agentchat-composer-buttons');
 composerButtons.append(cancel,send);
 actionLine.append(agentRunSelectorMount,composerButtons);
 composer.append(attachToggle,prompt,actionLine);
-main.append(tabbar,toolNotice,agentProviderEgressNotice,agentRunListMount,transcript,agentExecutionPanel,agentTaskPlanPanel,agentTokenUsageLine,composer,attachPopup);layout.append(main);
+main.append(tabbar,toolNotice,agentCollectionProgressLine,agentProviderEgressNotice,agentRunListMount,transcript,agentExecutionPanel,agentTaskPlanPanel,agentTokenUsageLine,composer,attachPopup);layout.append(main);
 const footer=agentEl('div','agentchat-info agentchat-footer-status');
 footer.append(status,sessionStatus);
 function renderAgentFooter(){
@@ -1401,6 +1404,7 @@ function agentLivePhase(session){
   const remaining=Math.max(0,Math.ceil((Date.parse(retry.next_at||'')-Date.now())/1000));
   const max=retry.mode==='unlimited'?'∞':'5';
   return {message:'AI retry '+retry.attempt+'/'+max+' · '+(retry.last_code||'transient failure')+
+   (Number(retry.same_digest_failures)>=3?' · same payload failed '+retry.same_digest_failures+' times; check provider connectivity':'')+
    ' · trying again in '+remaining+'s · Stop request to cancel'};
  }
  if(retry?.phase==='sending'&&retry.attempt>1){
@@ -1567,7 +1571,13 @@ function agentProviderDiagnosticReport(session,review,attemptAudit,integrityErro
     String(attempt.client_request_id||'not available')+
     ' · UTC='+String(attempt.recorded_at||'unavailable')+
     ' · request payload SHA-256='+String(attempt.payload_sha256||'unavailable')+
-    ' · header configured='+String(attempt.header_configured===true?'yes':'no'));
+    ' · header configured='+String(attempt.header_configured===true?'yes':'no')+
+    (attempt.outcome?' · local outcome='+String(attempt.outcome):'')+
+    (Number.isSafeInteger(attempt.payload_bytes)?' · canonical bytes='+attempt.payload_bytes:'')+
+    (Number.isSafeInteger(attempt.estimated_input_tokens)?' · estimated input tokens='+attempt.estimated_input_tokens:'')+
+    (Number.isSafeInteger(attempt.output_budget)?' · output budget='+attempt.output_budget:'')+
+    (Number.isSafeInteger(attempt.recovery_generation)?' · recovery generation='+attempt.recovery_generation:'')+
+    (attempt.retry_mode?' · retry mode='+String(attempt.retry_mode):''));
   }
  }else{
   lines.push('Provider-attempt audit: no matching verified record available');
@@ -1597,7 +1607,7 @@ function renderAgentProviderEgressReview(session,review,attemptAudit=null,integr
  // without becoming a different warning or clearing a prior dismissal.
  const audit=attemptAudit?.run_id===review?.run_id?attemptAudit:null;
  const latest=audit&&Array.isArray(audit.attempts)?audit.attempts[audit.attempts.length-1]:null;
- const viewKey=[key,audit?.total??'',latest?.client_request_id??'',Boolean(integrityError),Boolean(session?.collection_resume_eligible),session?.collection_auto_recovery||''].join('|');
+ const viewKey=[key,audit?.total??'',latest?.client_request_id??'',latest?.outcome??'',Boolean(integrityError),Boolean(session?.collection_resume_eligible),session?.collection_auto_recovery||''].join('|');
  if(viewKey===agentProviderReviewKey)return;
  agentProviderReviewKey=viewKey;
  agentProviderEgressNotice.replaceChildren();
@@ -1606,7 +1616,8 @@ function renderAgentProviderEgressReview(session,review,attemptAudit=null,integr
    const resume=agentButton('Resume conversation',()=>{
     if(agentActive!==session.id||agentSessionBusy(session.id))return;
     if(prompt.value.trim()||(agentAttachments||[]).length){showAgentError(new Error('Preserve or send the current draft/attachments before resuming.'));return;}
-    setAgentPromptValue('Resume the original unfinished task from the verified conversation checkpoint after local Collection failure (run '+String(localRun.id)+'). This is a NEW continuation, not a replay. Do not repeat executed Patches or assume rejected Collection evidence exists. Correct the invalid request using the current native COLLECT contract and choose a narrower action.');
+    // Keep the existing objective generation and bounded replan budget.
+    setAgentPromptValue(session.collection_progress?.state==='stalled'?'Continue':'Resume the original unfinished task from the verified conversation checkpoint after local Collection failure (run '+String(localRun.id)+'). This is a NEW continuation, not a replay. Do not repeat executed Patches or assume rejected Collection evidence exists. Correct the invalid request using the current native COLLECT contract and choose a narrower action.');
     sendAgentMessage().catch(showAgentError);
    });
    agentProviderEgressNotice.append(agentEl('strong','','Collection processing interrupted · provider response acknowledged'),
@@ -1667,8 +1678,9 @@ function renderAgentProviderEgressReview(session,review,attemptAudit=null,integr
  if(review.phase==='unknown'&&review.kind==='collection'&&session.collection_resume_eligible===true&&!integrityError){
   const resume=agentButton('Resume original task (new request)',()=>{
    if(agentActive!==session.id||agentSessionBusy(session.id))return;
-   if(prompt.value.trim()||(agentAttachments||[]).length){showAgentError(new Error('Preserve the current draft/attachments before resuming.'));return;}
-   setAgentPromptValue('Resume original unfinished task from the canonical checkpoint (new request; do not replay old provider egress).');
+   const recoveryDraft='Resume original unfinished task from the canonical checkpoint (new request; do not replay old provider egress).';
+   if((prompt.value.trim()&&prompt.value.trim()!==recoveryDraft)||(agentAttachments||[]).length){showAgentError(new Error('Preserve the current draft/attachments before resuming.'));return;}
+   setAgentPromptValue(recoveryDraft);
    sendAgentMessage(String(review.run_id)).catch(showAgentError);
   });
   agentProviderEgressNotice.append(agentEl('div','','Previous PATCH acknowledgements remain intact. You can send any new message normally to the selected model or resume the original task. The previous provider request stays UNKNOWN.'),resume);
@@ -1679,7 +1691,23 @@ function renderAgentProviderEgressReview(session,review,attemptAudit=null,integr
  );
  agentProviderEgressNotice.hidden=false;
 }
+function renderAgentCollectionProgress(session){
+ const p=session?.collection_progress;
+ const labels={idle:'Collection',reading:'Reading',replanning:'Replanning',waiting_provider:'Waiting provider',waiting_tool:'Waiting tool',stalled:'Stalled',recovery_required:'Recovery required',stopped:'Stopped',metadata_unavailable:'Collection progress unavailable'};
+ if(!p||!Object.prototype.hasOwnProperty.call(labels,p.state)){agentCollectionProgressLine.hidden=true;agentCollectionProgressLine.textContent='';return;}
+ const number=v=>Number.isSafeInteger(v)&&v>=0?v:0;
+ const reads=number(p.native_reads),observed=number(p.observed);
+ let value=labels[p.state];
+ if(p.state!=='metadata_unavailable')value+=' · '+reads+' native reads / '+observed+' observations · '+number(p.verified_new)+' new · '+number(p.verified_duplicate)+' duplicate · '+number(p.unknown)+' unknown · '+number(p.errors)+' errors · '+number(p.recorded_http_attempts)+' recorded HTTP attempts';
+ if(p.legacy_incomplete||p.attempt_audit_incomplete)value+=' · earlier audit incomplete';
+ const reasons={recovery_budget_exhausted:'replan budget exhausted',recovery_not_authorized:'continuation not authorized',recovery_already_recorded:'recovery already recorded',canonical_call_output_pending:'pending output',invalid_recovery_state:'review checkpoint',provider_egress_unresolved:'provider delivery unresolved',user_stopped:'user stopped'};
+ if(p.reason&&Object.prototype.hasOwnProperty.call(reasons,p.reason))value+=' · '+reasons[p.reason];
+ if(agentCollectionProgressLine.textContent!==value)agentCollectionProgressLine.textContent=value;
+ agentCollectionProgressLine.title='Current objective · committed local counts only, not proof of task completion or provider delivery';
+ agentCollectionProgressLine.hidden=false;
+}
 function displayAgentSession(session){
+ renderAgentCollectionProgress(session);
  if(!session){
   closeAgentAttachmentsPopup();
   closeAgentHistoryAttachmentsPopup();
@@ -1886,6 +1914,7 @@ async function selectAgentSession(id){
  sess.retry_runtime=data.retry_runtime||null;
  sess.auto_feedback_diagnostic=data.auto_feedback_diagnostic||null;
  sess.collection_resume_eligible=data.collection_resume_eligible===true;
+ sess.collection_progress=data.collection_progress||null;
  sess.collection_auto_recovery=data.collection_auto_recovery||'';
  renderAgentProviderEgressReview(sess,data.provider_review||null,
   data.provider_attempts||null,data.provider_attempts_integrity_error===true);
@@ -2173,6 +2202,7 @@ async function createSession(){
  if(agentPendingAttachments.length){const pending=agentPendingAttachments.slice();try{const merged=normalizeStagedAttachments([...agentAttachments,...pending]);agentAttachments=merged;agentAttachmentDrafts.set(result.session.id,merged.map(a=>({...a})));agentPendingAttachments.splice(0,pending.length);renderAgentAttachments();}catch(error){setAgentStatusNotice('Pending attachments need room in this session: '+String(error?.message||error));}}
 }
 async function sendAgentMessage(resumeCollectionRunID=""){
+ if(typeof resumeCollectionRunID!=="string")resumeCollectionRunID="";
  if(!agentActive)throw new Error('Create a session first.');
  const sessionID=agentActive;
  const msg=prompt.value.trim();

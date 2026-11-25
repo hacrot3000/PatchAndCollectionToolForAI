@@ -85,8 +85,7 @@ func legacyCollectionObserved(x *agentchat.Session,callID string,identity patcht
  }else if native{
   scope,err:=cp.BindCollectionScope(g.Counters.Objective,identity.Key,identity.ID,request,"")
   if err==nil{
-   evidence:=cp.InspectNativeEvidence(scope,identity.Key,identity.ID,request,raw)
-   g.Evidence,novelty=cp.ObserveEvidence(g.Evidence,scope,evidence)
+   g.Evidence,g.Coverage,novelty=cp.ObserveNativeRead(g.Evidence,g.Coverage,g.Counters.Objective,scope,identity.Key,identity.ID,request,raw)
   }
  }
  return reduceLegacyCollectionEvent(x,g,callID,cp.CollectionObserved,novelty,native,patchAvailable)
@@ -138,7 +137,20 @@ func legacyCollectionStallCandidate(x agentchat.Session,callID string)bool{
  if !ok||!g.Counters.Progress.DuplicateAdvised||g.Counters.Progress.DuplicateStreak<g.Policy.DuplicateStreak+g.Policy.DuplicateCooldown{return false}
  if len(x.Events)==0{return false}
  last:=x.Events[len(x.Events)-1]
- return last.Kind=="clp_collection_observed"&&last.CallID==callID&&last.Seq==g.Counters.LastSequence
+ return last.Kind=="clp_collection_observed"&&last.CallID==callID&&last.Seq==g.Counters.LastSequence&&legacyVerifiedDuplicateEvent(x,callID,g)
+}
+
+func legacyVerifiedDuplicateEvent(x agentchat.Session,callID string,g agentchat.CollectionGuardState)bool{
+ seq:=g.Counters.LastSequence
+ e:=cp.CounterEvent{Sequence:seq,Identity:collectionEventIdentity(&x,callID,cp.CollectionObserved,seq),Kind:cp.CollectionObserved,Novelty:cp.VerifiedDuplicate,NativeRead:true}
+ raw,err:=json.Marshal(e)
+ return err==nil&&agentchat.ProviderPayloadDigest(raw)==g.Counters.LastEventDigest
+}
+
+func legacyCollectionReplanAllowed(x agentchat.Session)bool{
+ allowed:=x.Owner=="local"&&!x.Archived&&(x.AutoCollection==nil||*x.AutoCollection)
+ if x.TaskPlan!=nil{return allowed&&x.TaskPlan.AutoContinue&&agentchat.TaskPlanNext(x.TaskPlan)!=nil}
+ return allowed&&x.AutoContinueText
 }
 
 // The caller has already saved the exact current observation in the same
@@ -146,7 +158,7 @@ func legacyCollectionStallCandidate(x agentchat.Session,callID string)bool{
 // instructions, never replay a previous provider or native operation.
 func assessLegacyCollectionStall(ctx context.Context,x *agentchat.Session,next agentchat.HistoryItem)(cp.RecoveryDecision,error){
  g,ok:=x.ReadCollectionGuard()
- if !ok{return cp.RecoveryDecision{Kind:cp.Continue},nil}
+ if !ok||!legacyVerifiedDuplicateEvent(*x,next.CallID,g){return cp.RecoveryDecision{Kind:cp.Continue},nil}
  committed:=len(x.History)>0&&x.History[len(x.History)-1]==next
  sequence:=g.Counters.LastSequence
  e:=cp.CounterEvent{Sequence:sequence,Identity:collectionEventIdentity(x,next.CallID,cp.CollectionObserved,sequence),Kind:cp.CollectionObserved,Novelty:cp.VerifiedDuplicate,NativeRead:true}
@@ -157,10 +169,7 @@ func assessLegacyCollectionStall(ctx context.Context,x *agentchat.Session,next a
   }
   if call.Name=="taskdeck_submit_patch"&&(!call.FeedbackSent||call.FeedbackStatus!="acknowledged"){safe=false}
  }
- allowed:=x.Owner=="local"&&(x.AutoCollection==nil||*x.AutoCollection)
- if x.TaskPlan!=nil{
-  allowed=allowed&&x.TaskPlan.AutoContinue&&agentchat.TaskPlanNext(x.TaskPlan)!=nil
- }else{allowed=allowed&&x.AutoContinueText}
+ allowed:=legacyCollectionReplanAllowed(*x)
  state,decision:=cp.AssessRecovery(g.Policy,g.Counters,e,g.Recovery,cp.RecoveryGate{
   Stopped:ctx.Err()!=nil,SafeEgress:safe,CanonicalOutputCommitted:committed,OwnerAllowsContinuation:allowed,
  })

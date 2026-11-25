@@ -122,3 +122,28 @@ func TestAgentStandaloneContinuationAfterLegacyHourlyQuota(t *testing.T) {
   t.Fatalf("continuation blocked by obsolete quota: calls=%d state=%s continuation=%+v",calls,x.Status,x.Continuation)
  }
 }
+
+
+func TestAgentStandaloneContinuationAfterClippedMilestoneAnnouncement(t *testing.T){
+ s,store,id:=newStandaloneAutoContinueFixture(t)
+ x,err:=store.Get(id,"local");if err!=nil{t.Fatal(err)}
+ x.AutoContinueText=true // Existing explicit owner opt-in.
+ appendAgentProviderResult(&x,agentchat.ResponsesResult{
+  ResponseID:"clipped-milestone",Status:"completed",
+  Text:"Tiếp tục P1.1.2.3: thu thập nguồn và contract đã xác minh, rồi triển khai một đơn vị có kiểm",
+ },true)
+ if x.Status!="completed"||x.Continuation==nil||x.Continuation.Disposition!=agentchat.TurnNeedsContinuation{
+  t.Fatalf("transport completed but unfinished task not recognized: %+v",x.Continuation)
+ }
+ if _,err=store.Save(x,x.Revision);err!=nil{t.Fatal(err)}
+ calls:=0
+ s.AgentChatCall=func(_ context.Context,_ agentchat.ProviderConfig,_ string,payload []byte)(agentchat.ResponsesResult,error){
+  calls++
+  if !strings.Contains(string(payload),"P1.1.2.3"){t.Fatal("original milestone context missing")}
+  return agentchat.ResponsesResult{ResponseID:"follow-up-complete",Text:"Task complete: all work done."},nil
+ }
+ s.autoContinueConversationOne(context.Background(),store,id)
+ if calls!=1{t.Fatalf("clipped milestone failed to schedule exactly one new continuation: %d",calls)}
+ s.autoContinueConversationOne(context.Background(),store,id)
+ if calls!=1{t.Fatal("completion claim scheduled an extra request")}
+}

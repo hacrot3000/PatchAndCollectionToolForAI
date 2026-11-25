@@ -100,8 +100,11 @@ func appendAgentTextPatchProposal(x *agentchat.Session, result agentchat.Respons
 // The canonical saved session is never rewritten just to reduce provider input.
 // New tool results are supplied separately in Next and remain byte-exact.
 func agentContextForRequest(x agentchat.Session, model agentchat.ModelConfig, instructions string, next []agentchat.HistoryItem) []agentchat.HistoryItem {
+ return agentContextForRequestWithPolicy(x,model,instructions,next,false)
+}
+func agentContextForRequestWithPolicy(x agentchat.Session, model agentchat.ModelConfig,instructions string,next []agentchat.HistoryItem,minimal bool)[]agentchat.HistoryItem{
  policy:=contextcompact.Policy{
-  MaxInputTokens:model.MaxInputTokens,CollectionPercent:30,
+  MaxInputTokens:model.MaxInputTokens,CollectionPercent:30,Minimal:minimal,
   Instructions:instructions,Next:next,
   ArchivedItems:x.ArchivedHistoryItems,ArchivedParts:x.HistoryArchiveParts,
   ArchivedPatchCalls:x.ArchivedPatchCalls,ArchivedPatchSummaries:x.PatchArchiveSummaries,

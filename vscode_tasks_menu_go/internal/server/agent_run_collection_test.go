@@ -169,3 +169,41 @@ func TestAgentRunUnsupportedToolDenialContinuesPinnedProvider(t *testing.T){
   t.Fatalf("wrong run denial evidence: %+v",last)
  }
 }
+
+
+func TestAgentRunCollectionRepeatedShapeReadsChangedSource(t *testing.T){
+ s,_,_,spec:=providerToolRunFixture(t,"run-native-repeated")
+ spec,history:=enableRunAutomationFixture(t,s,spec,true,false)
+ var requests,reads atomic.Int32
+ s.AgentCollectionCall=func(_ string,identity patchtool.ProjectIdentity,_ []byte)string{
+  n:=reads.Add(1);digest:=strings.Repeat("a",64);if n>=3{digest=strings.Repeat("b",64)}
+  raw,_:=json.Marshal(map[string]any{"source":"native_patch_tool_collect","project":identity,"status":"PASS","native_status":"PASS","rc":0,"evidence_verified":true,"native_session_id":"native","run_id":"read-"+string(rune('0'+n)),"text_excerpt":"read-marker-"+string(rune('0'+n)),"text_excerpt_truncated":false,"native_full_file_reads":[]any{map[string]any{"path":"main.go","action_index":1,"total_lines":1,"report_sha256":digest}}})
+  return string(raw)
+ }
+ s.AgentChatCall=func(_ context.Context,p agentchat.ProviderConfig,_ string,payload []byte)(agentchat.ResponsesResult,error){
+  n:=requests.Add(1)
+  if p.ID!=spec.ProviderID{t.Errorf("provider drift")}
+  if n>1&&!strings.Contains(string(payload),"read-marker-"+string(rune('0'+n-1))){t.Errorf("current native receipt missing at request %d",n)}
+  if n<=4{return agentchat.ResponsesResult{ResponseID:"read-response",Calls:[]agentchat.FunctionCall{{CallID:"collect-"+string(rune('0'+n)),Name:"taskdeck_collect_workspace",Arguments:`{"actions":[{"type":"file","path":"main.go"}]}`}}},nil}
+  return agentchat.ResponsesResult{ResponseID:"complete",Text:"Read completed."},nil
+ }
+ manager,err:=s.agentRunManager("local");if err!=nil{t.Fatal(err)}
+ defer manager.Close()
+ if _,err=manager.Submit(spec,history);err!=nil{t.Fatal(err)}
+ waitForAgentRunStatus(t,manager,spec.RunID,agentrun.Completed)
+ if reads.Load()!=4||requests.Load()!=5{t.Fatalf("reads=%d requests=%d",reads.Load(),requests.Load())}
+ rec,_:=manager.Get(spec.RunID)
+ n:=0
+ for _,it:=range rec.History{
+  if it.Type=="function_call_output"&&strings.HasPrefix(it.CallID,"collect-"){
+   n++;if !strings.Contains(it.Content,"read-marker-"+string(rune('0'+n))){t.Fatal("receipt replaced")}
+  }
+ }
+ if n!=4{t.Fatalf("receipt count %d",n)}
+ inputs,err:=s.ResolveAgentRunInputs(agentrun.WithPrincipalOwner(context.Background(),"local"),rec.Spec);if err!=nil{t.Fatal(err)}
+ g,ok:=readRunCollectionProgress("local",rec.Spec,inputs)
+ if !ok||g.Counters.Requested!=4||g.Counters.NativeReads!=4||g.Counters.NewEvidence!=2||g.Counters.DuplicateEvidence!=2{t.Fatalf("guard not retained: %+v",g)}
+ if _,ok:=readRunCollectionProgress("foreign",rec.Spec,inputs);ok{t.Fatal("cross-owner progress accepted")}
+ foreign:=rec.Spec;foreign.ExecutionWorkspaceID="foreign-worktree"
+ if _,ok:=readRunCollectionProgress("local",foreign,inputs);ok{t.Fatal("cross-worktree progress accepted")}
+}

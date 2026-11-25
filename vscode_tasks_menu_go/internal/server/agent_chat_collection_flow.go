@@ -320,9 +320,16 @@ func (s *Server) agentChatRunCollection(
 			return result,clearProviderRefs,&agentCollectionLocalError{Stage:"refresh_automation",Round:round+1,Cause:settingsErr}
 		}
 		x.RefreshAutomation(latest)
+		if recoveryAdvice!=""&&!legacyCollectionReplanAllowed(*x){
+			// The current receipt is already canonical. The replan has not
+			// been admitted as PREPARED; leave its original budget intact.
+			x.CollectionGuard=latest.CollectionGuard
+			x.AppendEvent("clp_checkpoint",x.Status,next.CallID,"recovery_not_authorized")
+			return result,true,&agentCollectionLocalError{Stage:"collection_progress_checkpoint",Round:round+1,Cause:errors.New("Automatic Collection replan no longer authorized; resume with a new owner message")}
+		}
 		limit := agentInitialOutputBudget(model,reasoning,toolAvailable)
 		contextModel := model
-		if mode==agentchat.Stateless{contextModel,limit=agentAdaptiveRequestBudget(*x,provider,model,key,limit)}
+		if mode==agentchat.Stateless{contextModel,limit=agentAdaptiveRequestBudget(store,*x,provider,model,key,limit)}
 		instructions := agentChatInstructionsWithAutomation(*x, toolAvailable, identity.Key) + collectionProgressAdvice(guardDecision) + requestAdvice + recoveryAdvice
 		projection:=*x
 		if nextCommitted{
@@ -331,10 +338,10 @@ func (s *Server) agentChatRunCollection(
 			if len(x.History)==0||x.History[len(x.History)-1]!=next{return result,clearProviderRefs,&agentCollectionLocalError{Stage:"stall_receipt_projection",Round:round+1,Cause:errors.New("committed Collection output missing from latest history")}}
 			projection.History=x.History[:len(x.History)-1]
 		}
-		payload, err := agentchat.BuildResponsesRequest(agentchat.RequestConfig{
+		payload, err := agentBuildContextRequest(projection,contextModel,provider,agentchat.RequestConfig{
 			Model: x.ModelID, Instructions: instructions,
 			Mode: mode, PreviousResponseID: x.PreviousResponseID, ConversationID: conversationID,
-			History: agentContextForRequest(projection, contextModel, instructions, []agentchat.HistoryItem{next}), Next: []agentchat.HistoryItem{next},
+			Next: []agentchat.HistoryItem{next},
 			MaxOutputTokens: limit,
 			ReasoningEffort: reasoning,
 			EnablePatchTool: toolAvailable, EnableCollectionTool: toolAvailable,

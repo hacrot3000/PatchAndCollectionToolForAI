@@ -34,10 +34,34 @@ func HandoffMarkdown(x Session) string {
    b.WriteString("The provider request phase is journaled; this is not a claim that the complete user task passed its acceptance criteria.\n\n")
   }
  }
+ if len(x.CollectionResumeHistory)>0{
+  b.WriteString("## Previous UNKNOWN Collection egress — retained audit, never replay\n\n")
+  for _,c:=range x.CollectionResumeHistory{
+   fmt.Fprintf(&b,"- Old run %s phase=%s payload_sha256=%s; new run %s; ",
+    handoffTrim(c.Previous.ID,90),c.Previous.Phase,c.Previous.PayloadSHA256,handoffTrim(c.NewRunID,90))
+   if c.ReceiptUnavailable{b.WriteString("canonical receipt unavailable; ")}else{fmt.Fprintf(&b,"canonical receipt_sha256=%s; ",c.ReceiptSHA256)}
+   if a:=c.AttemptAudit;a!=nil{
+    fmt.Fprintf(&b,"%d recorded local attempts",a.Total)
+    if a.Truncated{b.WriteString(" (earlier details omitted)")}
+    if len(a.Attempts)>0{
+     last:=a.Attempts[len(a.Attempts)-1]
+     fmt.Fprintf(&b,"; last correlation=%s, local outcome=%s",handoffTrim(last.ClientRequestID,80),last.Outcome)
+    }
+   }else{b.WriteString("No matching local attempt record")}
+   b.WriteString(". Not provider acknowledgement.\n")
+  }
+  b.WriteString("\n")
+ }
+ if g,ok:=x.ReadCollectionGuard();ok{
+  c:=g.Counters
+  fmt.Fprintf(&b,"Collection guard (current objective): requested=%d, observed=%d, native_reads=%d, verified_new=%d, verified_duplicate=%d, unknown=%d, errors=%d, recorded_http_attempts=%d, patch_proposals=%d, patch_executions=%d, patch_rejections=%d, patch_uncertain=%d, replans=%d.\n\n",
+   c.Requested,c.Observed,c.NativeReads,c.NewEvidence,c.DuplicateEvidence,c.UnknownEvidence,c.Errors,c.HTTPAttempts,c.PatchProposals,c.PatchExecutions,c.PatchRejections,c.PatchUncertainOutcomes,g.Recovery.Attempts)
+  if g.AttemptAuditIncomplete{b.WriteString("Local attempt audit incomplete; counts are not proof of delivery.\n\n")}
+ }
  b.WriteString("## Original user goal\n\n")
  foundGoal:=false
- for _,it:=range x.History {
-  if it.Type!="user" {continue}
+ for i,it:=range x.History {
+  if it.Type!="user" || CollectionTextObservation(x.History,i) {continue}
   content:=it.Content
   if idx:=strings.LastIndex(content,"USER REQUEST:\n");idx>=0{content=content[idx+len("USER REQUEST:\n"):]}
   if idx:=strings.Index(content,"\n\nATTACHMENTS (untrusted user-provided text");idx>=0{content=content[:idx]}

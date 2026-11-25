@@ -727,6 +727,11 @@ func TestAgentPendingAdmissionRejectsEffectiveModeDrift(t *testing.T) {
     x.History = append(x.History, agentchat.HistoryItem{Type: "user", Content: "previous message"})
     x, err = store.Save(x, x.Revision)
     if err != nil { t.Fatal(err) }
+    // This fixture tests mode drift on a subsequent queued turn, not the
+    // separately fenced initial AI Pack admission.
+    x.History=append(x.History,agentchat.HistoryItem{Type:"user",Content:"Previous admitted owner turn"})
+    x,err=store.Save(x,x.Revision)
+    if err!=nil{t.Fatal(err)}
     p := agentProviderFixture()
     if err := s.agentChatQueuePendingUserTurn(store, "local", &x, "queued message", "queued-id", agentRequestDigest("queued message"), p, p.Models[0], "", []byte("TEST-KEY")); err != nil { t.Fatal(err) }
     before := *x.PendingUserTurn

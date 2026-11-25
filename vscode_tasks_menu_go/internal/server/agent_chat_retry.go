@@ -196,10 +196,8 @@ func agentRetryContextPayload(payload []byte)([]byte,bool){
  }
  // The latest user message or trailing batch of verified tool outputs is
  // mandatory. The compactor keeps each source call for Next in full.
- cut:=len(items)-1
- if items[cut].Type=="function_call_output"{
-  for cut>0&&items[cut-1].Type=="function_call_output"{cut--}
- }else if items[cut].Type!="user"{return nil,false}
+ if items[len(items)-1].Type!="function_call_output"&&items[len(items)-1].Type!="user"{return nil,false}
+ cut:=agentMandatoryRetrySuffix(items)
  next:=items[cut:]
  budget:=contextcompact.Tokens(string(payload))/2
  if budget<4096{budget=4096}
@@ -273,6 +271,9 @@ func (s *Server) agentChatProviderWithRetry(ctx context.Context,owner,sessionID 
   generation:=contextRecoveries
   if incompleteRecoverySent{generation++}
   digest:=agentchat.ProviderPayloadDigest(replayPayload)
+  if m,e:=agentchat.MeasureProviderPayload(p.APIType,replayPayload);e==nil{
+   s.recordAgentDebugEvent(owner,sessionID,"","provider_retry","payload.budget","","canonical_bytes="+strconv.Itoa(m.CanonicalBytes)+" wire_template_bytes="+strconv.Itoa(m.WireBytes)+" estimated_input_tokens="+strconv.Itoa(m.EstimatedInputTokens)+" output_budget="+strconv.Itoa(m.OutputBudget)+" instruction_bytes="+strconv.Itoa(m.InstructionsBytes)+" input_bytes="+strconv.Itoa(m.InputBytes)+" tools_bytes="+strconv.Itoa(m.ToolsBytes)+" other_bytes="+strconv.Itoa(m.OtherBytes)+" stateful="+strconv.FormatBool(m.Stateful))
+  }
   agentRetryPublish(s.Workspace,owner,sessionID,agentRetryProgress{Mode:mode,Attempt:attempt,Remaining:remaining,Phase:"sending",SameDigestFailures:sameDigestFailures,RecoveryGeneration:generation})
   callCtx,cancel:=context.WithTimeout(ctx,agentchat.ProviderAttemptTimeout)
   if attemptStore!=nil{
@@ -310,8 +311,12 @@ func (s *Server) agentChatProviderWithRetry(ctx context.Context,owner,sessionID 
   // reports a generic provider error after the context was cancelled.
   if ctx.Err()!=nil{return agentchat.ResponsesResult{},ctx.Err(),trace}
   if err==nil{
-   if contextRecoveries>0&&agentLearnContextRecovery(s.Workspace,owner,p,key,contextRejectedPayload,replayPayload){
-    s.recordAgentDebugEvent(owner,sessionID,"","provider_retry","context_budget.learned","","Retained a bounded provider/model context and output budget hint for subsequent stateless requests")
+   if contextRecoveries>0{
+    if hints,e:=s.agentChatStore();e==nil{
+     if x,e:=hints.Get(sessionID,owner);e==nil&&agentLearnContextRecovery(hints,x,p,key,contextRejectedPayload,replayPayload){
+      s.recordAgentDebugEvent(owner,sessionID,"","provider_retry","context_budget.learned","","Retained a bounded durable provider/model context and output budget hint for subsequent stateless requests")
+     }
+    }
    }
    return result,nil,trace
   }

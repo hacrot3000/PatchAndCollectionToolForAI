@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -142,6 +143,16 @@ int Caller(int x)
         assert "pkg" in by_type["ls"]
         assert "Caller.java" in by_type["tree"]
         assert "return beta(x) + 1" in by_type["file"]
+        digest = hashlib.sha256((project / "src/pkg/Foo.java").read_bytes()).hexdigest()
+        for row in manifest["reports"]:
+            if row["type"] in {"file", "range", "head", "tail"}:
+                proof = row["line_proof"]
+                assert proof["source_revision_sha256"] == digest, proof
+                assert proof["path"] == "src/pkg/Foo.java", proof
+                assert 1 <= proof["start_line"] <= proof["end_line"] <= proof["total_lines"], proof
+                assert proof["report_sha256"] == hashlib.sha256(zf.read(row["archive_path"])).hexdigest(), proof
+            else:
+                assert "line_proof" not in row, row
         assert "Symbol extraction" in by_type["symbol"] and "alpha" in by_type["symbol"]
         assert "Coverage status: VERIFIED" in by_type["references"]
         assert "Heuristic callees" in by_type["callgraph"] and "beta" in by_type["callgraph"]

@@ -19,6 +19,7 @@ const (
 	PatchRejected       EventKind = "patch_rejected"
 	PatchUncertain      EventKind = "patch_uncertain"
 	VerifiedProgress    EventKind = "verified_progress"
+	OwnerAttestedProgress EventKind = "owner_attested_progress"
 )
 
 // CounterEvent is derived only from a committed, scoped journal record.
@@ -55,6 +56,7 @@ type CounterState struct {
 	PatchExecutions          uint64           `json:"patch_executions"`
 	PatchRejections          uint64           `json:"patch_rejections"`
 	PatchUncertainOutcomes   uint64           `json:"patch_uncertain"`
+	AttestedProgressEvents uint64 `json:"attested_progress_events,omitempty"`
 	VerifiedProgressEvents   uint64           `json:"verified_progress_events"`
 	ReadsSincePatchProposal  uint64           `json:"reads_since_patch_proposal"`
 	ReadsSincePatchExecution uint64           `json:"reads_since_patch_execution"`
@@ -91,7 +93,7 @@ func validCounterEvent(e CounterEvent) bool {
 		return false
 	}
 	switch e.Kind {
-	case CollectionRequested, HTTPAttempt, PatchProposed, PatchExecuted, PatchRejected, PatchUncertain, VerifiedProgress:
+	case CollectionRequested, HTTPAttempt, PatchProposed, PatchExecuted, PatchRejected, PatchUncertain, VerifiedProgress, OwnerAttestedProgress:
 		return true
 	default:
 		return false
@@ -167,8 +169,8 @@ func ApplyCounterEvent(p Policy, current CounterState, e CounterEvent, patchProp
 		next.PatchRejections = increment(next.PatchRejections)
 	case PatchUncertain:
 		next.PatchUncertainOutcomes = increment(next.PatchUncertainOutcomes)
-	case VerifiedProgress:
-		next.VerifiedProgressEvents = increment(next.VerifiedProgressEvents)
+	case VerifiedProgress, OwnerAttestedProgress:
+		if e.Kind==VerifiedProgress{next.VerifiedProgressEvents=increment(next.VerifiedProgressEvents)}else{next.AttestedProgressEvents=increment(next.AttestedProgressEvents)}
 		next.Progress, decision = Apply(p, current.Objective.AdvisoryIntent(patchProposalAvailable), next.Progress, Observation{MeaningfulProgress: true})
 	}
 	return next, decision, true, nil

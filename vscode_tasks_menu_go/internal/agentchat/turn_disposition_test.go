@@ -87,3 +87,42 @@ func TestHistoricalUnconfirmedFeedbackRequiresNewTurnAndExactReceipt(t *testing.
  x.History[1].Content="different receipt"
  if HistoricalUnconfirmedFeedback(x,old){t.Fatal("mismatched output accepted")}
 }
+
+
+func TestTurnDispositionClippedMilestoneAnnouncement(t *testing.T){
+ for _,text:=range []string{
+  "Tiếp tục P1.1.2.3: thu thập nguồn và contract đã xác minh, rồi triển khai một đơn vị có kiểm",
+  "Continue M17-02: inspect the current receipt and implement the",
+  "Continuing with UAG-02: verify the source",
+ }{
+  x:=Session{Owner:"local",Status:"completed",AutoContinueText:true}
+  RecordTurnDisposition(&x,text)
+  if x.Continuation.Disposition!=TurnNeedsContinuation||x.Continuation.Reason!="unfinished_action_announcement"||x.Continuation.NextAction==""{
+   t.Fatalf("unfinished milestone announcement not recognized: %+v",x.Continuation)
+  }
+  if !StandaloneAutoContinueCandidate(x){t.Fatal("consented unfinished milestone should be eligible")}
+  x.AutoContinueText=false
+  if StandaloneAutoContinueCandidate(x){t.Fatal("announcement bypassed opt-in")}
+  x.AutoContinueText=true
+  x.ProviderRun=&ProviderRun{Phase:"unknown"}
+  if StandaloneAutoContinueCandidate(x){t.Fatal("announcement bypassed ambiguous provider fence")}
+  x.ProviderRun=nil
+  x.Continuation.NoProgressTurns=MaxContinuationNoWorkTurns
+  if StandaloneAutoContinueCandidate(x){t.Fatal("announcement bypassed verified-work brake")}
+ }
+ for _,text:=range []string{
+  "Tiếp tục P1.1.2.3: đã hoàn thành toàn bộ.",
+  "Tiếp tục P1.1.2.3: bị chặn bởi điều kiện bắt buộc.",
+  "Continue reading the documentation for more information.",
+  "Here is a sample: Continue M17-02: inspect the current receipt.",
+ }{
+  if c:=AnalyzeTurnText(text);c.Disposition==TurnNeedsContinuation||c.Disposition==TurnInProgress{
+   t.Fatalf("ordinary guidance, completion or blocker unexpectedly scheduled: %q %+v",text,c)
+  }
+ }
+}
+
+func TestTurnDispositionClippedMilestoneActionUTF8Bound(t *testing.T){
+ c:=AnalyzeTurnText("Tiếp tục P1.1.2.3: "+strings.Repeat("kiểm ",200))
+ if c.Disposition!=TurnNeedsContinuation||!ValidTurnContinuation(c)||len(c.NextAction)>500{t.Fatalf("invalid bounded announcement: %+v",c)}
+}

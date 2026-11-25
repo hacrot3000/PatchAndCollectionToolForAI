@@ -68,3 +68,16 @@ func TestAgentDebugReportAuthorizationAndOwnerIsolation(t *testing.T){
  s.agentChatDebugReportAPI(denied,httptest.NewRequest(http.MethodPost,"/api/agent/debug/report",nil))
  if denied.Code!=http.StatusMethodNotAllowed{t.Fatalf("write accepted: %d",denied.Code)}
 }
+
+
+func TestSafeContinuationDiagnosticOmitsModelText(t *testing.T){
+ x:=agentchat.Session{Owner:"local",Status:"completed",AutoContinueText:true}
+ agentchat.RecordTurnDisposition(&x,"Tiếp tục P1.1.2.3: TOP_SECRET next action")
+ d:=agentSafeContinuationDiagnostic(x)
+ if d["disposition"]!=agentchat.TurnNeedsContinuation||d["reason"]!="unfinished_action_announcement"||d["standalone_eligible"]!=true{
+  t.Fatalf("missing continuation diagnostic: %+v",d)
+ }
+ if _,ok:=d["next_action"];ok{t.Fatal("model next action exposed")}
+ if _,ok:=d["checkpoint_path"];ok{t.Fatal("checkpoint path exposed")}
+ if strings.Contains(d["reason"].(string),"TOP_SECRET"){t.Fatal("model text exposed")}
+}

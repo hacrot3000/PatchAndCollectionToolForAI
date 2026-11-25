@@ -1232,6 +1232,15 @@ console.log('PASS: safe Markdown, syntax-highlighted PHP/Python, per-block Copy,
   console.log('PASS: AI Pack preview dismiss/stale-response isolation without chat mutation or provider request');
 
   
+   // Committed Collection counters are presentation-only and must clear
+   // when another conversation has no guard projection.
+   const collectionLine=vm.runInNewContext('agentCollectionProgressLine',context);
+   vm.runInNewContext("renderAgentCollectionProgress({collection_progress:{state:'stalled',native_reads:8,observed:9,verified_new:1,verified_duplicate:7,unknown:1,recorded_http_attempts:12,reason:'recovery_budget_exhausted'}})",context);
+   assert.equal(collectionLine.hidden,false);
+   assert.ok(nodeText(collectionLine).includes('Stalled')&&nodeText(collectionLine).includes('8 native reads')&&nodeText(collectionLine).includes('12 recorded HTTP attempts'));
+   vm.runInNewContext("renderAgentCollectionProgress({id:'other-session'})",context);
+   assert.equal(collectionLine.hidden,true,'stale Collection progress leaked across tabs');
+   assert.equal(collectionLine.textContent,'');
    // A visible SENDING/UNKNOWN warning is dismissible per exact run identity,
    // without changing the canonical journal, starting a retry or hiding a
    // later UNKNOWN/new run acknowledgement warning.
@@ -1250,7 +1259,7 @@ console.log('PASS: safe Markdown, syntax-highlighted PHP/Python, per-block Copy,
      {attempt:1,client_request_id:'td-'+('b'.repeat(64)),recorded_at:'2026-11-23T00:01:00Z',
        payload_sha256:'a'.repeat(64),header_configured:true},
      {attempt:2,client_request_id:'td-'+('c'.repeat(64)),recorded_at:'2026-11-23T00:02:00Z',
-       payload_sha256:'a'.repeat(64),header_configured:false}
+       payload_sha256:'a'.repeat(64),header_configured:false,outcome:'connect_timeout',payload_bytes:4096,estimated_input_tokens:2052,output_budget:8192,recovery_generation:1,retry_mode:'unlimited'}
    ]};
    vm.runInNewContext("renderAgentProviderEgressReview({id:'session-warning',provider_id:'openai'},warning,providerAudit,false)",context);
    assert.ok(nodeText(providerNotice).includes('2 recorded'),'same-run new attempt count must refresh warning');
@@ -1267,6 +1276,14 @@ console.log('PASS: safe Markdown, syntax-highlighted PHP/Python, per-block Copy,
      providerCopied.includes('NOT acknowledgement'),
      'copy must distinguish configured header from delivery and never authorize replay');
    assert.equal(providerCopied.includes('TEST-KEY'),false,'support metadata must never contain an API key');
+   assert.ok(providerCopied.includes('local outcome=connect_timeout')&&providerCopied.includes('canonical bytes=4096')&&providerCopied.includes('retry mode=unlimited'),'support report exposes redacted retry telemetry');
+   context.resumeWarning={...warning,run_id:'resume-checkpoint',phase:'unknown'};
+   vm.runInNewContext("renderAgentProviderEgressReview({id:'resume-checkpoint',collection_resume_eligible:true},resumeWarning)",context);
+   assert.ok(find(providerNotice,node=>node.tagName==='button'&&node.textContent==='Resume original task (new request)'),'eligible collection resume action missing');
+   vm.runInNewContext("renderAgentProviderEgressReview({id:'resume-checkpoint',collection_resume_eligible:false},resumeWarning)",context);
+   assert.equal(Boolean(find(providerNotice,node=>node.tagName==='button'&&node.textContent==='Resume original task (new request)')),false,'ineligible checkpoint exposes resume');
+   vm.runInNewContext("renderAgentProviderEgressReview({id:'resume-checkpoint',collection_resume_eligible:true},{...resumeWarning,kind:'feedback'})",context);
+   assert.equal(Boolean(find(providerNotice,node=>node.tagName==='button'&&node.textContent==='Resume original task (new request)')),false,'ambiguous PATCH feedback exposes unsafe resume');
    context.providerAuditWrong={...context.providerAudit,run_id:'different-run'};
    vm.runInNewContext("renderAgentProviderEgressReview({id:'session-warning'},warning,providerAuditWrong,false)",context);
    assert.ok(nodeText(providerNotice).includes('no matching record'),

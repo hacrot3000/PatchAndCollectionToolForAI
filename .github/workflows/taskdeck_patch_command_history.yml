@@ -45,6 +45,7 @@ jobs:
         run: |
           python3 -m compileall -q _patch_lib
           PYTHONDONTWRITEBYTECODE=1 python3 -B -S _patch_lib/self_test_collect_command_v6_20_0.py
+          PYTHONDONTWRITEBYTECODE=1 python3 -B -S _patch_lib/self_test_collect_historical_actions_v6_20_0.py
           PYTHONDONTWRITEBYTECODE=1 python3 -B -S _patch_lib/self_test_ai_collect_contract_v6_20_0.py
           PYTHONDONTWRITEBYTECODE=1 python3 -B -S _patch_lib/self_test_local_readonly_whitelist_v6_20_0.py
       - name: Durable per-command console and History

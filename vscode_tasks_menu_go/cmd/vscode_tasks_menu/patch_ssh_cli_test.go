@@ -47,3 +47,14 @@ func TestPatchSSHProfileMustHaveUniqueExactName(t *testing.T) {
 		t.Fatalf("unique profile not found: %+v %v", got, err)
 	}
 }
+
+func TestParsePatchSSHAbsoluteCollectPaths(t *testing.T) {
+ _, command, err := parsePatchSSHRequest(strings.NewReader(`{"profile_name":"Production 1","argv":["grep","-nriF","--","orderId=123","/data/logs"],"timeout_seconds":30,"dry_run":true}`))
+ if err != nil || !strings.Contains(command,"realpath -e") || !strings.Contains(command,"/data/logs") { t.Fatalf("absolute SSH log search rejected: %q %v",command,err) }
+ for _, raw := range []string{
+ `{"profile_name":"Prod","argv":["cat","/etc/passwd"]}`,
+ `{"profile_name":"Prod","argv":["ls","/data/../etc"]}`,
+ `{"profile_name":"Prod","argv":["ls","/database"]}`,
+ `{"profile_name":"Prod","argv":["ls","/data"],"allowed_roots":["/"]}`,
+ } { if _,_,err:=parsePatchSSHRequest(strings.NewReader(raw)); err==nil {t.Fatalf("unsafe request admitted: %s",raw)} }
+}

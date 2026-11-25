@@ -240,9 +240,9 @@ func agentNativeCollectionObservation(root string,identity patchtool.ProjectIden
    // Full-file evidence is derived from the exact native ZIP, never the
    // model-facing excerpt. Keep the legacy no-truncation requirement.
    if outcome["status"]=="PASS"&&!truncated{
-    if proofs:=agentNativeFullFileReadProofs(root,zipPath,identity);len(proofs)>0{
-     outcome["native_full_file_reads"]=proofs
-    }
+    full,lines:=agentNativeReadProofs(root,zipPath,identity)
+    if len(full)>0{outcome["native_full_file_reads"]=full}
+    if len(lines)>0{outcome["native_line_reads"]=lines}
    }
   }else{
    outcome["text_error"]=scrubAIContext(err.Error(),240)
