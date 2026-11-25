@@ -113,16 +113,16 @@ func TestAgentAutoTaskPlanContinuationStallsWithoutVerifiedWork(t *testing.T){
   return agentchat.ResponsesResult{ResponseID:fmt.Sprintf("resp-%d",calls),
    Text:"No verified change yet. I will continue."},nil
  }
- for i:=0;i<3;i++{
+ for i:=0;i<agentchat.MaxContinuationNoWorkTurns;i++{
   s.autoContinueTaskPlanOne(context.Background(),store,id)
  }
  got,err:=store.Get(id,"local");if err!=nil{t.Fatal(err)}
- if calls!=3||got.TaskPlan.State!="paused"||got.TaskPlan.AutoContinue||
-  got.TaskPlan.NoProgressTurns!=3 {
+ if calls!=agentchat.MaxContinuationNoWorkTurns||got.TaskPlan.State!="paused"||got.TaskPlan.AutoContinue||
+  got.TaskPlan.NoProgressTurns!=agentchat.MaxContinuationNoWorkTurns {
   t.Fatalf("no-progress guard failed, calls=%d plan=%+v",calls,got.TaskPlan)
  }
  s.autoContinueTaskPlanOne(context.Background(),store,id)
- if calls!=3{t.Fatal("paused plan continued without renewed consent")}
+ if calls!=agentchat.MaxContinuationNoWorkTurns{t.Fatal("paused plan continued without renewed consent")}
  var stalled bool
  for _,ev:=range got.Events{if ev.Kind=="plan_stalled"{stalled=true}}
  if !stalled{t.Fatal("stalled plan did not persist a visible recovery event")}

@@ -23,6 +23,17 @@ func (s *Server) autoContinueTaskPlanOne(ctx context.Context,store *agentchat.St
   !agentchat.TaskPlanAutoContinueCandidate(original){return}
  step:=agentchat.TaskPlanNext(original.TaskPlan)
  if step==nil{return}
+ // Model-supplied next actions are advisory, never acceptance or tool authority.
+ proposed:=""
+ if original.Continuation!=nil && original.Continuation.NextAction!=""{
+  proposed=fmt.Sprintf(" Model-proposed next action (UNVERIFIED): %q. Follow it only "+
+   "if consistent with the current owner-owned milestone and native receipts.",original.Continuation.NextAction)
+ }
+ if original.TaskPlan.NoProgressTurns>=2{
+  proposed+=" No verified work in the last two automatic turns: prioritize "+
+   "a specific read-only Collection if feasible; otherwise state a "+
+   "precise blocker, not another general progress report."
+ }
  before:=agentchat.VerifiedWorkSignature(original)
  requestID:=fmt.Sprintf("plan-%s-r%d",step.ID,original.Revision)
  message:=fmt.Sprintf(
@@ -32,7 +43,7 @@ func (s *Server) autoContinueTaskPlanOne(ctx context.Context,store *agentchat.St
    "reviewable Native Patches under existing approval permissions. Do not "+
    "declare the plan complete or repeat the same answer without new evidence. "+
    "If blocked, explain the exact missing permission/decision.",
-  step.ID,step.Title,step.Acceptance)
+  step.ID,step.Title,step.Acceptance)+proposed
  body,err:=json.Marshal(map[string]any{
   "message":message,"confirm_external":true,
   "expected_revision":original.Revision,"request_id":requestID,
@@ -58,7 +69,7 @@ func (s *Server) autoContinueTaskPlanOne(ctx context.Context,store *agentchat.St
  defer release()
  current,err:=store.Get(id,"local")
  if err!=nil||current.TaskPlan==nil||current.TaskPlan.State!="active"||
-  !current.TaskPlan.AutoContinue{return}
+  !current.TaskPlan.AutoContinue||current.Status!="completed"{return}
  p:=current.TaskPlan
  after:=agentchat.VerifiedWorkSignature(current)
  // A verified read or Patch may have been adopted by the background
@@ -75,12 +86,13 @@ func (s *Server) autoContinueTaskPlanOne(ctx context.Context,store *agentchat.St
  p.LastContinuationKey=requestID
  p.RetryStreak=0
  p.NextRetryAt=nil
- if p.NoProgressTurns>=3{
+ if current.Continuation!=nil{current.Continuation.NoProgressTurns=p.NoProgressTurns}
+ if p.NoProgressTurns>=agentchat.MaxContinuationNoWorkTurns{
   // This is a safety brake against recurring billable text-only answers,
   // not a limit on legitimate thousands of Collection/Patch operations.
   p.State="paused"
   p.AutoContinue=false
-  current.AppendEvent("plan_stalled",current.Status,"","three_turns_without_verified_work")
+  current.AppendEvent("plan_stalled",current.Status,"","no_verified_work_after_recovery")
  }else{
   current.AppendEvent("plan_continued",current.Status,"",step.ID)
  }

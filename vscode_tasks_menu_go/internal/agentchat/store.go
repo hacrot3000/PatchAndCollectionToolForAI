@@ -198,11 +198,14 @@ type Session struct {
 	AutoPatch         bool             `json:"auto_patch,omitempty"`
 	// Nil preserves automatic read-only Collection for existing sessions.
 	AutoCollection    *bool            `json:"auto_collection,omitempty"`
+	// Local-owner opt-in for unfinished conversations without a Task plan.
+	AutoContinueText bool `json:"auto_continue_text,omitempty"`
 	AutoFeedbackUntil *time.Time       `json:"auto_feedback_until,omitempty"`
 	Status            string           `json:"status"`
  TokenUsage TokenUsage `json:"token_usage,omitempty"`
 	ProviderRun       *ProviderRun     `json:"provider_run,omitempty"`
 	TaskPlan          *TaskPlan        `json:"task_plan,omitempty"`
+	Continuation *TurnContinuation `json:"continuation,omitempty"`
  TaskPlanSegments []TaskPlanSegmentRef `json:"task_plan_segments,omitempty"`
 	History           []HistoryItem    `json:"history"`
 	HistoryArchiveParts uint64 `json:"history_archive_parts,omitempty"`
@@ -344,6 +347,7 @@ func validateSession(x Session) error {
     x.TokenUsage.InputTokens>100000000000000||
     x.TokenUsage.OutputTokens>100000000000000{return ErrInvalidSession}
 	if err:=ValidateTaskPlan(x.TaskPlan);err!=nil{return err}
+ if !ValidTurnContinuation(x.Continuation){return ErrInvalidSession}
 	if x.RetryMode != "" && x.RetryMode != RetryOff &&
 		x.RetryMode != RetryLimited && x.RetryMode != RetryUnlimited {
 		return ErrInvalidSession

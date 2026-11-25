@@ -110,12 +110,15 @@ func (s *Server) processAgentAutoFeedbackSession(ctx context.Context, store *age
 	// A finished model turn is not an accepted whole plan. Continue only
 	// when the LOCAL user explicitly enabled automatic plan continuation.
 	s.autoContinueTaskPlanOne(ctx,store,id)
+	// Explicit owner opt-in also supports unfinished conversations without plans.
+	s.autoContinueConversationOne(ctx,store,id)
 }
 
 func agentAutoFeedbackNeedsWork(x agentchat.Session) bool {
 	if x.Owner != "local" || x.Archived { return false }
 	if x.Status=="requesting_ai" && x.ProviderRun!=nil && x.ProviderRun.Phase=="prepared"{return true}
 	if agentchat.TaskPlanAutoContinueCandidate(x){return true}
+	if agentchat.StandaloneAutoContinueCandidate(x){return true}
 	if agentchat.TaskAutoCheckReady(x){return true}
 	if _, ok := agentAutoPatchCandidate(x); ok { return true }
 	if _, ok := agentAutoFeedbackCandidate(x); ok { return true }

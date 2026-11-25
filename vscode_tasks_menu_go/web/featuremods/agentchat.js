@@ -387,6 +387,8 @@ const agentRunSelectorMount=agentEl('div','agentchat-run-selector-mount');
 const agentRunListMount=agentEl('div','agentchat-run-list');
 const agentRunUI=globalThis.TaskMenuAgentRunsUI?.create({selectorMount:agentRunSelectorMount,runsMount:agentRunListMount,jsonFetch:(...args)=>agentApp.jsonFetch(...args)});
 const autoFeedback=agentButton('Auto-send results',()=>toggleAutoFeedback().catch(showAgentError));
+const autoContinueText=agentButton('Auto continue (no plan): OFF',
+ ()=>toggleAgentAutomation('continue').catch(showAgentError));
 const attachToggle=agentButton('Attachments (0) ▸',()=>toggleAgentAttachmentsPopup());
 attachToggle.className='agentchat-attachments-trigger';
 attachToggle.title='View staged attachments';
@@ -453,8 +455,9 @@ retryMenu.append(aiRetry,retryOptions);
 autoPatch.title='When enabled, proposed Python Patches run automatically via native validation, workspace drift checks and the Patch Tool. Turning OFF does not cancel work already queued.';
 autoCollection.title='Read-only workspace inspection. When disabled, Agent requests that require Collection stop before accessing files.';
 autoFeedback.title='Send verified native Patch results to the selected provider until turned off. Each result is sent at most once.';
+autoContinueText.title='Explicitly allow TaskDeck to request further AI turns for an unfinished conversation without a Task plan. Repeated text-only answers are stopped after a bounded recovery attempt. No extra Patch permission.';
 rename.disabled=true;archive.disabled=true;deleteChat.disabled=true;
-autoPatch.disabled=true;autoCollection.disabled=true;autoFeedback.disabled=true;aiRetry.disabled=true;
+autoPatch.disabled=true;autoCollection.disabled=true;autoFeedback.disabled=true;autoContinueText.disabled=true;aiRetry.disabled=true;
 function makeAgentHeaderGroup(label,items){
  const group=agentEl('details','agentchat-header-group');
  const summary=agentEl('summary','',label+' ▾');
@@ -490,7 +493,7 @@ function makeAgentHeaderGroup(label,items){
  return group;
 }
 const conversationGroup=makeAgentHeaderGroup('Conversation',[newChat,rename,archive,deleteChat,refresh]);
-const automationGroup=makeAgentHeaderGroup('Automation',[autoPatch,autoCollection,autoFeedback,retryMenu]);
+const automationGroup=makeAgentHeaderGroup('Automation',[autoPatch,autoCollection,autoFeedback,autoContinueText,retryMenu]);
 const toolsGroup=makeAgentHeaderGroup('Tools',[attachButton,preview,planButton,agentTaskPlanButton,agentHandoffButton]);
 const layoutGroup=makeAgentHeaderGroup('Layout',[dockPositionButton,autoHideButton]);
 const agentHeaderGroups=[conversationGroup,automationGroup,toolsGroup,layoutGroup];
@@ -2406,6 +2409,7 @@ function renderAgentAutomationControls(session){
  const exists=Boolean(session);
  rename.disabled=!exists;archive.disabled=!exists;deleteChat.disabled=!exists||agentConversationUnresolved(session);
  autoPatch.disabled=!exists;autoCollection.disabled=!exists;autoFeedback.disabled=!exists;
+ autoContinueText.disabled=!exists||(Boolean(session?.task_plan)&&!session?.auto_continue_text);
  aiRetry.disabled=!exists;
  const retryMode=session?.retry_mode||'off';
  aiRetry.textContent=retryMode==='unlimited'?'AI retry: UNLIMITED (10s)':
@@ -2424,6 +2428,8 @@ function renderAgentAutomationControls(session){
   (!session?.auto_feedback_until || Date.parse(session.auto_feedback_until)>Date.now());
  autoFeedback.textContent='Auto-send results: '+(feedbackActive?'ON':'OFF');
  autoFeedback.setAttribute('aria-pressed',String(feedbackActive));
+ autoContinueText.textContent='Auto continue (no plan): '+(session?.auto_continue_text?'ON':'OFF');
+ autoContinueText.setAttribute('aria-pressed',String(Boolean(session?.auto_continue_text)));
 }
 async function toggleAgentAutomation(option){
  if(!agentActive)throw new Error('Select a conversation first.');
@@ -2431,18 +2437,25 @@ async function toggleAgentAutomation(option){
  if(!session||agentSessionBusy(session.id))throw new Error('Conversation is busy.');
  const current=option==='patch'?Boolean(session.auto_patch):
   option==='collection'?session.auto_collection!==false:
+  option==='continue'?Boolean(session.auto_continue_text):
   Boolean(session.auto_feedback) && (!session.auto_feedback_until || Date.parse(session.auto_feedback_until)>Date.now());
  const enabled=!current;
+ if(option==='continue'&&enabled&&session.task_plan)
+  throw new Error('This conversation has a Task plan. Enable Auto continue in Tools → Task plan instead.');
+ if(option==='continue'&&enabled&&!window.confirm(
+  'Allow TaskDeck to send additional AI requests to continue this unfinished conversation without a Task plan? '+
+  'Provider usage may be billed. Text-only repetition stops automatically. '+
+  'No native Patch approval is granted. Stop or disable at any time.'))return;
  const result=await agentApp.jsonFetch('/api/agent/sessions/'+encodeURIComponent(session.id)+'/automation',{
   method:'POST',headers:{'Content-Type':'application/json'},
   body:JSON.stringify({option,enabled,expected_revision:session.revision,
    confirm_execution:option==='patch'&&enabled,
-   confirm_external:option==='feedback'&&enabled}),
+   confirm_external:(option==='feedback'||option==='continue')&&enabled}),
  });
  const latest=await selectAgentSession(session.id);
  renderAgentAutomationControls(latest||result.session);
  status.textContent=(option==='patch'?'Automatic native Patch approval':
-  option==='collection'?'Read-only Collection':'Automatic provider feedback')+
+  option==='collection'?'Read-only Collection':option==='continue'?'Unfinished conversation continuation':'Automatic provider feedback')+
   (enabled?' enabled for this conversation.':' disabled for this conversation.')+
   (option==='feedback'&&enabled?' Enabled until you turn it off.':'');
 }
@@ -2505,6 +2518,18 @@ function renderAgentTaskPlan(data){
  agentTaskPlanData=data;
  agentTaskPlanBody.replaceChildren();
  const plan=data?.plan;
+ const turn=agentCurrentSession?.continuation;
+ const autoWithoutPlan=Boolean(agentCurrentSession?.auto_continue_text);
+ const waiting=Boolean(['waiting_tool','tool_queuing'].includes(agentCurrentSession?.status));
+ const planCompleted=plan?.state==='completed';
+ const stalled=turn?.reason==='stalled_without_verified_work'||plan?.state==='paused'&&Number(plan?.no_progress_turns)>=5;
+ const label=planCompleted?'Task completed':stalled?'Stalled':waiting?'Waiting for tool':
+  plan?.state==='paused'||turn?.disposition==='BLOCKED'?'Needs review':
+  (plan?.auto_continue||autoWithoutPlan)?'Continuing':'Needs review';
+ const summary=agentEl('div','agentchat-info',
+  'Continuation: '+label+' · Last AI turn: '+String(turn?.disposition||'UNKNOWN')+
+  ' · Next: '+String(turn?.next_action||'Follow the current acceptance milestone'));
+ agentTaskPlanBody.append(summary);
  if(!plan){
   agentTaskPlanBody.append(agentEl('div','agentchat-info',
    'Create a checklist with acceptance criteria. AI replies alone do not mark steps done. Completion requires verified Collection/Patch evidence or explicit user acceptance.'));
@@ -2565,7 +2590,7 @@ function renderAgentTaskPlan(data){
  agentTaskPlanBody.append(actions);
  if(plan.no_progress_turns>0){
   agentTaskPlanBody.append(agentEl('div','agentchat-info',
-   String(plan.no_progress_turns)+' automatic turn(s) without new verified work. After three, Auto continue pauses to avoid repeating billable answers.'));
+   String(plan.no_progress_turns)+' automatic turn(s) without new verified work. After five verified-work-free turns, Auto continue pauses to avoid repeating billable answers.'));
  }
  const page=data.page;
  if(page){
