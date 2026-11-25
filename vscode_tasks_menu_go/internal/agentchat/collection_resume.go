@@ -15,7 +15,8 @@ const maxCollectionResumeCheckpoints=16
 type CollectionResumeCheckpoint struct {
  Previous ProviderRun `json:"previous"`
  NewRunID string `json:"new_run_id"`
- ReceiptSHA256 string `json:"receipt_sha256"`
+ ReceiptSHA256 string `json:"receipt_sha256,omitempty"`
+ ReceiptUnavailable bool `json:"receipt_unavailable,omitempty"`
  AttemptAudit *ProviderAttemptAudit `json:"attempt_audit,omitempty"`
 }
 
@@ -25,7 +26,8 @@ func validCollectionResumeHistory(items []CollectionResumeCheckpoint)bool{
  for _,it:=range items{
   if !validProviderRun(&it.Previous)||it.Previous.Kind!="collection"||it.Previous.Phase!="unknown"||
    it.NewRunID==""||len(it.NewRunID)>96||it.NewRunID==it.Previous.ID||
-   !validGuardDigest(it.ReceiptSHA256)||seen[it.Previous.ID]{return false}
+   (it.ReceiptUnavailable && it.ReceiptSHA256!="") ||
+   (!it.ReceiptUnavailable && !validGuardDigest(it.ReceiptSHA256)) || seen[it.Previous.ID]{return false}
   seen[it.Previous.ID]=true
   if a:=it.AttemptAudit;a!=nil{
    if a.RunID!=it.Previous.ID||a.Total==0||len(a.Attempts)==0||len(a.Attempts)>maxProviderAttemptRecords||
@@ -33,6 +35,42 @@ func validCollectionResumeHistory(items []CollectionResumeCheckpoint)bool{
   }
  }
  return true
+}
+
+// HasUnknownCollectionDelivery identifies a terminal read-only delivery marker.
+func HasUnknownCollectionDelivery(x Session) bool {
+ return (x.Status=="failed"||x.Status=="cancelled") && x.ProviderRun!=nil &&
+  x.ProviderRun.Kind=="collection" && x.ProviderRun.Phase=="unknown"
+}
+
+// A new user message does not require AutoCollection or acknowledgement of
+// an old terminal Patch. Actual in-flight native work must remain fenced.
+func CanSendAfterUnknownCollection(x Session) bool {
+ if !HasUnknownCollectionDelivery(x)||x.Archived||x.PendingUserTurn!=nil{return false}
+ for _,call:=range x.ToolCalls{
+  switch call.Status{case "done","error","rejected":default:return false}
+  if call.FeedbackStatus=="prepared"||call.FeedbackStatus=="sending"{return false}
+ }
+ return true
+}
+
+// Never fabricate a receipt digest when the observation is absent.
+func unknownCollectionReceiptDigest(x Session) string {
+ run:=x.ProviderRun
+ if run==nil||len(x.History)==0{return ""}
+ last:=x.History[len(x.History)-1]
+ if strings.TrimSpace(last.Content)==""{return ""}
+ if run.CallID=="" {
+  if CollectionTextObservation(x.History,len(x.History)-1){return ProviderPayloadDigest([]byte(last.Content))}
+  return ""
+ }
+ if last.Type!="function_call_output"||last.CallID!=run.CallID{return ""}
+ for _,item:=range x.History{
+  if item.Type=="function_call"&&item.CallID==run.CallID&&item.Name=="taskdeck_collect_workspace"{
+   return ProviderPayloadDigest([]byte(last.Content))
+  }
+ }
+ return ""
 }
 
 // CollectionResumeReceipt is an explicit owner-action eligibility check,
@@ -83,15 +121,26 @@ func(s *Store) retainCollectionResumeCheckpoint(x *Session,previous Session)erro
  // Only explicit new collection recovery is implemented here. Ordinary
  // cancelled turns retain existing semantics; failed collection recovery is
  // fenced at message admission and additionally at the CAS.
- if previous.Status!="failed"{return nil}
- receipt,ok:=CollectionResumeReceipt(previous)
- if !ok||x.ProviderRun.Phase!="prepared"||x.ProviderRun.Kind!="message"||x.LastRequestKey==""{return ErrInvalidSession}
- found:=false
+ if !HasUnknownCollectionDelivery(previous){return nil}
+ if x.ProviderRun.Phase!="prepared"||x.ProviderRun.Kind!="message"{return ErrInvalidSession}
+ kind:=""
  for _,e:=range x.Events{
-  if e.Seq>previous.EventSeq&&e.Kind=="collection_resume_new"&&e.Detail==old.ID{found=true;break}
+  if e.Seq>previous.EventSeq&&e.Detail==old.ID&&e.CallID==old.CallID&&
+   (e.Kind=="collection_resume_new"||e.Kind=="collection_new_message"){kind=e.Kind;break}
  }
- if !found{return errors.New("explicit collection resume checkpoint required")}
- checkpoint:=CollectionResumeCheckpoint{Previous:*old,NewRunID:x.ProviderRun.ID,ReceiptSHA256:receipt}
+ var receipt string
+ switch kind {
+ case "collection_resume_new":
+  var ok bool
+  receipt,ok=CollectionResumeReceipt(previous)
+  if !ok||x.LastRequestKey==""{return ErrInvalidSession}
+ case "collection_new_message":
+  if !CanSendAfterUnknownCollection(previous){return ErrInvalidSession}
+  receipt=unknownCollectionReceiptDigest(previous)
+ default:
+  return errors.New("new collection message checkpoint required")
+ }
+ checkpoint:=CollectionResumeCheckpoint{Previous:*old,NewRunID:x.ProviderRun.ID,ReceiptSHA256:receipt,ReceiptUnavailable:receipt==""}
  audit,err:=s.readProviderAttemptsLocked(previous.ID)
  if err!=nil&&!os.IsNotExist(err){return err}
  if err==nil&&audit.RunID==old.ID{
@@ -99,5 +148,9 @@ func(s *Store) retainCollectionResumeCheckpoint(x *Session,previous Session)erro
    Truncated:audit.Total>uint64(len(audit.Attempts)),Attempts:append([]ProviderAttempt(nil),audit.Attempts...)}
  }
  x.CollectionResumeHistory=append(append([]CollectionResumeCheckpoint(nil),previous.CollectionResumeHistory...),checkpoint)
+ // Keep the latest bounded diagnostic window without eventually blocking Send.
+ if len(x.CollectionResumeHistory)>maxCollectionResumeCheckpoints{
+  x.CollectionResumeHistory=append([]CollectionResumeCheckpoint(nil),x.CollectionResumeHistory[len(x.CollectionResumeHistory)-maxCollectionResumeCheckpoints:]...)
+ }
  return nil
 }

@@ -761,3 +761,46 @@ func TestAgentSuspendedPendingDispatchRetainsTurn(t *testing.T) {
         t.Fatalf("suspended dispatch modified or sent queued turn: calls=%d revision=%d", calls, after.Revision)
     }
 }
+
+func TestAgentSendAfterUnknownCollectionUsesSelectedProvider(t *testing.T) {
+ s,id:=newAgentConversationFixture(t,"stateless")
+ store,err:=s.agentChatStore()
+ if err!=nil{t.Fatal(err)}
+ x,err:=store.Get(id,"local")
+ if err!=nil{t.Fatal(err)}
+ old:=agentProviderFixture()
+ selected:=agentProviderFixture()
+ selected.ID="selected-provider"
+ selected.Name="Selected provider"
+ selected.Models[0].ID="selected-model"
+ selected.Models[0].Name="Selected model"
+ providers,err:=s.agentChatProviders()
+ if err!=nil{t.Fatal(err)}
+ if err=providers.Put("local",selected);err!=nil{t.Fatal(err)}
+ if err=s.ConnectionSecrets.Put(agentProviderSecretID(s.Workspace,"local",selected.ID),[]byte("SELECTED-KEY"));err!=nil{t.Fatal(err)}
+ receipt:=`{"status":"PASS","read_only":true}`
+ x.History=[]agentchat.HistoryItem{{Type:"user",Content:"old request"},{Type:"function_call",Name:"taskdeck_collect_workspace",CallID:"old-collect",Arguments:`{}`},{Type:"function_call_output",CallID:"old-collect",Content:receipt}}
+ x.Status="failed"
+ x.ProviderRun=&agentchat.ProviderRun{ID:"old-collect-run",Kind:"collection",Phase:"unknown",CallID:"old-collect",PayloadSHA256:agentchat.ProviderPayloadDigest([]byte("old request")),ProviderFingerprint:agentchat.CapabilityFingerprint(old,old.Models[0]),CreatedAt:time.Now().UTC(),UpdatedAt:time.Now().UTC()}
+ x,err=store.Save(x,x.Revision)
+ if err!=nil{t.Fatal(err)}
+ calls:=0
+ s.AgentChatCall=func(_ context.Context,p agentchat.ProviderConfig,key string,payload []byte)(agentchat.ResponsesResult,error){
+  calls++
+  if p.ID!=selected.ID||key!="SELECTED-KEY"||modelFromAgentPayload(payload)!=selected.Models[0].ID{
+   t.Fatalf("wrong provider/model/key selected: %s %s",p.ID,modelFromAgentPayload(payload))
+  }
+  if !strings.Contains(string(payload),"Use my new instruction") {t.Fatal("new message replaced or lost")}
+  return agentchat.ResponsesResult{ResponseID:"new-response",Text:"new answer"},nil
+ }
+ request:=map[string]any{"message":"Use my new instruction","confirm_external":true,"expected_revision":x.Revision,"request_id":"fresh-selected","provider_id":selected.ID,"model_id":selected.Models[0].ID}
+ response:=invokeAI(t,s.agentChatSessionItemAPI,http.MethodPost,"/api/agent/sessions/"+id+"/messages",request)
+ if response.Code!=200||calls!=1{t.Fatalf("ordinary send was blocked: %d %s calls=%d",response.Code,response.Body,calls)}
+ y,err:=store.Get(id,"local")
+ if err!=nil{t.Fatal(err)}
+ if y.ProviderID!=selected.ID||y.ModelID!=selected.Models[0].ID||len(y.CollectionResumeHistory)!=1||y.CollectionResumeHistory[0].Previous.ID!="old-collect-run"||y.CollectionResumeHistory[0].Previous.Phase!="unknown"||y.CollectionResumeHistory[0].ReceiptSHA256!=agentchat.ProviderPayloadDigest([]byte(receipt)){
+  t.Fatalf("selected binding or historical checkpoint lost: %+v",y.CollectionResumeHistory)
+ }
+ again:=invokeAI(t,s.agentChatSessionItemAPI,http.MethodPost,"/api/agent/sessions/"+id+"/messages",request)
+ if again.Code!=200||calls!=1{t.Fatal("new message replayed")}
+}

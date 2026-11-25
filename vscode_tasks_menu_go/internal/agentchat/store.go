@@ -636,7 +636,7 @@ func preservesPendingUserTurn(existing, candidate *PendingUserTurn) bool {
 // saveSessionLocked requires the store lock; callers must preserve all CAS and
 // owner checks below when composing a larger atomic admission transaction.
 func (s *Store) saveSessionLocked(x Session, expectedRevision uint64) (Session, error) {
-	return s.saveSessionWithAdmissionLocked(x, expectedRevision, "", nil)
+	return s.saveSessionWithAdmissionLocked(x, expectedRevision, "", nil, "")
 }
 
 // admitPendingUserTurn commits a staged payload and pending removal under the
@@ -655,13 +655,44 @@ func (s *Store) admitPendingUserTurn(x Session, owner string, expectedRevision u
 	var saved Session
 	err := s.withLock(func() error {
 		var err error
-		saved, err = s.saveSessionWithAdmissionLocked(x, expectedRevision, owner, payload)
+		saved, err = s.saveSessionWithAdmissionLocked(x, expectedRevision, owner, payload, "")
 		return err
 	})
 	return saved, err
 }
 
-func (s *Store) saveSessionWithAdmissionLocked(x Session, expectedRevision uint64, owner string, payload []byte) (Session, error) {
+// AdmitNewUserMessage is an owner-scoped CAS for an authorized, staged new
+// Legacy request. Generic Save still cannot change provider or model.
+func (s *Store) AdmitNewUserMessage(x Session, owner string, expectedRevision uint64) (Session,error) {
+ if owner==""{return Session{},ErrInvalidSession}
+ var saved Session
+ err:=s.withLock(func()error{
+  var err error
+  saved,err=s.saveSessionWithAdmissionLocked(x,expectedRevision,"",nil,owner)
+  return err
+ })
+ return saved,err
+}
+
+func validNewUserMessageAdmission(old,next Session,owner string)bool{
+ if old.Owner!=owner||next.Owner!=owner||old.Archived||next.Archived||
+  old.PendingUserTurn!=nil||next.PendingUserTurn!=nil||next.Status!="requesting_ai"||
+  next.ProviderRun==nil||next.ProviderRun.Kind!="message"||next.ProviderRun.Phase!="prepared"||
+  next.TurnBinding==nil||!ValidTurnBinding(next.TurnBinding)||
+  next.TurnBinding.ProviderID!=next.ProviderID||next.TurnBinding.ModelID!=next.ModelID||
+  next.TurnBinding.TurnID!=next.ProviderRun.ID||next.TurnBinding.AttemptID!=next.ProviderRun.ID||
+  next.TurnBinding.PayloadDigest!=next.ProviderRun.PayloadSHA256||
+  len(next.History)==0||next.History[len(next.History)-1].Type!="user"{return false}
+ switch old.Status{case "created","ready","completed","failed","cancelled","tool_rejected":default:return false}
+ if old.ProviderRun!=nil&&(old.ProviderRun.ID==next.ProviderRun.ID||
+  old.ProviderRun.Phase=="prepared"||old.ProviderRun.Phase=="sending"){return false}
+ if old.ProviderID!=next.ProviderID||old.ModelID!=next.ModelID{
+  if next.TurnBinding.ContextMode!=Stateless||next.PreviousResponseID!=""||next.ConversationID!=""{return false}
+ }
+ return true
+}
+
+func (s *Store) saveSessionWithAdmissionLocked(x Session, expectedRevision uint64, owner string, payload []byte, messageOwner string) (Session, error) {
 	var saved Session
 	err := func() error {
 		// A long-running Collection session can temporarily exceed the active
@@ -690,11 +721,14 @@ func (s *Store) saveSessionWithAdmissionLocked(x Session, expectedRevision uint6
 			// an owner rename. Renaming never changes the turn revision.
 			x.Title = existing.Title
 			x.RefreshAutomation(existing)
-			if existing.Owner != x.Owner || existing.Workspace != x.Workspace || existing.ProjectID != x.ProjectID || existing.ProviderID != x.ProviderID || existing.ModelID != x.ModelID || existing.Mode != x.Mode || !existing.CreatedAt.Equal(x.CreatedAt) ||
+			if existing.Owner != x.Owner || existing.Workspace != x.Workspace || existing.ProjectID != x.ProjectID || ((existing.ProviderID != x.ProviderID || existing.ModelID != x.ModelID) && messageOwner=="") || existing.Mode != x.Mode || !existing.CreatedAt.Equal(x.CreatedAt) ||
 				x.HistoryArchiveParts!=existing.HistoryArchiveParts || x.ArchivedHistoryItems!=existing.ArchivedHistoryItems ||
             x.PatchArchiveParts!=existing.PatchArchiveParts || x.ArchivedPatchCalls!=existing.ArchivedPatchCalls {
 				return ErrInvalidSession
 			}
+		}
+		if messageOwner!=""&&(e!=nil||!validNewUserMessageAdmission(existing,x,messageOwner)){
+			return ErrInvalidSession
 		}
 		// Generic Save must not discard or replace a queued message before an
 		// atomic owner-scoped pending-to-PREPARED handoff exists.

@@ -1668,7 +1668,7 @@ function renderAgentProviderEgressReview(session,review,attemptAudit=null,integr
    setAgentPromptValue('Resume original unfinished task from the canonical checkpoint (new request; do not replay old provider egress).');
    sendAgentMessage(String(review.run_id)).catch(showAgentError);
   });
-  agentProviderEgressNotice.append(agentEl('div','','Previous PATCH acknowledgements remain intact. A new stateless continuation is available; the previous provider request stays UNKNOWN.'),resume);
+  agentProviderEgressNotice.append(agentEl('div','','Previous PATCH acknowledgements remain intact. You can send any new message normally to the selected model or resume the original task. The previous provider request stays UNKNOWN.'),resume);
  }
  agentProviderEgressNotice.append(
   agentEl('div','','Correlation is pre-send only; neither a retry key nor provider acknowledgement.'),
@@ -2182,9 +2182,9 @@ async function sendAgentMessage(resumeCollectionRunID=""){
  if(agentBusySessions.has(sessionID)||current.status==='requesting_ai'||current.status==='tool_queuing')
   throw new Error('Conversation is busy. Retry after the active turn finishes; your draft is preserved.');
  const canStartAgentRun=Boolean(agentRunUI?.canSend());
- const nextProvider=canStartAgentRun?agentRunUI.value():{providerId:current.provider_id,modelId:current.model_id};
+ const nextProvider=canStartAgentRun?agentRunUI.value():{providerId:providerSelect.value||current.provider_id,modelId:modelSelect.value||current.model_id};
  const selectedModel=agentSelectedModel();
- const nextEffort=canStartAgentRun&&agentComposerSelectionSession?.id===sessionID&&
+ const nextEffort=agentComposerSelectionSession?.id===sessionID&&
   providerSelect.value===nextProvider.providerId&&modelSelect.value===nextProvider.modelId?effortSelect.value:undefined;
  const effortChanged=nextEffort!==undefined&&
   (nextEffort||selectedModel?.default_reasoning_effort||'')!==(current.reasoning_effort||selectedModel?.default_reasoning_effort||'');
@@ -2242,15 +2242,15 @@ const useRunManager=false;
  try{
   const s=agentCurrentSession?.id===sessionID?agentCurrentSession:await selectAgentSession(sessionID);
   if(!s||agentActive!==sessionID)throw new Error('Conversation changed before the message could be submitted.');
-  const requestFingerprint=JSON.stringify({message:msg,attachments:wireAttachments,resumeCollectionRunID});
+  const requestFingerprint=JSON.stringify({message:msg,attachments:wireAttachments,resumeCollectionRunID,provider:nextProvider.providerId,model:nextProvider.modelId,effort:nextEffort});
   let request=agentRequestIDs.get(sessionID);
   if(!request||request.fingerprint!==requestFingerprint){
    request={id:'ui-'+sessionID+'-'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2,8),fingerprint:requestFingerprint};
    agentRequestIDs.set(sessionID,request);
   }
   const requestID=request.id;
-  const composerProvider=canStartAgentRun?nextProvider:{providerId:s.provider_id,modelId:s.model_id};
-  const composerEffort=nextEffort!==undefined?nextEffort:(s.reasoning_effort||'');
+  const composerProvider=nextProvider;
+  const composerEffort=nextEffort!==undefined?nextEffort:(composerProvider.providerId===s.provider_id&&composerProvider.modelId===s.model_id?(s.reasoning_effort||''):'');
   const response=await agentApp.jsonFetch('/api/agent/sessions/'+encodeURIComponent(sessionID)+'/messages',{
    method:'POST',headers:{'Content-Type':'application/json'},
    body:JSON.stringify({message:msg,confirm_external:true,expected_revision:s.revision,

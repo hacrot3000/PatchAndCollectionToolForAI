@@ -224,6 +224,9 @@ func (s *Server) agentChatAuthorizedMessage(w http.ResponseWriter, r *http.Reque
 	// exact validated attachment rendering, so a reused key with different
 	// attachments is a conflict rather than a silent replay.
 	requestDigest := agentRequestDigest(msg + "\n\n" + attachmentContext)
+	if req.ProviderID != "" || req.ModelID != "" || req.ReasoningEffort != "" {
+		requestDigest = agentRequestDigest(requestDigest+"\x00"+req.ProviderID+"\x00"+req.ModelID+"\x00"+req.ReasoningEffort)
+	}
 	if req.ResumeCollectionRunID!=""{
 		if len(req.ResumeCollectionRunID)>96||len(req.Attachments)!=0||isCollectionContinuation(r.Context())||strings.TrimSpace(req.RequestID)==""{http.Error(w,"explicit collection resume requires a run ID, request ID and no attachments",400);return}
 		requestDigest=agentRequestDigest(requestDigest+"\x00collection-resume\x00"+req.ResumeCollectionRunID)
@@ -304,8 +307,12 @@ func (s *Server) agentChatAuthorizedMessage(w http.ResponseWriter, r *http.Reque
 			http.Error(w,"Collection resume is not safe for this checkpoint; reconcile the exact prior provider run and any unresolved tool work",409);return
 		}
 		msg="Resume the original unfinished task from the canonical conversation and current verified native receipts. This is a NEW continuation after an unconfirmed read-only Collection provider response, not a replay. Do not re-execute prior Patches or resend acknowledged results. Inspect only the specific missing scope using the current native COLLECT contract; never claim the prior provider received the result. Preserve the existing task plan and approval rules."
-	}else if session.Status=="failed"&&session.ProviderRun!=nil&&session.ProviderRun.Kind=="collection"&&session.ProviderRun.Phase=="unknown"{
-		http.Error(w,"Unconfirmed Collection delivery requires explicit Resume original task (new request); no old provider request or PATCH result was replayed",409);return
+	}
+	// Send itself authorizes a new request, not replay of an old delivery.
+	newAfterCollection := !resumeCollection && agentchat.HasUnknownCollectionDelivery(session)
+	if newAfterCollection && !agentchat.CanSendAfterUnknownCollection(session) {
+		http.Error(w,"Native Patch work is unresolved; reconcile its exact result before starting another turn",409)
+		return
 	}
 	if len(runRecords) != 0 {
 		session.History = completedAgentRunHistory(session.History, runRecords, id)
@@ -345,6 +352,7 @@ func (s *Server) agentChatAuthorizedMessage(w http.ResponseWriter, r *http.Reque
 		writeAgentQueuedTurn(w, id, session.Revision)
 		return
 	}
+	previousProvider, previousModel := session.ProviderID, session.ModelID
 	p, model, reasoning, err := s.agentResolveTurnModel(owner, &session, req.ProviderID, req.ModelID, req.ReasoningEffort)
 	if err != nil {
 		code := http.StatusConflict
@@ -439,13 +447,17 @@ func (s *Server) agentChatAuthorizedMessage(w http.ResponseWriter, r *http.Reque
 	}
 	instructions := agentChatInstructionsWithAutomation(session, patchToolAvailable, identity.Key)
 	instructions += s.agentRetireKnownFailedPatches(r.Context(), &session, identity, "")
+	if newAfterCollection {
+		instructions += " The previous read-only Collection provider delivery is UNKNOWN. This is a new user request, not a replay. Follow the latest actual user message. Local verified receipts are historical evidence only; do not claim prior provider acknowledgement, resend old feedback, or re-execute an earlier Patch. Request fresh native COLLECT only if necessary."
+	}
 	failureProjection := s.agentFailureContextProjection(store, session, "", req.Message)
 	limit := agentInitialOutputBudget(model, reasoning, patchToolAvailable)
 	// Conversations mode is only trusted with verified evidence for this exact
 	// endpoint/model. Otherwise replay canonical history statelessly; the stored
 	// session mode stays immutable for audit and a later verified retry.
 	mode := agentContextRequestMode(session,p.APIType,s.agentConversationCapabilityVerified(owner,p,model))
-	if len(runRecords) != 0 || resumeCollection || len(failureProjection.History)>len(session.History) {
+	if len(runRecords) != 0 || resumeCollection || newAfterCollection ||
+		previousProvider != p.ID || previousModel != model.ID || len(failureProjection.History)>len(session.History) {
 		mode = agentchat.Stateless
 	}
 	agentClearProviderRefsForStateless(&session,mode)
@@ -468,7 +480,12 @@ func (s *Server) agentChatAuthorizedMessage(w http.ResponseWriter, r *http.Reque
 	if resumeCollection{
 		bindLegacyCollectionObjective(collectionContinuationContext(r.Context()),&session,"Continue")
 		session.AppendEvent("collection_resume_new",session.Status,session.ProviderRun.CallID,session.ProviderRun.ID)
-	}else{bindLegacyCollectionObjective(r.Context(), &session, strings.TrimSpace(req.Message))}
+	}else{
+		bindLegacyCollectionObjective(r.Context(), &session, strings.TrimSpace(req.Message))
+		if newAfterCollection {
+			session.AppendEvent("collection_new_message",session.Status,session.ProviderRun.CallID,session.ProviderRun.ID)
+		}
+	}
 	session.History = append(session.History, next)
 	if admitPending {
 		// The durable binding currently records session.Mode. Do not admit a
@@ -508,7 +525,7 @@ func (s *Server) agentChatAuthorizedMessage(w http.ResponseWriter, r *http.Reque
 		session.LastRequestCode = 0
 		session.LastRequestResponse = ""
 	}
-	session, err = store.Save(session, oldRevision)
+	session, err = store.AdmitNewUserMessage(session, owner, oldRevision)
 	if err != nil {
 		http.Error(w, "cannot persist user message", 409)
 		return
