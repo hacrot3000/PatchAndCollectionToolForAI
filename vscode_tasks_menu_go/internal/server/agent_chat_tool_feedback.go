@@ -375,13 +375,17 @@ func (s *Server) agentDeliverToolResult(ctx context.Context, store *agentchat.St
 			_, _ = store.Save(x, x.Revision)
 			return agentDeliverResult{}, agentContinueError{409, "continuation cancelled; the tool result was already recorded and will not be resent"}
 		}
-		s.recordAgentDebugEvent(owner, x.ID, call.CallID, "feedback", "feedback.unknown", "FEEDBACK_DELIVERY_UNKNOWN", "Provider acknowledgement was not confirmed; result will not be resent")
+		// Preserve the actual safe provider error code. A received HTTP
+		// rejection is different from a missing transport response, but
+		// neither proves that earlier attempts were not processed.
+		detail := agentRetryFailureDetail(err)
+		s.recordAgentDebugEvent(owner, x.ID, call.CallID, "feedback", "feedback.unknown", "FEEDBACK_DELIVERY_UNKNOWN", "Provider continuation failed: "+detail+"; result remains recorded; no native Patch replay")
 		x.Status = "failed"
 		for _,i:=range indices{x.ToolCalls[i].FeedbackStatus="unknown"}
 		markAgentProviderOutcome(&x,"unknown")
-		x.AppendEvent("feedback_unknown", "failed", call.CallID, "provider_acknowledgement_unconfirmed")
+		x.AppendEvent("feedback_unknown", "failed", call.CallID, "provider_acknowledgement_unconfirmed: "+detail)
 		_, _ = store.Save(x, x.Revision)
-		return agentDeliverResult{}, agentContinueError{502, "provider continuation failed; tool result was saved and will not be resent automatically"}
+		return agentDeliverResult{}, agentContinueError{502, "provider continuation failed ("+detail+"); tool result was saved; inspect the conversation before sending a fresh continuation"}
 	}
 for _,i:=range indices{x.ToolCalls[i].FeedbackStatus="acknowledged"}
 	markAgentProviderOutcome(&x,"acknowledged")
