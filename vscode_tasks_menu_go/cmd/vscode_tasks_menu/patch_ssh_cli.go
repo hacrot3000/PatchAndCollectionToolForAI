@@ -95,8 +95,9 @@ func (w *patchSSHOutput) Write(data []byte) (int, error) {
 }
 
 // runPatchSSHCLI validates the profile/command before an SSH process is spawned.
-// The remote login shell only sees whitelisted ASCII tokens, never user-provided
-// shell syntax. Shared multi-user server mode is explicitly forbidden here.
+// The remote login shell sees validated argv and, for absolute paths, a fixed
+// backend-generated realpath guard; never user-provided shell syntax. Shared
+// multi-user server mode is explicitly forbidden here.
 func runPatchSSHCLI(workspace string, input io.Reader, output, diagnostics io.Writer) error {
 	request, remoteCommand, err := parsePatchSSHRequest(input)
 	if err != nil {

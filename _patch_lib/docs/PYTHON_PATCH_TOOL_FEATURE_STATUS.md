@@ -7,10 +7,10 @@
 
 ## Read-only remote SSH PATCH through TaskDeck saved profiles (2026-11-18)
 
-- **UPDATED CONTENT SEARCH:** Local `legacy_strict` (including command-only) and remote SSH support safe `grep`, `rg`, `cat`, `head`, `tail`, `wc`, `nl`, `sed -n` operations with narrowly allowed options and project-/remote-login-relative file paths. Remote `find` now supports filename `-name/-iname` matching with bounded depth. `find -exec/-delete` and related executing/file-writing actions are forbidden in both modes; SSH script/Python/shell restrictions remain unchanged.
+- **UPDATED CONTENT SEARCH:** Local `legacy_strict` (including command-only) and remote SSH support safe `grep`, `rg`, `cat`, `head`, `tail`, `wc`, `nl`, `sed -n` operations with narrowly allowed options and project-relative local file paths and login-relative or fixed-whitelist absolute SSH data paths. Remote `find` now supports filename `-name/-iname` matching with bounded depth. `find -exec/-delete` and related executing/file-writing actions are forbidden in both modes; SSH script/Python/shell restrictions remain unchanged.
 - **REGRESSIONS:** `self_test_local_readonly_whitelist_v6_20_0.py` and Go `internal/patchsshpolicy/policy_test.go`.
 - **IMPLEMENTED IN SOURCE:** Remote-only PATCH manifest field `remote_ssh` with an exact unique saved `profile_name`, one whitelisted `argv`, and bounded `timeout_seconds`. The SSH runtime invokes TaskDeck's saved profile, OpenSSH/secret store and enforces a second Go whitelist at execution.
-- **WHITELIST:** only `pwd`, safe relative-path `ls`, bounded `tree`, bounded `find`. Scripts, Python, shell interpreters, shell syntax and source-changing mixed packages are rejected. No portable standalone or shared multi-user CLI support.
+- **WHITELIST:** only `pwd`, safe path-whitelisted `ls`, bounded `tree`, bounded `find`. Scripts, Python, shell interpreters, shell syntax and source-changing mixed packages are rejected. No portable standalone or shared multi-user CLI support.
 - **TESTS:** `self_test_remote_ssh_v6_20_0.py`; Go `patchsshpolicy` and CLI parser/profile resolution tests. Host-to-host SSH live smoke requires an actual saved profile and reachable SSH server.
 
 
