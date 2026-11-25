@@ -20,7 +20,9 @@ type nativeCollectionContract struct {
  ToolVersion string `json:"tool_version"`
  Actions map[string]collectionActionContract `json:"actions"`
  FieldShapes map[string]json.RawMessage `json:"provider_field_shapes"`
- Limits struct { Allowed []string `json:"allowed_fields"` } `json:"limits"`
+ Notes map[string]string `json:"provider_action_notes"`
+ Examples map[string]json.RawMessage `json:"provider_examples"`
+ Limits struct { Allowed []string `json:"allowed_fields"`; Hard map[string]int64 `json:"hard_maximum"` } `json:"limits"`
 }
 
 func collectionToolContract(raw string) (map[string]any, string) {
@@ -43,15 +45,21 @@ func collectionToolContract(raw string) (map[string]any, string) {
   for field, shape:=range native.FieldShapes {
    if field!="type" && allowedFields[field] && json.Valid(shape) {props[field]=shape}
   }
-  if git,ok:=native.Actions["git"];ok && len(git.Operations.Allowed)>0 {
+  if git,ok:=native.Actions["git"];ok && len(git.Operations.Allowed)>0 && native.FieldShapes["operations"]==nil {
    props["operations"]=map[string]any{"type":"array","minItems":1,"items":map[string]any{"type":"object","properties":map[string]any{"op":map[string]any{"type":"string","enum":git.Operations.Allowed}},"required":[]string{"op"},"additionalProperties":true}}
   }
-  for _,field:=range native.Limits.Allowed {limitProps[field]=map[string]any{"type":"integer","minimum":1}}
+  for _,field:=range native.Limits.Allowed {
+   property:=map[string]any{"type":"integer","minimum":1}
+   if ceiling:=native.Limits.Hard[field];ceiling>0{property["maximum"]=ceiling}
+   limitProps[field]=property
+  }
   fingerprint:=sha256.Sum256([]byte(raw))
   guidance+=fmt.Sprintf("\nInstalled native COLLECT contract version %s, SHA-256 %x. Action fields (required; allowed):",native.ToolVersion,fingerprint)
   for _,name:=range names {
    a:=native.Actions[name]
    guidance+=fmt.Sprintf("\n%s: required=%s; allowed=%s",name,strings.Join(a.Required,","),strings.Join(a.Allowed,","))
+   if note:=native.Notes[name];note!=""{guidance+=". "+note}
+   if example:=native.Examples[name];len(example)>0{var compact any;if json.Unmarshal(example,&compact)==nil{b,_:=json.Marshal(compact);guidance+=". Example shape: "+string(b)}}
   }
  } else {
   guidance+=" Installed action contract unavailable; use the native schema from the current AI Pack and the simple shapes above, not invented actions."

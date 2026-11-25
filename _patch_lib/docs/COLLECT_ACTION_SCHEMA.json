@@ -49,6 +49,15 @@
       "max_search_files": 250000,
       "max_search_file_bytes": 67108864,
       "max_decompile_file_bytes": 536870912
+    },
+    "hard_maximum": {
+      "max_file_bytes": 67108864,
+      "max_total_bytes": 536870912,
+      "max_files": 20000,
+      "max_report_bytes": 67108864,
+      "max_search_files": 1000000,
+      "max_search_file_bytes": 268435456,
+      "max_decompile_file_bytes": 2147483648
     }
   },
   "actions": {
@@ -695,13 +704,51 @@
         "type": "object",
         "properties": {
           "op": {
+            "type": "string",
+            "enum": [
+              "status",
+              "current_branch",
+              "branches",
+              "log",
+              "show",
+              "diff_worktree",
+              "diff_staged",
+              "diff_refs",
+              "diff_ref_worktree",
+              "switch"
+            ]
+          },
+          "ref": {
             "type": "string"
+          },
+          "from": {
+            "type": "string"
+          },
+          "to": {
+            "type": "string"
+          },
+          "branch": {
+            "type": "string"
+          },
+          "paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "max_entries": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 500
+          },
+          "stat_only": {
+            "type": "boolean"
           }
         },
         "required": [
           "op"
         ],
-        "additionalProperties": true
+        "additionalProperties": false
       }
     },
     "sections": {
@@ -734,6 +781,307 @@
     },
     "tree_depth": {
       "type": "integer"
+    },
+    "id": {
+      "type": "string"
+    },
+    "title": {
+      "type": "string"
+    },
+    "source": {
+      "type": "string"
+    },
+    "name": {
+      "type": "string"
+    },
+    "reference_term": {
+      "type": "string"
+    },
+    "repo": {
+      "type": "string"
+    },
+    "profile": {
+      "type": "string"
+    },
+    "transport": {
+      "type": "string"
+    },
+    "profile_name": {
+      "type": "string"
+    },
+    "cwd": {
+      "type": "string"
+    },
+    "collect": {
+      "type": "boolean"
+    },
+    "regex": {
+      "type": "boolean"
+    },
+    "filesystem": {
+      "type": "boolean"
+    },
+    "respect_gitignore": {
+      "type": "boolean"
+    },
+    "follow_symlinks": {
+      "type": "boolean"
+    },
+    "must_find": {
+      "type": "boolean"
+    },
+    "diagnose_on_zero": {
+      "type": "boolean"
+    },
+    "fallback_search": {
+      "type": "boolean"
+    },
+    "verify_nonzero_with_fallback": {
+      "type": "boolean"
+    },
+    "report_coverage": {
+      "type": "boolean"
+    },
+    "report_skipped_dirs": {
+      "type": "boolean"
+    },
+    "module_discovery": {
+      "type": "boolean"
+    },
+    "include_references": {
+      "type": "boolean"
+    },
+    "include_callers": {
+      "type": "boolean"
+    },
+    "include_callees": {
+      "type": "boolean"
+    },
+    "include_dependencies": {
+      "type": "boolean"
+    },
+    "case_sensitive": {
+      "type": "boolean"
+    },
+    "references": {
+      "type": "boolean"
+    },
+    "distinct": {
+      "type": "boolean"
+    },
+    "must_return_rows": {
+      "type": "boolean"
+    },
+    "max_entries": {
+      "type": "integer"
+    },
+    "max_depth": {
+      "type": "integer"
+    },
+    "max_results": {
+      "type": "integer"
+    },
+    "context_lines": {
+      "type": "integer"
+    },
+    "max_matches": {
+      "type": "integer"
+    },
+    "max_blocks": {
+      "type": "integer"
+    },
+    "max_callers": {
+      "type": "integer"
+    },
+    "max_callees": {
+      "type": "integer"
+    },
+    "max_occurrences": {
+      "type": "integer"
+    },
+    "dependency_depth": {
+      "type": "integer"
+    },
+    "max_dependency_files": {
+      "type": "integer"
+    },
+    "neighbors_before": {
+      "type": "integer"
+    },
+    "neighbors_after": {
+      "type": "integer"
+    },
+    "reference_context_lines": {
+      "type": "integer"
+    },
+    "max_reference_hits": {
+      "type": "integer"
+    },
+    "log_entries": {
+      "type": "integer"
+    },
+    "timeout_seconds": {
+      "type": "integer"
+    },
+    "max_output_bytes": {
+      "type": "integer"
+    },
+    "limit": {
+      "type": "integer"
+    },
+    "offset": {
+      "type": "integer"
+    },
+    "max_rows": {
+      "type": "integer"
+    },
+    "max_bytes": {
+      "type": "integer"
+    },
+    "timeout_sec": {
+      "type": "integer"
+    },
+    "chunk_rows": {
+      "type": "integer"
+    },
+    "anchor_paths": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "expected_files": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "include": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "exclude": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "backend": {
+      "type": "string",
+      "enum": [
+        "auto",
+        "rg",
+        "python"
+      ]
+    },
+    "source_scope": {
+      "type": "string",
+      "enum": [
+        "filesystem",
+        "git_tracked"
+      ]
+    },
+    "match": {
+      "type": "string",
+      "enum": [
+        "exact",
+        "contains",
+        "regex"
+      ]
+    },
+    "format": {
+      "type": "string",
+      "enum": [
+        "csv",
+        "jsonl"
+      ]
+    },
+    "address": {
+      "description": "Hexadecimal string or integer; native validator enforces valid input."
+    },
+    "select": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "expr"
+        ],
+        "properties": {
+          "expr": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "alias": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "from": {
+      "type": "object",
+      "description": "Native table or subquery source object; never raw SQL.",
+      "additionalProperties": true
+    },
+    "joins": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "source"
+        ],
+        "properties": {
+          "type": {
+            "type": "string"
+          },
+          "source": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "on": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "where": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "having": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "group_by": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true
+      }
+    },
+    "order_by": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "expr"
+        ],
+        "properties": {
+          "expr": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "direction": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      }
     }
   },
   "compatibility": {
@@ -744,6 +1092,52 @@
       "content": "search",
       "ida": "decompile",
       "ghidra": "decompile"
+    }
+  },
+  "provider_action_notes": {
+    "git": "operations is an array of objects with op. status/current_branch/branches need only op; log allows ref,max_entries,paths; show requires ref; diff_refs requires from,to; diff_ref_worktree requires ref; switch requires branch and native clean-worktree authorization. Do not invent Git commands.",
+    "decompile": "Requires source or path AND address or name/symbol; address is a hex string or integer.",
+    "ida": "Same native contract as decompile.",
+    "ghidra": "Same native contract as decompile.",
+    "database_select": "Use structured native SQL AST objects, never raw SQL. select items have expr and optional alias; from is a native table/subquery source; joins contain source and on except CROSS; order_by contains expr and direction. Consult the native database schema before complex expressions.",
+    "range": "start_line and end_line are positive integers, start_line <= end_line.",
+    "command": "argv is a non-empty array of strings; native allowlist and authorization remain authoritative."
+  },
+  "provider_examples": {
+    "overview": {
+      "type": "overview",
+      "path": "."
+    },
+    "pack": {
+      "type": "pack",
+      "paths": [
+        "known-relative-file"
+      ]
+    },
+    "file": {
+      "type": "file",
+      "path": "known-relative-file"
+    },
+    "range": {
+      "type": "range",
+      "path": "known-relative-file",
+      "start_line": 1,
+      "end_line": 20
+    },
+    "git": {
+      "type": "git",
+      "operations": [
+        {
+          "op": "status"
+        }
+      ]
+    },
+    "search": {
+      "type": "search",
+      "query": "known-symbol",
+      "paths": [
+        "."
+      ]
     }
   }
 }

@@ -196,6 +196,8 @@ func agentAutoFeedbackNeedsWork(x agentchat.Session) bool {
 	if _, ok := agentAutoPatchCandidate(x); ok { return true }
 	if _, ok := agentAutoFeedbackCandidate(x); ok { return true }
 	if _, ok := agentRecoverableRejection(x, ""); ok { return true }
+ // A copy prevents the readiness predicate from mutating the journal.
+ if x.ProviderRun!=nil{run:=*x.ProviderRun;x.ProviderRun=&run;x.Events=append([]agentchat.SessionEvent(nil),x.Events...);if agentRecoverAcknowledgedCollection(&x){return true}}
 	// A native operation can finish while the GUI is closed; it still
 	// requires reconciliation, even when auto-feedback was not selected.
 	for _, call := range x.ToolCalls {

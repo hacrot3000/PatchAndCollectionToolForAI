@@ -25,7 +25,7 @@ func agentRecoverAcknowledgedCollection(x *agentchat.Session) bool {
  egress,rejected,failed:=x.Events[n-3],x.Events[n-2],x.Events[n-1]
  if egress.Seq!=seq||egress.Kind!="provider_egress"||egress.CallID!=run.CallID||egress.Detail!="collection"||
   rejected.Seq!=seq+1||rejected.Kind!="collect_request_rejected"||rejected.Status!="failed"||
-  !(strings.HasPrefix(rejected.Detail,"invalid project identity:")||strings.HasPrefix(rejected.Detail,"missing project.key/project.id")||strings.HasPrefix(rejected.Detail,"text COLLECT must include exact project.key and project.id"))||
+  !(strings.HasPrefix(rejected.Detail,"project identity does not match this TaskDeck workspace")||strings.HasPrefix(rejected.Detail,"invalid project identity:")||strings.HasPrefix(rejected.Detail,"missing project.key/project.id")||strings.HasPrefix(rejected.Detail,"text COLLECT must include exact project.key and project.id"))||
   failed.Seq!=seq+2||failed.Kind!="collect_failed"||failed.Status!="failed"||failed.Detail!="collection_continuation" {return false}
  // Preserve task status and history. This is not recovery of the missing
  // response body and does not authorize replay of the old provider request.
