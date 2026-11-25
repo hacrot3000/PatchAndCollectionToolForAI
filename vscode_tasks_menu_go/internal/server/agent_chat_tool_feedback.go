@@ -297,7 +297,7 @@ func (s *Server) agentDeliverToolResult(ctx context.Context, store *agentchat.St
             return agentDeliverResult{},agentContinueError{409,"unsupported tool has no source call"}
         }
         output:=strings.TrimSpace(sibling.Result)
-        if output==""||len(output)>4000{
+        if output==""||len(output)>agentPatchFeedbackLimit{
             return agentDeliverResult{},agentContinueError{409,"tool feedback is missing or too large"}
         }
         if sibling.TextFallback{
