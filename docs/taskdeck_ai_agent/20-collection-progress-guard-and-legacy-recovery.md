@@ -205,17 +205,17 @@ Không bỏ qua function output của call đã nhận. Nếu checkpoint trướ
 - [ ] **CLP-02.01 — Canonical scope descriptor** (`IN_PROGRESS`, P1)
   - Tái sử dụng canonical request fingerprint; chuẩn hóa project-relative path, action semantics, source range/symbol/query, relevant limits/coverage, source revision khi có proof. Không bỏ các tham số ảnh hưởng thực thi hoặc authorization. Không tự mở file ngoài native collector.
   - **Acceptance:** title/call ID khác không né duplicate; action/limits có ý nghĩa khác không bị gộp sai; paths/worktree/identity boundary được test.
-    - [ ] **CLP-02.01.01** — Audit fingerprint hiện tại, giữ tham số action/limits/project/authorization ảnh hưởng thực thi. (`VERIFY_PENDING` — shared fingerprint/scope descriptor and tests; CI pending)
-    - [ ] **CLP-02.01.02** — Định nghĩa scope descriptor cho path/range/symbol/query/worktree/source version theo metadata đáng tin. (`VERIFY_PENDING` — shared fingerprint/scope descriptor and tests; CI pending)
-    - [ ] **CLP-02.01.03** — Canonicalize an toàn, loại title/call ID volatile; không tự truy cập filesystem ngoài native COLLECT. (`VERIFY_PENDING` — shared fingerprint/scope descriptor and tests; CI pending)
-    - [ ] **CLP-02.01.04** — Test equivalence, distinct limits, path/identity isolation và invalid inputs. (`VERIFY_PENDING` — shared fingerprint/scope descriptor and tests; CI pending)
+    - [ ] **CLP-02.01.01** — Audit fingerprint hiện tại, giữ tham số action/limits/project/authorization ảnh hưởng thực thi. (`VERIFY_PENDING` — shared fingerprint/scope descriptor tests PASS, CI 45584606033; runtime scope binding still pending)
+    - [ ] **CLP-02.01.02** — Định nghĩa scope descriptor cho path/range/symbol/query/worktree/source version theo metadata đáng tin. (`VERIFY_PENDING` — shared fingerprint/scope descriptor tests PASS, CI 45584606033; runtime scope binding still pending)
+    - [ ] **CLP-02.01.03** — Canonicalize an toàn, loại title/call ID volatile; không tự truy cập filesystem ngoài native COLLECT. (`VERIFY_PENDING` — shared fingerprint/scope descriptor tests PASS, CI 45584606033; runtime scope binding still pending)
+    - [ ] **CLP-02.01.04** — Test equivalence, distinct limits, path/identity isolation và invalid inputs. (`VERIFY_PENDING` — shared fingerprint/scope descriptor tests PASS, CI 45584606033; runtime scope binding still pending)
 - [ ] **CLP-02.02 — Evidence index từ native receipt** (`IN_PROGRESS`, P1)
   - Dùng manifest/proof/native observation metadata đã xác minh. Lưu bounded index theo logical scope, content digest/coverage/partial status; loại volatile artifact paths/timestamps khỏi novelty. Không hash toàn bộ source lặp lại chỉ để guard.
   - **Acceptance:** exact duplicate, same content/different artifact, new range/symbol, incomplete/truncated, missing metadata đều phân biệt; unknown không thành verified-no-progress.
     - [ ] **CLP-02.02.01** — Đọc cấu trúc native receipt/manifest/proof; xác định fields thực sự available ở cả hai pipeline. (`VERIFY_PENDING` — native observation/manifest fields audited; runtime integration pending)
-    - [ ] **CLP-02.02.02** — Tạo adapter phân loại complete/partial/unknown/error và lấy digest/coverage chỉ khi proof hợp lệ. (`VERIFY_PENDING` — full-file proof only; partial/unsupported unknown; CI pending)
+    - [ ] **CLP-02.02.02** — Tạo adapter phân loại complete/partial/unknown/error và lấy digest/coverage chỉ khi proof hợp lệ. (`VERIFY_PENDING` — full-file proof tests PASS, CI 45584790677; partial/unsupported unknown; runtime adapter pending)
     - [ ] **CLP-02.02.03** — Cài bounded index theo logical scope, loại timestamp/artifact run path khỏi novelty. (`VERIFY_PENDING` — bounded pure index; persistence pending)
-    - [ ] **CLP-02.02.04** — Test same content khác artifact, new range/symbol, missing/truncated metadata; unknown không thành duplicate. (`VERIFY_PENDING` — tests added; CI pending)
+    - [ ] **CLP-02.02.04** — Test same content khác artifact, new range/symbol, missing/truncated metadata; unknown không thành duplicate. (`VERIFY_PENDING` — pure evidence tests PASS, CI 45584790677; native range/symbol tests pending)
 - [ ] **CLP-02.03 — Overlap/subset/alternating read detection** (`IN_PROGRESS`, P1)
   - Nhận diện range overlap/subset và chuỗi A/B/A/B, query đổi nhẹ nếu chứng minh output/coverage tương đương. Chỉ reject/skip nếu có proof tương thích và source còn hợp lệ; nếu heuristic thì advisory, không ngăn đọc.
   - **Acceptance:** A[1..100]→A[1..110] tính phần mới đúng; 55+ trang khác nhau không bị chặn; metadata thiếu không sinh false positive; test scope eviction.
@@ -620,6 +620,12 @@ Remote delivery: pending / confirmed / failed (reason)
 Next task:
 ```
 
+#### CI verification checkpoint — 64ccca20
+
+- Scope fingerprint commit `d3275af7`: [CI 45584606033](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/45584606033) complete; core and failed-queue jobs SUCCESS.
+- Native full-file evidence commit `d041ec9c`: [CI 45584790677](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/45584790677) complete; core and failed-queue jobs SUCCESS.
+- Coverage commit `64ccca20`: [CI 45585091261](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/45585091261) in progress at observation. No PASS claimed for this commit. No checklist increment for incomplete runtime adapters. Next: objective/counter receipt adapters, durable guard state and legacy/unified wiring.
+
 ### 8.2. Blockers và quyết định (append)
 
 | ID | Task | Vấn đề / quyết định | Ảnh hưởng | Hành động tiếp theo | Trạng thái |
@@ -629,7 +635,7 @@ Next task:
 | D-003 | PLAN | Chưa chạy local/CI hoặc deploy build | Chưa xác nhận runtime fix | CLP-00.03, CLP-09 | OPEN |
 | D-004 | CLP-00.01 | Sandbox has no repository checkout; direct Git DNS unavailable; connector remote API available | Cannot run full baseline/test/build locally; remote Git writes via connector only | Provide a checked-out repository/test runner or obtain actual CI receipts; no false PASS | OPEN |
 | D-005 | CLP-00.03 | Pre-existing CI failure: run fence fixture used t.TempDir without ensuring 0700 | Prevents subsequent server tests from executing | Fixed fixture precondition; local isolated race test and latest CI agentrun package PASS | RESOLVED |
-| D-006 | CLP-00.03 | Latest core CI fails on pending-turn HTTP 202 vs 409 and lost historical PATCH provenance | Full server/race/remaining CI acceptance not green | Reconcile pending-turn contract; preserve bounded PATCH catalog; rerun server suite with exact named receipts | OPEN |
+| D-006 | CLP-00.03 | Latest core CI fails on pending-turn HTTP 202 vs 409 and lost historical PATCH provenance | Full server/race/remaining CI acceptance not green | Fixed both regressions in c4a86276; core CI 45583368471 and subsequent 45583866679 PASS | RESOLVED |
 
 ## 9. Definition of Done toàn handoff
 
