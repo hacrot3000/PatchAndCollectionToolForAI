@@ -649,6 +649,7 @@ func (s *Store) Save(x Session, expectedRevision uint64) (Session, error) {
 					x.CollectionGuard=existing.CollectionGuard
 				}
 			}
+			s.reconcileCollectionGuardAttempts(&x,existing)
 			x.recordCollectionGuardPatchTransitions(existing)
 		}
 		if err:=s.archivePatchHistory(&x);err!=nil{return err}

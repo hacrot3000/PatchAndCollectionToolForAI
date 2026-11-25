@@ -24,6 +24,9 @@ type CollectionGuardState struct {
  Evidence cp.EvidenceIndex `json:"evidence"`
  Recovery cp.RecoveryState `json:"recovery"`
  Legacy LegacyCollectionSummary `json:"legacy"`
+ AttemptRunID string `json:"attempt_run_id,omitempty"`
+ AttemptCursor uint64 `json:"attempt_cursor,omitempty"`
+ AttemptAuditIncomplete bool `json:"attempt_audit_incomplete,omitempty"`
 }
 
 // LegacyCollectionSummary describes only the bounded retained canonical
@@ -59,6 +62,7 @@ func (x Session) validCollectionGuard(g CollectionGuardState)bool{
   return false
  }
  if (g.Counters.LastSequence==0&&g.Counters.LastEventDigest!="")||(g.Counters.LastSequence!=0&&!validGuardDigest(g.Counters.LastEventDigest)){return false}
+ if len(g.AttemptRunID)>256||(g.AttemptRunID=="")!=(g.AttemptCursor==0)||g.AttemptCursor>1000000000{return false}
  c:=g.Counters
  if c.NativeReads>c.Observed||c.NewEvidence>c.Observed||c.DuplicateEvidence>c.Observed||
   c.UnknownEvidence>c.Observed||c.Errors>c.Observed||c.Progress.ReadsSinceProgress>c.NativeReads||

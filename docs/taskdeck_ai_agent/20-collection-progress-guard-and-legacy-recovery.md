@@ -654,6 +654,9 @@ At existing Session.Save CAS, compare previous vs new server-owned ToolCalls bef
 - [45588106909](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/45588106909) busy composer and [45588285483](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/45588285483) PATCH transition invalidation CI pending at checkpoint. Subtask ticks updated only for verified portions; 28 full gates remain unclaimed.
 - Next: verify both CI runs; reconcile any regressions; complete durable HTTP attempt reconciliation, source drift/path proof, Unified snapshot/guard integration for existing drain-only runs, and CLP-07 explicit legacy unknown-collection resume with preserved audit. Do not reenable public Unified Run creation, bypass provider journal fences or treat wrapper PASS as verified task acceptance.
 
+#### CLP-03.02 / CLP-06.02 — Attempt reconciliation
+CI 45588106909 and 45588285483 both jobs SUCCESS, including full core Go/race/vet/Node/Python/macOS crosscompile. At existing Session.Save CAS project the existing private provider-attempt sidecar Total delta into guard HTTPAttempts, retaining run ID/cursor; reconcile previous run before replacement, including restart UNKNOWN. The count represents durable pre-egress reservations, not verified transmissions. No extra journal, no native count or ACK changes; corrupt audit marks incomplete and cannot fabricate counts. Bounded sidecar truncation still supports exact Total; test 132 attempts, restart/repeated Save/new run, corrupt audit. CI pending.
+ 
 ### 8.2. Blockers và quyết định (append)
 
 | ID | Task | Vấn đề / quyết định | Ảnh hưởng | Hành động tiếp theo | Trạng thái |
