@@ -293,9 +293,17 @@ func TestAgentCollectionContinuesWithoutRoundLimitToPatchProposal(t *testing.T){
 
 func TestAgentCollectionIdenticalReadsYieldRecoverableWarningWithoutStopping(t *testing.T){
  s,id:=newAgentConversationFixture(t,"stateless")
- calls:=0
- s.AgentChatCall=func(_ context.Context,_ agentchat.ProviderConfig,_ string,_ []byte)(agentchat.ResponsesResult,error){
+ calls,reads,warnings:=0,0,0
+ const unchanged=`{"results":[{"type":"ls","entries":["a"]}]}`
+ const changed=`{"results":[{"type":"ls","entries":["a","new-file"]}]}`
+ s.AgentCollectionCall=func(_ string,_ patchtool.ProjectIdentity,_ []byte)string{
+  reads++
+  if reads>=3{return changed}
+  return unchanged
+ }
+ s.AgentChatCall=func(_ context.Context,_ agentchat.ProviderConfig,_ string,payload []byte)(agentchat.ResponsesResult,error){
   calls++
+  if strings.Contains(string(payload),strings.TrimSpace(repeatedCollectionRequestAdvice)){warnings++}
   if calls<=4{
    return agentchat.ResponsesResult{ResponseID:fmt.Sprintf("read-loop-%d",calls),
     Calls:[]agentchat.FunctionCall{{CallID:fmt.Sprintf("repeat-%d",calls),
@@ -306,17 +314,23 @@ func TestAgentCollectionIdenticalReadsYieldRecoverableWarningWithoutStopping(t *
  }
  w:=invokeAI(t,s.agentChatSessionItemAPI,"POST","/api/agent/sessions/"+id+"/messages",
   map[string]any{"message":"inspect the project and make progress","confirm_external":true,"expected_revision":1})
- if w.Code!=200 || calls!=5 {
-  t.Fatalf("identical reads must not impose a hard stop: HTTP %d calls=%d body=%s",w.Code,calls,w.Body)
+ if w.Code!=200 || calls!=5 || reads!=4 || warnings!=1 {
+  t.Fatalf("request pattern must advise without skipping changed source: HTTP %d calls=%d reads=%d warnings=%d body=%s",w.Code,calls,reads,warnings,w.Body)
  }
  store,err:=s.agentChatStore();if err!=nil{t.Fatal(err)}
  saved,err:=store.Get(id,"local");if err!=nil{t.Fatal(err)}
- var warnings int
+ outputs:=0
  for _,row:=range saved.History{
-  if row.Type=="function_call_output"&&strings.Contains(row.Content,"COLLECTION_NO_PROGRESS"){warnings++}
+  if row.Type!="function_call_output"{continue}
+  outputs++
+  want:=unchanged;if outputs>=3{want=changed}
+  if row.Content!=want{t.Fatalf("canonical receipt changed: %s",row.Content)}
  }
- if warnings==0{t.Fatal("repeated read did not yield a corrective tool warning")}
- if len(saved.ToolCalls)!=0{t.Fatal("read-only no-progress warning executed a Patch")}
+ if outputs!=4||len(saved.ToolCalls)!=0{t.Fatal("lost read evidence or executed unapproved Patch")}
+ g,ok:=saved.ReadCollectionGuard()
+ if !ok||g.Counters.Requested!=4||g.Counters.Observed!=4||g.Counters.NativeReads!=4||g.Counters.UnknownEvidence!=4||g.Counters.DuplicateEvidence!=0{
+  t.Fatalf("request-shape heuristic became verified evidence: %+v",g)
+ }
 }
 
 func TestAgentCollectionMalformedProjectStringReturnsRepairFeedback(t *testing.T) {
@@ -351,17 +365,18 @@ func TestAgentCollectionMalformedProjectStringReturnsRepairFeedback(t *testing.T
 }
 
 
-// Alternating scopes must not evade the bounded read-only duplicate guard.
-// Distinct reads and the original native collector remain available.
-func TestAgentCollectionAlternatingIdenticalReadsDoNotExecuteAgain(t *testing.T){
+// Alternating request shapes receive bounded advice, not a proofless skip.
+func TestAgentCollectionAlternatingReadsAdviseWithoutProoflessSkip(t *testing.T){
  s,id:=newAgentConversationFixture(t,"stateless")
- reads,calls:=0,0
+ reads,calls,warnings:=0,0,0
+ const receipt=`{"results":[{"type":"ls","entries":[]}]}`
  s.AgentCollectionCall=func(_ string,_ patchtool.ProjectIdentity,_ []byte) string{
   reads++
-  return `{"results":[{"type":"ls","entries":[]}]}`
+  return receipt
  }
- s.AgentChatCall=func(_ context.Context,_ agentchat.ProviderConfig,_ string,_ []byte)(agentchat.ResponsesResult,error){
+ s.AgentChatCall=func(_ context.Context,_ agentchat.ProviderConfig,_ string,payload []byte)(agentchat.ResponsesResult,error){
   calls++
+  if strings.Contains(string(payload),strings.TrimSpace(repeatedCollectionRequestAdvice)){warnings++}
   if calls<=6{
    path:="src"
    if calls%2==1{path="."}
@@ -372,10 +387,10 @@ func TestAgentCollectionAlternatingIdenticalReadsDoNotExecuteAgain(t *testing.T)
   return agentchat.ResponsesResult{},nil
  }
  w:=invokeAI(t,s.agentChatSessionItemAPI,"POST","/api/agent/sessions/"+id+"/messages",map[string]any{"message":"Inspect project","confirm_external":true,"expected_revision":1})
- if w.Code!=200||reads!=4||calls!=7{t.Fatalf("HTTP=%d native reads=%d provider calls=%d body=%s",w.Code,reads,calls,w.Body)}
+ if w.Code!=200||reads!=6||calls!=7||warnings!=2{t.Fatalf("HTTP=%d native reads=%d provider calls=%d warnings=%d body=%s",w.Code,reads,calls,warnings,w.Body)}
  store,err:=s.agentChatStore();if err!=nil{t.Fatal(err)}
  x,err:=store.Get(id,"local");if err!=nil{t.Fatal(err)}
- warnings:=0
- for _,row:=range x.History{if row.Type=="function_call_output"&&strings.Contains(row.Content,"COLLECTION_NO_PROGRESS"){warnings++}}
- if warnings!=2{t.Fatalf("expected two duplicate-read diagnostics, got %d",warnings)}
+ outputs:=0
+ for _,row:=range x.History{if row.Type=="function_call_output"{outputs++;if row.Content!=receipt{t.Fatal("receipt mutated")}}}
+ if outputs!=6{t.Fatalf("expected six exact receipts, got %d",outputs)}
 }

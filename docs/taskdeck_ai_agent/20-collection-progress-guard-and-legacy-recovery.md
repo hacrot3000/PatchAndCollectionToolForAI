@@ -221,7 +221,7 @@ Không bỏ qua function output của call đã nhận. Nếu checkpoint trướ
   - **Acceptance:** A[1..100]→A[1..110] tính phần mới đúng; 55+ trang khác nhau không bị chặn; metadata thiếu không sinh false positive; test scope eviction.
     - [ ] **CLP-02.03.01** — Tính interval union/subset/overlap và phần coverage mới trên cùng source revision. (`VERIFY_PENDING` — pure range union; verified native range adapter pending)
     - [ ] **CLP-02.03.02** — Nhận diện A/B/A/B, query biến thể với proof tương đương; heuristic chỉ advisory. (`TODO`)
-    - [ ] **CLP-02.03.03** — Tách skip đã chứng minh khỏi warning; khi proof stale/thiếu phải cho đọc hợp lệ. (`TODO`)
+    - [ ] **CLP-02.03.03** — Tách skip đã chứng minh khỏi warning; khi proof stale/thiếu phải cho đọc hợp lệ. (`VERIFY_PENDING` — Legacy proofless skip removed; Unified pending)
     - [ ] **CLP-02.03.04** — Test A1–100→A1–110, 55+ trang, eviction, changed content và false-positive cases. (`TODO`)
 - [ ] **CLP-02.04 — Source mutation invalidation & resource bounds** (`IN_PROGRESS`, P1)
   - Invalidate coverage sau PATCH hoặc external change/worktree drift; dùng receipt changed-files nếu đáng tin, fallback invalidate rộng khi mutation unknown/partial. Bounded memory/index size, TTL hoặc eviction; không làm mất lịch sử gốc.
@@ -265,7 +265,7 @@ Không bỏ qua function output của call đã nhận. Nếu checkpoint trướ
   - Tích hợp guard trong `agent_chat_collection_flow.go` trước native execution và sau observation/receipt; refresh settings theo logic hiện có. Duy trì canonical tool call/output, journal phases và repair budget.
   - **Acceptance:** 27-round fixture nhận advisory/checkpoint đúng policy, duplicate guard cũ vẫn đúng, cancellation và disabled COLLECT không bị bypass; 55 rounds unique → PATCH PASS test logic giữ nguyên.
     - [ ] **CLP-04.01.01** — Gắn guard precheck sau validation/permission trong legacy collection loop. (`VERIFY_PENDING` — after existing permission check; no new admission grant)
-    - [ ] **CLP-04.01.02** — Gắn post-observation decision vào checkpoint trước provider egress, giữ original output và repair. (`VERIFY_PENDING` — counters and advisory at existing checkpoint; legacy duplicate suppression still outstanding)
+    - [ ] **CLP-04.01.02** — Gắn post-observation decision vào checkpoint trước provider egress, giữ original output và repair. (`VERIFY_PENDING` — counters and advisory at existing checkpoint; proofless Legacy skip removed)
     - [ ] **CLP-04.01.03** — Nối warning/checkpoint/cancel vào existing state transitions; không nuốt pending tool pair. (`TODO`)
     - [ ] **CLP-04.01.04** — Test incident 27 reads, duplicate, disabled collection, cancellation và 55 reads → PATCH. (`TODO`)
 - [ ] **CLP-04.02 — Unified Agent Run waiting-tool path** (`TODO`, P1)
@@ -632,6 +632,9 @@ Added agentchat/collection_guard.go and tests, Session.collection_guard raw addi
 
 #### CLP-01.02/03.02/04.01 — Legacy runtime admission and observation
 Added agent_chat_collection_guard.go, wired real owner admission before original turn PREPARED save; synthetic scheduler/repair continuation distinguished via private in-process context marker (not request_id or user-controlled JSON). Explicit Continue preserves current binding; server-owned plan continuation binds plan goal/step; unbound legacy continuation stays neutral and retains only historical summary. Legacy loop records requested after permission and response checkpoint, observed after existing native collector, using session EventSeq and existing CAS. Schema rejection is not a native read; native proof adapter runs only on server-produced observation. Fixed-size advisory goes into trusted instructions separately from raw output, with budget estimator using identical instructions. No additional collector or network call; no new mutation authority. Legacy pre-existing fingerprint skip/receipt mutation still to remove under CLP-02.03, recovery reservation not enabled, HTTP/PATCH event adapters and Unified still pending. CI pending.
+
+#### CLP-02.03/04.01/04.04 — Remove Legacy proofless skip
+Removed third-identical-fingerprint suppression and receipt rewriting. Request shape now produces only fixed bounded instruction advice on third occurrence (including alternating scopes); never asserts unchanged source, skips native execution or alters a valid receipt. Updated duplicate tests for new safety contract: four actual reads with changed content on third request, exact canonical receipts, unknown novelty, one warning; alternating A/B six actual reads and two warnings. Kept 55 unique reads → PATCH regression untouched. Existing schema repair budget remains. Verified novelty policy separate; Unified proofless skip and durable verified-stall recovery pending. CI pending.
 
 ### 8.2. Blockers và quyết định (append)
 

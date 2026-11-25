@@ -105,3 +105,28 @@ func collectionProgressAdvice(d cp.Decision)string{
  default:return ""
  }
 }
+
+
+// Request-shape advice is distinct from verified evidence novelty. It never
+// skips native reads or modifies receipts. Warn on third matching request,
+// including alternating scopes, once per bounded retained fingerprint.
+type collectionRequestAdvisories struct {
+ counts map[string]int
+ order []string
+}
+func newCollectionRequestAdvisories()*collectionRequestAdvisories{
+ return &collectionRequestAdvisories{counts:map[string]int{}}
+}
+const repeatedCollectionRequestAdvice=" Collection request pattern repeated: this is a request-shape hint, not proof that source content is unchanged. If the receipt answers the question, narrow the next missing scope or change strategy; re-read if needed."
+func(a *collectionRequestAdvisories)Observe(request []byte)string{
+ digest,err:=cp.CanonicalRequestFingerprint(request)
+ if err!=nil{return ""}
+ n:=a.counts[digest]
+ if n==0{
+  if len(a.order)>=64{delete(a.counts,a.order[0]);a.order=a.order[1:]}
+  a.order=append(a.order,digest)
+ }
+ if n<3{a.counts[digest]=n+1}
+ if n==2{return repeatedCollectionRequestAdvice}
+ return ""
+}

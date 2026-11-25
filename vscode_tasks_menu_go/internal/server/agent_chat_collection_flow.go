@@ -14,11 +14,9 @@ import (
 	"bletonfc/vscode_tasks_menu/internal/patchtool"
 )
 
-// Collection has no arbitrary count limit. All reads are still bounded
-// individually, cancellation remains available and repeated identical
-// observations are stopped to avoid a non-progressing provider loop.
-// Successful observations are durably journaled before each continuation.
-const agentCollectionMaxIdenticalObservations = 3
+// Collection has no arbitrary round limit. Native reads remain individually
+// bounded; identical request fingerprints alone never prove stale or repeated
+// content. Successful observations are durably journaled before continuation.
 
 // Every Collection request is read-only; local formatting/persistence
 // failures can be diagnosed safely without claiming ambiguous Patch execution.
@@ -132,9 +130,7 @@ func (s *Server) agentChatRunCollection(
 	// later verified adoption. Only the text-JSON fallback guarantees the
 	// response was not stored and requires discarding provider references.
 	clearProviderRefs := provider.APIType == "chat_completions"
-	lastReadSignature, repeatedRead := "", 0
- recentReads:=map[string]int{}
- recentReadOrder:=[]string{}
+	recentReads:=newCollectionRequestAdvisories()
 	consecutiveRepairs := 0
 	for round := 0; ; round++ {
 		if err := ctx.Err(); err != nil {
@@ -202,11 +198,6 @@ func (s *Server) agentChatRunCollection(
 			if kind=="foreign"{code="COLLECTION_IDENTITY_REJECTED"}
 			observed=runCollectionDiagnostic(code,reason,true)
 			x.AppendEvent("collect_request_rejected","requesting_ai",callID,reason)
-		} else if recentReads[agentCollectionRequestFingerprint(nativeRequest)]>=2 {
-			// Native COLLECT may scan a 150 MB file. Do not run the same
-			// unproductive read for a third time merely to learn it has not
-			// changed. The model can request a narrower native action instead.
-			observed = `{"error":{"code":"COLLECTION_NO_PROGRESS","message":"Repeated native Collection request within this read sequence (including alternating requests); reuse existing evidence or request a distinct missing scope.","retry_allowed":true}}`
 		} else if s.AgentCollectionCall != nil {
 			// Only tests install this mock. Production has exactly one Collection
 			// backend: the existing native Python Patch Tool runner/queue.
@@ -249,38 +240,10 @@ func (s *Server) agentChatRunCollection(
 			}
 		}
 		guardDecision := legacyCollectionObserved(x, callID, identity, nativeRequest, observed, nativeRead, toolAvailable)
-		// A model repeating the same read of identical content is not making
-		// progress. Warn on the second repeat, and checkpoint instead of burning
-		// further provider requests if the model does not change its approach.
-		_,_,repairError:=agentCollectionRepairError(observed)
-		if validationErr == nil && (!repairError || recentReads[agentCollectionRequestFingerprint(nativeRequest)]>=2) {
-			// Native artifact paths have unique run IDs even when the model
-			// repeats an identical request. Deduplicate by canonical request.
-			signature := agentCollectionRequestFingerprint(nativeRequest)
-			if recentReads[signature]==0{
-    if len(recentReadOrder)>=64{delete(recentReads,recentReadOrder[0]);recentReadOrder=recentReadOrder[1:]}
-    recentReadOrder=append(recentReadOrder,signature)
-   }
-   recentReads[signature]++
-   if signature == lastReadSignature { repeatedRead++ } else { lastReadSignature, repeatedRead = signature, 1 }
-   if recentReads[signature]>repeatedRead{repeatedRead=recentReads[signature]}
-			if repeatedRead >= agentCollectionMaxIdenticalObservations {
-				// Never terminate a legitimate long task because of read counts.
-				// Return a truthful, bounded tool error requesting a different
-				// inspection strategy, then let the model continue the original task.
-				observed = `{"error":{"code":"COLLECTION_NO_PROGRESS","message":"Repeated identical Collection request and unchanged result. Use a different native COLLECT action or narrow paths/symbol/offset; do not re-request identical evidence.","retry_allowed":true}}`
-			} else if repeatedRead == 2 {
-				// Preserve the JSON tool-result contract while telling the model
-				// why it must adjust its inspection plan.
-				var envelope map[string]any
-				if json.Unmarshal([]byte(observed), &envelope) == nil {
-					envelope["read_progress_warning"] = "Repeated identical native Collection request; choose another path or a targeted native file/range/symbol/decompile action, or submit a Patch. Do not request the same evidence again."
-					if updated, err := json.Marshal(envelope); err == nil {
-						observed = string(updated)
-					}
-				}
-			}
-		}else if repairError {lastReadSignature="";repeatedRead=0}
+		requestAdvice := ""
+		if validationErr==nil && nativeRead {
+			requestAdvice=recentReads.Observe(nativeRequest)
+		}
 		repairExhausted:=false
 		if code,message,repair:=agentCollectionRepairError(observed);repair {
 			consecutiveRepairs++
@@ -338,7 +301,7 @@ func (s *Server) agentChatRunCollection(
 		limit := agentInitialOutputBudget(model,reasoning,toolAvailable)
 		contextModel := model
 		if mode==agentchat.Stateless{contextModel,limit=agentAdaptiveRequestBudget(*x,provider,model,key,limit)}
-		instructions := agentChatInstructionsWithAutomation(*x, toolAvailable, identity.Key) + collectionProgressAdvice(guardDecision)
+		instructions := agentChatInstructionsWithAutomation(*x, toolAvailable, identity.Key) + collectionProgressAdvice(guardDecision) + requestAdvice
 		payload, err := agentchat.BuildResponsesRequest(agentchat.RequestConfig{
 			Model: x.ModelID, Instructions: instructions,
 			Mode: mode, PreviousResponseID: x.PreviousResponseID, ConversationID: conversationID,
