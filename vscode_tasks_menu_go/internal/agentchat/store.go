@@ -192,6 +192,9 @@ type Session struct {
 	// browser. It records state transitions, not prompt or result content.
 	Events            []SessionEvent   `json:"events,omitempty"`
 	EventSeq          uint64           `json:"event_seq,omitempty"`
+	// CollectionGuard is additive, bounded advisory metadata in the same CAS
+	// journal. Keep unknown versions opaque so legacy history remains readable.
+	CollectionGuard json.RawMessage `json:"collection_guard,omitempty"`
 	AutoFeedback      bool             `json:"auto_feedback,omitempty"`
 	// Long-lived per-conversation provider-sharing opt-in via Automation.
 	// Legacy 30-minute grants still use AutoFeedbackUntil.
@@ -692,6 +695,17 @@ func (s *Store) saveSessionWithAdmissionLocked(x Session, expectedRevision uint6
 				record.RunID != x.ProviderRun.ID || record.SHA256 != x.ProviderRun.PayloadSHA256 ||
 				len(record.Payload) == 0 || len(record.Payload) > maxProviderRunPayload ||
 				ProviderPayloadDigest(record.Payload) != record.SHA256 { return ErrInvalidSession }
+		}
+		if e==nil {
+			// Guard metadata follows the same CAS as actual Patch ledger
+			// transitions. Never drop an opaque future guard in a normal save.
+			if len(existing.CollectionGuard)>0 {
+				if _,ok:=existing.ReadCollectionGuard();!ok||len(x.CollectionGuard)==0 {
+					x.CollectionGuard=existing.CollectionGuard
+				}
+			}
+			s.reconcileCollectionGuardAttempts(&x,existing)
+			x.recordCollectionGuardPatchTransitions(existing)
 		}
 		if err:=s.archivePatchHistory(&x);err!=nil{return err}
         if err:=s.archiveCollectionHistory(&x);err!=nil{return err}

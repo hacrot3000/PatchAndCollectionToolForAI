@@ -82,11 +82,18 @@ func aiOwnerHash(owner string) string {
 }
 
 func (s *Server) agentRunAPI(w http.ResponseWriter, r *http.Request) {
+	s.agentRunAPIWithCreationPolicy(w,r,false)
+}
+
+// The public route always supplies false while Unified creation is suspended.
+// The underlying admission contract remains independently regression-testable;
+// this parameter is never read from an HTTP request, config or model output.
+func (s *Server) agentRunAPIWithCreationPolicy(w http.ResponseWriter,r *http.Request,creationEnabled bool) {
 	owner := aiPlanOwner(r)
 	if !s.requireSharedActionPermission(w, r, identity.PermissionSettingsRead, "agent.run", "agent_runs") {
 		return
 	}
-	if r.Method == http.MethodPost {
+	if r.Method == http.MethodPost && !creationEnabled {
 		http.Error(w, "Agent Run creation is temporarily disabled.\nUse Legacy Agent Chat.", http.StatusConflict)
 		return
 	}

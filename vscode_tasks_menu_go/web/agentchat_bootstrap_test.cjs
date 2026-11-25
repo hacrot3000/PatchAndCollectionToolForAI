@@ -1510,8 +1510,9 @@ console.log('PASS: safe Markdown, syntax-highlighted PHP/Python, per-block Copy,
    console.log('PASS: malformed provider Patch exposes diagnosis, sendable feedback and no approval');
    console.log('PASS: bounded/unlimited retry UI, single retry countdown and safe old-Patch recovery actions');
 
-  // Switching the next-run provider while a legacy Composer turn is active
-  // submits an independent RunManager request and leaves the original alone.
+  // Legacy composer is drain-only for new Unified runs. A busy send must
+  // preserve its draft and the active provider request. Existing RunManager
+  // cards and submission-module contracts are exercised independently below.
   const hotSession={id:'hot-switch-session',status:'requesting_ai',revision:11,retry_mode:'limited',
    provider_id:'composer',model_id:'composer-2.5',mode:'stateless',history:[{type:'user',content:'prior completed turn'}],events:[],tool_calls:[]};
   context.hotSession=hotSession;
@@ -1579,8 +1580,17 @@ console.log('PASS: safe Markdown, syntax-highlighted PHP/Python, per-block Copy,
   reloadedRunsUI.setProviders(context.hotProviders);
   await reloadedRunsUI.selectConversation(context.hotSession);
   assert.equal(JSON.stringify(reloadedRunsUI.value()),JSON.stringify({providerId:'gpt',modelId:'gpt-6.1-sol'}),'reload restores the local conversation provider/model choice');
-  const hotRun=await vm.runInNewContext('sendAgentMessage()',context);
-  assert.equal(runRequests.length,1,'one independent run request was submitted');
+  const beforeBusySend=apiCalls.length;
+  await assert.rejects(vm.runInNewContext('sendAgentMessage()',context),/Conversation is busy/);
+  assert.equal(apiCalls.length,beforeBusySend,'busy composer must not start any new request or cancel the old one');
+  assert.equal(vm.runInNewContext('prompt.value',context),'Use GPT now','busy send preserves the draft');
+  assert.equal(vm.runInNewContext("agentBusySessions.has('hot-switch-session')",context),true,'active turn ownership must remain intact');
+  assert.equal(runRequests.length,0,'public composer cannot create a new Unified run');
+  // Explicit module-level fixture only: historical RunManager records can
+  // still be rendered/retried/drained. Mock its old submission contract
+  // without routing production composer traffic through it.
+  const hotRun=await vm.runInNewContext("agentRunUI.submit(hotSession,'Use GPT now',[],'fixture-run-102','xhigh')",context);
+  assert.equal(runRequests.length,1,'isolated RunManager module submitted one fixture run');
   assert.equal(runRequests[0].spec.provider_id,'gpt');
   assert.equal(runRequests[0].spec.model_id,'gpt-6.1-sol');
   assert.equal(runRequests[0].spec.retry_mode,'limited');
@@ -1623,8 +1633,8 @@ console.log('PASS: safe Markdown, syntax-highlighted PHP/Python, per-block Copy,
   vm.runInNewContext("hotSession.status='completed';agentCurrentSession=hotSession;agentBusySessions.delete(hotSession.id);",context);
   nextProviderSelect.value='composer';nextProviderSelect.listeners.change[0]({type:'change'});
   vm.runInNewContext("prompt.value='Continue using Composer';",context);
-  const laterRun=await vm.runInNewContext('sendAgentMessage()',context);
-  assert.equal(runRequests.length,2,'later same-default-provider turns stay on the run path after a hot-switch');
+  const laterRun=await vm.runInNewContext("agentRunUI.submit(hotSession,'Continue using Composer',[],'fixture-run-103','')",context);
+  assert.equal(runRequests.length,2,'isolated module preserves later provider binding');
   assert.equal(runRequests[1].spec.provider_id,'composer','switching back uses Composer for the new run');
   assert.equal(laterRun.spec.context_snapshot_id,runRequests[1].spec.context_snapshot_id);
   assert.ok(allRuns.some(run=>run.spec.run_id===hotRun.spec.run_id&&run.spec.provider_id==='gpt'),
@@ -1655,7 +1665,7 @@ console.log('PASS: safe Markdown, syntax-highlighted PHP/Python, per-block Copy,
   assert.ok(nodeText(nativeCard).includes('status is uncertain'),'unknown Patch state is presented as uncertain, not failed or complete');
   assert.equal(Boolean(find(nativeCard,node=>node.tagName==='button'&&node.textContent==='Approve Patch')),false,
     'uncertain Patch state never exposes a fresh approval/re-execution action');
-  console.log('PASS: Composer #101 and GPT #102 stream separately; run cards support Native Patch review, approval, and continuation');
+  console.log('PASS: busy Legacy composer preserves draft; isolated existing run cards support Native Patch review, approval, and continuation');
 
 // End-to-end DOM/transport rename while the actual conversation is busy.
 // Server-side metadata must not require cancelling that provider turn.

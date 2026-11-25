@@ -1,5 +1,11 @@
 package collectionprogress
 
+import (
+ "crypto/sha256"
+ "encoding/hex"
+ "encoding/json"
+)
+
 // Recovery is a separate, pure post-observation decision. The adapter must
 // persist it before any continuation, use the existing approval/egress
 // admission checks, and never fabricate an output or execute a tool here.
@@ -79,6 +85,10 @@ func AssessRecovery(p Policy, counters CounterState, event CounterEvent, old Rec
 		event.Kind != CollectionObserved || event.Novelty != VerifiedDuplicate || !event.NativeRead {
 		return old, proceed
 	}
+	raw,err:=json.Marshal(event)
+	if err!=nil{return hold(RecoveryInvalidState,ReviewCheckpoint)}
+	sum:=sha256.Sum256(raw)
+	if hex.EncodeToString(sum[:])!=counters.LastEventDigest{return hold(RecoveryInvalidState,ReviewCheckpoint)}
 	if !p.Valid() {
 		p = Defaults()
 	}

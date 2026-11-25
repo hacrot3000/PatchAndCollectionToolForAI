@@ -2162,6 +2162,11 @@ async function sendAgentMessage(){
  if(!msg)throw new Error('Enter a message.');
  const current=agentCurrentSession?.id===sessionID?agentCurrentSession:await selectAgentSession(sessionID);
  if(!current||agentActive!==sessionID)throw new Error('Conversation changed before the message could be submitted.');
+ // Legacy has one admitted turn per conversation. Pending-turn dispatch is
+ // fail-closed. Do not replace its AbortController, live row or polling
+ // ownership with a second optimistic send while Run Manager is drain-only.
+ if(agentBusySessions.has(sessionID)||current.status==='requesting_ai'||current.status==='tool_queuing')
+  throw new Error('Conversation is busy. Retry after the active turn finishes; your draft is preserved.');
  const canStartAgentRun=Boolean(agentRunUI?.canSend());
  const nextProvider=canStartAgentRun?agentRunUI.value():{providerId:current.provider_id,modelId:current.model_id};
  const selectedModel=agentSelectedModel();

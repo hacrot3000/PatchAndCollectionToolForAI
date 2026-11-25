@@ -3,6 +3,8 @@ package server
 import (
  "context"
  "encoding/json"
+ "os"
+ "path/filepath"
  "strings"
  "testing"
  "time"
@@ -116,8 +118,16 @@ func TestAgentPreparedProviderPayloadCorruptionFailsWithoutSending(t *testing.T)
  x,err=store.Save(x,x.Revision);if err!=nil{t.Fatal(err)}
  // The saved payload should be verified by hash and run ID, not derived
  // again from changing inputs. A mismatched digest blocks recovery.
+ // The strengthened Store rejects this mutation at admission. Exercise
+ // both that fence and the actual recovery path after disk corruption.
+ originalDigest:=x.ProviderRun.PayloadSHA256
  x.ProviderRun.PayloadSHA256=strings.Repeat("0",64)
- x,err=store.Save(x,x.Revision);if err!=nil{t.Fatal(err)}
+ if _,err=store.Save(x,x.Revision);err==nil{t.Fatal("Save accepted mismatched PREPARED digest")}
+ x,err=store.Get(id,"local");if err!=nil{t.Fatal(err)}
+ if x.ProviderRun.PayloadSHA256!=originalDigest{t.Fatal("rejected Save changed the journal")}
+ privateFile,err:=aiPrivatePath(s.Workspace);if err!=nil{t.Fatal(err)}
+ sidecar:=filepath.Join(filepath.Dir(privateFile),"agent-sessions-"+aiWorkspaceHash(s.Workspace),id+".provider-run.json")
+ if err=os.WriteFile(sidecar,[]byte(`{"version":1,"payload":"corrupt"}`),0600);err!=nil{t.Fatal(err)}
  calls:=0
  s.AgentChatCall=func(_ context.Context,_ agentchat.ProviderConfig,_ string,_ []byte)(agentchat.ResponsesResult,error){
   calls++;return agentchat.ResponsesResult{},nil

@@ -10,7 +10,6 @@ import (
  "path/filepath"
  "sort"
  "strconv"
- "strings"
 )
 
 // An unlimited number of read-only Collection rounds cannot fit inside a
@@ -65,8 +64,7 @@ func (s *Store) archiveCollectionHistory(x *Session) error {
   if item.Type=="assistant" {
    removed[i]=true;archived=append(archived,item);continue
   }
-  if item.Type=="user" && strings.HasPrefix(item.Content,
-   "TaskDeck local read-only Collection tool returned this VERIFIED observation") {
+  if CollectionTextObservation(x.History,i) {
    removed[i]=true;archived=append(archived,item)
   }
  }
