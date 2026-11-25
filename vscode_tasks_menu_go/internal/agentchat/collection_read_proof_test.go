@@ -1,6 +1,7 @@
 package agentchat
 
 import (
+	"encoding/json"
 	"testing"
 )
 
@@ -12,8 +13,14 @@ func collectionProofTestSpec() RunSpec {
 }
 
 func collectionProofHistory(callID, runID, providerID, modelID, filePath, content string) []HistoryItem {
-	request := `{"actions":[{"type":"read","path":"` + filePath + `","start_line":1}]}`
-	output := `{"response_truncated":false,"results":[{"type":"read","output_truncated":false,"files":[{"path":"` + filePath + `","start_line":"1","total_lines":"2","content":"` + content + `","error":"","truncated":"false","content_truncated":"false","next_line":""}]}]}`
+	requestBytes, _ := json.Marshal(map[string]any{"actions": []map[string]any{{"type": "read", "path": filePath, "start_line": 1}}})
+	outputBytes, _ := json.Marshal(map[string]any{"response_truncated": false, "results": []map[string]any{{
+		"type": "read", "output_truncated": false, "files": []map[string]any{{
+			"path": filePath, "start_line": "1", "total_lines": "2", "content": content,
+			"error": "", "truncated": "false", "content_truncated": "false", "next_line": "",
+		}},
+	}}})
+	request, output := string(requestBytes), string(outputBytes)
 	return []HistoryItem{
 		{Type: "user", Content: "read the file"},
 		{Type: "function_call", CallID: callID, Name: "taskdeck_collect_workspace", Arguments: request,
