@@ -1485,7 +1485,7 @@ console.log('PASS: safe Markdown, syntax-highlighted PHP/Python, per-block Copy,
    {id:'gpt',name:'GPT',has_api_key:true,api_type:'responses',base_url:'https://gpt.example/v1',models:[{id:'gpt-6.1-sol',name:'GPT 6.1'}]},
   ];
   const runRequests=[],apiCalls=[];let acceptedRun=null,continuedRun=null;
-  let nativeTool={call_id:'provider-call-ui',name:'taskdeck_submit_patch',status:'pending',arguments_sha256:'abc',result:''};
+  let nativeTool={call_id:'provider-call-ui',agent_run_id:'run-native-ui',name:'taskdeck_submit_patch',status:'pending',arguments_sha256:'abc',result:''};
   let nativeRunRecord=null;
   const composerRun={spec:{run_id:'run-101',conversation_id:hotSession.id,provider_id:'composer',model_id:'composer-2.5',
    provider_config_version:'composer-config',credential_fingerprint:'composer-credential',context_snapshot_id:'snapshot-101',
@@ -1594,7 +1594,7 @@ console.log('PASS: safe Markdown, syntax-highlighted PHP/Python, per-block Copy,
   nativeRunRecord={spec:{run_id:'run-native-ui',conversation_id:hotSession.id,provider_id:'gpt',model_id:'gpt-6.1-sol'},
    status:'waiting_tool',created_at:new Date().toISOString(),history:[
     {type:'user',content:'Propose a patch'},
-    {type:'function_call',call_id:'provider-call-ui',name:'taskdeck_submit_patch',arguments:JSON.stringify({name:'reviewed patch',patch_python:'print("review this")'})}
+    {type:'function_call',call_id:'provider-call-ui',origin_run_id:'run-native-ui',provider_id:'gpt',model_id:'gpt-6.1-sol',name:'taskdeck_submit_patch',arguments:JSON.stringify({name:'reviewed patch',patch_python:'print("review this")'})}
    ],events:[]};
   allRuns.push(nativeRunRecord);
   await vm.runInNewContext('agentRunUI.refresh()',context);
