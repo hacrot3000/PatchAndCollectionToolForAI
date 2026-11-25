@@ -29,7 +29,10 @@ func (e ownerBoundAgentRunExecutor) Execute(ctx context.Context, spec agentchat.
 	if err != nil {
 		return err
 	}
-	return router.Execute(agentrun.WithPrincipalOwner(ctx, e.owner), spec, history, sink)
+	if err := router.Execute(agentrun.WithPrincipalOwner(ctx, e.owner), spec, history, sink); err != nil { return err }
+	// A successful complete provider response, not the native PASS alone,
+	// acknowledges the exact run-owned output sent in this request.
+	return e.server.acknowledgeRunPatchFeedback(ctx, e.owner, spec, history)
 }
 
 func (e ownerBoundAgentRunExecutor) Cancel(ctx context.Context, spec agentchat.RunSpec) error {

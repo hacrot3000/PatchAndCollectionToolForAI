@@ -84,6 +84,7 @@ var (
 // be able to supply or refresh it. PromptID/SelectedIndex/RunID bind the
 // final native result to the exact queue item this call approved.
 type ToolCallRecord struct {
+	AgentRunID string `json:"agent_run_id,omitempty"` // provider-bound run, distinct from native Patch RunID
 	CallID                string     `json:"call_id"`
 	ModelTurnID           string     `json:"model_turn_id,omitempty"`
 	Name                  string     `json:"name"`
@@ -425,7 +426,7 @@ func validateSession(x Session) error {
 		if call.Status == "queued" && call.QueuePath == "" {
 			return ErrInvalidSession
 		}
-		if len(call.ModelTurnID) > 256 || len(call.ArgumentsSHA256) > 64 || len(call.ExpectedHead) > 64 ||
+		if len(call.AgentRunID) > 256 || len(call.ModelTurnID) > 256 || len(call.ArgumentsSHA256) > 64 || len(call.ExpectedHead) > 64 ||
 			len(call.ExpectedBranch) > 256 || len(call.WorkspaceStatusSHA256) > 64 || len(call.PromptID) > 256 ||
 			len(call.RunID) > 256 || call.SelectedIndex < 0 || call.SelectedIndex > maxItems {
 			return ErrInvalidSession

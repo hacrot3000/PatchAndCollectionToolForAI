@@ -12,7 +12,7 @@ import (
 )
 
 // A run's original provider binding is not the legacy Session.ProviderID.
-// Fail closed when the durable run ledger is unavailable. This fence is
+// Fail closed when the durable run ledger is unavailable. This fence
 // separates the legacy scheduler from provider-bound run continuation.
 func (s *Server) agentConversationRequiresRunContinuation(owner, id string) bool {
 	records, err := s.completedAgentRuns(owner, id)
@@ -80,6 +80,7 @@ func (e ownerBoundAgentRunExecutor) ResolveWaitingTool(ctx context.Context, run 
 	if !ok {
 		return nil, "", nil // Patch/mixed/unsupported calls remain manual.
 	}
+	if call.OriginRunID != run.Spec.RunID { return nil, "", errors.New("Collection call has no exact run provenance") }
 	s := e.server
 	inputs, err := s.ResolveAgentRunInputs(agentrun.WithPrincipalOwner(ctx, e.owner), run.Spec)
 	if err != nil {

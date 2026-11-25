@@ -24,10 +24,6 @@ func (s *Server) agentRunForToolCall(owner, conversationID, callID string) (agen
 	if err != nil {
 		return agentrun.Record{}, false, err
 	}
-	ownerID, err := agentrun.WorkspaceID(s.agentOwnerWorkspace())
-	if err != nil {
-		return agentrun.Record{}, false, err
-	}
 	var match *agentrun.Record
 	for _, record := range manager.List() {
 		if record.Spec.ConversationID != conversationID {
@@ -35,7 +31,7 @@ func (s *Server) agentRunForToolCall(owner, conversationID, callID string) (agen
 		}
 		found := false
 		for _, item := range record.History {
-			if item.Type == "function_call" && item.CallID == callID {
+			if item.Type == "function_call" && item.CallID == callID && item.OriginRunID == record.Spec.RunID {
 				found = true
 				break
 			}
@@ -43,7 +39,7 @@ func (s *Server) agentRunForToolCall(owner, conversationID, callID string) (agen
 		if !found {
 			continue
 		}
-		if record.Spec.ExecutionWorkspaceID != ownerID || record.Status == agentrun.WaitingTool {
+		{ // Route exact run-owned calls even after a provider continuation.
 			if match != nil {
 				return agentrun.Record{}, false, errors.New("ambiguous Agent Run tool-call binding")
 			}

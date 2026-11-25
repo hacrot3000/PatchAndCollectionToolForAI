@@ -142,11 +142,16 @@
     const state=doc.createElement('span');state.textContent=String(run.status||'unknown').toUpperCase();
     header.append(title,state);
     const prompt=doc.createElement('pre');prompt.className='agentchat-run-prompt';
-    const history=run.history||[];const lastUser=[...history].reverse().find(item=>item.type==='user');
+    const history=run.history||[];const lastUser=history.find(item=>item.type==='user'&&item.parent_turn_id===run.spec.parent_turn_id&&item.origin_run_id!==run.spec.run_id)||[...history].reverse().find(item=>item.type==='user');
     prompt.textContent=lastUser?.content||'(prompt unavailable)';
     const events=decodeRunEvents(run);
     const output=doc.createElement('pre');output.className='agentchat-run-output';output.textContent=events.output;
     card.append(header,prompt,output);
+    if(run.continuation){
+     const progress=doc.createElement('div');progress.className='agentchat-run-info';
+     progress.textContent='Task progress: '+String(run.continuation.disposition||'unknown')+' · '+String(run.continuation.reason||'')+' · No-work turns: '+String(run.continuation.no_progress_turns||0)+'. Run completion is not task acceptance.';
+     card.append(progress);
+    }
     const excluded=Array.isArray(run.spec.excluded_pending_run_ids)?run.spec.excluded_pending_run_ids:String(run.spec.excluded_pending_run_ids||'').split(',').filter(Boolean);
     if(excluded.length){
      const warning=doc.createElement('div');warning.className='agentchat-run-info';
@@ -158,13 +163,16 @@
      tool.textContent='Tool request recorded by provider.\n'+events.toolText;
      card.append(tool);
     }
-    const runCallIDs=new Set((run.history||[]).filter(item=>item.type==='function_call').map(item=>item.call_id));
+    const runCallIDs=new Set(history.filter(item=>item.type==='function_call'&&item.name==='taskdeck_submit_patch'&&item.origin_run_id===run.spec.run_id).map(item=>item.call_id));
+    const collectPending=history.some(item=>item.type==='function_call'&&item.name==='taskdeck_collect_workspace'&&item.origin_run_id===run.spec.run_id&&!history.some(out=>out.type==='function_call_output'&&out.call_id===item.call_id));
     const nativeCalls=toolCalls.filter(call=>runCallIDs.has(call.call_id));
     for(const call of nativeCalls)appendNativePatch(card,run,call);
-    if(run.status==='waiting_tool'&&!nativeCalls.length){
+    if(run.status==='waiting_tool'&&collectPending){
+     const note=doc.createElement('div');note.className='agentchat-run-info';note.textContent='Native Collection: waiting for read-only result or review. No Patch approval is implied.';card.append(note);
+    }else if(run.status==='waiting_tool'&&!nativeCalls.length){
      const warning=doc.createElement('div');warning.className='agentchat-run-warning';
      warning.textContent=toolCallLoadError||'Run is waiting for a tool, but its Native Patch record could not be loaded. Refresh/reconcile before retrying.';card.append(warning);
-     const proceed=doc.createElement('button');proceed.type='button';proceed.textContent='Get existing result / Continue';proceed.onclick=()=>continueTool(run.spec.run_id,runCallIDs.values().next().value).catch(showError);card.append(proceed);
+     if(runCallIDs.size){const proceed=doc.createElement('button');proceed.type='button';proceed.textContent='Get existing result / Continue';proceed.onclick=()=>continueTool(run.spec.run_id,runCallIDs.values().next().value).catch(showError);card.append(proceed);}
     }
     if(events.error){const failure=doc.createElement('div');failure.className='agentchat-run-error';failure.textContent=events.error;card.append(failure);}
     const actions=doc.createElement('div');actions.className='agentchat-run-actions';

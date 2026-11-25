@@ -192,7 +192,7 @@ func (s *Server) continueAgentRunFromNativeResults(ctx context.Context, owner, r
 	for callID := range pending {
 		found := false
 		for _, call := range session.ToolCalls {
-			if call.CallID != callID {
+			if call.CallID != callID || call.AgentRunID != run.Spec.RunID {
 				continue
 			}
 			found = true
@@ -202,7 +202,7 @@ func (s *Server) continueAgentRunFromNativeResults(ctx context.Context, owner, r
 				if result == "" {
 					return errors.New("final Patch result is empty")
 				}
-				results = append(results, agentchat.HistoryItem{Type: "function_call_output", CallID: callID, Content: result})
+				results = append(results, agentchat.HistoryItem{Type: "function_call_output", CallID: callID, Content: result, OriginRunID: run.Spec.RunID, ProviderID: run.Spec.ProviderID, ModelID: run.Spec.ModelID, ParentTurnID: run.Spec.ParentTurnID})
 			case "pending", "queuing", "queued", "dispatching", "running":
 				return errAgentRunPatchPending
 			default:
@@ -227,21 +227,32 @@ func (s *Server) continueAgentRunFromNativeResults(ctx context.Context, owner, r
 	for _, result := range results {
 		sources = append(sources, "native-tool-result:"+result.CallID)
 	}
-	snapshot, err := snapshots.CreateWithPolicy(run.Spec.OwnerWorkspaceID, run.Spec.ConversationID, inputs.ProjectID, history, sources, inputs.Snapshot.Policy)
+	if inputs.Snapshot.Policy == nil { return errors.New("run prompt policy missing") }
+	policy := *inputs.Snapshot.Policy
+	// This is explicit reconciliation of a completed native operation,
+	// not a new automatic text-only turn.
+	policy.Automation.ContinuationMode = ""
+	snapshot, err := snapshots.CreateWithPolicy(run.Spec.OwnerWorkspaceID, run.Spec.ConversationID, inputs.ProjectID, history, sources, &policy)
 	if err != nil {
 		return err
 	}
-	_, err = manager.ContinueWithToolResults(runID, results, snapshot.ID)
-	if err != nil {
-		return err
-	}
-	s.resumeWorkflowForContinuedRun(owner, runID)
+	// Fence legacy delivery before scheduling the run-owned provider attempt.
+	// A failed CAS must not dispatch a request. A queue failure leaves a
+	// durable receipt for explicit run reconciliation, not legacy replay.
 	session.History = history
 	session.Status = "requesting_ai"
-	_, _ = s.agentChatStore()
-	store, err := s.agentChatStore()
-	if err == nil {
-		_, _ = store.Save(session, session.Revision)
+	for i := range session.ToolCalls {
+		call := &session.ToolCalls[i]
+		if call.AgentRunID == runID && pending[call.CallID] {
+			call.FeedbackSent = true
+			call.FeedbackStatus = "prepared"
+		}
 	}
+	store, err := s.agentChatStore()
+	if err != nil { return err }
+	if _, err = store.Save(session, session.Revision); err != nil { return err }
+	_, err = manager.ContinueWithToolResults(runID, results, snapshot.ID)
+	if err != nil { return err }
+	s.resumeWorkflowForContinuedRun(owner, runID)
 	return nil
 }
