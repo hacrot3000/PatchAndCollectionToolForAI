@@ -169,11 +169,11 @@ Không bỏ qua function output của call đã nhận. Nếu checkpoint trướ
     - [x] **CLP-01.01.02** — Cài decision function tách verified novelty, objective progress và unknown; không cấp quyền tool. (`DONE` — isolated unit/race PASS; exact remote blobs verified)
     - [x] **CLP-01.01.03** — Cài soft thresholds 5/10/3 và cooldown; không hard cap reads. (`DONE` — isolated unit/race PASS; exact remote blobs verified)
     - [x] **CLP-01.01.04** — Viết table-driven unit tests cho transitions, read-only/unknown, threshold boundary và long reads. (`DONE` — isolated unit/race PASS; exact remote blobs verified)
-- [ ] **CLP-01.02 — Objective binding và intent** (`TODO`, P1)
+- [ ] **CLP-01.02 — Objective binding và intent** (`IN_PROGRESS`, P1)
   - Bind scope vào current task/user intent/TaskPlan step/generation; đổi task, user intervention, plan revision, worktree change phải có transition rõ ràng. Model hints chỉ là advisory. Không reset toàn bộ counters chỉ vì model/provider đổi.
   - **Acceptance:** coding/read-only/mixed/unknown, task switch, user Stop, no plan, task plan pending/accepted được test; không nâng quyền mutating.
-    - [ ] **CLP-01.02.01** — Xác định objective key từ scope owner/workspace/conversation + user goal/plan step/generation. (`TODO`)
-    - [ ] **CLP-01.02.02** — Xây intent classification bảo thủ, dựa trên user-owned goal và permissions, không dựa duy nhất vào model. (`TODO`)
+    - [ ] **CLP-01.02.01** — Xác định objective key từ scope owner/workspace/conversation + user goal/plan step/generation. (`VERIFY_PENDING` — pure scope helper and tests added; adapters/durable generation pending)
+    - [ ] **CLP-01.02.02** — Xây intent classification bảo thủ, dựa trên user-owned goal và permissions, không dựa duy nhất vào model. (`VERIFY_PENDING` — conservative advisory-only owner-goal classifier; no authority granted; CI pending)
     - [ ] **CLP-01.02.03** — Cài transitions khi đổi goal/step, user intervention, worktree, provider; không reset tùy tiện. (`TODO`)
     - [ ] **CLP-01.02.04** — Test no-plan, read-only/mixed/unknown, provider switch, Stop và permission không tăng. (`TODO`)
 - [ ] **CLP-01.03 — Guard counters và hysteresis** (`TODO`, P1)
@@ -573,6 +573,9 @@ No scheduler, permission, journal, fence, or PATCH recovery semantics changed by
 - Fixed stale busy-session admission: `agent_chat_messages.go` refuses new pending turns while `agentPendingDispatchHandoffReady=false`. Existing queued turns remain durable; do not enable non-atomic dispatch or discard owner data. Existing failing TestAgentRefreshDuringRequestOffersCancelNotDuplicate remains unchanged.
 - Fixed historical catalog eviction in `contextcompact/compact.go`: reserve up to 12 of the existing 36 bounded entries for recent PATCH/unknown/archived safety metadata, then fill remaining slots with recent observations under existing token budget; chronological rendering, no canonical mutations or replay. These are presentation priorities only, not authoritative receipt verification. Recompaction preserves priority summaries. Existing failing server provenance regression remains unchanged; added TestPriorityCatalogPreservesPatchAndUnknownAfterLongCollectionAndRetry (70 reads, 3 budgets, recompaction).
 - Source changes and tests submitted for CI; no local repository checkout; no PASS claimed before actual CI receipt. CLP-05.02.02 partial fix advanced specifically to clear baseline regression, not full catalog acceptance.
+
+#### CLP-01.02 — Objective scope groundwork
+Reconciled concurrent merge `4cf2e8d69941164cdedf75270843fb6f72688410` (two commits ahead of `c4a86276`, no divergence; changes in provider_run/store/UAG-02 tests and master progress; no CLP module overlap). Added objective.go and objective_test.go with SHA-256 binding of authenticated owner/project/owner-workspace/execution-workspace/conversation/exact owner goal/step/generation. Provider, model, attempt and call IDs are deliberately absent. Pure objective transitions preserve Stop, invalid and unchanged scopes; classify actual owner-authored goal only (conservative EN/VI explicit requests and restrictions), never model hints or synthetic user-role outputs. Existing proposal availability can neutralize coding advice, not grant permission. Tests cover no-plan, step/generation/scope changes, Stop and disabled proposal path. Source-only until CI receipt; no session/snapshot integration, generation lifecycle or owner-input provenance adapter yet. CLP-01.02 remains IN_PROGRESS.
 
 Mẫu bản ghi task (điền dữ liệu thật):
 
