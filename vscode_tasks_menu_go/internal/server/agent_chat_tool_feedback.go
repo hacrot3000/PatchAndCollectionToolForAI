@@ -315,10 +315,12 @@ func (s *Server) agentDeliverToolResult(ctx context.Context, store *agentchat.St
 	if call.TextFallback {mode=agentchat.Stateless}
 	agentClearProviderRefsForStateless(&x,mode)
 	conversationID := x.ConversationID
+	contextModel := model
+	if mode==agentchat.Stateless{contextModel,limit=agentAdaptiveRequestBudget(x,p,model,string(secret),limit)}
 	payload, err := agentchat.BuildResponsesRequest(agentchat.RequestConfig{
 		Model: x.ModelID, Instructions: agentChatInstructionsWithAutomation(x, toolAvailable, identity.Key),
 		Mode: mode, PreviousResponseID: x.PreviousResponseID, ConversationID: conversationID,
-		History: agentContextForRequest(x, model, agentChatInstructionsWithAutomation(x, toolAvailable, identity.Key), next), Next: next,
+		History: agentContextForRequest(x, contextModel, agentChatInstructionsWithAutomation(x, toolAvailable, identity.Key), next), Next: next,
 		MaxOutputTokens: limit, ReasoningEffort: reasoning,
 		EnablePatchTool: toolAvailable, EnableCollectionTool: toolAvailable,
 		NativeCollectionContract: agentInstalledCollectionContract(s.Workspace),

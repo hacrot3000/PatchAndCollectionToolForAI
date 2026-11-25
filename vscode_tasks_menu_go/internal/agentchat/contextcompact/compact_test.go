@@ -132,3 +132,19 @@ func TestOrphanOutputCompactedAndCurrentFeedbackRemainsExact(t *testing.T){
  }
  if next[0].Content!=`{"status":"FAIL","rc":3}`{t.Fatal("new verified Patch feedback modified")}
 }
+
+func TestRecentCatalogRetainedAcrossRecompaction(t *testing.T){
+ history:=[]agentchat.HistoryItem{{Type:"user",Content:"Finish inventory"}}
+ for i:=0;i<45;i++{
+  id:=fmt.Sprintf("read-%d",i)
+  history=append(history,agentchat.HistoryItem{Type:"function_call",Name:"taskdeck_collect_workspace",CallID:id,Arguments:fmt.Sprintf(`{"actions":[{"type":"range","path":"file-%d.go","start_line":10,"end_line":20}]}`,i)},agentchat.HistoryItem{Type:"function_call_output",CallID:id,Content:fmt.Sprintf(`{"status":"FAIL","run_id":"native-%d","result_text":"artifact-%d.txt","error":{"code":"COLLECT_SCHEMA_INVALID","message":"invalid field"},"padding":%q}`,i,i,strings.Repeat("x",50000))})
+ }
+ first,_:=Build(history,Policy{MaxInputTokens:32768})
+ text:=fmt.Sprint(first)
+ for _,want:=range []string{"file-44.go","native-44","artifact-44.txt","COLLECT_SCHEMA_INVALID","lines=10-20"}{
+  if !strings.Contains(text,want){t.Fatalf("recent evidence missing %s",want)}
+ }
+ second,_:=Build(first,Policy{MaxInputTokens:24000})
+ if !strings.Contains(fmt.Sprint(second),"native-44"){t.Fatal("recent catalog lost during retry compaction")}
+ if strings.Contains(fmt.Sprint(second),strings.Repeat("x",100)){t.Fatal("full old result replayed")}
+}

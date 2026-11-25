@@ -240,6 +240,7 @@ func (s *Server) agentChatProviderWithRetry(ctx context.Context,owner,sessionID 
  replayPayload:=payload
  incompleteRecoverySent:=false
  contextRecoverySent:=false
+ var contextRejectedPayload []byte
  // The durable SENDING journal is the only origin of correlation data.
  // Direct capability probes and legacy tests without a live egress marker
  // keep using the existing transport without manufacturing a fake receipt.
@@ -283,7 +284,12 @@ func (s *Server) agentChatProviderWithRetry(ctx context.Context,owner,sessionID 
   // User Stop/daemon shutdown is authoritative even when the transport
   // reports a generic provider error after the context was cancelled.
   if ctx.Err()!=nil{return agentchat.ResponsesResult{},ctx.Err(),trace}
-  if err==nil{return result,nil,trace}
+  if err==nil{
+   if contextRecoverySent&&agentLearnContextRecovery(s.Workspace,owner,p,key,contextRejectedPayload,replayPayload){
+    s.recordAgentDebugEvent(owner,sessionID,"","provider_retry","context_budget.learned","","Retained a bounded provider/model context and output budget hint for subsequent stateless requests")
+   }
+   return result,nil,trace
+  }
   if mode==agentchat.RetryOff||(mode==agentchat.RetryLimited&&attempt>=6)||ctx.Err()!=nil{
    return result,err,trace
   }
@@ -291,6 +297,7 @@ func (s *Server) agentChatProviderWithRetry(ctx context.Context,owner,sessionID 
    if contextRecoverySent{return result,err,trace}
    reduced,ok:=agentRetryContextPayload(replayPayload)
    if !ok{return result,err,trace}
+   contextRejectedPayload=replayPayload
    replayPayload=reduced
    contextRecoverySent=true
    s.recordAgentDebugEvent(owner,sessionID,"","provider_retry","context_budget.recovery",agentRetryFailureDetail(err),"Retrying one smaller stateless context after explicit provider rejection; native tool receipt preserved")

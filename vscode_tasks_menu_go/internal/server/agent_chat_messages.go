@@ -380,10 +380,12 @@ func (s *Server) agentChatMessageAPI(w http.ResponseWriter, r *http.Request, id 
 	mode := agentContextRequestMode(session,p.APIType,s.agentConversationCapabilityVerified(owner,p,model))
 	agentClearProviderRefsForStateless(&session,mode)
 	conversationID := session.ConversationID
+	contextModel := model
+	if mode==agentchat.Stateless{contextModel,limit=agentAdaptiveRequestBudget(session,p,model,string(secret),limit)}
 	payload, err := agentchat.BuildResponsesRequest(agentchat.RequestConfig{
 		Model: session.ModelID, Instructions: instructions, Mode: mode,
 		PreviousResponseID: session.PreviousResponseID, ConversationID: conversationID,
-		History: agentContextForRequest(session, model, instructions, []agentchat.HistoryItem{next}), Next: []agentchat.HistoryItem{next}, MaxOutputTokens: limit,
+		History: agentContextForRequest(session, contextModel, instructions, []agentchat.HistoryItem{next}), Next: []agentchat.HistoryItem{next}, MaxOutputTokens: limit,
 		ReasoningEffort: reasoning,
 		EnablePatchTool: patchToolAvailable, EnableCollectionTool: patchToolAvailable,
 		NativeCollectionContract: agentInstalledCollectionContract(s.Workspace),

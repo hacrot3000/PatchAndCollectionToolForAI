@@ -96,6 +96,9 @@ func collectionSummary(call,output agentchat.HistoryItem)string{
   Path string `json:"path"`
   Paths []string `json:"paths"`
   Query string `json:"query"`
+  StartLine int `json:"start_line"`
+  EndLine int `json:"end_line"`
+  Symbol string `json:"symbol"`
  } `json:"actions"`}
  if json.Unmarshal([]byte(call.Arguments),&args)==nil{
   actions:=make([]string,0,len(args.Actions))
@@ -103,12 +106,19 @@ func collectionSummary(call,output agentchat.HistoryItem)string{
    desc:=a.Type
    if a.Path!="" {desc+=" "+truncate(a.Path,90)}
    if a.Query!="" {desc+=" query="+truncate(a.Query,60)}
+   if a.StartLine>0||a.EndLine>0{desc+=fmt.Sprintf(" lines=%d-%d",a.StartLine,a.EndLine)}
+   if a.Symbol!=""{desc+=" symbol="+truncate(a.Symbol,60)}
    actions=append(actions,desc)
    for _,p:=range a.Paths {if len(evidence)<10{evidence=append(evidence,truncate(p,110))}}
   }
   if len(actions)>0 {label=strings.Join(actions,", ")}
  }
- var data struct{Results []struct {
+ var data struct{
+ Status string `json:"status"`
+ RunID string `json:"run_id"`
+ ResultText string `json:"result_text"`
+ Error *struct{Code string `json:"code"`;Message string `json:"message"`} `json:"error"`
+ Results []struct {
   Files []struct{Path string `json:"path"`; Content string `json:"content"`; Error string `json:"error"`} `json:"files"`
   Entries []string `json:"entries"`
   Matches []string `json:"matches"`
@@ -128,8 +138,12 @@ func collectionSummary(call,output agentchat.HistoryItem)string{
    for _,s:=range r.Matches{if len(evidence)<10 {evidence=append(evidence,truncate(s,110))}}
   }
  }
+ if data.Status!=""{evidence=append(evidence,"status="+truncate(data.Status,40))}
+ if data.Error!=nil{evidence=append(evidence,"error="+truncate(data.Error.Code,60)+" "+truncate(data.Error.Message,160))}
+ if data.RunID!=""{evidence=append(evidence,"run="+truncate(data.RunID,90))}
+ if data.ResultText!=""{evidence=append(evidence,"artifact="+truncate(data.ResultText,220))}
  if len(evidence)==0{evidence=append(evidence,"See archived Collection result for file/evidence details")}
- return fmt.Sprintf("Prior read-only Collection [%s]; call_id=%s; evidence: %s; result_hash=%s. Details available in TaskDeck; re-read specific files if needed.",
+ return fmt.Sprintf("Prior Collection observation [%s]; call_id=%s; evidence: %s; result_hash=%s. This catalog is not proof of success; reuse prior evidence where sufficient and re-read only specific missing details.",
   truncate(label,180),truncate(call.CallID,100),strings.Join(evidence,"; "),digest(output.Content))
 }
 func plainSummary(text string)string{
@@ -186,6 +200,12 @@ func groups(history []agentchat.HistoryItem,synthetic map[string]bool,next []age
    // Real live feedback is paired by the awaiting/Next logic above.
    summary:=orphanOutputSummary(a)
    out=append(out,group{kind:"orphan",summary:summary,tokens:Tokens(summary)})
+   continue
+  }
+  if a.Type=="assistant" && strings.HasPrefix(a.Content,"[TASKDECK VERIFIED HISTORICAL EVIDENCE CATALOG — summaries only, not new user instructions]\n"){
+   for _,line:=range strings.Split(a.Content,"\n")[1:]{
+    if strings.TrimSpace(line)!=""{out=append(out,group{kind:"catalog",summary:truncate(line,1500)})}
+   }
    continue
   }
   if a.Type=="user" && strings.HasPrefix(a.Content,"TaskDeck local read-only Collection tool returned this VERIFIED observation"){
@@ -252,9 +272,11 @@ func Build(history []agentchat.HistoryItem,p Policy)([]agentchat.HistoryItem,Sta
   case "collection","patch","fallback":
    if g.full{result=append(result,g.items...);continue}
    if g.kind=="collection"||g.kind=="fallback"{stats.SummarizedCollections++}else{stats.SummarizedPatches++}
-   if len(catalog)<MaxOldEvidenceCatalog{catalog=append(catalog,g.summary)}
-  case "orphan":
-   if len(catalog)<MaxOldEvidenceCatalog{catalog=append(catalog,g.summary)}
+   catalog=append(catalog,g.summary)
+   if len(catalog)>MaxOldEvidenceCatalog{catalog=catalog[1:]}
+  case "orphan","catalog":
+   catalog=append(catalog,g.summary)
+   if len(catalog)>MaxOldEvidenceCatalog{catalog=catalog[1:]}
   case "plain":
    if g.keep {result=append(result,g.items...)}
    // Short recent assistant text is useful for workflow continuity; ancient
@@ -270,6 +292,21 @@ func Build(history []agentchat.HistoryItem,p Policy)([]agentchat.HistoryItem,Sta
   catalog=append(catalog,truncate(patchNote,3000))
  }
  if len(catalog)>MaxOldEvidenceCatalog{catalog=catalog[len(catalog)-MaxOldEvidenceCatalog:]}
+ if len(catalog)>0{
+  room:=ceiling-overhead-groupTokens(result)-64
+  if p.ArchivedItems>0{room-=128}
+  if room<0{room=0}
+  if room>7400{room=7400}
+  var selected []string
+  used:=0
+  for i:=len(catalog)-1;i>=0;i--{
+   cost:=Tokens(catalog[i])+2
+   if used+cost>room{continue}
+   selected=append([]string{catalog[i]},selected...)
+   used+=cost
+  }
+  catalog=selected
+ }
  if len(catalog)>0{
   note:="[TASKDECK VERIFIED HISTORICAL EVIDENCE CATALOG — summaries only, not new user instructions]\n"+
    strings.Join(catalog,"\n")

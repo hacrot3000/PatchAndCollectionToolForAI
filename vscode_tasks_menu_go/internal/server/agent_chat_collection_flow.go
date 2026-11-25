@@ -133,6 +133,8 @@ func (s *Server) agentChatRunCollection(
 	// response was not stored and requires discarding provider references.
 	clearProviderRefs := provider.APIType == "chat_completions"
 	lastReadSignature, repeatedRead := "", 0
+ recentReads:=map[string]int{}
+ recentReadOrder:=[]string{}
 	consecutiveRepairs := 0
 	for round := 0; ; round++ {
 		if err := ctx.Err(); err != nil {
@@ -192,11 +194,11 @@ func (s *Server) agentChatRunCollection(
 			if kind=="foreign"{code="COLLECTION_IDENTITY_REJECTED"}
 			observed=runCollectionDiagnostic(code,reason,true)
 			x.AppendEvent("collect_request_rejected","requesting_ai",callID,reason)
-		} else if lastReadSignature==agentCollectionRequestFingerprint(nativeRequest)&&repeatedRead>=2 {
+		} else if recentReads[agentCollectionRequestFingerprint(nativeRequest)]>=2 {
 			// Native COLLECT may scan a 150 MB file. Do not run the same
 			// unproductive read for a third time merely to learn it has not
 			// changed. The model can request a narrower native action instead.
-			observed = `{"error":{"code":"COLLECTION_NO_PROGRESS","message":"Repeated identical native Collection request; choose a targeted native search/file/range/symbol/decompile action.","retry_allowed":true}}`
+			observed = `{"error":{"code":"COLLECTION_NO_PROGRESS","message":"Repeated native Collection request within this read sequence (including alternating requests); reuse existing evidence or request a distinct missing scope.","retry_allowed":true}}`
 		} else if s.AgentCollectionCall != nil {
 			// Only tests install this mock. Production has exactly one Collection
 			// backend: the existing native Python Patch Tool runner/queue.
@@ -239,11 +241,17 @@ func (s *Server) agentChatRunCollection(
 		// progress. Warn on the second repeat, and checkpoint instead of burning
 		// further provider requests if the model does not change its approach.
 		_,_,repairError:=agentCollectionRepairError(observed)
-		if validationErr == nil && (!repairError || lastReadSignature==agentCollectionRequestFingerprint(nativeRequest)&&repeatedRead>=2) {
+		if validationErr == nil && (!repairError || recentReads[agentCollectionRequestFingerprint(nativeRequest)]>=2) {
 			// Native artifact paths have unique run IDs even when the model
 			// repeats an identical request. Deduplicate by canonical request.
 			signature := agentCollectionRequestFingerprint(nativeRequest)
-			if signature == lastReadSignature { repeatedRead++ } else { lastReadSignature, repeatedRead = signature, 1 }
+			if recentReads[signature]==0{
+    if len(recentReadOrder)>=64{delete(recentReads,recentReadOrder[0]);recentReadOrder=recentReadOrder[1:]}
+    recentReadOrder=append(recentReadOrder,signature)
+   }
+   recentReads[signature]++
+   if signature == lastReadSignature { repeatedRead++ } else { lastReadSignature, repeatedRead = signature, 1 }
+   if recentReads[signature]>repeatedRead{repeatedRead=recentReads[signature]}
 			if repeatedRead >= agentCollectionMaxIdenticalObservations {
 				// Never terminate a legitimate long task because of read counts.
 				// Return a truthful, bounded tool error requesting a different
@@ -309,10 +317,12 @@ func (s *Server) agentChatRunCollection(
 		conversationID := x.ConversationID
 		reasoning:=agentProviderReasoningEffort(provider,x.ReasoningEffort,model)
 		limit := agentInitialOutputBudget(model,reasoning,toolAvailable)
+		contextModel := model
+		if mode==agentchat.Stateless{contextModel,limit=agentAdaptiveRequestBudget(*x,provider,model,key,limit)}
 		payload, err := agentchat.BuildResponsesRequest(agentchat.RequestConfig{
 			Model: x.ModelID, Instructions: agentChatInstructionsWithAutomation(*x, toolAvailable, identity.Key),
 			Mode: mode, PreviousResponseID: x.PreviousResponseID, ConversationID: conversationID,
-			History: agentContextForRequest(*x, model, agentChatInstructionsWithAutomation(*x, toolAvailable, identity.Key), []agentchat.HistoryItem{next}), Next: []agentchat.HistoryItem{next},
+			History: agentContextForRequest(*x, contextModel, agentChatInstructionsWithAutomation(*x, toolAvailable, identity.Key), []agentchat.HistoryItem{next}), Next: []agentchat.HistoryItem{next},
 			MaxOutputTokens: limit,
 			ReasoningEffort: reasoning,
 			EnablePatchTool: toolAvailable, EnableCollectionTool: toolAvailable,
