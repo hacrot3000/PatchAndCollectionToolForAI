@@ -167,3 +167,83 @@ func TestAgentUnlimitedStopsAtConfiguredOutputCap(t *testing.T){
   "key",[]byte(`{"model":"model","max_output_tokens":4096}`))
  if err==nil||calls!=2{t.Fatalf("hard output cap must stop after one guided recovery: calls=%d err=%v",calls,err)}
 }
+
+func agentContextRecoveryFixture(t *testing.T) []byte {
+ t.Helper()
+ history:=[]agentchat.HistoryItem{
+  {Type:"user",Content:"Original task: implement and verify the requested change"},
+  {Type:"function_call",CallID:"old-collect",Name:"taskdeck_collect_workspace",Arguments:`{"actions":[]}`},
+  {Type:"function_call_output",CallID:"old-collect",Content:strings.Repeat("historical source code\n",12000)},
+  {Type:"assistant",Content:"Continue with the verified patch."},
+  {Type:"function_call",CallID:"fresh-patch",Name:"taskdeck_submit_patch",Arguments:`{"name":"patch","patch_python":"print(1)"}`},
+ }
+ next:=[]agentchat.HistoryItem{{Type:"function_call_output",CallID:"fresh-patch",Content:`{"status":"PASS","run_id":"native-1"}`}}
+ payload,err:=agentchat.BuildResponsesRequest(agentchat.RequestConfig{
+  Model:"model",Mode:agentchat.Stateless,Instructions:"Mandatory TaskDeck rules",
+  History:history,Next:next,MaxOutputTokens:32768,EnablePatchTool:true,
+ })
+ if err!=nil{t.Fatal(err)}
+ return payload
+}
+func TestAgentContextRecoveryPreservesFreshReceiptAndShrinksHistory(t *testing.T){
+ original:=agentContextRecoveryFixture(t)
+ reduced,ok:=agentRetryContextPayload(original)
+ if !ok||len(reduced)>=len(original){t.Fatal("expected smaller stateless request")}
+ var before,after struct{
+  Instructions string `json:"instructions"`
+  Tools json.RawMessage `json:"tools"`
+  Input []map[string]string `json:"input"`
+  Limit int `json:"max_output_tokens"`
+ }
+ if json.Unmarshal(original,&before)!=nil||json.Unmarshal(reduced,&after)!=nil{t.Fatal("invalid request")}
+ if before.Instructions!=after.Instructions||string(before.Tools)!=string(after.Tools)||after.Limit!=16384{
+  t.Fatal("provider options or mandatory instructions changed unexpectedly")
+ }
+ if after.Input[0]["content"]!=before.Input[0]["content"]{t.Fatal("original task lost")}
+ for _,want:=range before.Input[len(before.Input)-2:]{
+  found:=false
+  for _,got:=range after.Input{
+   if got["call_id"]==want["call_id"]&&got["type"]==want["type"]&&got["arguments"]==want["arguments"]&&got["output"]==want["output"]{found=true}
+  }
+  if !found{t.Fatalf("current source call/output lost: %v",want)}
+ }
+ for _,got:=range after.Input{if got["call_id"]=="old-collect"{t.Fatal("large historical collection should be summarized")}}
+}
+func TestAgentContextRecoveryIsBoundedAndOptIn(t *testing.T){
+ for _,tc:=range []struct{name string;mode agentchat.RetryMode;code string;alwaysFail bool;want int}{
+  {"success",agentchat.RetryUnlimited,"context_length_exceeded",false,2},
+  {"bounded",agentchat.RetryUnlimited,"context_window_exceeded",true,2},
+  {"off",agentchat.RetryOff,"context_length_exceeded",true,1},
+  {"generic_400",agentchat.RetryUnlimited,"invalid_request_error",true,1},
+ }{
+  t.Run(tc.name,func(t *testing.T){
+   s,id:=newAgentConversationFixture(t,"stateless")
+   store,err:=s.agentChatStore();if err!=nil{t.Fatal(err)}
+   x,err:=store.Get(id,"local");if err!=nil{t.Fatal(err)}
+   x.RetryMode=tc.mode
+   if _,err=store.Save(x,x.Revision);err!=nil{t.Fatal(err)}
+   oldDelay:=agentRetryDelay;agentRetryDelay=time.Millisecond
+   defer func(){agentRetryDelay=oldDelay}()
+   original:=agentContextRecoveryFixture(t)
+   calls:=0
+   s.AgentChatCall=func(_ context.Context,_ agentchat.ProviderConfig,_ string,payload []byte)(agentchat.ResponsesResult,error){
+    calls++
+    if calls>tc.want{t.Fatalf("unexpected attempt %d",calls)}
+    if calls==2&&len(payload)>=len(original){t.Fatal("recovery did not shrink payload")}
+    if calls==1||tc.alwaysFail{return agentchat.ResponsesResult{},&agentchat.ProviderError{Code:"PROVIDER_HTTP_400",HTTPStatus:400,ProviderErrorCode:tc.code}}
+    return agentchat.ResponsesResult{Text:"Recovered",ResponseID:"ack"},nil
+   }
+   res,err,_:=s.agentChatCallForOwner(context.Background(),"local",id,agentchat.ProviderConfig{ID:"fake",APIType:"responses"},"test-key",original)
+   if calls!=tc.want||(err==nil)==tc.alwaysFail{t.Fatalf("calls=%d result=%+v err=%v",calls,res,err)}
+  })
+ }
+}
+func TestAgentContextRecoveryRefusesStatefulReplay(t *testing.T){
+ for _,payload:=range []string{
+  `{"previous_response_id":"resp_1","model":"m","instructions":"rules","input":[{"role":"user","content":"task"}]}`,
+  `{"conversation":"conv_1","model":"m","instructions":"rules","input":[{"role":"user","content":"task"}]}`,
+  `{"store":true,"model":"m","instructions":"rules","input":[{"role":"user","content":"task"}]}`,
+ }{
+  if _,ok:=agentRetryContextPayload([]byte(payload));ok{t.Fatal("stateful replay must not be rebuilt")}
+ }
+}

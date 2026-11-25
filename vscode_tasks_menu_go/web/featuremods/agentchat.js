@@ -79,9 +79,10 @@ agentCSS.textContent=[
 '.agentchat-sessions{flex:none;margin-left:auto}',
 '.agentchat-list{display:none;position:absolute;z-index:6;top:100%;right:7px;width:min(320px,calc(100% - 14px));max-height:min(50vh,400px);overflow:auto;padding:8px;flex-direction:column;gap:5px;background:#192330;border:1px solid #55657a;border-radius:7px;box-shadow:0 8px 28px #0009}',
 '.agentchat-list.open{display:flex}',
-'.agentchat-config-menu{position:relative;flex:none}',
+'.agentchat-config-menu{position:relative;flex:none;min-width:0}',
+'.agentchat-config-menu>button{max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;padding:5px 6px}',
 '.agentchat-config-menu>button[aria-expanded="true"]{background:#273b52;border-color:#7db6e6}',
-'.agentchat-config-panel{display:none;position:absolute;z-index:31;right:0;top:100%;width:340px;max-width:calc(100vw - 18px);max-height:min(68vh,420px);overflow-y:auto;overscroll-behavior:contain;padding:5px;background:#192330;border:1px solid #60748b;border-radius:7px;box-shadow:0 8px 24px #0008}',
+'.agentchat-config-panel{display:none;position:fixed;z-index:10000;width:340px;max-width:calc(100vw - 18px);box-sizing:border-box;max-height:min(68vh,420px);overflow-y:auto;overscroll-behavior:contain;padding:6px;background:#192330;color:#e6eef9;border:1px solid #60748b;border-radius:7px;box-shadow:0 8px 24px #0008}',
 '.agentchat-config-menu.open>.agentchat-config-panel{display:flex;flex-direction:column;gap:3px}',
 '.agentchat-config-category{position:relative;min-width:0}',
 '.agentchat-config-category>button{display:flex;width:100%;justify-content:space-between;align-items:center;text-align:left;gap:8px;border:0;background:transparent;box-shadow:none;border-radius:3px;padding:7px 8px}',
@@ -98,7 +99,9 @@ agentCSS.textContent=[
 '.agentchat-context-help{border-top:1px solid #50657f;padding:8px;font-size:12px;line-height:1.5;white-space:pre-line;color:#d8e8fb}',
 'html[data-taskmenu-theme="light"] .agentchat-context-help{color:#23405f;border-color:#bac8d8}',
 '@media(max-width:700px){.agentchat-config-panel{width:min(340px,calc(100vw - 18px))}}',
-'html[data-taskmenu-theme="light"] .agentchat-config-panel{background:#fff;color:#17283a;border-color:#bac8d8}',
+ 'html[data-taskmenu-theme="light"] .agentchat-config-panel{background:#fff;color:#17283a;border-color:#bac8d8}',
+'html[data-taskmenu-theme="light"] .agentchat-config-note{color:#405a72}',
+'html[data-taskmenu-theme="light"] .agentchat-config-menu>button[aria-expanded="true"]{background:#dceaf7;color:#17283a;border-color:#8eaac5}',
 'html[data-taskmenu-theme="light"] .agentchat-config-category-values{border-color:#bac8d8}',
 'html[data-taskmenu-theme="light"] .agentchat-config-category-values button:hover,html[data-taskmenu-theme="light"] .agentchat-config-category[aria-expanded="true"]>button{background:#e8f0fa}',
 
@@ -207,7 +210,8 @@ agentCSS.textContent=[
 'html[data-taskmenu-theme="light"] .agentchat-bubble.tool{background:#f4f7fa;color:#17283a;border-color:#d4dce6}',
 '.agentchat-dock-floating>.agentchat-dock-resizer{display:none}',
 '.agentchat-composer-actions{display:flex;flex:none;min-width:0;align-items:center;gap:5px;font-size:11px;flex-wrap:nowrap;overflow-x:auto}',
-'.agentchat-run-selector-mount{flex:1 1 0;min-width:0;max-width:100%}',
+'.agentchat-run-selector-mount{display:flex;align-items:center;gap:4px;flex:1 1 0;min-width:190px;max-width:100%}',
+'.agentchat-run-selector-mount>.agentchat-provider-selector{flex:1 1 0;min-width:95px}',
 '.agentchat-run-selector-mount:empty{display:none}',
 '.agentchat-composer-buttons{display:flex;flex:none;align-items:center;gap:4px;margin-left:auto}',
 '.agentchat-composer-buttons button{white-space:nowrap;padding:6px 8px}',
@@ -272,36 +276,43 @@ sessionList.id='agentchat-saved-sessions';
 sessionList.setAttribute('aria-label','Saved conversations');
 sessionMenu.append(sessionMenuButton,sessionList);
 viewTabs.append(sessionMenu);
-// Keep the native select elements as a canonical, testable selection model.
-// The space-consuming inline row is replaced by the adjacent nested menu.
+// Composer options share the visible provider/model selection; only the
+// effort and context categories are rendered here.
 const agentConfigMenu=agentEl('div','agentchat-config-menu');
-const agentConfigButton=agentButton('AI setup ▾',()=>toggleAgentConfigMenu());
+const agentConfigButton=agentButton('Effort · Context ▴',()=>toggleAgentConfigMenu());
 agentConfigButton.setAttribute('aria-haspopup','menu');
 agentConfigButton.setAttribute('aria-expanded','false');
-agentConfigButton.setAttribute('aria-label','Provider Model Effort and Context options for a new conversation');
+agentConfigButton.setAttribute('aria-label','Effort and Context options');
+agentConfigButton.setAttribute('aria-controls','agentchat-composer-config-options');
 const agentConfigPanel=agentEl('div','agentchat-config-panel');
-const agentConfigNote=agentEl('div','agentchat-config-note','Selections apply when creating a new conversation. Existing conversations retain their original configuration.');
+agentConfigPanel.id='agentchat-composer-config-options';
+agentConfigPanel.setAttribute('aria-label','Model options');
+const agentConfigNote=agentEl('div','agentchat-config-note');
 const agentContextHelp=agentEl('div','agentchat-context-help');
 agentContextHelp.setAttribute('role','status');
 agentContextHelp.setAttribute('aria-live','polite');
 const agentConfigCategories=new Map();
-for(const name of ['Provider','Model','Effort','Context']){
+for(const name of ['Effort','Context']){
  const category=agentEl('div','agentchat-config-category');
  const categoryButton=agentButton(name+' ▸',()=>{
   const next=category.getAttribute('aria-expanded')!=='true';
-  for(const other of agentConfigCategories.values())other.row.setAttribute('aria-expanded','false');
+  for(const other of agentConfigCategories.values()){
+   other.row.setAttribute('aria-expanded','false');other.button.setAttribute('aria-expanded','false');
+  }
   category.setAttribute('aria-expanded',String(next));
+  categoryButton.setAttribute('aria-expanded',String(next));
  });
  categoryButton.setAttribute('aria-haspopup','menu');
  category.setAttribute('aria-expanded','false');
  const values=agentEl('div','agentchat-config-category-values');
+ values.setAttribute('role','menu');values.setAttribute('aria-label',name);
  category.append(categoryButton,values);
  agentConfigPanel.append(category);
  agentConfigCategories.set(name,{row:category,button:categoryButton,values});
 }
 agentConfigPanel.append(agentContextHelp,agentConfigNote);
 agentConfigMenu.append(agentConfigButton,agentConfigPanel);
-viewTabs.append(agentConfigMenu);
+// Mounted beside the provider/model selector in the composer below.
 const main=agentEl('div','agentchat-main'),modelBar=agentEl('div','agentchat-modelbar');
 const toolNotice=agentEl('div','agentchat-info');toolNotice.hidden=true;
 // Open tabs are UI-only: the server remains the source of truth for every
@@ -393,7 +404,12 @@ agentTaskPlanButton.title='Create and review an evidence-gated long-running task
 
 const agentRunSelectorMount=agentEl('div','agentchat-run-selector-mount');
 const agentRunListMount=agentEl('div','agentchat-run-list');
-const agentRunUI=globalThis.TaskMenuAgentRunsUI?.create({selectorMount:agentRunSelectorMount,runsMount:agentRunListMount,jsonFetch:(...args)=>agentApp.jsonFetch(...args)});
+let agentComposerSelectionSession=null;
+const agentEffortPreferences=new Map();
+const agentRunUI=globalThis.TaskMenuAgentRunsUI?.create({selectorMount:agentRunSelectorMount,runsMount:agentRunListMount,jsonFetch:(...args)=>agentApp.jsonFetch(...args),
+ onSelectionChange:agentSyncComposerSelection});
+agentRunSelectorMount.append(agentConfigMenu);
+window.addEventListener('resize',()=>{if(agentConfigMenu.classList.contains('open'))positionAgentComposerOptions();});
 const autoFeedback=agentButton('Auto-send results',()=>toggleAutoFeedback().catch(showAgentError));
 const autoContinueText=agentButton('Auto continue (no plan): OFF',
  ()=>toggleAgentAutomation('continue').catch(showAgentError));
@@ -711,9 +727,53 @@ function toggleAgentConfigMenu(force){
  if(open){
   toggleAgentSessions(false);
   renderAgentConfigMenu();
+  positionAgentComposerOptions();
  }else{
-  for(const entry of agentConfigCategories.values())entry.row.setAttribute('aria-expanded','false');
+  for(const entry of agentConfigCategories.values()){
+   entry.row.setAttribute('aria-expanded','false');entry.button.setAttribute('aria-expanded','false');
+  }
  }
+}
+function positionAgentComposerOptions(){
+ const bounds=agentConfigButton.getBoundingClientRect?.();
+ if(!bounds)return;
+ const width=Math.min(340,Math.max(0,window.innerWidth-18));
+ const above=bounds.top-8,below=window.innerHeight-bounds.bottom-8;
+ const upwards=above>=180||above>=below;
+ agentConfigPanel.style.width=width+'px';
+ agentConfigPanel.style.left=Math.max(9,Math.min(bounds.right-width,window.innerWidth-width-9))+'px';
+ agentConfigPanel.style.top=upwards?'auto':(bounds.bottom+4)+'px';
+ agentConfigPanel.style.bottom=upwards?(window.innerHeight-bounds.top+4)+'px':'auto';
+ agentConfigPanel.style.maxHeight=Math.max(60,Math.min(420,(upwards?above:below)))+'px';
+}
+function agentEffortLabel(value){
+ return ({none:'None',minimal:'Minimal',low:'Low',medium:'Medium',high:'High',xhigh:'Extra High',max:'Max'})[value]||value||'Default';
+}
+function agentContextCapacity(model){
+ const n=Number(model?.max_input_tokens||0);
+ if(!Number.isFinite(n)||n<=0)return '';
+ return n>=1e6?Number((n/1e6).toFixed(2))+'M':n>=1e3?Number((n/1e3).toFixed(1))+'K':String(n);
+}
+function agentEffortPreferenceKey(session,provider,model){
+ return 'taskdeck.agent.next-effort.v1.'+JSON.stringify([session?.id||'',provider,model]);
+}
+function agentStoredEffort(key){
+ if(agentEffortPreferences.has(key))return agentEffortPreferences.get(key);
+ try{const value=localStorage.getItem(key);if(value!==null)return value;}catch{}
+ return undefined;
+}
+function agentSyncComposerSelection(value,session){
+ agentComposerSelectionSession=session||null;
+ if(!value?.providerId||!value?.modelId)return;
+ const provider=agentProviders.find(p=>p.id===value.providerId);
+ if(!provider)return;
+ const key=agentEffortPreferenceKey(session,value.providerId,value.modelId);
+ const stored=agentStoredEffort(key);
+ const matching=session?.provider_id===value.providerId&&session?.model_id===value.modelId;
+ providerSelect.value=value.providerId;
+ updateAgentModels(value.modelId,stored!==undefined?stored:matching?(session.reasoning_effort||''):'');
+ if(stored==='')effortSelect.value='';
+ renderAgentConfigMenu();
 }
 function agentSelectedModel(){
  const provider=agentProviders.find(p=>p.id===providerSelect.value);
@@ -747,14 +807,12 @@ function renderAgentConfigMenu(){
  const model=agentSelectedModel();
  const fallback=provider?.api_type==='chat_completions';
  const specs=[
-  ['Provider',agentProviders.map(p=>[p.id,p.name||p.id]),providerSelect.value,(v)=>{
-   providerSelect.value=v;updateAgentModels(undefined,'');
-  }],
-  ['Model',(provider?.models||[]).map(m=>[m.id,m.name||m.id]),modelSelect.value,(v)=>{
-   modelSelect.value=v;updateAgentEfforts('');
-  }],
-  ['Effort',[['','Model default'+(model?.default_reasoning_effort?' ('+model.default_reasoning_effort+')':'')],...(model?.reasoning_efforts||[]).map(e=>[e,e])],effortSelect.value,(v)=>{
-   effortSelect.value=v;renderAgentConfigMenu();
+  ['Effort',[['','Model default'+(model?.default_reasoning_effort?' ('+agentEffortLabel(model.default_reasoning_effort)+')':'')],...(model?.reasoning_efforts||[]).map(e=>[e,agentEffortLabel(e)])],effortSelect.value,(v)=>{
+   effortSelect.value=v;
+   const key=agentEffortPreferenceKey(agentComposerSelectionSession,providerSelect.value,modelSelect.value);
+   agentEffortPreferences.set(key,v);
+   try{localStorage.setItem(key,v);}catch{}
+   renderAgentConfigMenu();
   }],
   ['Context',[['stateless','Stateless'],['previous_response',fallback?'Response chain (local history)':'Response chain'],['conversation',fallback?'Conversations (local history)':'Conversations']],modeSelect.value||'stateless',(v)=>{
    modeSelect.value=v;renderAgentConfigMenu();
@@ -769,6 +827,10 @@ function renderAgentConfigMenu(){
    option.setAttribute('role','menuitemradio');
    option.setAttribute('aria-checked',String(value===current));
    option.dataset.value=value;
+   if(name==='Effort'){
+    const help={none:'No reasoning override',minimal:'Minimal reasoning',low:'Fastest reasoning',medium:'Balanced reasoning and latency',high:'Deeper reasoning',xhigh:'Extra high reasoning; may take longer',max:'Maximum supported reasoning; may take longer'};
+    option.title=help[value]||'Use the selected model default.';
+   }
    if(name==='Context'){
     const row=agentEl('div','agentchat-context-choice');
     row.append(option,agentEl('div','agentchat-config-note',
@@ -783,7 +845,21 @@ function renderAgentConfigMenu(){
   '\n'+agentContextExplanation(modeSelect.value||'stateless',fallback)+
   '\nProvider: '+(provider?.name||provider?.id||'Not selected')+' · API: '+
   (fallback?'Chat Completions':'Responses')+'.';
- agentConfigNote.textContent='Select a Context mode above to see how history is sent. Changes apply only to new conversations.';
+ const capacity=agentContextCapacity(model);
+ const effort=agentEffortLabel(effortSelect.value||model?.default_reasoning_effort);
+ agentConfigButton.textContent=(capacity?effort+' · '+capacity:effort+' · Context')+' ▴';
+ agentConfigButton.title='Effort: '+effort+' · Context: '+(capacity?capacity+' configured input tokens':'model limit not configured');
+ agentConfigCategories.get('Context').button.textContent='Context (new chat) · '+(specs[1][1].find(([v])=>v===modeSelect.value)?.[1]||'Stateless')+' ▸';
+ const active=agentComposerSelectionSession;
+ const nextRun=active&&(agentRunUI?.hasRun(active.id)||active.provider_id!==providerSelect.value||
+  active.model_id!==modelSelect.value||agentSessionBusy(active.id)||
+  (effortSelect.value||model?.default_reasoning_effort||'')!==(active.reasoning_effort||model?.default_reasoning_effort||''));
+ const actual=nextRun?'Stateless (Agent Run)':active?.mode||modeSelect.value||'stateless';
+ agentConfigNote.textContent=(model?.name||model?.id||'No model selected')+
+  (capacity?' · Max input: '+capacity+' tokens':' · Max input: not configured')+
+  '\nNext request context: '+actual+
+  '\nEffort applies to the next request. Running requests retain their pinned settings. Context mode selections apply only to new conversations; existing Agent Runs use stateless replay.';
+ agentConfigNote.style.whiteSpace='pre-line';
 }
 async function loadAgentProviders(){
  const previousProvider=providerSelect.value, previousModel=modelSelect.value, previousEffort=effortSelect.value;
@@ -843,7 +919,9 @@ async function saveAgentProvider(){
  const body={provider:parsed};if(apiKey.value)body.api_key=apiKey.value;
  const data=await agentApp.jsonFetch('/api/agent/providers',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
  apiKey.value='';
- await loadAgentProviders();providerSelect.value=data.provider.id;updateAgentModels();settingsPicker.value=data.provider.id;
+ await loadAgentProviders();
+ // Saving credentials is not a model-switch action for the current conversation.
+ settingsPicker.value=data.provider.id;settingsPicker.dispatchEvent(new Event('change'));
  settingsStatus.textContent='Provider saved. Secrets were not returned by the server.';
 }
 async function testAgentProvider(){
@@ -1790,13 +1868,16 @@ async function selectAgentSession(id){
  toolNotice.hidden=false;
  agentActive=id;
  if(switched)await agentRunUI?.selectConversation(sess);
+ if(generation!==agentSelectGeneration)return null;
  if(switched){
   setAgentPromptValue(agentDrafts.get(id)||'');
   agentAttachments=(agentAttachmentDrafts.get(id)||[]).map(a=>({...a}));
   renderAgentAttachments();
-  const p=agentProviders.find(p=>p.id===sess.provider_id);
-  if(p){providerSelect.value=p.id;updateAgentModels(sess.model_id,sess.reasoning_effort||'');}
-  modeSelect.value=sess.mode;
+  if(!agentRunUI){
+   const p=agentProviders.find(p=>p.id===sess.provider_id);
+   if(p){providerSelect.value=p.id;updateAgentModels(sess.model_id,sess.reasoning_effort||'');}
+  }
+  modeSelect.value=sess.mode||'stateless';
   renderAgentConfigMenu();
  }
  // Transfer pending context into the selected conversation, preserving
@@ -2101,17 +2182,22 @@ async function sendAgentMessage(){
  if(!current||agentActive!==sessionID)throw new Error('Conversation changed before the message could be submitted.');
  const canStartAgentRun=Boolean(agentRunUI?.canSend());
  const nextProvider=canStartAgentRun?agentRunUI.value():{providerId:current.provider_id,modelId:current.model_id};
+ const selectedModel=agentSelectedModel();
+ const nextEffort=canStartAgentRun&&agentComposerSelectionSession?.id===sessionID&&
+  providerSelect.value===nextProvider.providerId&&modelSelect.value===nextProvider.modelId?effortSelect.value:undefined;
+ const effortChanged=nextEffort!==undefined&&
+  (nextEffort||selectedModel?.default_reasoning_effort||'')!==(current.reasoning_effort||selectedModel?.default_reasoning_effort||'');
  const useRunManager=Boolean(canStartAgentRun&&(agentSessionBusy(sessionID)||current.status==='requesting_ai'||
-  nextProvider.providerId!==current.provider_id||nextProvider.modelId!==current.model_id||agentRunUI.hasRun(sessionID)));
+  nextProvider.providerId!==current.provider_id||nextProvider.modelId!==current.model_id||effortChanged||agentRunUI.hasRun(sessionID)));
  if(useRunManager){
-  const fingerprint=JSON.stringify({message:msg,attachments:wireAttachments,provider:nextProvider.providerId,model:nextProvider.modelId});
+  const fingerprint=JSON.stringify({message:msg,attachments:wireAttachments,provider:nextProvider.providerId,model:nextProvider.modelId,effort:nextEffort});
   const requestKey=sessionID+'\0'+fingerprint;
   let requestID=agentRunRequestIDs.get(requestKey);
   if(!requestID){
    requestID='run-'+sessionID+'-'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2,8);
    agentRunRequestIDs.set(requestKey,requestID);
   }
-  const pending=agentRunUI.submit(current,msg,attachments,requestID);
+  const pending=agentRunUI.submit(current,msg,attachments,requestID,nextEffort);
   if(prompt.value.trim()===msg){setAgentPromptValue('');agentDrafts.set(sessionID,'');}
   if(agentActive===sessionID){agentAttachments=[];agentAttachmentDrafts.delete(sessionID);renderAgentAttachments();}
   try{
@@ -3319,6 +3405,7 @@ function toggleAgentSessions(force){
 }
 function setAgentDockPosition(position){
  if(position!=='right'&&position!=='bottom')return;
+ toggleAgentConfigMenu(false);
  agentDock.position=position;
  applyAgentDock();saveAgentDock();
  window.dispatchEvent(new Event('resize'));
