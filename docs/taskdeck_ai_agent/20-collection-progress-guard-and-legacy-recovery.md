@@ -235,13 +235,13 @@ Không bỏ qua function output của call đã nhận. Nếu checkpoint trướ
 
 - [ ] **Phase gate** — `TODO`; chỉ đánh dấu khi tất cả task cấp 2 DONE và remote delivery đã xác minh.
 
-- [ ] **CLP-03.01 — Versioned durable guard state** (`TODO`, P1)
+- [ ] **CLP-03.01 — Versioned durable guard state** (`IN_PROGRESS`, P1)
   - Chọn authoritative storage phù hợp session/run/snapshot; thêm fields additive, migration backward-compatible, revision/CAS + existing locks. Scope và event keys rõ ràng. Không tạo database/journal cạnh tranh với store hiện tại.
   - **Acceptance:** save/load/round-trip, legacy missing fields, unknown future version fail safe, concurrent update và crash consistency tests.
-    - [ ] **CLP-03.01.01** — Chọn authoritative session/run store; thiết kế additive versioned state và migration defaults. (`TODO`)
-    - [ ] **CLP-03.01.02** — Tích hợp revision/CAS/locks; persist guard state và scope, tránh competing journal. (`TODO`)
-    - [ ] **CLP-03.01.03** — Xử lý missing fields/corrupt state/future version fail-safe, không mất canonical history. (`TODO`)
-    - [ ] **CLP-03.01.04** — Test round-trip, legacy load, concurrent save, failure injection và atomicity. (`TODO`)
+    - [ ] **CLP-03.01.01** — Chọn authoritative session/run store; thiết kế additive versioned state và migration defaults. (`VERIFY_PENDING` — session CAS metadata implementation; Unified snapshot pending)
+    - [ ] **CLP-03.01.02** — Tích hợp revision/CAS/locks; persist guard state và scope, tránh competing journal. (`VERIFY_PENDING` — Session.Save uses existing CAS; CI pending)
+    - [ ] **CLP-03.01.03** — Xử lý missing fields/corrupt state/future version fail-safe, không mất canonical history. (`VERIFY_PENDING` — opaque unknown/corrupt advisory metadata; tests pending)
+    - [ ] **CLP-03.01.04** — Test round-trip, legacy load, concurrent save, failure injection và atomicity. (`VERIFY_PENDING` — round-trip/stale CAS/opaque tests added; crash injection pending)
 - [ ] **CLP-03.02 — Exactly-once logical observation** (`TODO`, P1)
   - Persist observation và guard transition tại checkpoint hiện có; nếu phải hai bước thì reconcile idempotently sau crash. Dedupe bằng scoped logical call/receipt identity; không double-count retry, reconcile hoặc reload.
   - **Acceptance:** crash trước/sau native run, receipt save, provider egress; restart và auto continuation giữ streak; không replay native call do guard.
@@ -249,11 +249,11 @@ Không bỏ qua function output của call đã nhận. Nếu checkpoint trướ
     - [ ] **CLP-03.02.02** — Gắn guard transition vào durable observation checkpoint; reconcile hai bước nếu transaction không chung. (`TODO`)
     - [ ] **CLP-03.02.03** — Cài idempotent replay metadata sau crash; không rerun native action hoặc resend ACK. (`TODO`)
     - [ ] **CLP-03.02.04** — Test crash trước/sau tool, receipt, egress; retry/reconcile/reload chỉ count một lần. (`TODO`)
-- [ ] **CLP-03.03 — Legacy hydration và bounded history** (`TODO`, P1)
+- [ ] **CLP-03.03 — Legacy hydration và bounded history** (`IN_PROGRESS`, P1)
   - Khởi tạo lazy từ journal/canonical history/archived metadata sẵn có; phân biệt historical known vs unknown, không fabricate novelty. History compacted không làm mất guard. Bound scan, không đọc toàn bộ archive mỗi request.
   - **Acceptance:** fixture session 20/11, partial journal/archived pairs, migration idempotent, restart/self-update giữ counters và original history; nhiều conversations không lẫn state.
-    - [ ] **CLP-03.03.01** — Thiết kế bounded hydration từ journal/history/archive metadata hiện có. (`TODO`)
-    - [ ] **CLP-03.03.02** — Khôi phục known counters/ACKs; đánh dấu unknown history không đủ proof; không đoán novelty. (`TODO`)
+    - [ ] **CLP-03.03.01** — Thiết kế bounded hydration từ journal/history/archive metadata hiện có. (`VERIFY_PENDING` — bounded retained-history summary, no archive scan)
+    - [ ] **CLP-03.03.02** — Khôi phục known counters/ACKs; đánh dấu unknown history không đủ proof; không đoán novelty. (`VERIFY_PENDING` — historical counts separate from current objective)
     - [ ] **CLP-03.03.03** — Persist migration marker và cursor; không rescan archive mỗi request, không sửa history. (`TODO`)
     - [ ] **CLP-03.03.04** — Test legacy fixture, partial archive, repeated migration, restart/self-update và isolation. (`TODO`)
 
@@ -625,6 +625,10 @@ Next task:
 - Scope fingerprint commit `d3275af7`: [CI 45584606033](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/45584606033) complete; core and failed-queue jobs SUCCESS.
 - Native full-file evidence commit `d041ec9c`: [CI 45584790677](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/45584790677) complete; core and failed-queue jobs SUCCESS.
 - Coverage commit `64ccca20`: [CI 45585091261](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/45585091261) in progress at observation. No PASS claimed for this commit. No checklist increment for incomplete runtime adapters. Next: objective/counter receipt adapters, durable guard state and legacy/unified wiring.
+
+#### CLP-03.01/03.03 — Additive Legacy session guard
+Reconciled HEAD caa93714e695668130127c9e7014644a13dcbd9e (2 commits ahead, no divergence). CI 45585091261 failed server tests: PREPARED corrupt-digest fixture now rejected at Save; public Unified creation deliberately disabled by concurrent UAG-02 work (three old API/E2E fixtures). Do not restore public creation or weaken PREPARED fence to clear tests. Agentchat/collectionprogress coverage tests passed; full server suite not green.
+Added agentchat/collection_guard.go and tests, Session.collection_guard raw additive field in existing revision-CAS journal, versioned metadata (96KiB), hashed scope/goal, generation, pinned policy, counters/evidence/recovery; invalid/future guard remains opaque and does not block canonical history. Bounded legacy retained-history summary separate from new objective counters, never claims old novelty or verified progress. Tests reopen, stale CAS, owner/step scope, legacy and future/invalid metadata. No separate journal. Legacy admission/checkpoint integration and Unified policy snapshot pending; CI pending.
 
 ### 8.2. Blockers và quyết định (append)
 

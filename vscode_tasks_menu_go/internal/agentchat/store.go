@@ -192,6 +192,9 @@ type Session struct {
 	// browser. It records state transitions, not prompt or result content.
 	Events            []SessionEvent   `json:"events,omitempty"`
 	EventSeq          uint64           `json:"event_seq,omitempty"`
+	// CollectionGuard is additive, bounded advisory metadata in the same CAS
+	// journal. Keep unknown versions opaque so legacy history remains readable.
+	CollectionGuard json.RawMessage `json:"collection_guard,omitempty"`
 	AutoFeedback      bool             `json:"auto_feedback,omitempty"`
 	// Long-lived per-conversation provider-sharing opt-in via Automation.
 	// Legacy 30-minute grants still use AutoFeedbackUntil.
