@@ -204,8 +204,14 @@ func agentFeedbackCallIsCurrent(x agentchat.Session,callID string)bool{
 func (s *Server) agentDeliverToolResult(ctx context.Context, store *agentchat.Store, x agentchat.Session, idx int, consent bool) (agentDeliverResult, error) {
 	owner := x.Owner
 	call := x.ToolCalls[idx]
-	if call.Status=="rejected"&&!agentFeedbackCallIsCurrent(x,call.CallID){
-		return agentDeliverResult{},agentContinueError{409,"historical rejection does not belong to the current provider tool batch; continue the current conversation instead"}
+	if !agentFeedbackCallIsCurrent(x,call.CallID){
+		return agentDeliverResult{},agentContinueError{409,"historical tool result does not belong to the current provider tool batch; continue the current conversation instead"}
+	}
+	for _,old:=range x.ToolCalls{
+		if old.FeedbackStatus=="prepared"||old.FeedbackStatus=="sending"||
+		 (old.FeedbackStatus=="unknown"&&!agentchat.HistoricalUnconfirmedFeedback(x,old)){
+			return agentDeliverResult{},agentContinueError{409,"unconfirmed feedback in the active turn requires reconciliation; no result was resent"}
+		}
 	}
 	if call.Status != "done" && call.Status != "error" && call.Status != "rejected" {
 		return agentDeliverResult{}, agentContinueError{409, "Patch result has no verified final status; do not send success prematurely"}
