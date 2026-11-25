@@ -201,6 +201,9 @@ type Session struct {
 	AutoCollection    *bool            `json:"auto_collection,omitempty"`
 	// Local-owner opt-in for unfinished conversations without a Task plan.
 	AutoContinueText bool `json:"auto_continue_text,omitempty"`
+	// Independent owner preferences generation; does not invalidate an admitted turn CAS.
+	AutomationRevision uint64 `json:"automation_revision,omitempty"`
+	ContinueResetRevision uint64 `json:"continue_reset_revision,omitempty"`
 	AutoFeedbackUntil *time.Time       `json:"auto_feedback_until,omitempty"`
 	Status            string           `json:"status"`
  TokenUsage TokenUsage `json:"token_usage,omitempty"`
@@ -608,6 +611,7 @@ func (s *Store) Save(x Session, expectedRevision uint64) (Session, error) {
 			// persisted title so that its next valid journal CAS cannot undo
 			// an owner rename. Renaming never changes the turn revision.
 			x.Title = existing.Title
+			x.RefreshAutomation(existing)
 			if existing.Owner != x.Owner || existing.Workspace != x.Workspace || existing.ProjectID != x.ProjectID || existing.ProviderID != x.ProviderID || existing.ModelID != x.ModelID || existing.Mode != x.Mode || !existing.CreatedAt.Equal(x.CreatedAt) ||
 				x.HistoryArchiveParts!=existing.HistoryArchiveParts || x.ArchivedHistoryItems!=existing.ArchivedHistoryItems ||
             x.PatchArchiveParts!=existing.PatchArchiveParts || x.ArchivedPatchCalls!=existing.ArchivedPatchCalls {
@@ -708,32 +712,7 @@ func (s *Store) Rename(id, owner, title string, observedRevision uint64) (Sessio
   if x.Title == title { updated = x; return nil }
   x.Title = title
   if err := validateSession(x); err != nil { return err }
-  onDisk := x
-  // readLocked hydrates immutable plan segment steps; the canonical journal
-  // stores only segment references, as Store.Save does.
-  if len(x.TaskPlanSegments) > 0 {
-   if x.TaskPlan == nil { return ErrInvalidSession }
-   plan := *x.TaskPlan
-   plan.Steps = nil
-   onDisk.TaskPlan = &plan
-  }
-  raw, e := json.Marshal(onDisk)
-  if e != nil { return e }
-  if len(raw) > maxSessionBytes { return errors.New("agent session exceeds size limit") }
-  temp, e := os.CreateTemp(s.dir, ".agent-session-rename-*")
-  if e != nil { return e }
-  defer os.Remove(temp.Name())
-  if e = temp.Chmod(0600); e != nil { _ = temp.Close(); return e }
-  if _, e = temp.Write(raw); e != nil { _ = temp.Close(); return e }
-  if e = temp.Sync(); e != nil { _ = temp.Close(); return e }
-  if e = temp.Close(); e != nil { return e }
-  if e = s.syncDirectory(); e != nil { return e }
-  if e = os.Rename(temp.Name(), s.file(id)); e != nil { return e }
-  if e = s.syncDirectory(); e != nil {
-   return fmt.Errorf("%w: %v", ErrJournalDurabilityUnknown, e)
-  }
-  // Derived handoff can always be regenerated; failure is not a rollback.
-  _ = s.writeHandoffLocked(x)
+  if err := s.writeSessionMetadataLocked(x); err != nil { return err }
   updated = x
   return nil
  })
@@ -836,4 +815,107 @@ func (s *Store) List(owner string) ([]Session, error) {
 		return nil, err
 	}
 	return result, nil
+}
+
+
+// RefreshAutomation merges only owner settings from a newer metadata
+// generation. A stale provider/native turn may commit its result without
+// undoing a toggle. It must not replace canonical history or tool receipts.
+func (x *Session) RefreshAutomation(latest Session) {
+ if latest.AutomationRevision <= x.AutomationRevision {return}
+ if latest.ContinueResetRevision > x.ContinueResetRevision && x.Continuation != nil &&
+    latest.Continuation != nil && x.Continuation.ResponseDigest == latest.Continuation.ResponseDigest {
+  x.Continuation.NoProgressTurns=latest.Continuation.NoProgressTurns
+  x.Continuation.LastWorkSignature=latest.Continuation.LastWorkSignature
+  x.Continuation.LastContinuationKey=latest.Continuation.LastContinuationKey
+  x.Continuation.NextRetryAt=latest.Continuation.NextRetryAt
+  x.Continuation.RetryStreak=latest.Continuation.RetryStreak
+ }
+ x.AutoPatch=latest.AutoPatch
+ x.AutoCollection=latest.AutoCollection
+ x.AutoFeedback=latest.AutoFeedback
+ x.AutoFeedbackPersistent=latest.AutoFeedbackPersistent
+ x.AutoFeedbackUntil=latest.AutoFeedbackUntil
+ x.AutoContinueText=latest.AutoContinueText
+ x.RetryMode=latest.RetryMode
+ x.AutomationRevision=latest.AutomationRevision
+ x.ContinueResetRevision=latest.ContinueResetRevision
+}
+
+// UpdateAutomation commits settings under the same cross-process journal lock
+// as Save and Rename, without taking the long-lived execution lease or
+// changing the turn revision. Only this bounded metadata is writable.
+func (s *Store) UpdateAutomation(id,owner,workspace string, observedRevision uint64, option string, enabled bool, mode RetryMode) (Session,error) {
+ var updated Session
+ err:=s.withLock(func()error{
+  x,e:=s.readLocked(id)
+  if e!=nil{return e}
+  if x.Owner!=owner||x.Workspace!=workspace||!s.matchesProject(x){return ErrNotFound}
+  if observedRevision==0||observedRevision>x.Revision{return ErrStaleRevision}
+  if x.Archived{return ErrInvalidSession}
+  if x.AutomationRevision==^uint64(0){return ErrInvalidSession}
+  x.AutomationRevision++
+  switch option{
+  case "patch":x.AutoPatch=enabled
+  case "collection":x.AutoCollection=&enabled
+  case "feedback":
+   x.AutoFeedback=enabled
+   x.AutoFeedbackPersistent=enabled
+   x.AutoFeedbackUntil=nil
+  case "continue":
+   if enabled&&x.TaskPlan!=nil{return ErrInvalidSession}
+   x.AutoContinueText=enabled
+   if enabled{
+    x.ContinueResetRevision=x.AutomationRevision
+    if x.Continuation!=nil{
+     x.Continuation.NoProgressTurns=0
+     x.Continuation.LastWorkSignature=""
+     x.Continuation.LastContinuationKey=""
+     x.Continuation.NextRetryAt=nil
+     x.Continuation.RetryStreak=0
+    }
+   }
+  case "retry":
+   if mode!=RetryOff&&mode!=RetryLimited&&mode!=RetryUnlimited{return ErrInvalidSession}
+   x.RetryMode=mode
+  default:return ErrInvalidSession
+  }
+  if e:=validateSession(x);e!=nil{return e}
+  if e:=s.writeSessionMetadataLocked(x);e!=nil{return e}
+  updated=x
+  return nil
+ })
+ if err!=nil{return Session{},err}
+ return updated,nil
+}
+
+func (s *Store) writeSessionMetadataLocked(x Session) error {
+  onDisk := x
+  // readLocked hydrates immutable plan segment steps; the canonical journal
+  // stores only segment references, as Store.Save does.
+  if len(x.TaskPlanSegments) > 0 {
+   if x.TaskPlan == nil { return ErrInvalidSession }
+   plan := *x.TaskPlan
+   plan.Steps = nil
+   onDisk.TaskPlan = &plan
+  }
+  raw, e := json.Marshal(onDisk)
+  if e != nil { return e }
+  if len(raw) > maxSessionBytes { return errors.New("agent session exceeds size limit") }
+  temp, e := os.CreateTemp(s.dir, ".agent-session-rename-*")
+  if e != nil { return e }
+  defer os.Remove(temp.Name())
+  if e = temp.Chmod(0600); e != nil { _ = temp.Close(); return e }
+  if _, e = temp.Write(raw); e != nil { _ = temp.Close(); return e }
+  if e = temp.Sync(); e != nil { _ = temp.Close(); return e }
+  if e = temp.Close(); e != nil { return e }
+  if e = s.syncDirectory(); e != nil { return e }
+  if e = os.Rename(temp.Name(), s.file(x.ID)); e != nil { return e }
+  if e = s.syncDirectory(); e != nil {
+   return fmt.Errorf("%w: %v", ErrJournalDurabilityUnknown, e)
+  }
+  // Derived handoff can always be regenerated; failure is not a rollback.
+  _ = s.writeHandoffLocked(x)
+
+ return nil
 }

@@ -360,19 +360,10 @@ func (s *Server) agentChatRetryAPI(w http.ResponseWriter,r *http.Request,id stri
   http.Error(w,"explicit provider retry consent required",403);return
  }
  owner:=aiPlanOwner(r)
- release,ok:=lockAgentTurn(s.Workspace,owner,id)
- if !ok{http.Error(w,"conversation currently busy; press Stop before changing retry settings",409);return}
- defer release()
  store,err:=s.agentChatStore()
  if err!=nil{http.Error(w,"agent journal unavailable",500);return}
- x,err:=store.Get(id,owner)
- if err!=nil{http.Error(w,"session not found",404);return}
- if x.Workspace!=s.Workspace||x.Revision!=req.ExpectedRevision{
-  http.Error(w,"stale session or workspace",409);return
- }
- x.RetryMode=req.Mode
- x.AppendEvent("retry_setting",x.Status,"",string(req.Mode))
- x,err=store.Save(x,x.Revision)
+ x,err:=store.UpdateAutomation(id,owner,s.Workspace,req.ExpectedRevision,"retry",false,req.Mode)
+ if errors.Is(err,agentchat.ErrNotFound){http.Error(w,"session not found",404);return}
  if err!=nil{http.Error(w,"cannot persist retry setting",409);return}
  w.Header().Set("Cache-Control","no-store")
  writeJSON(w,200,map[string]any{"session":x,"retry_mode":x.RetryMode})

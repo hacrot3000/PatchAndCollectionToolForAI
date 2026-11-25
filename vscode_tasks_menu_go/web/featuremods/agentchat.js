@@ -526,7 +526,7 @@ function makeAgentHeaderGroup(label,items){
  panel.addEventListener('click',event=>{
   // Clicking the retry label only opens its inline submenu; selecting an
   // option does not dismiss Automation before the selection can be shown.
-  if(retryMenu.contains(event.target))return;
+  if(group===automationGroup||retryMenu.contains(event.target))return;
   if(event.target.closest('button')){
    toggleAgentRetryMenu(false);
    group.open=false;
@@ -2689,7 +2689,7 @@ function renderAgentAutomationControls(session){
 async function toggleAgentAutomation(option){
  if(!agentActive)throw new Error('Select a conversation first.');
  const session=await selectAgentSession(agentActive);
- if(!session||agentSessionBusy(session.id))throw new Error('Conversation is busy.');
+ if(!session)return;
  const current=option==='patch'?Boolean(session.auto_patch):
   option==='collection'?session.auto_collection!==false:
   option==='continue'?Boolean(session.auto_continue_text):
@@ -2707,12 +2707,15 @@ async function toggleAgentAutomation(option){
    confirm_execution:option==='patch'&&enabled,
    confirm_external:(option==='feedback'||option==='continue')&&enabled}),
  });
+ if(agentActive!==session.id)return;
  const latest=await selectAgentSession(session.id);
+ if(agentActive!==session.id)return;
  renderAgentAutomationControls(latest||result.session);
  setAgentStatusNotice((option==='patch'?'Automatic native Patch approval':
   option==='collection'?'Read-only Collection':option==='continue'?'Unfinished conversation continuation':'Automatic provider feedback')+
   (enabled?' enabled for this conversation.':' disabled for this conversation.')+
-  (option==='feedback'&&enabled?' Enabled until you turn it off.':''));
+  (option==='feedback'&&enabled?' Enabled until you turn it off.':'')+
+  ' Applies to subsequent work; already admitted work is not cancelled.');
 }
 function toggleAgentRetryMenu(force){
  const open=Boolean(agentActive)&&!aiRetry.disabled&&
@@ -2724,8 +2727,7 @@ async function setAgentRetryMode(mode){
  if(!['off','limited','unlimited'].includes(mode))throw new Error('Unknown AI retry mode');
  if(!agentActive)throw new Error('Select a conversation first.');
  const session=await selectAgentSession(agentActive);
- if(!session||agentSessionBusy(session.id)||session.status==='requesting_ai')
-  throw new Error('Conversation is busy. Press Stop to end the active retry first.');
+ if(!session)return;
  if((session.retry_mode||'off')===mode)return;
  if(mode!=='off'&&!window.confirm(
   'Enable '+(mode==='limited'?'up to 5 provider retries':'unlimited provider retries')+
@@ -2735,9 +2737,11 @@ async function setAgentRetryMode(mode){
   method:'POST',headers:{'Content-Type':'application/json'},
   body:JSON.stringify({mode,expected_revision:session.revision,confirm_external:mode!=='off'}),
  });
+ if(agentActive!==session.id)return;
  const latest=await selectAgentSession(session.id);
+ if(agentActive!==session.id)return;
  renderAgentAutomationControls(latest||result.session);
- setAgentStatusNotice('AI provider retry: '+(mode==='off'?'OFF':mode==='limited'?'up to 5 retries every 10s':'unlimited every 10s until Stop')+'.');
+ setAgentStatusNotice('AI provider retry: '+(mode==='off'?'OFF':mode==='limited'?'up to 5 retries every 10s':'unlimited every 10s until Stop')+'. Applies to the next provider request.');
 }
 async function toggleAutoFeedback(){return toggleAgentAutomation('feedback');}
 

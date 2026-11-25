@@ -155,6 +155,12 @@ func (s *Server) agentChatRunCollection(
 		if !typed && !fallback {
 			return result, clearProviderRefs, nil
 		}
+		latest,settingsErr:=store.Get(x.ID,x.Owner)
+		if settingsErr!=nil||latest.Revision!=x.Revision{
+			if settingsErr==nil{settingsErr=agentchat.ErrStaleRevision}
+			return result,clearProviderRefs,&agentCollectionLocalError{Stage:"refresh_automation",Round:round+1,Cause:settingsErr}
+		}
+		x.RefreshAutomation(latest)
 		if x.AutoCollection != nil && !*x.AutoCollection {
 			// Explicit opt-out: do not access workspace contents, even for a
 			// read-only model request. Finish with an actionable message.
@@ -316,6 +322,13 @@ func (s *Server) agentChatRunCollection(
 		}
 		conversationID := x.ConversationID
 		reasoning:=agentProviderReasoningEffort(provider,x.ReasoningEffort,model)
+		latest,settingsErr=store.Get(x.ID,x.Owner)
+		if settingsErr!=nil||latest.Revision!=x.Revision{
+			if settingsErr==nil{settingsErr=agentchat.ErrStaleRevision}
+			x.History=append(x.History,next)
+			return result,clearProviderRefs,&agentCollectionLocalError{Stage:"refresh_automation",Round:round+1,Cause:settingsErr}
+		}
+		x.RefreshAutomation(latest)
 		limit := agentInitialOutputBudget(model,reasoning,toolAvailable)
 		contextModel := model
 		if mode==agentchat.Stateless{contextModel,limit=agentAdaptiveRequestBudget(*x,provider,model,key,limit)}

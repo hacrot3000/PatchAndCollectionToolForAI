@@ -209,3 +209,31 @@ func TestAgentDeleteAfterFinalPatchWithoutSendingAIResult(t *testing.T){
 		map[string]any{"expected_revision":x.Revision})
 	if r.Code!=200 {t.Fatalf("finished Patch conversation should be removable: %d %s",r.Code,r.Body)}
 }
+
+
+func TestAgentAutomationAndRetryCanChangeWhileTurnLocked(t *testing.T){
+ s,id:=newAgentConversationFixture(t,"stateless")
+ store,err:=s.agentChatStore();if err!=nil{t.Fatal(err)}
+ stale,err:=store.Get(id,"local");if err!=nil{t.Fatal(err)}
+ stale.Status="requesting_ai"
+ stale,err=store.Save(stale,stale.Revision);if err!=nil{t.Fatal(err)}
+ release,ok:=lockAgentTurn(s.Workspace,"local",id)
+ if !ok{t.Fatal("failed to hold active turn")}
+ defer release()
+ for _,option:=range []string{"patch","collection","feedback","continue"}{
+  w:=invokeAI(t,s.agentChatSessionItemAPI,http.MethodPost,"/api/agent/sessions/"+id+"/automation",map[string]any{
+   "option":option,"enabled":option!="collection","expected_revision":stale.Revision,"confirm_external":true,"confirm_execution":true})
+  if w.Code!=200{t.Fatalf("%s rejected during active turn: %d %s",option,w.Code,w.Body)}
+ }
+ w:=invokeAI(t,s.agentChatSessionItemAPI,http.MethodPost,"/api/agent/sessions/"+id+"/retry",map[string]any{"mode":"unlimited","expected_revision":stale.Revision,"confirm_external":true})
+ if w.Code!=200{t.Fatalf("retry rejected during active turn: %d %s",w.Code,w.Body)}
+ current,err:=store.Get(id,"local");if err!=nil{t.Fatal(err)}
+ if current.Revision!=stale.Revision||current.AutomationRevision!=stale.AutomationRevision+5{t.Fatal("metadata invalidated turn CAS")}
+ stale.Status="completed"
+ stale.History=append(stale.History,agentchat.HistoryItem{Type:"assistant",Content:"completed response"})
+ saved,err:=store.Save(stale,stale.Revision);if err!=nil{t.Fatal(err)}
+ if !saved.AutoPatch||saved.AutoCollection==nil||*saved.AutoCollection||!saved.AutoFeedback||!saved.AutoFeedbackPersistent||!saved.AutoContinueText||saved.RetryMode!=agentchat.RetryUnlimited||saved.AutomationRevision!=current.AutomationRevision{
+  t.Fatal("active turn overwrote newer Automation settings")
+ }
+ if saved.Status!="completed"||saved.History[len(saved.History)-1].Content!="completed response"{t.Fatal("metadata update lost response")}
+}

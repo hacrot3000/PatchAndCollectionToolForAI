@@ -52,44 +52,11 @@ func (s *Server) agentChatAutomationAPI(w http.ResponseWriter, r *http.Request, 
 		http.Error(w,"explicit provider sharing authorization required",403);return
 	}
 	owner:=aiPlanOwner(r)
-	release,ok:=lockAgentTurn(s.Workspace,owner,id)
-	if !ok {http.Error(w,"conversation busy",409);return}
-	defer release()
 	store,err:=s.agentChatStore()
 	if err!=nil {http.Error(w,"session storage unavailable",500);return}
-	x,err:=store.Get(id,owner)
-	if errors.Is(err,agentchat.ErrNotFound) {http.Error(w,"conversation not found",404);return}
-	if err!=nil {http.Error(w,"session unavailable",500);return}
-	if x.Workspace!=s.Workspace || x.Revision!=req.ExpectedRevision {
-		http.Error(w,"stale or different workspace",409);return
-	}
-	if req.Option=="continue" && req.Enabled && x.TaskPlan!=nil{
-  http.Error(w,"use Task plan Auto continue when a plan exists",409);return
- }
- switch req.Option {
- case "continue":
-  x.AutoContinueText=req.Enabled
-  if req.Enabled && x.Continuation!=nil{
-   x.Continuation.NoProgressTurns=0
-   x.Continuation.LastWorkSignature=""
-   x.Continuation.LastContinuationKey=""
-   x.Continuation.NextRetryAt=nil
-   x.Continuation.RetryStreak=0
-  }
-	case "patch":
-		x.AutoPatch=req.Enabled
-	case "collection":
-		x.AutoCollection=&req.Enabled
-	case "feedback":
-		// Automation is an explicit persistent session setting. The legacy
-		// auto-feedback endpoint retains its original 30-minute lease.
-		x.AutoFeedback=req.Enabled
-		x.AutoFeedbackPersistent=req.Enabled
-		x.AutoFeedbackUntil=nil
-	}
-	x.AppendEvent("automation_changed", x.Status, "", req.Option)
-	x,err=store.Save(x,x.Revision)
-	if err!=nil {http.Error(w,"cannot save automation preference",409);return}
+	x,err:=store.UpdateAutomation(id,owner,s.Workspace,req.ExpectedRevision,req.Option,req.Enabled,"")
+	if errors.Is(err,agentchat.ErrNotFound){http.Error(w,"conversation not found",404);return}
+	if err!=nil {http.Error(w,"cannot save automation preference; check conversation or Task plan",409);return}
 	w.Header().Set("Cache-Control","no-store")
 	writeJSON(w,200,map[string]any{"session":x,"execution_enabled":false})
 }

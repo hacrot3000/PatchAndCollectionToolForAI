@@ -1378,8 +1378,8 @@ console.log('PASS: safe Markdown, syntax-highlighted PHP/Python, per-block Copy,
   retryControl.onclick();
   assert.equal(retrySubmenu.classList.contains('open'),false,'second click closes only retry submenu');
   // Exercise canonical GET/POST paths and persisted selected-mode indicators.
-  context.retrySelection={...retryBase,status:'ready',history:[],events:[],retry_runtime:null,revision:7};
-  vm.runInNewContext("agentActive='retry-progress';renderAgentAutomationControls(retrySelection);",context);
+  context.retrySelection={...retryBase,status:'requesting_ai',history:[],events:[],retry_runtime:null,revision:7};
+  vm.runInNewContext("agentActive='retry-progress';markAgentSessionBusy('retry-progress',true);renderAgentAutomationControls(retrySelection);",context);
   const retryWrites=[];
   let retryConfirmations=0;
   context.window.confirm=()=>{retryConfirmations++;return true;};
@@ -1415,7 +1415,8 @@ console.log('PASS: safe Markdown, syntax-highlighted PHP/Python, per-block Copy,
   assert.equal(retryConfirmations,1,'only enabling retry requires risk confirmation');
   retryControl.onclick();
   assert.equal(retrySubmenu.classList.contains('open'),false);
-  console.log('PASS: AI retry submenu selects Off / 5 times / Unlimited without cycling');
+  vm.runInNewContext("markAgentSessionBusy('retry-progress',false)",context);
+  console.log('PASS: AI retry submenu selects Off / 5 times / Unlimited without cycling, including during active request');
 
   const stuckPatch={id:'old-patch',status:'waiting_tool',revision:8,
     history:[{type:'function_call',call_id:'old-call',name:'taskdeck_submit_patch',
