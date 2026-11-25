@@ -242,6 +242,11 @@ func groups(history []agentchat.HistoryItem,synthetic map[string]bool,next []age
    }
    continue
   }
+  if a.Type=="assistant"&&agentchat.CollectionTextObservation(history,i+1){
+   b:=history[i+1]
+   g:=group{items:[]agentchat.HistoryItem{a,b},kind:"fallback",summary:plainSummary(b.Content)}
+   g.tokens=groupTokens(g.items);out=append(out,g);i++;continue
+  }
   if agentchat.CollectionTextObservation(history,i){
    g:=group{items:[]agentchat.HistoryItem{a},kind:"fallback",summary:plainSummary(a.Content)}
    g.tokens=groupTokens(g.items);out=append(out,g);continue

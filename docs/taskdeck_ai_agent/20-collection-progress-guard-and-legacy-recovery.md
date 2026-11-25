@@ -660,6 +660,9 @@ CI 45588106909 and 45588285483 both jobs SUCCESS, including full core Go/race/ve
 #### CLP-05.02 — Current text fallback compaction/archive
 Shared exact native text observation prefix between Legacy producer, archive and compactor. Recognize current full generated envelope with preceding assistant COLLECT JSON and object receipt; preserve compatibility with historical prefix. Old fallback receipts become bounded catalog hash summaries (not verified success or mandatory human instructions), and durable private archive can retain them. Current Next stays exact; no canonical receipt deleted. Tests 20 large historical fallback receipts within context budget; 90 text reads across archive retaining all receipts and real owner instruction. CI pending.
 
+#### CLP-05.02 — Preserve text request/receipt boundary
+Reconciled concurrent UAG-02 HEAD f4408666 (two commits, no overlap with text pair files). Archive text request and receipt together; if the next item crosses the live window boundary retain both. Compactor catalogs completed text pairs as one group, preventing the old standalone request from appearing as recent assistant narration. No synthesized tool IDs.
+
 ### 8.2. Blockers và quyết định (append)
 
 | ID | Task | Vấn đề / quyết định | Ảnh hưởng | Hành động tiếp theo | Trạng thái |
