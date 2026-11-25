@@ -10,8 +10,8 @@
 | Nhánh triển khai | **`main` — không tạo feature branch/PR thay cho yêu cầu này** |
 | Baseline audit | `1c1e2ba0d5004bf5cee75b3fd8a2baa6be9c5422` (25/11/2026, 15:40:33 ICT) |
 | Vị trí tài liệu trong repo (đề xuất) | `docs/taskdeck_ai_agent/20-collection-progress-guard-and-legacy-recovery.md` |
-| Trạng thái hiện tại | `IN_PROGRESS` — Legacy runtime guard integrated; Go regression PASS at 92656e4e; latest UI/PATCH-invalidation CI pending; local checkout unavailable |
-| Tiến độ | **0/10 phase · 3/36 task · 31/144 subtask DONE** |
+| Trạng thái hiện tại | `IN_PROGRESS` — Legacy guard + explicit UNKNOWN resume + durable attempt telemetry core CI PASS at 63da4f10; concurrent main changes not yet fully revalidated; local checkout unavailable |
+| Tiến độ | **0/10 phase · 3/36 task · 40/144 subtask DONE** |
 | Phạm vi | Legacy Agent Chat, unified Agent Run, native COLLECT/PATCH, provider retry, compact context, journal, UI và migration |
 | Ưu tiên | P1: tránh lặp/gián đoạn và bảo toàn dữ liệu; P2: quan sát, tuning và vận hành |
 
@@ -181,7 +181,7 @@ Không bỏ qua function output của call đã nhận. Nếu checkpoint trướ
   - **Acceptance:** test duplicates, retry, rejected/no-op PATCH, actual change, read-only progress, threshold không spam.
     - [x] **CLP-01.03.01** — Định nghĩa counters riêng requested, observed, verified-new, duplicate, unknown, error, HTTP attempts. (`DONE` — pure counters; full core CI 45584061420 PASS; runtime adapter pending)
     - [x] **CLP-01.03.02** — Cài streak/watermark/cooldown, phân biệt last PATCH proposal, executed, meaningful progress. (`DONE` — independent counters/hysteresis verified in CI 45584061420; runtime receipt adapter pending)
-    - [ ] **CLP-01.03.03** — Đảm bảo rejected/no-op/partial PATCH và retry không reset sai; dùng receipt thật. (`VERIFY_PENDING` — real native PATCH ledger adapter; HTTP attempt integration pending)
+    - [ ] **CLP-01.03.03** — Đảm bảo rejected/no-op/partial PATCH và retry không reset sai; dùng receipt thật. (`VERIFY_PENDING` — PATCH ledger transitions and independent HTTP attempt counters verified; meaningful progress/partial/no-op parity still pending)
     - [ ] **CLP-01.03.04** — Test idempotence, boundaries, repeated warnings và progress reset hợp lệ. (`TODO`)
 - [ ] **CLP-01.04 — Checkpoint và bounded recovery policy** (`IN_PROGRESS`, P1)
   - Tạo decisions `CONTINUE`, `ADVISE`, `REPLAN`, `CHECKPOINT` (tên có thể điều chỉnh). Recovery dùng tiếp continuation framework đã có; phân biệt stalled với user stop/unknown delivery. Ghi next action và reason; không tự báo completed.
@@ -247,8 +247,8 @@ Không bỏ qua function output của call đã nhận. Nếu checkpoint trướ
   - **Acceptance:** crash trước/sau native run, receipt save, provider egress; restart và auto continuation giữ streak; không replay native call do guard.
     - [ ] **CLP-03.02.01** — Xác định logical observation key từ scoped call/receipt identity, không dùng HTTP attempt. (`VERIFY_PENDING` — Legacy stable event sequence plus run/call binding; full recovery adapter pending)
     - [ ] **CLP-03.02.02** — Gắn guard transition vào durable observation checkpoint; reconcile hai bước nếu transaction không chung. (`VERIFY_PENDING` — Legacy request and observation same CAS checkpoints; Unified pending)
-    - [ ] **CLP-03.02.03** — Cài idempotent replay metadata sau crash; không rerun native action hoặc resend ACK. (`TODO`)
-    - [ ] **CLP-03.02.04** — Test crash trước/sau tool, receipt, egress; retry/reconcile/reload chỉ count một lần. (`TODO`)
+    - [ ] **CLP-03.02.03** — Cài idempotent replay metadata sau crash; không rerun native action hoặc resend ACK. (`VERIFY_PENDING` — attempt sidecar cursor reconciles restart exactly once; actual Collection crash-replay coverage pending)
+    - [ ] **CLP-03.02.04** — Test crash trước/sau tool, receipt, egress; retry/reconcile/reload chỉ count một lần. (`VERIFY_PENDING` — 132 recorded attempts/reopen/idempotence/corruption tests PASS 45592281917; full crash matrix pending)
 - [ ] **CLP-03.03 — Legacy hydration và bounded history** (`IN_PROGRESS`, P1)
   - Khởi tạo lazy từ journal/canonical history/archived metadata sẵn có; phân biệt historical known vs unknown, không fabricate novelty. History compacted không làm mất guard. Bound scan, không đọc toàn bộ archive mỗi request.
   - **Acceptance:** fixture session 20/11, partial journal/archived pairs, migration idempotent, restart/self-update giữ counters và original history; nhiều conversations không lẫn state.
@@ -306,8 +306,8 @@ Không bỏ qua function output của call đã nhận. Nếu checkpoint trướ
   - **Acceptance:** prior evidence có thể reuse không đọc lại toàn file, incomplete không thành success, old patch không resend source, no tool orphan; test compact/rebase nhiều ngày.
     - [ ] **CLP-05.02.01** — Mở rộng catalog metadata objective/scope/coverage/status/proof/hash/invalidation; bound size. (`TODO`)
     - [x] **CLP-05.02.02** — Giữ current receipt byte-exact, prior PATCH metadata-only, recent COLLECT theo budget. (`DONE` — existing receipt/provenance regression and new compact tests PASS in 45583866679)
-    - [ ] **CLP-05.02.03** — Nhận diện đúng legacy fallback prefix, orphan pairs và stale evidence; không mark incomplete success. (`TODO`)
-    - [ ] **CLP-05.02.04** — Test long/multiday compact, rebase, catalog reuse và no lost user goal. (`TODO`)
+    - [x] **CLP-05.02.03** — Nhận diện đúng legacy fallback prefix, orphan pairs và stale evidence; không mark incomplete success. (`DONE` — current/legacy text envelope, archive and orphan handling; core CI 45592717708 PASS)
+    - [ ] **CLP-05.02.04** — Test long/multiday compact, rebase, catalog reuse và no lost user goal. (`VERIFY_PENDING` — 90 text fallback reads/archive and 20 large historical results budget tests PASS; full multiday matrix pending)
 - [ ] **CLP-05.03 — AI Pack/contract refresh cho conversation cũ** (`TODO`, P1)
   - Version/fingerprint pack/schema; current trusted system/tool contract authoritative. Tách historical pack khỏi user intent, render compatibility summary/rebase tại request mới; không rewrite canonical history hoặc refresh nguyên pack mỗi lượt. Không silently regrant permission.
   - **Acceptance:** old AI Pack chứa schema cũ (`grep`/legacy forms) không lấn current contract; current user goal và attachments/evidence không mất; legacy conversation tiếp tục không cần tạo mới.
@@ -334,19 +334,19 @@ Không bỏ qua function output của call đã nhận. Nếu checkpoint trướ
     - [ ] **CLP-06.01.02** — Cài atomic persistence, eviction/corrupt-state handling và concurrency; không lưu key/prompt. (`TODO`)
     - [ ] **CLP-06.01.03** — Learn chỉ từ structured rejection rồi accepted smaller request; invalidate khi config thay đổi. (`TODO`)
     - [ ] **CLP-06.01.04** — Test restart, TTL, credential rotation, owner/workspace isolation và privacy. (`TODO`)
-- [ ] **CLP-06.02 — Retry payload stagnation telemetry** (`TODO`, P1)
+- [ ] **CLP-06.02 — Retry payload stagnation telemetry** (`IN_PROGRESS`, P1)
   - Track attempt count, effective payload digest, input/output budget, error class, header-wait vs connect vs read, recovery generation. Retry không tính thành COLLECT mới. Phân loại HTTP 400 structured, 499, timeout, incomplete, cancellation, unknown delivery riêng.
   - **Acceptance:** 3 timeout cùng digest có thể phát hiện; explicit Stop không retry; no secrets/prompt in trace; Retry Off/Limited/Unlimited semantics được giữ.
-    - [ ] **CLP-06.02.01** — Track effective digest, attempt/recovery generation, input/output budget và retry mode. (`TODO`)
-    - [ ] **CLP-06.02.02** — Phân loại connect/header/read timeout, 499, structured 400, incomplete, cancel, unknown. (`TODO`)
-    - [ ] **CLP-06.02.03** — Expose redacted stagnation diagnostic; không count HTTP retry thành native observation. (`TODO`)
-    - [ ] **CLP-06.02.04** — Test same digest 3 timeouts, Stop, Off/Limited/Unlimited và no secret leak. (`TODO`)
-- [ ] **CLP-06.03 — Bounded strategy adaptation** (`TODO`, P1)
+    - [x] **CLP-06.02.01** — Track effective digest, attempt/recovery generation, input/output budget và retry mode. (`DONE` — durable attempt digest/size/estimate/output/mode/generation; CI 45593578725 PASS)
+    - [ ] **CLP-06.02.02** — Phân loại connect/header/read timeout, 499, structured 400, incomplete, cancel, unknown. (`VERIFY_PENDING` — connect/header/overall timeout, 499, structured 400, incomplete, cancel, unknown tested; distinct read-stage classification only when provider exposes it, pending)
+    - [x] **CLP-06.02.03** — Expose redacted stagnation diagnostic; không count HTTP retry thành native observation. (`DONE` — allowlisted debug stagnation telemetry and independent durable HTTP counter; CI 45592281917, 45593578725 PASS)
+    - [ ] **CLP-06.02.04** — Test same digest 3 timeouts, Stop, Off/Limited/Unlimited và no secret leak. (`VERIFY_PENDING` — telemetry privacy/stale-write/classification tests and existing Off/Limited/Unlimited tests PASS; dedicated same-digest three-timeout live fixture pending)
+- [ ] **CLP-06.03 — Bounded strategy adaptation** (`IN_PROGRESS`, P1)
   - Với explicit context rejection, giảm progressive theo cơ chế hiện tại và exact receipt. Với timeout, không tự khẳng định context overflow; khi retry được consent và an toàn, dùng existing retry/backoff; đề xuất request nhỏ hơn/alternate model hoặc checkpoint/new continuation được authorize nếu stagnation. Không biến unknown egress thành safe retry; không lén đổi provider/model. Giữ 600s mỗi attempt, không thêm cumulative time cap cho task hợp lệ.
   - **Acceptance:** timeout lặp không kích hoạt native tool lần hai; context rejection giảm budget, 499/incomplete/cancel đúng policy; unlimited không bị đổi thành limited một cách âm thầm; nếu cần tạm dừng vì safety thì reason rõ và resume hợp lệ.
-    - [ ] **CLP-06.03.01** — Giữ 600s/attempt và progressive recovery cho structured context rejection; bảo toàn exact receipt. (`TODO`)
-    - [ ] **CLP-06.03.02** — Tách timeout khỏi context overflow; xác định consent/safety trước mọi đổi payload hoặc continuation. (`TODO`)
-    - [ ] **CLP-06.03.03** — Khi stagnation, đưa bounded strategy/replan/checkpoint hoặc đề xuất đổi model; không tự đổi provider hay silently cap unlimited. (`TODO`)
+    - [ ] **CLP-06.03.01** — Giữ 600s/attempt và progressive recovery cho structured context rejection; bảo toàn exact receipt. (`VERIFY_PENDING` — existing 600s and progressive structured rejection receipt fixture verified; Unified parity pending)
+    - [ ] **CLP-06.03.02** — Tách timeout khỏi context overflow; xác định consent/safety trước mọi đổi payload hoặc continuation. (`VERIFY_PENDING` — transport retry remains identical and only structured rejection changes payload; fixture PASS; Unified parity pending)
+    - [ ] **CLP-06.03.03** — Khi stagnation, đưa bounded strategy/replan/checkpoint hoặc đề xuất đổi model; không tự đổi provider hay silently cap unlimited. (`VERIFY_PENDING` — bounded debug advice at three same-digest failures, no silent cap or provider switch; UI diagnostic exposure pending)
     - [ ] **CLP-06.03.04** — Test timeout/499/incomplete/cancel, exact receipt, no duplicate tool, no unsafe replay. (`TODO`)
 - [ ] **CLP-06.04 — Legacy/Unified retry parity** (`TODO`, P1)
   - Audit provider router/executor của Unified Run; dùng shared classification/budget hints nơi phù hợp, bảo toàn immutable binding và request journal. Ghi rõ các khác biệt protocol cần giữ.
@@ -360,27 +360,27 @@ Không bỏ qua function output của call đã nhận. Nếu checkpoint trướ
 
 - [ ] **Phase gate** — `TODO`; chỉ đánh dấu khi tất cả task cấp 2 DONE và remote delivery đã xác minh.
 
-- [ ] **CLP-07.01 — Tách PATCH ACK khỏi COLLECT failure** (`TODO`, P1)
+- [ ] **CLP-07.01 — Tách PATCH ACK khỏi COLLECT failure** (`IN_PROGRESS`, P1)
   - Sửa diagnostic/admission state để lỗi continuation sau PATCH không bị mô tả là PATCH result delivery unconfirmed nếu PATCH receipt đã ACK. Truy vết actual provider run kind/call ID/phase và ACK receipts.
   - **Acceptance:** fixture hai ACKed PATCH rồi COLLECT unknown giữ nguyên ACKs; auto feedback không resend; UI/diagnostic chỉ đúng failure domain.
-    - [ ] **CLP-07.01.01** — Trace provider run kind/call/phase và actual PATCH receipt ACK; tách failure domain. (`TODO`)
-    - [ ] **CLP-07.01.02** — Sửa admission/diagnostic không downgrade ACK khi collection continuation fail. (`TODO`)
-    - [ ] **CLP-07.01.03** — Cập nhật UI reason/action để không resend acknowledged result; giữ unknown collection. (`TODO`)
-    - [ ] **CLP-07.01.04** — Test 2 ACKed PATCH → 8 COLLECT → unknown, including last_request_status=200 không ACK nhầm. (`TODO`)
-- [ ] **CLP-07.02 — Safe legacy reconciliation** (`TODO`, P1)
+    - [x] **CLP-07.01.01** — Trace provider run kind/call/phase và actual PATCH receipt ACK; tách failure domain. (`DONE` — trace kind/call/phase and exact prior PATCH ACK; synthetic incident CI PASS)
+    - [x] **CLP-07.01.02** — Sửa admission/diagnostic không downgrade ACK khi collection continuation fail. (`DONE` — ACK preserved across COLLECT failure; incident and explicit resume named tests PASS 45593422222)
+    - [ ] **CLP-07.01.03** — Cập nhật UI reason/action để không resend acknowledged result; giữ unknown collection. (`VERIFY_PENDING` — owner-visible explicit resume action, no resend on ACK; UI-specific regression for new action pending)
+    - [x] **CLP-07.01.04** — Test 2 ACKed PATCH → 8 COLLECT → unknown, including last_request_status=200 không ACK nhầm. (`DONE` — 2 historical ACKed PATCH + 8 native COLLECT and unknown; old LastRequestCode=200 not ACK proof; named tests PASS 45593422222)
+- [ ] **CLP-07.02 — Safe legacy reconciliation** (`IN_PROGRESS`, P1)
   - Audit prepared/sending/acknowledged/unknown và historical unconfirmed, orphan call/output, pending Patch. Dùng authoritative journal proof để repair chỉ khi đủ bằng chứng; không dựa vào `last_request_status=200` để ACK nhầm run. Không chạy lại executed PATCH.
   - **Acceptance:** restart old session với mixed states, unknown vẫn unknown; prepared-only resume theo existing rules; no fabricated ACK/result; historical unresolved side effect vẫn bị chặn/reconcile.
     - [ ] **CLP-07.02.01** — Liệt kê legacy states prepared/sending/acknowledged/unknown và orphan/pending receipts. (`TODO`)
     - [ ] **CLP-07.02.02** — Cài reconciliation chỉ khi authoritative proof đủ, preserve old unknown và side-effect fences. (`TODO`)
-    - [ ] **CLP-07.02.03** — Dùng existing prepared-only resume; không execute lại PATCH, không invent ACK/output. (`TODO`)
+    - [ ] **CLP-07.02.03** — Dùng existing prepared-only resume; không execute lại PATCH, không invent ACK/output. (`VERIFY_PENDING` — existing PREPARED-only restart fixture PASS, old UNKNOWN new continuation distinct; mixed state matrix pending)
     - [ ] **CLP-07.02.04** — Test mixed states qua restart, historical unconfirmed, pending mutation và orphan tool pairs. (`TODO`)
-- [ ] **CLP-07.03 — Explicit safe resume/new continuation** (`TODO`, P1)
+- [ ] **CLP-07.03 — Explicit safe resume/new continuation** (`IN_PROGRESS`, P1)
   - Với collection-only unknown egress: cung cấp đường tiếp tục từ durable evidence như **new** continuation sau consent/authorization thích hợp, nếu không còn unresolved side effect. Giữ old run unknown/superseded metadata có audit trail, new request ID/digest, current contract, stateless rebase nếu phù hợp; không replay payload cũ hoặc resend ACKed receipt như mới. Nếu không thể chứng minh read-only/no outstanding patch thì hiển thị blocker/reconcile. Không tự resume user cancellation trái ý.
   - **Acceptance:** cùng conversation ID, giữ task plan và progress, không new workspace/conversation bắt buộc; next task có thể ra PATCH mới; restart/repeated resume idempotent; old unknown không bị xóa. Existing pending user turns/lease giữ đúng.
-    - [ ] **CLP-07.03.01** — Thiết kế explicit resume action/authorization cho collection-only unknown, kiểm tra unresolved mutation và lease. (`TODO`)
-    - [ ] **CLP-07.03.02** — Tạo new request ID/digest từ durable evidence/current contract, stateless rebase nếu phù hợp; giữ audit old unknown. (`TODO`)
-    - [ ] **CLP-07.03.03** — Bind same conversation/plan/pending user turn; idempotency và user Stop được giữ, không replay old payload. (`TODO`)
-    - [ ] **CLP-07.03.04** — Test resume thành PATCH mới, repeated click/restart, denied consent/pending mutation/cancelled run. (`TODO`)
+    - [x] **CLP-07.03.01** — Thiết kế explicit resume action/authorization cho collection-only unknown, kiểm tra unresolved mutation và lease. (`DONE` — explicit local owner action with exact run, consent, lease and unresolved work gate; CI 45593422222 PASS)
+    - [x] **CLP-07.03.02** — Tạo new request ID/digest từ durable evidence/current contract, stateless rebase nếu phù hợp; giữ audit old unknown. (`DONE` — new stateless message and durable prior UNKNOWN audit/digest at same CAS; CI 45593422222 PASS)
+    - [x] **CLP-07.03.03** — Bind same conversation/plan/pending user turn; idempotency và user Stop được giữ, không replay old payload. (`DONE` — same conversation, original goal, pending-turn fence, idempotency; CI 45593422222 PASS)
+    - [ ] **CLP-07.03.04** — Test resume thành PATCH mới, repeated click/restart, denied consent/pending mutation/cancelled run. (`VERIFY_PENDING` — new pending PATCH, repeat click, denied consent, cancelled/pending ACK tests PASS; process restart and live UI click matrix pending)
 - [ ] **CLP-07.04 — Migration và recovery test suite** (`TODO`, P1)
   - Tạo fixtures old→current→restart, session có archive, stale pack, previous response ID, feedback acknowledged/unknown, pending tool, cancelled, multiple sessions. Test native execution count, receipt history, selection/UI mapping, retry permissions.
   - **Acceptance:** migration additive/idempotent, old conversation tiếp tục khi được phép, no lost source/history/plan/settings; failure mode bảo toàn journal. Không thử trên dữ liệu production chưa backup/consent.
@@ -497,8 +497,8 @@ Kiểm tra cả các Python/native Patch Tool test hiện có nếu sửa contra
 | CLP-03 Durability | 3 | 0 | IN_PROGRESS |
 | CLP-04 Integration | 4 | 0 | IN_PROGRESS |
 | CLP-05 Compact/Pack | 4 | 0 | IN_PROGRESS |
-| CLP-06 Budget/Retry | 4 | 0 | TODO |
-| CLP-07 Legacy recovery | 4 | 0 | TODO |
+| CLP-06 Budget/Retry | 4 | 0 | IN_PROGRESS |
+| CLP-07 Legacy recovery | 4 | 0 | IN_PROGRESS |
 | CLP-08 UI/Debug | 2 | 0 | TODO |
 | CLP-09 Validation | 3 | 0 | TODO |
 | **Total** | **36** | **3** | **IN_PROGRESS** |
@@ -512,12 +512,12 @@ Kiểm tra cả các Python/native Patch Tool test hiện có nếu sửa contra
 | CLP-02 | 0/1 | 0/4 | 6/16 |
 | CLP-03 | 0/1 | 0/3 | 2/12 |
 | CLP-04 | 0/1 | 0/4 | 3/16 |
-| CLP-05 | 0/1 | 0/4 | 1/16 |
-| CLP-06 | 0/1 | 0/4 | 0/16 |
-| CLP-07 | 0/1 | 0/4 | 0/16 |
+| CLP-05 | 0/1 | 0/4 | 2/16 |
+| CLP-06 | 0/1 | 0/4 | 2/16 |
+| CLP-07 | 0/1 | 0/4 | 6/16 |
 | CLP-08 | 0/1 | 0/2 | 0/8 |
 | CLP-09 | 0/1 | 0/3 | 0/12 |
-| **Total** | **0/10** | **3/36** | **31/144** |
+| **Total** | **0/10** | **3/36** | **40/144** |
 
 Regression gates: **0/28 PASS**. Mỗi lần cập nhật, ghi ID subtask cụ thể, file/test/receipt, trạng thái; chỉ roll up sau khi xác minh. Commit từng subtask có thay đổi độc lập hoặc nhóm nhỏ coherent, không để toàn phase mới commit. Không tạo commit rỗng chỉ để tick.
 
@@ -674,6 +674,11 @@ CI 45593058020 reached new named resume test and rejected invalid fixture: LastR
 
 #### CLP-06.02 — Redacted durable attempt outcome telemetry
 Extended existing v1 attempt records additively (omitempty fields preserve old record hashes): effective canonical payload digest/bytes, estimated input tokens, output budget, retry mode, recovery generation and allowlisted local transport outcome. Outcome recorded only for latest exact SENDING reservation, no Session revision/ACK changes; diagnostic failure never makes a returned response ambiguous. Distinguish timeout stages available from provider adapter, 499, structured 400, incomplete, Stop, other HTTP and unknown. Three same-digest transport failures emit bounded debug advice without overriding Unlimited, mutating payload or switching provider. Existing 600s and retry semantics unchanged. Tests legacy compatibility, privacy, stale/conflicting outcome fencing and classification. Chat Completions transport conversion can differ from canonical Responses payload; estimate is not wire/token proof. CI pending.
+
+#### Verified checkpoint — explicit UNKNOWN continuation and retry telemetry
+- Confirmed main at 664e0175ba72ca84b7e5fcb6e4434ea07809ae99; concurrent commits since 63da4f10 were reconciled, no overwrite or force push. Core CI 45588106909, 45588285483, 45592281917 (HTTP attempts), 45592559340 and 45592717708 (text fallback archive/compact), 45592847763 (canonical resume checkpoint), 45593422222 (explicit resume plus fixture correction) and 45593578725 (retry telemetry) all SUCCESS. CI 45593058020 originally rejected fixture LastRequestCode without request key; fixed at 54f4e337 and verified. Named explicit resume passed at 0.01s. No production conversation, deploy or local checkout tested.
+- Subtask checkboxes advanced only for verified portions; full gates not claimed. 16 retained explicit UNKNOWN checkpoints is fail-closed storage bound, not read limit. Old UNKNOWN with missing current receipt, unresolved mutation, corrupt audit or cancelled status is not eligible for this action.
+- Next: durable adaptive budget hints (not committed, prior concurrent HEAD move), owner-visible retry outcome/stagnation and historical recovery diagnostics (GitHub API GraphQL failure; attempted edit NOT applied), dedicated restart/Stop/UI recovery regressions, path/source drift/coverage, existing Unified drain-only runtime. Re-check HEAD and CI before editing.
 
 ### 8.2. Blockers và quyết định (append)
 
