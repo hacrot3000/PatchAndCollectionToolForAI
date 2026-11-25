@@ -320,6 +320,13 @@ func (s *Server) agentChatRunCollection(
 			return result,clearProviderRefs,&agentCollectionLocalError{Stage:"refresh_automation",Round:round+1,Cause:settingsErr}
 		}
 		x.RefreshAutomation(latest)
+		if recoveryAdvice!=""&&!legacyCollectionReplanAllowed(*x){
+			// The current receipt is already canonical. The replan has not
+			// been admitted as PREPARED; leave its original budget intact.
+			x.CollectionGuard=latest.CollectionGuard
+			x.AppendEvent("clp_checkpoint",x.Status,next.CallID,"recovery_not_authorized")
+			return result,true,&agentCollectionLocalError{Stage:"collection_progress_checkpoint",Round:round+1,Cause:errors.New("Automatic Collection replan no longer authorized; resume with a new owner message")}
+		}
 		limit := agentInitialOutputBudget(model,reasoning,toolAvailable)
 		contextModel := model
 		if mode==agentchat.Stateless{contextModel,limit=agentAdaptiveRequestBudget(store,*x,provider,model,key,limit)}

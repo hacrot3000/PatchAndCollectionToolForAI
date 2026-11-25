@@ -636,8 +636,11 @@ func (s *Server) agentChatAuthorizedMessage(w http.ResponseWriter, r *http.Reque
 			code, httpStatus = "COLLECTION_CANCELLED", http.StatusConflict
 		} else {
 			var localErr *agentCollectionLocalError
-			if errors.As(callErr, &localErr) && localErr.Stage == "invalid_project_identity" {
-				code, httpStatus = "COLLECTION_IDENTITY_REJECTED", http.StatusConflict
+			if errors.As(callErr, &localErr) {
+				switch localErr.Stage{
+				case "invalid_project_identity":code,httpStatus="COLLECTION_IDENTITY_REJECTED",http.StatusConflict
+				case "collection_progress_checkpoint":code,httpStatus="COLLECTION_PROGRESS_CHECKPOINT",http.StatusConflict
+				}
 			}
 		}
 		var nested *agentCollectionProviderError
@@ -647,6 +650,7 @@ func (s *Server) agentChatAuthorizedMessage(w http.ResponseWriter, r *http.Reque
 		s.recordAgentDebugEvent(owner, id, "", "collection", "collection.failed", code,
 			"stage="+stage+" trace="+traceID+" cause="+scrubAIContext(agentchat.SafeProviderText(callErr.Error()), 600))
 		publicMessage := "Collection result or request was saved, but continuation could not finish. No Patch was executed. Inspect the provider trace and Agent events."
+		if code=="COLLECTION_PROGRESS_CHECKPOINT"{publicMessage="Collection paused at a committed native receipt. Resume the same conversation with a new missing scope; no old provider request will be replayed."}
 		if code == "COLLECTION_IDENTITY_REJECTED" {
 			publicMessage = "Collection NOT executed: AI supplied a missing or mismatched project identity. Both project.key and project.id must match the active workspace."
 		}
