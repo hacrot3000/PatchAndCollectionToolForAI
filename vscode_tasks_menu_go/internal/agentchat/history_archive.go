@@ -61,6 +61,14 @@ func (s *Store) archiveCollectionHistory(x *Session) error {
    archived=append(archived,item,x.History[i+1]);i++
    continue
   }
+  // A text request/receipt is one logical read. Do not archive the
+  // assistant half at the active-window boundary and strand its output.
+  if item.Type=="assistant" && CollectionTextObservation(x.History,i+1) {
+   if i+1>=until{continue}
+   removed[i],removed[i+1]=true,true
+   archived=append(archived,item,x.History[i+1]);i++
+   continue
+  }
   if item.Type=="assistant" {
    removed[i]=true;archived=append(archived,item);continue
   }

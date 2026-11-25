@@ -186,6 +186,7 @@ func (s *Server) agentChatMessageForOwner(w http.ResponseWriter, r *http.Request
 		// request with the same key replays the recorded outcome instead of
 		// contacting the provider a second time.
 		RequestID string `json:"request_id,omitempty"`
+		ResumeCollectionRunID string `json:"resume_collection_run_id,omitempty"`
 		// Optional next-turn composer binding (UAG-02). Empty fields keep the
 		// persisted session selection.
 		ProviderID      string `json:"provider_id,omitempty"`
@@ -218,6 +219,10 @@ func (s *Server) agentChatMessageForOwner(w http.ResponseWriter, r *http.Request
 	// exact validated attachment rendering, so a reused key with different
 	// attachments is a conflict rather than a silent replay.
 	requestDigest := agentRequestDigest(msg + "\n\n" + attachmentContext)
+	if req.ResumeCollectionRunID!=""{
+		if len(req.ResumeCollectionRunID)>96||len(req.Attachments)!=0||isCollectionContinuation(r.Context())||strings.TrimSpace(req.RequestID)==""{http.Error(w,"explicit collection resume requires a run ID, request ID and no attachments",400);return}
+		requestDigest=agentRequestDigest(requestDigest+"\x00collection-resume\x00"+req.ResumeCollectionRunID)
+	}
 	if attachmentContext != "" {
 		msg = msg + "\n\n" + attachmentContext
 	}
@@ -282,6 +287,16 @@ func (s *Server) agentChatMessageForOwner(w http.ResponseWriter, r *http.Request
 	if err != nil {
 		http.Error(w, "Agent Run history unavailable; cannot build conversation context", http.StatusServiceUnavailable)
 		return
+	}
+	resumeCollection:=req.ResumeCollectionRunID!=""
+	if resumeCollection{
+		_,eligible:=agentchat.CollectionResumeReceipt(session)
+		if !eligible||session.ProviderRun.ID!=req.ResumeCollectionRunID||s.Config.SharedServerEnabled||len(runRecords)!=0{
+			http.Error(w,"Collection resume is not safe for this checkpoint; reconcile the exact prior provider run and any unresolved tool work",409);return
+		}
+		msg="Resume the original unfinished task from the canonical conversation and current verified native receipts. This is a NEW continuation after an unconfirmed read-only Collection provider response, not a replay. Do not re-execute prior Patches or resend acknowledged results. Inspect only the specific missing scope using the current native COLLECT contract; never claim the prior provider received the result. Preserve the existing task plan and approval rules."
+	}else if session.Status=="failed"&&session.ProviderRun!=nil&&session.ProviderRun.Kind=="collection"&&session.ProviderRun.Phase=="unknown"{
+		http.Error(w,"Unconfirmed Collection delivery requires explicit Resume original task (new request); no old provider request or PATCH result was replayed",409);return
 	}
 	if len(runRecords) != 0 {
 		session.History = completedAgentRunHistory(session.History, runRecords, id)
@@ -413,7 +428,7 @@ func (s *Server) agentChatMessageForOwner(w http.ResponseWriter, r *http.Request
 	// endpoint/model. Otherwise replay canonical history statelessly; the stored
 	// session mode stays immutable for audit and a later verified retry.
 	mode := agentContextRequestMode(session,p.APIType,s.agentConversationCapabilityVerified(owner,p,model))
-	if len(runRecords) != 0 {
+	if len(runRecords) != 0 || resumeCollection {
 		mode = agentchat.Stateless
 	}
 	agentClearProviderRefsForStateless(&session,mode)
@@ -433,7 +448,10 @@ func (s *Server) agentChatMessageForOwner(w http.ResponseWriter, r *http.Request
 		return
 	}
 	oldRevision := session.Revision
-	bindLegacyCollectionObjective(r.Context(), &session, strings.TrimSpace(req.Message))
+	if resumeCollection{
+		bindLegacyCollectionObjective(collectionContinuationContext(r.Context()),&session,"Continue")
+		session.AppendEvent("collection_resume_new",session.Status,session.ProviderRun.CallID,session.ProviderRun.ID)
+	}else{bindLegacyCollectionObjective(r.Context(), &session, strings.TrimSpace(req.Message))}
 	session.History = append(session.History, next)
 	session.Status = "requesting_ai"
 	session.AppendEvent("turn_started", "requesting_ai", "", "")

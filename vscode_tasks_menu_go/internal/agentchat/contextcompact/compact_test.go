@@ -189,3 +189,15 @@ func TestCurrentTextFallbackReceiptsDoNotConsumeHumanInstructionBudget(t *testin
  if stats.BudgetExceeded||stats.SummarizedCollections!=20||strings.Contains(got,"large-receipt-")||!strings.Contains(got,"Original owner goal")||!strings.Contains(got,"Keep my latest instruction"){t.Fatalf("bad fallback projection: %+v",stats)}
  if !strings.Contains(next.Content,"current receipt"){t.Fatal("current receipt changed")}
 }
+
+func TestFailedPatchDiagnosticsSurviveRecompaction(t *testing.T) {
+ call:=agentchat.HistoryItem{Type:"function_call",CallID:"failed-call",Name:"taskdeck_submit_patch",Arguments:`{"name":"tracker"}`}
+ result:=agentchat.HistoryItem{Type:"function_call_output",CallID:call.CallID,Content:`{"status":"FAIL","run_id":"failed-run","failure_reason":"anchor mismatch","diagnosis_kind":"source_drift","mutation_state":"UNKNOWN","failure_evidence":"native_protocol_excerpt"}`}
+ first,_:=Build([]agentchat.HistoryItem{{Type:"user",Content:"Fix tracker"},call,result},Policy{MaxInputTokens:24000})
+ second,_:=Build(first,Policy{MaxInputTokens:24000})
+ for _,history:=range [][]agentchat.HistoryItem{first,second} {
+  visible:=fmt.Sprint(history)
+  for _,want:=range []string{"failed-call","failed-run","anchor mismatch","source_drift","UNKNOWN","native_protocol_excerpt"} {if !strings.Contains(visible,want){t.Fatalf("missing %s: %s",want,visible)}}
+  for _,item:=range history {if item.Type=="function_call_output" {t.Fatal("historical feedback replayed")}}
+ }
+}

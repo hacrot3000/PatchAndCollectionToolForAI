@@ -174,6 +174,8 @@ func (s *Server) agentHistoryResultFromHistory(call agentchat.ToolCallRecord,lat
     "stdout_tail":agentPatchLogExcerpt(item.OutputTail,1400),
      "test_verification":"Patch PASS / rc=0 does not establish that nested tests passed; inspect stdout_tail for exit codes and warnings.",
     "project_unchanged":status=="PREFLIGHT_FAIL",
+    "mutation_state":"UNKNOWN",
+    "failure_evidence":"native_history_excerpt",
     "automatic_retry":false,
    }
    if manualRecovery {
@@ -184,8 +186,9 @@ func (s *Server) agentHistoryResultFromHistory(call agentchat.ToolCallRecord,lat
     evidence["automatic_retry"]=false
    }
    if item.RC!=nil { evidence["rc"]=*item.RC }
-   b,err:=json.Marshal(evidence)
-   if err!=nil { return "","","",false }
+   if status=="PREFLIGHT_FAIL" { evidence["mutation_state"]="UNCHANGED" }
+   b,fit:=agentBoundPatchFeedback(evidence)
+   if !fit { return "","","",false }
    accepted=match{status:"error",result:string(b),run:report.RunID,finished:finished}
    if status=="PASS" {accepted.status="done"}
   }

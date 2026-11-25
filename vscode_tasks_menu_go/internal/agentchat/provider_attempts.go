@@ -22,6 +22,12 @@ type ProviderAttempt struct {
  PayloadSHA256 string `json:"payload_sha256"`
  HeaderConfigured bool `json:"header_configured"`
  RecordedAt time.Time `json:"recorded_at"`
+ RetryMode RetryMode `json:"retry_mode,omitempty"`
+ PayloadBytes int `json:"payload_bytes,omitempty"`
+ EstimatedInputTokens int `json:"estimated_input_tokens,omitempty"`
+ OutputBudget int `json:"output_budget,omitempty"`
+ RecoveryGeneration int `json:"recovery_generation,omitempty"`
+ Outcome ProviderAttemptOutcome `json:"outcome,omitempty"`
 }
 type ProviderAttemptAudit struct {
  RunID string `json:"run_id"`
@@ -73,7 +79,7 @@ func (s *Store) readProviderAttemptsLocked(id string)(providerAttemptSidecar,err
  if err!=nil||digest!=rec.SHA256{return providerAttemptSidecar{},ErrInvalidSession}
  for i,a:=range rec.Attempts{
   if a.Attempt==0||a.Attempt>rec.Total||a.RecordedAt.IsZero()||
-   len(a.PayloadSHA256)!=64||
+   len(a.PayloadSHA256)!=64||!validProviderAttemptTelemetry(a)||
    a.ClientRequestID!=providerAttemptClientID(id,rec.RunID,a.Attempt,a.PayloadSHA256)||
    (i>0&&rec.Attempts[i-1].Attempt+1!=a.Attempt){
    return providerAttemptSidecar{},ErrInvalidSession
@@ -91,8 +97,9 @@ func (s *Store) readProviderAttemptsLocked(id string)(providerAttemptSidecar,err
 // may be inferred from this pre-send record. The ledger is bounded to the
 // latest 128 attempts, with an explicit truncated flag for unlimited retry.
 func (s *Store) RecordProviderAttempt(
- id,owner,runID string,attempt uint64,payload []byte,headerSent bool,
+ id,owner,runID string,attempt uint64,payload []byte,headerSent bool,policy ...ProviderAttemptPolicy,
 )(string,error){
+ if len(policy)>1{return "",ErrInvalidSession}
  if !validID(id)||runID==""||attempt==0||attempt>1000000000||
   len(payload)==0||len(payload)>maxProviderRunPayload{
   return "",ErrInvalidSession
@@ -126,32 +133,26 @@ func (s *Store) RecordProviderAttempt(
   if record.Total+1!=attempt{return ErrStaleRevision}
   digest:=ProviderPayloadDigest(payload)
   clientID=providerAttemptClientID(id,runID,attempt,digest)
-  record.Attempts=append(record.Attempts,ProviderAttempt{
+  item:=ProviderAttempt{
    Attempt:attempt,ClientRequestID:clientID,PayloadSHA256:digest,
    HeaderConfigured:headerSent,RecordedAt:time.Now().UTC(),
-  })
+  }
+  if len(policy)==1{
+   item.RetryMode=policy[0].Mode
+   item.RecoveryGeneration=policy[0].RecoveryGeneration
+   item.PayloadBytes=len(payload)
+   item.EstimatedInputTokens=(len(payload)+1)/2+4
+   var wire struct{Output int `json:"max_output_tokens"`}
+   if json.Unmarshal(payload,&wire)==nil&&wire.Output>0&&wire.Output<=1000000{item.OutputBudget=wire.Output}
+   if !validProviderAttemptTelemetry(item){return ErrInvalidSession}
+  }
+  record.Attempts=append(record.Attempts,item)
   if len(record.Attempts)>maxProviderAttemptRecords{
    record.Attempts=append([]ProviderAttempt(nil),
     record.Attempts[len(record.Attempts)-maxProviderAttemptRecords:]...)
   }
   record.Total=attempt
-  record.SHA256,e=providerAttemptDigest(record.Attempts)
-  if e!=nil{return e}
-  data,e:=json.Marshal(record);if e!=nil{return e}
-  if len(data)>maxProviderAttemptSidecarBytes{
-   return errors.New("provider attempt audit exceeds private limit")
-  }
-  tmp,e:=os.CreateTemp(s.dir,".agent-provider-attempt-*")
-  if e!=nil{return e}
-  defer os.Remove(tmp.Name())
-  if e=tmp.Chmod(0600);e!=nil{tmp.Close();return e}
-  if _,e=tmp.Write(data);e!=nil{tmp.Close();return e}
-  if e=tmp.Sync();e!=nil{tmp.Close();return e}
-  if e=tmp.Close();e!=nil{return e}
-  if e=os.Rename(tmp.Name(),s.providerAttemptsPath(id));e!=nil{return e}
-  // Block the next network attempt if its support correlation filename
-  // cannot be made durable. A recorded attempt is still NEVER delivery proof.
-  return s.syncDirectory()
+  return s.writeProviderAttemptsLocked(id,record)
  })
  if err!=nil{return "",fmt.Errorf("cannot durably record provider attempt: %w",err)}
  return clientID,nil
@@ -177,4 +178,26 @@ func (s *Store) ProviderAttempts(id,owner string)(*ProviderAttemptAudit,error){
   return nil
  })
  return result,err
+}
+
+
+func(s *Store) writeProviderAttemptsLocked(id string,record providerAttemptSidecar)error{
+  var e error
+  record.SHA256,e=providerAttemptDigest(record.Attempts)
+  if e!=nil{return e}
+  data,e:=json.Marshal(record);if e!=nil{return e}
+  if len(data)>maxProviderAttemptSidecarBytes{
+   return errors.New("provider attempt audit exceeds private limit")
+  }
+  tmp,e:=os.CreateTemp(s.dir,".agent-provider-attempt-*")
+  if e!=nil{return e}
+  defer os.Remove(tmp.Name())
+  if e=tmp.Chmod(0600);e!=nil{tmp.Close();return e}
+  if _,e=tmp.Write(data);e!=nil{tmp.Close();return e}
+  if e=tmp.Sync();e!=nil{tmp.Close();return e}
+  if e=tmp.Close();e!=nil{return e}
+  if e=os.Rename(tmp.Name(),s.providerAttemptsPath(id));e!=nil{return e}
+  // Block the next network attempt if its support correlation filename
+  // cannot be made durable. A recorded attempt is still NEVER delivery proof.
+  return s.syncDirectory()
 }

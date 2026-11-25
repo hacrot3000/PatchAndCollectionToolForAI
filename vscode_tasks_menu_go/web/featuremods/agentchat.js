@@ -1589,7 +1589,7 @@ function renderAgentProviderEgressReview(session,review,attemptAudit=null,integr
  // without becoming a different warning or clearing a prior dismissal.
  const audit=attemptAudit?.run_id===review?.run_id?attemptAudit:null;
  const latest=audit&&Array.isArray(audit.attempts)?audit.attempts[audit.attempts.length-1]:null;
- const viewKey=[key,audit?.total??'',latest?.client_request_id??'',Boolean(integrityError)].join('|');
+ const viewKey=[key,audit?.total??'',latest?.client_request_id??'',Boolean(integrityError),Boolean(session?.collection_resume_eligible)].join('|');
  if(viewKey===agentProviderReviewKey)return;
  agentProviderReviewKey=viewKey;
  agentProviderEgressNotice.replaceChildren();
@@ -1653,6 +1653,15 @@ function renderAgentProviderEgressReview(session,review,attemptAudit=null,integr
   details
  );
  if(latestLine)agentProviderEgressNotice.append(latestLine);
+ if(review.phase==='unknown'&&review.kind==='collection'&&session.collection_resume_eligible===true&&!integrityError){
+  const resume=agentButton('Resume original task (new request)',()=>{
+   if(agentActive!==session.id||agentSessionBusy(session.id))return;
+   if(prompt.value.trim()||(agentAttachments||[]).length){showAgentError(new Error('Preserve the current draft/attachments before resuming.'));return;}
+   setAgentPromptValue('Resume original unfinished task from the canonical checkpoint (new request; do not replay old provider egress).');
+   sendAgentMessage(String(review.run_id)).catch(showAgentError);
+  });
+  agentProviderEgressNotice.append(agentEl('div','','Previous PATCH acknowledgements remain intact. A new stateless continuation is available; the previous provider request stays UNKNOWN.'),resume);
+ }
  agentProviderEgressNotice.append(
   agentEl('div','','Correlation is pre-send only; neither a retry key nor provider acknowledgement.'),
   copy,handoff,dismiss
@@ -1865,6 +1874,7 @@ async function selectAgentSession(id){
  const sess=data.session;
  sess.retry_runtime=data.retry_runtime||null;
  sess.auto_feedback_diagnostic=data.auto_feedback_diagnostic||null;
+ sess.collection_resume_eligible=data.collection_resume_eligible===true;
  renderAgentProviderEgressReview(sess,data.provider_review||null,
   data.provider_attempts||null,data.provider_attempts_integrity_error===true);
  if(switched||agentToolNoticeKey!==data.patch_tool_status+':'+(sess.auto_patch?'auto':'manual')){
@@ -2153,7 +2163,7 @@ async function createSession(){
  prompt.focus();
  if(agentPendingAttachments.length){const pending=agentPendingAttachments.slice();try{const merged=normalizeStagedAttachments([...agentAttachments,...pending]);agentAttachments=merged;agentAttachmentDrafts.set(result.session.id,merged.map(a=>({...a})));agentPendingAttachments.splice(0,pending.length);renderAgentAttachments();}catch(error){setAgentStatusNotice('Pending attachments need room in this session: '+String(error?.message||error));}}
 }
-async function sendAgentMessage(){
+async function sendAgentMessage(resumeCollectionRunID=""){
  if(!agentActive)throw new Error('Create a session first.');
  const sessionID=agentActive;
  const msg=prompt.value.trim();
@@ -2228,7 +2238,7 @@ const useRunManager=false;
  try{
   const s=agentCurrentSession?.id===sessionID?agentCurrentSession:await selectAgentSession(sessionID);
   if(!s||agentActive!==sessionID)throw new Error('Conversation changed before the message could be submitted.');
-  const requestFingerprint=JSON.stringify({message:msg,attachments:wireAttachments});
+  const requestFingerprint=JSON.stringify({message:msg,attachments:wireAttachments,resumeCollectionRunID});
   let request=agentRequestIDs.get(sessionID);
   if(!request||request.fingerprint!==requestFingerprint){
    request={id:'ui-'+sessionID+'-'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2,8),fingerprint:requestFingerprint};
@@ -2241,6 +2251,7 @@ const useRunManager=false;
    method:'POST',headers:{'Content-Type':'application/json'},
    body:JSON.stringify({message:msg,confirm_external:true,expected_revision:s.revision,
     request_id:requestID,attachments:wireAttachments,
+    ...(typeof resumeCollectionRunID==="string"&&resumeCollectionRunID?{resume_collection_run_id:resumeCollectionRunID}:{}),
     provider_id:composerProvider.providerId,model_id:composerProvider.modelId,
     reasoning_effort:composerEffort}),
    signal:agentAbort.signal

@@ -660,6 +660,21 @@ CI 45588106909 and 45588285483 both jobs SUCCESS, including full core Go/race/ve
 #### CLP-05.02 — Current text fallback compaction/archive
 Shared exact native text observation prefix between Legacy producer, archive and compactor. Recognize current full generated envelope with preceding assistant COLLECT JSON and object receipt; preserve compatibility with historical prefix. Old fallback receipts become bounded catalog hash summaries (not verified success or mandatory human instructions), and durable private archive can retain them. Current Next stays exact; no canonical receipt deleted. Tests 20 large historical fallback receipts within context budget; 90 text reads across archive retaining all receipts and real owner instruction. CI pending.
 
+#### CLP-05.02 — Preserve text request/receipt boundary
+Reconciled concurrent UAG-02 HEAD f4408666 (two commits, no overlap with text pair files). Archive text request and receipt together; if the next item crosses the live window boundary retain both. Compactor catalogs completed text pairs as one group, preventing the old standalone request from appearing as recent assistant narration. No synthesized tool IDs.
+
+#### CLP-07.03 — Canonical UNKNOWN collection resume checkpoint
+Added narrow CollectionResumeReceipt eligibility (failed local owner, exact current COLLECT output, no pending/orphan tool calls, all retained PATCH feedback ACKed, no stopped/archived/pending user turn). Existing Session.Save CAS retains old UNKNOWN provider marker and bounded matching attempt audit alongside receipt digest and new PREPARED run identity; no ACK fabrication or replay. Existing history is immutable to generic Save. Bound 16 explicit UNKNOWN recovery checkpoints (fail closed, no silent eviction); no limit on ordinary native reads. Message/UI admission integration pending. CI pending.
+
+#### CLP-07.03 — Explicit new continuation admission
+Added owner-confirmed resume_collection_run_id to existing message API (same lease/revision/idempotency/credential/workspace checks, no alternate provider route). Failed UNKNOWN Collection normal sends fail closed; explicit exact run + safe canonical receipt + all PATCH ACK + no pending/orphan work + local owner + consent permits NEW stateless message with fixed server-owned recovery instruction; old unknown audit committed in same PREPARED CAS. Browser offers distinct "Resume original task (new request)" only on server eligibility; no resend button, no automatic invocation. Named synthetic test old ACK plus unknown read → new pending PATCH, no repeated native read, no duplicate click egress, denied consent/cancelled/pending feedback. CI pending.
+
+#### Resume fixture verification
+CI 45593058020 reached new named resume test and rejected invalid fixture: LastRequestCode=200 without LastRequestKey, which violates existing session validation. Corrected synthetic old accepted-message key/digest; no production invariant relaxed. Intermediate CI 45592717708 and 45592847763 both PASS.
+
+#### CLP-06.02 — Redacted durable attempt outcome telemetry
+Extended existing v1 attempt records additively (omitempty fields preserve old record hashes): effective canonical payload digest/bytes, estimated input tokens, output budget, retry mode, recovery generation and allowlisted local transport outcome. Outcome recorded only for latest exact SENDING reservation, no Session revision/ACK changes; diagnostic failure never makes a returned response ambiguous. Distinguish timeout stages available from provider adapter, 499, structured 400, incomplete, Stop, other HTTP and unknown. Three same-digest transport failures emit bounded debug advice without overriding Unlimited, mutating payload or switching provider. Existing 600s and retry semantics unchanged. Tests legacy compatibility, privacy, stale/conflicting outcome fencing and classification. Chat Completions transport conversion can differ from canonical Responses payload; estimate is not wire/token proof. CI pending.
+
 ### 8.2. Blockers và quyết định (append)
 
 | ID | Task | Vấn đề / quyết định | Ảnh hưởng | Hành động tiếp theo | Trạng thái |

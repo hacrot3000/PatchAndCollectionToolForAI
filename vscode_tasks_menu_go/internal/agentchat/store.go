@@ -211,6 +211,7 @@ type Session struct {
 	Status            string           `json:"status"`
  TokenUsage TokenUsage `json:"token_usage,omitempty"`
 	ProviderRun       *ProviderRun     `json:"provider_run,omitempty"`
+	CollectionResumeHistory []CollectionResumeCheckpoint `json:"collection_resume_history,omitempty"`
 	// TurnBinding pins the active turn's provider admission; nil when idle.
 	TurnBinding *TurnBinding `json:"turn_binding,omitempty"`
 	// PendingUserTurn holds the next user message while a turn is still active.
@@ -399,6 +400,7 @@ func validateSession(x Session) error {
 			completed[item.CallID] = true
 		}
 	}
+	if !validCollectionResumeHistory(x.CollectionResumeHistory){return ErrInvalidSession}
 	if len(x.ToolCalls) > 32 {return ErrInvalidSession}
  if len(x.PatchArchiveSummaries)>24 {return ErrInvalidSession}
  for _,summary:=range x.PatchArchiveSummaries {if len(summary)>220{return ErrInvalidSession}}
@@ -704,6 +706,7 @@ func (s *Store) saveSessionWithAdmissionLocked(x Session, expectedRevision uint6
 					x.CollectionGuard=existing.CollectionGuard
 				}
 			}
+			if err:=s.retainCollectionResumeCheckpoint(&x,existing);err!=nil{return err}
 			s.reconcileCollectionGuardAttempts(&x,existing)
 			x.recordCollectionGuardPatchTransitions(existing)
 		}

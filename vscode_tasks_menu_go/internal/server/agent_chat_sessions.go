@@ -320,11 +320,14 @@ func (s *Server) agentChatSessionItemAPI(w http.ResponseWriter, r *http.Request)
  // text, credentials or an assertion that any network request arrived.
  // If the sidecar is damaged, explicitly surface an integrity warning.
  attempts,attemptErr:=store.ProviderAttempts(id,aiPlanOwner(r))
+ _,resumeEligible:=agentchat.CollectionResumeReceipt(item)
+ if s.Config.SharedServerEnabled||attemptErr!=nil{resumeEligible=false}
 	// The API currently exposes a transcript only to its authenticated owner.
 	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, http.StatusOK, map[string]any{"session": item, "execution_enabled": false,
 		"retry_runtime": agentRetrySnapshot(s.Workspace,aiPlanOwner(r),id),
 		"provider_review": review,
+		"collection_resume_eligible": resumeEligible,
 		"auto_feedback_diagnostic":agentAutoFeedbackDiagnostic(item),
   "provider_attempts":attempts,
   "provider_attempts_integrity_error":attemptErr!=nil,
