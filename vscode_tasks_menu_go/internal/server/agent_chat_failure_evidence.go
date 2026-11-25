@@ -411,8 +411,22 @@ func (s *Server) agentFailureContextProjection(store *agentchat.Store,x agentcha
    }
   }
  }
+ // A passing command-only regression is evidence for that invocation,
+ // not a resolution of an earlier source-changing failure. Do not hide
+ // its predecessor merely because the most recent Patch ran a script.
+ passedCommand:=map[string]bool{}
+ for _,c:=range x.ToolCalls{
+  if c.Status!="done"||c.AgentRunID!=""||c.Name!="taskdeck_submit_patch"{continue}
+  item,ok:=findAgentToolCall(x.History,c.CallID)
+  if !ok{continue}
+  args,err:=parseAgentPatchArguments(item.Arguments)
+  if err==nil&&strings.TrimSpace(args.PatchManifest)!=""{passedCommand[c.CallID]=true}
+ }
+ if passedCommand[currentCall]{currentCall=""}
  active:=make([]agentchat.ToolCallRecord,0,len(x.ToolCalls))
- for i:=len(x.ToolCalls)-1;i>=0;i--{active=append(active,x.ToolCalls[i])}
+ for i:=len(x.ToolCalls)-1;i>=0;i--{
+  if !passedCommand[x.ToolCalls[i].CallID]{active=append(active,x.ToolCalls[i])}
+ }
  call,ok:=agentSelectFailureCall(active,currentCall,text)
  // Search archived history only for an older explicit run reference, or
  // when no active Patch is available. Never look in another conversation.

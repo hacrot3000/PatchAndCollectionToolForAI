@@ -200,3 +200,23 @@ func TestAgentCLP10ContinueOldBlockedConversationProposesSuccessorWithoutReplay(
  if requests!=1||len(x.ToolCalls)!=2||x.ToolCalls[0].Result!=f.call.Result||x.ToolCalls[0].FeedbackStatus!="acknowledged"||
   x.ToolCalls[1].CallID!="corrected-tracker"||x.ToolCalls[1].Status!="pending"{t.Fatalf("old receipt changed or successor unavailable: requests=%d calls=%+v",requests,x.ToolCalls)}
 }
+
+
+func TestAgentCommandOnlyPassDoesNotHideEarlierAtomicFailure(t *testing.T){
+ f:=newCLP10FailureFixture(t)
+ identity,err:=patchtool.ReadProjectIdentity(f.s.Workspace);if err!=nil{t.Fatal(err)}
+ manifest:=testAgentCommandManifest(identity,[]string{"bash","scripts/regression.sh"})
+ args,err:=json.Marshal(agentPatchArguments{Name:"regression",PatchManifest:manifest});if err!=nil{t.Fatal(err)}
+ x:=f.x
+ x.History=append(x.History,agentchat.HistoryItem{Type:"function_call",Name:"taskdeck_submit_patch",CallID:"regression-pass",Arguments:string(args)})
+ x.ToolCalls=append(x.ToolCalls,agentchat.ToolCallRecord{CallID:"regression-pass",Name:"taskdeck_submit_patch",Status:"done",Result:`{"status":"PASS","rc":0}`})
+ // The current success is about to be delivered; the projection must
+ // still include the exact prior failed run, without duplicating receipts.
+ x,err=f.store.Save(x,x.Revision);if err!=nil{t.Fatal(err)}
+ p:=f.s.agentFailureContextProjection(f.store,x,"regression-pass","")
+ visible:=fmt.Sprint(p.History)
+ if !strings.Contains(visible,f.call.RunID)||!strings.Contains(visible,"PARTIAL_MODIFICATION_DETECTED")||!strings.Contains(visible,"predecessor_disposition"){t.Fatal("regression hid prior failure evidence")}
+ if len(p.History)!=len(x.History)+1{t.Fatal("expected one read-only diagnostic projection")}
+ fresh,err:=f.store.Get(x.ID,x.Owner);if err!=nil{t.Fatal(err)}
+ if len(fresh.History)!=len(x.History)||fresh.ToolCalls[0].Result!=f.call.Result{t.Fatal("projection changed canonical receipt")}
+}

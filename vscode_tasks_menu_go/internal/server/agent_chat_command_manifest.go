@@ -6,6 +6,7 @@ import (
  "encoding/json"
  "fmt"
  "io"
+ "path"
  "strings"
  "unicode/utf8"
 
@@ -61,8 +62,44 @@ func parseCommandOnlyManifest(raw string)(agentCommandOnlyManifest,error){
  cmd:=p.Commands[0]
  if len(cmd.Argv)==0||len(cmd.Argv)>128||strings.TrimSpace(cmd.Argv[0])==""||
   (cmd.Timeout!=nil&&(*cmd.Timeout<1||*cmd.Timeout>1800)){return fail()}
- for _,arg:=range cmd.Argv{if strings.ContainsRune(arg,0)||len(arg)>4096{return fail()}}
+ for _,arg:=range cmd.Argv{if arg==""||strings.ContainsRune(arg,0)||len(arg)>4096{return fail()}}
+ // Native legacy_strict validates script operands against the project root.
+ // Keep actual execution cwd identical to that root in this Agent lane so
+ // a same-named script in a subdirectory cannot substitute for the reviewed
+ // script. Native preflight also rechecks existence and project containment.
+ if cmd.Cwd!=""&&cmd.Cwd!="."{return agentCommandOnlyManifest{},fmt.Errorf("Agent command-only manifest requires cwd=. (project root)")}
+ if !agentCommandOnlyArgvShape(cmd.Argv){return agentCommandOnlyManifest{},fmt.Errorf("command-only argv requires an allowlisted bare executable or an existing project-relative script; no inline execution")}
  return m,nil
+}
+
+func agentCommandOnlyRelativeScript(p string)bool{
+ if p==""||strings.HasPrefix(p,"/")||strings.HasPrefix(p,"-")||strings.HasPrefix(p,"~")||strings.ContainsAny(p,"\\\\:"){return false}
+ for _,part:=range strings.Split(p,"/"){if part==".."{return false}}
+ return path.Clean(p)!="."
+}
+
+// A conservative structural gate, not an alternative native validator.
+// Native legacy_strict still validates all command flags and file operands.
+func agentCommandOnlyArgvShape(argv []string)bool{
+ if len(argv)==0{return false}
+ exe:=argv[0]
+ switch exe {
+ case "ls","tree","pwd","find","grep","rg","cat","head","tail","wc","sed","nl":
+  return true
+ case "python","python3","bash","sh","node","pwsh","powershell","powershell.exe":
+  if len(argv)<2||!agentCommandOnlyRelativeScript(argv[1]){return false}
+  ext:=strings.ToLower(path.Ext(argv[1]))
+  switch exe {
+  case "python","python3":return ext==".py"
+  case "bash","sh":return ext==".sh"
+  case "node":return ext==".js"||ext==".mjs"||ext==".cjs"
+  default:return ext==".ps1"
+  }
+ default:
+  // Only direct project-local script paths, not an arbitrary PATH program.
+  // Native execution requires the file to exist and be executable.
+  return strings.Contains(exe,"/")&&agentCommandOnlyRelativeScript(exe)
+ }
 }
 
 // Re-encode the typed subset; the native parser never sees hidden or
@@ -72,6 +109,7 @@ func pastedCommandOnlyPackage(raw string,identity patchtool.ProjectIdentity)([]b
  if err!=nil{return nil,err}
  if m.Project!=identity{return nil,fmt.Errorf("command-only manifest project identity mismatch")}
  m.PostPatch.SafetyProfile="legacy_strict"
+ m.PostPatch.Commands[0].Cwd="."
  body,err:=json.MarshalIndent(m,"","  ")
  if err!=nil{return nil,err}
  var packed bytes.Buffer

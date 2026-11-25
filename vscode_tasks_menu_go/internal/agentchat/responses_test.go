@@ -200,3 +200,20 @@ func TestStatelessProviderContextAllowsFreshOnceOnlyFeedback(t *testing.T){
   t.Fatalf("valid stateful feedback was blocked: %#v",req)
  }
 }
+
+
+func TestPatchToolAdvertisesBothProposalLanes(t *testing.T){
+ p:=decodePayload(t,RequestConfig{Model:"m",Instructions:"Test",Mode:Stateless,EnablePatchTool:true,Next:[]HistoryItem{{Type:"user",Content:"Run regression"}}})
+ tools:=p["tools"].([]any)
+ for _,raw:=range tools{
+  tool:=raw.(map[string]any)
+  if tool["name"]!="taskdeck_submit_patch"{continue}
+  params:=tool["parameters"].(map[string]any)
+  props:=params["properties"].(map[string]any)
+  if props["patch_python"]==nil||props["patch_manifest"]==nil||params["additionalProperties"]!=false{t.Fatal("missing strict dual-lane schema")}
+  required:=params["required"].([]any)
+  if len(required)!=3{t.Fatalf("strict schema required fields: %+v",required)}
+  return
+ }
+ t.Fatal("Patch tool missing")
+}
