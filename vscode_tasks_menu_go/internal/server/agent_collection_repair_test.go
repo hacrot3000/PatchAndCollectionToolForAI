@@ -184,3 +184,47 @@ func TestAgentUnknownCollectionAutoResumeAfterRestart(t *testing.T){
  s.processAgentAutoFeedbackSession(context.Background(),store,id)
  if calls!=1{t.Fatal("recovered checkpoint dispatched twice")}
 }
+
+
+func TestCancelOrphanedAcknowledgedCollectionPreservesPatchAndAllowsNewMessage(t *testing.T){
+ s,id:=newAgentConversationFixture(t,"stateless")
+ store,err:=s.agentChatStore();if err!=nil{t.Fatal(err)}
+ x,err:=store.Get(id,"local");if err!=nil{t.Fatal(err)}
+ now:=time.Now().UTC()
+ x.Status="requesting_ai"
+ x.History=[]agentchat.HistoryItem{{Type:"user",Content:"original task"},{Type:"function_call",Name:"taskdeck_submit_patch",CallID:"old-patch",Arguments:"{}"},{Type:"function_call_output",CallID:"old-patch",Content:"FAIL"},{Type:"function_call",Name:"taskdeck_collect_workspace",CallID:"read-1",Arguments:"{}"}}
+ x.ToolCalls=[]agentchat.ToolCallRecord{{Name:"taskdeck_submit_patch",CallID:"old-patch",Status:"error",Result:"FAIL",FeedbackSent:true,FeedbackStatus:"acknowledged"}}
+ x.ProviderRun=&agentchat.ProviderRun{ID:"r5-e2",Kind:"feedback",Phase:"acknowledged",CallID:"old-patch",PayloadSHA256:agentchat.ProviderPayloadDigest([]byte("old payload")),CreatedAt:now,UpdatedAt:now}
+ x.AppendEvent("collect_response_checkpoint","requesting_ai","read-1",x.ProviderRun.ID)
+ x.AppendEvent("collect_started","requesting_ai","read-1","native_patch_tool_collect")
+ x,err=store.Save(x,x.Revision);if err!=nil{t.Fatal(err)}
+ w:=invokeAI(t,s.agentChatSessionItemAPI,http.MethodPost,"/api/agent/sessions/"+id+"/cancel",map[string]any{})
+ if w.Code!=200||!strings.Contains(w.Body.String(),`"recovered_local_collection":true`){t.Fatalf("Cancel did not reconcile orphan: %d %s",w.Code,w.Body)}
+ x,err=store.Get(id,"local");if err!=nil{t.Fatal(err)}
+ if x.Status!="cancelled"||x.ProviderRun.Phase!="acknowledged"||x.ToolCalls[0].Result!="FAIL"||!x.ToolCalls[0].FeedbackSent{t.Fatalf("wrong cancellation state: %+v",x)}
+ last:=x.History[len(x.History)-1]
+ if last.Type!="function_call_output"||last.CallID!="read-1"||!strings.Contains(last.Content,"COLLECTION_LOCAL_INTERRUPTED"){t.Fatal("missing exact interrupted receipt")}
+ rev:=x.Revision
+ w=invokeAI(t,s.agentChatSessionItemAPI,http.MethodPost,"/api/agent/sessions/"+id+"/cancel",map[string]any{})
+ if w.Code!=200{t.Fatal(w.Body.String())}
+ x,err=store.Get(id,"local");if err!=nil||x.Revision!=rev{t.Fatal("second Cancel rewrote closed checkpoint")}
+ calls:=0
+ s.AgentChatCall=func(_ context.Context,_ agentchat.ProviderConfig,_ string,_ []byte)(agentchat.ResponsesResult,error){calls++;return agentchat.ResponsesResult{ResponseID:"new",Text:"Resumed original task."},nil}
+ w=invokeAI(t,s.agentChatSessionItemAPI,http.MethodPost,"/api/agent/sessions/"+id+"/messages",map[string]any{"message":"continue","confirm_external":true,"expected_revision":x.Revision,"request_id":"resume-after-orphan"})
+ if w.Code!=200||calls!=1{t.Fatalf("new message failed: %d %s calls=%d",w.Code,w.Body,calls)}
+}
+
+func TestOrphanedCollectionCancelRejectsUncertainWork(t *testing.T){
+ base:=agentchat.Session{Owner:"local",Status:"requesting_ai",ProviderRun:&agentchat.ProviderRun{ID:"r5-e2",Phase:"acknowledged"},History:[]agentchat.HistoryItem{{Type:"function_call",Name:"taskdeck_collect_workspace",CallID:"read",Arguments:"{}"}}}
+ base.AppendEvent("collect_response_checkpoint","requesting_ai","read","r5-e2")
+ for _,mutate:=range []func(*agentchat.Session){
+  func(x *agentchat.Session){x.ProviderRun=&agentchat.ProviderRun{ID:"r5-e2",Phase:"unknown"}},
+  func(x *agentchat.Session){x.ToolCalls=[]agentchat.ToolCallRecord{{Name:"taskdeck_submit_patch",Status:"running"}}},
+  func(x *agentchat.Session){x.ToolCalls=[]agentchat.ToolCallRecord{{Name:"taskdeck_submit_patch",Status:"error",FeedbackStatus:"unknown"}}},
+  func(x *agentchat.Session){x.Owner="other"},
+  func(x *agentchat.Session){x.Events=nil},
+ }{
+  x:=base;mutate(&x)
+  if agentCancelOrphanedCollection(&x)||x.Status!="requesting_ai"{t.Fatal("unsafe orphan cancellation")}
+ }
+}
