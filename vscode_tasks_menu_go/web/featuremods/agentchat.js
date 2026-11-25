@@ -1246,7 +1246,10 @@ function renderAgentTool(session,item){
  }
  if(!record.feedback_sent&&['running','dispatching','queued','unknown','done','error'].includes(state)){
   if((session.auto_feedback||record.send_after_retry)&&['done','error'].includes(state)){
-   box.append(agentEl('p','agentchat-tool-summary','Verified native Patch result ready (PASS or FAIL) · awaiting Auto-send worker…'));
+   box.append(agentEl('p','agentchat-tool-summary',agentFeedbackWaitMessage(session)));
+   if(session.auto_feedback_diagnostic?.eligible===false){
+    actions.append(agentButton('Send verified result to AI',()=>recoverAgentPatch(agentCurrentSession||session,item.call_id,'send_existing').catch(showAgentError)));
+   }
   }else{
    actions.append(agentButton('Get the last result and send to AI',
     ()=>recoverAgentPatch(agentCurrentSession||session,item.call_id,'send_existing').catch(showAgentError)));
@@ -1375,6 +1378,19 @@ function agentTurnIsPersisted(session,turn){
  return history.slice(turn.baseHistoryLength).some(item=>item.type==='user'&&
   userMessageText(item.content)===turn.message);
 }
+function agentFeedbackWaitMessage(session){
+ const d=session?.auto_feedback_diagnostic;
+ const reasons={
+  provider_delivery_unresolved:'Provider delivery is unconfirmed · reconcile before continuing.',
+  current_feedback_unconfirmed:'Current tool feedback is unconfirmed · do not resend it.',
+  native_work_unresolved:'Waiting for unresolved native work.',
+  auto_feedback_not_authorized_or_repair_limit:'Auto-send paused · check consent or repair limit.',
+  feedback_already_attempted:'Tool feedback was already attempted · inspect delivery status.',
+  explicit_owner_action_required:'Send the verified result explicitly for this owner.',
+  no_current_pending_result:'No current pending tool result · refresh the conversation.'
+ };
+ return d&&!d.eligible&&reasons[d.reason]?reasons[d.reason]:'Verified Patch result ready · awaiting Auto-send worker…';
+}
 function agentLivePhase(session){
  if(!session)return null;
  const turn=agentLiveTurns.get(session.id);
@@ -1414,7 +1430,7 @@ function agentLivePhase(session){
  if(['queued','dispatching','running'].includes(lastCall?.status))return {message:'Running native Patch…'};
  if(session.status==='waiting_tool'&&lastCall?.status==='pending'&&session.auto_patch)return {message:'Submitting Patch to native tool…'};
  if(['waiting_tool','tool_rejected'].includes(session.status)&&['done','error','rejected'].includes(lastCall?.status)&&
-    session.auto_feedback&&!lastCall.feedback_sent)return {message:'Verified Patch result ready · awaiting Auto-send worker…'};
+    session.auto_feedback&&!lastCall.feedback_sent)return {message:agentFeedbackWaitMessage(session)};
  return null;
 }
 function agentFormatTokenCount(value){
@@ -1497,13 +1513,15 @@ function agentStopProgressPoll(sessionID){
 }
 // The retained transcript compares only the changed native tool card's
 // canonical evidence. Restore this helper independently of live activity UI.
-function agentToolRenderVersion(item,records,outputs){
+function agentToolRenderVersion(item,records,outputs,session){
  if(item.type!=='function_call')return '';
  if(item.name==='taskdeck_collect_workspace'){
   const output=outputs.get(item.call_id);
   return 'collect:'+String(output?.content||'');
  }
- return 'patch:'+JSON.stringify(records.get(item.call_id)||null)+':output:'+Boolean(outputs.get(item.call_id));
+ const record=records.get(item.call_id);
+ return 'patch:'+JSON.stringify(record||null)+':output:'+Boolean(outputs.get(item.call_id))+
+  (record&&!record.feedback_sent?':feedback:'+JSON.stringify(session?.auto_feedback_diagnostic||null):'');
 }
 // Auto-follow recent activity without stealing scroll when the user reads history.
 function agentAtLatest(){
@@ -1709,7 +1727,7 @@ function displayAgentSession(session){
    const node=agentHistoryRow(session,item,callNames);
    agentRenderedHistory.push(item);agentRenderedNodes.push(node);
    if(node)added.push(node);
-   if(item.type==='function_call')agentRenderedToolVersions.set(item.call_id,agentToolRenderVersion(item,records,outputs));
+   if(item.type==='function_call')agentRenderedToolVersions.set(item.call_id,agentToolRenderVersion(item,records,outputs,session));
   }
   if(added.length)transcript.append(...added);
   if(nearBottom)transcript.scrollTop=transcript.scrollHeight;
@@ -1720,7 +1738,7 @@ function displayAgentSession(session){
  for(let i=0;i<history.length;i++){
   const item=history[i];
   if(item.type!=='function_call'||!agentRenderedNodes[i])continue;
-  const version=agentToolRenderVersion(item,records,outputs);
+  const version=agentToolRenderVersion(item,records,outputs,session);
   if(agentRenderedToolVersions.get(item.call_id)===version)continue;
   const updated=renderAgentTool(session,item);
   agentRenderedNodes[i].replaceWith(updated);
@@ -1849,6 +1867,7 @@ async function selectAgentSession(id){
  if(generation!==agentSelectGeneration)return null;
  const sess=data.session;
  sess.retry_runtime=data.retry_runtime||null;
+ sess.auto_feedback_diagnostic=data.auto_feedback_diagnostic||null;
  renderAgentProviderEgressReview(sess,data.provider_review||null,
   data.provider_attempts||null,data.provider_attempts_integrity_error===true);
  if(switched||agentToolNoticeKey!==data.patch_tool_status+':'+(sess.auto_patch?'auto':'manual')){

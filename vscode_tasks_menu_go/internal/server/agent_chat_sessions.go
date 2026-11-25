@@ -325,6 +325,7 @@ func (s *Server) agentChatSessionItemAPI(w http.ResponseWriter, r *http.Request)
 	writeJSON(w, http.StatusOK, map[string]any{"session": item, "execution_enabled": false,
 		"retry_runtime": agentRetrySnapshot(s.Workspace,aiPlanOwner(r),id),
 		"provider_review": review,
+		"auto_feedback_diagnostic":agentAutoFeedbackDiagnostic(item),
   "provider_attempts":attempts,
   "provider_attempts_integrity_error":attemptErr!=nil,
 		"patch_tool_status": s.agentPatchToolStatus(aiPlanOwner(r), item.ProviderID, item.ModelID)})

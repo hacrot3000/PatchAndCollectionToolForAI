@@ -412,3 +412,15 @@ func TestAgentAutoFeedbackHistoricalUnknownDoesNotBlockNewNativeFail(t *testing.
  s.runAgentAutoFeedback(context.Background())
  if calls!=1{t.Fatal("receipt resent")}
 }
+
+func TestAgentAutoFeedbackCurrentUnknownStillBlocks(t *testing.T){
+ old:=agentchat.ToolCallRecord{CallID:"old",Name:"taskdeck_submit_patch",Status:"done",Result:`{"status":"PASS"}`,FeedbackSent:true,FeedbackStatus:"unknown"}
+ fresh:=agentchat.ToolCallRecord{CallID:"new",Name:"taskdeck_submit_patch",Status:"error",Result:`{"status":"FAIL"}`}
+ x:=agentchat.Session{Owner:"local",Status:"waiting_tool",AutoFeedback:true,AutoFeedbackPersistent:true,ProviderRun:&agentchat.ProviderRun{Phase:"completed"},
+ ToolCalls:[]agentchat.ToolCallRecord{fresh,old},History:[]agentchat.HistoryItem{{Type:"function_call",Name:old.Name,CallID:old.CallID},{Type:"function_call_output",CallID:old.CallID,Content:old.Result},{Type:"function_call",Name:fresh.Name,CallID:fresh.CallID}}}
+ if _,reason:=agentAutoFeedbackAdmission(x);reason!="current_feedback_unconfirmed"{t.Fatalf("unresolved feedback bypassed: %s",reason)}
+ x.History=append(x.History[:2],agentchat.HistoryItem{Type:"user",Content:"continue"},x.History[2])
+ if idx,ok:=agentAutoFeedbackCandidate(x);!ok||idx!=0{t.Fatal("historical feedback blocked current result")}
+ x.ProviderRun.Phase="unknown"
+ if _,ok:=agentAutoFeedbackCandidate(x);ok{t.Fatal("active provider ambiguity bypassed")}
+}

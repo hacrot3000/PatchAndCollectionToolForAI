@@ -131,11 +131,7 @@ func (s *Server) agentChatDebugReportAPI(w http.ResponseWriter, r *http.Request)
      }
      calls=append(calls,item)
     }
-    feedbackIndex,feedbackEligible:=agentAutoFeedbackCandidate(sess)
-    feedbackDiagnostic:=map[string]any{"eligible":feedbackEligible,"auto_feedback":sess.AutoFeedback,"persistent":sess.AutoFeedbackPersistent}
-    if sess.AutoFeedbackUntil!=nil{feedbackDiagnostic["grant_until"]=sess.AutoFeedbackUntil}
-    if sess.ProviderRun!=nil{feedbackDiagnostic["provider_phase"]=sess.ProviderRun.Phase}
-    if feedbackEligible{feedbackDiagnostic["call_id"]=sess.ToolCalls[feedbackIndex].CallID}
+    feedbackDiagnostic:=agentAutoFeedbackDiagnostic(sess)
     out=append(out,map[string]any{
      "id":sess.ID,"status":sess.Status,"revision":sess.Revision,
      "provider_id":sess.ProviderID,"model_id":sess.ModelID,
