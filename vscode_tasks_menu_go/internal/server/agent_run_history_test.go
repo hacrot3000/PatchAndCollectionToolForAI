@@ -149,7 +149,7 @@ func TestCompletedToolRunAddsNonExecutionNoticeToCanonicalHistory(t *testing.T) 
 	}
 	merged := completedAgentRunHistory(nil, []agentrun.Record{record}, "conversation")
 	if len(merged) != 2 || merged[1].Type != "assistant" || merged[1].OriginRunID != "run-tool" ||
-		!containsAll(merged[1].Content, "tool request", "not executed") {
+		!containsAll(merged[1].Content, "tool request", "not established") {
 		t.Fatalf("tool output safety notice missing: %+v", merged)
 	}
 }
@@ -161,4 +161,66 @@ func containsAll(value string, parts ...string) bool {
 		}
 	}
 	return true
+}
+
+func TestLegacyMessageIncludesHistoricalRunWithoutDuplication(t *testing.T) {
+	s, id := newAgentConversationFixture(t, "stateless")
+	store, err := s.agentChatStore()
+	if err != nil {
+		t.Fatal(err)
+	}
+	session, err := store.Get(id, "local")
+	if err != nil {
+		t.Fatal(err)
+	}
+	providers, err := s.agentChatProviders()
+	if err != nil {
+		t.Fatal(err)
+	}
+	provider, err := providers.Get("local", session.ProviderID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.AgentRunExecutor = persistedHistoryExecutor{}
+	manager, err := s.agentRunManager("local")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer manager.Close()
+	spec := runSpecFor(s, session, provider)
+	if _, err := manager.Submit(spec, []agentchat.HistoryItem{{Type: "user", Content: "persisted prompt"}}); err != nil {
+		t.Fatal(err)
+	}
+	waitForAgentRunStatus(t, manager, spec.RunID, agentrun.Completed)
+	s.AgentChatCall = func(_ context.Context, _ agentchat.ProviderConfig, _ string, body []byte) (agentchat.ResponsesResult, error) {
+		if !strings.Contains(string(body), "persisted prompt") || !strings.Contains(string(body), "persisted answer") {
+			t.Fatalf("historical run missing from provider context: %s", body)
+		}
+		return agentchat.ResponsesResult{ResponseID: "reply", Text: "legacy answer"}, nil
+	}
+	for _, message := range []string{"first legacy message", "second legacy message"} {
+		session, err = store.Get(id, "local")
+		if err != nil {
+			t.Fatal(err)
+		}
+		response := invokeAI(t, s.agentChatSessionItemAPI, "POST", "/api/agent/sessions/"+id+"/messages", map[string]any{
+			"message": message, "confirm_external": true, "expected_revision": session.Revision,
+		})
+		if response.Code != 200 {
+			t.Fatalf("legacy send: %d %s", response.Code, response.Body)
+		}
+	}
+	session, err = store.Get(id, "local")
+	if err != nil {
+		t.Fatal(err)
+	}
+	count := 0
+	for _, item := range session.History {
+		if item.OriginRunID == spec.RunID {
+			count++
+		}
+	}
+	if count != 2 {
+		t.Fatalf("historical run imported %d items, want 2", count)
+	}
 }

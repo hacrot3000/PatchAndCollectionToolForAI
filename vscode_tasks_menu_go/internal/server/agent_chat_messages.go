@@ -249,13 +249,6 @@ func (s *Server) agentChatMessageForOwner(w http.ResponseWriter, r *http.Request
 		http.Error(w, "workspace mismatch", 403)
 		return
 	}
-	// Existing legacy request replays remain readable, but a new request
-	// for a run-managed conversation must use its pinned provider binding.
-	if s.agentConversationRequiresRunContinuation(owner, id) &&
-		(strings.TrimSpace(req.RequestID) == "" || session.LastRequestKey != strings.TrimSpace(req.RequestID)) {
-		http.Error(w, "conversation has provider-bound runs; submit using the Agent Run API", 409)
-		return
-	}
 	// Idempotent replay must be evaluated BEFORE the revision check: a retried
 	// request arrives with the pre-turn revision, which is now stale.
 	requestKey := strings.TrimSpace(req.RequestID)
@@ -284,6 +277,14 @@ func (s *Server) agentChatMessageForOwner(w http.ResponseWriter, r *http.Request
 	if session.Revision != req.ExpectedRevision {
 		http.Error(w, "stale session revision", 409)
 		return
+	}
+	runRecords, err := s.completedAgentRuns(owner, id)
+	if err != nil {
+		http.Error(w, "Agent Run history unavailable; cannot build conversation context", http.StatusServiceUnavailable)
+		return
+	}
+	if len(runRecords) != 0 {
+		session.History = completedAgentRunHistory(session.History, runRecords, id)
 	}
 	// failed/cancelled turns are recoverable by an explicit new message: no tool
 	// was executed and the user turn is retained. waiting_tool and terminal tool
@@ -412,6 +413,9 @@ func (s *Server) agentChatMessageForOwner(w http.ResponseWriter, r *http.Request
 	// endpoint/model. Otherwise replay canonical history statelessly; the stored
 	// session mode stays immutable for audit and a later verified retry.
 	mode := agentContextRequestMode(session,p.APIType,s.agentConversationCapabilityVerified(owner,p,model))
+	if len(runRecords) != 0 {
+		mode = agentchat.Stateless
+	}
 	agentClearProviderRefsForStateless(&session,mode)
 	conversationID := session.ConversationID
 	contextModel := model

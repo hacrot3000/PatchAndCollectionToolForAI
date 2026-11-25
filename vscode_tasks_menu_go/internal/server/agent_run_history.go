@@ -105,7 +105,7 @@ func completedAgentRunHistory(base []agentchat.HistoryItem, records []agentrun.R
 		}
 		answer := response.String()
 		if answer == "" && toolRequest {
-			answer = "A tool request was recorded for this run but was not executed; do not assume it changed the workspace. Review the run card before continuing."
+			answer = "A tool request was recorded for this run. Its execution outcome is not established by this summary; review the run and native tool records before making claims about workspace changes."
 		}
 		if answer != "" {
 			out = append(out, agentchat.HistoryItem{
