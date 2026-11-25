@@ -132,12 +132,6 @@ func (s *Server) agentChatRunCollection(
 		if err := ctx.Err(); err != nil {
 			return result, clearProviderRefs, &agentCollectionLocalError{Stage:"cancelled_before_collection",Round:round+1,Cause:err}
 		}
-		// Persist the confirmed provider boundary before downstream local work.
-		if x.ProviderRun!=nil && x.ProviderRun.Phase=="acknowledged" {
-			saved,err:=store.Save(*x,x.Revision)
-			if err!=nil{return result,clearProviderRefs,&agentCollectionLocalError{Stage:"persist_acknowledgement",Round:round+1,Cause:err}}
-			*x=saved
-		}
 		var nativeRequest []byte
 		typed, fallback := false, false
 		var validationErr error
@@ -152,6 +146,12 @@ func (s *Server) agentChatRunCollection(
 		}
 		if !typed && !fallback {
 			return result, clearProviderRefs, nil
+		}
+		// Persist the confirmed provider boundary before downstream local work.
+		if x.ProviderRun!=nil && x.ProviderRun.Phase=="acknowledged" {
+			saved,err:=store.Save(*x,x.Revision)
+			if err!=nil{return result,clearProviderRefs,&agentCollectionLocalError{Stage:"persist_acknowledgement",Round:round+1,Cause:err}}
+			*x=saved
 		}
 		if x.AutoCollection != nil && !*x.AutoCollection {
 			// Explicit opt-out: do not access workspace contents, even for a
