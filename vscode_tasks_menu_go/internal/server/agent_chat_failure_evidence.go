@@ -271,7 +271,7 @@ func (s *Server) agentResolveFailedPatchEvidence(store *agentchat.Store,x agentc
  call=bound
  out:=agentFailureReceipt(call)
  identity,err:=patchtool.ReadProjectIdentity(s.Workspace)
- if err!=nil||identity.ID!=x.ProjectID||s.agentVerifyFinalPackage(call)!=nil {
+ if err!=nil||identity.ID!=x.ProjectID||!s.agentFailureVerifyPackage(call) {
   out.Availability="project_or_package_unverified";return out
  }
  row,patch,err:=s.agentFailureHistory(call,identity)
@@ -497,4 +497,19 @@ func (s *Server) agentFailurePredecessor(call agentchat.ToolCallRecord) (string,
  }
  if err!=nil&&!errors.Is(err,os.ErrNotExist){return "unknown","retirement_archive_integrity_unverified"}
  return "not_queued","queue_absent_retirement_not_proven"
+}
+
+
+// Match agentVerifyFinalPackage's queue and archive receipt contract, but
+// do not call patchUploadDir: its write-oriented helper may create patchs/.
+func (s *Server) agentFailureVerifyPackage(call agentchat.ToolCallRecord) bool {
+ name:=filepath.Base(call.QueuePath)
+ digest,err:=hex.DecodeString(call.PackageSHA256)
+ if err!=nil||len(digest)!=32||name=="."||name==""||call.QueuePath!="patchs/"+name||
+  call.PackageSize<=0||call.PackageSize>2<<20{return false}
+ for _,rel:=range []string{call.QueuePath,"patchs/ignore/agent-failed-"+call.PackageSHA256+".zip","patchs/patched/"+name}{
+  data,err:=agentFailureReadFile(s.Workspace,rel,2<<20)
+  if err==nil&&int64(len(data))==call.PackageSize&&agentFailureSHA(data)==call.PackageSHA256{return true}
+ }
+ return false
 }
