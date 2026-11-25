@@ -9,6 +9,7 @@ import (
  "regexp"
  "strings"
  "time"
+ "unicode/utf8"
 )
 
 const (
@@ -51,6 +52,7 @@ var progressWhitespace=regexp.MustCompile(`[[:space:]]+`)
 var repeatedPunctuation=regexp.MustCompile(`[[:punct:]]+`)
 var progressIncomplete=regexp.MustCompile(`(?i)(chưa hoàn tất|chưa hoàn thành|chưa xong|vẫn chưa|còn phải|cần kiểm tiếp|not (yet )?(finished|complete|done)|unfinished|incomplete|remaining (work|items|cases)|still (pending|working)|work remains)`)
 var progressNext=regexp.MustCompile(`(?i)(bước tiếp theo|bước kế tiếp|tiếp theo|lần tiếp|next steps?|next action|continue with|sẽ tiếp tục)`)
+var progressTaskLead=regexp.MustCompile(`(?i)^(?:tiếp tục|đang tiếp tục|continue|continuing(?: with)?)\s+[a-z][a-z0-9]*(?:[.-][a-z0-9]+)+\s*[:：—-]`)
 var progressBlocked=regexp.MustCompile(`(?i)(bị chặn|không thể tiếp tục do|đang chờ phê duyệt|blocked by|cannot proceed without|awaiting approval)`)
 var progressComplete=regexp.MustCompile(`(?i)(đã hoàn (tất|thành) toàn bộ|đã hoàn thành tất cả|all (tasks|steps|work) (are )?(done|complete)|task (is )?complete|fully completed)`)
 
@@ -122,6 +124,21 @@ func boundedNextAction(text string)string{
  return ""
 }
 
+// A short action announcement beginning with a concrete milestone is not
+// a completion report. Providers sometimes return a clipped sentence with
+// no progress fence or tool call, yet mark the transport response completed.
+// This is advisory only; the existing scheduler still requires owner opt-in
+// and an unambiguous terminal provider state with no unresolved native work.
+func leadingTaskAction(text string)string{
+ line:=strings.TrimSpace(strings.SplitN(strings.TrimSpace(text),"\n",2)[0])
+ if !progressTaskLead.MatchString(line){return ""}
+ if len(line)>500{
+  line=line[:500]
+  for !utf8.ValidString(line)&&len(line)>0{line=line[:len(line)-1]}
+ }
+ return strings.TrimSpace(line)
+}
+
 // AnalyzeTurnText parses ONLY provider-produced assistant text. Input file,
 // Collection and tool output content MUST NOT be passed to this function.
 // The result is advisory for scheduling, never acceptance or execution.
@@ -151,10 +168,16 @@ func AnalyzeTurnText(text string)*TurnContinuation{
   case progressComplete.MatchString(tail):
    c.Disposition=TurnClaimedComplete
    c.Reason="model_completion_claim_unverified"
+  case leadingTaskAction(text)!="":
+   c.Disposition=TurnNeedsContinuation
+   c.Reason="unfinished_action_announcement"
   default:
    c.Reason="unknown_model_turn"
   }
   c.NextAction=boundedNextAction(tail)
+  if c.NextAction==""&&c.Reason=="unfinished_action_announcement"{
+   c.NextAction=leadingTaskAction(text)
+  }
  }
  c.ProgressSignature=turnHash(c.Disposition+"\n"+normalizedTurnAction(c.NextAction))
  return c

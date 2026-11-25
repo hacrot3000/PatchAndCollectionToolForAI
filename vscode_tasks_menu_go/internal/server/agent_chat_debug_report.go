@@ -76,6 +76,7 @@ func (s *Server) agentChatDebugReportAPI(w http.ResponseWriter, r *http.Request)
    if limit>32{limit=32;report["sessions_truncated"]=true}
    out:=make([]map[string]any,0,limit)
    for _,sess:=range visible[:limit] {
+    continuationDiagnostic:=agentSafeContinuationDiagnostic(sess)
     if cursor,seen:=marker.Sessions[sess.ID];seen && !marker.At.IsZero(){
      // Existing sessions remain operational after clear. Expose only the
      // new journal tail; earlier history/tool metadata stays in the
@@ -142,6 +143,7 @@ func (s *Server) agentChatDebugReportAPI(w http.ResponseWriter, r *http.Request)
      "event_seq":sess.EventSeq,"events":sess.Events,
      "history_items":hist,"history_item_count":len(sess.History),
      "tool_calls":calls,"auto_feedback_diagnostic":feedbackDiagnostic,
+     "continuation_diagnostic":continuationDiagnostic,
     })
    }
    report["sessions"]=out
@@ -185,3 +187,29 @@ func (s *Server) agentChatDebugReportAPI(w http.ResponseWriter, r *http.Request)
 // Compile-time marker for the server's Agent journal schema referenced by the
 // report. Kept intentionally independent of a provider or Patch execution.
 var _=strings.TrimSpace
+
+
+// Report scheduler state without exporting model-generated next actions,
+// checkpoint paths or any other prompt/response content. Evaluate before the
+// debug Clear history cursor removes canonical receipt/history entries.
+func agentSafeContinuationDiagnostic(x agentchat.Session)map[string]any{
+ out:=map[string]any{
+  "auto_continue_text":x.AutoContinueText,
+  "standalone_eligible":agentchat.StandaloneAutoContinueCandidate(x),
+  "task_plan_present":x.TaskPlan!=nil,
+ }
+ if c:=x.Continuation;c!=nil{
+  out["disposition"]=c.Disposition
+  switch c.Reason{
+  case "model_progress_metadata_unverified","model_blocker_unverified","incomplete_progress_report","next_action_in_report","model_completion_claim_unverified","unknown_model_turn","unfinished_action_announcement","stalled_without_verified_work","nonretryable_admission_failure":
+   out["reason"]=c.Reason
+  default:
+   out["reason"]="other_or_unavailable"
+  }
+  out["has_next_action"]=c.NextAction!=""
+  out["no_progress_turns"]=c.NoProgressTurns
+  out["repeated_turns"]=c.RepeatedTurns
+  out["response_digest"]=c.ResponseDigest
+ }else{out["disposition"]="not_recorded"}
+ return out
+}
