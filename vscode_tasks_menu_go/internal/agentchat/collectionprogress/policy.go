@@ -6,6 +6,10 @@ package collectionprogress
 // an objective generation and persist state with their authoritative journal.
 const Version = 1
 
+// Configuration bounds apply to advisory thresholds only, never the number
+// of allowed native reads. They also keep threshold arithmetic bounded.
+const MaxAdvisoryThreshold = 10000
+
 type Intent string
 
 const (
@@ -28,7 +32,9 @@ type DecisionKind string
 
 const (
 	Continue DecisionKind = "continue"
-	Advise   DecisionKind = "advise"
+	Advise     DecisionKind = "advise"
+	Replan     DecisionKind = "replan"
+	Checkpoint DecisionKind = "checkpoint"
 )
 
 type Reason string
@@ -54,7 +60,10 @@ func Defaults() Policy {
 // Valid rejects invalid policy configurations. Thresholds are advisories, not
 // read quotas. Zero values must be replaced with Defaults by the caller.
 func (p Policy) Valid() bool {
-	return p.FirstReadAdvisory > 0 && p.SecondReadAdvisory > p.FirstReadAdvisory && p.DuplicateStreak > 0 && p.DuplicateCooldown > 0
+	return p.FirstReadAdvisory > 0 && p.SecondReadAdvisory > p.FirstReadAdvisory &&
+		p.SecondReadAdvisory <= MaxAdvisoryThreshold &&
+		p.DuplicateStreak > 0 && p.DuplicateStreak <= MaxAdvisoryThreshold &&
+		p.DuplicateCooldown > 0 && p.DuplicateCooldown <= MaxAdvisoryThreshold
 }
 
 // State contains only bounded metadata. The caller owns objective scoping,
