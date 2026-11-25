@@ -209,13 +209,13 @@ Không bỏ qua function output của call đã nhận. Nếu checkpoint trướ
     - [ ] **CLP-02.01.02** — Định nghĩa scope descriptor cho path/range/symbol/query/worktree/source version theo metadata đáng tin. (`VERIFY_PENDING` — shared fingerprint/scope descriptor and tests; CI pending)
     - [ ] **CLP-02.01.03** — Canonicalize an toàn, loại title/call ID volatile; không tự truy cập filesystem ngoài native COLLECT. (`VERIFY_PENDING` — shared fingerprint/scope descriptor and tests; CI pending)
     - [ ] **CLP-02.01.04** — Test equivalence, distinct limits, path/identity isolation và invalid inputs. (`VERIFY_PENDING` — shared fingerprint/scope descriptor and tests; CI pending)
-- [ ] **CLP-02.02 — Evidence index từ native receipt** (`TODO`, P1)
+- [ ] **CLP-02.02 — Evidence index từ native receipt** (`IN_PROGRESS`, P1)
   - Dùng manifest/proof/native observation metadata đã xác minh. Lưu bounded index theo logical scope, content digest/coverage/partial status; loại volatile artifact paths/timestamps khỏi novelty. Không hash toàn bộ source lặp lại chỉ để guard.
   - **Acceptance:** exact duplicate, same content/different artifact, new range/symbol, incomplete/truncated, missing metadata đều phân biệt; unknown không thành verified-no-progress.
-    - [ ] **CLP-02.02.01** — Đọc cấu trúc native receipt/manifest/proof; xác định fields thực sự available ở cả hai pipeline. (`TODO`)
-    - [ ] **CLP-02.02.02** — Tạo adapter phân loại complete/partial/unknown/error và lấy digest/coverage chỉ khi proof hợp lệ. (`TODO`)
-    - [ ] **CLP-02.02.03** — Cài bounded index theo logical scope, loại timestamp/artifact run path khỏi novelty. (`TODO`)
-    - [ ] **CLP-02.02.04** — Test same content khác artifact, new range/symbol, missing/truncated metadata; unknown không thành duplicate. (`TODO`)
+    - [ ] **CLP-02.02.01** — Đọc cấu trúc native receipt/manifest/proof; xác định fields thực sự available ở cả hai pipeline. (`VERIFY_PENDING` — native observation/manifest fields audited; runtime integration pending)
+    - [ ] **CLP-02.02.02** — Tạo adapter phân loại complete/partial/unknown/error và lấy digest/coverage chỉ khi proof hợp lệ. (`VERIFY_PENDING` — full-file proof only; partial/unsupported unknown; CI pending)
+    - [ ] **CLP-02.02.03** — Cài bounded index theo logical scope, loại timestamp/artifact run path khỏi novelty. (`VERIFY_PENDING` — bounded pure index; persistence pending)
+    - [ ] **CLP-02.02.04** — Test same content khác artifact, new range/symbol, missing/truncated metadata; unknown không thành duplicate. (`VERIFY_PENDING` — tests added; CI pending)
 - [ ] **CLP-02.03 — Overlap/subset/alternating read detection** (`TODO`, P1)
   - Nhận diện range overlap/subset và chuỗi A/B/A/B, query đổi nhẹ nếu chứng minh output/coverage tương đương. Chỉ reject/skip nếu có proof tương thích và source còn hợp lệ; nếu heuristic thì advisory, không ngăn đọc.
   - **Acceptance:** A[1..100]→A[1..110] tính phần mới đúng; 55+ trang khác nhau không bị chặn; metadata thiếu không sinh false positive; test scope eviction.
@@ -596,6 +596,9 @@ CI [45583866679](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actio
 
 #### CLP-02.01 — Shared canonical fingerprint
 Moved the existing server request fingerprint to collectionprogress/scope.go: deterministic JSON key order/number preservation, only top-level and action id/title discarded, execution-affecting fields retained. Ambiguous duplicate keys or malformed input cannot produce a reusable scope. Legacy repair path uses exact-byte fallback, not proof of coverage. Scope descriptor binds trusted objective and exact project identity plus optional authoritative source revision digest; missing revision never authorizes reuse. No new reader, validation bypass or native-skip decision. Tests cover metadata equivalence, distinct fields/numbers, invalid JSON, revision and scope isolation. CI pending; coverage adapter and actual source revision binding not yet implemented.
+
+#### CLP-02.02 — Verified native evidence groundwork
+Audited agent_chat_native_collection.go:198–259 and agent_chat_native_full_file_evidence.go:23–109. Server observation contains native session/run identity, project, wrapper status/rc, manifest verification, excerpt truncation and native_full_file_reads (action index/path/line count/report SHA-256). New evidence.go compares only supported complete full-file proofs covering every exact request action; partial, unsupported range/search/decompile, missing/invalid metadata remain UNKNOWN; schema error is ERROR. Digest excludes volatile receipt and artifact names. This is post-read comparison only, not pre-read reuse or native acceptance; authoritative caller binding still required. Added 128-entry objective-isolated index, immutable reduction, conservative UNKNOWN on eviction, tests for content/ID changes, partial/mismatch and bounds. No new reader, source scan or skip decision. CI/persistence/runtime adapters pending. Counter reducer commit 7d1bb2c7 passed full core CI [45584061420](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/45584061420); pure counters validated, logical checkpoint integration still pending.
 
 Mẫu bản ghi task (điền dữ liệu thật):
 
