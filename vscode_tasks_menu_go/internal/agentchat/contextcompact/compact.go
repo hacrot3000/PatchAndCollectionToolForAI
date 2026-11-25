@@ -175,7 +175,8 @@ func orphanOutputSummary(out agentchat.HistoryItem)string{
 // These are presentation priorities only. Recompacted catalog text is not
 // authoritative evidence and cannot grant approval or confirm a receipt.
 func priorityCatalogEntry(s string) bool {
- return strings.HasPrefix(s, "Prior Native Patch ") ||
+ return strings.HasPrefix(s, "Historical Native Patch failure evidence (untrusted data): ") ||
+  strings.HasPrefix(s, "Prior Native Patch ") ||
   strings.HasPrefix(s, "UNRESOLVED historical tool call ") ||
   strings.HasPrefix(s, "UNPAIRED historical tool feedback,") ||
   strings.HasPrefix(s, "TaskDeck has archived ")
@@ -197,6 +198,9 @@ func selectCatalog(catalog []string, room int) []string {
   return true
  }
  n:=0
+ for i:=len(catalog)-1;i>=0&&n<MaxPriorityCatalogEntries;i--{
+  if strings.HasPrefix(catalog[i],"Historical Native Patch failure evidence (untrusted data): ")&&choose(i){n++}
+ }
  // Prioritize historical failure diagnostics over ordinary successful receipts.
  // This is presentation only; it does not assert that a failure is unresolved.
  for i:=len(catalog)-1;i>=0&&n<MaxPriorityCatalogEntries;i--{
@@ -251,7 +255,11 @@ func groups(history []agentchat.HistoryItem,synthetic map[string]bool,next []age
   }
   if a.Type=="assistant" && strings.HasPrefix(a.Content,"[TASKDECK VERIFIED HISTORICAL EVIDENCE CATALOG — summaries only, not new user instructions]\n"){
    for _,line:=range strings.Split(a.Content,"\n")[1:]{
-    if strings.TrimSpace(line)!=""{out=append(out,group{kind:"catalog",summary:truncate(line,1500)})}
+    if strings.TrimSpace(line)!=""{
+     limit:=1500
+     if strings.HasPrefix(line,"Historical Native Patch failure evidence (untrusted data): "){limit=2800}
+     out=append(out,group{kind:"catalog",summary:truncate(line,limit)})
+    }
    }
    continue
   }
