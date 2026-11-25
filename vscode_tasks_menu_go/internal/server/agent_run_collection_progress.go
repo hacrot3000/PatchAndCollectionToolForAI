@@ -15,6 +15,7 @@ type runCollectionProgress struct{
  Version int `json:"version"`
  Counters cp.CounterState `json:"counters"`
  Evidence cp.EvidenceIndex `json:"evidence"`
+ Coverage *cp.CoverageIndex `json:"coverage,omitempty"`
  Decision cp.Decision `json:"decision"`
  LastHistorySize int `json:"last_history_size"`
 }
@@ -44,7 +45,7 @@ func readRunCollectionProgress(owner string,spec agentchat.RunSpec,inputs AgentR
  var g runCollectionProgress
  if len(raw)>96<<10||json.Unmarshal(raw,&g)!=nil||g.Version!=cp.Version||
   g.Counters.Version!=cp.Version||g.Counters.Objective!=binding||g.Evidence.ObjectiveKey!=binding.Key||
-  len(g.Evidence.Entries)>cp.MaxEvidenceEntries||g.LastHistorySize<1||
+  len(g.Evidence.Entries)>cp.MaxEvidenceEntries||(g.Coverage!=nil&&!cp.ValidateCoverage(*g.Coverage,binding))||g.LastHistorySize<1||
   g.LastHistorySize>len(inputs.Snapshot.History)||g.Counters.LastSequence!=uint64(g.LastHistorySize)*2-1||
   g.Counters.Observed>g.Counters.Requested||g.Counters.NativeReads>g.Counters.Observed||
   g.Counters.Progress.DuplicateStreak>g.Counters.NativeReads{
@@ -64,13 +65,13 @@ func runCollectionProgressUpdate(owner string,run agentrun.Record,inputs AgentRu
  for _,it:=range run.History[g.LastHistorySize:]{
   if it.Type=="function_call"&&it.Name=="taskdeck_submit_patch"{
    g.Evidence=cp.InvalidateEvidence(g.Evidence,false)
+   if g.Coverage!=nil{v:=cp.InvalidateCoverage(*g.Coverage,nil,false);g.Coverage=&v}
    g.Counters.Progress.DuplicateStreak=0
   }
  }
  novelty:=cp.UnknownNovelty
  if !native{novelty=cp.ObservationError}else if scope,err:=cp.BindCollectionScope(g.Counters.Objective,identity.Key,identity.ID,request,"");err==nil{
-  proof:=cp.InspectNativeEvidence(scope,identity.Key,identity.ID,request,receipt)
-  g.Evidence,novelty=cp.ObserveEvidence(g.Evidence,scope,proof)
+  g.Evidence,g.Coverage,novelty=cp.ObserveNativeRead(g.Evidence,g.Coverage,g.Counters.Objective,scope,identity.Key,identity.ID,request,receipt)
  }
  // Existing immutable snapshot is the observation commit boundary. The
  // stable sequence derives from canonical history position, not HTTP.

@@ -85,8 +85,7 @@ func legacyCollectionObserved(x *agentchat.Session,callID string,identity patcht
  }else if native{
   scope,err:=cp.BindCollectionScope(g.Counters.Objective,identity.Key,identity.ID,request,"")
   if err==nil{
-   evidence:=cp.InspectNativeEvidence(scope,identity.Key,identity.ID,request,raw)
-   g.Evidence,novelty=cp.ObserveEvidence(g.Evidence,scope,evidence)
+   g.Evidence,g.Coverage,novelty=cp.ObserveNativeRead(g.Evidence,g.Coverage,g.Counters.Objective,scope,identity.Key,identity.ID,request,raw)
   }
  }
  return reduceLegacyCollectionEvent(x,g,callID,cp.CollectionObserved,novelty,native,patchAvailable)

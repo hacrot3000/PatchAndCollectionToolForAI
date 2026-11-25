@@ -22,6 +22,7 @@ type CollectionGuardState struct {
  Policy cp.Policy `json:"policy"`
  Counters cp.CounterState `json:"counters"`
  Evidence cp.EvidenceIndex `json:"evidence"`
+ Coverage *cp.CoverageIndex `json:"coverage,omitempty"`
  Recovery cp.RecoveryState `json:"recovery"`
  Legacy LegacyCollectionSummary `json:"legacy"`
  AttemptRunID string `json:"attempt_run_id,omitempty"`
@@ -64,6 +65,7 @@ func (x Session) validCollectionGuard(g CollectionGuardState)bool{
  if (g.Counters.LastSequence==0&&g.Counters.LastEventDigest!="")||(g.Counters.LastSequence!=0&&!validGuardDigest(g.Counters.LastEventDigest)){return false}
  if len(g.AttemptRunID)>256||(g.AttemptRunID=="")!=(g.AttemptCursor==0)||g.AttemptCursor>1000000000{return false}
  c:=g.Counters
+ if g.Coverage!=nil&&!cp.ValidateCoverage(*g.Coverage,c.Objective){return false}
  if c.NativeReads>c.Observed||c.NewEvidence>c.Observed||c.DuplicateEvidence>c.Observed||
   c.UnknownEvidence>c.Observed||c.Errors>c.Observed||c.Progress.ReadsSinceProgress>c.NativeReads||
   c.Progress.DuplicateStreak>c.Progress.ReadsSinceProgress||c.ReadsSincePatchProposal>c.NativeReads||
@@ -210,6 +212,7 @@ func (x *Session) recordCollectionGuardPatchTransitions(previous Session){
  }
  if dirty{
   g.Evidence=cp.InvalidateEvidence(g.Evidence,false)
+  if g.Coverage!=nil{v:=cp.InvalidateCoverage(*g.Coverage,nil,false);g.Coverage=&v}
   // Earlier duplicate streak is not proof about source after a potential
   // mutation. Keep reads-since-meaningful-progress and recovery budget.
   g.Counters.Progress.DuplicateStreak=0
