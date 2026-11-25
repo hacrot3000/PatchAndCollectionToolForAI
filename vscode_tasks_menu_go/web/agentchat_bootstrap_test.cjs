@@ -424,6 +424,10 @@ assert.equal(automationGroup.open,true,'clicking Automation must open its dropdo
 assert.equal(conversationGroup.open,false,'only one header dropdown opens at a time');
 assert.ok(automationGroup.children[1].children.some(node=>node.textContent.startsWith('Auto apply Patch')),
  'Automation dropdown has actual settings');
+const automationToggle=automationGroup.children[1].children.find(node=>node.textContent.startsWith('Auto apply Patch'));
+for(const listener of automationGroup.children[1].listeners.click||[])listener({target:automationToggle});
+assert.equal(automationGroup.open,true,'Automation stays open when a toggle is clicked');
+assert.equal(automationGroup.children[0].attributes['aria-expanded'],'true');
 automationGroup.children[0].onclick({preventDefault(){}});
 assert.equal(automationGroup.open,false,'second click closes header dropdown');
 assert.ok(css.includes('.agentchat-toolbar-actions{display:flex;align-items:center;gap:4px;min-width:0;overflow:visible}'),

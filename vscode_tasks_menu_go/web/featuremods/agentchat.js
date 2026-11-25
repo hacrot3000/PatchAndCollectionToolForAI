@@ -2686,10 +2686,24 @@ function renderAgentAutomationControls(session){
  autoContinueText.textContent='Auto continue (no plan): '+(session?.auto_continue_text?'ON':'OFF');
  autoContinueText.setAttribute('aria-pressed',String(Boolean(session?.auto_continue_text)));
 }
-async function toggleAgentAutomation(option){
- if(!agentActive)throw new Error('Select a conversation first.');
- const session=await selectAgentSession(agentActive);
- if(!session)return;
+// Serialize preference clicks per conversation, independently of provider
+// requests and polling. A late click cannot mutate a different active tab.
+const agentAutomationWrites=new Map();
+function queueAgentAutomationWrite(action){
+ const id=agentActive;
+ if(!id)return Promise.reject(new Error('Select a conversation first.'));
+ const previous=agentAutomationWrites.get(id)||Promise.resolve();
+ const pending=previous.catch(()=>{}).then(()=>action(id));
+ agentAutomationWrites.set(id,pending);
+ return pending.finally(()=>{if(agentAutomationWrites.get(id)===pending)agentAutomationWrites.delete(id);});
+}
+function toggleAgentAutomation(option){
+ return queueAgentAutomationWrite(id=>writeAgentAutomation(id,option));
+}
+async function writeAgentAutomation(id,option){
+ const data=await agentApp.jsonFetch('/api/agent/sessions/'+encodeURIComponent(id));
+ const session=data.session;
+ if(!session||session.id!==id)throw new Error('Conversation unavailable.');
  const current=option==='patch'?Boolean(session.auto_patch):
   option==='collection'?session.auto_collection!==false:
   option==='continue'?Boolean(session.auto_continue_text):
@@ -2723,11 +2737,14 @@ function toggleAgentRetryMenu(force){
  retryMenu.classList.toggle('open',open);
  aiRetry.setAttribute('aria-expanded',String(open));
 }
-async function setAgentRetryMode(mode){
+function setAgentRetryMode(mode){
+ return queueAgentAutomationWrite(id=>writeAgentRetryMode(id,mode));
+}
+async function writeAgentRetryMode(id,mode){
  if(!['off','limited','unlimited'].includes(mode))throw new Error('Unknown AI retry mode');
- if(!agentActive)throw new Error('Select a conversation first.');
- const session=await selectAgentSession(agentActive);
- if(!session)return;
+ const data=await agentApp.jsonFetch('/api/agent/sessions/'+encodeURIComponent(id));
+ const session=data.session;
+ if(!session||session.id!==id)throw new Error('Conversation unavailable.');
  if((session.retry_mode||'off')===mode)return;
  if(mode!=='off'&&!window.confirm(
   'Enable '+(mode==='limited'?'up to 5 provider retries':'unlimited provider retries')+

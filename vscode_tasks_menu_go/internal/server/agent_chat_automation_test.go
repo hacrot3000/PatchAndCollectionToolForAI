@@ -11,6 +11,7 @@ import (
  "testing"
 
  "bletonfc/vscode_tasks_menu/internal/agentchat"
+ "bletonfc/vscode_tasks_menu/internal/patchtool"
 )
 
 func TestAgentAutomationOptionsPerConversation(t *testing.T) {
@@ -236,4 +237,35 @@ func TestAgentAutomationAndRetryCanChangeWhileTurnLocked(t *testing.T){
   t.Fatal("active turn overwrote newer Automation settings")
  }
  if saved.Status!="completed"||saved.History[len(saved.History)-1].Content!="completed response"{t.Fatal("metadata update lost response")}
+}
+
+
+// A provider callback represents a Thinking request whose turn lease is held.
+// Turning Collection OFF must prevent a newly proposed native read without
+// cancelling the already completed provider response or corrupting its CAS.
+func TestAgentAutomationCollectionRevokedDuringProviderRequest(t *testing.T){
+ s,id:=newAgentConversationFixture(t,"stateless")
+ store,err:=s.agentChatStore();if err!=nil{t.Fatal(err)}
+ x,err:=store.Get(id,"local");if err!=nil{t.Fatal(err)}
+ calls,reads:=0,0
+ s.AgentCollectionCall=func(_ string,_ patchtool.ProjectIdentity,_ []byte)string{
+  reads++
+  return `{"results":[{"type":"ls","entries":[]}]}`
+ }
+ s.AgentChatCall=func(_ context.Context,_ agentchat.ProviderConfig,_ string,_ []byte)(agentchat.ResponsesResult,error){
+  calls++
+  if calls!=1{t.Fatalf("unexpected provider call %d",calls)}
+  current,err:=store.Get(id,"local");if err!=nil{t.Fatal(err)}
+  w:=invokeAI(t,s.agentChatSessionItemAPI,http.MethodPost,"/api/agent/sessions/"+id+"/automation",map[string]any{
+   "option":"collection","enabled":false,"expected_revision":current.Revision})
+  if w.Code!=200{t.Fatalf("toggle while thinking failed: %d %s",w.Code,w.Body)}
+  return agentchat.ResponsesResult{ResponseID:"read-after-toggle",Calls:[]agentchat.FunctionCall{{
+   CallID:"disabled-read",Name:"taskdeck_collect_workspace",Arguments:`{"actions":[{"type":"ls","path":"."}]}`,
+  }}},nil
+ }
+ w:=invokeAI(t,s.agentChatSessionItemAPI,http.MethodPost,"/api/agent/sessions/"+id+"/messages",map[string]any{
+  "message":"Inspect project files","confirm_external":true,"expected_revision":x.Revision})
+ if w.Code!=200||calls!=1||reads!=0{t.Fatalf("revoked read executed or provider result lost: HTTP=%d calls=%d reads=%d body=%s",w.Code,calls,reads,w.Body)}
+ done,err:=store.Get(id,"local");if err!=nil{t.Fatal(err)}
+ if done.AutoCollection==nil||*done.AutoCollection||done.Status!="completed"{t.Fatal("live preference or final response lost")}
 }
