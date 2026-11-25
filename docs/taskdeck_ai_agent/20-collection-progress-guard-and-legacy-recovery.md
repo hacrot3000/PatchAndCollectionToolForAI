@@ -294,13 +294,13 @@ Không bỏ qua function output của call đã nhận. Nếu checkpoint trướ
 
 - [ ] **Phase gate** — `TODO`; chỉ đánh dấu khi tất cả task cấp 2 DONE và remote delivery đã xác minh.
 
-- [ ] **CLP-05.01 — Audit final payload budget** (`TODO`, P1)
+- [ ] **CLP-05.01 — Audit final payload budget** (`IN_PROGRESS`, P1)
   - Đo budget sau serialize thực tế: instructions, schema/tools, current receipt, mandatory user goal, history, reserved output/reasoning; phân biệt bytes và estimated tokens. Kiểm tra duplicate item giữa History/Next và legacy fallback prefix; dùng estimator/tokenizer phù hợp nếu có.
   - **Acceptance:** regression 304 KB→942 KB synthetic; tránh gửi duplicate tool pair; nếu mandatory input vượt giới hạn thì báo cụ thể, không âm thầm bỏ receipt; test cả Responses/Chat Completions, stateful rebase.
-    - [ ] **CLP-05.01.01** — Instrument final serialized payload bytes/estimated tokens và reserved output; breakdown theo input component. (`TODO`)
+    - [ ] **CLP-05.01.01** — Instrument final serialized payload bytes/estimated tokens và reserved output; breakdown theo input component. (`VERIFY_PENDING` — numeric measurement source and package CI 45607362484 PASS; Unified diagnostic parity pending)
     - [ ] **CLP-05.01.02** — Audit History/Next duplicate, schema overhead, initial pack và legacy fallback grouping. (`TODO`)
-    - [ ] **CLP-05.01.03** — Thêm final budget validation cho Responses/Chat Completions/rebase, explicit mandatory-overflow reason. (`TODO`)
-    - [ ] **CLP-05.01.04** — Test synthetic 304→942 KB, no duplicate pair, mandatory receipt intact và estimator error bounds. (`TODO`)
+    - [ ] **CLP-05.01.03** — Thêm final budget validation cho Responses/Chat Completions/rebase, explicit mandatory-overflow reason. (`VERIFY_PENDING` — Legacy final request builder and prior core CI 45607362484 PASS; named final-wire matrix added, pending)
+    - [ ] **CLP-05.01.04** — Test synthetic 304→942 KB, no duplicate pair, mandatory receipt intact và estimator error bounds. (`VERIFY_PENDING` — TestAgentCLP20FinalWirePreservesMandatoryReceipt added; actual tokenizer error bounds and full matrix pending)
 - [ ] **CLP-05.02 — Evidence catalog có ích cho bước tiếp theo** (`IN_PROGRESS`, P1)
   - Mở rộng compact catalog bounded: objective, canonical scope, coverage/status, hash/proof ref, exact missing scope, invalidation marker. Giữ current receipt byte-exact; prior PATCH metadata only; recent COLLECT theo budget. Đảm bảo legacy text fallback được phân loại đúng.
   - **Acceptance:** prior evidence có thể reuse không đọc lại toàn file, incomplete không thành success, old patch không resend source, no tool orphan; test compact/rebase nhiều ngày.
@@ -308,11 +308,11 @@ Không bỏ qua function output của call đã nhận. Nếu checkpoint trướ
     - [x] **CLP-05.02.02** — Giữ current receipt byte-exact, prior PATCH metadata-only, recent COLLECT theo budget. (`DONE` — existing receipt/provenance regression and new compact tests PASS in 45583866679)
     - [x] **CLP-05.02.03** — Nhận diện đúng legacy fallback prefix, orphan pairs và stale evidence; không mark incomplete success. (`DONE` — current/legacy text envelope, archive and orphan handling; core CI 45592717708 PASS)
     - [ ] **CLP-05.02.04** — Test long/multiday compact, rebase, catalog reuse và no lost user goal. (`VERIFY_PENDING` — 90 text fallback reads/archive and 20 large historical results budget tests PASS; full multiday matrix pending)
-- [ ] **CLP-05.03 — AI Pack/contract refresh cho conversation cũ** (`TODO`, P1)
+- [ ] **CLP-05.03 — AI Pack/contract refresh cho conversation cũ** (`IN_PROGRESS`, P1)
   - Version/fingerprint pack/schema; current trusted system/tool contract authoritative. Tách historical pack khỏi user intent, render compatibility summary/rebase tại request mới; không rewrite canonical history hoặc refresh nguyên pack mỗi lượt. Không silently regrant permission.
   - **Acceptance:** old AI Pack chứa schema cũ (`grep`/legacy forms) không lấn current contract; current user goal và attachments/evidence không mất; legacy conversation tiếp tục không cần tạo mới.
     - [ ] **CLP-05.03.01** — Version/fingerprint current contract và initial AI Pack; detect stale pack trong request projection. (`TODO`)
-    - [ ] **CLP-05.03.02** — Tách historical instructions khỏi user goal/attachments; current trusted schema authoritative. (`TODO`)
+    - [ ] **CLP-05.03.02** — Tách historical instructions khỏi user goal/attachments; current trusted schema authoritative. (`IN_PROGRESS` — explicit compatibility policy in current instructions; safe structural projection remains pending)
     - [ ] **CLP-05.03.03** — Render compatibility summary/rebase không rewrite journal, không resend full pack mỗi lượt hay regrant permission. (`TODO`)
     - [ ] **CLP-05.03.04** — Test old grep schema, legacy forms, stale stateful IDs và same conversation continuation. (`TODO`)
 - [ ] **CLP-05.04 — Budget-aware next COLLECT và preflight** (`TODO`, P1)
@@ -795,3 +795,5 @@ Incident: native run `1795598230725789_1225262`; historical diagnostics missing 
 - 2026-11-25: CLP-05.01/05.04/07.03: explicit UNKNOWN resume projection moves exact current saved native receipt plus matching call (or modern text fallback pair) into mandatory Next, removes only from private history projection, leaves canonical journal untouched. Structured context rejection preserves mandatory resume suffix across reductions; current fallback request kept with its output. Added 200KB resume and repeated structured-recovery fixtures. CI pending; no automatic replay or extra native access.
 
 - 2026-11-25: CLP-05.01/05.04 final request builder: validate serialized canonical and actual Chat Completions format before PREPARED in all three Legacy request paths; reserve current schema bytes during compact; try minimal optional history on local technical overflow, never cut mandatory Next or owner goal; diagnostic distinguishes local mandatory-context/format failure. Numeric-only per-attempt canonical/target template bytes, estimated input, output reservation, instructions/input/tools/other breakdown. No new estimator-based hard quota; configured/actual provider limits remain authoritative. Unified already validates target format/byte cap, shared diagnostics parity pending. CI pending.
+
+- 2026-11-25: resumed at 335d7c5b. Core CI 45607958751 failed in TestArchiveStandaloneContinuationsAtLegacyHistoryLimit because the synthetic fixture bypassed private store initialization (ENOENT); d2755766 initializes under Store.withLock without relaxing assertions. CI 45608372666 pending at this checkpoint. Prior core CI 45607362484 at 6ea2ac31 passed agentchat/agentrun race suites, named CLP20 resume and mandatory receipt recovery, all TestAgent and selected race tests, schema preflight, macOS compile and failed queue. Added direct final-wire synthetic ~942 KB history regression for Responses and Chat Completions, exact current receipt once, owner goal, technical overflow and no canonical mutation. Added current schema precedence warning for historical AI Pack and test; no new authority, no canonical rewrite. These new tests have not run yet. No checkbox elevated. Next: inspect CI, finish stale pack fingerprint/structural projection and Unified budget parity.
