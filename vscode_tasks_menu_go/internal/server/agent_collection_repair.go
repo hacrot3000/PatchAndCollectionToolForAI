@@ -8,6 +8,7 @@ import (
  "strings"
 
  "bletonfc/vscode_tasks_menu/internal/agentchat"
+ "bletonfc/vscode_tasks_menu/internal/agentchat/collectionprogress"
  "bletonfc/vscode_tasks_menu/internal/patchtool"
 )
 
@@ -76,21 +77,10 @@ func agentRunCollectionRepairCount(history []agentchat.HistoryItem,parent string
 // Ignore display-only request and action metadata, not scope, arguments,
 // limits, project identity or execution-affecting ai_context fields.
 func agentCollectionRequestFingerprint(raw []byte)string{
- var obj map[string]json.RawMessage
- if json.Unmarshal(raw,&obj)!=nil{return fmt.Sprintf("%x",sha256.Sum256(raw))}
- delete(obj,"id");delete(obj,"title")
- var actions []map[string]json.RawMessage
- if json.Unmarshal(obj["actions"],&actions)==nil{
-  for _,a:=range actions{delete(a,"id");delete(a,"title")}
-  b,_:=json.Marshal(actions);obj["actions"]=b
- }
- // Decode/re-encode nested objects to normalize key order and whitespace
- // without rounding numbers or changing array order.
- b,_:=json.Marshal(obj)
- dec:=json.NewDecoder(strings.NewReader(string(b)));dec.UseNumber()
- var value any
- if dec.Decode(&value)==nil{b,_=json.Marshal(value)}
- return fmt.Sprintf("%x",sha256.Sum256(b))
+ if digest,err:=collectionprogress.CanonicalRequestFingerprint(raw);err==nil{return digest}
+ // Uncanonicalizable requests retain an exact-byte identity for the
+ // existing repair path, not proof of reusable source coverage.
+ return fmt.Sprintf("%x",sha256.Sum256(raw))
 }
 
 func agentConsecutiveMatchingCollectionReads(history []agentchat.HistoryItem,call agentchat.HistoryItem,request []byte,identity patchtool.ProjectIdentity)int{
