@@ -130,7 +130,7 @@ func (s *Store) SetSegmentTaskPlanStepDone(
 }
 
 // SetSegmentTaskPlanStepDoneNative runs the server's authoritative native
-// Task / structured Go test verifier against the owner-scoped milestone
+// Task / structured Go test / run-qualified Collection verifier against the owner-scoped milestone
 // snapshot WHILE the journal CAS lock is held. The snapshot contains only
 // the target milestone, but retains its original plan creation timestamp,
 // owner/project and previously bound command and required Go tests. This
@@ -145,7 +145,8 @@ func (s *Store) SetSegmentTaskPlanStepDoneNative(
  id,owner string,expectedRevision uint64,stepID,kind,ref string,
  offset,limit int,verify func(Session)(TaskPlanEvidence,error),
 )(TaskPlanPageResult,error){
- if (kind!="task_run"&&kind!="go_test_case"&&kind!="go_test_suite")||verify==nil{
+ if (kind!="task_run"&&kind!="go_test_case"&&kind!="go_test_suite"&&
+  !(kind=="collection"&&strings.HasPrefix(ref,"run:")))||verify==nil{
   return TaskPlanPageResult{},ErrTaskPlanSegmentWriteUnsupported
  }
  return s.setSegmentTaskPlanStep(id,owner,expectedRevision,stepID,"done",kind,ref,"",
