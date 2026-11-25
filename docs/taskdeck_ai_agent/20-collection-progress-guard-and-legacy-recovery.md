@@ -692,6 +692,9 @@ CI 45601988008 reached named resume test after fixing CLP-10 imports. Old test e
 #### CLP-04.02 — Unified existing drain path: eliminate unverified skip
 Removed remaining request-shape skip in existing waiting-tool resolver. Every authorized valid read reaches the same native backend; no receipt rewritten on repeated request. Added four-read fixture asserting every distinct observation reaches exact pinned provider and canonical run history. No change to public creation fence, permissions, retry policy or scheduler. Shared immutable snapshot guard adapter remains pending. CI pending.
 
+#### CLP-00.03 — Reconcile pending admission fixture
+CI 45602516248: agentchat (including adaptive TTL concurrency), collectionprogress, contextcompact and named CLP20 incident/resume-restart passed. Full server regression reached TestAgentPendingAdmissionRejectsEffectiveModeDrift, but fixture had no history and was refused by independent first queued AI Pack fence. Seed previously admitted owner history to test the intended mode drift branch; preserve production fences. CI pending.
+
 ### 8.2. Blockers và quyết định (append)
 
 | ID | Task | Vấn đề / quyết định | Ảnh hưởng | Hành động tiếp theo | Trạng thái |
