@@ -165,3 +165,26 @@ func TestAgentFullHistoryUntilActualContextLimit(t *testing.T){
   })
  }
 }
+
+
+func TestAgentFullHistoryEpochMetadataOnlyAcrossPatchAndSoftBudget(t *testing.T){
+ x:=agentchat.Session{History:[]agentchat.HistoryItem{{Type:"user",Content:"owner goal"},{Type:"function_call",Name:"taskdeck_submit_patch",CallID:"patch",Arguments:`{"patch_python":"private source"}`},{Type:"function_call_output",CallID:"patch",Content:strings.Repeat("private receipt ",1000)}}}
+ p:=agentchat.ProviderConfig{APIType:"responses",ID:"gateway"}
+ model:=agentchat.ModelConfig{MaxInputTokens:1024}
+ c:=agentchat.RequestConfig{Model:"m",Mode:agentchat.Stateless,Instructions:"trusted policy",Next:[]agentchat.HistoryItem{{Type:"user",Content:"continue"}}}
+ first,old,_,err:=agentBuildContextEpoch(x,model,p,c,nil,true)
+ if err!=nil||old==nil||len(old.Visible)!=0||old.VisibleCount!=4{t.Fatalf("metadata checkpoint: %+v %v",old,err)}
+ if !strings.Contains(string(first),"private receipt"){t.Fatal("full history changed")}
+ x.History=append(x.History,c.Next...)
+ x.History[len(x.History)-1].RequestAt="2026-11-26T00:00:00Z"
+ x.History=append(x.History,agentchat.HistoryItem{Type:"assistant",Content:"answer"})
+ c.Next=[]agentchat.HistoryItem{{Type:"user",Content:"continue again"}}
+ second,next,why,err:=agentBuildContextEpoch(x,model,p,c,old,true)
+ if err!=nil||next==nil||next.ID!=old.ID||why!="append_only"||len(next.Visible)!=0{t.Fatalf("full history epoch: %s %+v %v",why,next,err)}
+ var a,b struct{Input []json.RawMessage}
+ if json.Unmarshal(first,&a)!=nil||json.Unmarshal(second,&b)!=nil||len(b.Input)!=len(a.Input)+2{t.Fatal("full history growth")}
+ for i:=range a.Input{if string(a.Input[i])!=string(b.Input[i]){t.Fatal("actual wire prefix changed")}}
+ x.History[2].Content="different receipt"
+ _,next,why,err=agentBuildContextEpoch(x,model,p,c,old,true)
+ if err!=nil||next==nil||next.ID==old.ID||why!="full_history"{t.Fatal("changed receipt retained old diagnostic epoch")}
+}

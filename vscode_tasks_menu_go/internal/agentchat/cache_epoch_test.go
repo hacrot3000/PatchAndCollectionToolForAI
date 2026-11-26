@@ -59,3 +59,18 @@ func TestCacheEpochInvalidationExactSendingRun(t *testing.T){
  if got,err:=s.ReadCacheEpoch(x.ID,x.Owner,x.Revision);err!=nil||got!=nil{t.Fatal("rewritten retry kept old checkpoint")}
  current,err:=s.Get(x.ID,x.Owner);if err!=nil||current.Revision!=x.Revision||current.ProviderRun.PayloadSHA256!=x.ProviderRun.PayloadSHA256||current.ProviderRun.Phase!="sending"{t.Fatal("canonical journal changed")}
 }
+
+
+func TestFullHistoryMetadataEpochStoreNeverContainsSource(t *testing.T){
+ s,err:=NewStore(filepath.Join(t.TempDir(),"private"));if err!=nil{t.Fatal(err)}
+ x,err:=NewSession("local","/project","project-id","gateway","m",Stateless);if err!=nil{t.Fatal(err)}
+ x,err=s.Save(x,0);if err!=nil{t.Fatal(err)}
+ d:=BodyDigest([]byte("private source"))
+ e:=&CacheEpoch{ID:d,Scope:d,SourceCount:1,SourceDigest:d,VisibleCount:1,VisibleDigest:d}
+ if err=s.WriteCacheEpoch(x.ID,x.Owner,x.Revision,e);err!=nil{t.Fatal(err)}
+ raw,err:=os.ReadFile(s.cacheEpochPath(x.ID));if err!=nil||len(raw)>1024{t.Fatalf("metadata size: %d %v",len(raw),err)}
+ s,err=NewStore(s.dir);if err!=nil{t.Fatal(err)}
+ got,err:=s.ReadCacheEpoch(x.ID,x.Owner,x.Revision);if err!=nil||got==nil||got.VisibleDigest!=d||len(got.Visible)!=0{t.Fatal("metadata restart failed")}
+ e.Visible=[]HistoryItem{{Type:"user",Content:"private source"}}
+ if err=s.WriteCacheEpoch(x.ID,x.Owner,x.Revision,e);err==nil{t.Fatal("mixed raw+metadata checkpoint accepted")}
+}

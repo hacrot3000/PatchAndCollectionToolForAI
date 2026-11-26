@@ -73,3 +73,22 @@ func TestCacheEpochArchiveAndMultiplePendingReceiptsRebuild(t *testing.T){
  // Archived evidence catalog is inserted before the first pending call.
  if len(projected)<3||projected[len(projected)-2]!=a||projected[len(projected)-1]!=b{t.Fatalf("pending calls split by catalog: %+v",projected)}
 }
+
+
+func TestFullHistoryMetadataEpochCannotSupplyReplay(t *testing.T){
+ goal:=agentchat.HistoryItem{Type:"user",Content:"Original task"}
+ p:=Policy{MaxInputTokens:20,Instructions:"trusted",Next:[]agentchat.HistoryItem{{Type:"user",Content:"continue"}}}
+ scope:=agentchat.BodyDigest([]byte("scope"))
+ history:=[]agentchat.HistoryItem{goal}
+ old,why:=FullHistoryCacheEpoch(history,history,p,scope,nil)
+ if old==nil||why!="full_history"||len(old.Visible)!=0||old.VisibleCount!=2{t.Fatal("metadata-only epoch missing")}
+ h:=append(append([]agentchat.HistoryItem(nil),history...),p.Next...)
+ h[1].RequestInputTokens=100
+ p.Next=[]agentchat.HistoryItem{{Type:"user",Content:"next"}}
+ next,why:=FullHistoryCacheEpoch(h,h,p,scope,old)
+ if next==nil||next.ID!=old.ID||why!="append_only"{t.Fatal("display metadata or soft limit invalidated actual prefix")}
+ if _,_,ok:=ReuseCacheEpoch(h,p,scope,next);ok{t.Fatal("metadata-only record admitted to replay")}
+ modified:=append([]agentchat.HistoryItem(nil),h...);modified[0].OriginRunID="different-origin"
+ changed,why:=FullHistoryCacheEpoch(modified,modified,p,scope,old)
+ if changed==nil||changed.ID==old.ID||why!="full_history"{t.Fatal("source provenance change accepted")}
+}
