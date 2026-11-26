@@ -283,7 +283,7 @@ func (a ConfiguredProviderAdapter) invokeWithRetry(ctx context.Context, spec Run
 				}
 			}
 		}
-		if err == nil || spec.RetryMode==RetryOff || (spec.RetryMode==RetryLimited && attempt>=6) {
+		if err == nil || errors.Is(err,context.Canceled) || (spec.RetryMode!=RetryLimited && spec.RetryMode!=RetryUnlimited) || (spec.RetryMode==RetryLimited && attempt>=6) {
 			return result, streamedText, publishedCalls, err
 		}
 		outcome := ClassifyProviderAttemptOutcome(ctx.Err(), err)

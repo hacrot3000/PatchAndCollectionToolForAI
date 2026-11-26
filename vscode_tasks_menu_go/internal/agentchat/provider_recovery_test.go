@@ -38,6 +38,7 @@ func TestConfiguredAdapterCLP20BoundedRecovery(t *testing.T){
    {"progressive",RetryUnlimited,65536,[]*ProviderError{contextErr,contextErr,contextErr},[]int{65536,32768,16384,8192},true},
    {"bounded",RetryUnlimited,65536,[]*ProviderError{contextErr,contextErr,contextErr,contextErr},[]int{65536,32768,16384,8192},false},
    {"off",RetryOff,65536,[]*ProviderError{contextErr},[]int{65536},false},
+   {"unset_mode","",65536,[]*ProviderError{contextErr},[]int{65536},false},
    {"minimum",RetryUnlimited,8192,[]*ProviderError{contextErr},[]int{8192},false},
    {"generic",RetryUnlimited,65536,[]*ProviderError{generic},[]int{65536},false},
    {"ambiguous",RetryUnlimited,65536,[]*ProviderError{ambiguous},[]int{65536},false},
