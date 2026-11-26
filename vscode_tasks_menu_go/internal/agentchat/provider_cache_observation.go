@@ -30,10 +30,11 @@ func cacheSnapshot(api string,payload []byte)(cachePrefixSnapshot,error){
   Tools json.RawMessage `json:"tools"`
   Input []json.RawMessage `json:"input"`
   Previous string `json:"previous_response_id"`
-  Conversation string `json:"conversation"`
+  Conversation json.RawMessage `json:"conversation"`
+  Store bool `json:"store"`
  }
  if json.Unmarshal(payload,&m)!=nil||len(m.Input)>maxItems||len(m.Instructions)==0{return out,ErrInvalidSession}
- out.Stateful=m.Previous!=""||m.Conversation!=""
+ out.Stateful=m.Previous!=""||(len(m.Conversation)>0&&string(m.Conversation)!="null"&&string(m.Conversation)!=`""`)||m.Store
  if api=="chat_completions"{
   wire,e:=BuildChatCompletionsRequest(payload);if e!=nil{return out,e}
   var chat struct{Messages []json.RawMessage `json:"messages"`;Tools json.RawMessage `json:"tools"`}
@@ -67,6 +68,8 @@ type cacheObservation struct{
  Misses uint64 `json:"misses"`
  ReadTokens uint64 `json:"read_tokens"`
  WriteTokens uint64 `json:"write_tokens"`
+ WriteReported uint64 `json:"write_reported"`
+ TokenSamples []cacheTokenSample `json:"token_samples,omitempty"`
  ComparableRead uint64 `json:"comparable_read"`
  ComparableInput uint64 `json:"comparable_input"`
 }
@@ -87,21 +90,22 @@ func(s *Store)RecordCacheObservation(id,owner string,p ProviderConfig,credential
   if x.Owner!=owner||!s.matchesProject(x){return ErrNotFound}
   if x.ProviderRun==nil||x.ProviderRun.Phase!="sending"||x.Status!="requesting_ai"{return ErrInvalidSession}
   model,ok:=p.FindModel(wire.Model);if !ok{return ErrInvalidSession}
-  scope:=BodyDigest([]byte(ProviderAffinityKey(x,p,wire.Model)+"\x00"+RunProviderConfigVersion(p,model)+"\x00"+RunCredentialFingerprint([]byte(credential))))
+  scope:=cacheObservationScope(x,p,model,credential)
   binding:=cacheEpochBinding(x)
-  cur:=cacheObservation{Version:1,Binding:binding,Scope:scope}
+  cur:=cacheObservation{Version:2,Binding:binding,Scope:scope}
   path:=s.cacheObservationPath(id)
   if fi,e:=os.Lstat(path);e==nil{
    if !fi.Mode().IsRegular()||fi.Mode().Perm()&0077!=0||fi.Size()>maxCacheObservationBytes{return ErrInvalidSession}
    raw,e:=os.ReadFile(path);if e!=nil{return e}
    var old cacheObservation
-   if len(raw)<=maxCacheObservationBytes&&json.Unmarshal(raw,&old)==nil&&old.Version==1&&old.Binding==binding&&old.Scope==scope&&len(old.Prefix.Input)<=maxItems&&old.Attempts<1000000000&&old.Successes<=old.Attempts&&old.Reported<=old.Successes&&old.Misses<=old.Reported&&old.ComparableRead<=old.ComparableInput&&old.ComparableInput<=1000000000000000000&&old.ReadTokens<=1000000000000000000&&old.WriteTokens<=1000000000000000000&&!old.At.After(at){cur=old}
+   if len(raw)<=maxCacheObservationBytes&&json.Unmarshal(raw,&old)==nil&&old.Version==2&&old.Binding==binding&&old.Scope==scope&&len(old.Prefix.Input)<=maxItems&&old.Attempts<1000000000&&old.Successes<=old.Attempts&&old.Reported<=old.Successes&&old.WriteReported<=old.Successes&&len(old.TokenSamples)<=maxCacheTokenSamples&&old.Misses<=old.Reported&&old.ComparableRead<=old.ComparableInput&&old.ComparableInput<=1000000000000000000&&old.ReadTokens<=1000000000000000000&&old.WriteTokens<=1000000000000000000&&!old.At.After(at){cur=old}
   }else if !os.IsNotExist(e){return e}
   reason:="cold_or_scope_changed";bytes,n:=0,0;gap:="unreported"
   if cur.Attempts>0{
    bytes,n,reason=compareCacheSnapshots(cur.Prefix,snapshot)
    gap=fmt.Sprintf("%.1fs",at.Sub(cur.At).Seconds())
   }
+  cur.TokenSamples=updateCacheTokenSamples(cur.TokenSamples,cur.Prefix,snapshot,measurement.WireBytes,input,usage,success,at)
   cur.At=at;cur.Prefix=snapshot;cur.Attempts++
   if success{
    cur.Successes++
@@ -109,12 +113,15 @@ func(s *Store)RecordCacheObservation(id,owner string,p ProviderConfig,credential
     cur.Reported++;cur.ReadTokens+=uint64(*usage.ReadTokens);if *usage.ReadTokens==0{cur.Misses++}
     if usage.ComparableTotal&&input>0&&input<=1000000000&&*usage.ReadTokens<=input{cur.ComparableRead+=uint64(*usage.ReadTokens);cur.ComparableInput+=uint64(input)}
    }
-   if validReportedTokenCount(usage.WriteTokens){cur.WriteTokens+=uint64(*usage.WriteTokens)}
+   if validReportedTokenCount(usage.WriteTokens){cur.WriteReported++;cur.WriteTokens+=uint64(*usage.WriteTokens)}
   }
   hit:="unreported";if cur.ComparableInput>0{hit=fmt.Sprintf("%.1f%%",100*float64(cur.ComparableRead)/float64(cur.ComparableInput))}
   ratio:="unreported";if input>0&&input<=1000000000&&success&&!snapshot.Stateful{ratio=fmt.Sprintf("%.2f",float64(measurement.WireBytes)/float64(input))}
   detail=fmt.Sprintf("reason=%s; instructions_digest=%s; tools_digest=%s; common_prefix_segment_bytes=%d; common_input_items=%d; previous_attempt_gap=%s; provider_input_tokens=%d; measured_wire_bytes_per_input_token=%s",reason,snapshot.Instructions.Digest,snapshot.Tools.Digest,bytes,n,gap,input,ratio)
-  stats=fmt.Sprintf("scope attempts=%d; success=%d; read_reported=%d; zero_read=%d; reported_cache_read_total=%d; reported_cache_write_total=%d; comparable_weighted_hit=%s",cur.Attempts,cur.Successes,cur.Reported,cur.Misses,cur.ReadTokens,cur.WriteTokens,hit)
+  writeTotal:="unreported";if cur.WriteReported>0{writeTotal=fmt.Sprint(cur.WriteTokens)}
+  stats=fmt.Sprintf("scope attempts=%d; success=%d; read_reported=%d; zero_read=%d; reported_cache_read_total=%d; write_reported=%d; reported_cache_write_total=%s; comparable_weighted_hit=%s",cur.Attempts,cur.Successes,cur.Reported,cur.Misses,cur.ReadTokens,cur.WriteReported,writeTotal,hit)
+  detail+=fmt.Sprintf("; token_samples=%d",len(cur.TokenSamples))
+  if estimate,ok:=learnedCacheEstimate(cur.TokenSamples,measurement.WireBytes,at);ok{detail+=fmt.Sprintf("; learned_input_estimate=%d",estimate)}
   data,e:=json.Marshal(cur);if e!=nil{return e};if len(data)>maxCacheObservationBytes{return ErrInvalidSession}
   tmp,e:=os.CreateTemp(s.dir,".agent-cache-observation-*");if e!=nil{return e}
   defer os.Remove(tmp.Name());defer tmp.Close()

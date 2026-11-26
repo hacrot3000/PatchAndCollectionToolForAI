@@ -321,7 +321,7 @@ func (s *Server) agentDeliverToolResult(ctx context.Context, store *agentchat.St
 	conversationID := x.ConversationID
 	contextModel := model
 	if mode==agentchat.Stateless{contextModel,limit=agentAdaptiveRequestBudget(store,x,p,model,string(secret),limit)}
-	payload, err := s.agentBuildCachedContextRequest(store,failureProjection,contextModel,p,agentchat.RequestConfig{
+	payload, err := s.agentBuildCachedContextRequest(store,failureProjection,contextModel,p,string(secret),agentchat.RequestConfig{
 		Model: x.ModelID, Instructions: instructions, CurrentInstructions: currentInstructions,
 		Mode: mode, PreviousResponseID: x.PreviousResponseID, ConversationID: conversationID,
 		Next: next,
