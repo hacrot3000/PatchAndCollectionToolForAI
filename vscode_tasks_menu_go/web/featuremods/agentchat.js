@@ -698,20 +698,44 @@ let agentProviders=[],agentSessions=[],agentActive=null,agentBusy=false,agentAbo
 // still be opened/read while one provider turn is pending.
 const agentBusySessions=new Set();
 function agentSessionBusy(id){return Boolean(id&&agentBusySessions.has(id));}
+// Legacy owns ordinary sends; a provider selector's canSend() is not
+// permission to start a concurrent turn.
+function agentServerTurnBusy(session){
+ return ['requesting_ai','tool_queuing'].includes(session?.status);
+}
+function agentUpdateSendAvailability(session){
+ const busy=agentSessionBusy(session?.id)||agentServerTurnBusy(session);
+ send.disabled=busy;
+ cancel.disabled=!agentSessionBusy(session?.id)&&session?.status!=='requesting_ai'&&!agentCanStopNative(session);
+}
+function agentTurnAdmissionBusy(error){
+ const status=Number(error?.httpStatus||0);
+ const message=String(error?.message||error).trim();
+ return (!status||status===409)&&/^(?:another model turn is running in this session|Agent (?:conversation|session) is busy|conversation is busy; queued turn handoff is unavailable; retry after the active turn finishes|Conversation is busy\. Retry after the active turn finishes; your draft is preserved\.)$/i.test(message);
+}
+function agentDiscardRefusedTurn(id,turn){
+ if(agentLiveTurns.get(id)!==turn)return;
+ if(turn.optimisticNode)turn.optimisticNode.remove();
+ agentLiveTurns.delete(id);
+}
 function markAgentSessionBusy(id,busy){
  if(!id)return;
  if(busy)agentBusySessions.add(id);else agentBusySessions.delete(id);
  if(id===agentActive){
-  send.disabled=busy&&!agentRunUI?.canSend();newChat.disabled=busy;rename.disabled=busy;archive.disabled=busy;
-  cancel.disabled=!busy&&!agentCanStopNative(agentCurrentSession);updateAgentModels();
+  agentUpdateSendAvailability(agentCurrentSession);newChat.disabled=busy;rename.disabled=busy;archive.disabled=busy;
+  updateAgentModels();
  }
 }
 let agentMonitorTimer=0,agentMonitorGeneration=0;
 function showAgentError(error){
  let message=String(error?.message||error);
  try{const parsed=JSON.parse(message);const detail=parsed?.error;if(detail)message='FAILED · '+String(detail.code||'UNKNOWN')+' · '+String(detail.stage||'unknown stage')+' · '+String(detail.message||'No safe provider message')+(detail.http_status?' · HTTP '+detail.http_status:'')+(detail.trace_id?' · Trace '+detail.trace_id:'')+(detail.ambiguous?' · outcome may be ambiguous':'');}catch{}
- setAgentStatusNotice('Error: '+message);
- settingsStatus.textContent='Error: '+message;
+ if(agentTurnAdmissionBusy(error)){
+  setAgentStatusNotice('Another AI request is active · this action was not admitted. Your message draft is retained.');
+ }else{
+  setAgentStatusNotice('Error: '+message);
+  settingsStatus.textContent='Error: '+message;
+ }
  agentDebugClientErrors.push({at:new Date().toISOString(),message:message.slice(0,2000),session_id:agentActive||null});
  if(agentDebugClientErrors.length>64)agentDebugClientErrors.shift();
  if(agentDebugView==='debug')loadAgentDebugReport().catch(()=>{});
@@ -1455,7 +1479,9 @@ function agentLivePhase(session){
  const turn=agentLiveTurns.get(session.id);
  const lastCall=(session.tool_calls||[]).slice(-1)[0];
  const events=session.events||[];
- const newer=turn?events.filter(e=>Number(e.seq||0)>turn.baseEventSeq):events;
+ // A refused/failed local action is not the owner of the server turn.
+ // Use the canonical event tail to describe a request started elsewhere.
+ const newer=turn&&!turn.error?events.filter(e=>Number(e.seq||0)>turn.baseEventSeq):events;
  const lastEvent=newer.length?newer[newer.length-1]:null;
  const retry=session.retry_runtime;
  if(retry?.phase==='waiting'){
@@ -1469,6 +1495,16 @@ function agentLivePhase(session){
   return {message:'Retrying AI request · attempt '+retry.attempt+
    (retry.mode==='unlimited'?' (unlimited)':' / 6 total attempts')+'…'};
  }
+ if(session.status==='requesting_ai'){
+  if(!turn?.error&&turn?.phase==='sending'&&!turn.acknowledged&&!newer.some(e=>e.kind==='turn_started'||e.kind==='feedback_prepared'||e.kind==='provider_egress'))return {message:'Sending request…'};
+  if(lastEvent?.kind==='collect_started')return {message:'Running native Patch Tool COLLECT… large-file extraction in progress. Stop to cancel.'};
+  if(lastEvent?.kind==='collect_observed')return {message:'Sending Collection result to AI…'};
+  if(lastEvent?.kind==='feedback_prepared')return {message:'Sending native Patch result to AI…'};
+  if(lastCall?.feedback_status==='sending'||lastCall?.feedback_status==='prepared')return {message:'Sending native Patch result to AI…'};
+  return {message:'Thinking…'};
+ }
+ if(session.status==='tool_queuing'||lastCall?.status==='queuing')return {message:'Submitting approved Patch to native queue…'};
+ if(['queued','dispatching','running'].includes(lastCall?.status))return {message:'Running native Patch…'};
  if(turn?.error){
   const persistedError=(session.events||[]).some(e=>Number(e.seq||0)>turn.baseEventSeq&&
    ['turn_failed','collect_failed','turn_cancelled','feedback_unknown'].includes(e.kind));
@@ -1476,18 +1512,8 @@ function agentLivePhase(session){
  }
  if(session.status==='failed')return null; // durable failure row in history
  if(session.status==='cancelled')return null;
- if(session.status==='requesting_ai'){
-  if(turn?.phase==='sending'&&!newer.some(e=>e.kind==='turn_started'||e.kind==='feedback_prepared'))return {message:'Sending request…'};
-  if(lastEvent?.kind==='collect_started')return {message:'Running native Patch Tool COLLECT… large-file extraction in progress. Stop to cancel.'};
-  if(lastEvent?.kind==='collect_observed')return {message:'Sending Collection result to AI…'};
-  if(lastEvent?.kind==='feedback_prepared')return {message:'Sending native Patch result to AI…'};
-  if(lastCall?.feedback_status==='sending'||lastCall?.feedback_status==='prepared')return {message:'Sending native Patch result to AI…'};
-  return {message:'Thinking…'};
- }
- if(turn?.phase==='feedback'&&!turn.acknowledged)return {message:'Sending native Patch result to AI…'};
- if(turn?.phase==='sending'&&!turn.acknowledged)return {message:'Sending request…'};
- if(session.status==='tool_queuing'||lastCall?.status==='queuing')return {message:'Submitting approved Patch to native queue…'};
- if(['queued','dispatching','running'].includes(lastCall?.status))return {message:'Running native Patch…'};
+ if(turn?.phase==='feedback'&&!turn.acknowledged&&!turn.error)return {message:'Sending native Patch result to AI…'};
+ if(turn?.phase==='sending'&&!turn.acknowledged&&!turn.error)return {message:'Sending request…'};
  if(session.status==='waiting_tool'&&lastCall?.status==='pending'&&(session.auto_patch||lastCall.auto_run_once)){
   if(lastCall.manual_retry_only)return {message:'Patch requires manual approval · no automatic dispatch'};
   const blocked=[...(session.events||[])].reverse().find(e=>e.kind==='tool_auto_patch_blocked'&&e.call_id===lastCall.call_id);
@@ -2017,8 +2043,7 @@ async function selectAgentSession(id){
   }catch(error){setAgentStatusNotice('Pending attachments need room: '+String(error?.message||error));}
  }
  renderAgentAutomationControls(sess);
- send.disabled=(agentSessionBusy(id)||(sess.status==='requesting_ai'))&&!agentRunUI?.canSend();
- cancel.disabled=!agentSessionBusy(id)&&sess.status!=='requesting_ai'&&!agentCanStopNative(sess);
+ agentUpdateSendAvailability(sess);
  const summary=agentSessions.find(x=>x.id===id);
  if(summary){
   summary.status=sess.status;
@@ -2189,6 +2214,7 @@ async function continueAgentTool(session,callID){
   return result;
  }catch(error){
   turn.error=String(error?.message||error).slice(0,450);
+  if(agentTurnAdmissionBusy(error))agentDiscardRefusedTurn(session.id,turn);
   if(agentActive===session.id){
    try{await selectAgentSession(session.id);}catch{}
    if(agentCurrentSession?.id===session.id)agentUpdateLiveRow(agentCurrentSession);
@@ -2275,7 +2301,7 @@ async function sendAgentMessage(resumeCollectionRunID=""){
  // Legacy has one admitted turn per conversation. Pending-turn dispatch is
  // fail-closed. Do not replace its AbortController, live row or polling
  // ownership with a second optimistic send while Run Manager is drain-only.
- if(agentBusySessions.has(sessionID)||current.status==='requesting_ai'||current.status==='tool_queuing')
+ if(agentBusySessions.has(sessionID)||agentServerTurnBusy(current))
   throw new Error('Conversation is busy. Retry after the active turn finishes; your draft is preserved.');
  const canStartAgentRun=Boolean(agentRunUI?.canSend());
  const nextProvider=canStartAgentRun?agentRunUI.value():{providerId:providerSelect.value||current.provider_id,modelId:modelSelect.value||current.model_id};
@@ -2380,7 +2406,10 @@ const useRunManager=false;
   return response;
  }catch(error){
   turn.error=String(error?.message||error).slice(0,450);
-  if(turn.optimisticNode)turn.optimisticNode.append(agentEl('div','agentchat-info','(Not confirmed sent)'));
+  // A confirmed admission refusal never reached the provider. Keep the
+  // draft, not a misleading failed bubble or a competing live status.
+  if(agentTurnAdmissionBusy(error))agentDiscardRefusedTurn(sessionID,turn);
+  else if(turn.optimisticNode)turn.optimisticNode.append(agentEl('div','agentchat-info','(Not confirmed sent)'));
   agentAttachmentDrafts.set(sessionID,attachments);
   if(agentActive===sessionID){
    if(!prompt.value.trim())setAgentPromptValue(msg);

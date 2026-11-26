@@ -1179,6 +1179,41 @@ console.log('PASS: safe Markdown, syntax-highlighted PHP/Python, per-block Copy,
     'journal polling must not repeat the same failure event');
   console.log('PASS: optimistic user send, Sending→Thinking→Collection progress, tool history and durable failure');
 
+  // A second manual Send can race server-owned Auto Continue. A 409 from
+  // that action must not replace the live request with a red failure row.
+  context.flowSession={...baseFlow,status:'ready',revision:6,event_seq:5,history:[{type:'user',content:'Original task'}]};
+  vm.runInNewContext("displayAgentSession(flowSession);prompt.value='Manual instruction';",context);
+  const beforeRefusal=transcript.children.length;
+  context.TaskMenuApp.jsonFetch=async(url)=>{
+    if(url.endsWith('/messages')){
+      context.flowSession={...context.flowSession,status:'requesting_ai',revision:7,event_seq:7,
+        history:[...context.flowSession.history,{type:'user',content:'Auto Continue'}],
+        events:[{seq:6,kind:'turn_started',status:'requesting_ai'},{seq:7,kind:'provider_egress',status:'requesting_ai'}]};
+      const e=new Error('another model turn is running in this session');e.httpStatus=409;throw e;
+    }
+    if(url.endsWith('/sessions/natural-flow'))return {session:context.flowSession,patch_tool_status:'enabled'};
+    throw Error('unexpected admission test '+url);
+  };
+  await assert.rejects(vm.runInNewContext('sendAgentMessage()',context),/another model turn/);
+  assert.equal(vm.runInNewContext('prompt.value',context),'Manual instruction','refused message remains a draft');
+  assert.equal(vm.runInNewContext("agentLiveTurns.has('natural-flow')",context),false,'refused action must not own the live row');
+  assert.equal(liveLine.className,'agentchat-live-status');
+  assert.equal(liveLine.children[1].textContent,'Thinking…');
+  assert.equal(vm.runInNewContext('send.disabled',context),true,'finally must not enable Send while server still works');
+  assert.equal(vm.runInNewContext('cancel.disabled',context),false,'Cancel remains available for server-owned request');
+  assert.ok(!nodeText(transcript).includes('Not confirmed sent'),'confirmed refusal is not a chat message');
+  // A real transport error is still visible when no other request runs.
+  vm.runInNewContext("agentLiveTurns.set('natural-flow',{error:'network unavailable',phase:'sending',baseEventSeq:7})",context);
+  assert.equal(vm.runInNewContext('agentLivePhase(flowSession).message',context),'Thinking…','server activity takes precedence even for an ambiguous local failure');
+  assert.equal(vm.runInNewContext("agentLivePhase({...flowSession,status:'ready'}).error",context),true,'idle transport failure is not hidden');
+  assert.equal(vm.runInNewContext("agentTurnAdmissionBusy({httpStatus:409,message:'unrelated revision conflict'})",context),false);
+  vm.runInNewContext("agentLiveTurns.clear();prompt.value='';agentDrafts.delete('natural-flow');",context);
+  context.flowSession={...context.flowSession,status:'completed',revision:8,event_seq:8};
+  vm.runInNewContext('displayAgentSession(flowSession);markAgentSessionBusy(flowSession.id,false)',context);
+  assert.equal(vm.runInNewContext('send.disabled',context),false);
+  assert.equal(transcript.children.filter(n=>n.className.startsWith('agentchat-live-status')).length,0,'completion removes stale live status');
+  console.log('PASS: concurrent Auto Continue admission refusal preserves draft and canonical Thinking status');
+
   // Sending a verified Patch result has the same one-row transition behavior.
   // The actual output and next AI reply remain in persisted history.
   const pendingFeedback={...baseFlow,status:'waiting_tool',revision:12,event_seq:9,
