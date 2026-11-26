@@ -201,18 +201,20 @@ func (a ConfiguredProviderAdapter) Execute(ctx context.Context, spec RunSpec, hi
 
 func (a ConfiguredProviderAdapter) invokeWithRetry(ctx context.Context, spec RunSpec, resolved ResolvedProvider, payload []byte, sink EventSink) (ResponsesResult, bool, map[string]bool, error) {
 	attempt := 1
-	// Every transport retry in Unified uses these same canonical bytes.
-	// Measurement failure must not change the retry policy of an injected
-	// builder; the production canonical builder validates before egress.
-	measurement, _ := MeasureProviderPayload(resolved.Config.APIType, payload)
-	digest := BodyDigest(payload)
+	// Transport retries keep the exact canonical bytes. Only a structured
+	// context rejection or explicit output exhaustion may adapt the request.
+	contextRecoveries:=0
+	incompleteRecoverySent:=false
 	stagnant := 0
+	lastFailedDigest:=""
 	for {
 		// Stop or daemon shutdown must win even if an injected wait or
 		// provider transport returns a stale success after cancellation.
 		if err := ctx.Err(); err != nil {
 			return ResponsesResult{}, false, nil, err
 		}
+		measurement, _ := MeasureProviderPayload(resolved.Config.APIType, payload)
+		digest := BodyDigest(payload)
 		requestTimeout := a.RequestTimeout
 		if requestTimeout <= 0 {
 			requestTimeout = 600 * time.Second
@@ -281,15 +283,44 @@ func (a ConfiguredProviderAdapter) invokeWithRetry(ctx context.Context, spec Run
 				}
 			}
 		}
-		if err == nil || !runProviderRetryAllowed(spec.RetryMode, attempt, err) {
+		if err == nil || spec.RetryMode==RetryOff || (spec.RetryMode==RetryLimited && attempt>=6) {
 			return result, streamedText, publishedCalls, err
 		}
 		outcome := ClassifyProviderAttemptOutcome(ctx.Err(), err)
 		if outcome.StagnantTransport() {
-			stagnant++
+			if lastFailedDigest==digest{stagnant++}else{stagnant=1;lastFailedDigest=digest}
 		} else {
 			stagnant = 0
+			lastFailedDigest=""
 		}
+		recovery:=""
+		nextPayload:=payload
+		if ContextLimitRejected(err){
+			if contextRecoveries>=MaxContextRecoveries{return result,streamedText,publishedCalls,err}
+			reduced,ok:=RetryReducedOutputReservation(payload)
+			if !ok{return result,streamedText,publishedCalls,err}
+			if _,e:=MeasureProviderPayload(resolved.Config.APIType,reduced);e!=nil{return result,streamedText,publishedCalls,err}
+			nextPayload=reduced
+			contextRecoveries++
+			recovery="context_output_reservation"
+		}else{
+			var pe *ProviderError
+			if errors.As(err,&pe)&&pe.Code=="RESPONSE_INCOMPLETE"&&pe.ProviderErrorCode=="max_output_tokens"{
+				if incompleteRecoverySent||!runProviderRetryAllowed(spec.RetryMode,attempt,err){return result,streamedText,publishedCalls,err}
+				constrained,_,ok:=RetryConstrainedOutputPayload(payload,resolved.Config)
+				if !ok{return result,streamedText,publishedCalls,err}
+				m,e:=MeasureProviderPayload(resolved.Config.APIType,constrained)
+				model,_:=resolved.Config.FindModel(spec.ModelID)
+				if e!=nil||(model.MaxInputTokens>0&&m.WireBytes>model.MaxInputTokens){return result,streamedText,publishedCalls,err}
+				nextPayload=constrained
+				incompleteRecoverySent=true
+				recovery="bounded_output"
+			}else if !runProviderRetryAllowed(spec.RetryMode,attempt,err){
+				return result,streamedText,publishedCalls,err
+			}
+		}
+		generation:=contextRecoveries
+		if incompleteRecoverySent{generation++}
 		if sink != nil {
 			// Existing retry event only: no extra journal events, no prompt,
 			// credential or response contents, and no claim of delivery ACK.
@@ -306,9 +337,12 @@ func (a ConfiguredProviderAdapter) invokeWithRetry(ctx context.Context, spec Run
 				EstimatedInputTokens int `json:"estimated_input_tokens,omitempty"`
 				OutputBudget int `json:"output_budget,omitempty"`
 				SameDigestFailures int `json:"same_digest_failures"`
+				Recovery string `json:"recovery,omitempty"`
+				RecoveryGeneration int `json:"recovery_generation,omitempty"`
+				NextPayloadSHA256 string `json:"next_payload_sha256,omitempty"`
 			}{attempt, attempt + 1, runProviderRetryCode(err), true, outcome,
 				spec.RetryMode, digest, measurement.CanonicalBytes, measurement.WireBytes,
-				measurement.EstimatedInputTokens, measurement.OutputBudget, stagnant})
+				measurement.EstimatedInputTokens, measurement.OutputBudget, stagnant,recovery,generation,BodyDigest(nextPayload)})
 			if marshalErr != nil {
 				return ResponsesResult{}, streamedText, publishedCalls, marshalErr
 			}
@@ -328,6 +362,7 @@ func (a ConfiguredProviderAdapter) invokeWithRetry(ctx context.Context, spec Run
 		if err != nil {
 			return ResponsesResult{}, streamedText, publishedCalls, err
 		}
+		payload=nextPayload
 		attempt++
 	}
 }
