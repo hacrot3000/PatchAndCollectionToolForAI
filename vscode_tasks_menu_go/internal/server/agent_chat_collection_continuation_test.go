@@ -241,54 +241,92 @@ func TestAgentCollectionUnlimitedRetriesTimeoutAndHTTP499WithoutDuplicateRead(t 
 }
 
 func TestAgentCollectionContinuesWithoutRoundLimitToPatchProposal(t *testing.T){
-	s,id:=newAgentConversationFixture(t,"stateless")
-	identity,err:=patchtool.ReadProjectIdentity(s.Workspace);if err!=nil{t.Fatal(err)}
-	original:="<?php echo 'Initial';\n"
-	if err:=os.WriteFile(filepath.Join(s.Workspace,"main.php"),[]byte(original),0600);err!=nil{t.Fatal(err)}
-	patchCode:=fmt.Sprintf("# TASKDECK_PROJECT_KEY: %s\n# TASKDECK_PROJECT_ID: %s\nprint('noop')\n",identity.Key,identity.ID)
-	raw,_:=json.Marshal(map[string]string{"name":"After paged research","patch_python":patchCode})
-	count:=0
-	s.AgentChatCall=func(_ context.Context,_ agentchat.ProviderConfig,_ string,payload []byte)(agentchat.ResponsesResult,error){
-		count++
-		if count<=55 {
-			if count>1 {
-				var req struct{Input []map[string]any `json:"input"`}
-				if err:=json.Unmarshal(payload,&req);err!=nil{t.Fatal(err)}
-				var found bool
-				for _,row:=range req.Input{
-					if row["type"]=="function_call_output"&&row["call_id"]==fmt.Sprintf("read-%d",count-1){
-						found=true
-					}
-				}
-				if !found{t.Fatalf("Collection #%d was not persisted into provider input",count-1)}
-			}
-			return agentchat.ResponsesResult{ResponseID:fmt.Sprintf("inspect-%d",count),Calls:[]agentchat.FunctionCall{{
-				CallID:fmt.Sprintf("read-%d",count),Name:"taskdeck_collect_workspace",
-				Arguments:fmt.Sprintf(`{"actions":[{"type":"read","path":"main.php","start_line":%d,"max_lines":1}]}`,count),
-			}}},nil
-		}
-		if count==56{
-			return agentchat.ResponsesResult{ResponseID:"patch-after-inspection",Calls:[]agentchat.FunctionCall{{
-				CallID:"patch-56",Name:"taskdeck_submit_patch",Arguments:string(raw),
-			}}},nil
-		}
-		t.Fatalf("unexpected extra provider call %d",count)
-		return agentchat.ResponsesResult{},nil
-	}
-	w:=invokeAI(t,s.agentChatSessionItemAPI,"POST","/api/agent/sessions/"+id+"/messages",
-		map[string]any{"message":"Inspect enough source pages and propose one patch","confirm_external":true,"expected_revision":1})
-	if w.Code!=200||count!=56||!strings.Contains(w.Body.String(),"waiting_tool"){
-		t.Fatalf("agent stopped before a Patch after fifty-five Collection turns: status %d calls %d: %s",w.Code,count,w.Body)
-	}
-	store,err:=s.agentChatStore();if err!=nil{t.Fatal(err)}
-	saved,err:=store.Get(id,"local");if err!=nil{t.Fatal(err)}
-	observations:=0
-	for _,row:=range saved.History{if row.Type=="function_call_output"{observations++}}
-	if observations!=55 || len(saved.ToolCalls)!=1 || saved.ToolCalls[0].Status!="pending"{
-		t.Fatalf("lost persistent read history or unapproved Patch after 55 Collection rounds: %+v",saved)
-	}
-	value,err:=os.ReadFile(filepath.Join(s.Workspace,"main.php"))
-	if err!=nil||string(value)!=original{t.Fatal("Collection bypassed approval and modified project")}
+ for _,tc:=range []struct{name string;pages int;patch bool;goal string}{
+  {"55_useful_pages_then_pending_patch",55,true,"Inspect enough source pages and propose one patch"},
+  {"100_read_only_pages",100,false,"Audit this source read-only; do not modify any file"},
+ }{
+  t.Run(tc.name,func(t *testing.T){
+   s,id:=newAgentConversationFixture(t,"stateless")
+   identity,err:=patchtool.ReadProjectIdentity(s.Workspace);if err!=nil{t.Fatal(err)}
+   // The old fixture contained one line, so most requests could return
+   // empty pages. Every page now has distinct non-empty source evidence.
+   var source strings.Builder
+   marker:=func(n int)string{return fmt.Sprintf("CLP20_SOURCE_PAGE_%03d",n)}
+   for i:=1;i<=tc.pages;i++{
+    fmt.Fprintf(&source,"// %s\n",marker(i))
+   }
+   original:=source.String()
+   if err:=os.WriteFile(filepath.Join(s.Workspace,"main.php"),[]byte(original),0600);err!=nil{t.Fatal(err)}
+   patchCode:=fmt.Sprintf("# TASKDECK_PROJECT_KEY: %s\n# TASKDECK_PROJECT_ID: %s\nprint('noop')\n",identity.Key,identity.ID)
+   raw,_:=json.Marshal(map[string]string{"name":"After paged research","patch_python":patchCode})
+   count,reads:=0,0
+   originalCollector:=s.AgentCollectionCall
+   s.AgentCollectionCall=func(root string,p patchtool.ProjectIdentity,args []byte)string{
+    reads++
+    return originalCollector(root,p,args)
+   }
+   exact:=map[string]string{}
+   s.AgentChatCall=func(_ context.Context,_ agentchat.ProviderConfig,_ string,payload []byte)(agentchat.ResponsesResult,error){
+    count++
+    if count>1{
+     var req struct{Input []map[string]any `json:"input"`}
+     if err:=json.Unmarshal(payload,&req);err!=nil{t.Fatal(err)}
+     key:=fmt.Sprintf("read-%d",count-1)
+     n:=0
+     for _,row:=range req.Input{
+      if row["type"]=="function_call_output"&&row["call_id"]==key{
+       n++
+       receipt,_:=row["output"].(string)
+       if !strings.Contains(receipt,marker(count-1)){t.Fatalf("page %d returned no useful evidence",count-1)}
+       exact[key]=receipt
+      }
+     }
+     if n!=1{t.Fatalf("expected exact current Collection #%d once, got %d",count-1,n)}
+    }
+    if count<=tc.pages{
+     return agentchat.ResponsesResult{ResponseID:fmt.Sprintf("inspect-%d",count),Calls:[]agentchat.FunctionCall{{
+      CallID:fmt.Sprintf("read-%d",count),Name:"taskdeck_collect_workspace",
+      Arguments:fmt.Sprintf(`{"actions":[{"type":"read","path":"main.php","start_line":%d,"max_lines":1}]}`,count),
+     }}},nil
+    }
+    if count==tc.pages+1{
+     if tc.patch{return agentchat.ResponsesResult{ResponseID:"patch-after-inspection",Calls:[]agentchat.FunctionCall{{
+      CallID:"patch-56",Name:"taskdeck_submit_patch",Arguments:string(raw),
+     }}},nil}
+     return agentchat.ResponsesResult{ResponseID:"audit-complete",Text:"Read-only audit complete; no changes made."},nil
+    }
+    t.Fatalf("unexpected extra provider call %d",count)
+    return agentchat.ResponsesResult{},nil
+   }
+   w:=invokeAI(t,s.agentChatSessionItemAPI,"POST","/api/agent/sessions/"+id+"/messages",
+    map[string]any{"message":tc.goal,"confirm_external":true,"expected_revision":1})
+   if w.Code!=200||count!=tc.pages+1||reads!=tc.pages{
+    t.Fatalf("agent stopped before completing useful reads: status %d calls %d reads %d: %s",w.Code,count,reads,w.Body)
+   }
+   store,err:=s.agentChatStore();if err!=nil{t.Fatal(err)}
+   saved,err:=store.Get(id,"local");if err!=nil{t.Fatal(err)}
+   all:=[]agentchat.HistoryItem{}
+   for part:=uint64(1);part<=saved.HistoryArchiveParts;part++{
+    archived,err:=store.ArchivedCollectionHistory(id,"local",part);if err!=nil{t.Fatal(err)}
+    all=append(all,archived...)
+   }
+   all=append(all,saved.History...)
+   seen:=map[string]bool{}
+   for _,row:=range all{
+    if row.Type!="function_call_output"{continue}
+    if seen[row.CallID]||exact[row.CallID]==""||exact[row.CallID]!=row.Content{t.Fatalf("lost/duplicated/changed canonical read %s",row.CallID)}
+    seen[row.CallID]=true
+   }
+   if len(seen)!=tc.pages{t.Fatalf("lost persistent read history: got %d want %d",len(seen),tc.pages)}
+   guard,ok:=saved.ReadCollectionGuard()
+   if !ok||guard.Counters.NativeReads!=uint64(tc.pages)||guard.Counters.Observed!=uint64(tc.pages){t.Fatal("guard lost actual read count")}
+   if tc.patch{
+    if len(saved.ToolCalls)!=1||saved.ToolCalls[0].Status!="pending"||saved.Status!="waiting_tool"{t.Fatal("55 reads did not reach normal Patch approval")}
+   }else if len(saved.ToolCalls)!=0||saved.Status!="completed"{t.Fatal("read-only audit did not finish without a Patch")}
+   value,err:=os.ReadFile(filepath.Join(s.Workspace,"main.php"))
+   if err!=nil||string(value)!=original{t.Fatal("Collection bypassed approval and modified project")}
+  })
+ }
 }
 
 func TestAgentCollectionIdenticalReadsYieldRecoverableWarningWithoutStopping(t *testing.T){
