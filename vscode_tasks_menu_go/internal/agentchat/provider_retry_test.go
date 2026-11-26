@@ -287,3 +287,38 @@ func TestConfiguredAdapterCLP20SameDigestStagnation(t *testing.T) {
 		}
 	}
 }
+
+type clp20CancelAfterReturnInvoker struct{
+	cancel context.CancelFunc
+	calls int
+}
+
+func(i *clp20CancelAfterReturnInvoker) Invoke(context.Context,ProviderConfig,string,[]byte)(ResponsesResult,error){
+	i.calls++
+	i.cancel()
+	return ResponsesResult{Text:"late response",Calls:[]FunctionCall{{CallID:"late-tool",Name:"taskdeck_submit_patch",Arguments:"{}"}}},nil
+}
+
+func TestConfiguredAdapterCLP20StopWinsLateResponseAndRetryWait(t *testing.T){
+	provider:=ProviderConfig{ID:"gpt",APIType:"responses",Models:[]ModelConfig{{ID:"gpt-model"}}}
+	resolver:=&fakeProviderResolver{resolved:ResolvedProvider{Config:provider,ConfigVersion:"cfg-v1",Credential:"key"}}
+	spec:=runSpecFor("gpt","gpt-model","run-stop-late")
+	spec.ProviderConfigVersion,spec.RetryMode="cfg-v1",RetryUnlimited
+	t.Run("late success",func(t *testing.T){
+		ctx,cancel:=context.WithCancel(context.Background());defer cancel()
+		invoker:=&clp20CancelAfterReturnInvoker{cancel:cancel}
+		adapter:=ConfiguredProviderAdapter{ProviderID:"gpt",Resolver:resolver,Builder:&fakePayloadBuilder{},Invoker:invoker}
+		sink:=&fixedProviderSink{}
+		err:=adapter.Execute(ctx,spec,nil,sink)
+		if !errors.Is(err,context.Canceled)||invoker.calls!=1||len(sink.events)!=0{t.Fatalf("late result published after Stop: %v %d %+v",err,invoker.calls,sink.events)}
+	})
+	t.Run("cancelled wait",func(t *testing.T){
+		ctx,cancel:=context.WithCancel(context.Background());defer cancel()
+		calls:=0
+		adapter:=ConfiguredProviderAdapter{ProviderID:"gpt",Resolver:resolver,Builder:&fakePayloadBuilder{},Invoker:&alwaysRetryableInvoker{calls:&calls},Wait:func(context.Context,time.Duration)error{cancel();return nil}}
+		sink:=&fixedProviderSink{}
+		err:=adapter.Execute(ctx,spec,nil,sink)
+		if !errors.Is(err,context.Canceled)||calls!=1{t.Fatalf("retry crossed Stop: %v %d",err,calls)}
+		if len(sink.events)!=1||sink.events[0].Type!=RunEventRetry{t.Fatal("unexpected event after cancellation")}
+	})
+}

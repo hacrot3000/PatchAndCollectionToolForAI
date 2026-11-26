@@ -208,6 +208,11 @@ func (a ConfiguredProviderAdapter) invokeWithRetry(ctx context.Context, spec Run
 	digest := BodyDigest(payload)
 	stagnant := 0
 	for {
+		// Stop or daemon shutdown must win even if an injected wait or
+		// provider transport returns a stale success after cancellation.
+		if err := ctx.Err(); err != nil {
+			return ResponsesResult{}, false, nil, err
+		}
 		requestTimeout := a.RequestTimeout
 		if requestTimeout <= 0 {
 			requestTimeout = 600 * time.Second
@@ -262,6 +267,9 @@ func (a ConfiguredProviderAdapter) invokeWithRetry(ctx context.Context, spec Run
 			result, err = a.Invoker.Invoke(callCtx, resolved.Config, resolved.Credential, payload)
 		}
 		cancel()
+		if stopErr := ctx.Err(); stopErr != nil {
+			return ResponsesResult{}, streamedText, publishedCalls, stopErr
+		}
 		if err == nil && len(streamedCalls) > 0 {
 			seen := make(map[string]bool, len(result.Calls))
 			for _, call := range result.Calls {
