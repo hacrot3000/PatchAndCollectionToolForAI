@@ -326,6 +326,20 @@ func (s *Server) agentChatSessionItemAPI(w http.ResponseWriter, r *http.Request)
  if recoveryState!=""&&(s.Config.SharedServerEnabled||s.agentConversationRequiresRunContinuation(item.Owner,id)||attemptErr!=nil){
   recoveryState="manual_review_required"
  }
+	// Poll through the gap between completed and the next Auto Continue.
+	// This is a read-only monitoring hint, not execution admission.
+	autoContinueMonitor:=false
+	if !s.Config.SharedServerEnabled && attemptErr==nil && item.Status=="completed" {
+		candidate:=item
+		if item.Continuation!=nil{
+			c:=*item.Continuation;c.NextRetryAt=nil;candidate.Continuation=&c
+		}
+		if item.TaskPlan!=nil{
+			p:=*item.TaskPlan;p.NextRetryAt=nil;candidate.TaskPlan=&p
+		}
+		autoContinueMonitor=(agentchat.StandaloneAutoContinueCandidate(candidate)||agentchat.TaskPlanAutoContinueCandidate(candidate))&&
+			!s.agentConversationRequiresRunContinuation(item.Owner,id)
+	}
 	// The API currently exposes a transcript only to its authenticated owner.
 	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, http.StatusOK, map[string]any{"session": item, "execution_enabled": false,
@@ -335,6 +349,7 @@ func (s *Server) agentChatSessionItemAPI(w http.ResponseWriter, r *http.Request)
 		"collection_progress": agentchat.CollectionProgressViewForSession(item),
 		"collection_auto_recovery": recoveryState,
 		"auto_feedback_diagnostic":agentAutoFeedbackDiagnostic(item),
+		"auto_continue_monitor":autoContinueMonitor,
   "provider_attempts":attempts,
   "provider_attempts_integrity_error":attemptErr!=nil,
 		"patch_tool_status": s.agentPatchToolStatus(aiPlanOwner(r), item.ProviderID, item.ModelID)})

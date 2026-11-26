@@ -2003,6 +2003,7 @@ async function selectAgentSession(id){
  sess.collection_resume_eligible=data.collection_resume_eligible===true;
  sess.collection_progress=data.collection_progress||null;
  sess.collection_auto_recovery=data.collection_auto_recovery||'';
+ sess.auto_continue_monitor=data.auto_continue_monitor===true;
  renderAgentProviderEgressReview(sess,data.provider_review||null,
   data.provider_attempts||null,data.provider_attempts_integrity_error===true);
  if(switched||agentToolNoticeKey!==data.patch_tool_status+':'+(sess.auto_patch?'auto':'manual')){
@@ -2230,7 +2231,7 @@ async function continueAgentTool(session,callID){
 function agentMonitorNeedsWork(sess){
  if(!sess)return false;
  const calls=sess.tool_calls||[];
- return ['ready','retry_deferred'].includes(sess.collection_auto_recovery)||
+ return sess.auto_continue_monitor===true||['ready','retry_deferred'].includes(sess.collection_auto_recovery)||
   ['requesting_ai','tool_queuing'].includes(sess.status)||
   calls.some(call=>['queuing','running','dispatching','queued','unknown'].includes(call.status))||
   (sess.status==='waiting_tool'&&calls.some(call=>call.status==='pending'&&!call.manual_retry_only&&(sess.auto_patch||call.auto_run_once)))||
@@ -2257,7 +2258,7 @@ function scheduleAgentMonitor(sess,delay=2800){
   let nextDelay=2800;
   try{
    const current=agentCurrentSession?.id===id?agentCurrentSession:sess;
-   if(agentSessionBusy(id)||['requesting_ai','tool_queuing'].includes(current.status)||
+   if(current.auto_continue_monitor===true||agentSessionBusy(id)||['requesting_ai','tool_queuing'].includes(current.status)||
       (current.tool_calls||[]).some(call=>call.status==='queuing')){
     // QUEUING is a durable intermediate state. Use GET while approval may
     // still own the turn lock, then reconcile an unchanged marker via /sync.

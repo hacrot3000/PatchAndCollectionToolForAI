@@ -1214,6 +1214,28 @@ console.log('PASS: safe Markdown, syntax-highlighted PHP/Python, per-block Copy,
   assert.equal(transcript.children.filter(n=>n.className.startsWith('agentchat-live-status')).length,0,'completion removes stale live status');
   console.log('PASS: concurrent Auto Continue admission refusal preserves draft and canonical Thinking status');
 
+  // A completed snapshot can precede the background coordinator's next
+  // admission by seconds. Keep polling GET across that gap, never POST sync.
+  context.flowSession={...context.flowSession,status:'completed',auto_continue_monitor:true};
+  assert.equal(vm.runInNewContext('agentMonitorNeedsWork(flowSession)',context),true);
+  assert.equal(vm.runInNewContext("agentMonitorNeedsWork({...flowSession,auto_continue_monitor:false})",context),false);
+  const beforeAutoTimer=context.setTimeout;
+  let autoPoll;
+  const autoPollRequests=[];
+  context.setTimeout=(cb)=>{autoPoll=cb;return 42;};
+  context.TaskMenuApp.jsonFetch=async url=>{
+    autoPollRequests.push(url);
+    if(url.endsWith('/sessions/natural-flow'))return {session:{...context.flowSession,status:'requesting_ai',revision:9,event_seq:9,events:[{seq:9,kind:'provider_egress',status:'requesting_ai'}]},patch_tool_status:'enabled',auto_continue_monitor:false};
+    throw Error('unexpected Auto Continue gap request '+url);
+  };
+  vm.runInNewContext("displayAgentSession(flowSession);root.classList.add('visible');scheduleAgentMonitor(flowSession)",context);
+  assert.equal(typeof autoPoll,'function','completed Auto Continue gap must arm monitor');
+  await autoPoll();
+  assert.deepEqual(autoPollRequests,['/api/agent/sessions/natural-flow']);
+  assert.equal(liveLine.children[1].textContent,'Thinking…','next background turn appears without page reload');
+  context.setTimeout=beforeAutoTimer;
+  console.log('PASS: read-only polling across completed Auto Continue gap');
+
   // Sending a verified Patch result has the same one-row transition behavior.
   // The actual output and next AI reply remain in persisted history.
   const pendingFeedback={...baseFlow,status:'waiting_tool',revision:12,event_seq:9,
