@@ -390,16 +390,13 @@ func Build(history []agentchat.HistoryItem,p Policy)([]agentchat.HistoryItem,Sta
   if stats.SummarizedCollections+stats.SummarizedPatches>len(catalog){
    note+=fmt.Sprintf("\n%d older results omitted from this bounded catalog; use scoped Collection to reverify.",stats.SummarizedCollections+stats.SummarizedPatches-len(catalog))
   }
-  // Put the catalog after the original task if available, so it cannot
-  // supersede the user's later instructions.
-  pos:=0
-  if len(result)>0&&result[0].Type=="user"{pos=1}
-  result=append(result[:pos],append([]agentchat.HistoryItem{{Type:"assistant",Content:truncate(note,15000)}},result[pos:]...)...)
+  // Keep changing evidence summaries after the stable retained history.
+  // Assistant evidence is not a new instruction; canonical order is untouched.
+  result=appendBeforePending(result,agentchat.HistoryItem{Type:"assistant",Content:truncate(note,15000)},p.Next)
  }
  if p.ArchivedItems>0{
   note:=fmt.Sprintf("[TaskDeck archive checkpoint] %d older history items stored in %d durable segments. Exact evidence is NOT in this request; request scoped reads if required.",p.ArchivedItems,p.ArchivedParts)
-  pos:=0;if len(result)>0&&result[0].Type=="user"{pos=1}
-  result=append(result[:pos],append([]agentchat.HistoryItem{{Type:"assistant",Content:note}},result[pos:]...)...)
+  result=appendBeforePending(result,agentchat.HistoryItem{Type:"assistant",Content:note},p.Next)
  }
  // Trim least-recent plain assistant messages if the provider input-count
  // constraint or shared input-token ceiling still would be exceeded.
@@ -419,4 +416,20 @@ func Build(history []agentchat.HistoryItem,p Policy)([]agentchat.HistoryItem,Sta
  stats.HistoryItems=len(result)
  stats.BudgetExceeded=stats.EstimatedTotalTokens>ceiling||len(result)+len(p.Next)>MaxProviderHistoryItems
  return result,stats
+}
+
+
+// Keep changing catalogs outside the retained prefix, without splitting
+// the current native call/output pair.
+func appendBeforePending(history []agentchat.HistoryItem,note agentchat.HistoryItem,next []agentchat.HistoryItem)[]agentchat.HistoryItem{
+ pending:=map[string]bool{}
+ for _,it:=range next{if it.Type=="function_call_output"{pending[it.CallID]=true}}
+ pos:=len(history)
+ for i,it:=range history{
+  if it.Type=="function_call"&&pending[it.CallID]{pos=i;break}
+ }
+ if pos==len(history)&&len(history)>0&&len(next)>0&&agentchat.CollectionTextObservation([]agentchat.HistoryItem{history[len(history)-1],next[0]},1){pos--}
+ out:=make([]agentchat.HistoryItem,0,len(history)+1)
+ out=append(out,history[:pos]...);out=append(out,note);out=append(out,history[pos:]...)
+ return out
 }

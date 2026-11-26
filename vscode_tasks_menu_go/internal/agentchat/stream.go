@@ -31,6 +31,7 @@ type StreamEvent struct {
 	Done         bool
 	InputTokens  int
 	OutputTokens int
+	CacheUsage ProviderCacheUsage
 }
 
 // streamAccumulator reuses the same final parsing rules as the JSON path: an
@@ -44,6 +45,7 @@ type streamAccumulator struct {
 	responseID   string
 	conversation string
 	inputTokens  int
+	cacheUsage ProviderCacheUsage
 	outputTokens int
 	sawDone      bool
 	totalBytes   int
@@ -76,6 +78,7 @@ func (a *streamAccumulator) apply(ev StreamEvent, callbacks ...func(StreamEvent)
 	if ev.Conversation != "" {
 		a.conversation = ev.Conversation
 	}
+	if ev.CacheUsage.Reported(){a.cacheUsage=ev.CacheUsage}
 	if ev.InputTokens > 0 {
 		a.inputTokens = ev.InputTokens
 	}
@@ -137,7 +140,7 @@ func (a *streamAccumulator) result() (ResponsesResult, error) {
 	out := ResponsesResult{
 		ResponseID: a.responseID, ConversationID: a.conversation,
 		Text: a.text.String(), Calls: a.calls,
-		InputTokens: a.inputTokens, OutputTokens: a.outputTokens, Status: "completed",
+		InputTokens: a.inputTokens, OutputTokens: a.outputTokens, CacheUsage:a.cacheUsage, Status: "completed",
 	}
 	if len(out.Calls) == 0 && strings.TrimSpace(out.Text) == "" {
 		return ResponsesResult{}, errors.New("provider stream returned no text or tool calls")
@@ -159,6 +162,7 @@ func parseSSEEvent(payload []byte) (StreamEvent, error) {
 			ID     string `json:"id"`
 			Status string `json:"status"`
 			Usage  struct {
+				CacheUsageFields
 				InputTokens  int `json:"input_tokens"`
 				OutputTokens int `json:"output_tokens"`
 			} `json:"usage"`
@@ -239,6 +243,7 @@ func parseSSEEvent(payload []byte) (StreamEvent, error) {
 		ev.ResponseID = raw.Response.ID
 		ev.InputTokens = raw.Response.Usage.InputTokens
 		ev.OutputTokens = raw.Response.Usage.OutputTokens
+		ev.CacheUsage=raw.Response.Usage.CacheUsageFields.normalized(ev.InputTokens)
 		if strings.TrimSpace(ev.ResponseID) == "" {
 			return StreamEvent{}, errors.New("completion event missing response ID")
 		}
@@ -301,6 +306,7 @@ func DoResponsesStreamWithEvents(ctx context.Context, p ProviderConfig, key stri
 		return ResponsesResult{}, &ProviderError{Code: code, Stage: "provider_http", Message: message, Retryable: ambiguous, Ambiguous: ambiguous, BlockedSharedIP: blockedSharedIP(err)}
 	}
 	defer resp.Body.Close()
+	recordProviderBackend(ctx,resp.Header)
 	if resp.StatusCode != 200 {
 		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 256<<10+1))
 		if len(raw) > 256<<10 {

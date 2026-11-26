@@ -89,6 +89,7 @@ func (s *Server) agentChatObservedCall(ctx context.Context, owner, action, sessi
 			})
 		}
 	} else {
+		recorder.RecordProviderDiagnostic(agentchat.DiagnosticEvent{Level:"info",Stage:"provider_cache",Event:"cache.usage",SafeMessage:result.CacheUsage.Summary(result.InputTokens)})
 		recorder.finish("", "Provider request completed")
 	}
 	return result, err, traceID

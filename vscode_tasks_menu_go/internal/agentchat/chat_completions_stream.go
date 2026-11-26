@@ -31,6 +31,7 @@ type chatStreamAccumulator struct {
 	done       bool
 	finish     string
 	input      int
+	cacheUsage ProviderCacheUsage
 	output     int
 }
 
@@ -75,6 +76,7 @@ func (a *chatStreamAccumulator) apply(payload []byte, callbacks ...func(StreamEv
 			} `json:"delta"`
 		} `json:"choices"`
 		Usage *struct {
+			CacheUsageFields
 			PromptTokens     int `json:"prompt_tokens"`
 			CompletionTokens int `json:"completion_tokens"`
 		} `json:"usage"`
@@ -139,6 +141,7 @@ func (a *chatStreamAccumulator) apply(payload []byte, callbacks ...func(StreamEv
 	}
 	if chunk.Usage != nil {
 		a.input, a.output = chunk.Usage.PromptTokens, chunk.Usage.CompletionTokens
+		if usage:=chunk.Usage.CacheUsageFields.normalized(a.input);usage.Reported(){a.cacheUsage=usage}
 	}
 	return nil
 }
@@ -163,7 +166,7 @@ func (a *chatStreamAccumulator) result() (ResponsesResult, error) {
 	if len(a.calls) == 0 && strings.TrimSpace(a.text.String()) == "" {
 		return ResponsesResult{}, errors.New("empty Chat Completions stream")
 	}
-	return ResponsesResult{ResponseID: a.responseID, Text: a.text.String(), Calls: a.calls, InputTokens: a.input, OutputTokens: a.output, Status: "completed", FinishReason: a.finish, Model: a.model}, nil
+	return ResponsesResult{ResponseID: a.responseID, Text: a.text.String(), Calls: a.calls, InputTokens: a.input, OutputTokens: a.output, CacheUsage:a.cacheUsage, Status: "completed", FinishReason: a.finish, Model: a.model}, nil
 }
 
 // DoChatCompletionsStream sends a stateless Chat Completions request through
@@ -215,6 +218,7 @@ func DoChatCompletionsStreamWithEvents(ctx context.Context, p ProviderConfig, ke
 		return ResponsesResult{}, &ProviderError{Code: code, Stage: "provider_http", Message: message, Retryable: ambiguous, Ambiguous: ambiguous, BlockedSharedIP: blockedSharedIP(err)}
 	}
 	defer resp.Body.Close()
+	recordProviderBackend(ctx,resp.Header)
 	if resp.StatusCode != http.StatusOK {
 		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 256<<10+1))
 		if len(raw) > 256<<10 {

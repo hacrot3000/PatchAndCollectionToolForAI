@@ -54,13 +54,14 @@ type providerAffinityContext struct{ key,endpoint,header string }
 // its owner-scoped SENDING journal. Bind the hint to the exact target URL.
 func WithProviderAffinity(ctx context.Context,p ProviderConfig,key string)context.Context{
  if !validAffinityKey(key)||!validCacheAffinity(p.CacheAffinity,p.CacheSessionHeader)||!providerUsesAffinityHeaders(p){return ctx}
- endpoint,e:=p.ResponsesURL();if e!=nil{return ctx}
+ endpoint,e:=p.APIURL(p.APIType);if e!=nil{return ctx}
  return context.WithValue(ctx,providerAffinityContextKey{},providerAffinityContext{key,endpoint,p.CacheSessionHeader})
 }
 func applyProviderAffinity(req *http.Request){
  if req==nil||req.URL==nil{return}
  a,ok:=req.Context().Value(providerAffinityContextKey{}).(providerAffinityContext)
  if !ok||req.URL.String()!=a.endpoint||!validAffinityKey(a.key){return}
+ RecordProviderDiagnostic(req.Context(),DiagnosticEvent{Level:"info",Stage:"provider_cache",Event:"affinity.header",SafeMessage:"session affinity sent; fingerprint="+BodyDigest([]byte(a.key))[:16]})
  if a.header!=""{req.Header.Set(a.header,a.key);return}
  req.Header.Set("X-Session-Id",a.key)
  req.Header.Set("X-Session-Affinity",a.key)

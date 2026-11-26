@@ -163,6 +163,7 @@ func ParseChatCompletionsResult(body []byte) (ResponsesResult, error) {
 			} `json:"message"`
 		} `json:"choices"`
 		Usage struct {
+			CacheUsageFields
 			PromptTokens     int `json:"prompt_tokens"`
 			CompletionTokens int `json:"completion_tokens"`
 		} `json:"usage"`
@@ -190,7 +191,7 @@ func ParseChatCompletionsResult(body []byte) (ResponsesResult, error) {
 	default:
 		return ResponsesResult{}, errors.New("provider returned non-text assistant content")
 	}
-	result := ResponsesResult{ResponseID: raw.ID, Text: text, InputTokens: raw.Usage.PromptTokens, OutputTokens: raw.Usage.CompletionTokens, Status: "completed", FinishReason: choice.FinishReason, Model: raw.Model}
+	result := ResponsesResult{ResponseID: raw.ID, Text: text, InputTokens: raw.Usage.PromptTokens, OutputTokens: raw.Usage.CompletionTokens, CacheUsage:raw.Usage.CacheUsageFields.normalized(raw.Usage.PromptTokens), Status: "completed", FinishReason: choice.FinishReason, Model: raw.Model}
 	seen := make(map[string]bool)
 	for _, tc := range choice.Message.ToolCalls {
 		if tc.Type != "function" || tc.ID == "" || len(tc.ID) > 256 || tc.Function.Name == "" || len(tc.Function.Name) > 128 || !json.Valid([]byte(tc.Function.Arguments)) || seen[tc.ID] {
@@ -245,6 +246,7 @@ func doChatCompletionsWithClient(ctx context.Context, p ProviderConfig, key stri
 		return ResponsesResult{}, &ProviderError{Code: code, Stage: "provider_http", Message: message, Retryable: ambiguous, Ambiguous: ambiguous, BlockedSharedIP: blockedSharedIP(err)}
 	}
 	defer resp.Body.Close()
+	recordProviderBackend(ctx,resp.Header)
 	raw, readErr := io.ReadAll(io.LimitReader(resp.Body, maxRequestBytes+1))
 	truncated := len(raw) > maxRequestBytes
 	if truncated {

@@ -599,6 +599,7 @@ func DoResponses(ctx context.Context, p ProviderConfig, key string, body []byte)
 		return ResponsesResult{}, &ProviderError{Code: code, Stage: "provider_http", Message: message, Retryable: retryableProviderTransportCode(code), Ambiguous: ambiguous, BlockedSharedIP: blockedSharedIP(err)}
 	}
 	defer resp.Body.Close()
+	recordProviderBackend(ctx,resp.Header)
 	raw, readErr := io.ReadAll(io.LimitReader(resp.Body, maxRequestBytes+1))
 	truncated := len(raw) > maxRequestBytes
 	if truncated {

@@ -291,6 +291,7 @@ type ResponsesResult struct {
 	Text           string
 	Calls          []FunctionCall
 	InputTokens    int
+	CacheUsage ProviderCacheUsage
 	OutputTokens   int
 	Status         string
 	FinishReason   string
@@ -318,6 +319,7 @@ func ParseResponsesResult(body []byte) (ResponsesResult, error) {
 			} `json:"content"`
 		} `json:"output"`
 		Usage struct {
+			CacheUsageFields
 			InputTokens  int `json:"input_tokens"`
 			OutputTokens int `json:"output_tokens"`
 		} `json:"usage"`
@@ -332,7 +334,7 @@ func ParseResponsesResult(body []byte) (ResponsesResult, error) {
 	if raw.Status != "" && raw.Status != "completed" {
 		return ResponsesResult{}, fmt.Errorf("provider returned status %q", raw.Status)
 	}
-	res := ResponsesResult{ResponseID: raw.ID, Status: raw.Status, InputTokens: raw.Usage.InputTokens, OutputTokens: raw.Usage.OutputTokens}
+	res := ResponsesResult{ResponseID: raw.ID, Status: raw.Status, InputTokens: raw.Usage.InputTokens, OutputTokens: raw.Usage.OutputTokens, CacheUsage:raw.Usage.CacheUsageFields.normalized(raw.Usage.InputTokens)}
 	if len(raw.Conversation) != 0 && string(raw.Conversation) != "null" {
 		if raw.Conversation[0] == '"' {
 			if err := json.Unmarshal(raw.Conversation, &res.ConversationID); err != nil {
