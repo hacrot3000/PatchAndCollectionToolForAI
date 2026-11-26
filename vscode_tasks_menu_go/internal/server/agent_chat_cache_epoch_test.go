@@ -2,6 +2,7 @@ package server
 
 import (
  "encoding/json"
+ "fmt"
  "path/filepath"
  "strings"
  "testing"
@@ -77,4 +78,60 @@ func TestAgentCacheEpochStatefulBoundaryResetsDerivedCheckpoint(t *testing.T){
  if _,err=s.agentBuildCachedContextRequest(store,x,model,p,"credential",c);err!=nil{t.Fatal(err)}
  if old,e:=store.ReadCacheEpoch(x.ID,x.Owner,x.Revision);e!=nil||old!=nil{t.Fatalf("stateful boundary retained stateless checkpoint: %v",e)}
  fresh,err:=store.Get(x.ID,x.Owner);if err!=nil||fresh.Revision!=x.Revision||len(fresh.History)!=1||fresh.History[0].Content!="goal"{t.Fatal("derived checkpoint change mutated session")}
+}
+
+
+// Local acceptance: same project, same store, independent conversations and
+// independently reopened stores. No simulated upstream cache hit claims.
+func TestAgentCacheEpochConcurrentConversationsTwentyTurns(t *testing.T){
+ dir:=filepath.Join(t.TempDir(),"private")
+ store,err:=agentchat.NewStore(dir);if err!=nil{t.Fatal(err)}
+ model:=agentchat.ModelConfig{ID:"m",MaxInputTokens:65536}
+ type fixture struct{x agentchat.Session;p agentchat.ProviderConfig}
+ var fixtures []fixture
+ for _,api:=range []string{"responses","chat_completions"}{
+  for i:=0;i<2;i++{
+   p:=agentchat.ProviderConfig{APIType:api,ID:"gateway",BaseURL:"https://gateway.example/v1",CacheAffinity:"both",Models:[]agentchat.ModelConfig{model}}
+   x,e:=agentchat.NewSession("local","/project","project-id",p.ID,model.ID,agentchat.Stateless);if e!=nil{t.Fatal(e)}
+   // Half the cases represent an existing conversation from before epochs.
+   if i==0{x.History=[]agentchat.HistoryItem{{Type:"user",Content:"existing goal "+x.ID},{Type:"assistant",Content:"existing answer"}}}
+   x,e=store.Save(x,0);if e!=nil{t.Fatal(e)}
+   fixtures=append(fixtures,fixture{x,p})
+  }
+ }
+ keys:=map[string]bool{}
+ for _,f:=range fixtures{
+  key:=agentchat.ProviderAffinityKey(f.x,f.p,model.ID)
+  if key==""||keys[key]{t.Fatal("affinity collision")};keys[key]=true
+ }
+ for _,f:=range fixtures{
+  f:=f
+  t.Run(f.p.APIType+"/"+f.x.ID,func(t *testing.T){
+   t.Parallel()
+   x,p:=f.x,f.p
+   s:=&Server{Workspace:x.Workspace}
+   st,e:=agentchat.NewStore(dir);if e!=nil{t.Fatal(e)}
+   var prior struct{Instructions string;Input []json.RawMessage;Key string `json:"prompt_cache_key"`}
+   epochID:=""
+   for turn:=0;turn<20;turn++{
+    if turn%5==0{st,e=agentchat.NewStore(dir);if e!=nil{t.Fatal(e)};s=&Server{Workspace:x.Workspace};x,e=st.Get(x.ID,x.Owner);if e!=nil{t.Fatal(e)}}
+    message:=agentchat.HistoryItem{Type:"user",Content:fmt.Sprintf("turn %d for %s",turn,x.ID)}
+    cfg:=agentchat.RequestConfig{Model:model.ID,Mode:agentchat.Stateless,Instructions:"trusted stable policy",Next:[]agentchat.HistoryItem{message}}
+    body,e:=s.agentBuildCachedContextRequest(st,x,model,p,"credential",cfg);if e!=nil{t.Fatal(e)}
+    var current struct{Instructions string;Input []json.RawMessage;Key string `json:"prompt_cache_key"`}
+    if json.Unmarshal(body,&current)!=nil||current.Key!=agentchat.ProviderAffinityKey(x,p,model.ID){t.Fatal("incorrect key")}
+    if turn>0{
+     if current.Instructions!=prior.Instructions||len(current.Input)!=len(prior.Input)+2{t.Fatal("unexpected prefix growth")}
+     for i,v:=range prior.Input{if string(current.Input[i])!=string(v){t.Fatalf("prefix changed at item %d turn %d",i,turn)}}
+    }
+    if p.APIType=="chat_completions"{if _,e=agentchat.BuildChatCompletionsRequest(body);e!=nil{t.Fatal(e)}}
+    old,e:=st.ReadCacheEpoch(x.ID,x.Owner,x.Revision);if e!=nil||old==nil{t.Fatalf("checkpoint missing: %v",e)}
+    if turn==0{epochID=old.ID}else if old.ID!=epochID{t.Fatal("epoch changed during bounded append-only sequence")}
+    x.History=append(x.History,message,agentchat.HistoryItem{Type:"assistant",Content:"answer"})
+    x,e=st.Save(x,x.Revision);if e!=nil{t.Fatal(e)}
+    prior=current
+   }
+   t.Logf("20 local turns, 4 store reopens, exact input prefix and stable affinity for %s",p.APIType)
+  })
+ }
 }
