@@ -165,7 +165,11 @@ func agentRetryContextPayload(payload []byte)([]byte,bool){
  if json.Unmarshal(payload,&old)!=nil{return nil,false}
  var oldLimit int
  _=json.Unmarshal(old["max_output_tokens"],&oldLimit)
- if len(req["input"])>len(old["input"])||limit>oldLimit{return nil,false}
+ // A summary can be larger than a short original history. In that case
+ // retain the complete original input and reduce only output reservation.
+ // Do not abandon an otherwise safe structured context recovery.
+ if len(req["input"])>len(old["input"]){return agentchat.RetryReducedOutputReservation(payload)}
+ if limit>oldLimit{return nil,false}
  if len(req["input"])==len(old["input"])&&!(limit>0&&limit<oldLimit){return nil,false}
  return b,true
 }
