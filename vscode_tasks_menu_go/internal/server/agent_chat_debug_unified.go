@@ -7,6 +7,7 @@ import (
  "time"
 
  "bletonfc/vscode_tasks_menu/internal/agentchat"
+ cp "bletonfc/vscode_tasks_menu/internal/agentchat/collectionprogress"
  "bletonfc/vscode_tasks_menu/internal/agentrun"
 )
 
@@ -64,8 +65,7 @@ func(s *Server) agentDebugUnifiedRuns(owner string,sessions []agentchat.Session,
     for i,it:=range snap.History{if it!=r.History[i]{prefix=false;break}}
     if prefix{
      if g,ok:=readRunCollectionProgress(owner,spec,AgentRunInputs{ProjectID:x.ProjectID,Snapshot:snap});ok&&g.LastHistorySize>0{
-      c:=g.Counters
-      row.Progress=map[string]any{"requested":c.Requested,"observed":c.Observed,"native_reads":c.NativeReads,"verified_new":c.NewEvidence,"verified_duplicate":c.DuplicateEvidence,"unknown":c.UnknownEvidence,"errors":c.Errors,"duplicate_streak":c.Progress.DuplicateStreak,"reads_since_progress":c.Progress.ReadsSinceProgress,"decision":g.Decision.Kind,"reason":g.Decision.Reason,"history_checkpoint":g.LastHistorySize}
+      row.Progress=agentSafeUnifiedProgress(g)
      }
     }
    }
@@ -96,6 +96,22 @@ func agentSafeUnifiedRetry(e agentrun.Event)map[string]any{
  }
  if v,ok:=obj["retry_mode"].(string);ok{
   switch agentchat.RetryMode(v){case agentchat.RetryOff,agentchat.RetryLimited,agentchat.RetryUnlimited:row["retry_mode"]=v}
+ }
+ return row
+}
+
+
+// Versioned legacy snapshots may contain unknown decision strings. Never
+// export them verbatim: use only fixed policy enums and aggregate counters.
+func agentSafeUnifiedProgress(g runCollectionProgress)map[string]any{
+ c:=g.Counters
+ row:=map[string]any{"requested":c.Requested,"observed":c.Observed,"native_reads":c.NativeReads,"verified_new":c.NewEvidence,"verified_duplicate":c.DuplicateEvidence,"unknown":c.UnknownEvidence,"errors":c.Errors,"duplicate_streak":c.Progress.DuplicateStreak,"reads_since_progress":c.Progress.ReadsSinceProgress,"history_checkpoint":g.LastHistorySize}
+ switch g.Decision.Kind{
+ case cp.Continue,cp.Advise,cp.Replan,cp.Checkpoint:row["decision"]=g.Decision.Kind
+ default:row["decision"]="unavailable"
+ }
+ switch g.Decision.Reason{
+ case cp.AssessReadiness,cp.BoundNextScope,cp.RepeatedEvidence:row["reason"]=g.Decision.Reason
  }
  return row
 }

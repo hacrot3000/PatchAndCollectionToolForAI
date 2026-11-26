@@ -11,7 +11,7 @@
 | Baseline audit | `1c1e2ba0d5004bf5cee75b3fd8a2baa6be9c5422` (25/11/2026, 15:40:33 ICT) |
 | Vị trí tài liệu trong repo (đề xuất) | `docs/taskdeck_ai_agent/20-collection-progress-guard-and-legacy-recovery.md` |
 | Trạng thái hiện tại | `IN_PROGRESS` — native range proof, durable adaptive hints, Unified drain guard and Legacy UI core CI PASS at 71eed9d1; acceptance/replan refinements CI pending; local checkout unavailable |
-| Tiến độ | **0/10 phase · 12/36 task · 81/144 subtask DONE** |
+| Tiến độ | **0/10 phase · 12/36 task · 82/144 subtask DONE** |
 | Phạm vi | Legacy Agent Chat, unified Agent Run, native COLLECT/PATCH, provider retry, compact context, journal, UI và migration |
 | Ưu tiên | P1: tránh lặp/gián đoạn và bảo toàn dữ liệu; P2: quan sát, tuning và vận hành |
 
@@ -387,7 +387,7 @@ Không bỏ qua function output của call đã nhận. Nếu checkpoint trướ
     - [x] **CLP-07.04.01** — Tạo old→current→restart fixtures với archive/stale pack, previous response, ACK/unknown/pending/cancelled. (`DONE` — combined archived stale-pack/UNKNOWN/previous_response fixture plus mixed pending/cancelled states PASS 45754046991 and 45752238246)
     - [x] **CLP-07.04.02** — Assert original history/receipt/goal/settings/plan, migration marker và execution count không đổi ngoài transition hợp lệ. (`DONE` — exact archived rows/current receipt/goal/plan/settings/old UNKNOWN checkpoint and once-only new egress across reopened store PASS 45754046991; no binary migration claimed)
     - [ ] **CLP-07.04.03** — Chạy legacy + unified recovery, permissions, concurrency và UI mapping. (`TODO`)
-    - [ ] **CLP-07.04.04** — Ghi kết quả, blocker/môi trường; chỉ dùng production copy nếu có backup và consent. (`TODO`)
+    - [x] **CLP-07.04.04** — Ghi kết quả, blocker/môi trường; chỉ dùng production copy nếu có backup và consent. (`DONE` — synthetic archived/stale-pack/UNKNOWN restart, native 150 MiB and mixed restart tests PASS 45790872750; environment/production consent limits recorded in §8; no production copy or binary self-update claimed)
 
 ### CLP-08 — UI và observability (2 task, P2)
 
@@ -403,10 +403,10 @@ Không bỏ qua function output của call đã nhận. Nếu checkpoint trướ
 - [ ] **CLP-08.02 — Safe debug report và telemetry** (`IN_PROGRESS`, P2)
   - Thêm bounded guard events/counters, objective scope hash, evidence novelty class, overlap warning, payload size/token estimate, recovery type; correlation run/call ID; phân biệt clear debug history với canonical journal. Không log source/patch Python/prompt/API key.
   - **Acceptance:** export tái hiện nguyên nhân stall/timeout/ACK domain; clear debug không reset durable guard; event retention/size bounded; redaction tests.
-    - [ ] **CLP-08.02.01** — Thêm structured bounded events guard decision/novelty/overlap/attempt/budget/recovery, run/call correlation. (`IN_PROGRESS` — safe Legacy report projection and regression added; CI pending; Unified/retention matrix pending)
+    - [ ] **CLP-08.02.01** — Thêm structured bounded events guard decision/novelty/overlap/attempt/budget/recovery, run/call correlation. (`VERIFY_PENDING` — Legacy and Unified bounded committed snapshot/attempt telemetry PASS 45790872750; extra enum and restart/clear test pending)
     - [x] **CLP-08.02.02** — Redact source/prompt/Patch Python/credentials; enforce size/retention limits. (`DONE` — allowlisted journal detail/result metadata, no raw prompt/Patch source, bounded report/trace retention and owner scoped export; CI 45786719518 PASS; Unified extra projection pending)
     - [x] **CLP-08.02.03** — Giữ clear debug marker tách canonical guard/journal; export đúng failure domain. (`DONE` — Clear marker distinct from durable guard/journal/attempt audit, fresh sidecar-only attempt visible; CI 45786719518 PASS)
-    - [ ] **CLP-08.02.04** — Test redaction, clear history, retention và synthetic incident reconstruction. (`IN_PROGRESS` — safe Legacy report projection and regression added; CI pending; Unified/retention matrix pending)
+    - [ ] **CLP-08.02.04** — Test redaction, clear history, retention và synthetic incident reconstruction. (`VERIFY_PENDING` — redaction, clear, retention and incident tests PASS 45790872750; Unified persisted-record restart/clear test pending)
 
 ### CLP-09 — End-to-end regression, rollout và nghiệm thu (3 task, P1)
 
@@ -496,12 +496,12 @@ Kiểm tra cả các Python/native Patch Tool test hiện có nếu sửa contra
 | CLP-02 Evidence | 4 | 2 | IN_PROGRESS |
 | CLP-03 Durability | 3 | 0 | IN_PROGRESS |
 | CLP-04 Integration | 4 | 0 | IN_PROGRESS |
-| CLP-05 Compact/Pack | 4 | 0 | IN_PROGRESS |
-| CLP-06 Budget/Retry | 4 | 1 | IN_PROGRESS |
-| CLP-07 Legacy recovery | 4 | 1 | IN_PROGRESS |
+| CLP-05 Compact/Pack | 4 | 1 | IN_PROGRESS |
+| CLP-06 Budget/Retry | 4 | 3 | IN_PROGRESS |
+| CLP-07 Legacy recovery | 4 | 3 | IN_PROGRESS |
 | CLP-08 UI/Debug | 2 | 0 | IN_PROGRESS |
 | CLP-09 Validation | 3 | 0 | TODO |
-| **Total** | **36** | **7** | **IN_PROGRESS** |
+| **Total** | **36** | **12** | **IN_PROGRESS** |
 
 ### 8.0. Roll-up ba cấp (cập nhật cùng checklist)
 
@@ -512,12 +512,12 @@ Kiểm tra cả các Python/native Patch Tool test hiện có nếu sửa contra
 | CLP-02 | 0/1 | 2/4 | 11/16 |
 | CLP-03 | 0/1 | 0/3 | 3/12 |
 | CLP-04 | 0/1 | 0/4 | 5/16 |
-| CLP-05 | 0/1 | 0/4 | 2/16 |
-| CLP-06 | 0/1 | 1/4 | 6/16 |
-| CLP-07 | 0/1 | 1/4 | 7/16 |
-| CLP-08 | 0/1 | 0/2 | 2/8 |
+| CLP-05 | 0/1 | 1/4 | 9/16 |
+| CLP-06 | 0/1 | 3/4 | 15/16 |
+| CLP-07 | 0/1 | 3/4 | 15/16 |
+| CLP-08 | 0/1 | 0/2 | 5/8 |
 | CLP-09 | 0/1 | 0/3 | 0/12 |
-| **Total** | **0/10** | **7/36** | **55/144** |
+| **Total** | **0/10** | **12/36** | **82/144** |
 
 Regression gates: **0/28 PASS**. Mỗi lần cập nhật, ghi ID subtask cụ thể, file/test/receipt, trạng thái; chỉ roll up sau khi xác minh. Commit từng subtask có thay đổi độc lập hoặc nhóm nhỏ coherent, không để toàn phase mới commit. Không tạo commit rỗng chỉ để tick.
 
@@ -851,3 +851,5 @@ Incident: native run `1795598230725789_1225262`; historical diagnostics missing 
 - 2026-11-26: a99c6af6 core CI 45770558619 individually PASS for DebugReportGuardAndRedaction and DebugReportAttemptAuditAfterClear, but full core failed on old shrink assertion and typed ACKed failed Patch in full-history policy. Concurrent f698eb29 addresses both by ledger-digest-bound historical failed Patch summaries and canonical full-history assertion; retained that commit rather than duplicating edits. Remote Go/PHP at a99c6af6 PASS. CLP-08.02 follow-up fixes actual post-Clear retry visibility when only attempt sidecar advances, with no canonical CAS or UpdatedAt change. Export prefers readable JSON, compact without loss if necessary, then trims oldest whole trace/session summaries under 2 MiB, keeps latest of each and declares omissions. New retention tests for real export encoder, trace TTL/count/event sequence caps; CI pending. No production source/provider use or browser smoke claimed.
 
 - 2026-11-26: 8ca66309 core/Go/PHP 45786719518/45786719482/45786719780 PASS; concurrent 3f89d068 core 45786794008 PASS. Mark CLP-07.03.04, 08.01.03, 08.02.02/.03 DONE and CLP-07.03 parent DONE (81/144, 12/36). CLP-08.02 adds read-only existing Unified run report projection from owner-scoped durable records and immutable verified snapshot binding/canonical history prefix. No manager startup, no scheduling. Per session max 8 runs, per run max 16 retry events; only bounded numeric fields, retry enums and validated SHA256, no raw RunEvent payload/receipt/prompt/workspace paths. Pre-clear cumulative snapshot progress omitted, fresh retries filtered by timestamp. Extend existing repeated-source native receipt fixture to inspect report; pure redaction test added. CI pending; no live browser or production self-update claimed.
+
+- 2026-11-26: e01c04b2 core CI 45790872750 PASS (including Unified native 4-read snapshot projection, redacted retry, actual UNKNOWN UI click, 72-case retry matrix and real 150 MiB restart), PHP 45790872855 PASS. Remote Go at that SHA not yet confirmed. CLP-07.04.04 DONE for documented synthetic migration evidence; production journal backup/consent and binary self-update unavailable, no production actions. Recomputed all three progress rollups from actual primary checklist (CLP-10 excluded), correcting older stale tables. CLP-08.02 follow-up restricts decision/reason to known enum values even for malformed historical snapshot, adds persisted Unified run report after fresh Server restart, owner isolation, Clear marker/restart, receipt exactness and no manager creation/native/provider replay tests. New CI pending; CLP-07.04.03 and 08.02.01/.04 still open until final cross-pipeline evidence. Existing full-context and cache work at fad11e95 retained.
