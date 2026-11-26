@@ -755,15 +755,12 @@ func (s *Server) agentChatAutoFeedbackAPI(w http.ResponseWriter, r *http.Request
 		http.Error(w, "stale session revision", 409)
 		return
 	}
-	x.AutoFeedback = req.Enabled
-	x.AutoFeedbackPersistent = false // legacy endpoint grants only a time-bounded lease
+	var until *time.Time
 	if req.Enabled {
-		until := time.Now().UTC().Add(agentAutoFeedbackMaxAge)
-		x.AutoFeedbackUntil = &until
-	} else {
-		x.AutoFeedbackUntil = nil
+		deadline := time.Now().UTC().Add(agentAutoFeedbackMaxAge)
+		until = &deadline
 	}
-	x, err = store.Save(x, x.Revision)
+	x, err = store.UpdateLegacyAutoFeedback(id, owner, s.Workspace, req.ExpectedRevision, req.Enabled, until)
 	if err != nil {
 		http.Error(w, "cannot persist auto-feedback consent", 409)
 		return

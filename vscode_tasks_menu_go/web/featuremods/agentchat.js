@@ -596,14 +596,14 @@ function updateAgentFooterSession(session,last){
   (session.auto_feedback?' · auto-send ON':'');
  // A revision-only poll must not restart the four-second rotation or erase
  // a useful transient notice. A real state change clears stale notices.
- const key=[session.id,session.status,last?.status,last?.feedback_sent].join(':');
+ const key=[session.id,session.status,last?.status,last?.feedback_sent,agentFeedbackEnabled(session),session.auto_feedback_diagnostic?.reason].join(':');
  if(key!==agentFooterSessionKey){
   agentFooterSessionKey=key;
   let notice='';
   if(session.status==='requesting_ai'){
    notice='AI request is running on the server · new responses will appear automatically. Use Cancel only to stop the request.';
   }else if(session.status==='waiting_tool'){
-   if(last?.status==='done')notice='Patch PASS · '+(last.feedback_sent?'result sent to AI':'result ready to send to AI');
+   if(last?.status==='done')notice='Patch PASS · '+(last.feedback_sent?'result sent to AI':(agentFeedbackEnabled(session)?agentFeedbackWaitMessage(session):'Auto-send results is OFF · result ready to send to AI'));
    else if(last?.status==='error')notice='Patch failed · inspect verified result';
    else if(last?.status==='running')notice='Patch Tool running · monitoring native status';
    else if(last?.status==='unknown')notice='Native Patch result unknown · inspect History';
@@ -1290,6 +1290,13 @@ function renderAgentTool(session,item){
    ()=>continueAgentTool(agentCurrentSession||session,item.call_id).catch(showAgentError)));
  }
  appendRecordedRejectionNotice();
+ if(['done','error'].includes(state)&&!record.feedback_sent&&!record.feedback_status&&!agentFeedbackEnabled(session)&&!record.send_after_retry){
+  box.append(agentEl('p','agentchat-tool-summary','Auto-send results is OFF · verified result has not been sent.'));
+  actions.append(agentButton('Enable Auto-send results',()=>{
+   if(agentActive!==session.id)return;
+   return queueAgentAutomationWrite(id=>writeAgentAutomation(id,'feedback',true)).catch(showAgentError);
+  }));
+ }
  if(state==='unknown'){
   box.append(agentEl('p','agentchat-tool-summary',
    'Native Patch execution was not confirmed for this Agent call. If you ran the queued ZIP manually, click Get the last result and send to AI: TaskDeck will look for unique matching completed native History and verify the original package hash. Re-apply is unavailable until a failed run is verified.'));
@@ -1819,8 +1826,7 @@ function displayAgentSession(session){
  if(followLatest)agentScrollToLatest(session.id);
  const last=(session.tool_calls||[]).slice(-1)[0];
  updateAgentFooterSession(session,last);
- const nextFeedback=session.auto_feedback?'Auto-send: ON':'Auto-send results';
- if(autoFeedback.textContent!==nextFeedback)autoFeedback.textContent=nextFeedback;
+ renderAgentFeedbackControl(session);
 }
 function agentConversationUnresolved(sess){
  if(sess&&typeof sess.unresolved==='boolean')return sess.unresolved;
@@ -2755,12 +2761,17 @@ function renderAgentAutomationControls(session){
  autoPatch.setAttribute('aria-pressed',String(Boolean(session?.auto_patch)));
  autoCollection.textContent='Auto Collection: '+(session?.auto_collection===false?'OFF':'ON');
  autoCollection.setAttribute('aria-pressed',String(session?.auto_collection!==false));
- const feedbackActive=Boolean(session?.auto_feedback)&&
-  (!session?.auto_feedback_until || Date.parse(session.auto_feedback_until)>Date.now());
- autoFeedback.textContent='Auto-send results: '+(feedbackActive?'ON':'OFF');
- autoFeedback.setAttribute('aria-pressed',String(feedbackActive));
+ renderAgentFeedbackControl(session);
  autoContinueText.textContent='Auto continue (no plan): '+(session?.auto_continue_text?'ON':'OFF');
  autoContinueText.setAttribute('aria-pressed',String(Boolean(session?.auto_continue_text)));
+}
+function agentFeedbackEnabled(session){
+ return Boolean(session?.auto_feedback)&&(session.auto_feedback_persistent||!session.auto_feedback_until||Date.parse(session.auto_feedback_until)>Date.now());
+}
+function renderAgentFeedbackControl(session){
+ const active=agentFeedbackEnabled(session);
+ autoFeedback.textContent='Auto-send results: '+(active?'ON':'OFF');
+ autoFeedback.setAttribute('aria-pressed',String(active));
 }
 // Serialize preference clicks per conversation, independently of provider
 // requests and polling. A late click cannot mutate a different active tab.
@@ -2774,17 +2785,22 @@ function queueAgentAutomationWrite(action){
  return pending.finally(()=>{if(agentAutomationWrites.get(id)===pending)agentAutomationWrites.delete(id);});
 }
 function toggleAgentAutomation(option){
- return queueAgentAutomationWrite(id=>writeAgentAutomation(id,option));
+ // Capture the user's intended setting from the visible control, not from
+ // a later GET which may already reflect an intervening successful write.
+ const control={patch:autoPatch,collection:autoCollection,continue:autoContinueText,feedback:autoFeedback}[option];
+ const enabled=control.getAttribute('aria-pressed')!=='true';
+ return queueAgentAutomationWrite(id=>writeAgentAutomation(id,option,enabled));
 }
-async function writeAgentAutomation(id,option){
+async function writeAgentAutomation(id,option,enabled){
  const data=await agentApp.jsonFetch('/api/agent/sessions/'+encodeURIComponent(id));
  const session=data.session;
  if(!session||session.id!==id)throw new Error('Conversation unavailable.');
  const current=option==='patch'?Boolean(session.auto_patch):
   option==='collection'?session.auto_collection!==false:
   option==='continue'?Boolean(session.auto_continue_text):
-  Boolean(session.auto_feedback) && (!session.auto_feedback_until || Date.parse(session.auto_feedback_until)>Date.now());
- const enabled=!current;
+  agentFeedbackEnabled(session);
+ if(typeof enabled!=='boolean')throw new Error('Missing explicit automation preference.');
+ if(current===enabled){if(agentActive===id)await selectAgentSession(id);return;}
  if(option==='continue'&&enabled&&session.task_plan)
   throw new Error('This conversation has a Task plan. Enable Auto continue in Tools → Task plan instead.');
  if(option==='continue'&&enabled&&!window.confirm(

@@ -1462,6 +1462,15 @@ console.log('PASS: safe Markdown, syntax-highlighted PHP/Python, per-block Copy,
   vm.runInNewContext("markAgentSessionBusy('retry-progress',false)",context);
   console.log('PASS: AI retry submenu selects Off / 5 times / Unlimited without cycling, including during active request');
 
+  // An older render shows OFF while the server has already persisted ON.
+  // Clicking Enable must be idempotent, never invert the server's setting.
+  context.retrySelection={...context.retrySelection,auto_feedback:true,auto_feedback_persistent:true};
+  vm.runInNewContext("renderAgentAutomationControls({...retrySelection,auto_feedback:false,auto_feedback_persistent:false})",context);
+  const feedbackControl=automationGroup.children[1].children.find(node=>node.textContent.startsWith('Auto-send results'));
+  await feedbackControl.onclick();
+  assert.equal(context.retrySelection.auto_feedback,true,'stale OFF control must not revoke enabled feedback');
+  assert.equal(feedbackControl.getAttribute('aria-pressed'),'true','idempotent enable refreshes actual state');
+
   const stuckPatch={id:'old-patch',status:'waiting_tool',revision:8,
     history:[{type:'function_call',call_id:'old-call',name:'taskdeck_submit_patch',
       arguments:JSON.stringify({name:'Vietnamese diacritics and phpinfo output',patch_python:'print(1)'})}],
