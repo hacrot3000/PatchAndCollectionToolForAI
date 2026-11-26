@@ -122,10 +122,17 @@ agentCSS.textContent=[
 '.agentchat-message-body{min-width:0;overflow-wrap:anywhere}',
 '.agentchat-thinking-content{color:#a8b9ce;border-left:2px solid #7187a3;padding:4px 9px;margin:4px 0 8px;font-size:11px;line-height:1.55;white-space:pre-wrap;overflow-wrap:anywhere}',
 '.agentchat-thinking-heading{display:block;font-size:11px;font-weight:600;margin-bottom:4px;color:inherit}',
+'.agentchat-thinking-body{min-width:0;line-height:1.55;white-space:pre-wrap;overflow-wrap:anywhere}',
+'.agentchat-thinking-body.is-collapsed{display:flex;flex-direction:column;justify-content:flex-end;max-height:7.75em;overflow:hidden}',
+'.agentchat-thinking-text{flex:none;min-width:0}',
+'.agentchat-window .agentchat-thinking-toggle{display:block;margin-top:4px;font-size:11px;padding:2px 6px;border:1px solid currentColor;border-radius:4px;background:transparent;color:inherit;line-height:1.4;cursor:pointer}',
+'.agentchat-window .agentchat-thinking-toggle[hidden]{display:none}',
+'.agentchat-window .agentchat-thinking-toggle:hover,.agentchat-window .agentchat-thinking-toggle:focus-visible{background:rgba(128,145,165,.18)}',
 'html[data-taskmenu-theme="light"] .agentchat-thinking-content{color:#52647b;border-color:#8296ad}',
 '.agentchat-live-status.thinking{color:#a8b9ce;flex-wrap:wrap}',
 'html[data-taskmenu-theme="light"] .agentchat-live-status.thinking{color:#52647b}',
 '.agentchat-live-preview{flex-basis:100%;min-width:0;white-space:pre-wrap;overflow-wrap:anywhere;max-height:300px;overflow:auto;color:inherit}',
+'.agentchat-live-preview:has(.agentchat-thinking-body:not(.is-collapsed)){max-height:none;overflow:visible}',
 '.agentchat-bubble.user .agentchat-message-body.is-collapsed{max-height:7.75em;overflow:hidden}',
 '.agentchat-message-actions{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:6px;min-width:0;white-space:normal}',
 '.agentchat-message-actions .agentchat-message-copy{margin-left:auto}',
@@ -380,6 +387,7 @@ agentLiveRow.setAttribute('aria-live','polite');
 const agentLivePreview=agentEl('div','agentchat-live-preview');
 agentLivePreview.hidden=true;
 agentLivePreview.setAttribute('aria-live','off');
+let agentLiveThinkingKey='',agentLiveThinkingStates={};
 agentLiveRow.append(agentLiveSpinner,agentLiveText,agentLivePreview);
 const agentProgressTimers=new Map();
 
@@ -1136,10 +1144,42 @@ function agentThinkingParts(raw){
  const rest=source.slice(opening[0].length),closing=/<\/think>/i.exec(rest);
  return closing?{thinking:rest.slice(0,closing.index).trim(),answer:rest.slice(closing.index+closing[0].length).trimStart()}:{thinking:rest.trim(),answer:''};
 }
-function agentThinkingNode(value,label='Thinking'){
+// Keep the complete text in the DOM. CSS clips from the top so the last
+// five rendered lines (including wrapped lines) remain visible by default.
+function agentThinkingNode(value,label='Thinking',state={expanded:false}){
  const node=agentEl('div','agentchat-thinking-content');
- node.append(agentEl('strong','agentchat-thinking-heading',label),agentEl('div','',value));
+ const body=agentEl('div','agentchat-thinking-body');
+ const content=agentEl('div','agentchat-thinking-text',String(value??''));
+ body.append(content);
+ const toggle=agentButton('Show all',()=>{
+  state.expanded=!state.expanded;
+  paint();
+  syncVisibility();
+ });
+ toggle.className='agentchat-thinking-toggle';
+ toggle.setAttribute('aria-label','Expand or collapse '+label);
+ function paint(){
+  body.classList.toggle('is-collapsed',!state.expanded);
+  toggle.textContent=state.expanded?'Show less':'Show all';
+  toggle.setAttribute('aria-expanded',String(state.expanded));
+ }
+ function syncVisibility(){
+  // Before mounting, use the same conservative estimate as user messages.
+  // Once laid out, measure the actual wrapped text (not newline count).
+  const measured=body.clientHeight>0&&content.offsetHeight>0;
+  toggle.hidden=!state.expanded&&(measured
+   ?content.offsetHeight<=body.clientHeight+1
+   :!agentUserMessageIsLong(content.textContent));
+ }
+ node.agentSyncThinkingVisibility=syncVisibility;
+ paint();syncVisibility();
+ node.append(agentEl('strong','agentchat-thinking-heading',label),body,toggle);
  return node;
+}
+function syncAgentThinkingToggles(container=transcript){
+ for(const node of container.querySelectorAll?.('.agentchat-thinking-content')||[]){
+  node.agentSyncThinkingVisibility?.();
+ }
 }
 function agentMessageBubble(role,source){
  const raw=String(source??'');
@@ -1613,19 +1653,26 @@ function agentUpdateLiveRow(session){
  const phase=agentLivePhase(session);
  if(!phase){
   if(agentLiveRow.parentElement)agentLiveRow.remove();
+  agentLiveThinkingKey='';agentLiveThinkingStates={};
+  agentLivePreview.dataset.previewKey='';agentLivePreview.replaceChildren();agentLivePreview.hidden=true;
   return;
  }
  agentLiveRow.className='agentchat-live-status'+(phase.error?' error':phase.thinking?' thinking':'');
  const preview=session.status==='requesting_ai'&&phase.thinking?session.live_preview:null;
+ const thinkingKey=preview?.streaming?JSON.stringify([id,preview.request_id]):'';
+ if(agentLiveThinkingKey!==thinkingKey){
+  agentLiveThinkingKey=thinkingKey;
+  agentLiveThinkingStates={summary:{expanded:false},text:{expanded:false}};
+ }
  const previewKey=preview?.streaming?JSON.stringify([id,preview.request_id,preview.summary,preview.text,preview.truncated]):'';
  if(agentLivePreview.dataset.previewKey!==previewKey){
   agentLivePreview.dataset.previewKey=previewKey;
   agentLivePreview.replaceChildren();
   if(preview?.streaming){
-   if(preview.summary)agentLivePreview.append(agentThinkingNode(preview.summary,'Thinking summary · live'));
+   if(preview.summary)agentLivePreview.append(agentThinkingNode(preview.summary,'Thinking summary · live',agentLiveThinkingStates.summary));
    if(preview.text){
     const parts=agentThinkingParts(preview.text);
-    if(parts.thinking!==null)agentLivePreview.append(agentThinkingNode(parts.thinking,'Thinking · live'));
+    if(parts.thinking!==null)agentLivePreview.append(agentThinkingNode(parts.thinking,'Thinking · live',agentLiveThinkingStates.text));
     if(parts.answer)agentLivePreview.append(agentEl('div','',parts.answer));
    }
    if(preview.truncated)agentLivePreview.append(agentEl('div','','Live preview limit reached; complete response will appear after validation.'));
@@ -1647,6 +1694,7 @@ function agentUpdateLiveRow(session){
   // animation/state and does not count as removing a history entry.
   transcript.append(agentLiveRow);
  }
+ syncAgentThinkingToggles(agentLivePreview);
 }
 function agentStartProgressPoll(sessionID){
  if(agentProgressTimers.has(sessionID))return;
@@ -1945,6 +1993,7 @@ function displayAgentSession(session){
   agentRenderedToolVersions.set(item.call_id,version);
  }
  agentUpdateLiveRow(session);
+ if(changed)syncAgentThinkingToggles();
  // The live status is appended after the history scroll decision.
  if(followLatest)agentScrollToLatest(session.id);
  const last=(session.tool_calls||[]).slice(-1)[0];
@@ -3658,7 +3707,7 @@ function mountAgentDock(){
    const size=section.clientWidth+':'+section.clientHeight+':'+heading.clientWidth+':'+composer.clientWidth;
    if(size===lastSize)return;
    lastSize=size;
-   applyAgentDock();rebalanceAgentToolbar();
+   applyAgentDock();rebalanceAgentToolbar();syncAgentThinkingToggles();
   });
   agentDock.observer.observe(heading);agentDock.observer.observe(section);agentDock.observer.observe(composer);
  }
