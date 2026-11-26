@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -109,6 +110,32 @@ func TestRunPromptUsesPinnedSnapshotAndExecutionWorkspacePack(t *testing.T) {
 	if strings.Contains(string(encoded), "TEST-KEY") {
 		t.Fatal("provider credential leaked into the request body")
 	}
+	// Persist/reopen the real bounded hint store under the same pinned owner
+	// and execution workspace. Legacy input hints must remain independent.
+	ctx:=context.Background()
+	resolver:=ownerAgentRunProviderResolver{server:s,owner:"local"}
+	resolved,err:=resolver.Resolve(ctx,spec);if err!=nil{t.Fatal(err)}
+	if resolver.OutputBudgetHint(ctx,spec,resolved)!=0{t.Fatal("unexpected initial hint")}
+	resolver.RememberOutputBudgetHint(ctx,spec,resolved,16384)
+	restarted:=&Server{Workspace:s.Workspace,Config:s.Config,ConnectionSecrets:s.ConnectionSecrets,AgentChatPack:s.AgentChatPack}
+	after:=ownerAgentRunProviderResolver{server:restarted,owner:"local"}
+	if got:=after.OutputBudgetHint(ctx,spec,resolved);got!=16384{t.Fatalf("durable output hint=%d",got)}
+	// A smaller valid cap may be learned, but an unrelated scope or a larger
+	// value cannot silently overwrite it.
+	after.RememberOutputBudgetHint(ctx,spec,resolved,32768)
+	if got:=after.OutputBudgetHint(ctx,spec,resolved);got!=16384{t.Fatal("hint cap unexpectedly increased")}
+	if _,found,err:=store.AdaptiveBudgetHint(session,version,credentialFingerprint);err!=nil||found{t.Fatal("Unified output hint leaked to Legacy namespace")}
+	wrong:=spec;wrong.ExecutionWorkspaceID="other-execution-workspace"
+	if after.OutputBudgetHint(ctx,wrong,resolved)!=0{t.Fatal("hint crossed execution workspace")}
+	wrong=spec;wrong.ProviderConfigVersion="other-config"
+	if after.OutputBudgetHint(ctx,wrong,resolved)!=0{t.Fatal("hint crossed config")}
+	wrong=spec;wrong.CredentialFingerprint=agentchat.RunCredentialFingerprint([]byte("other-key"))
+	if after.OutputBudgetHint(ctx,wrong,resolved)!=0{t.Fatal("hint crossed credential")}
+	other:=ownerAgentRunProviderResolver{server:restarted,owner:"other-owner"}
+	if other.OutputBudgetHint(ctx,spec,resolved)!=0{t.Fatal("hint crossed owner")}
+	cancelled,cancel:=context.WithCancel(ctx);cancel()
+	after.RememberOutputBudgetHint(cancelled,spec,resolved,8192)
+	if after.OutputBudgetHint(ctx,spec,resolved)!=16384{t.Fatal("cancelled request changed hint")}
 	packText = "DRIFTED EXECUTION WORKSPACE PACK"
 	if _, err := options.Options(spec, provider, model); err == nil || !strings.Contains(err.Error(), "changed after the run snapshot") {
 		t.Fatalf("workspace-pack drift was not rejected against the confirmed snapshot: %v", err)
