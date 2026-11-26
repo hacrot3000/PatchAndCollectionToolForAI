@@ -1197,7 +1197,7 @@ console.log('PASS: safe Markdown, syntax-highlighted PHP/Python, per-block Copy,
   await assert.rejects(vm.runInNewContext('sendAgentMessage()',context),/another model turn/);
   assert.equal(vm.runInNewContext('prompt.value',context),'Manual instruction','refused message remains a draft');
   assert.equal(vm.runInNewContext("agentLiveTurns.has('natural-flow')",context),false,'refused action must not own the live row');
-  assert.equal(liveLine.className,'agentchat-live-status');
+  assert.equal(liveLine.className,'agentchat-live-status thinking');
   assert.equal(liveLine.children[1].textContent,'Thinking…');
   assert.equal(vm.runInNewContext('send.disabled',context),true,'finally must not enable Send while server still works');
   assert.equal(vm.runInNewContext('cancel.disabled',context),false,'Cancel remains available for server-owned request');
@@ -1480,6 +1480,17 @@ console.log('PASS: safe Markdown, syntax-highlighted PHP/Python, per-block Copy,
   assert.equal(transcript.children.at(-1),retryLive,'retry phase must reuse one status DOM node');
   assert.ok(retryLive.children[1].textContent.includes('attempt 3'));
   assert.equal(transcript.children.filter(node=>node.className==='agentchat-live-status').length,1);
+  for(const phase of ['waiting','sending']){
+    context.stagnantRetry={...retryBase,retry_runtime:{mode:'unlimited',attempt:8,phase,same_digest_failures:7,last_code:'RESPONSE_HEADER_TIMEOUT',next_at:new Date(Date.now()+10000).toISOString()}};
+    vm.runInNewContext('displayAgentSession(stagnantRetry)',context);
+    assert.equal(transcript.children.at(-1),retryLive,'stagnation must use existing live status row');
+    assert.ok(retryLive.children[1].textContent.includes('same payload failed 7 times'));
+    assert.ok(retryLive.children[1].textContent.includes('No automatic provider switch'));
+    assert.ok(retryLive.children[1].textContent.includes('Stop request to cancel'));
+    assert.equal(vm.runInNewContext('cancel.disabled',context),false,'unlimited retry remains stoppable');
+    assert.equal(vm.runInNewContext("agentLivePhase({...stagnantRetry,status:'cancelled'})",context),null,'terminal state wins over stale retry runtime');
+  }
+  vm.runInNewContext('displayAgentSession(retrySending)',context);
 
   // The AI retry label opens a real submenu; it must never silently rotate
   // off → limited → unlimited just from clicking the label.

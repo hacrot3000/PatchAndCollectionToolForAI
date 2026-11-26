@@ -1517,17 +1517,19 @@ function agentLivePhase(session){
  // Use the canonical event tail to describe a request started elsewhere.
  const newer=turn&&!turn.error?events.filter(e=>Number(e.seq||0)>turn.baseEventSeq):events;
  const lastEvent=newer.length?newer[newer.length-1]:null;
- const retry=session.retry_runtime;
+ const retry=session.status==='requesting_ai'?session.retry_runtime:null;
+ const stagnant=Number(retry?.same_digest_failures)>=3;
+ const stagnationHint=stagnant?' · same payload failed '+retry.same_digest_failures+' times; check provider connectivity. If needed, Stop and explicitly resume with narrower context or select a different model. No automatic provider switch.':'';
  if(retry?.phase==='waiting'){
   const remaining=Math.max(0,Math.ceil((Date.parse(retry.next_at||'')-Date.now())/1000));
   const max=retry.mode==='unlimited'?'∞':'5';
   return {message:'AI retry '+retry.attempt+'/'+max+' · '+(retry.last_code||'transient failure')+
-   (Number(retry.same_digest_failures)>=3?' · same payload failed '+retry.same_digest_failures+' times; check provider connectivity':'')+
+   stagnationHint+
    ' · trying again in '+remaining+'s · Stop request to cancel'};
  }
  if(retry?.phase==='sending'&&retry.attempt>1){
   return {message:'Retrying AI request · attempt '+retry.attempt+
-   (retry.mode==='unlimited'?' (unlimited)':' / 6 total attempts')+'…'};
+   (retry.mode==='unlimited'?' (unlimited)':' / 6 total attempts')+'…'+stagnationHint+(stagnant?' · Stop request to cancel':'')};
  }
  if(session.status==='requesting_ai'){
   if(!turn?.error&&turn?.phase==='sending'&&!turn.acknowledged&&!newer.some(e=>e.kind==='turn_started'||e.kind==='feedback_prepared'||e.kind==='provider_egress'))return {message:'Sending request…'};
