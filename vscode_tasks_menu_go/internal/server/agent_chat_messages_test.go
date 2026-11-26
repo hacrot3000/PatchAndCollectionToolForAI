@@ -195,7 +195,7 @@ func TestAgentChatMessageSharedPermission(t *testing.T) {
 	}
 }
 
-func TestAgentChatCompactionPreservesToolPairAndRefusesUnsafe(t *testing.T) {
+func TestAgentChatFullHistoryPreservesToolPairAndRefusesUnsafeCompaction(t *testing.T) {
 	s, id := newAgentConversationFixture(t, "stateless")
 	store, err := s.agentChatStore()
 	if err != nil {
@@ -248,9 +248,10 @@ func TestAgentChatCompactionPreservesToolPairAndRefusesUnsafe(t *testing.T) {
 	if !seenCall || !seenOutput {
 		t.Fatalf("compaction split or dropped the tool pair: call=%v output=%v len=%d", seenCall, seenOutput, len(y.History))
 	}
-	if len(y.History) >= 222 {
-		t.Fatalf("history did not shrink: %d", len(y.History))
+	if len(y.History) != len(x.History)+2 {
+		t.Fatalf("history changed below actual journal limit: got %d want %d",len(y.History),len(x.History)+2)
 	}
+	for i,item:=range x.History{if y.History[i]!=item{t.Fatalf("canonical item %d changed below actual limit",i)}}
 	// A history consisting only of a tool exchange/tail cannot be compacted.
 	z, err := store.Get(id, "local")
 	if err != nil {

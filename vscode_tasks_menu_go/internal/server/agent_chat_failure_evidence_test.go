@@ -189,7 +189,7 @@ func TestAgentCLP10ContinueOldBlockedConversationProposesSuccessorWithoutReplay(
   if err:=json.Unmarshal(payload,&req);err!=nil{t.Fatal(err)}
   if !strings.Contains(string(payload),"tracker anchor mismatch")||!strings.Contains(string(payload),f.call.RunID){t.Fatal("provider did not receive recovered failure diagnostics")}
   for _,item:=range req.Input{
-   if item["type"]=="function_call_output"&&item["call_id"]==f.call.CallID{t.Fatal("acknowledged result replayed")}
+   if (item["type"]=="function_call_output"||item["type"]=="function_call")&&item["call_id"]==f.call.CallID{t.Fatal("acknowledged failed exchange replayed")}
   }
   return agentchat.ResponsesResult{ResponseID:"corrected-proposal",Calls:[]agentchat.FunctionCall{{CallID:"corrected-tracker",Name:"taskdeck_submit_patch",Arguments:string(args)}}},nil
  }

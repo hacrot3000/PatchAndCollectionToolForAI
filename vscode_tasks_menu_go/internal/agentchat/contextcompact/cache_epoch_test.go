@@ -92,3 +92,23 @@ func TestFullHistoryMetadataEpochCannotSupplyReplay(t *testing.T){
  changed,why:=FullHistoryCacheEpoch(modified,modified,p,scope,old)
  if changed==nil||changed.ID==old.ID||why!="full_history"{t.Fatal("source provenance change accepted")}
 }
+
+
+func TestFullHistoryAcknowledgedFailedPatchSummaryIsLedgerBound(t *testing.T){
+ goal:=agentchat.HistoryItem{Type:"user",Content:"owner goal"}
+ failed:=agentchat.HistoryItem{Type:"function_call",Name:"taskdeck_submit_patch",CallID:"old",Arguments:`{"patch_python":"private old source"}`}
+ receipt:=agentchat.HistoryItem{Type:"function_call_output",CallID:"old",Content:`{"status":"FAIL","run_id":"old-run"}`}
+ pass:=agentchat.HistoryItem{Type:"function_call",Name:"taskdeck_submit_patch",CallID:"pass",Arguments:`{"patch_python":"other source"}`}
+ passOut:=agentchat.HistoryItem{Type:"function_call_output",CallID:"pass",Content:`{"status":"PASS"}`}
+ current:=agentchat.HistoryItem{Type:"function_call",Name:"taskdeck_submit_patch",CallID:"current",Arguments:"{}"}
+ currentOut:=agentchat.HistoryItem{Type:"function_call_output",CallID:"current",Content:`{"status":"FAIL"}`}
+ h:=[]agentchat.HistoryItem{goal,failed,receipt,pass,passOut,current}
+ p:=Policy{Next:[]agentchat.HistoryItem{currentOut},AcknowledgedFailedPatchReceipts:map[string]string{"old":agentchat.BodyDigest([]byte(receipt.Content)),"current":agentchat.BodyDigest([]byte(currentOut.Content))}}
+ got:=FullHistory(h,p)
+ if len(got)!=5||got[0]!=goal||got[2]!=pass||got[3]!=passOut||got[4]!=current||!strings.Contains(got[1].Content,"old-run")||strings.Contains(got[1].Content,"private old source"){t.Fatalf("incorrect summary or pair: %+v",got)}
+ body,e:=agentchat.BuildResponsesRequest(agentchat.RequestConfig{Model:"m",Mode:agentchat.Stateless,Instructions:"trusted",History:got,Next:p.Next})
+ if e!=nil||strings.Count(string(body),"\"call_id\":\"current\"")!=2{t.Fatalf("current receipt lost: %v",e)}
+ p.AcknowledgedFailedPatchReceipts["old"]=agentchat.BodyDigest([]byte("different"))
+ if !reflect.DeepEqual(FullHistory(h,p),h){t.Fatal("unbound historical receipt suppressed")}
+ if h[1]!=failed||h[2]!=receipt{t.Fatal("canonical history modified")}
+}

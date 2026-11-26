@@ -115,8 +115,14 @@ func agentContextPolicy(x agentchat.Session,model agentchat.ModelConfig,instruct
   ArchivedItems:x.ArchivedHistoryItems,ArchivedParts:x.HistoryArchiveParts,
   ArchivedPatchCalls:x.ArchivedPatchCalls,ArchivedPatchSummaries:x.PatchArchiveSummaries,
   SyntheticPatchIDs:map[string]bool{},
+  AcknowledgedFailedPatchReceipts:map[string]string{},
  }
- for _,call:=range x.ToolCalls{if call.TextFallback{policy.SyntheticPatchIDs[call.CallID]=true}}
+ for _,call:=range x.ToolCalls{
+  if call.TextFallback{policy.SyntheticPatchIDs[call.CallID]=true}
+  if call.Name=="taskdeck_submit_patch"&&call.Status=="error"&&call.FeedbackSent&&call.FeedbackStatus=="acknowledged"&&call.Result!=""{
+   policy.AcknowledgedFailedPatchReceipts[call.CallID]=agentchat.BodyDigest([]byte(call.Result))
+  }
+ }
  return policy
 }
 

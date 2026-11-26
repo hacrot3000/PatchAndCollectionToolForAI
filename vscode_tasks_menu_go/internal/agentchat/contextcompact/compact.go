@@ -38,6 +38,8 @@ type Policy struct {
  ArchivedPatchCalls uint64
  ArchivedPatchSummaries []string
  SyntheticPatchIDs map[string]bool
+ // Exact ledger-bound historical failed PATCH receipts, not current feedback.
+ AcknowledgedFailedPatchReceipts map[string]string
 }
 type Stats struct {
  EstimatedTotalTokens int
@@ -304,24 +306,42 @@ func groups(history []agentchat.HistoryItem,synthetic map[string]bool,next []age
 
 // FullHistory preserves all active canonical messages and completed tool
 // receipts. The only transformations are protocol repair for legacy orphan
-// calls, omission of internal synthetic Patch pairs, and archive notices.
+// calls, omission of internal synthetic Patch pairs, ledger-confirmed failed
+// Patch summaries (not re-delivery), and archive notices.
 // Never use a token estimate or the cache checkpoint to discard valid items.
 func FullHistory(history []agentchat.HistoryItem,p Policy)[]agentchat.HistoryItem{
  outputs:=map[string]bool{}
  for _,it:=range history{if it.Type=="function_call_output"{outputs[it.CallID]=true}}
  for _,it:=range p.Next{if it.Type=="function_call_output"{outputs[it.CallID]=true}}
+ // Replace only an exact single historical call/output pair corroborated by
+ // the acknowledged failure ledger. Never hide a pending or ambiguous pair.
+ callCount,outputCount:=map[string]int{},map[string]int{}
+ receipts:=map[string]agentchat.HistoryItem{}
+ pending:=map[string]bool{}
+ for _,it:=range p.Next{if it.Type=="function_call_output"||it.Type=="function_call"{pending[it.CallID]=true}}
+ for _,it:=range history{
+  if it.Type=="function_call"{callCount[it.CallID]++}
+  if it.Type=="function_call_output"{outputCount[it.CallID]++;receipts[it.CallID]=it}
+ }
+ summarized:=map[string]bool{}
  seen:=map[string]bool{}
  result:=make([]agentchat.HistoryItem,0,len(history)+2)
  for _,it:=range history{
   if (it.Type=="function_call"||it.Type=="function_call_output")&&p.SyntheticPatchIDs[it.CallID]{continue}
   switch it.Type{
   case "function_call":
+   if hash:=p.AcknowledgedFailedPatchReceipts[it.CallID];hash!=""&&it.Name=="taskdeck_submit_patch"&&!pending[it.CallID]&&callCount[it.CallID]==1&&outputCount[it.CallID]==1&&agentchat.BodyDigest([]byte(receipts[it.CallID].Content))==hash{
+    result=append(result,agentchat.HistoryItem{Type:"assistant",Content:patchSummary(it,receipts[it.CallID])})
+    summarized[it.CallID]=true
+    continue
+   }
    if !outputs[it.CallID]{
     result=append(result,agentchat.HistoryItem{Type:"assistant",Content:orphanCallSummary(it)})
     continue
    }
    seen[it.CallID]=true
   case "function_call_output":
+   if summarized[it.CallID]{continue}
    if !seen[it.CallID]{
     result=append(result,agentchat.HistoryItem{Type:"assistant",Content:orphanOutputSummary(it)})
     continue
