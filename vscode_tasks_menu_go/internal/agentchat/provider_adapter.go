@@ -36,6 +36,13 @@ type ProviderOutputBudgetHints interface {
  RememberOutputBudgetHint(context.Context,RunSpec,ResolvedProvider,int)
 }
 
+// ProviderAttemptMeasurementObserver is an optional diagnostic-only seam.
+// It receives numeric measurements and opaque request digest, never payload
+// bytes or credentials. It cannot affect provider admission, retry or ACK.
+type ProviderAttemptMeasurementObserver interface {
+ ObserveProviderAttempt(RunSpec,int,ProviderPayloadMeasurement,string,ProviderAttemptOutcome)
+}
+
 type ProviderPayloadBuilder interface {
 	Build(RunSpec, ProviderConfig, ModelConfig, []HistoryItem) ([]byte, error)
 }
@@ -227,7 +234,7 @@ func (a ConfiguredProviderAdapter) invokeWithRetry(ctx context.Context, spec Run
 		if err := ctx.Err(); err != nil {
 			return ResponsesResult{}, false, nil, err
 		}
-		measurement, _ := MeasureProviderPayload(resolved.Config.APIType, payload)
+		measurement, measurementErr := MeasureProviderPayload(resolved.Config.APIType, payload)
 		digest := BodyDigest(payload)
 		requestTimeout := a.RequestTimeout
 		if requestTimeout <= 0 {
@@ -283,6 +290,10 @@ func (a ConfiguredProviderAdapter) invokeWithRetry(ctx context.Context, spec Run
 			result, err = a.Invoker.Invoke(callCtx, resolved.Config, resolved.Credential, payload)
 		}
 		cancel()
+		outcome := ClassifyProviderAttemptOutcome(ctx.Err(), err)
+		if observer,ok:=a.Resolver.(ProviderAttemptMeasurementObserver);ok&&measurementErr==nil{
+			observer.ObserveProviderAttempt(spec,attempt,measurement,digest,outcome)
+		}
 		if stopErr := ctx.Err(); stopErr != nil {
 			return ResponsesResult{}, streamedText, publishedCalls, stopErr
 		}
@@ -306,7 +317,6 @@ func (a ConfiguredProviderAdapter) invokeWithRetry(ctx context.Context, spec Run
 		if err == nil || errors.Is(err,context.Canceled) || (spec.RetryMode!=RetryLimited && spec.RetryMode!=RetryUnlimited) || (spec.RetryMode==RetryLimited && attempt>=6) {
 			return result, streamedText, publishedCalls, err
 		}
-		outcome := ClassifyProviderAttemptOutcome(ctx.Err(), err)
 		if outcome.StagnantTransport() {
 			if lastFailedDigest==digest{stagnant++}else{stagnant=1;lastFailedDigest=digest}
 		} else {
@@ -360,9 +370,14 @@ func (a ConfiguredProviderAdapter) invokeWithRetry(ctx context.Context, spec Run
 				Recovery string `json:"recovery,omitempty"`
 				RecoveryGeneration int `json:"recovery_generation,omitempty"`
 				NextPayloadSHA256 string `json:"next_payload_sha256,omitempty"`
+				InstructionsBytes int `json:"instruction_bytes,omitempty"`
+				InputBytes int `json:"input_bytes,omitempty"`
+				ToolsBytes int `json:"tools_bytes,omitempty"`
+				OtherBytes int `json:"other_bytes,omitempty"`
 			}{attempt, attempt + 1, runProviderRetryCode(err), true, outcome,
 				spec.RetryMode, digest, measurement.CanonicalBytes, measurement.WireBytes,
-				measurement.EstimatedInputTokens, measurement.OutputBudget, stagnant,recovery,generation,BodyDigest(nextPayload)})
+				measurement.EstimatedInputTokens, measurement.OutputBudget, stagnant,recovery,generation,BodyDigest(nextPayload),
+				measurement.InstructionsBytes,measurement.InputBytes,measurement.ToolsBytes,measurement.OtherBytes})
 			if marshalErr != nil {
 				return ResponsesResult{}, streamedText, publishedCalls, marshalErr
 			}

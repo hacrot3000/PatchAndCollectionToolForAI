@@ -11,7 +11,7 @@
 | Baseline audit | `1c1e2ba0d5004bf5cee75b3fd8a2baa6be9c5422` (25/11/2026, 15:40:33 ICT) |
 | Vị trí tài liệu trong repo (đề xuất) | `docs/taskdeck_ai_agent/20-collection-progress-guard-and-legacy-recovery.md` |
 | Trạng thái hiện tại | `IN_PROGRESS` — native range proof, durable adaptive hints, Unified drain guard and Legacy UI core CI PASS at 71eed9d1; acceptance/replan refinements CI pending; local checkout unavailable |
-| Tiến độ | **0/10 phase · 7/36 task · 61/144 subtask DONE** |
+| Tiến độ | **0/10 phase · 7/36 task · 62/144 subtask DONE** |
 | Phạm vi | Legacy Agent Chat, unified Agent Run, native COLLECT/PATCH, provider retry, compact context, journal, UI và migration |
 | Ưu tiên | P1: tránh lặp/gián đoạn và bảo toàn dữ liệu; P2: quan sát, tuning và vận hành |
 
@@ -352,8 +352,8 @@ Không bỏ qua function output của call đã nhận. Nếu checkpoint trướ
   - Audit provider router/executor của Unified Run; dùng shared classification/budget hints nơi phù hợp, bảo toàn immutable binding và request journal. Ghi rõ các khác biệt protocol cần giữ.
   - **Acceptance:** matrix hai pipeline × retry modes × errors, no duplicate execution, no unsafe replay, fake clock/network deterministic; current receipt preserved.
     - [x] **CLP-06.04.01** — Audit Unified provider router/executor retry journal và pinned policy; map khác biệt với Legacy. (`DONE` — source trace and pinned policy comparison in log; core CI 45609644259 PASS)
-    - [ ] **CLP-06.04.02** — Tái sử dụng shared classification/hints khi tương thích, không mutate immutable RunSpec. (`IN_PROGRESS` — shared outcome classifier, wire measurement and bounded output recovery; Unified preserves whole pinned snapshot suffix, adaptive hint persistence parity pending)
-    - [ ] **CLP-06.04.03** — Đồng bộ telemetry/budget behavior và ghi protocol-specific exceptions. (`VERIFY_PENDING` — bounded numeric/digest telemetry on existing Unified retry events, unchanged configured budget and retry policy; core CI 45609644259 PASS; final non-retry telemetry pending)
+    - [x] **CLP-06.04.02** — Tái sử dụng shared classification/hints khi tương thích, không mutate immutable RunSpec. (`DONE` — shared classification/measurement/output recovery and domain-separated durable output hints; core CI 45740812749, 45741333502 PASS; preserves whole pinned snapshot suffix)
+    - [ ] **CLP-06.04.03** — Đồng bộ telemetry/budget behavior và ghi protocol-specific exceptions. (`VERIFY_PENDING` — bounded numeric/digest retry telemetry PASS 45609644259; attempt observer adds numeric final-wire breakdown for every measured success/failure/Stop and retry event component bytes; CI pending)
     - [ ] **CLP-06.04.04** — Chạy fake-clock matrix hai pipelines × retry modes × errors, assert no duplicate native effect. (`TODO`)
 
 ### CLP-07 — Recovery conversation từ build cũ (4 task, P1)
@@ -817,3 +817,5 @@ Incident: native run `1795598230725789_1225262`; historical diagnostics missing 
 - 2026-11-26: prior c518aac4 CI 45740772249 failed solely at unused Legacy strings import; corrected in 9e37c343 (PHP PASS; core/Go pending at inspection). CLP-06.04.02: Unified output-only hint callback now reuses the bounded 24-hour private adaptive store with domain-separated execution workspace + pinned provider/model version and verified owner/project/credential scope. Learn only after structured context rejection followed by successful reduced-output response without incomplete recovery; apply only for explicit Limited/Unlimited, stateless, within configured final wire budget, never raise output or change input/RunSpec/snapshot. No cross-pipeline input hints; Legacy token estimate and Unified byte cap have different semantics. Missing/corrupt/expired scope silently uses configured output. New tests pending CI; no checklist ticks yet.
 
 - 2026-11-26: core CI 45740812749 and PHP 45740812716 PASS on 9e37c343, confirming bounded Unified recovery and explicit retry policy. Added actual owner resolver/store fixture assertions to TestRunPromptUsesPinnedSnapshotAndExecutionWorkspacePack: hint survives new Server, monotonic cap, separate Legacy namespace, owner/workspace/config/credential mismatch and cancelled write refused. CI pending for hint implementation and fixture. No new DONE ticks; cross-pipeline final diagnostics and input-compaction acceptance remain open.
+
+- 2026-11-26: reconciled cache-affinity concurrent HEAD 2f335456 and core CI 45741333502/45741382175 PASS; mark CLP-06.04.02 DONE (62/144). CLP-05.01.01/06.04.03: optional diagnostic-only observer for each measured Unified attempt, including final success, permanent failure and Stop; existing retry events also carry component byte breakdown. Owner-bound server creates a dedicated safe debug trace per attempt with run ID, digest, attempt number, typed outcome, canonical/target template bytes, estimate and output reservation. No raw request or response, no extra canonical run event, no change to native ACK, provider selection or retry. Debug trace bounded by existing in-memory TTL, not a new durable attempt journal. New tests pending CI.

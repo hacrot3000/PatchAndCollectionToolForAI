@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"errors"
+ "fmt"
 
 	"bletonfc/vscode_tasks_menu/internal/agentchat"
 	"bletonfc/vscode_tasks_menu/internal/agentrun"
@@ -167,4 +168,18 @@ func(r ownerAgentRunProviderResolver) RememberOutputBudgetHint(ctx context.Conte
  // Input is not used in this domain. Keep the existing store format and
  // its minimum valid input marker; never interpret it as an input limit.
  _=store.RememberAdaptiveBudgetHint(x,version,spec.CredentialFingerprint,4096,output)
+}
+
+
+// Keep each Unified attempt in a separate owner-bound safe trace so concurrent
+// runs in the same conversation cannot attach diagnostics to the wrong run.
+// No raw capture, secrets, prompt, tool arguments or response are supplied.
+func(r ownerAgentRunProviderResolver) ObserveProviderAttempt(spec agentchat.RunSpec,attempt int,m agentchat.ProviderPayloadMeasurement,digest string,outcome agentchat.ProviderAttemptOutcome){
+ if r.server==nil||r.owner==""||attempt<=0||m.CanonicalBytes<=0{return}
+ recorder,_:=r.server.startAgentDebug(r.owner,"unified_provider_attempt",spec.ConversationID,agentchat.ProviderConfig{ID:spec.ProviderID},spec.ModelID)
+ recorder.RecordProviderDiagnostic(agentchat.DiagnosticEvent{
+  Level:"info",Stage:"provider_retry",Event:"payload.budget",ProviderID:spec.ProviderID,ModelID:spec.ModelID,
+  RequestBytes:m.CanonicalBytes,RequestSHA256:digest,
+  SafeMessage:fmt.Sprintf("run=%s attempt=%d outcome=%s canonical_bytes=%d wire_template_bytes=%d estimated_input_tokens=%d output_budget=%d instruction_bytes=%d input_bytes=%d tools_bytes=%d other_bytes=%d stateful=%t",spec.RunID,attempt,outcome,m.CanonicalBytes,m.WireBytes,m.EstimatedInputTokens,m.OutputBudget,m.InstructionsBytes,m.InputBytes,m.ToolsBytes,m.OtherBytes,m.Stateful),
+ })
 }
