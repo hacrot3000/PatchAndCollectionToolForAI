@@ -74,6 +74,7 @@ func capabilityBaseFields(p ProviderConfig) string {
 	if len(p.TrustedSharedIPs) > 0 {
 		base += "\x00trusted-shared-ips\x00" + strings.Join(p.TrustedSharedIPs, ",")
 	}
+	if p.CacheAffinity!=""||p.CacheSessionHeader!=""{base+="\x00cache-affinity\x00"+p.CacheAffinity+"\x00"+p.CacheSessionHeader}
 	return base
 }
 

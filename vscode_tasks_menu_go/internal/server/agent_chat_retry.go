@@ -205,12 +205,14 @@ func (s *Server) agentChatProviderWithRetry(ctx context.Context,owner,sessionID 
  // keep using the existing transport without manufacturing a fake receipt.
  var attemptStore *agentchat.Store
  var runID string
+ var affinityKey string
  if sessionID!=""&&owner!=""{
   if candidate,e:=s.agentChatStore();e==nil{
    if x,e:=candidate.Get(sessionID,owner);e==nil&&x.Workspace==s.Workspace&&
     x.Status=="requesting_ai"&&x.ProviderRun!=nil&&x.ProviderRun.Phase=="sending"{
     attemptStore=candidate
     runID=x.ProviderRun.ID
+    affinityKey=agentchat.ProviderAffinityKey(x,p,modelFromAgentPayload(payload))
    }
   }
  }
@@ -244,6 +246,7 @@ func (s *Server) agentChatProviderWithRetry(ctx context.Context,owner,sessionID 
     callCtx=agentchat.WithProviderClientRequestID(callCtx,clientID)
    }
   }
+  callCtx=agentchat.WithProviderAffinity(callCtx,p,affinityKey)
   result,err,trace:=s.agentChatObservedCall(callCtx,owner,"provider_request",sessionID,p,key,replayPayload)
   cancel()
   outcome:=agentchat.ClassifyProviderAttemptOutcome(ctx.Err(),err)

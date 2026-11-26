@@ -20,6 +20,7 @@ func BuildChatCompletionsRequest(responsesBody []byte) ([]byte, error) {
 	}
 	var in struct {
 		Model        string            `json:"model"`
+		PromptCacheKey string `json:"prompt_cache_key"`
 		Instructions string            `json:"instructions"`
 		Input        []json.RawMessage `json:"input"`
 		Tools        []map[string]any  `json:"tools"`
@@ -94,6 +95,10 @@ func BuildChatCompletionsRequest(responsesBody []byte) ([]byte, error) {
 		}
 	}
 	request := map[string]any{"model": in.Model, "messages": messages, "stream": false}
+	if in.PromptCacheKey!="" {
+		if !validAffinityKey(in.PromptCacheKey){return nil,errors.New("invalid prompt cache key")}
+		request["prompt_cache_key"]=in.PromptCacheKey
+	}
 	if in.MaxTokens > 0 {
 		request["max_tokens"] = in.MaxTokens
 	}

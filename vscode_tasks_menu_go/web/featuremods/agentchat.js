@@ -622,7 +622,7 @@ const settingsOverlay=agentEl('div','agentchat-overlay agentchat-settings-overla
 settingsBox.setAttribute('role','dialog');settingsBox.setAttribute('aria-modal','true');settingsBox.setAttribute('aria-label','Agent provider settings');
 const settingsTitle=agentEl('h2','','Agent provider settings');
 const blockedIPNotice=agentEl('div','agentchat-info');blockedIPNotice.hidden=true;
-const settingsInfo=agentEl('p','','Configure an HTTPS Responses or Chat Completions provider. For a trusted 100.64.0.0/10 endpoint, explicitly add exact addresses to trusted_shared_ips in the provider JSON. This weakens network isolation; trust the endpoint and network first. API keys remain server-side.');
+const settingsInfo=agentEl('p','','Configure an HTTPS Responses or Chat Completions provider. For a trusted 100.64.0.0/10 endpoint, explicitly add exact addresses to trusted_shared_ips in the provider JSON. This weakens network isolation; trust the endpoint and network first. API keys remain server-side. Cache affinity defaults to session headers on custom gateways. Provider JSON: cache_affinity = headers, prompt_cache_key, both, or off; cache_session_header optionally selects X-Session-Id, X-Session-Affinity, session_id or x-opencode-session. Use prompt_cache_key only if your endpoint accepts it.');
 const settingsPreset=agentButton('Load sample provider',()=>{providerEditor.value=JSON.stringify(agentSample,null,2);});
 const probeProvider=agentButton('Probe capabilities',()=>probeAgentProvider().catch(showAgentError));
 const deleteProvider=agentButton('Remove provider',()=>deleteAgentProvider().catch(showAgentError));
@@ -727,6 +727,8 @@ function normalizeProvider(raw){
   base_url:String(data.base_url||data.baseUrl||ms[0]?.url||data.url||'').trim(),
   ...(data.trusted_shared_ips!==undefined?{trusted_shared_ips:data.trusted_shared_ips}:{}),
   stream:Boolean(data.stream),
+  ...(data.cache_affinity!==undefined?{cache_affinity:String(data.cache_affinity)}:{}),
+  ...(data.cache_session_header!==undefined?{cache_session_header:String(data.cache_session_header)}:{}),
   models:ms.map(m=>({
    id:String(m.id||''),name:String(m.name||m.id||''),
    tool_calling:Boolean(m.tool_calling??m.toolCalling),vision:Boolean(m.vision),

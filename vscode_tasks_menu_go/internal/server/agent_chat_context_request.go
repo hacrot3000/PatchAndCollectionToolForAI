@@ -11,6 +11,7 @@ import (
 // build/format failure only, retry a minimal optional-history projection.
 // Do not turn a token estimate into a new hard read quota.
 func agentBuildContextRequest(x agentchat.Session,model agentchat.ModelConfig,p agentchat.ProviderConfig,c agentchat.RequestConfig)([]byte,error){
+ if agentchat.ProviderUsesPromptCacheKey(p){c.PromptCacheKey=agentchat.ProviderAffinityKey(x,p,c.Model)}
  if c.Mode==agentchat.Stateless {x=agentProjectHistoricalCollectionPack(x,c.NativeCollectionContract)}
  budgetInstructions:=c.Instructions
  if c.NativeCollectionContract!=""{budgetInstructions+="\n"+c.NativeCollectionContract}

@@ -41,6 +41,8 @@ type ProviderConfig struct {
 	// Stream opts into the SSE adapter. It is only usable when a streaming
 	// capability probe verified this exact endpoint/model configuration.
 	Stream bool          `json:"stream,omitempty"`
+	CacheAffinity string `json:"cache_affinity,omitempty"`
+	CacheSessionHeader string `json:"cache_session_header,omitempty"`
 	Models []ModelConfig `json:"models"`
 }
 
@@ -114,6 +116,7 @@ func ValidateProvider(p ProviderConfig) error {
 	if p.APIType != "responses" && p.APIType != "chat_completions" {
 		return errors.New("unsupported Agent Chat API type")
 	}
+	if !validCacheAffinity(p.CacheAffinity,p.CacheSessionHeader) { return errors.New("invalid cache_affinity or cache_session_header") }
 	if len(p.TrustedSharedIPs) > 8 {
 		return errors.New("at most 8 trusted shared IPs are permitted")
 	}
@@ -512,6 +515,7 @@ func newProviderRequest(ctx context.Context, endpoint, key string, body []byte) 
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+key)
 	applyProviderClientRequestID(req)
+	applyProviderAffinity(req)
 	return req, nil
 }
 

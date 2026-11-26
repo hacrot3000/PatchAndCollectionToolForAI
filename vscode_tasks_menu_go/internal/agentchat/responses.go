@@ -38,6 +38,7 @@ type HistoryItem struct {
 
 type RequestConfig struct {
 	Model                string
+	PromptCacheKey string
 	Instructions         string
 	Mode                 ContextMode
 	PreviousResponseID   string
@@ -206,6 +207,10 @@ func BuildResponsesRequest(c RequestConfig) ([]byte, error) {
 		req["store"] = true
 	} else {
 		req["store"] = false
+	}
+	if c.PromptCacheKey!="" {
+		if !validAffinityKey(c.PromptCacheKey){return nil,errors.New("invalid prompt cache key")}
+		req["prompt_cache_key"]=c.PromptCacheKey
 	}
 	if c.MaxOutputTokens > 0 {
 		req["max_output_tokens"] = c.MaxOutputTokens
