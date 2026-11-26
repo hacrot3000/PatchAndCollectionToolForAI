@@ -1883,6 +1883,9 @@ function displayAgentSession(session){
   agentRenderedToolVersions.clear();
  }
  agentCurrentSession=session;
+ // A render from an authoritative session snapshot must refresh Stop/Send,
+ // including retry progress and restored conversations without a local fetch.
+ if(agentActive===session.id)agentUpdateSendAvailability(session);
  agentUpdateTokenUsage(session);
  const history=agentChronologicalHistory(session);
  const records=new Map((session.tool_calls||[]).map(call=>[call.call_id,call]));
