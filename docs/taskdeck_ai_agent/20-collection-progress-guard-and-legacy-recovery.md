@@ -10,8 +10,8 @@
 | Nhánh triển khai | **`main` — không tạo feature branch/PR thay cho yêu cầu này** |
 | Baseline audit | `1c1e2ba0d5004bf5cee75b3fd8a2baa6be9c5422` (25/11/2026, 15:40:33 ICT) |
 | Vị trí tài liệu trong repo (đề xuất) | `docs/taskdeck_ai_agent/20-collection-progress-guard-and-legacy-recovery.md` |
-| Trạng thái hiện tại | `IN_PROGRESS` — native range proof, durable adaptive hints, Unified drain guard and Legacy UI core CI PASS at 71eed9d1; acceptance/replan refinements CI pending; local checkout unavailable |
-| Tiến độ | **1/10 phase · 15/36 task · 86/144 subtask DONE** |
+| Trạng thái hiện tại | `IN_PROGRESS` — advisory CI PASS at e83728d3; renamed-read regression pending CI; local checkout unavailable |
+| Tiến độ | **1/10 phase · 15/36 task · 89/144 subtask DONE** |
 | Phạm vi | Legacy Agent Chat, unified Agent Run, native COLLECT/PATCH, provider retry, compact context, journal, UI và migration |
 | Ưu tiên | P1: tránh lặp/gián đoạn và bảo toàn dữ liệu; P2: quan sát, tuning và vận hành |
 
@@ -285,10 +285,10 @@ Không bỏ qua function output của call đã nhận. Nếu checkpoint trướ
 - [ ] **CLP-04.04 — Model-visible bounded feedback** (`IN_PROGRESS`, P1)
   - Tạo advisory ngắn, có structured reason, counts, missing evidence và next strategy; giữ exact receipt gốc riêng, không sửa nội dung bằng chứng để chèn cảnh báo. Tôn trọng output budget, prompt untrusted tool data boundary và fallback protocol.
   - **Acceptance:** model mock nhận warning sau threshold, có thể chọn targeted COLLECT hoặc submit PATCH; read-only không bị ép patch; no fabricated tool output; metadata không cấp quyền.
-    - [ ] **CLP-04.04.01** — Thiết kế advisory schema ngắn với reason, counters, verified/missing scope và next strategy. (`VERIFY_PENDING` — bounded structured advisory, unchanged receipt, shared Legacy/Unified guidance and permission/intent tests; CI pending)
-    - [ ] **CLP-04.04.02** — Tách advisory khỏi original receipt; giữ exact call-output pair và trusted instruction boundary. (`VERIFY_PENDING` — bounded structured advisory, unchanged receipt, shared Legacy/Unified guidance and permission/intent tests; CI pending)
+    - [x] **CLP-04.04.01** — Thiết kế advisory schema ngắn với reason, counters, verified/missing scope và next strategy. (`DONE` — structured advisory and exact receipt/55 useful-page mock provider tests PASS core 45809058385)
+    - [x] **CLP-04.04.02** — Tách advisory khỏi original receipt; giữ exact call-output pair và trusted instruction boundary. (`DONE` — structured advisory and exact receipt/55 useful-page mock provider tests PASS core 45809058385)
     - [ ] **CLP-04.04.03** — Tạo variant coding/read-only/unknown, output bounded, typed/text protocol tương thích. (`VERIFY_PENDING` — bounded structured advisory, unchanged receipt, shared Legacy/Unified guidance and permission/intent tests; CI pending)
-    - [ ] **CLP-04.04.04** — Mock provider nhận warning rồi targeted read hoặc PATCH; test no forced patch/no fabricated output. (`VERIFY_PENDING` — bounded structured advisory, unchanged receipt, shared Legacy/Unified guidance and permission/intent tests; CI pending)
+    - [x] **CLP-04.04.04** — Mock provider nhận warning rồi targeted read hoặc PATCH; test no forced patch/no fabricated output. (`DONE` — structured advisory and exact receipt/55 useful-page mock provider tests PASS core 45809058385)
 
 ### CLP-05 — Context compact và stale AI Pack (4 task, P1)
 
@@ -444,7 +444,7 @@ Mỗi scenario cần test name, actual result và file/receipt/CI ref trong nh�
 | [ ] R02 | Exact duplicate, đổi title/call ID | Phát hiện; không đọc lại vô ích khi proof còn hiệu lực |
 | [x] R03 | A/B/A/B, range subset/overlap | Phát hiện overlap đã xác minh; phần mới được tính đúng |
 | [x] R04 | Unknown novelty, incomplete/truncated output | Không fabricated success hoặc false duplicate rejection |
-| [ ] R05 | Implementation 5/10 reads | Advisory phù hợp, không ép patch; no warning spam |
+| [x] R05 | Implementation 5/10 reads | Advisory phù hợp, không ép patch; no warning spam |
 | [x] R06 | Read-only audit 100 reads, no PATCH | Hợp lệ; chỉ checkpoint nếu stall thật |
 | [ ] R07 | PATCH rejected/fail/no-op/partial mutation | Không reset meaningful progress sai; invalidate coverage khi cần |
 | [ ] R08 | PATCH thực thi source change rồi đọc lại | Không stale duplicate suppression; receipt đúng |
@@ -477,10 +477,10 @@ Baseline evidence for rows below: [core CI 45799935359](https://github.com/hacro
 | Gate | Status | Tests / packages | Actual coverage / remaining gap |
 |---|---|---|---|
 | R01 | PASS | server: TestAgentCollectionContinuesWithoutRoundLimitToPatchProposal/55_useful_pages_then_pending_patch | 55 distinct nonempty pages, exact receipt, pending approval and unchanged source; test seam, real native worker verified separately. |
-| R02 | VERIFY_PENDING | collectionprogress: TestNativeEvidenceProofRequiresExactCompleteReceipt; server: TestAgentCollectionIdenticalReadsYieldRecoverableWarningWithoutStopping; TestAgentCLP20VerifiedStallPreservesReceiptAndBoundsReplan | Exact proof and advisory pass; no pre-read suppression authorized from request shape. Need explicit title/call-ID proof and reuse guidance acceptance. |
+| R02 | VERIFY_PENDING | collectionprogress: TestNativeEvidenceProofRequiresExactCompleteReceipt; server: TestAgentCollectionIdenticalReadsYieldRecoverableWarningWithoutStopping; TestAgentCLP20VerifiedStallPreservesReceiptAndBoundsReplan | Exact proof and advisory pass; no pre-read suppression authorized from request shape. Added TestAgentCLP20RenamedReadIdentityRetainsVerifiedDuplicateAndTargetsMissingScope at 144de1d6 covering changed request title/id, call/run ID, exact receipts, safe reuse guidance and targeted next scope; new CI pending. |
 | R03 | PASS | collectionprogress: TestCoverageOverlapAlternatingAnd55Pages; TestNativeRangeCoverageBoundToReceipt; server: TestAgentCollectionAlternatingReadsAdviseWithoutProoflessSkip | Verified overlap/alternation and conservative native receipt binding; no skip based on shape. |
 | R04 | PASS | collectionprogress: TestNativeEvidenceProofRequiresExactCompleteReceipt; TestVerifiedDuplicateCooldownAndUnknown; server: TestAgentNativeCollectionPartialArtifactSurvivesFailedWrapperRC3 | Unknown/truncated/partial evidence never becomes verified duplicate or fabricated success. |
-| R05 | VERIFY_PENDING | collectionprogress: TestReadAdvisoriesNeverCapUsefulReads; server: TestAgentCLP20StructuredCollectionAdviceBoundedAndPermissionNeutral; TestAgentCollectionContinuesWithoutRoundLimitToPatchProposal | Pure policy PASS; newly strengthened actual 5/10 and structured wire advisory tests await CI. |
+| R05 | PASS | collectionprogress: TestReadAdvisoriesNeverCapUsefulReads; server: TestAgentCLP20StructuredCollectionAdviceBoundedAndPermissionNeutral; TestAgentCollectionContinuesWithoutRoundLimitToPatchProposal | Actual 5/10 and structured wire advisory tests PASS core 45809058385; no read quota. |
 | R06 | PASS | server: TestAgentCollectionContinuesWithoutRoundLimitToPatchProposal/100_read_only_pages; TestAgentCLP20VerifiedStallPreservesReceiptAndBoundsReplan | 100 useful reads and no Patch proposal; verified-stall checkpoint independently tested. |
 | R07 | VERIFY_PENDING | agentchat: TestCollectionGuardPatchTransitionsShareSessionCASWithoutFalseProgress; TestCollectionGuardAcceptedStepProgressIsScopedAndIdempotent; collectionprogress: TestCoverageInvalidationAndEvictionFailConservative | PASS wrapper is not progress; complete no-op/rejection/partial real native ledger transition matrix still open. |
 | R08 | VERIFY_PENDING | server: TestAgentRunCollectionRepeatedShapeReadsChangedSource; agentchat: TestCollectionGuardPatchTransitionsShareSessionCASWithoutFalseProgress | Changed proof recognized; exact source-changing native Patch followed by same read plus external edit not yet combined. |
@@ -549,15 +549,15 @@ Kiểm tra cả các Python/native Patch Tool test hiện có nếu sửa contra
 | CLP-01 | 0/1 | 1/5 | 11/20 |
 | CLP-02 | 0/1 | 2/4 | 11/16 |
 | CLP-03 | 0/1 | 0/3 | 3/12 |
-| CLP-04 | 0/1 | 1/4 | 6/16 |
+| CLP-04 | 0/1 | 1/4 | 9/16 |
 | CLP-05 | 0/1 | 1/4 | 9/16 |
 | CLP-06 | 0/1 | 3/4 | 15/16 |
 | CLP-07 | 1/1 | 4/4 | 16/16 |
 | CLP-08 | 0/1 | 1/2 | 7/8 |
 | CLP-09 | 0/1 | 0/3 | 0/12 |
-| **Total** | **1/10** | **15/36** | **86/144** |
+| **Total** | **1/10** | **15/36** | **89/144** |
 
-Regression gates: **16/28 PASS**. Mỗi lần cập nhật, ghi ID subtask cụ thể, file/test/receipt, trạng thái; chỉ roll up sau khi xác minh. Commit từng subtask có thay đổi độc lập hoặc nhóm nhỏ coherent, không để toàn phase mới commit. Không tạo commit rỗng chỉ để tick.
+Regression gates: **17/28 PASS**. Mỗi lần cập nhật, ghi ID subtask cụ thể, file/test/receipt, trạng thái; chỉ roll up sau khi xác minh. Commit từng subtask có thay đổi độc lập hoặc nhóm nhỏ coherent, không để toàn phase mới commit. Không tạo commit rỗng chỉ để tick.
 
 ### 8.1. Nhật ký triển khai (append, không xóa lịch sử)
 
@@ -897,3 +897,5 @@ Incident: native run `1795598230725789_1225262`; historical diagnostics missing 
 - 2026-11-26: latest HEAD 7965a5ed core/Go/PHP CI 45799935359/45799935418/45799935450 PASS; native 157286400 bytes, receipt 12558 bytes, source unchanged and UNKNOWN restart/resume exactly once; Unified persisted report and enum tests PASS; 55/100 useful-page suite PASS. Mark CLP-07.04.03, 08.02.01/.04, 04.01.04 DONE and their parent tasks; synthetic recovery phase CLP-07 DONE; actual self-update/browser smoke still open in CLP-09/08.01. CLP-04.04 implementation adds bounded versioned structured advisory to trusted current instructions only on real policy advisory, counters and fixed next strategy, no source/goal/hash, no change to receipt or permission. Shared Legacy/Unified helper; implementation guidance suppressed if Patch unavailable, read-only remains read-only. 55/100 fixture now asserts exactly two implementation advisories at 5/10 reads and zero read-only implementation advice, exact receipt unchanged. Pure permission/intent/redaction test added. CI pending; CLP-04.04 remains VERIFY_PENDING. No production or real provider run.
 
 - 2026-11-26: CLP-09.01 mapping created for all 28 regression gates in §6.1; 16/28 PASS at 7965a5ed, remaining 12 VERIFY_PENDING with exact missing evidence. All three CI suites at baseline PASS; no production deployment or browser/self-update claimed. Checklist rollup remains 1/10 phase, 15/36 task, 86/144 subtask. New advisory commit e83728d3 pending CI.
+
+- 2026-11-26: reconciled concurrent merge 6f1aedf6, source e83728d3 core/Go/PHP CI 45809058385/45809058580/45809058458 PASS. CLP-04.04.01/.02/.04 DONE, R05 PASS (89/144 subtasks, 17/28 regression gates); .03 remains open for explicit typed/text advisory parity. R02: 9d6aa7c9 directs model to use existing receipt only for its proven scope, narrow missing scope, re-read if freshness/completeness uncertain; no native skip authorization. 144de1d6 adds renamed request title/id and distinct call/run ID synthetic receipt integration test, verifies 3 duplicates, 2 new scopes, one warning, exact five receipts and no Patch. New CI pending, R02 not ticked. Next: verify CI, then typed/text advisory parity and native mutation matrix. No local checkout, live provider or production test claimed. Atomic ref update attempt returned GitHub error while main advanced; reconciled and used separate path-SHA guarded commits.
