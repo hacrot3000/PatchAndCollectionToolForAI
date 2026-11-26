@@ -703,7 +703,7 @@ function markAgentSessionBusy(id,busy){
  if(busy)agentBusySessions.add(id);else agentBusySessions.delete(id);
  if(id===agentActive){
   send.disabled=busy&&!agentRunUI?.canSend();newChat.disabled=busy;rename.disabled=busy;archive.disabled=busy;
-  cancel.disabled=!busy;updateAgentModels();
+  cancel.disabled=!busy&&!agentCanStopNative(agentCurrentSession);updateAgentModels();
  }
 }
 let agentMonitorTimer=0,agentMonitorGeneration=0;
@@ -1979,7 +1979,7 @@ async function selectAgentSession(id){
  }
  renderAgentAutomationControls(sess);
  send.disabled=(agentSessionBusy(id)||(sess.status==='requesting_ai'))&&!agentRunUI?.canSend();
- cancel.disabled=!agentSessionBusy(id)&&sess.status!=='requesting_ai';
+ cancel.disabled=!agentSessionBusy(id)&&sess.status!=='requesting_ai'&&!agentCanStopNative(sess);
  const summary=agentSessions.find(x=>x.id===id);
  if(summary){
   summary.status=sess.status;
@@ -3274,11 +3274,16 @@ async function previewAgentContext(){
  transcript.append(box);transcript.scrollTop=transcript.scrollHeight;
  setAgentStatusNotice(data.note||'Preview only.');
 }
+function agentCanStopNative(sess){
+ return !agentApp.sharedMode&&Boolean(sess?.tool_calls?.some(c=>c.name==="taskdeck_submit_patch"&&!c.agent_run_id&&!c.feedback_sent&&["running","dispatching","unknown"].includes(c.status)&&c.patch_session_id));
+}
 async function cancelAgentTurn(){
  if(!agentActive)return;
  const id=agentActive;
+ const nativeStop=agentCurrentSession?.status!=="requesting_ai"&&agentCanStopNative(agentCurrentSession);
+ if(nativeStop&&!window.confirm("Check the exact native Patch outcome and request Stop if it is still running? Source or test side effects may remain. No Patch will be replayed."))return;
  try{
-  const result=await agentApp.jsonFetch('/api/agent/sessions/'+encodeURIComponent(id)+'/cancel',{
+  const result=await agentApp.jsonFetch('/api/agent/sessions/'+encodeURIComponent(id)+'/cancel'+(nativeStop?'?stop_native=1':''),{
    method:'POST',headers:{'Content-Type':'application/json'},body:'{}',
   });
   setAgentStatusNotice(result.note||(result.cancelled?'Request cancelled.':'Nothing to cancel.'));
