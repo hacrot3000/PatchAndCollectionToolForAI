@@ -209,3 +209,20 @@ func TestHistoricalFailureCatalogDedupRetainsRichExactReceipt(t *testing.T){
  entries:=selectCatalog([]string{patchSummary(call,result),raw,raw},7400)
  if len(entries)!=1||entries[0]!=raw{t.Fatalf("duplicate historical evidence: %+v",entries)}
 }
+
+
+func TestChangingEvidenceCatalogDoesNotSplitStablePrefixOrCurrentReceipt(t *testing.T){
+ goal:=agentchat.HistoryItem{Type:"user",Content:"Original task"}
+ stable:=agentchat.HistoryItem{Type:"user",Content:"Stable second owner instruction"}
+ oldCall:=agentchat.HistoryItem{Type:"function_call",Name:"taskdeck_submit_patch",CallID:"old",Arguments:`{"name":"old"}`}
+ oldOut:=agentchat.HistoryItem{Type:"function_call_output",CallID:"old",Content:`{"status":"FAIL","run_id":"old-run"}`}
+ pending:=agentchat.HistoryItem{Type:"function_call",Name:"taskdeck_collect_workspace",CallID:"next",Arguments:`{"actions":[]}`}
+ next:=agentchat.HistoryItem{Type:"function_call_output",CallID:"next",Content:"exact current receipt"}
+ history:=[]agentchat.HistoryItem{goal,stable,oldCall,oldOut,pending}
+ for _,parts:=range []uint64{1,2}{
+  got,_:=Build(history,Policy{MaxInputTokens:32768,ArchivedItems:parts*10,ArchivedParts:parts,Next:[]agentchat.HistoryItem{next}})
+  if len(got)<4||got[0]!=goal||got[1]!=stable||got[len(got)-1]!=pending{t.Fatalf("prefix or pending pair changed: %+v",got)}
+  body,err:=agentchat.BuildResponsesRequest(agentchat.RequestConfig{Model:"m",Instructions:"stable instructions",Mode:agentchat.Stateless,History:got,Next:[]agentchat.HistoryItem{next}})
+  if err!=nil||!strings.Contains(string(body),"exact current receipt"){t.Fatalf("invalid current tool pair: %v",err)}
+ }
+}

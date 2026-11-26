@@ -50,6 +50,9 @@ func (s *Server) agentChatObservedCall(ctx context.Context, owner, action, sessi
 	metadata.APIKeyPresent = key != ""
 	metadata.Streaming = streaming
 	recorder.RecordProviderDiagnostic(metadata)
+	if hint:=agentchat.PromptCacheKeyFingerprint(payload);hint!=""{
+		recorder.RecordProviderDiagnostic(agentchat.DiagnosticEvent{Level:"info",Stage:"provider_cache",Event:"affinity.cache_key",SafeMessage:"prompt_cache_key present; fingerprint="+hint})
+	}
 	var result agentchat.ResponsesResult
 	var err error
 	if s.AgentChatCall != nil {

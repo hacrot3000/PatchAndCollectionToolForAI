@@ -67,3 +67,12 @@ func applyProviderAffinity(req *http.Request){
  req.Header.Set("X-Session-Affinity",a.key)
  req.Header.Set("Session_id",a.key)
 }
+
+
+// Report only a diagnostic digest of the exact staged JSON key, never the
+// key itself or a provider reference. A key is not proof of a cache hit.
+func PromptCacheKeyFingerprint(payload []byte)string{
+ var v struct{Key string `json:"prompt_cache_key"`}
+ if json.Unmarshal(payload,&v)!=nil||!validAffinityKey(v.Key){return ""}
+ return BodyDigest([]byte(v.Key))[:16]
+}
