@@ -14,6 +14,9 @@ type CacheEpoch struct {
  SourceCount int `json:"source_count"`
  SourceDigest string `json:"source_digest"`
  Visible []HistoryItem `json:"visible"`
+ // Full-history mode stores metadata only, never a copy of source or receipts.
+ VisibleCount int `json:"visible_count,omitempty"`
+ VisibleDigest string `json:"visible_digest,omitempty"`
 }
 type cacheEpochRecord struct{
  Version int `json:"version"`
@@ -28,7 +31,9 @@ func cacheEpochBinding(x Session)string{
  return BodyDigest(raw)
 }
 func validCacheEpoch(e CacheEpoch)bool{
- if !validAffinityKey(e.ID)||!validAffinityKey(e.Scope)||!validAffinityKey(e.SourceDigest)||e.SourceCount<1||e.SourceCount>maxItems||len(e.Visible)<1||len(e.Visible)>maxItems{return false}
+ if !validAffinityKey(e.ID)||!validAffinityKey(e.Scope)||!validAffinityKey(e.SourceDigest)||e.SourceCount<1||e.SourceCount>maxItems{return false}
+ if e.VisibleCount!=0||e.VisibleDigest!=""{return len(e.Visible)==0&&e.VisibleCount>=1&&e.VisibleCount<=maxItems&&validAffinityKey(e.VisibleDigest)}
+ if len(e.Visible)<1||len(e.Visible)>maxItems{return false}
  for _,it:=range e.Visible{if validHistoryItem(it)!=nil{return false}}
  return validateStatelessToolPairs(e.Visible)==nil
 }

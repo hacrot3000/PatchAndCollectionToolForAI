@@ -3,7 +3,6 @@ package server
 import (
  "fmt"
  "encoding/json"
- "reflect"
  "strings"
 
  "bletonfc/vscode_tasks_menu/internal/agentchat"
@@ -28,8 +27,8 @@ func(s *Server) agentBuildCachedContextRequest(store *agentchat.Store,x agentcha
   return body,err
  }
  old,readErr:=store.ReadCacheEpoch(x.ID,x.Owner,x.Revision)
- hint,_:=store.ReadCacheTokenHint(x.ID,x.Owner,x.Revision,p,c.Model,credential)
- body,next,reason,err:=agentBuildContextEpoch(x,model,p,c,old,true,hint)
+ // Token learning remains diagnostic only under full-history policy.
+ body,next,reason,err:=agentBuildContextEpoch(x,model,p,c,old,true)
  if err==nil{
   if readErr!=nil{reason+="; prior_checkpoint_unavailable"}
   if e:=store.WriteCacheEpoch(x.ID,x.Owner,x.Revision,next);e!=nil{reason+="; checkpoint_unavailable"}
@@ -63,7 +62,7 @@ func agentBuildContextEpochAttempt(x agentchat.Session,model agentchat.ModelConf
  budgetInstructions+=c.CurrentInstructions
  policy:=agentContextPolicy(x,model,budgetInstructions,c.Next,false)
  scoped:=policy;scoped.Next=nil
- scopeBytes,_:=json.Marshal([]any{"cache-epoch-full-v2",agentchat.RunProviderConfigVersion(p,model),c.Model,c.Mode,c.ReasoningEffort,c.EnablePatchTool,c.EnableCollectionTool,c.NativeCollectionContract,c.PromptCacheKey,scoped})
+ scopeBytes,_:=json.Marshal([]any{"cache-epoch-full-v3",agentchat.RunProviderConfigVersion(p,model),c.Model,c.Mode,c.ReasoningEffort,c.EnablePatchTool,c.EnableCollectionTool,c.NativeCollectionContract,c.PromptCacheKey,scoped})
  scope:=agentchat.BodyDigest(scopeBytes)
  // Always try the full valid history first. Token estimates, cache misses,
  // changed instructions and low cache headroom are not compaction triggers.
@@ -77,11 +76,7 @@ func agentBuildContextEpochAttempt(x agentchat.Session,model agentchat.ModelConf
  if err==nil{
   var checkpoint *agentchat.CacheEpoch
   if enabled&&c.Mode==agentchat.Stateless{
-   id:=""
-   if visible,_,ok:=contextcompact.ReuseCacheEpoch(x.History,policy,scope,old);ok&&reflect.DeepEqual(visible,c.History){
-    id=old.ID;reason="append_only"
-   }
-   checkpoint=contextcompact.NewCacheEpoch(x.History,c.History,policy,scope,id)
+   checkpoint,reason=contextcompact.FullHistoryCacheEpoch(x.History,c.History,policy,scope,old)
   }
   return body,checkpoint,reason,nil
  }

@@ -60,6 +60,7 @@ func NewCacheEpoch(history,visible []agentchat.HistoryItem,p Policy,scope,id str
 }
 func ReuseCacheEpoch(history []agentchat.HistoryItem,p Policy,scope string,old *agentchat.CacheEpoch)([]agentchat.HistoryItem,string,bool){
  if old==nil{return nil,"cold_start",false}
+ if old.VisibleCount!=0||old.VisibleDigest!=""{return nil,"metadata_only_checkpoint",false}
  if old.Scope!=scope{return nil,"policy_or_archive_changed",false}
  if old.SourceCount<1||old.SourceCount>len(history)||epochSourceDigest(history[:old.SourceCount])!=old.SourceDigest{return nil,"source_prefix_changed",false}
  suffix:=history[old.SourceCount:]
@@ -69,4 +70,29 @@ func ReuseCacheEpoch(history []agentchat.HistoryItem,p Policy,scope string,old *
  limit:=p.MaxInputTokens;if limit<=0{limit=DefaultInputTokens}
  if len(visible)+len(p.Next)>MaxProviderHistoryItems||Tokens(p.Instructions)+groupTokens(visible)+groupTokens(p.Next)>=limit*SafeInputPercent/100{return nil,"context_budget",false}
  return visible,"append_only",true
+}
+
+
+// Full-history mode always builds and validates the current payload first.
+// This checkpoint records hashes only and is never a source for replay.
+func fullEpochWireDigest(items []agentchat.HistoryItem)string{
+ wire:=make([][5]string,0,len(items))
+ for _,it:=range items{wire=append(wire,[5]string{it.Type,it.Content,it.CallID,it.Name,it.Arguments})}
+ b,_:=json.Marshal(wire)
+ return agentchat.BodyDigest(b)
+}
+func FullHistoryCacheEpoch(history,visible []agentchat.HistoryItem,p Policy,scope string,old *agentchat.CacheEpoch)(*agentchat.CacheEpoch,string){
+ source:=append(append([]agentchat.HistoryItem(nil),history...),p.Next...)
+ full:=append(append([]agentchat.HistoryItem(nil),visible...),p.Next...)
+ if len(source)<1||len(source)>256||len(full)<1||len(full)>MaxProviderHistoryItems{return nil,"full_history"}
+ digest:=epochSourceDigest(source)
+ wireDigest:=fullEpochWireDigest(full)
+ id:=agentchat.BodyDigest([]byte(scope+"\x00"+digest+"\x00"+wireDigest))
+ reason:="full_history"
+ if old!=nil&&old.Scope==scope&&old.SourceCount>0&&old.SourceCount<=len(source)&&epochSourceDigest(source[:old.SourceCount])==old.SourceDigest&&
+  old.VisibleCount>0&&old.VisibleCount<=len(full)&&len(old.Visible)==0&&fullEpochWireDigest(full[:old.VisibleCount])==old.VisibleDigest{
+  id=old.ID
+  if old.VisibleCount<len(full){reason="append_only"}else{reason="identical"}
+ }
+ return &agentchat.CacheEpoch{ID:id,Scope:scope,SourceCount:len(source),SourceDigest:digest,VisibleCount:len(full),VisibleDigest:wireDigest},reason
 }
