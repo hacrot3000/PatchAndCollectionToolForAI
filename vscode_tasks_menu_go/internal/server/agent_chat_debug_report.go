@@ -84,12 +84,22 @@ func (s *Server) agentChatDebugReportAPI(w http.ResponseWriter, r *http.Request)
     if !preClear{progress=agentchat.CollectionProgressViewForSession(sess)}
     var providerRun map[string]any
     var attempts []agentchat.ProviderAttempt
-    if run:=sess.ProviderRun;run!=nil&&(marker.At.IsZero()||run.CreatedAt.After(marker.At)){
-     providerRun=map[string]any{"run_id":run.ID,"kind":run.Kind,"phase":run.Phase,"call_id":run.CallID,"payload_sha256":run.PayloadSHA256,"created_at":run.CreatedAt,"updated_at":run.UpdatedAt}
-     if audit,e:=journal.ProviderAttempts(sess.ID,owner);e==nil&&audit!=nil&&audit.RunID==run.ID{
+    if run:=sess.ProviderRun;run!=nil{
+     freshRun:=marker.At.IsZero()||run.CreatedAt.After(marker.At)
+     audit,e:=journal.ProviderAttempts(sess.ID,owner)
+     matched:=e==nil&&audit!=nil&&audit.RunID==run.ID
+     if matched{
       for _,a:=range audit.Attempts{if marker.At.IsZero()||a.RecordedAt.After(marker.At){attempts=append(attempts,a)}}
-      providerRun["attempt_total"]=audit.Total
-      providerRun["attempts_truncated"]=audit.Truncated
+     }
+     if freshRun||len(attempts)>0{
+      providerRun=map[string]any{"run_id":run.ID,"kind":run.Kind,"phase":run.Phase,"call_id":run.CallID,"payload_sha256":run.PayloadSHA256,"created_at":run.CreatedAt,"updated_at":run.UpdatedAt}
+      if matched{
+       providerRun["attempts_truncated"]=audit.Truncated
+       if freshRun{providerRun["attempt_total"]=audit.Total}else{
+        providerRun["attempt_scope"]="after_clear"
+        providerRun["visible_attempt_count"]=len(attempts)
+       }
+      }else if e!=nil{providerRun["attempt_integrity_error"]=true}
      }
     }
     if cursor,seen:=marker.Sessions[sess.ID];seen && !marker.At.IsZero(){

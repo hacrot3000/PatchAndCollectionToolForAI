@@ -6,6 +6,8 @@ import (
  "net/http/httptest"
  "strings"
  "testing"
+ "time"
+ "encoding/json"
 
  "bletonfc/vscode_tasks_menu/internal/agentchat"
  "bletonfc/vscode_tasks_menu/internal/identity"
@@ -111,4 +113,42 @@ func TestAgentCLP20SafeDebugReportGuardAndRedaction(t *testing.T){
  if _,err=store.Save(y,y.Revision);err!=nil{t.Fatal(err)}
  after:=report()
  if strings.Contains(after,secret)||strings.Contains(after,"recovery_budget_exhausted")||!strings.Contains(after,`"collection_progress": null`)||!strings.Contains(after,"local_request_not_prepared"){t.Fatal("clear boundary leaked old guard metadata or lost new event")}
+}
+
+
+func TestAgentCLP20DebugReportAttemptAuditAfterClear(t *testing.T){
+ s,id:=newAgentConversationFixture(t,"stateless")
+ journal,err:=s.agentChatStore();if err!=nil{t.Fatal(err)}
+ x,err:=journal.Get(id,"local");if err!=nil{t.Fatal(err)}
+ body:=[]byte(`{"model":"fixture","input":"CLP20_PRIVATE_WIRE","max_output_tokens":8192}`)
+ now:=time.Now().UTC()
+ x.Status="requesting_ai";x.RetryMode=agentchat.RetryUnlimited
+ x.ProviderRun=&agentchat.ProviderRun{ID:"debug-attempt-run",Kind:"collection",Phase:"sending",CallID:"read",PayloadSHA256:agentchat.ProviderPayloadDigest(body),ProviderFingerprint:"fixture",CreatedAt:now,UpdatedAt:now}
+ x,err=journal.Save(x,x.Revision);if err!=nil{t.Fatal(err)}
+ old,err:=journal.RecordProviderAttempt(id,"local",x.ProviderRun.ID,1,body,true,agentchat.ProviderAttemptPolicy{Mode:agentchat.RetryUnlimited});if err!=nil{t.Fatal(err)}
+ report:=func()map[string]any{
+  t.Helper()
+  w:=httptest.NewRecorder();s.agentChatDebugReportAPI(w,httptest.NewRequest("GET","/api/agent/debug/report",nil))
+  if w.Code!=200{t.Fatalf("report %d: %s",w.Code,w.Body)}
+  if strings.Contains(w.Body.String(),"CLP20_PRIVATE_WIRE"){t.Fatal("wire leaked")}
+  var decoded struct{Sessions []map[string]any}
+  if err:=json.Unmarshal(w.Body.Bytes(),&decoded);err!=nil{t.Fatal(err)}
+  for _,v:=range decoded.Sessions{if v["id"]==id{return v}}
+  return nil
+ }
+ first:=report()
+ if first==nil{t.Fatal("missing journal")}
+ run:=first["provider_run"].(map[string]any)
+ a:=first["provider_attempts"].([]any)
+ if run["run_id"]!="debug-attempt-run"||run["phase"]!="sending"||run["attempt_total"]!=float64(1)||len(a)!=1||a[0].(map[string]any)["client_request_id"]!=old{t.Fatal("missing exact attempt correlation")}
+ clear:=httptest.NewRecorder();s.agentChatDebugClearAPI(clear,httptest.NewRequest("POST","/api/agent/debug/clear",strings.NewReader("{}")))
+ if clear.Code!=200{t.Fatal("clear failed")}
+ fresh,err:=journal.RecordProviderAttempt(id,"local",x.ProviderRun.ID,2,body,true,agentchat.ProviderAttemptPolicy{Mode:agentchat.RetryUnlimited});if err!=nil{t.Fatal(err)}
+ x,err=journal.Get(id,"local");if err!=nil{t.Fatal(err)}
+ x.AppendEvent("provider_egress","requesting_ai","read","collection")
+ if _,err=journal.Save(x,x.Revision);err!=nil{t.Fatal(err)}
+ after:=report()
+ run=after["provider_run"].(map[string]any);a=after["provider_attempts"].([]any)
+ if run["attempt_scope"]!="after_clear"||run["attempt_total"]!=nil||len(a)!=1||a[0].(map[string]any)["client_request_id"]!=fresh{t.Fatal("post-clear attempt lost or historical attempt leaked")}
+ audit,err:=journal.ProviderAttempts(id,"local");if err!=nil||audit==nil||audit.Total!=2||audit.Attempts[0].ClientRequestID!=old{t.Fatal("debug clear changed durable attempt audit")}
 }
