@@ -1422,6 +1422,54 @@ console.log('PASS: safe Markdown, syntax-highlighted PHP/Python, per-block Copy,
    console.log('PASS: owner-visible provider correlation copying, stale-run isolation, corrupt audit warning and no replay');
    console.log('PASS: provider warning per-run dismissal preserves SENDING/UNKNOWN and no replay');
 
+   // Invoke the real Resume button, not only its visibility. A detached
+   // old button must not submit a later run or a different conversation.
+   context.resumeSession={...baseFlow,id:'natural-flow',status:'failed',revision:30,
+     event_seq:20,history:[{type:'user',content:'Original owner task'}],
+     events:[],tool_calls:[],collection_resume_eligible:true,
+     provider_run:{id:'resume-checkpoint',kind:'collection',phase:'unknown'}};
+   vm.runInNewContext("agentActive='natural-flow';agentAttachments=[];setAgentPromptValue('');displayAgentSession(resumeSession);renderAgentProviderEgressReview(resumeSession,resumeWarning)",context);
+   const resumeButton=find(providerNotice,node=>node.tagName==='button'&&node.textContent==='Resume original task (new request)');
+   assert.ok(resumeButton);
+   const resumeRequests=[];
+   let resolveResume;
+   context.TaskMenuApp.jsonFetch=async(url,opts)=>{
+     if(url.endsWith('/sessions/natural-flow/messages')){
+       resumeRequests.push(JSON.parse(opts.body));
+       return new Promise(resolve=>{resolveResume=resolve;});
+     }
+     if(url.endsWith('/sessions/natural-flow'))return {session:context.resumeSession,patch_tool_status:'enabled',collection_resume_eligible:context.resumeSession.collection_resume_eligible};
+     throw Error('unexpected resume API '+url);
+   };
+   vm.runInNewContext("agentActive='other-session'",context);
+   await resumeButton.onclick();
+   vm.runInNewContext("agentActive='natural-flow';agentCurrentSession={...resumeSession,provider_run:{...resumeSession.provider_run,id:'newer-run'}}",context);
+   await resumeButton.onclick();
+   assert.equal(resumeRequests.length,0,'stale button or other conversation must not issue a request');
+   vm.runInNewContext("agentCurrentSession=resumeSession;setAgentPromptValue('unsent owner instruction')",context);
+   await resumeButton.onclick();
+   assert.equal(vm.runInNewContext('prompt.value',context),'unsent owner instruction','resume must preserve unrelated draft');
+   assert.equal(resumeRequests.length,0);
+   vm.runInNewContext("setAgentPromptValue('');agentAttachments=[]",context);
+   const resumed=resumeButton.onclick();
+   assert.equal(resumeRequests.length,1,'explicit click issues one new message');
+   assert.equal(resumeRequests[0].resume_collection_run_id,'resume-checkpoint');
+   assert.equal(resumeRequests[0].expected_revision,30);
+   assert.equal(resumeRequests[0].confirm_external,true);
+   assert.ok(resumeRequests[0].request_id);
+   assert.equal(resumeRequests[0].attachments.length,0);
+   await resumeButton.onclick();
+   assert.equal(resumeRequests.length,1,'double click cannot submit a second request');
+   context.resumeSession={...context.resumeSession,status:'completed',revision:31,collection_resume_eligible:false,
+     provider_run:{id:'new-completed',kind:'message',phase:'completed'},
+     history:[...context.resumeSession.history,{type:'user',content:resumeRequests[0].message},{type:'assistant',content:'Continued original task'}]};
+   resolveResume({status:'completed'});
+   await resumed;
+   await resumeButton.onclick();
+   assert.equal(resumeRequests.length,1,'stale Resume after completion cannot issue another request');
+   assert.equal(vm.runInNewContext('send.disabled',context),false);
+   console.log('PASS: actual UNKNOWN Resume click, exact checkpoint/revision, draft isolation and stale/double-click fence');
+
 // One click copies the WHOLE multi-trace/session report, not a selected tab
   // or only the currently visible subset. Prefetch is complete before click
   // so Firefox retains its transient clipboard activation.

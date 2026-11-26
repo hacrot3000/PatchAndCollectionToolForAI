@@ -1821,11 +1821,14 @@ function renderAgentProviderEgressReview(session,review,attemptAudit=null,integr
  if(recoveryText)agentProviderEgressNotice.append(agentEl('div','',recoveryText));
  if(review.phase==='unknown'&&review.kind==='collection'&&session.collection_resume_eligible===true&&!integrityError){
   const resume=agentButton('Resume original task (new request)',()=>{
-   if(agentActive!==session.id||agentSessionBusy(session.id))return;
+   const current=agentCurrentSession;
+   if(agentActive!==session.id||current?.id!==session.id||agentSessionBusy(session.id)||agentServerTurnBusy(current))return;
+   if(current.archived||current.status!=='failed'||current.collection_resume_eligible!==true||
+      current.provider_run?.id!==review.run_id||current.provider_run?.kind!=='collection'||current.provider_run?.phase!=='unknown')return;
    const recoveryDraft='Resume original unfinished task from the canonical checkpoint (new request; do not replay old provider egress).';
    if((prompt.value.trim()&&prompt.value.trim()!==recoveryDraft)||(agentAttachments||[]).length){showAgentError(new Error('Preserve the current draft/attachments before resuming.'));return;}
    setAgentPromptValue(recoveryDraft);
-   sendAgentMessage(String(review.run_id)).catch(showAgentError);
+   return sendAgentMessage(String(review.run_id)).catch(showAgentError);
   });
   agentProviderEgressNotice.append(agentEl('div','','Previous PATCH acknowledgements remain intact. You can send any new message normally to the selected model or resume the original task. The previous provider request stays UNKNOWN.'),resume);
  }
