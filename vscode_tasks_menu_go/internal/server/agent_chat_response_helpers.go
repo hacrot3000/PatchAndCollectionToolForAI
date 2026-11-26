@@ -124,12 +124,12 @@ func agentRejectedUnsupportedToolFeedback(name, code string) string {
 // never dispatched without strict validation and a durable approval record.
 func appendAgentProviderResult(x *agentchat.Session, result agentchat.ResponsesResult, toolAvailable bool) {
 	if result.Text != "" {
-		x.History = append(x.History, agentchat.HistoryItem{Type: "assistant", Content: result.Text})
+		x.History = append(x.History, result.RequestDisplay.WithHistoryItem(agentchat.HistoryItem{Type: "assistant", Content: result.Text}))
         agentchat.CaptureTaskEvidenceSuggestion(x, result.ResponseID, result.Text)
 	}
 	registeredCall := false
 	for i, call := range result.Calls {
-		x.History = append(x.History, agentchat.HistoryItem{Type: "function_call", CallID: call.CallID, Name: call.Name, Arguments: call.Arguments})
+		x.History = append(x.History, result.RequestDisplay.WithHistoryItem(agentchat.HistoryItem{Type: "function_call", CallID: call.CallID, Name: call.Name, Arguments: call.Arguments}))
 		if toolAvailable && i == 0 && len(result.Calls) == 1 && call.Name == "taskdeck_submit_patch" {
 			if _, err := parseAgentPatchArguments(call.Arguments); err == nil {
 				x.ToolCalls = append(x.ToolCalls, agentchat.ToolCallRecord{

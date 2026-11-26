@@ -85,9 +85,9 @@ func appendAgentTextPatchProposal(x *agentchat.Session, result agentchat.Respons
     for _, item := range x.History {
         if item.Type == "function_call" && item.CallID == callID { return false }
     }
-    x.History = append(x.History, agentchat.HistoryItem{
+    x.History = append(x.History, result.RequestDisplay.WithHistoryItem(agentchat.HistoryItem{
         Type: "function_call", CallID: callID, Name: "taskdeck_submit_patch", Arguments: string(rawArgs),
-    })
+    }))
     x.ToolCalls = append(x.ToolCalls, agentchat.ToolCallRecord{
         CallID: callID, Name: "taskdeck_submit_patch", Status: "pending",
         ModelTurnID: result.ResponseID, ArgumentsSHA256: agentPatchPayloadSHA256(string(rawArgs)),

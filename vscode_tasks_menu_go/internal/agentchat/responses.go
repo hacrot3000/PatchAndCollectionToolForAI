@@ -34,6 +34,10 @@ type HistoryItem struct {
 	ModelID               string `json:"model_id,omitempty"`
 	ParentTurnID          string `json:"parent_turn_id,omitempty"`
 	ExcludedPendingRunIDs string `json:"excluded_pending_run_ids,omitempty"`
+	RequestEffort string `json:"request_effort,omitempty"`
+	RequestContext string `json:"request_context,omitempty"`
+	RequestAt string `json:"request_at,omitempty"`
+	RequestInputTokens int `json:"request_input_tokens,omitempty"`
 }
 
 type RequestConfig struct {
@@ -286,6 +290,7 @@ type FunctionCall struct {
 }
 
 type ResponsesResult struct {
+	RequestDisplay RequestDisplay // trusted local request metadata; never parsed from provider output
 	ResponseID     string
 	ConversationID string
 	Text           string

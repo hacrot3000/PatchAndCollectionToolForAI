@@ -10,6 +10,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"time"
 	"unicode/utf8"
 
 	"bletonfc/vscode_tasks_menu/internal/agentchat"
@@ -53,6 +54,7 @@ func (s *Server) agentChatObservedCall(ctx context.Context, owner, action, sessi
 	if hint:=agentchat.PromptCacheKeyFingerprint(payload);hint!=""{
 		recorder.RecordProviderDiagnostic(agentchat.DiagnosticEvent{Level:"info",Stage:"provider_cache",Event:"affinity.cache_key",SafeMessage:"prompt_cache_key present; fingerprint="+hint})
 	}
+	requestDisplay:=agentRequestDisplay(p,payload,time.Now().UTC())
 	var result agentchat.ResponsesResult
 	var err error
 	if s.AgentChatCall != nil {
@@ -95,6 +97,9 @@ func (s *Server) agentChatObservedCall(ctx context.Context, owner, action, sessi
 		recorder.RecordProviderDiagnostic(agentchat.DiagnosticEvent{Level:"info",Stage:"provider_cache",Event:"cache.usage",SafeMessage:result.CacheUsage.Summary(result.InputTokens)})
 		recorder.finish("", "Provider request completed")
 	}
+	// Attach local metadata after the transport returns, including the exact
+	// payload of the successful retry rather than the current UI selection.
+	result.RequestDisplay=requestDisplay
 	return result, err, traceID
 }
 
@@ -516,6 +521,7 @@ func (s *Server) agentChatAuthorizedMessage(w http.ResponseWriter, r *http.Reque
 			session.AppendEvent("collection_new_message",session.Status,session.ProviderRun.CallID,session.ProviderRun.ID)
 		}
 	}
+	next=agentRequestDisplay(p,payload,time.Now().UTC()).WithHistoryItem(next)
 	session.History = append(session.History, next)
 	if admitPending {
 		// The durable binding currently records session.Mode. Do not admit a

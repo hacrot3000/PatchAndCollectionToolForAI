@@ -162,16 +162,17 @@ func (s *Server) agentChatRunCollection(
 			// read-only model request. Finish with an actionable message.
 			return agentchat.ResponsesResult{ResponseID:result.ResponseID,
 				ConversationID:result.ConversationID,
+				RequestDisplay:result.RequestDisplay,
 				Text:"Automatic Collection is disabled for this conversation. Enable Auto Collection in the Automation menu and send the request again. No Collection or Patch was executed."},clearProviderRefs,nil
 		}
 
 		// Persist the actual model response before any native operation. On
 		// restart a pending Collection can be closed as unverified, not replayed.
-		if result.Text!=""{x.History=append(x.History,agentchat.HistoryItem{Type:"assistant",Content:result.Text})}
+		if result.Text!=""{x.History=append(x.History,result.RequestDisplay.WithHistoryItem(agentchat.HistoryItem{Type:"assistant",Content:result.Text}))}
 		callID:=""
 		if typed{
 			call:=result.Calls[0];callID=call.CallID
-			x.History=append(x.History,agentchat.HistoryItem{Type:"function_call",CallID:call.CallID,Name:call.Name,Arguments:call.Arguments})
+			x.History=append(x.History,result.RequestDisplay.WithHistoryItem(agentchat.HistoryItem{Type:"function_call",CallID:call.CallID,Name:call.Name,Arguments:call.Arguments}))
 		}
 		legacyCollectionRequested(x, callID, toolAvailable)
 		if x.ProviderRun!=nil&&x.ProviderRun.Phase=="acknowledged"{

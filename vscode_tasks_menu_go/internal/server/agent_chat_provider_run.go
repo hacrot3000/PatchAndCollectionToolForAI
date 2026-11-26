@@ -26,6 +26,7 @@ func setAgentPreparedProviderRun(x *agentchat.Session,kind,callID string,
  if x==nil{return agentchat.ErrInvalidSession}
  now:=time.Now().UTC()
  x.ProviderRun=&agentchat.ProviderRun{
+  RequestDisplay:agentRequestDisplay(p,payload,now),
   ID:fmt.Sprintf("r%d-e%d",x.Revision+1,x.EventSeq+1),
   Kind:kind,Phase:"prepared",CallID:callID,
   PayloadSHA256:agentchat.ProviderPayloadDigest(payload),
@@ -45,6 +46,7 @@ func markAgentProviderSending(store *agentchat.Store,x *agentchat.Session)error{
  }
  x.ProviderRun.Phase="sending"
  x.ProviderRun.UpdatedAt=time.Now().UTC()
+ if x.ProviderRun.RequestAt!=""{x.ProviderRun.RequestAt=x.ProviderRun.UpdatedAt.Format(time.RFC3339Nano)}
  x.AppendEvent("provider_egress",x.Status,x.ProviderRun.CallID,x.ProviderRun.Kind)
  saved,err:=store.Save(*x,x.Revision)
  if err!=nil{return err}

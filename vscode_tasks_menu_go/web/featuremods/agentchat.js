@@ -1309,20 +1309,45 @@ function renderAgentTool(session,item){
 function agentHistoryItemEqual(a,b){
  return a?.type===b?.type && a?.content===b?.content &&
   a?.call_id===b?.call_id && a?.name===b?.name && a?.arguments===b?.arguments &&
-  a?.seq===b?.seq && a?.kind===b?.kind && a?.status===b?.status && a?.detail===b?.detail;
+  a?.seq===b?.seq && a?.kind===b?.kind && a?.status===b?.status && a?.detail===b?.detail &&
+  a?.provider_id===b?.provider_id && a?.model_id===b?.model_id &&
+  a?.request_effort===b?.request_effort && a?.request_context===b?.request_context &&
+  a?.request_at===b?.request_at && a?.request_input_tokens===b?.request_input_tokens;
 }
 function agentToolIO(label,content){
  const details=agentEl('details','agentchat-io-details');
  details.append(agentEl('summary','',label),agentRich.renderCode(content,'',showAgentError));
  return details;
 }
+function agentRequestClock(value){
+ if(typeof value!=='string'||!value)return '';
+ const date=new Date(value);
+ if(!Number.isFinite(date.getTime()))return '';
+ return String(date.getHours()).padStart(2,'0')+':'+String(date.getMinutes()).padStart(2,'0');
+}
+function agentRequestBadgeText(item,session){
+ const providerID=String(item?.provider_id||session?.provider_id||'');
+ const modelID=String(item?.model_id||session?.model_id||'');
+ if(!providerID&&!modelID)return '';
+ const provider=agentProviders.find(entry=>entry.id===providerID);
+ const parts=[provider?.name||providerID||'Unknown provider'];
+ if(modelID)parts.push(modelID);
+ // Missing historical metadata must not be invented from current settings.
+ if(item?.request_effort)parts.push(agentEffortLabel(item.request_effort));
+ const mode=({stateless:'Stateless',previous_response:'Response chain',conversation:'Conversations'})[item?.request_context];
+ if(mode)parts.push(mode);
+ const input=Number(item?.request_input_tokens||0);
+ if(Number.isSafeInteger(input)&&input>0)parts.push('≈ '+agentFormatTokenCount(input)+' tokens');
+ const time=agentRequestClock(item?.request_at);
+ if(time)parts.push(time);
+ return parts.join(' · ');
+}
 function agentProviderBadge(row,item,session){
  if(!row)return row;
- const providerID=String(item.provider_id||session?.provider_id||'');
- const modelID=String(item.model_id||session?.model_id||'');
- if(!providerID&&!modelID)return row;
- const provider=agentProviders.find(entry=>entry.id===providerID);
- const badge=agentEl('span','agentchat-provider-badge',(provider?.name||providerID||'Unknown provider')+(modelID?' · '+modelID:''));
+ const label=agentRequestBadgeText(item,session);
+ if(!label)return row;
+ const badge=agentEl('span','agentchat-provider-badge',label);
+ if(item?.request_at)badge.title='Request time (local): '+new Date(item.request_at).toLocaleString();
  badge.style.display='block';badge.style.fontSize='10px';badge.style.opacity='.68';badge.style.marginBottom='4px';
  row.prepend(badge);
  return row;
@@ -1376,7 +1401,10 @@ function agentHistoryRow(session,item,callNames){
   }
   return agentProviderBadge(agentMessageBubble('assistant',raw),item,session);
  }
- if(item.type==='function_call')return renderAgentTool(session,item);
+ if(item.type==='function_call'){
+  const row=renderAgentTool(session,item);
+  return item.request_at?agentProviderBadge(row,item,session):row;
+ }
  if(item.type==='function_call_output'){
   const isCollection=callNames.get(item.call_id)==='taskdeck_collect_workspace';
   return agentToolIO(isCollection?'Collection result sent to AI · view contents':'Native Patch result sent to AI · view contents',String(item.content||''));
@@ -1523,8 +1551,11 @@ function agentUpdateLiveRow(session){
  const requestEstimate=Number(session.provider_run?.estimated_input_tokens||0);
  const sendingOrThinking=session.status==='requesting_ai'&&
   /^(Sending |Retrying AI request|Thinking)/.test(phase.message);
- const message=phase.message+(sendingOrThinking&&requestEstimate>0?
-  ' · request input ≈ '+agentFormatTokenCount(requestEstimate)+' tokens':'');
+ const requestInfo=session.provider_run;
+ const hasRequestInfo=sendingOrThinking&&Boolean(requestInfo?.request_at);
+ const requestLabel=hasRequestInfo?agentRequestBadgeText(requestInfo,session):'';
+ const message=phase.message+(requestLabel?' · '+requestLabel:
+  sendingOrThinking&&requestEstimate>0?' · request input ≈ '+agentFormatTokenCount(requestEstimate)+' tokens':'');
  if(agentLiveText.textContent!==message)agentLiveText.textContent=message;
  if(transcript.children[transcript.children.length-1]!==agentLiveRow){
   // append(existingNode) moves it without recreating it. This preserves its

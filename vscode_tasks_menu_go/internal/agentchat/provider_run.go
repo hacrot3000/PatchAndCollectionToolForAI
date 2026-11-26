@@ -16,6 +16,7 @@ import (
 // and is eligible for automatic recovery after restart. SENDING/UNKNOWN must
 // NEVER be automatically replayed, including on providers with retry enabled.
 type ProviderRun struct {
+ RequestDisplay
  ID string `json:"id"`
  Kind string `json:"kind"` // message, collection, feedback
  Phase string `json:"phase"` // prepared, sending, acknowledged, unknown, completed, blocked
