@@ -21,6 +21,9 @@ const (
  TurnUnknown = "UNKNOWN"
  // This is a verified-work brake, not a number of permitted provider turns.
  MaxContinuationNoWorkTurns = 5
+ // Bound persisted advisory text independently from the status enum.
+ MaxTurnNextActionBytes = 4096
+ maxTurnProgressBlockBytes = 16 << 10
 )
 
 // TurnContinuation is an untrusted provider-turn advisory and a trusted,
@@ -63,7 +66,7 @@ func validTurnDisposition(s string) bool {
 
 func ValidTurnContinuation(c *TurnContinuation)bool{
  if c==nil{return true}
- if !validTurnDisposition(c.Disposition)||len(c.NextAction)>500||len(c.CheckpointPath)>240||
+ if !validTurnDisposition(c.Disposition)||len(c.NextAction)>MaxTurnNextActionBytes||!utf8.ValidString(c.NextAction)||len(c.CheckpointPath)>240||
   len(c.EvidenceRefs)>8||len(c.Reason)>120||len(c.ResponseDigest)>64||len(c.ProgressSignature)>64||
   c.RepeatedTurns<0||c.RepeatedTurns>100||c.NoProgressTurns<0||c.NoProgressTurns>100||
   len(c.LastWorkSignature)>64||len(c.LastContinuationKey)>128||
@@ -92,31 +95,42 @@ func normalizedTurnAction(s string)string{
  s=strings.ToLower(strings.TrimSpace(s))
  s=progressWhitespace.ReplaceAllString(s," ")
  s=repeatedPunctuation.ReplaceAllString(s," ")
- if len(s)>260{s=s[:260]}
  return s
 }
 func parseDeclaredTurnProgress(text string)(declaredTurnProgress,bool){
  matches:=progressFence.FindAllStringSubmatch(text,-1)
- if len(matches)!=1||len(matches[0][1])>2500{return declaredTurnProgress{},false}
+ if len(matches)!=1||len(matches[0][1])>maxTurnProgressBlockBytes{return declaredTurnProgress{},false}
  var declared declaredTurnProgress
  dec:=json.NewDecoder(strings.NewReader(matches[0][1]))
  dec.DisallowUnknownFields()
  if dec.Decode(&declared)!=nil{return declaredTurnProgress{},false}
  var extra any
  if dec.Decode(&extra)!=io.EOF{return declaredTurnProgress{},false}
- if !validTurnDisposition(declared.Status)||len(declared.NextAction)>500||
+ if !validTurnDisposition(declared.Status)||
   len(declared.CheckpointPath)>240||len(declared.EvidenceRefs)>8{return declaredTurnProgress{},false}
  declared.NextAction=strings.TrimSpace(declared.NextAction)
+ // An overlong advisory is not an invalid task disposition. Retain the
+ // exact status and a UTF-8-safe prefix; the original stays in history.
+ if len(declared.NextAction)>MaxTurnNextActionBytes{
+  const suffix=" [next_action truncated; consult the original assistant response]"
+  declared.NextAction=truncateTurnUTF8(declared.NextAction,MaxTurnNextActionBytes-len(suffix))+suffix
+ }
  if declared.CheckpointPath!=""&&!safeCheckpointPath(declared.CheckpointPath){return declaredTurnProgress{},false}
  for _,ref:=range declared.EvidenceRefs{if ref==""||len(ref)>128||strings.ContainsAny(ref,"\r\n\x00"){return declaredTurnProgress{},false}}
  return declared,true
+}
+func truncateTurnUTF8(s string,n int)string{
+ if len(s)<=n{return s}
+ s=s[:n]
+ for !utf8.ValidString(s)&&len(s)>0{s=s[:len(s)-1]}
+ return s
 }
 func boundedNextAction(text string)string{
  lines:=strings.Split(text,"\n")
  for i:=len(lines)-1;i>=0;i--{
   line:=strings.TrimSpace(lines[i])
   if !progressNext.MatchString(line){continue}
-  if len(line)>500{line=line[:500]}
+  if len(line)>500{line=truncateTurnUTF8(line,500)}
   if idx:=strings.Index(line,":");idx>=0&&idx+1<len(line){return strings.TrimSpace(line[idx+1:])}
   if idx:=strings.Index(line,"：");idx>=0{return strings.TrimSpace(line[idx+len("："):])}
   return line
@@ -204,12 +218,29 @@ func RecordTurnDisposition(x *Session,text string){
  x.Continuation=next
 }
 
+// EffectiveTurnContinuation repairs a previously misclassified UNKNOWN
+// without mutating history or resetting trusted scheduling counters. Only
+// the exact latest canonical assistant response may supply the metadata.
+// Never reinterpret a blocker, a stopped turn or stale tool output.
+func EffectiveTurnContinuation(x Session)*TurnContinuation{
+ old:=x.Continuation
+ if old==nil||old.Disposition!=TurnUnknown||old.Reason!="unknown_model_turn"||
+  x.Status!="completed"||len(x.History)==0{return old}
+ last:=x.History[len(x.History)-1]
+ if last.Type!="assistant"||last.OriginRunID!=""||turnHash(last.Content)!=old.ResponseDigest{return old}
+ if _,ok:=parseDeclaredTurnProgress(last.Content);!ok{return old}
+ RecordTurnDisposition(&x,last.Content)
+ // Reclassification is not another provider turn.
+ x.Continuation.RepeatedTurns=old.RepeatedTurns
+ return x.Continuation
+}
+
 // UnknownCollectionProgressRecheck permits a fresh status-only question
 // after an exact, completed native COLLECT round, not a replay.
 // A new ordinary message changes ProviderRun.Kind, so an UNKNOWN response
 // to the status check cannot itself schedule another status check.
 func UnknownCollectionProgressRecheck(x Session)bool{
- c:=x.Continuation
+ c:=EffectiveTurnContinuation(x)
  r:=x.ProviderRun
  if c==nil||c.Disposition!=TurnUnknown||c.Reason!="unknown_model_turn"||
   r==nil||r.Kind!="collection"||r.Phase!="completed"||r.CallID==""||
@@ -222,7 +253,7 @@ func UnknownCollectionProgressRecheck(x Session)bool{
 }
 
 func StandaloneAutoContinueCandidate(x Session)bool{
- c:=x.Continuation
+ c:=EffectiveTurnContinuation(x)
  if !x.AutoContinueText||x.TaskPlan!=nil||x.Owner!="local"||x.Archived||
   x.Status!="completed"||c==nil||c.NoProgressTurns>=MaxContinuationNoWorkTurns||
   (c.Disposition!=TurnNeedsContinuation&&c.Disposition!=TurnInProgress&&!UnknownCollectionProgressRecheck(x))||

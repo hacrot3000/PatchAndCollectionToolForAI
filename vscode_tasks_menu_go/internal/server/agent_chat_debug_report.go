@@ -237,8 +237,9 @@ func agentSafeContinuationDiagnostic(x agentchat.Session)map[string]any{
   "unknown_collection_recheck":agentchat.UnknownCollectionProgressRecheck(x),
   "task_plan_present":x.TaskPlan!=nil,
  }
- if c:=x.Continuation;c!=nil{
+ if c:=agentchat.EffectiveTurnContinuation(x);c!=nil{
   out["disposition"]=c.Disposition
+  if x.Continuation!=nil&&x.Continuation.Disposition!=c.Disposition{out["stored_disposition"]=x.Continuation.Disposition;out["metadata_reclassified"]=true}
   switch c.Reason{
   case "model_progress_metadata_unverified","model_blocker_unverified","incomplete_progress_report","next_action_in_report","model_completion_claim_unverified","unknown_model_turn","unfinished_action_announcement","stalled_without_verified_work","nonretryable_admission_failure":
    out["reason"]=c.Reason

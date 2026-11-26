@@ -23,6 +23,7 @@ func (s *Server) autoContinueConversationOne(ctx context.Context,store *agentcha
  original,err:=store.Get(id,"local")
  if err!=nil||original.Workspace!=s.Workspace||
   !agentchat.StandaloneAutoContinueCandidate(original){return}
+ original.Continuation=agentchat.EffectiveTurnContinuation(original)
  c:=original.Continuation
  before:=agentchat.VerifiedWorkSignature(original)
  requestID:=fmt.Sprintf("conversation-%s-r%d",id,original.Revision)
