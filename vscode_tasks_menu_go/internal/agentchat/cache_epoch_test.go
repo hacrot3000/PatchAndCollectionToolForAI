@@ -45,3 +45,17 @@ func TestCachePrefixDiagnosticsAndLifetime(t *testing.T){
  body,err=BuildResponsesRequest(c);if err!=nil{t.Fatal(err)}
  if _,err=BuildChatCompletionsRequest(body);err==nil{t.Fatal("Responses-only TTL forwarded to Chat Completions")}
 }
+
+
+func TestCacheEpochInvalidationExactSendingRun(t *testing.T){
+ s,x,_:=sendingAttemptFixture(t)
+ d:=BodyDigest([]byte("test"))
+ e:=&CacheEpoch{ID:d,Scope:d,SourceDigest:d,SourceCount:1,Visible:[]HistoryItem{{Type:"user",Content:"goal"}}}
+ if err:=s.WriteCacheEpoch(x.ID,x.Owner,x.Revision,e);err!=nil{t.Fatal(err)}
+ if err:=s.InvalidateCacheEpochForRun(x.ID,"other",x.ProviderRun.ID);err==nil{t.Fatal("cross-owner invalidation")}
+ if err:=s.InvalidateCacheEpochForRun(x.ID,x.Owner,"older-run");err==nil{t.Fatal("stale run invalidation")}
+ if got,err:=s.ReadCacheEpoch(x.ID,x.Owner,x.Revision);err!=nil||got==nil{t.Fatal("checkpoint unexpectedly removed")}
+ if err:=s.InvalidateCacheEpochForRun(x.ID,x.Owner,x.ProviderRun.ID);err!=nil{t.Fatal(err)}
+ if got,err:=s.ReadCacheEpoch(x.ID,x.Owner,x.Revision);err!=nil||got!=nil{t.Fatal("rewritten retry kept old checkpoint")}
+ current,err:=s.Get(x.ID,x.Owner);if err!=nil||current.Revision!=x.Revision||current.ProviderRun.PayloadSHA256!=x.ProviderRun.PayloadSHA256||current.ProviderRun.Phase!="sending"{t.Fatal("canonical journal changed")}
+}

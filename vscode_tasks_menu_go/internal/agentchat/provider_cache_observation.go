@@ -53,7 +53,7 @@ func compareCacheSnapshots(a,b cachePrefixSnapshot)(int,int,string){
  n:=0
  for n<len(a.Input)&&n<len(b.Input)&&a.Input[n]==b.Input[n]{bytes+=a.Input[n].Bytes;n++}
  reason:="append_only"
- if n<len(a.Input){reason="history_prefix_changed"}
+ if n<len(a.Input){reason="history_prefix_changed"}else if n==len(b.Input){reason="identical"}
  return bytes,n,reason
 }
 type cacheObservation struct{
@@ -70,6 +70,8 @@ type cacheObservation struct{
  WriteTokens uint64 `json:"write_tokens"`
  WriteReported uint64 `json:"write_reported"`
  TokenSamples []cacheTokenSample `json:"token_samples,omitempty"`
+ LastRunID string `json:"last_run_id,omitempty"`
+ LastAttempt uint64 `json:"last_attempt,omitempty"`
  ComparableRead uint64 `json:"comparable_read"`
  ComparableInput uint64 `json:"comparable_input"`
 }
@@ -89,6 +91,12 @@ func(s *Store)RecordCacheObservation(id,owner string,p ProviderConfig,credential
   x,e:=s.readLocked(id);if e!=nil{return e}
   if x.Owner!=owner||!s.matchesProject(x){return ErrNotFound}
   if x.ProviderRun==nil||x.ProviderRun.Phase!="sending"||x.Status!="requesting_ai"{return ErrInvalidSession}
+  // Only the exact latest pre-egress attempt can contribute usage. A
+  // callback from an older run cannot contaminate a new checkpoint.
+  audit,e:=s.readProviderAttemptsLocked(id)
+  if e!=nil||audit.RunID!=x.ProviderRun.ID||len(audit.Attempts)==0{return ErrInvalidSession}
+  last:=audit.Attempts[len(audit.Attempts)-1]
+  if last.PayloadSHA256!=ProviderPayloadDigest(payload){return ErrInvalidSession}
   model,ok:=p.FindModel(wire.Model);if !ok{return ErrInvalidSession}
   scope:=cacheObservationScope(x,p,model,credential)
   binding:=cacheEpochBinding(x)
@@ -100,6 +108,8 @@ func(s *Store)RecordCacheObservation(id,owner string,p ProviderConfig,credential
    var old cacheObservation
    if len(raw)<=maxCacheObservationBytes&&json.Unmarshal(raw,&old)==nil&&old.Version==2&&old.Binding==binding&&old.Scope==scope&&len(old.Prefix.Input)<=maxItems&&old.Attempts<1000000000&&old.Successes<=old.Attempts&&old.Reported<=old.Successes&&old.WriteReported<=old.Successes&&len(old.TokenSamples)<=maxCacheTokenSamples&&old.Misses<=old.Reported&&old.ComparableRead<=old.ComparableInput&&old.ComparableInput<=1000000000000000000&&old.ReadTokens<=1000000000000000000&&old.WriteTokens<=1000000000000000000&&!old.At.After(at){cur=old}
   }else if !os.IsNotExist(e){return e}
+  if cur.LastRunID==audit.RunID&&cur.LastAttempt>=last.Attempt{return ErrStaleRevision}
+  cur.LastRunID=audit.RunID;cur.LastAttempt=last.Attempt
   reason:="cold_or_scope_changed";bytes,n:=0,0;gap:="unreported"
   if cur.Attempts>0{
    bytes,n,reason=compareCacheSnapshots(cur.Prefix,snapshot)

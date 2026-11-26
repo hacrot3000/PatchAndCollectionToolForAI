@@ -31,3 +31,31 @@ func TestAgentCacheEpochAppendAndPolicyReset(t *testing.T){
   if err!=nil||why=="append_only"||!strings.Contains(string(third),"Updated trusted policy"){t.Fatalf("policy reset: %s %v",why,err)}
  }
 }
+
+
+func TestAgentCacheEpochCurrentPlanAndRevocationRemainTrusted(t *testing.T){
+ x:=agentchat.Session{ProjectID:"project-id",TaskPlan:&agentchat.TaskPlan{Goal:"audit source",State:"active",Steps:[]agentchat.TaskPlanStep{{ID:"one",Title:"inspect",Status:"pending",Acceptance:"read exact file"}}}}
+ stable,current:=agentChatInstructionsWithAutomationParts(x,true,"project")
+ if !strings.Contains(current,"audit source")||strings.Contains(stable,"audit source"){t.Fatal("owner plan not separated")}
+ x.TaskPlan.Goal="updated objective";x.TaskPlan.Steps[0].Acceptance="verify receipt"
+ stable2,current2:=agentChatInstructionsWithAutomationParts(x,true,"project")
+ if stable2!=stable||current2==current||!strings.Contains(current2,"updated objective"){t.Fatal("mutable plan affects static policy or failed to refresh")}
+ cfg:=agentchat.RequestConfig{Model:"m",Mode:agentchat.Stateless,Instructions:stable2,CurrentInstructions:current2,EnableCollectionTool:true,Next:[]agentchat.HistoryItem{{Type:"user",Content:"Continue"}}}
+ body,err:=agentchat.BuildResponsesRequest(cfg);if err!=nil{t.Fatal(err)}
+ var wire struct{Instructions string;Input []json.RawMessage}
+ if json.Unmarshal(body,&wire)!=nil||!strings.HasSuffix(wire.Instructions,current2)||len(wire.Input)!=1||strings.Contains(string(wire.Input[0]),"updated objective"){t.Fatal("trusted plan demoted to history")}
+ disabled:=false;x.AutoCollection=&disabled
+ revoked,_:=agentChatInstructionsWithAutomationParts(x,true,"project")
+ if revoked==stable||!strings.Contains(revoked,"Collection has been disabled"){t.Fatal("revocation was deferred to retain cache")}
+}
+
+func TestAgentCacheEpochOptionalAdviceCannotBlockMandatoryRequest(t *testing.T){
+ // Find the exact native contract overhead with the real request builder.
+ c:=agentchat.RequestConfig{Model:"m",Mode:agentchat.Stateless,Instructions:"x",EnableCollectionTool:true,Next:[]agentchat.HistoryItem{{Type:"user",Content:"mandatory owner instruction"}}}
+ body,err:=agentchat.BuildResponsesRequest(c);if err!=nil{t.Fatal(err)}
+ var wire struct{Instructions string}
+ if json.Unmarshal(body,&wire)!=nil{t.Fatal("invalid request")}
+ c.Instructions=strings.Repeat("x",(1<<20)-len(wire.Instructions)+1)
+ got,_,reason,err:=agentBuildContextEpoch(agentchat.Session{},agentchat.ModelConfig{MaxInputTokens:4000000},agentchat.ProviderConfig{APIType:"responses"},c,nil,false)
+ if err!=nil||!strings.Contains(reason,"optional_advice_omitted")||!strings.Contains(string(got),"mandatory owner instruction"){t.Fatalf("optional guidance prevented valid request: %s %v",reason,err)}
+}
