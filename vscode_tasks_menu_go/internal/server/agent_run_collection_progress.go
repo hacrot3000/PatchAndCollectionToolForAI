@@ -91,5 +91,5 @@ func runCollectionProgressAdvice(owner string,spec agentchat.RunSpec,inputs Agen
  g,ok:=readRunCollectionProgress(owner,spec,inputs)
  if !ok||g.LastHistorySize!=len(inputs.Snapshot.History){return ""}
  // Advisory only: do not enable Unified creation or automatic replan.
- return collectionProgressAdvice(g.Decision)
+ return collectionProgressAdvisory(g.Decision,g.Counters,false)
 }

@@ -339,7 +339,7 @@ func (s *Server) agentChatRunCollection(
 		contextModel := model
 		if mode==agentchat.Stateless{contextModel,limit=agentAdaptiveRequestBudget(store,*x,provider,model,key,limit)}
 		instructions,currentInstructions := agentChatInstructionsWithAutomationParts(*x, toolAvailable, identity.Key)
-		currentInstructions += collectionProgressAdvice(guardDecision) + requestAdvice + recoveryAdvice
+		currentInstructions += legacyCollectionProgressAdvisory(*x,guardDecision,toolAvailable) + requestAdvice + recoveryAdvice
 		projection:=*x
 		if nextCommitted{
 			// Next must retain the exact just-saved output once, paired with

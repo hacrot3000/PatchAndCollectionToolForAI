@@ -242,7 +242,7 @@ func TestAgentCollectionUnlimitedRetriesTimeoutAndHTTP499WithoutDuplicateRead(t 
 
 func TestAgentCollectionContinuesWithoutRoundLimitToPatchProposal(t *testing.T){
  for _,tc:=range []struct{name string;pages int;patch bool;goal string}{
-  {"55_useful_pages_then_pending_patch",55,true,"Inspect enough source pages and propose one patch"},
+  {"55_useful_pages_then_pending_patch",55,true,"Implement a fix after inspecting enough source pages and propose one patch"},
   {"100_read_only_pages",100,false,"Audit this source read-only; do not modify any file"},
  }{
   t.Run(tc.name,func(t *testing.T){
@@ -259,7 +259,7 @@ func TestAgentCollectionContinuesWithoutRoundLimitToPatchProposal(t *testing.T){
    if err:=os.WriteFile(filepath.Join(s.Workspace,"main.php"),[]byte(original),0600);err!=nil{t.Fatal(err)}
    patchCode:=fmt.Sprintf("# TASKDECK_PROJECT_KEY: %s\n# TASKDECK_PROJECT_ID: %s\nprint('noop')\n",identity.Key,identity.ID)
    raw,_:=json.Marshal(map[string]string{"name":"After paged research","patch_python":patchCode})
-   count,reads:=0,0
+   count,reads,advisories:=0,0,0
    originalCollector:=s.AgentCollectionCall
    s.AgentCollectionCall=func(root string,p patchtool.ProjectIdentity,args []byte)string{
     reads++
@@ -269,8 +269,23 @@ func TestAgentCollectionContinuesWithoutRoundLimitToPatchProposal(t *testing.T){
    s.AgentChatCall=func(_ context.Context,_ agentchat.ProviderConfig,_ string,payload []byte)(agentchat.ResponsesResult,error){
     count++
     if count>1{
-     var req struct{Input []map[string]any `json:"input"`}
+     var req struct{
+      Input []map[string]any `json:"input"`
+      Instructions string `json:"instructions"`
+     }
      if err:=json.Unmarshal(payload,&req);err!=nil{t.Fatal(err)}
+     const prefix="Collection advisory metadata (not new evidence or authorization): "
+     present:=strings.Contains(req.Instructions,prefix)
+     wantAdvice:=tc.patch&&(count==6||count==11)
+     if present!=wantAdvice{t.Fatalf("unexpected advisory at read %d, got %t want %t",count-1,present,wantAdvice)}
+     if present{
+      advisories++
+      if strings.Count(req.Instructions,prefix)!=1{t.Fatal("duplicate advisory")}
+      line:=strings.SplitN(strings.SplitN(req.Instructions,prefix,2)[1],"\n",2)[0]
+      var v struct{Reads int `json:"native_reads"`;Intent string `json:"intent"`;Reason string `json:"reason"`}
+      if json.Unmarshal([]byte(line),&v)!=nil||v.Reads!=count-1||v.Intent!="implementation"||(count==6&&v.Reason!="assess_readiness")||(count==11&&v.Reason!="bound_next_scope"){t.Fatalf("invalid advisory: %s",line)}
+      if strings.Contains(line,"CLP20_SOURCE_PAGE")||len(line)>768{t.Fatal("advisory contains source or exceeds bound")}
+     }
      key:=fmt.Sprintf("read-%d",count-1)
      n:=0
      for _,row:=range req.Input{
@@ -300,6 +315,8 @@ func TestAgentCollectionContinuesWithoutRoundLimitToPatchProposal(t *testing.T){
    }
    w:=invokeAI(t,s.agentChatSessionItemAPI,"POST","/api/agent/sessions/"+id+"/messages",
     map[string]any{"message":tc.goal,"confirm_external":true,"expected_revision":1})
+   wantAdvisories:=0;if tc.patch{wantAdvisories=2}
+   if advisories!=wantAdvisories{t.Fatalf("advisories %d want %d",advisories,wantAdvisories)}
    if w.Code!=200||count!=tc.pages+1||reads!=tc.pages{
     t.Fatalf("agent stopped before completing useful reads: status %d calls %d reads %d: %s",w.Code,count,reads,w.Body)
    }

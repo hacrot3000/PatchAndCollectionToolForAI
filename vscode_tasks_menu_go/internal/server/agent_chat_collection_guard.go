@@ -184,3 +184,40 @@ func assessLegacyCollectionStall(ctx context.Context,x *agentchat.Session,next a
 }
 
 const collectionReplanAdvice=" Collection progress recovery: verified duplicate evidence persisted after earlier advice. Rebase on the current original goal and exact native receipt. Change the inspection strategy, identify a concrete missing scope or justified next action, and do not repeat the same evidence or claim completion. This is the one bounded replan for this objective generation."
+
+
+// Model-visible advisory metadata is an explicitly bounded server-owned
+// projection, not a receipt, progress attestation, quota or permission.
+// No scope strings, proof hashes, user/model text or paths cross this boundary.
+// The exact missing scope must be derived from the current native receipt.
+func collectionProgressAdvisory(d cp.Decision,c cp.CounterState,patchAvailable bool)string{
+ guidance:=collectionProgressAdvice(d)
+ if guidance==""||c.Version!=cp.Version||!c.Objective.Valid(){return ""}
+ intent:=c.Objective.AdvisoryIntent(patchAvailable)
+ // A stale advisory after revocation cannot pressure an unavailable Patch.
+ if (d.Reason==cp.AssessReadiness||d.Reason==cp.BoundNextScope)&&intent!=cp.Implementation&&intent!=cp.Mixed{return ""}
+ strategy:="choose_exact_missing_scope_from_current_receipt"
+ if d.Reason==cp.RepeatedEvidence{strategy="change_inspection_strategy_or_narrow_missing_scope"}
+ if intent==cp.ReadOnly{strategy="continue_read_only_with_distinct_missing_scope"}
+ body,err:=json.Marshal(struct{
+  Version int `json:"version"`
+  Reason cp.Reason `json:"reason"`
+  Intent cp.Intent `json:"intent"`
+  Reads uint64 `json:"native_reads"`
+  VerifiedNew uint64 `json:"verified_new"`
+  VerifiedDuplicate uint64 `json:"verified_duplicate"`
+  Unknown uint64 `json:"unknown"`
+  Errors uint64 `json:"errors"`
+  ReadsSinceProgress uint64 `json:"reads_since_progress"`
+  VerifiedProgress uint64 `json:"verified_progress"`
+  Strategy string `json:"next_strategy"`
+ }{cp.Version,d.Reason,intent,c.NativeReads,c.NewEvidence,c.DuplicateEvidence,c.UnknownEvidence,c.Errors,c.Progress.ReadsSinceProgress,c.VerifiedProgressEvents,strategy})
+ if err!=nil||len(body)>768{return guidance}
+ return guidance+"\nCollection advisory metadata (not new evidence or authorization): "+string(body)+"\n"
+}
+
+func legacyCollectionProgressAdvisory(x agentchat.Session,d cp.Decision,patchAvailable bool)string{
+ g,ok:=x.ReadCollectionGuard()
+ if !ok{return ""}
+ return collectionProgressAdvisory(d,g.Counters,patchAvailable)
+}

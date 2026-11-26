@@ -11,7 +11,7 @@
 | Baseline audit | `1c1e2ba0d5004bf5cee75b3fd8a2baa6be9c5422` (25/11/2026, 15:40:33 ICT) |
 | Vị trí tài liệu trong repo (đề xuất) | `docs/taskdeck_ai_agent/20-collection-progress-guard-and-legacy-recovery.md` |
 | Trạng thái hiện tại | `IN_PROGRESS` — native range proof, durable adaptive hints, Unified drain guard and Legacy UI core CI PASS at 71eed9d1; acceptance/replan refinements CI pending; local checkout unavailable |
-| Tiến độ | **0/10 phase · 12/36 task · 82/144 subtask DONE** |
+| Tiến độ | **1/10 phase · 15/36 task · 86/144 subtask DONE** |
 | Phạm vi | Legacy Agent Chat, unified Agent Run, native COLLECT/PATCH, provider retry, compact context, journal, UI và migration |
 | Ưu tiên | P1: tránh lặp/gián đoạn và bảo toàn dữ liệu; P2: quan sát, tuning và vận hành |
 
@@ -261,13 +261,13 @@ Không bỏ qua function output của call đã nhận. Nếu checkpoint trướ
 
 - [ ] **Phase gate** — `TODO`; chỉ đánh dấu khi tất cả task cấp 2 DONE và remote delivery đã xác minh.
 
-- [ ] **CLP-04.01 — Legacy Agent Chat inner loop** (`IN_PROGRESS`, P1)
+- [x] **CLP-04.01 — Legacy Agent Chat inner loop** (`DONE` — Legacy native inner loop integration and regression PASS 45799935359)
   - Tích hợp guard trong `agent_chat_collection_flow.go` trước native execution và sau observation/receipt; refresh settings theo logic hiện có. Duy trì canonical tool call/output, journal phases và repair budget.
   - **Acceptance:** 27-round fixture nhận advisory/checkpoint đúng policy, duplicate guard cũ vẫn đúng, cancellation và disabled COLLECT không bị bypass; 55 rounds unique → PATCH PASS test logic giữ nguyên.
     - [x] **CLP-04.01.01** — Gắn guard precheck sau validation/permission trong legacy collection loop. (`DONE` — Legacy guard entry after existing permission check; server suite PASS 45587765715)
     - [x] **CLP-04.01.02** — Gắn post-observation decision vào checkpoint trước provider egress, giữ original output và repair. (`DONE` — Legacy counters and advisory at existing durable receipt checkpoint, exact output test PASS 45587765715)
     - [x] **CLP-04.01.03** — Nối warning/checkpoint/cancel vào existing state transitions; không nuốt pending tool pair. (`DONE` — Legacy checkpoint/replan preserves ACK and exact call/output; named test PASS 45587765715)
-    - [ ] **CLP-04.01.04** — Test incident 27 reads, duplicate, disabled collection, cancellation và 55 reads → PATCH. (`TODO`)
+    - [x] **CLP-04.01.04** — Test incident 27 reads, duplicate, disabled collection, cancellation và 55 reads → PATCH. (`DONE` — 55 useful pages to pending Patch, 100 read-only pages, incident 27 and exact duplicate/stall/Stop/authorization tests; latest core 45799935359 PASS)
 - [ ] **CLP-04.02 — Unified Agent Run waiting-tool path** (`IN_PROGRESS`, P1)
   - Tích hợp cùng guard trong `agent_run_collection.go`, authoritative run snapshot/parent turn và scheduler. Không lấy state mutable của session làm thay đổi immutable run binding. Ensure parity với legacy theo cùng input semantics.
   - **Acceptance:** typed/text fallback, run waiting tool, denied tools, partial receipt, restart, concurrency; cùng scenario cho ra decision tương đương khi policy/permission giống nhau.
@@ -285,10 +285,10 @@ Không bỏ qua function output của call đã nhận. Nếu checkpoint trướ
 - [ ] **CLP-04.04 — Model-visible bounded feedback** (`IN_PROGRESS`, P1)
   - Tạo advisory ngắn, có structured reason, counts, missing evidence và next strategy; giữ exact receipt gốc riêng, không sửa nội dung bằng chứng để chèn cảnh báo. Tôn trọng output budget, prompt untrusted tool data boundary và fallback protocol.
   - **Acceptance:** model mock nhận warning sau threshold, có thể chọn targeted COLLECT hoặc submit PATCH; read-only không bị ép patch; no fabricated tool output; metadata không cấp quyền.
-    - [ ] **CLP-04.04.01** — Thiết kế advisory schema ngắn với reason, counters, verified/missing scope và next strategy. (`TODO`)
-    - [ ] **CLP-04.04.02** — Tách advisory khỏi original receipt; giữ exact call-output pair và trusted instruction boundary. (`TODO`)
-    - [ ] **CLP-04.04.03** — Tạo variant coding/read-only/unknown, output bounded, typed/text protocol tương thích. (`TODO`)
-    - [ ] **CLP-04.04.04** — Mock provider nhận warning rồi targeted read hoặc PATCH; test no forced patch/no fabricated output. (`TODO`)
+    - [ ] **CLP-04.04.01** — Thiết kế advisory schema ngắn với reason, counters, verified/missing scope và next strategy. (`VERIFY_PENDING` — bounded structured advisory, unchanged receipt, shared Legacy/Unified guidance and permission/intent tests; CI pending)
+    - [ ] **CLP-04.04.02** — Tách advisory khỏi original receipt; giữ exact call-output pair và trusted instruction boundary. (`VERIFY_PENDING` — bounded structured advisory, unchanged receipt, shared Legacy/Unified guidance and permission/intent tests; CI pending)
+    - [ ] **CLP-04.04.03** — Tạo variant coding/read-only/unknown, output bounded, typed/text protocol tương thích. (`VERIFY_PENDING` — bounded structured advisory, unchanged receipt, shared Legacy/Unified guidance and permission/intent tests; CI pending)
+    - [ ] **CLP-04.04.04** — Mock provider nhận warning rồi targeted read hoặc PATCH; test no forced patch/no fabricated output. (`VERIFY_PENDING` — bounded structured advisory, unchanged receipt, shared Legacy/Unified guidance and permission/intent tests; CI pending)
 
 ### CLP-05 — Context compact và stale AI Pack (4 task, P1)
 
@@ -381,12 +381,12 @@ Không bỏ qua function output của call đã nhận. Nếu checkpoint trướ
     - [x] **CLP-07.03.02** — Tạo new request ID/digest từ durable evidence/current contract, stateless rebase nếu phù hợp; giữ audit old unknown. (`DONE` — new stateless message and durable prior UNKNOWN audit/digest at same CAS; CI 45593422222 PASS)
     - [x] **CLP-07.03.03** — Bind same conversation/plan/pending user turn; idempotency và user Stop được giữ, không replay old payload. (`DONE` — same conversation, original goal, pending-turn fence, idempotency; CI 45593422222 PASS)
     - [x] **CLP-07.03.04** — Test resume thành PATCH mới, repeated click/restart, denied consent/pending mutation/cancelled run. (`DONE` — native recovery/new pending PATCH, consent/unknown mutation fences and actual Node Resume click stale/double-click/draft/owner scope; CI 45786719518 PASS)
-- [ ] **CLP-07.04 — Migration và recovery test suite** (`IN_PROGRESS`, P1)
+- [x] **CLP-07.04 — Migration và recovery test suite** (`DONE` — synthetic migration/recovery suite and environment disclosure complete; actual production upgrade not claimed)
   - Tạo fixtures old→current→restart, session có archive, stale pack, previous response ID, feedback acknowledged/unknown, pending tool, cancelled, multiple sessions. Test native execution count, receipt history, selection/UI mapping, retry permissions.
   - **Acceptance:** migration additive/idempotent, old conversation tiếp tục khi được phép, no lost source/history/plan/settings; failure mode bảo toàn journal. Không thử trên dữ liệu production chưa backup/consent.
     - [x] **CLP-07.04.01** — Tạo old→current→restart fixtures với archive/stale pack, previous response, ACK/unknown/pending/cancelled. (`DONE` — combined archived stale-pack/UNKNOWN/previous_response fixture plus mixed pending/cancelled states PASS 45754046991 and 45752238246)
     - [x] **CLP-07.04.02** — Assert original history/receipt/goal/settings/plan, migration marker và execution count không đổi ngoài transition hợp lệ. (`DONE` — exact archived rows/current receipt/goal/plan/settings/old UNKNOWN checkpoint and once-only new egress across reopened store PASS 45754046991; no binary migration claimed)
-    - [ ] **CLP-07.04.03** — Chạy legacy + unified recovery, permissions, concurrency và UI mapping. (`TODO`)
+    - [x] **CLP-07.04.03** — Chạy legacy + unified recovery, permissions, concurrency và UI mapping. (`DONE` — latest core 45799935359 PASS: archived UNKNOWN and mixed Legacy restart; Unified separate process interruption/native PATCH exactly once, immutable binding/owner/capacity leases under race; Node Resume exact checkpoint UI; production binary smoke tracked separately)
     - [x] **CLP-07.04.04** — Ghi kết quả, blocker/môi trường; chỉ dùng production copy nếu có backup và consent. (`DONE` — synthetic archived/stale-pack/UNKNOWN restart, native 150 MiB and mixed restart tests PASS 45790872750; environment/production consent limits recorded in §8; no production copy or binary self-update claimed)
 
 ### CLP-08 — UI và observability (2 task, P2)
@@ -400,13 +400,13 @@ Không bỏ qua function output của call đã nhận. Nếu checkpoint trướ
     - [x] **CLP-08.01.02** — Thiết kế compact English labels Reading/Replanning/Waiting provider/Stalled/Recovery required; read-only phù hợp. (`DONE` — Compact English progress labels and tab isolation UI regression PASS 45603753379, 45604763139)
     - [x] **CLP-08.01.03** — Nối resume/reconcile action với backend guard, disabled reasons; không bypass permissions. (`DONE` — authoritative eligibility, exact run ID and revision, stale/busy and draft fences, no replay; bootstrap CI 45786719518 PASS)
     - [ ] **CLP-08.01.04** — Test polling/restart, tab hot-switch, light/dark, long session và no cross-session leakage. (`VERIFY_PENDING` — Tab isolation Node fixture PASS; actual light/dark and self-update smoke pending)
-- [ ] **CLP-08.02 — Safe debug report và telemetry** (`IN_PROGRESS`, P2)
+- [x] **CLP-08.02 — Safe debug report và telemetry** (`DONE` — core 45799935359 PASS)
   - Thêm bounded guard events/counters, objective scope hash, evidence novelty class, overlap warning, payload size/token estimate, recovery type; correlation run/call ID; phân biệt clear debug history với canonical journal. Không log source/patch Python/prompt/API key.
   - **Acceptance:** export tái hiện nguyên nhân stall/timeout/ACK domain; clear debug không reset durable guard; event retention/size bounded; redaction tests.
-    - [ ] **CLP-08.02.01** — Thêm structured bounded events guard decision/novelty/overlap/attempt/budget/recovery, run/call correlation. (`VERIFY_PENDING` — Legacy and Unified bounded committed snapshot/attempt telemetry PASS 45790872750; extra enum and restart/clear test pending)
+    - [x] **CLP-08.02.01** — Thêm structured bounded events guard decision/novelty/overlap/attempt/budget/recovery, run/call correlation. (`DONE` — Legacy scoped guard/attempt and Unified committed snapshot/retry metadata, safe enum allowlist, payload budget traces; core 45799935359 PASS)
     - [x] **CLP-08.02.02** — Redact source/prompt/Patch Python/credentials; enforce size/retention limits. (`DONE` — allowlisted journal detail/result metadata, no raw prompt/Patch source, bounded report/trace retention and owner scoped export; CI 45786719518 PASS; Unified extra projection pending)
     - [x] **CLP-08.02.03** — Giữ clear debug marker tách canonical guard/journal; export đúng failure domain. (`DONE` — Clear marker distinct from durable guard/journal/attempt audit, fresh sidecar-only attempt visible; CI 45786719518 PASS)
-    - [ ] **CLP-08.02.04** — Test redaction, clear history, retention và synthetic incident reconstruction. (`VERIFY_PENDING` — redaction, clear, retention and incident tests PASS 45790872750; Unified persisted-record restart/clear test pending)
+    - [x] **CLP-08.02.04** — Test redaction, clear history, retention và synthetic incident reconstruction. (`DONE` — safe report retention/redaction/clear, incident and Unified reopened store receipt/no worker activation; core 45799935359 PASS)
 
 ### CLP-09 — End-to-end regression, rollout và nghiệm thu (3 task, P1)
 
@@ -495,13 +495,13 @@ Kiểm tra cả các Python/native Patch Tool test hiện có nếu sửa contra
 | CLP-01 Guard | 5 | 1 | IN_PROGRESS |
 | CLP-02 Evidence | 4 | 2 | IN_PROGRESS |
 | CLP-03 Durability | 3 | 0 | IN_PROGRESS |
-| CLP-04 Integration | 4 | 0 | IN_PROGRESS |
+| CLP-04 Integration | 4 | 1 | IN_PROGRESS |
 | CLP-05 Compact/Pack | 4 | 1 | IN_PROGRESS |
 | CLP-06 Budget/Retry | 4 | 3 | IN_PROGRESS |
-| CLP-07 Legacy recovery | 4 | 3 | IN_PROGRESS |
-| CLP-08 UI/Debug | 2 | 0 | IN_PROGRESS |
+| CLP-07 Legacy recovery | 4 | 4 | DONE |
+| CLP-08 UI/Debug | 2 | 1 | IN_PROGRESS |
 | CLP-09 Validation | 3 | 0 | TODO |
-| **Total** | **36** | **12** | **IN_PROGRESS** |
+| **Total** | **36** | **15** | **IN_PROGRESS** |
 
 ### 8.0. Roll-up ba cấp (cập nhật cùng checklist)
 
@@ -511,13 +511,13 @@ Kiểm tra cả các Python/native Patch Tool test hiện có nếu sửa contra
 | CLP-01 | 0/1 | 1/5 | 11/20 |
 | CLP-02 | 0/1 | 2/4 | 11/16 |
 | CLP-03 | 0/1 | 0/3 | 3/12 |
-| CLP-04 | 0/1 | 0/4 | 5/16 |
+| CLP-04 | 0/1 | 1/4 | 6/16 |
 | CLP-05 | 0/1 | 1/4 | 9/16 |
 | CLP-06 | 0/1 | 3/4 | 15/16 |
-| CLP-07 | 0/1 | 3/4 | 15/16 |
-| CLP-08 | 0/1 | 0/2 | 5/8 |
+| CLP-07 | 1/1 | 4/4 | 16/16 |
+| CLP-08 | 0/1 | 1/2 | 7/8 |
 | CLP-09 | 0/1 | 0/3 | 0/12 |
-| **Total** | **0/10** | **12/36** | **82/144** |
+| **Total** | **1/10** | **15/36** | **86/144** |
 
 Regression gates: **0/28 PASS**. Mỗi lần cập nhật, ghi ID subtask cụ thể, file/test/receipt, trạng thái; chỉ roll up sau khi xác minh. Commit từng subtask có thay đổi độc lập hoặc nhóm nhỏ coherent, không để toàn phase mới commit. Không tạo commit rỗng chỉ để tick.
 
@@ -855,3 +855,5 @@ Incident: native run `1795598230725789_1225262`; historical diagnostics missing 
 - 2026-11-26: e01c04b2 core CI 45790872750 PASS (including Unified native 4-read snapshot projection, redacted retry, actual UNKNOWN UI click, 72-case retry matrix and real 150 MiB restart), PHP 45790872855 PASS. Remote Go at that SHA not yet confirmed. CLP-07.04.04 DONE for documented synthetic migration evidence; production journal backup/consent and binary self-update unavailable, no production actions. Recomputed all three progress rollups from actual primary checklist (CLP-10 excluded), correcting older stale tables. CLP-08.02 follow-up restricts decision/reason to known enum values even for malformed historical snapshot, adds persisted Unified run report after fresh Server restart, owner isolation, Clear marker/restart, receipt exactness and no manager creation/native/provider replay tests. New CI pending; CLP-07.04.03 and 08.02.01/.04 still open until final cross-pipeline evidence. Existing full-context and cache work at fad11e95 retained.
 
 - 2026-11-26: strengthen CLP-04.01.04 / R01 / R06 integration: prior 55-read test used one-line source (many empty pages). Now 55 distinct nonempty pages with exact current receipt verified once before normal pending PATCH approval, plus 100 distinct pages for read-only owner goal with no Patch proposal. Verify call/receipt cardinality and exact bytes across canonical active+archived history, actual guard read counters, unchanged source, no additional provider/native calls. Test-only collector seam (not production native Python); real native 150 MiB verified separately. CI pending; R01/R06 not yet marked PASS.
+
+- 2026-11-26: latest HEAD 7965a5ed core/Go/PHP CI 45799935359/45799935418/45799935450 PASS; native 157286400 bytes, receipt 12558 bytes, source unchanged and UNKNOWN restart/resume exactly once; Unified persisted report and enum tests PASS; 55/100 useful-page suite PASS. Mark CLP-07.04.03, 08.02.01/.04, 04.01.04 DONE and their parent tasks; synthetic recovery phase CLP-07 DONE; actual self-update/browser smoke still open in CLP-09/08.01. CLP-04.04 implementation adds bounded versioned structured advisory to trusted current instructions only on real policy advisory, counters and fixed next strategy, no source/goal/hash, no change to receipt or permission. Shared Legacy/Unified helper; implementation guidance suppressed if Patch unavailable, read-only remains read-only. 55/100 fixture now asserts exactly two implementation advisories at 5/10 reads and zero read-only implementation advice, exact receipt unchanged. Pure permission/intent/redaction test added. CI pending; CLP-04.04 remains VERIFY_PENDING. No production or real provider run.
