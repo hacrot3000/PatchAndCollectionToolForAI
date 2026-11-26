@@ -11,7 +11,7 @@
 | Baseline audit | `1c1e2ba0d5004bf5cee75b3fd8a2baa6be9c5422` (25/11/2026, 15:40:33 ICT) |
 | Vị trí tài liệu trong repo (đề xuất) | `docs/taskdeck_ai_agent/20-collection-progress-guard-and-legacy-recovery.md` |
 | Trạng thái hiện tại | `IN_PROGRESS` — native range proof, durable adaptive hints, Unified drain guard and Legacy UI core CI PASS at 71eed9d1; acceptance/replan refinements CI pending; local checkout unavailable |
-| Tiến độ | **0/10 phase · 9/36 task · 72/144 subtask DONE** |
+| Tiến độ | **0/10 phase · 9/36 task · 74/144 subtask DONE** |
 | Phạm vi | Legacy Agent Chat, unified Agent Run, native COLLECT/PATCH, provider retry, compact context, journal, UI và migration |
 | Ưu tiên | P1: tránh lặp/gián đoạn và bảo toàn dữ liệu; P2: quan sát, tuning và vận hành |
 
@@ -319,9 +319,9 @@ Không bỏ qua function output của call đã nhận. Nếu checkpoint trướ
   - Nếu budget pressure cao, hướng model chọn scoped actions/limits; tận dụng native excerpt/full-artifact refs. Không cắt native result đã tạo hoặc thay collector. Khi không thể gửi exact current receipt trong limit, checkpoint và báo giới hạn/đường tiếp tục hợp lệ.
   - **Acceptance:** request hợp lệ trong configured budget hoặc bounded explicit error; large source 150 MB targeted read vẫn hỗ trợ; no silent truncation of required current tool receipt.
     - [x] **CLP-05.04.01** — Tính pressure trước native request và đưa scoped action/limit guidance cho model. (`DONE` — final wire estimate, 70% soft planning ceiling, no new read quota; both provider formats PASS 45735697635)
-    - [ ] **CLP-05.04.02** — Tái sử dụng native excerpt/full artifact references; không thêm collector hoặc cắt receipt đã tạo. (`TODO`)
+    - [ ] **CLP-05.04.02** — Tái sử dụng native excerpt/full artifact references; không thêm collector hoặc cắt receipt đã tạo. (`VERIFY_PENDING` — actual native Go queue/session/worker receipt and artifact refs on targeted 150 MiB source; CI pending)
     - [x] **CLP-05.04.03** — Nếu mandatory input không fit, đóng checkpoint đúng protocol với diagnostic rõ ràng. (`DONE` — local checkpoint typed/fallback restart and fresh Send PASS 45736385635; final-wire technical overflow PASS 45608650711)
-    - [ ] **CLP-05.04.04** — Test 150MB targeted read, hard technical overflow, no silent receipt loss và resume. (`TODO`)
+    - [ ] **CLP-05.04.04** — Test 150MB targeted read, hard technical overflow, no silent receipt loss và resume. (`VERIFY_PENDING` — actual native targeted source fixture plus both API wire exact receipt and local hard-overflow rejection; prior restart/resume fixture PASS; CI pending)
 
 ### CLP-06 — Durable adaptive context budget và retry strategy (4 task, P1/P2)
 
@@ -384,8 +384,8 @@ Không bỏ qua function output của call đã nhận. Nếu checkpoint trướ
 - [ ] **CLP-07.04 — Migration và recovery test suite** (`IN_PROGRESS`, P1)
   - Tạo fixtures old→current→restart, session có archive, stale pack, previous response ID, feedback acknowledged/unknown, pending tool, cancelled, multiple sessions. Test native execution count, receipt history, selection/UI mapping, retry permissions.
   - **Acceptance:** migration additive/idempotent, old conversation tiếp tục khi được phép, no lost source/history/plan/settings; failure mode bảo toàn journal. Không thử trên dữ liệu production chưa backup/consent.
-    - [ ] **CLP-07.04.01** — Tạo old→current→restart fixtures với archive/stale pack, previous response, ACK/unknown/pending/cancelled. (`VERIFY_PENDING` — combined archived history/stale pack/UNKNOWN resume fixture with active plan; existing mixed state tests PASS; CI pending)
-    - [ ] **CLP-07.04.02** — Assert original history/receipt/goal/settings/plan, migration marker và execution count không đổi ngoài transition hợp lệ. (`VERIFY_PENDING` — checks archive exact rows, canonical goal/receipt/settings/plan, old UNKNOWN checkpoint and new request identity, no prior native execution; CI pending)
+    - [x] **CLP-07.04.01** — Tạo old→current→restart fixtures với archive/stale pack, previous response, ACK/unknown/pending/cancelled. (`DONE` — combined archived stale-pack/UNKNOWN/previous_response fixture plus mixed pending/cancelled states PASS 45754046991 and 45752238246)
+    - [x] **CLP-07.04.02** — Assert original history/receipt/goal/settings/plan, migration marker và execution count không đổi ngoài transition hợp lệ. (`DONE` — exact archived rows/current receipt/goal/plan/settings/old UNKNOWN checkpoint and once-only new egress across reopened store PASS 45754046991; no binary migration claimed)
     - [ ] **CLP-07.04.03** — Chạy legacy + unified recovery, permissions, concurrency và UI mapping. (`TODO`)
     - [ ] **CLP-07.04.04** — Ghi kết quả, blocker/môi trường; chỉ dùng production copy nếu có backup và consent. (`TODO`)
 
@@ -833,3 +833,5 @@ Incident: native run `1795598230725789_1225262`; historical diagnostics missing 
 - 2026-11-26: CLP-07.02 mixed-state fixture creates durable legacy records for PREPARED/SENDING/ACK/UNKNOWN/cancelled/pending PATCH, reopens a new Server/store, performs actual startup and scheduler pass twice, checks exact prior receipt/history/settings and provider invocation count. Prepared resume now independently rejects archived sessions and records Stop during egress as cancelled with UNKNOWN delivery, clears opaque refs and never accepts a late response. Dedicated cancellation fixture added. No native package execution or production self-update. CI pending.
 
 - 2026-11-26: verified be809732 core/PHP 45752238246/45752238348 PASS, latest concurrent cache HEAD ebd1f727 core/PHP 45752547780/45752547755 PASS. Mark CLP-06.03.01/.02/.04, CLP-06.04.04 and CLP-07.02.01-.04 DONE; CLP-06.04 and CLP-07.02 tasks DONE (9/36; 72/144). CLP-07.04 combined fixture seeds recognizable older schema pack + >148 history items through actual archive store, previous_response mode, old acknowledged Patch, current UNKNOWN COLLECT and active task plan; reopens Server with current installed contract and performs authorized new continuation. Assert unchanged archived rows/owner goal/current exact receipt/plan/settings and durable prior unknown checkpoint; no historical provider/native replay, same request ID idempotent after restart. Synthetic old-format journal and installed schema, not production binary upgrade; CI pending.
+
+- 2026-11-26: verified combined stale-pack/archive/UNKNOWN resume core CI 45754046991 and PHP 45754046999 PASS; concurrent HEAD 4c380bc5 cache learning retained. Mark CLP-07.04.01/.02 DONE (74/144). CLP-05.04.02/.04 actual native test uses the existing Agent queue, Python runtime, session manager and artifact observation on a generated 150 MiB source file with target near EOF. Asserts native manifest PASS and verified bounded excerpt, ZIP/TXT refs, original source size and SHA256 unchanged, exact receipt once on both APIs and local mandatory-item overflow. Prior durable local checkpoint/restart test separately verifies narrower continuation. No production source or external provider used. CI pending; full native overflow/resume combined acceptance remains open until proven.
