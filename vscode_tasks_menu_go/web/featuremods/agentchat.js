@@ -1273,7 +1273,10 @@ function renderAgentTool(session,item){
    actions.append(agentButton('Get the last result and send to AI',
     ()=>recoverAgentPatch(agentCurrentSession||session,item.call_id,'send_existing').catch(showAgentError)));
   }
-  if(state==='error'){
+  let duplicateSkipped=false;
+  try{duplicateSkipped=JSON.parse(record.result||'{}').status==='SKIPPED_DUPLICATE_LOCAL';}catch{}
+  if(duplicateSkipped)box.append(agentEl('p','agentchat-tool-summary','Native duplicate filter skipped this invocation. No new test ran; send this outcome to AI.'));
+  if(state==='error'&&!duplicateSkipped){
    const reapply=agentButton('Re-apply Patch then send to AI',
     ()=>recoverAgentPatch(agentCurrentSession||session,item.call_id,'rerun_and_send').catch(showAgentError));
    reapply.disabled=Boolean(agentApp.sharedMode&&!agentApp.hasPermission?.('patch.run'));
@@ -2029,7 +2032,7 @@ async function recoverAgentPatch(session,callID,action){
   if(!window.confirm('Re-apply this verified FAILED Patch exactly once through Native Patch Tool, then automatically send its final PASS/FAIL to AI? The old attempt remains in History. Reapplying may modify project files.'))return;
  }else if(action==='rerun_patch'){
   if(!window.confirm('Prepare a fresh manual Patch approval? The previous failed run stays in History.'))return;
- }else if(!window.confirm('Get the latest matching verified native Patch History result (PASS or FAIL) and send it to AI? The Patch will NOT run again.'))return;
+ }else if(!window.confirm('Get the latest matching verified native Patch History outcome (including a duplicate skip) and send it to AI? The Patch will NOT run again.'))return;
  const result=await agentApp.jsonFetch('/api/agent/sessions/'+encodeURIComponent(session.id)+
    '/tools/'+encodeURIComponent(callID)+'/recover',{
   method:'POST',headers:{'Content-Type':'application/json'},

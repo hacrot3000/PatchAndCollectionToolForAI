@@ -87,7 +87,7 @@ func agentFailureStatus(status string) bool {
  return status == "FAIL" || status == "PREFLIGHT_FAIL" || status == "INCOMPLETE"
 }
 func agentFailureCallCandidate(call agentchat.ToolCallRecord) bool {
- return call.Name=="taskdeck_submit_patch" && call.AgentRunID=="" &&
+ return call.Name=="taskdeck_submit_patch" && call.AgentRunID=="" && !agentDuplicateSkipResult(call.Result) &&
   call.Status=="error" && call.CallID!="" && agentFailureRunID.MatchString(call.RunID) &&
   len(call.PackageSHA256)==64 && call.PackageSize>0 && call.PackageSize<=2<<20
 }

@@ -137,8 +137,9 @@ func (s *Server) agentChatPatchRecoveryAPI(w http.ResponseWriter, r *http.Reques
 			call = view.Record
 			if call.Status == "done" || call.Status == "error" {
 				x.Status = "waiting_tool"
-			}
-			x.AppendEvent("tool_recovered", call.Status, callID, "verified_native_evidence")
+			}else if call.Status=="unknown"{x.Status="tool_unknown"}
+			detail:="verified_native_evidence";if call.Status=="unknown"{detail="native_final_evidence_unavailable"}
+			x.AppendEvent("tool_recovered", call.Status, callID, detail)
 			x, err = store.Save(x, x.Revision)
 			if err != nil {
 				http.Error(w, "cannot persist recovered native status", 409)
@@ -258,7 +259,7 @@ func (s *Server) agentNativePatchActive(call agentchat.ToolCallRecord) bool {
 	if s.Sessions == nil || call.PatchSessionID == "" {
 		return false
 	}
-	if _, exists := s.Sessions.Metadata(call.PatchSessionID); !exists {
+	if meta, exists := s.Sessions.Metadata(call.PatchSessionID); !exists || meta.Status=="exited" || meta.Status=="stopped" {
 		return false
 	}
 	provider, ok := s.Sessions.(session.ProtocolStateProvider)
