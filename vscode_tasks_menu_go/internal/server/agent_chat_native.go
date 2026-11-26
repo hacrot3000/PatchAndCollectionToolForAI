@@ -353,7 +353,7 @@ func (s *Server) agentReconcilePatchRecord(x *agentToolReconcileView) {
    if state,err:=provider.ProtocolState(x.Record.PatchSessionID); err==nil {
     // A previously selected item can finish with PASS or FAIL; a failed
     // batch preflight before selection can ONLY produce PREFLIGHT_FAIL.
-    if x.Record.Status=="running" && x.Record.SelectedIndex>0 {
+    if (x.Record.Status=="running" || x.Record.Status=="unknown") && x.Record.SelectedIndex>0 && x.Record.PromptID!="" {
      status,result,runID,complete=agentPatchResultFromProtocol(state,agentPatchExpectation{
       Name:filepath.Base(x.Record.QueuePath),PromptID:x.Record.PromptID,ItemIndex:x.Record.SelectedIndex,
      })

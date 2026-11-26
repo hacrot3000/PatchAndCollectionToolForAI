@@ -3287,9 +3287,8 @@ async function cancelAgentTurn(){
    method:'POST',headers:{'Content-Type':'application/json'},body:'{}',
   });
   setAgentStatusNotice(result.note||(result.cancelled?'Request cancelled.':'Nothing to cancel.'));
-  // A server-side cancel is authoritative; the browser abort only stops the
-  // local fetch from lingering.
-  try{agentAbort?.abort();}catch{}
+  // Native Stop never aborts another conversation\u0027s provider fetch.
+  if(!nativeStop){try{agentAbort?.abort();}catch{}}
   await selectAgentSession(id);
  }catch(error){
   setAgentStatusNotice('Cancel request failed: '+String(error?.message||error));

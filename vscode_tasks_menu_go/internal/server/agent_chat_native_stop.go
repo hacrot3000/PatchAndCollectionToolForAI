@@ -11,7 +11,7 @@ import (
 // Only the exact approved selected item in its own native session may be
 // stopped. A missing/mismatched or multi-item protocol is not permission.
 func(s *Server)agentNativeStopMatches(call agentchat.ToolCallRecord)bool{
- if call.SelectedIndex<1||call.PromptID==""||call.QueuePath!="patchs/"+filepath.Base(call.QueuePath){return false}
+ if call.SelectedIndex<1||call.PromptID==""||call.QueuePath!="patchs/"+filepath.Base(call.QueuePath)||filepath.Base(call.QueuePath)=="."{return false}
  provider,ok:=s.Sessions.(session.ProtocolStateProvider);if !ok{return false}
  state,e:=provider.ProtocolState(call.PatchSessionID);if e!=nil{return false}
  matches:=0
