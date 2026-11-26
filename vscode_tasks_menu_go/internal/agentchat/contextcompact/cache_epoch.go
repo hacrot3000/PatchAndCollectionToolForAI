@@ -26,7 +26,7 @@ func epochAppendable(items []agentchat.HistoryItem)bool{
  for i,it:=range items{
   switch it.Type{
   case "user","assistant":
-   if agentchat.CollectionTextObservation(items,i)||strings.Contains(it.Content,"taskdeck_patch_proposal")||strings.HasPrefix(it.Content,"Historical Native Patch failure evidence")||strings.HasPrefix(it.Content,"[TASKDECK VERIFIED HISTORICAL EVIDENCE CATALOG"){return false}
+   if agentchat.CollectionTextObservation(items,i)||strings.HasPrefix(it.Content,"TaskDeck native Patch Tool result for your prior text-only proposal")||strings.Contains(it.Content,"taskdeck_patch_proposal")||strings.HasPrefix(it.Content,"Historical Native Patch failure evidence")||strings.HasPrefix(it.Content,"[TASKDECK VERIFIED HISTORICAL EVIDENCE CATALOG"){return false}
   case "function_call":
    if it.Name!="taskdeck_collect_workspace"||i+1>=len(items)||items[i+1].Type!="function_call_output"||items[i+1].CallID!=it.CallID{return false}
   case "function_call_output":
@@ -42,7 +42,10 @@ func NewCacheEpoch(history,visible []agentchat.HistoryItem,p Policy,scope,id str
  if len(source)==0||len(source)>256||len(full)==0||len(full)>MaxProviderHistoryItems{return nil}
  // Do not freeze a full historical Patch or a receipt for a current Patch.
  // Completed PATCH evidence is represented only by the normal catalog.
- for _,it:=range full{if it.Type=="function_call"&&it.Name!="taskdeck_collect_workspace"{return nil}}
+ for i,it:=range full{
+  if it.Type=="function_call"&&it.Name!="taskdeck_collect_workspace"{return nil}
+  if agentchat.CollectionTextObservation(full,i)||strings.HasPrefix(it.Content,"TaskDeck native Patch Tool result for your prior text-only proposal"){return nil}
+ }
  digest:=epochSourceDigest(source)
  if id==""{id=agentchat.BodyDigest([]byte(scope+"\x00"+digest))}
  return &agentchat.CacheEpoch{ID:id,Scope:scope,SourceCount:len(source),SourceDigest:digest,Visible:full}

@@ -20,9 +20,10 @@ func agentBuildContextRequest(x agentchat.Session,model agentchat.ModelConfig,p 
 // PREPARED payload or execution authority. Failure falls back to rebuilding.
 func(s *Server) agentBuildCachedContextRequest(store *agentchat.Store,x agentchat.Session,model agentchat.ModelConfig,p agentchat.ProviderConfig,c agentchat.RequestConfig)([]byte,error){
  if store==nil||c.Mode!=agentchat.Stateless{return agentBuildContextRequest(x,model,p,c)}
- old,_:=store.ReadCacheEpoch(x.ID,x.Owner,x.Revision)
+ old,readErr:=store.ReadCacheEpoch(x.ID,x.Owner,x.Revision)
  body,next,reason,err:=agentBuildContextEpoch(x,model,p,c,old,true)
  if err==nil{
+  if readErr!=nil{reason+="; prior_checkpoint_unavailable"}
   if e:=store.WriteCacheEpoch(x.ID,x.Owner,x.Revision,next);e!=nil{reason+="; checkpoint_unavailable"}
   if next!=nil{reason+="; epoch="+next.ID}
   s.recordAgentDebugEvent(x.Owner,x.ID,"","provider_cache","cache.epoch","",reason)
@@ -32,6 +33,7 @@ func(s *Server) agentBuildCachedContextRequest(store *agentchat.Store,x agentcha
 
 func agentBuildContextEpoch(x agentchat.Session,model agentchat.ModelConfig,p agentchat.ProviderConfig,c agentchat.RequestConfig,old *agentchat.CacheEpoch,enabled bool)([]byte,*agentchat.CacheEpoch,string,error){
  if agentchat.ProviderUsesPromptCacheKey(p){c.PromptCacheKey=agentchat.ProviderAffinityKey(x,p,c.Model)}
+ c.PromptCacheRetention=p.PromptCacheRetention;c.PromptCacheTTL=p.PromptCacheTTL
  if c.Mode==agentchat.Stateless {
   x=agentProjectHistoricalCollectionPack(x,c.NativeCollectionContract)
   // The same guidance is useful before and after the advisory threshold.
@@ -58,10 +60,11 @@ func agentBuildContextEpoch(x agentchat.Session,model agentchat.ModelConfig,p ag
   }
  }
  var last error
- targets:=[]int{0}
- if enabled&&c.Mode==agentchat.Stateless{targets=[]int{60,0}}
- for _,target:=range targets{
-  for _,minimal:=range []bool{false,true}{
+ attempts:=[]struct{target int;minimal bool}{{0,false},{0,true}}
+ if enabled&&c.Mode==agentchat.Stateless{attempts=append([]struct{target int;minimal bool}{{60,false}},attempts...)}
+ for _,attempt:=range attempts{
+  target,minimal:=attempt.target,attempt.minimal
+  {
    policy.Minimal=minimal;policy.TargetInputPercent=target
    var stats contextcompact.Stats
    c.History,stats=contextcompact.Build(x.History,policy)

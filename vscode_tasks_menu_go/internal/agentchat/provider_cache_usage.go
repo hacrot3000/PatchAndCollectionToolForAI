@@ -14,8 +14,8 @@ type ProviderCacheUsage struct {
  ComparableTotal bool
 }
 type CacheUsageFields struct {
- InputDetails struct{CachedTokens *int `json:"cached_tokens"`} `json:"input_tokens_details"`
- PromptDetails struct{CachedTokens *int `json:"cached_tokens"`} `json:"prompt_tokens_details"`
+ InputDetails struct{CachedTokens *int `json:"cached_tokens"`; CacheWriteTokens *int `json:"cache_write_tokens"`} `json:"input_tokens_details"`
+ PromptDetails struct{CachedTokens *int `json:"cached_tokens"`; CacheWriteTokens *int `json:"cache_write_tokens"`} `json:"prompt_tokens_details"`
  PromptCacheHit *int `json:"prompt_cache_hit_tokens"`
  CacheRead *int `json:"cache_read_input_tokens"`
  CacheWrite *int `json:"cache_creation_input_tokens"`
@@ -27,7 +27,7 @@ func(f CacheUsageFields)normalized(total int)ProviderCacheUsage{
   if validReportedTokenCount(v)&&total>0&&*v<=total{out.ReadTokens=v;out.ComparableTotal=true;break}
  }
  if out.ReadTokens==nil&&validReportedTokenCount(f.CacheRead){out.ReadTokens=f.CacheRead}
- if validReportedTokenCount(f.CacheWrite){out.WriteTokens=f.CacheWrite}
+ for _,v:=range []*int{f.InputDetails.CacheWriteTokens,f.PromptDetails.CacheWriteTokens,f.CacheWrite}{if validReportedTokenCount(v){out.WriteTokens=v;break}}
  return out
 }
 func(u ProviderCacheUsage)Reported()bool{return u.ReadTokens!=nil||u.WriteTokens!=nil}

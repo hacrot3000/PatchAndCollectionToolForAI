@@ -21,6 +21,8 @@ func BuildChatCompletionsRequest(responsesBody []byte) ([]byte, error) {
 	var in struct {
 		Model        string            `json:"model"`
 		PromptCacheKey string `json:"prompt_cache_key"`
+		PromptCacheRetention string `json:"prompt_cache_retention"`
+		PromptCacheOptions json.RawMessage `json:"prompt_cache_options"`
 		Instructions string            `json:"instructions"`
 		Input        []json.RawMessage `json:"input"`
 		Tools        []map[string]any  `json:"tools"`
@@ -95,6 +97,8 @@ func BuildChatCompletionsRequest(responsesBody []byte) ([]byte, error) {
 		}
 	}
 	request := map[string]any{"model": in.Model, "messages": messages, "stream": false}
+	if len(in.PromptCacheOptions)!=0||!validPromptCacheLifetime(in.PromptCacheRetention,""){return nil,errors.New("incompatible Chat Completions cache lifetime")}
+	if in.PromptCacheRetention!=""{request["prompt_cache_retention"]=in.PromptCacheRetention}
 	if in.PromptCacheKey!="" {
 		if !validAffinityKey(in.PromptCacheKey){return nil,errors.New("invalid prompt cache key")}
 		request["prompt_cache_key"]=in.PromptCacheKey

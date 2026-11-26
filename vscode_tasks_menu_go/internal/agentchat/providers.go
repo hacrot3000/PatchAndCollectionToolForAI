@@ -43,6 +43,8 @@ type ProviderConfig struct {
 	Stream bool          `json:"stream,omitempty"`
 	CacheAffinity string `json:"cache_affinity,omitempty"`
 	CacheSessionHeader string `json:"cache_session_header,omitempty"`
+	PromptCacheRetention string `json:"prompt_cache_retention,omitempty"`
+	PromptCacheTTL string `json:"prompt_cache_ttl,omitempty"`
 	Models []ModelConfig `json:"models"`
 }
 
@@ -117,6 +119,7 @@ func ValidateProvider(p ProviderConfig) error {
 		return errors.New("unsupported Agent Chat API type")
 	}
 	if !validCacheAffinity(p.CacheAffinity,p.CacheSessionHeader) { return errors.New("invalid cache_affinity or cache_session_header") }
+	if !validPromptCacheLifetime(p.PromptCacheRetention,p.PromptCacheTTL)|| (p.PromptCacheTTL!=""&&p.APIType!="responses"){return errors.New("invalid or incompatible prompt cache lifetime; choose retention OR Responses TTL")}
 	if len(p.TrustedSharedIPs) > 8 {
 		return errors.New("at most 8 trusted shared IPs are permitted")
 	}
@@ -765,4 +768,11 @@ func parseProviderHTTPError(status int, retryAfter string, body []byte) *Provide
 		message += ": " + providerMessage
 	}
 	return &ProviderError{Code: code, Stage: "provider_http", Message: message, ProviderErrorType: providerType, ProviderErrorCode: providerCode, ProviderMessage: providerMessage, HTTPStatus: status, RetryAfter: SafeProviderText(retryAfter), Retryable: status == 429 || status == 499 || status >= 500}
+}
+
+// Lifetime extensions require explicit provider opt-in. The earlier retention
+// field and newer Responses TTL are mutually exclusive.
+func validPromptCacheLifetime(retention,ttl string)bool{
+ if retention!=""&&ttl!=""{return false}
+ return (retention==""||retention=="in_memory"||retention=="24h")&&(ttl==""||ttl=="30m"||ttl=="12h")
 }

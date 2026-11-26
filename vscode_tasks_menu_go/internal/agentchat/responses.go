@@ -43,6 +43,8 @@ type HistoryItem struct {
 type RequestConfig struct {
 	Model                string
 	PromptCacheKey string
+	PromptCacheRetention string
+	PromptCacheTTL string
 	Instructions         string
 	Mode                 ContextMode
 	PreviousResponseID   string
@@ -212,6 +214,9 @@ func BuildResponsesRequest(c RequestConfig) ([]byte, error) {
 	} else {
 		req["store"] = false
 	}
+	if !validPromptCacheLifetime(c.PromptCacheRetention,c.PromptCacheTTL){return nil,errors.New("invalid prompt cache lifetime")}
+	if c.PromptCacheRetention!=""{req["prompt_cache_retention"]=c.PromptCacheRetention}
+	if c.PromptCacheTTL!=""{req["prompt_cache_options"]=map[string]string{"ttl":c.PromptCacheTTL}}
 	if c.PromptCacheKey!="" {
 		if !validAffinityKey(c.PromptCacheKey){return nil,errors.New("invalid prompt cache key")}
 		req["prompt_cache_key"]=c.PromptCacheKey
