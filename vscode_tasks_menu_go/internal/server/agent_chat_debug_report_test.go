@@ -88,7 +88,7 @@ func TestAgentCLP20SafeDebugReportGuardAndRedaction(t *testing.T){
  store,err:=s.agentChatStore();if err!=nil{t.Fatal(err)}
  x,err:=store.Get(id,"local");if err!=nil{t.Fatal(err)}
  const secret="CLP20_PRIVATE_PAYLOAD_MARKER"
- x.History=[]agentchat.HistoryItem{{Type:"user",Content:secret},{Type:"function_call",CallID:"patch",Name:"taskdeck_submit_patch",Arguments:secret}}
+ x.History=[]agentchat.HistoryItem{{Type:"user",Content:secret},{Type:"function_call",CallID:"patch",Name:"taskdeck_submit_patch",Arguments:`{"name":"fixture","patch_python":"`+secret+`"}`}}
  x.ToolCalls=[]agentchat.ToolCallRecord{{CallID:"patch",Name:"taskdeck_submit_patch",Status:"done",Result:`{"status":"PASS","rc":0,"nested":{"secret":"`+secret+`"},"stdout_tail":"`+secret+`","diagnosis_kind":"`+secret+`"}`}}
  x.BindCollectionGuard("inspect "+secret,"",false)
  x.AppendEvent("collect_request_rejected","failed","read",secret)
