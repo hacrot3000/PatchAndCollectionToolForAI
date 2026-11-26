@@ -37,7 +37,7 @@ func (s *Server) agentChatCallForOwner(ctx context.Context, owner, sessionID str
 	return s.agentChatProviderWithRetry(ctx, owner, sessionID, p, key, payload)
 }
 
-func (s *Server) agentChatObservedCall(ctx context.Context, owner, action, sessionID string, p agentchat.ProviderConfig, key string, payload []byte) (agentchat.ResponsesResult, error, string) {
+func (s *Server) agentChatObservedCall(ctx context.Context, owner, action, sessionID string, p agentchat.ProviderConfig, key string, payload []byte, attempts ...agentCacheAttemptIdentity) (agentchat.ResponsesResult, error, string) {
 	traceCtx, recorder, traceID := s.beginAgentDebug(ctx, owner, action, sessionID, p, modelFromAgentPayload(payload))
 	streaming := p.Stream && owner != "" && s.agentStreamCapabilityVerified(owner, p, modelFromAgentPayload(payload))
 	metadata := agentRequestDiagnosticMetadata(payload)
@@ -104,9 +104,9 @@ func (s *Server) agentChatObservedCall(ctx context.Context, owner, action, sessi
 		recorder.RecordProviderDiagnostic(agentchat.DiagnosticEvent{Level:"info",Stage:"provider_cache",Event:"cache.usage",SafeMessage:result.CacheUsage.Summary(result.InputTokens)})
 		recorder.finish("", "Provider request completed")
 	}
-	if action=="provider_request"&&sessionID!="" {
+	if action=="provider_request"&&sessionID!=""&&len(attempts)==1&&attempts[0].runID!="" {
 		if store,e:=s.agentChatStore();e==nil{
-			if note,stats,e:=store.RecordCacheObservation(sessionID,owner,p,key,payload,startedAt,result.InputTokens,result.CacheUsage,err==nil);e==nil{
+			if note,stats,e:=store.RecordCacheObservation(sessionID,owner,attempts[0].runID,attempts[0].attempt,p,key,payload,startedAt,result.InputTokens,result.CacheUsage,err==nil);e==nil{
 				recorder.RecordProviderDiagnostic(agentchat.DiagnosticEvent{Level:"info",Stage:"provider_cache",Event:"cache.prefix",SafeMessage:note})
 				recorder.RecordProviderDiagnostic(agentchat.DiagnosticEvent{Level:"info",Stage:"provider_cache",Event:"cache.session_stats",SafeMessage:stats})
 			}

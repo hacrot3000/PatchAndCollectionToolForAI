@@ -50,14 +50,16 @@ func TestCacheObservationExactAttemptAndWriteReporting(t *testing.T){
  read:=20000
  now:=time.Now().UTC()
  usage:=ProviderCacheUsage{ReadTokens:&read,ComparableTotal:true}
- _,stats,err:=s.RecordCacheObservation(x.ID,x.Owner,p,"credential",body,now,70000,usage,true)
+ _,stats,err:=s.RecordCacheObservation(x.ID,x.Owner,current.ProviderRun.ID,2,p,"credential",body,now,70000,usage,true)
  if err!=nil||!strings.Contains(stats,"write_reported=0")||!strings.Contains(stats,"reported_cache_write_total=unreported"){t.Fatalf("missing write semantics: %s %v",stats,err)}
- if _,_,err=s.RecordCacheObservation(x.ID,x.Owner,p,"credential",body,now,70000,usage,true);err==nil{t.Fatal("duplicate attempt counted")}
+ if _,_,err=s.RecordCacheObservation(x.ID,x.Owner,current.ProviderRun.ID,2,p,"credential",body,now,70000,usage,true);err==nil{t.Fatal("duplicate attempt counted")}
  if _,err=s.RecordProviderAttempt(x.ID,x.Owner,current.ProviderRun.ID,3,body,false);err!=nil{t.Fatal(err)}
+ if _,_,err=s.RecordCacheObservation(x.ID,x.Owner,current.ProviderRun.ID,2,p,"credential",body,now.Add(time.Second),70000,usage,true);err==nil{t.Fatal("late same-digest attempt accepted")}
+ if _,_,err=s.RecordCacheObservation(x.ID,x.Owner,"older-run",3,p,"credential",body,now.Add(time.Second),70000,usage,true);err==nil{t.Fatal("late same-digest run accepted")}
  zero:=0;usage.WriteTokens=&zero
- _,stats,err=s.RecordCacheObservation(x.ID,x.Owner,p,"credential",body,now.Add(time.Second),70000,usage,true)
+ _,stats,err=s.RecordCacheObservation(x.ID,x.Owner,current.ProviderRun.ID,3,p,"credential",body,now.Add(time.Second),70000,usage,true)
  if err!=nil||!strings.Contains(stats,"write_reported=1")||!strings.Contains(stats,"reported_cache_write_total=0"){t.Fatalf("explicit zero semantics: %s %v",stats,err)}
  var request map[string]any
  _=json.Unmarshal(body,&request);request["instructions"]="changed";bad,_:=json.Marshal(request)
- if _,_,err=s.RecordCacheObservation(x.ID,x.Owner,p,"credential",bad,now.Add(2*time.Second),70000,usage,true);err==nil{t.Fatal("wrong payload accepted")}
+ if _,_,err=s.RecordCacheObservation(x.ID,x.Owner,current.ProviderRun.ID,3,p,"credential",bad,now.Add(2*time.Second),70000,usage,true);err==nil{t.Fatal("wrong payload accepted")}
 }

@@ -105,8 +105,8 @@ const maxCacheObservationBytes=96<<10
 
 // Non-authoritative, owner/project/credential/endpoint scoped metadata.
 // One bounded record per conversation. No raw prompts or responses saved.
-func(s *Store)RecordCacheObservation(id,owner string,p ProviderConfig,credential string,payload []byte,at time.Time,input int,usage ProviderCacheUsage,success bool)(string,string,error){
- if !validID(id)||at.IsZero(){return "","",ErrInvalidSession}
+func(s *Store)RecordCacheObservation(id,owner,runID string,attempt uint64,p ProviderConfig,credential string,payload []byte,at time.Time,input int,usage ProviderCacheUsage,success bool)(string,string,error){
+ if !validID(id)||runID==""||attempt==0||at.IsZero(){return "","",ErrInvalidSession}
  snapshot,e:=cacheSnapshot(p.APIType,payload);if e!=nil{return "","",e}
  measurement,e:=MeasureProviderPayload(p.APIType,payload);if e!=nil{return "","",e}
  var wire struct{Model string `json:"model"`}
@@ -119,9 +119,9 @@ func(s *Store)RecordCacheObservation(id,owner string,p ProviderConfig,credential
   // Only the exact latest pre-egress attempt can contribute usage. A
   // callback from an older run cannot contaminate a new checkpoint.
   audit,e:=s.readProviderAttemptsLocked(id)
-  if e!=nil||audit.RunID!=x.ProviderRun.ID||len(audit.Attempts)==0{return ErrInvalidSession}
+  if e!=nil||audit.RunID!=runID||audit.RunID!=x.ProviderRun.ID||len(audit.Attempts)==0{return ErrInvalidSession}
   last:=audit.Attempts[len(audit.Attempts)-1]
-  if last.PayloadSHA256!=ProviderPayloadDigest(payload){return ErrInvalidSession}
+  if last.Attempt!=attempt||last.PayloadSHA256!=ProviderPayloadDigest(payload){return ErrInvalidSession}
   model,ok:=p.FindModel(wire.Model);if !ok{return ErrInvalidSession}
   scope:=cacheObservationScope(x,p,model,credential)
   binding:=cacheEpochBinding(x)

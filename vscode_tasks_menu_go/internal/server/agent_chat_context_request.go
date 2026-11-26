@@ -19,7 +19,12 @@ func agentBuildContextRequest(x agentchat.Session,model agentchat.ModelConfig,p 
 // Checkpoints are optional derived projections, never a provider receipt,
 // PREPARED payload or execution authority. Failure falls back to rebuilding.
 func(s *Server) agentBuildCachedContextRequest(store *agentchat.Store,x agentchat.Session,model agentchat.ModelConfig,p agentchat.ProviderConfig,credential string,c agentchat.RequestConfig)([]byte,error){
- if store==nil||c.Mode!=agentchat.Stateless{return agentBuildContextRequest(x,model,p,c)}
+ if store==nil{return agentBuildContextRequest(x,model,p,c)}
+ if c.Mode!=agentchat.Stateless{
+  body,err:=agentBuildContextRequest(x,model,p,c)
+  if err==nil{if e:=store.WriteCacheEpoch(x.ID,x.Owner,x.Revision,nil);e!=nil{s.recordAgentDebugEvent(x.Owner,x.ID,"","provider_cache","cache.epoch.invalidate_failed","","Stateful request: derived stateless checkpoint could not be removed.")}}
+  return body,err
+ }
  old,readErr:=store.ReadCacheEpoch(x.ID,x.Owner,x.Revision)
  hint,_:=store.ReadCacheTokenHint(x.ID,x.Owner,x.Revision,p,c.Model,credential)
  body,next,reason,err:=agentBuildContextEpoch(x,model,p,c,old,true,hint)

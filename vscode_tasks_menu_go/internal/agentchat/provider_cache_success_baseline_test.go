@@ -35,7 +35,7 @@ func TestCacheObservationSuccessBaselineSurvivesFailedRetryAndRestart(t *testing
  read:=100;u:=ProviderCacheUsage{ReadTokens:&read,ComparableTotal:true}
  for i,v:=range []struct{body []byte;success bool}{{a,true},{b,false},{c,true}}{
   if _,e=s.RecordProviderAttempt(x.ID,x.Owner,x.ProviderRun.ID,uint64(i+2),v.body,false);e!=nil{t.Fatal(e)}
-  detail,_,e:=s.RecordCacheObservation(x.ID,x.Owner,p,"credential",v.body,now.Add(time.Duration(i)*time.Minute),200,u,v.success)
+  detail,_,e:=s.RecordCacheObservation(x.ID,x.Owner,x.ProviderRun.ID,uint64(i+2),p,"credential",v.body,now.Add(time.Duration(i)*time.Minute),200,u,v.success)
   if e!=nil{t.Fatal(e)}
   if i==2&&(!strings.Contains(detail,"reason=history_prefix_changed")||!strings.Contains(detail,"last_success_reason=append_only")||!strings.Contains(detail,"last_success_common_items=1")){t.Fatalf("lost success baseline: %s",detail)}
   s,e=NewStore(s.dir);if e!=nil{t.Fatal(e)}

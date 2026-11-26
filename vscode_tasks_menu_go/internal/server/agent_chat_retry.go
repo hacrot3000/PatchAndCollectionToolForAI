@@ -253,7 +253,7 @@ func (s *Server) agentChatProviderWithRetryUsingWait(ctx context.Context,owner,s
    }
   }
   callCtx=agentchat.WithProviderAffinity(callCtx,p,affinityKey)
-  result,err,trace:=s.agentChatObservedCall(callCtx,owner,"provider_request",sessionID,p,key,replayPayload)
+  result,err,trace:=s.agentChatObservedCall(callCtx,owner,"provider_request",sessionID,p,key,replayPayload,agentCacheAttemptIdentity{runID:runID,attempt:uint64(attempt)})
   cancel()
   outcome:=agentchat.ClassifyProviderAttemptOutcome(ctx.Err(),err)
   if attemptStore!=nil{
@@ -353,3 +353,6 @@ func (s *Server) agentChatRetryAPI(w http.ResponseWriter,r *http.Request,id stri
  w.Header().Set("Cache-Control","no-store")
  writeJSON(w,200,map[string]any{"session":x,"retry_mode":x.RetryMode})
 }
+
+// Exact local attempt identity, never an execution authorization.
+type agentCacheAttemptIdentity struct{runID string;attempt uint64}
