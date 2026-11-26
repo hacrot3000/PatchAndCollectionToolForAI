@@ -564,7 +564,7 @@ func (s *Server) agentChatAuthorizedMessage(w http.ResponseWriter, r *http.Reque
 	// PREPARED in the authoritative journal. It can be recovered only if
 	// process failure occurred before the durable SENDING transition.
 	if err=prepareAgentProviderRun(store,&session,"message","",p,model,payload);err!=nil{
-		http.Error(w,"cannot persist prepared provider request",409)
+		http.Error(w,"cannot persist prepared provider request: "+s.agentPreparedFailure(session,"message",payload,err),409)
 		return
 	}
 	if err=agentPinActiveTurnBinding(&session,mode,p,model,reasoning,secret,payload,requestKey);err!=nil{

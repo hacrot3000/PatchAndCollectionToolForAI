@@ -2,6 +2,8 @@ package agentchat
 
 import (
  "errors"
+ "bytes"
+ "fmt"
  "os"
  "path/filepath"
  "testing"
@@ -145,5 +147,37 @@ func TestProviderRunPayloadTamperingFailsClosed(t *testing.T){
  if persisted.Revision!=x.Revision||persisted.ProviderRun==nil||persisted.ProviderRun.ID!=x.ProviderRun.ID{t.Fatal("rejected save changed durable journal")}
  if _,_,err=store.PreparedProviderPayload(x.ID,"local");err==nil{
   t.Fatal("corrupted prepared provider request was replayable")
+ }
+}
+
+
+func TestProviderRunPayloadMatchesSerializerLimit(t *testing.T){
+ for _,size:=range []int{(2<<20)+1,maxRequestBytes,maxRequestBytes+1}{
+  t.Run(fmt.Sprint(size),func(t *testing.T){
+   store,err:=NewStore(filepath.Join(t.TempDir(),"private"));if err!=nil{t.Fatal(err)}
+   x,err:=NewSession("local","/workspace","project-id","provider","model",Stateless);if err!=nil{t.Fatal(err)}
+   x,err=store.Save(x,0);if err!=nil{t.Fatal(err)}
+   // Valid JSON with exact byte length, no session history duplication.
+   prefix,suffix:=[]byte(`{"model":"model","input":"`),[]byte(`"}`)
+   payload:=append(append(append([]byte(nil),prefix...),bytes.Repeat([]byte("x"),size-len(prefix)-len(suffix))...),suffix...)
+   now:=time.Now().UTC()
+   x.Status="requesting_ai"
+   x.ProviderRun=&ProviderRun{ID:"r2-e1",Kind:"message",Phase:"prepared",PayloadSHA256:ProviderPayloadDigest(payload),CreatedAt:now,UpdatedAt:now}
+   err=store.StageProviderPayload(x,payload)
+   if size>maxRequestBytes{
+    if !errors.Is(err,ErrInvalidSession){t.Fatalf("over-limit staging: %v",err)}
+    if _,e:=os.Stat(store.providerRunFile(x.ID));!os.IsNotExist(e){t.Fatal("oversize request staged")}
+    return
+   }
+   if err!=nil{t.Fatal(err)}
+   x,err=store.Save(x,x.Revision);if err!=nil{t.Fatal(err)}
+   reopened,err:=NewStore(store.dir);if err!=nil{t.Fatal(err)}
+   _,got,err:=reopened.PreparedProviderPayload(x.ID,x.Owner);if err!=nil||!bytes.Equal(got,payload){t.Fatalf("large PREPARED restart: %v",err)}
+   x.ProviderRun.Phase="sending"
+   x,err=reopened.Save(x,x.Revision);if err!=nil{t.Fatal(err)}
+   if _,err=reopened.RecordProviderAttempt(x.ID,x.Owner,x.ProviderRun.ID,1,payload,false,ProviderAttemptPolicy{Mode:RetryUnlimited});err!=nil{t.Fatal(err)}
+   audit,err:=reopened.ProviderAttempts(x.ID,x.Owner);if err!=nil||audit==nil||audit.Attempts[0].PayloadBytes!=size{t.Fatalf("attempt ledger mismatch: %v",err)}
+   if _,_,err=reopened.PreparedProviderPayload(x.ID,x.Owner);err==nil{t.Fatal("SENDING became replayable")}
+  })
  }
 }

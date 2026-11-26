@@ -346,7 +346,7 @@ func (s *Server) agentDeliverToolResult(ctx context.Context, store *agentchat.St
 	x.Status = "requesting_ai"
 	x.AppendEvent("feedback_prepared", "requesting_ai", call.CallID, "")
 	if err=prepareAgentProviderRun(store,&x,"feedback",call.CallID,p,model,payload);err!=nil{
-		return agentDeliverResult{},agentContinueError{409,"cannot persist prepared provider feedback"}
+		return agentDeliverResult{},agentContinueError{409,"cannot persist prepared provider feedback: "+s.agentPreparedFailure(x,"feedback",payload,err)}
 	}
 	x, err = store.Save(x, x.Revision)
     if err != nil {

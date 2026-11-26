@@ -373,6 +373,7 @@ func (s *Server) agentChatRunCollection(
 			x.AppendEvent("collect_observed", "requesting_ai", next.CallID, "")
 		}
 		if err=prepareAgentProviderRun(store,x,"collection",next.CallID,provider,model,payload);err!=nil{
+			s.agentPreparedFailure(*x,"collection",payload,err)
 			return result,clearProviderRefs,&agentCollectionLocalError{Stage:"persist_prepared",Round:round+1,Cause:err}
 		}
 		saved, err := store.Save(*x, x.Revision)

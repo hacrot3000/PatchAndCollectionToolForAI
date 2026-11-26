@@ -35,7 +35,10 @@ type providerPayloadRecord struct{
  SHA256 string `json:"sha256"`
  Payload []byte `json:"payload"`
 }
-const maxProviderRunPayload = 2 << 20
+// All canonical provider payloads accepted by the serializer must also fit
+// PREPARED storage, restart validation and the pre-egress attempt ledger.
+// The sidecar's 2x encoded limit includes base64 overhead.
+const maxProviderRunPayload = maxRequestBytes
 
 func ProviderPayloadDigest(payload []byte)string{
  digest:=sha256.Sum256(payload)

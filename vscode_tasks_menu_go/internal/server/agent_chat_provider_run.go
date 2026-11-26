@@ -4,6 +4,8 @@ import (
  "crypto/sha256"
  "encoding/hex"
  "fmt"
+ "errors"
+ "os"
  "time"
 
  "bletonfc/vscode_tasks_menu/internal/agentchat"
@@ -95,4 +97,24 @@ func recordAgentTokenUsage(x *agentchat.Session,result agentchat.ResponsesResult
 // It must never expose actual prompt/tool-result contents.
 func agentProviderPayloadShortHash(payload []byte)string{
  h:=sha256.Sum256(payload);return hex.EncodeToString(h[:8])
+}
+
+
+// Report only a bounded classification and numeric sizes, never raw I/O
+// errors (which can contain private paths) or request content.
+func agentPreparedFailureCode(err error)string{
+ switch{
+ case errors.Is(err,agentchat.ErrStaleRevision):return "STALE_REVISION"
+ case errors.Is(err,agentchat.ErrInvalidSession):return "INVALID_PREPARED_STATE"
+ case errors.Is(err,agentchat.ErrNotFound):return "SESSION_NOT_FOUND"
+ case os.IsPermission(err):return "STORAGE_PERMISSION"
+ case os.IsNotExist(err):return "STORAGE_MISSING"
+ default:return "STORAGE_OR_DURABILITY_FAILURE"
+ }
+}
+func(s *Server) agentPreparedFailure(x agentchat.Session,kind string,payload []byte,err error)string{
+ code:=agentPreparedFailureCode(err)
+ callID:="";if x.ProviderRun!=nil{callID=x.ProviderRun.CallID}
+ s.recordAgentDebugEvent(x.Owner,x.ID,callID,"provider_prepare","provider.prepare_failed",code,fmt.Sprintf("kind=%s; canonical_bytes=%d; code=%s; new request not sent",kind,len(payload),code))
+ return fmt.Sprintf("%s; payload=%d bytes; request not sent",code,len(payload))
 }
