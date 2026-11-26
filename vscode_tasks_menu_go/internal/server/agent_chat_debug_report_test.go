@@ -105,10 +105,18 @@ func TestAgentCLP20SafeDebugReportGuardAndRedaction(t *testing.T){
  }
  first:=report()
  if strings.Contains(first,secret)||!strings.Contains(first,"detail_sha256")||!strings.Contains(first,"recovery_budget_exhausted")||!strings.Contains(first,"collection_progress")||!strings.Contains(first,`"status": "PASS"`){t.Fatal("safe report leaked source or omitted structured metadata")}
+ // Compare the actual persisted journal, not an assumed event position:
+ // Save may append guard-transition events after the original marker.
+ beforeClear,err:=store.Get(id,"local");if err!=nil{t.Fatal(err)}
+ found:=false
+ for _,ev:=range beforeClear.Events{if ev.Kind=="collect_request_rejected"&&ev.Detail==secret{found=true}}
+ if !found||len(beforeClear.CollectionGuard)==0{t.Fatal("redaction fixture lost its private marker or guard before clear")}
+ beforeBytes,err:=json.Marshal(beforeClear);if err!=nil{t.Fatal(err)}
  clear:=httptest.NewRecorder();s.agentChatDebugClearAPI(clear,httptest.NewRequest("POST","/api/agent/debug/clear",strings.NewReader("{}")))
  if clear.Code!=200{t.Fatal("clear failed")}
  y,err:=store.Get(id,"local");if err!=nil{t.Fatal(err)}
- if len(y.CollectionGuard)==0||string(y.CollectionGuard)!=string(x.CollectionGuard)||y.ToolCalls[0].Result!=x.ToolCalls[0].Result||y.Events[len(y.Events)-2].Detail!=secret{t.Fatal("debug clear changed authoritative data")}
+ afterBytes,err:=json.Marshal(y);if err!=nil{t.Fatal(err)}
+ if string(beforeBytes)!=string(afterBytes){t.Fatal("debug clear changed authoritative persisted journal")}
  y.AppendEvent("fresh_turn","failed","","local_request_not_prepared")
  if _,err=store.Save(y,y.Revision);err!=nil{t.Fatal(err)}
  after:=report()
