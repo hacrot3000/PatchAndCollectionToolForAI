@@ -54,7 +54,8 @@ func (s *Server) agentChatObservedCall(ctx context.Context, owner, action, sessi
 	if hint:=agentchat.PromptCacheKeyFingerprint(payload);hint!=""{
 		recorder.RecordProviderDiagnostic(agentchat.DiagnosticEvent{Level:"info",Stage:"provider_cache",Event:"affinity.cache_key",SafeMessage:"prompt_cache_key present; fingerprint="+hint})
 	}
-	requestDisplay:=agentRequestDisplay(p,payload,time.Now().UTC())
+	startedAt:=time.Now().UTC()
+	requestDisplay:=agentRequestDisplay(p,payload,startedAt)
 	var result agentchat.ResponsesResult
 	var err error
 	if s.AgentChatCall != nil {
@@ -96,6 +97,14 @@ func (s *Server) agentChatObservedCall(ctx context.Context, owner, action, sessi
 	} else {
 		recorder.RecordProviderDiagnostic(agentchat.DiagnosticEvent{Level:"info",Stage:"provider_cache",Event:"cache.usage",SafeMessage:result.CacheUsage.Summary(result.InputTokens)})
 		recorder.finish("", "Provider request completed")
+	}
+	if action=="provider_request"&&sessionID!="" {
+		if store,e:=s.agentChatStore();e==nil{
+			if note,stats,e:=store.RecordCacheObservation(sessionID,owner,p,key,payload,startedAt,result.InputTokens,result.CacheUsage,err==nil);e==nil{
+				recorder.RecordProviderDiagnostic(agentchat.DiagnosticEvent{Level:"info",Stage:"provider_cache",Event:"cache.prefix",SafeMessage:note})
+				recorder.RecordProviderDiagnostic(agentchat.DiagnosticEvent{Level:"info",Stage:"provider_cache",Event:"cache.session_stats",SafeMessage:stats})
+			}
+		}
 	}
 	// Attach local metadata after the transport returns, including the exact
 	// payload of the successful retry rather than the current UI selection.
