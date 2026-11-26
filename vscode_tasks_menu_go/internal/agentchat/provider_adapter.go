@@ -29,6 +29,13 @@ type ProviderResolver interface {
 	Resolve(context.Context, RunSpec) (ResolvedProvider, error)
 }
 
+// Optional owner-scoped advisory output budget. Implementations must not
+// mutate the RunSpec, provider configuration or immutable snapshot.
+type ProviderOutputBudgetHints interface {
+ OutputBudgetHint(context.Context,RunSpec,ResolvedProvider) int
+ RememberOutputBudgetHint(context.Context,RunSpec,ResolvedProvider,int)
+}
+
 type ProviderPayloadBuilder interface {
 	Build(RunSpec, ProviderConfig, ModelConfig, []HistoryItem) ([]byte, error)
 }
@@ -157,6 +164,13 @@ func (a ConfiguredProviderAdapter) Execute(ctx context.Context, spec RunSpec, hi
 	if err != nil {
 		return err
 	}
+	// Hints affect only future explicitly retry-enabled requests and only
+	// their output reservation. The verified mandatory input never changes.
+	if hints,ok:=a.Resolver.(ProviderOutputBudgetHints);ok&&(spec.RetryMode==RetryLimited||spec.RetryMode==RetryUnlimited){
+		if candidate,ok:=capStatelessOutputReservation(payload,hints.OutputBudgetHint(ctx,spec,resolved));ok{
+			if m,e:=MeasureProviderPayload(resolved.Config.APIType,candidate);e==nil&&(model.MaxInputTokens<=0||m.WireBytes<=model.MaxInputTokens){payload=candidate}
+		}
+	}
 	result, streamedText, publishedCalls, err := a.invokeWithRetry(ctx, spec, resolved, payload, sink)
 	if err != nil {
 		err = safeRunProviderError(err)
@@ -281,6 +295,12 @@ func (a ConfiguredProviderAdapter) invokeWithRetry(ctx context.Context, spec Run
 				if !seen[callID] {
 					result.Calls = append(result.Calls, streamedCalls[callID])
 				}
+			}
+		}
+		if err==nil && contextRecoveries>0 && !incompleteRecoverySent && measurement.OutputBudget>=8192 {
+			// This is an advisory success observation, not a native ACK.
+			if hints,ok:=a.Resolver.(ProviderOutputBudgetHints);ok{
+				hints.RememberOutputBudgetHint(ctx,spec,resolved,measurement.OutputBudget)
 			}
 		}
 		if err == nil || errors.Is(err,context.Canceled) || (spec.RetryMode!=RetryLimited && spec.RetryMode!=RetryUnlimited) || (spec.RetryMode==RetryLimited && attempt>=6) {

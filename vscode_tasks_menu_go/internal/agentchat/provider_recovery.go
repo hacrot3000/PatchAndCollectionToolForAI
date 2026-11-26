@@ -81,3 +81,21 @@ func RetryReducedOutputReservation(payload []byte) ([]byte,bool) {
  if err!=nil||len(b)>maxRequestBytes{return nil,false}
  return b,true
 }
+
+// Use a learned output reservation only for stateless canonical input. The
+// hint cannot raise a configured cap, modify any input or affect provider IDs.
+func capStatelessOutputReservation(payload []byte,cap int)([]byte,bool){
+ if cap<8192||cap>200000{return nil,false}
+ var req map[string]json.RawMessage
+ if json.Unmarshal(payload,&req)!=nil||req==nil{return nil,false}
+ if _,ok:=req["previous_response_id"];ok{return nil,false}
+ if _,ok:=req["conversation"];ok{return nil,false}
+ var stored bool
+ if raw,ok:=req["store"];ok&&(json.Unmarshal(raw,&stored)!=nil||stored){return nil,false}
+ var current int
+ if json.Unmarshal(req["max_output_tokens"],&current)!=nil||current<=cap{return nil,false}
+ req["max_output_tokens"],_=json.Marshal(cap)
+ b,err:=json.Marshal(req)
+ if err!=nil||len(b)>maxRequestBytes{return nil,false}
+ return b,true
+}

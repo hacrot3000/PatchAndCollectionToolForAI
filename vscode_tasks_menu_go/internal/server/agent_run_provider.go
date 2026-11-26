@@ -133,3 +133,38 @@ func (s *Server) NewAgentRunProviderRouter(owner string, options agentchat.Provi
 	}
 	return router, nil
 }
+
+
+// Unified uses a domain-separated namespace for output-only hints: Legacy's
+// input estimate and Unified's conservative byte admission are not equivalent.
+// Scope is the authoritative owner/project/conversation, exact execution
+// workspace, provider/model version and verified credential fingerprint.
+// The existing private bounded TTL store provides integrity and expiry.
+func(r ownerAgentRunProviderResolver) outputHintScope(ctx context.Context,spec agentchat.RunSpec,resolved agentchat.ResolvedProvider)(*agentchat.Store,agentchat.Session,string,bool){
+ if ctx.Err()!=nil||r.server==nil||r.owner==""||spec.CredentialFingerprint==""||
+  resolved.Config.ID!=spec.ProviderID||resolved.ConfigVersion!=spec.ProviderConfigVersion||
+  resolved.CredentialFingerprint!=spec.CredentialFingerprint||
+  agentchat.RunCredentialFingerprint([]byte(resolved.Credential))!=spec.CredentialFingerprint{return nil,agentchat.Session{},"",false}
+ inputs,err:=r.server.ResolveAgentRunInputs(agentrun.WithPrincipalOwner(ctx,r.owner),spec)
+ if err!=nil{return nil,agentchat.Session{},"",false}
+ store,err:=r.server.agentChatStore();if err!=nil{return nil,agentchat.Session{},"",false}
+ x,err:=store.Get(spec.ConversationID,r.owner)
+ if err!=nil||x.ProjectID!=inputs.ProjectID{return nil,agentchat.Session{},"",false}
+ version:=agentchat.BodyDigest([]byte("taskdeck-unified-output-hint-v1\x00"+spec.ExecutionWorkspaceID+"\x00"+spec.ProviderConfigVersion))
+ return store,x,version,true
+}
+
+func(r ownerAgentRunProviderResolver) OutputBudgetHint(ctx context.Context,spec agentchat.RunSpec,resolved agentchat.ResolvedProvider)int{
+ store,x,version,ok:=r.outputHintScope(ctx,spec,resolved);if !ok{return 0}
+ hint,found,err:=store.AdaptiveBudgetHint(x,version,spec.CredentialFingerprint)
+ if err!=nil||!found{return 0}
+ return hint.Output
+}
+
+func(r ownerAgentRunProviderResolver) RememberOutputBudgetHint(ctx context.Context,spec agentchat.RunSpec,resolved agentchat.ResolvedProvider,output int){
+ if output<8192||output>200000{return}
+ store,x,version,ok:=r.outputHintScope(ctx,spec,resolved);if !ok||ctx.Err()!=nil{return}
+ // Input is not used in this domain. Keep the existing store format and
+ // its minimum valid input marker; never interpret it as an input limit.
+ _=store.RememberAdaptiveBudgetHint(x,version,spec.CredentialFingerprint,4096,output)
+}
