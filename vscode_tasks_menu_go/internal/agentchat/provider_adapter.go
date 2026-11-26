@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"io"
 	"strings"
 	"time"
 )
@@ -238,7 +237,7 @@ func (a ConfiguredProviderAdapter) invokeWithRetry(ctx context.Context, spec Run
 		digest := BodyDigest(payload)
 		requestTimeout := a.RequestTimeout
 		if requestTimeout <= 0 {
-			requestTimeout = 600 * time.Second
+			requestTimeout = ProviderAttemptTimeout
 		}
 		callCtx, cancel := context.WithTimeout(ctx, requestTimeout)
 		streamedText := false
@@ -403,23 +402,8 @@ func (a ConfiguredProviderAdapter) invokeWithRetry(ctx context.Context, spec Run
 }
 
 func runProviderRetryAllowed(mode RetryMode, attempt int, err error) bool {
-	if mode == RetryOff || err == nil || errors.Is(err, context.Canceled) {
-		return false
-	}
-	var providerErr *ProviderError
-	retryable := false
-	if errors.As(err, &providerErr) {
-		retryable = providerErr.Retryable || providerErr.HTTPStatus == 408 || providerErr.HTTPStatus == 429 || providerErr.HTTPStatus == 499 || providerErr.HTTPStatus >= 500 || providerErr.Ambiguous && providerErr.HTTPStatus == 0
-	} else {
-		retryable = errors.Is(err, context.DeadlineExceeded) || errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF)
-	}
-	if !retryable {
-		return false
-	}
-	if mode == RetryUnlimited {
-		return true
-	}
-	return mode == RetryLimited && attempt <= 5
+ if !ProviderTransportRetryable(err){return false}
+ return mode==RetryUnlimited || (mode==RetryLimited && attempt<=5)
 }
 
 func runProviderRetryCode(err error) string {

@@ -3,6 +3,8 @@ package agentchat
 import (
  "encoding/json"
  "errors"
+ "context"
+ "io"
  "strings"
 )
 
@@ -98,4 +100,25 @@ func capStatelessOutputReservation(payload []byte,cap int)([]byte,bool){
  b,err:=json.Marshal(req)
  if err!=nil||len(b)>maxRequestBytes{return nil,false}
  return b,true
+}
+
+// ProviderTransportRetryable is shared by both pipelines. Explicit retry
+// consent and attempt limits remain separate from transport classification.
+func ProviderTransportRetryable(err error)bool{
+ if err==nil{return false}
+ if errors.Is(err,context.Canceled){return false}
+ var pe *ProviderError
+ if errors.As(err,&pe){
+  if pe.Retryable{return true}
+  // A 499 response means the upstream gateway/client canceled an
+  // in-flight request. It is transient for an explicitly authorized
+  // retrying turn even when a provider did not set Retryable=true.
+  // User Stop still wins: ctx.Err() is checked after the HTTP call.
+  if pe.HTTPStatus==499||pe.HTTPStatus==429||pe.HTTPStatus==408||pe.HTTPStatus>=500{return true}
+  // Provider_parse can be transient (partial stream); avoid auto replaying
+  // malformed JSON/unsupported feature responses without a status.
+  return pe.Ambiguous && pe.HTTPStatus==0
+ }
+ return errors.Is(err,context.DeadlineExceeded) ||
+  errors.Is(err,io.EOF) || errors.Is(err,io.ErrUnexpectedEOF)
 }

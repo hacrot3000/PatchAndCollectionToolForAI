@@ -66,24 +66,7 @@ func agentRetryTurnContext(parent context.Context,_ agentchat.RetryMode)(context
 // be repeated forever. For transient failure, the user's explicit setting
 // permits replay of the provider request; a remote processing ambiguity may
 // incur duplicate inference, but never automatically reruns native Patch.
-func agentProviderRetryable(err error)bool{
- if err==nil{return false}
- if errors.Is(err,context.Canceled){return false}
- var pe *agentchat.ProviderError
- if errors.As(err,&pe){
-  if pe.Retryable{return true}
-  // A 499 response means the upstream gateway/client canceled an
-  // in-flight request. It is transient for an explicitly authorized
-  // retrying turn even when a provider did not set Retryable=true.
-  // User Stop still wins: ctx.Err() is checked after the HTTP call.
-  if pe.HTTPStatus==499||pe.HTTPStatus==429||pe.HTTPStatus==408||pe.HTTPStatus>=500{return true}
-  // Provider_parse can be transient (partial stream); avoid auto replaying
-  // malformed JSON/unsupported feature responses without a status.
-  return pe.Ambiguous && pe.HTTPStatus==0
- }
- return errors.Is(err,context.DeadlineExceeded) ||
-  errors.Is(err,io.EOF) || errors.Is(err,io.ErrUnexpectedEOF)
-}
+func agentProviderRetryable(err error)bool{return agentchat.ProviderTransportRetryable(err)}
 func agentRetryFailureDetail(err error)string{
  var pe *agentchat.ProviderError
  if errors.As(err,&pe){
@@ -193,6 +176,18 @@ func agentRetryContextPayload(payload []byte)([]byte,bool){
 // max_output_tokens error is different: at most one guided recovery request
 // is allowed, even in unlimited mode. Native Patch execution is NEVER replayed.
 func (s *Server) agentChatProviderWithRetry(ctx context.Context,owner,sessionID string,p agentchat.ProviderConfig,key string,payload []byte)(agentchat.ResponsesResult,error,string){
+ return s.agentChatProviderWithRetryUsingWait(ctx,owner,sessionID,p,key,payload,waitLegacyProviderRetry)
+}
+
+// A wait seam allows deterministic tests of the actual Legacy retry loop
+// without sleeping or changing process-global timing policy.
+func waitLegacyProviderRetry(ctx context.Context,delay time.Duration)error{
+ timer:=time.NewTimer(delay)
+ defer timer.Stop()
+ select{case <-ctx.Done():return ctx.Err();case <-timer.C:return nil}
+}
+
+func (s *Server) agentChatProviderWithRetryUsingWait(ctx context.Context,owner,sessionID string,p agentchat.ProviderConfig,key string,payload []byte,wait func(context.Context,time.Duration)error)(agentchat.ResponsesResult,error,string){
  mode:=agentRetryModeForSession(s,owner,sessionID)
  replayPayload:=payload
  incompleteRecoverySent:=false
@@ -289,6 +284,7 @@ func (s *Server) agentChatProviderWithRetry(ctx context.Context,owner,sessionID 
     s.recordAgentDebugEvent(owner,sessionID,"","provider_retry","context_budget.minimum",agentRetryFailureDetail(err),"No safely smaller stateless request remains; mandatory current input and receipt cannot be discarded. Check provider limits or use a narrower next task.")
     return result,err,trace
    }
+   if _,e:=agentchat.MeasureProviderPayload(p.APIType,reduced);e!=nil{return result,err,trace}
    contextRejectedPayload=replayPayload
    replayPayload=reduced
    contextRecoveries++
@@ -306,6 +302,7 @@ func (s *Server) agentChatProviderWithRetry(ctx context.Context,owner,sessionID 
    }
    constrained,nextLimit,ok:=agentRetryConstrainedOutputPayload(replayPayload,p)
    if !ok{return result,err,trace}
+   if _,e:=agentchat.MeasureProviderPayload(p.APIType,constrained);e!=nil{return result,err,trace}
    replayPayload=constrained
    incompleteRecoverySent=true
    s.recordAgentDebugEvent(owner,sessionID,"","provider_retry","output_budget.recovery","","Retrying one bounded response with output budget "+strconv.Itoa(nextLimit)+" and concise completion guidance; no incomplete tool result was executed")
@@ -315,13 +312,7 @@ func (s *Server) agentChatProviderWithRetry(ctx context.Context,owner,sessionID 
    Mode:mode,Attempt:attempt,Remaining:remaining,Phase:"waiting",
    NextAt:&next,LastCode:agentRetryCode(err),SameDigestFailures:sameDigestFailures,Outcome:outcome,RecoveryGeneration:generation,
   })
-  timer:=time.NewTimer(agentRetryDelay)
-  select{
-  case <-ctx.Done():
-   if !timer.Stop(){select{case <-timer.C:default:}}
-   return agentchat.ResponsesResult{},ctx.Err(),trace
-  case <-timer.C:
-  }
+  if err:=wait(ctx,agentRetryDelay);err!=nil{return agentchat.ResponsesResult{},err,trace}
  }
 }
 func (s *Server) agentChatRetryAPI(w http.ResponseWriter,r *http.Request,id string){
