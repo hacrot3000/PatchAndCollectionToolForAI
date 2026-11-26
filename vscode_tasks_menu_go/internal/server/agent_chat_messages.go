@@ -480,10 +480,10 @@ func (s *Server) agentChatAuthorizedMessage(w http.ResponseWriter, r *http.Reque
 	if !autoResumeCollection && !patchToolAvailable && agentNeedsWorkspaceTools(msg) {
 		patchToolAvailable = s.agentChatEnsureTools(r.Context(), owner, p, model, string(secret))
 	}
-	instructions := agentChatInstructionsWithAutomation(session, patchToolAvailable, identity.Key)
-	instructions += s.agentRetireKnownFailedPatches(r.Context(), &session, identity, "")
+	instructions,currentInstructions := agentChatInstructionsWithAutomationParts(session, patchToolAvailable, identity.Key)
+	currentInstructions += s.agentRetireKnownFailedPatches(r.Context(), &session, identity, "")
 	if newAfterCollection {
-		instructions += " The previous read-only Collection provider delivery is UNKNOWN. This is a new user request, not a replay. Follow the latest actual user message. Local verified receipts are historical evidence only; do not claim prior provider acknowledgement, resend old feedback, or re-execute an earlier Patch. Request fresh native COLLECT only if necessary."
+		currentInstructions += " The previous read-only Collection provider delivery is UNKNOWN. This is a new user request, not a replay. Follow the latest actual user message. Local verified receipts are historical evidence only; do not claim prior provider acknowledgement, resend old feedback, or re-execute an earlier Patch. Request fresh native COLLECT only if necessary."
 	}
 	failureProjection := s.agentFailureContextProjection(store, session, "", req.Message)
 	limit := agentInitialOutputBudget(model, reasoning, patchToolAvailable)
@@ -507,7 +507,7 @@ func (s *Server) agentChatAuthorizedMessage(w http.ResponseWriter, r *http.Reque
 		if !ok{http.Error(w,"cannot project the exact saved Collection checkpoint; canonical history retained",409);return}
 	}
 	payload, err := s.agentBuildCachedContextRequest(store,failureProjection,contextModel,p,agentchat.RequestConfig{
-		Model: session.ModelID, Instructions: instructions, Mode: mode,
+		Model: session.ModelID, Instructions: instructions, CurrentInstructions: currentInstructions, Mode: mode,
 		PreviousResponseID: session.PreviousResponseID, ConversationID: conversationID,
 		Next: requestNext, MaxOutputTokens: limit,
 		ReasoningEffort: reasoning,

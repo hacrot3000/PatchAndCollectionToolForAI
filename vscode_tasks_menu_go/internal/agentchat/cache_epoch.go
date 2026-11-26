@@ -73,3 +73,18 @@ func(s *Store)WriteCacheEpoch(id,owner string,revision uint64,epoch *CacheEpoch)
   return s.syncDirectory()
  })
 }
+
+
+// Invalidate only the derived projection after a retry changes the request.
+// The staged provider payload and canonical session are never modified.
+// Fence this operation to the exact currently SENDING provider run.
+func(s *Store)InvalidateCacheEpochForRun(id,owner,runID string)error{
+ if !validID(id)||runID==""{return ErrInvalidSession}
+ return s.withLock(func()error{
+  x,e:=s.readLocked(id);if e!=nil{return e}
+  if x.Owner!=owner||!s.matchesProject(x){return ErrNotFound}
+  if x.ProviderRun==nil||x.ProviderRun.ID!=runID||x.ProviderRun.Phase!="sending"||x.Status!="requesting_ai"{return ErrStaleRevision}
+  if e=os.Remove(s.cacheEpochPath(id));e!=nil&&!os.IsNotExist(e){return e}
+  return s.syncDirectory()
+ })
+}

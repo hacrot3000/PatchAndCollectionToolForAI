@@ -338,7 +338,8 @@ func (s *Server) agentChatRunCollection(
 		limit := agentInitialOutputBudget(model,reasoning,toolAvailable)
 		contextModel := model
 		if mode==agentchat.Stateless{contextModel,limit=agentAdaptiveRequestBudget(store,*x,provider,model,key,limit)}
-		instructions := agentChatInstructionsWithAutomation(*x, toolAvailable, identity.Key) + collectionProgressAdvice(guardDecision) + requestAdvice + recoveryAdvice
+		instructions,currentInstructions := agentChatInstructionsWithAutomationParts(*x, toolAvailable, identity.Key)
+		currentInstructions += collectionProgressAdvice(guardDecision) + requestAdvice + recoveryAdvice
 		projection:=*x
 		if nextCommitted{
 			// Next must retain the exact just-saved output once, paired with
@@ -347,7 +348,7 @@ func (s *Server) agentChatRunCollection(
 			projection.History=x.History[:len(x.History)-1]
 		}
 		payload, err := s.agentBuildCachedContextRequest(store,projection,contextModel,provider,agentchat.RequestConfig{
-			Model: x.ModelID, Instructions: instructions,
+			Model: x.ModelID, Instructions: instructions, CurrentInstructions: currentInstructions,
 			Mode: mode, PreviousResponseID: x.PreviousResponseID, ConversationID: conversationID,
 			Next: []agentchat.HistoryItem{next},
 			MaxOutputTokens: limit,

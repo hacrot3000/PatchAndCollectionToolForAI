@@ -231,6 +231,13 @@ func (s *Server) agentChatProviderWithRetryUsingWait(ctx context.Context,owner,s
   agentRetryPublish(s.Workspace,owner,sessionID,agentRetryProgress{Mode:mode,Attempt:attempt,Remaining:remaining,Phase:"sending",SameDigestFailures:sameDigestFailures,RecoveryGeneration:generation})
   callCtx,cancel:=context.WithTimeout(ctx,agentchat.ProviderAttemptTimeout)
   if attemptStore!=nil{
+   // A reduced/reformatted retry is not the original cache projection.
+   // Never mutate the immutable PREPARED payload or native history.
+   if digest!=agentchat.ProviderPayloadDigest(payload){
+    if e:=attemptStore.InvalidateCacheEpochForRun(sessionID,owner,runID);e!=nil{
+     s.recordAgentDebugEvent(owner,sessionID,"","provider_cache","cache.epoch.invalidate_failed","","Derived checkpoint could not be removed after request rewrite; source/policy validation still applies.")
+    }
+   }
    // Flush the audit sidecar BEFORE each individual network attempt.
    // All retry attempts get distinct IDs, even if output budgets change.
    // Corrupt/missing storage blocks the attempt rather than losing the

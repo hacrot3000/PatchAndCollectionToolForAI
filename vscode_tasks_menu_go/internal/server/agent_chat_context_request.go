@@ -32,16 +32,26 @@ func(s *Server) agentBuildCachedContextRequest(store *agentchat.Store,x agentcha
 }
 
 func agentBuildContextEpoch(x agentchat.Session,model agentchat.ModelConfig,p agentchat.ProviderConfig,c agentchat.RequestConfig,old *agentchat.CacheEpoch,enabled bool)([]byte,*agentchat.CacheEpoch,string,error){
+ body,next,reason,err:=agentBuildContextEpochAttempt(x,model,p,c,old,enabled,true)
+ if err!=nil&&c.Mode==agentchat.Stateless&&(c.EnableCollectionTool||c.NativeCollectionContract!=""){
+  // Optional fixed advice must not make otherwise valid mandatory
+  // instructions or a current exact receipt fail the technical limit.
+  if fallback,checkpoint,why,e:=agentBuildContextEpochAttempt(x,model,p,c,old,enabled,false);e==nil{return fallback,checkpoint,why+"; optional_advice_omitted",nil}
+ }
+ return body,next,reason,err
+}
+func agentBuildContextEpochAttempt(x agentchat.Session,model agentchat.ModelConfig,p agentchat.ProviderConfig,c agentchat.RequestConfig,old *agentchat.CacheEpoch,enabled,advice bool)([]byte,*agentchat.CacheEpoch,string,error){
  if agentchat.ProviderUsesPromptCacheKey(p){c.PromptCacheKey=agentchat.ProviderAffinityKey(x,p,c.Model)}
  c.PromptCacheRetention=p.PromptCacheRetention;c.PromptCacheTTL=p.PromptCacheTTL
  if c.Mode==agentchat.Stateless {
   x=agentProjectHistoricalCollectionPack(x,c.NativeCollectionContract)
   // The same guidance is useful before and after the advisory threshold.
   // Do not mutate the system prefix merely because an estimate crosses it.
-  if c.EnableCollectionTool||c.NativeCollectionContract!=""{c.Instructions+=agentCollectionBudgetAdvice}
+  if advice&&(c.EnableCollectionTool||c.NativeCollectionContract!=""){c.Instructions+=agentCollectionBudgetAdvice}
  }
  budgetInstructions:=c.Instructions
  if c.NativeCollectionContract!=""{budgetInstructions+="\n"+c.NativeCollectionContract}
+ budgetInstructions+=c.CurrentInstructions
  policy:=agentContextPolicy(x,model,budgetInstructions,c.Next,false)
  scoped:=policy;scoped.Next=nil
  scopeBytes,_:=json.Marshal([]any{"cache-epoch-v1",agentchat.RunProviderConfigVersion(p,model),c.Model,c.Mode,c.ReasoningEffort,c.EnablePatchTool,c.EnableCollectionTool,c.NativeCollectionContract,c.PromptCacheKey,scoped})

@@ -309,8 +309,8 @@ func (s *Server) agentDeliverToolResult(ctx context.Context, store *agentchat.St
         }
     }
 	toolAvailable := model.ToolCalling && s.agentToolCapabilityVerified(owner, p, model)
-	instructions := agentChatInstructionsWithAutomation(x, toolAvailable, identity.Key)
-	instructions += s.agentRetireKnownFailedPatches(ctx, &x, identity, call.CallID)
+	instructions,currentInstructions := agentChatInstructionsWithAutomationParts(x, toolAvailable, identity.Key)
+	currentInstructions += s.agentRetireKnownFailedPatches(ctx, &x, identity, call.CallID)
 	failureProjection := s.agentFailureContextProjection(store, x, call.CallID, "")
 	reasoning:=agentProviderReasoningEffort(p,x.ReasoningEffort,model)
 	limit := agentInitialOutputBudget(model,reasoning,toolAvailable)
@@ -322,7 +322,7 @@ func (s *Server) agentDeliverToolResult(ctx context.Context, store *agentchat.St
 	contextModel := model
 	if mode==agentchat.Stateless{contextModel,limit=agentAdaptiveRequestBudget(store,x,p,model,string(secret),limit)}
 	payload, err := s.agentBuildCachedContextRequest(store,failureProjection,contextModel,p,agentchat.RequestConfig{
-		Model: x.ModelID, Instructions: instructions,
+		Model: x.ModelID, Instructions: instructions, CurrentInstructions: currentInstructions,
 		Mode: mode, PreviousResponseID: x.PreviousResponseID, ConversationID: conversationID,
 		Next: next,
 		MaxOutputTokens: limit, ReasoningEffort: reasoning,

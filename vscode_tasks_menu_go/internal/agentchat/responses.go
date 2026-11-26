@@ -46,6 +46,7 @@ type RequestConfig struct {
 	PromptCacheRetention string
 	PromptCacheTTL string
 	Instructions         string
+	CurrentInstructions string // trusted, mutable server guidance; appended after stable native contract
 	Mode                 ContextMode
 	PreviousResponseID   string
 	ConversationID       string
@@ -158,6 +159,7 @@ func BuildResponsesRequest(c RequestConfig) ([]byte, error) {
 		collectionParameters, guidance = collectionToolContract(c.NativeCollectionContract)
 		c.Instructions += "\n\n" + guidance
 	}
+	c.Instructions += c.CurrentInstructions
 	if strings.TrimSpace(c.Model) == "" || len(c.Model) > 128 {
 		return nil, errors.New("invalid model")
 	}
