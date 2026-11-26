@@ -112,3 +112,16 @@ func TestFullHistoryAcknowledgedFailedPatchSummaryIsLedgerBound(t *testing.T){
  if !reflect.DeepEqual(FullHistory(h,p),h){t.Fatal("unbound historical receipt suppressed")}
  if h[1]!=failed||h[2]!=receipt{t.Fatal("canonical history modified")}
 }
+
+
+func TestFullHistoryEpochUsesActualItemLimit(t *testing.T){
+ h:=make([]agentchat.HistoryItem,255)
+ for i:=range h{h[i]=agentchat.HistoryItem{Type:"assistant",Content:"retained finding"}}
+ h[0]=agentchat.HistoryItem{Type:"user",Content:"owner goal"}
+ scope:=agentchat.BodyDigest([]byte("scope"))
+ p:=Policy{Next:[]agentchat.HistoryItem{{Type:"user",Content:"continue"}}}
+ e,why:=FullHistoryCacheEpoch(h,h,p,scope,nil)
+ if e==nil||why!="full_history"||e.VisibleCount!=256{t.Fatal("valid full history did not get a diagnostic checkpoint")}
+ h=append(h,p.Next...)
+ if e,_:=FullHistoryCacheEpoch(h,h,p,scope,e);e!=nil{t.Fatal("checkpoint accepted more than the wire item limit")}
+}

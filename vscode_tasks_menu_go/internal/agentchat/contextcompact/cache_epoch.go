@@ -84,7 +84,9 @@ func fullEpochWireDigest(items []agentchat.HistoryItem)string{
 func FullHistoryCacheEpoch(history,visible []agentchat.HistoryItem,p Policy,scope string,old *agentchat.CacheEpoch)(*agentchat.CacheEpoch,string){
  source:=append(append([]agentchat.HistoryItem(nil),history...),p.Next...)
  full:=append(append([]agentchat.HistoryItem(nil),visible...),p.Next...)
- if len(source)<1||len(source)>256||len(full)<1||len(full)>MaxProviderHistoryItems{return nil,"full_history"}
+ // The full request builder accepts 256 items; the 200-item compaction
+ // target must not suppress diagnostic epochs for otherwise valid requests.
+ if len(source)<1||len(source)>256||len(full)<1||len(full)>256{return nil,"full_history"}
  digest:=epochSourceDigest(source)
  wireDigest:=fullEpochWireDigest(full)
  id:=agentchat.BodyDigest([]byte(scope+"\x00"+digest+"\x00"+wireDigest))
