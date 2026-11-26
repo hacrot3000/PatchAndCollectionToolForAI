@@ -14,11 +14,30 @@ type cachePrefixPart struct{
 }
 type cachePrefixSnapshot struct{
  Instructions cachePrefixPart `json:"instructions"`
+ InstructionBlocks []string `json:"instruction_blocks,omitempty"`
  Tools cachePrefixPart `json:"tools"`
  Input []cachePrefixPart `json:"input"`
  Stateful bool `json:"stateful"`
 }
 func cachePart(raw []byte)cachePrefixPart{return cachePrefixPart{Digest:BodyDigest(raw),Bytes:len(raw)}}
+
+// Fixed 1 KiB complete blocks, capped at 64 KiB of decoded instruction
+// text. Hashes alone are retained; the last partial block is not counted.
+// This measures a lower bound on a local text prefix, NOT provider tokens.
+const cacheInstructionBlockBytes=1024
+const maxCacheInstructionBlocks=64
+func instructionBlockDigests(text string)[]string{
+ n:=len(text)/cacheInstructionBlockBytes
+ if n>maxCacheInstructionBlocks{n=maxCacheInstructionBlocks}
+ var out []string
+ for i:=0;i<n;i++{out=append(out,BodyDigest([]byte(text[i*cacheInstructionBlockBytes:(i+1)*cacheInstructionBlockBytes])))}
+ return out
+}
+func commonInstructionBlockBytes(a,b cachePrefixSnapshot)int{
+ n:=0
+ for n<len(a.InstructionBlocks)&&n<len(b.InstructionBlocks)&&n<maxCacheInstructionBlocks&&validAffinityKey(a.InstructionBlocks[n])&&a.InstructionBlocks[n]==b.InstructionBlocks[n]{n++}
+ return n*cacheInstructionBlockBytes
+}
 
 // Compare serialized semantic segments, not raw JSON field ordering. This
 // is a local diagnostic, not the upstream token prefix or actual cache hit.
@@ -34,6 +53,9 @@ func cacheSnapshot(api string,payload []byte)(cachePrefixSnapshot,error){
   Store bool `json:"store"`
  }
  if json.Unmarshal(payload,&m)!=nil||len(m.Input)>maxItems||len(m.Instructions)==0{return out,ErrInvalidSession}
+ var instructionText string
+ if json.Unmarshal(m.Instructions,&instructionText)!=nil{return out,ErrInvalidSession}
+ out.InstructionBlocks=instructionBlockDigests(instructionText)
  out.Stateful=m.Previous!=""||(len(m.Conversation)>0&&string(m.Conversation)!="null"&&string(m.Conversation)!=`""`)||m.Store
  if api=="chat_completions"{
   wire,e:=BuildChatCompletionsRequest(payload);if e!=nil{return out,e}
@@ -62,6 +84,8 @@ type cacheObservation struct{
  Scope string `json:"scope"`
  At time.Time `json:"at"`
  Prefix cachePrefixSnapshot `json:"prefix"`
+ LastSuccessAt *time.Time `json:"last_success_at,omitempty"`
+ LastSuccessPrefix *cachePrefixSnapshot `json:"last_success_prefix,omitempty"`
  Attempts uint64 `json:"attempts"`
  Successes uint64 `json:"successes"`
  Reported uint64 `json:"reported"`
@@ -76,7 +100,8 @@ type cacheObservation struct{
  ComparableInput uint64 `json:"comparable_input"`
 }
 func(s *Store)cacheObservationPath(id string)string{return filepath.Join(s.dir,id+".cache-observation.json")}
-const maxCacheObservationBytes=64<<10
+// Two bounded snapshots (each <=256 input digests and <=64 instruction blocks).
+const maxCacheObservationBytes=96<<10
 
 // Non-authoritative, owner/project/credential/endpoint scoped metadata.
 // One bounded record per conversation. No raw prompts or responses saved.
@@ -106,7 +131,7 @@ func(s *Store)RecordCacheObservation(id,owner string,p ProviderConfig,credential
    if !fi.Mode().IsRegular()||fi.Mode().Perm()&0077!=0||fi.Size()>maxCacheObservationBytes{return ErrInvalidSession}
    raw,e:=os.ReadFile(path);if e!=nil{return e}
    var old cacheObservation
-   if len(raw)<=maxCacheObservationBytes&&json.Unmarshal(raw,&old)==nil&&old.Version==2&&old.Binding==binding&&old.Scope==scope&&len(old.Prefix.Input)<=maxItems&&old.Attempts<1000000000&&old.Successes<=old.Attempts&&old.Reported<=old.Successes&&old.WriteReported<=old.Successes&&len(old.TokenSamples)<=maxCacheTokenSamples&&old.Misses<=old.Reported&&old.ComparableRead<=old.ComparableInput&&old.ComparableInput<=1000000000000000000&&old.ReadTokens<=1000000000000000000&&old.WriteTokens<=1000000000000000000&&!old.At.After(at){cur=old}
+   if len(raw)<=maxCacheObservationBytes&&json.Unmarshal(raw,&old)==nil&&old.Version==2&&old.Binding==binding&&old.Scope==scope&&validCacheObservationSnapshots(old,at)&&old.Attempts<1000000000&&old.Successes<=old.Attempts&&old.Reported<=old.Successes&&old.WriteReported<=old.Successes&&len(old.TokenSamples)<=maxCacheTokenSamples&&old.Misses<=old.Reported&&old.ComparableRead<=old.ComparableInput&&old.ComparableInput<=1000000000000000000&&old.ReadTokens<=1000000000000000000&&old.WriteTokens<=1000000000000000000&&!old.At.After(at){cur=old}
   }else if !os.IsNotExist(e){return e}
   if cur.LastRunID==audit.RunID&&cur.LastAttempt>=last.Attempt{return ErrStaleRevision}
   cur.LastRunID=audit.RunID;cur.LastAttempt=last.Attempt
@@ -115,10 +140,18 @@ func(s *Store)RecordCacheObservation(id,owner string,p ProviderConfig,credential
    bytes,n,reason=compareCacheSnapshots(cur.Prefix,snapshot)
    gap=fmt.Sprintf("%.1fs",at.Sub(cur.At).Seconds())
   }
+  successComparison:="unreported";successGap:="unreported";successBytes,successItems,successInstructionBytes:=0,0,0
+  if cur.LastSuccessAt!=nil&&cur.LastSuccessPrefix!=nil{
+   successBytes,successItems,successComparison=compareCacheSnapshots(*cur.LastSuccessPrefix,snapshot)
+   successGap=fmt.Sprintf("%.1fs",at.Sub(*cur.LastSuccessAt).Seconds())
+   if !cur.LastSuccessPrefix.Stateful&&!snapshot.Stateful{successInstructionBytes=commonInstructionBlockBytes(*cur.LastSuccessPrefix,snapshot)}
+  }
   cur.TokenSamples=updateCacheTokenSamples(cur.TokenSamples,cur.Prefix,snapshot,measurement.WireBytes,input,usage,success,at)
   cur.At=at;cur.Prefix=snapshot;cur.Attempts++
   if success{
    cur.Successes++
+   successAt:=at;successPrefix:=snapshot
+   cur.LastSuccessAt=&successAt;cur.LastSuccessPrefix=&successPrefix
    if validReportedTokenCount(usage.ReadTokens){
     cur.Reported++;cur.ReadTokens+=uint64(*usage.ReadTokens);if *usage.ReadTokens==0{cur.Misses++}
     if usage.ComparableTotal&&input>0&&input<=1000000000&&*usage.ReadTokens<=input{cur.ComparableRead+=uint64(*usage.ReadTokens);cur.ComparableInput+=uint64(input)}
@@ -130,7 +163,7 @@ func(s *Store)RecordCacheObservation(id,owner string,p ProviderConfig,credential
   detail=fmt.Sprintf("reason=%s; instructions_digest=%s; tools_digest=%s; common_prefix_segment_bytes=%d; common_input_items=%d; previous_attempt_gap=%s; provider_input_tokens=%d; measured_wire_bytes_per_input_token=%s",reason,snapshot.Instructions.Digest,snapshot.Tools.Digest,bytes,n,gap,input,ratio)
   writeTotal:="unreported";if cur.WriteReported>0{writeTotal=fmt.Sprint(cur.WriteTokens)}
   stats=fmt.Sprintf("scope attempts=%d; success=%d; read_reported=%d; zero_read=%d; reported_cache_read_total=%d; write_reported=%d; reported_cache_write_total=%s; comparable_weighted_hit=%s",cur.Attempts,cur.Successes,cur.Reported,cur.Misses,cur.ReadTokens,cur.WriteReported,writeTotal,hit)
-  detail+=fmt.Sprintf("; token_samples=%d",len(cur.TokenSamples))
+  detail+=fmt.Sprintf("; last_success_reason=%s; last_success_gap=%s; last_success_common_segment_bytes=%d; last_success_common_items=%d; last_success_common_instruction_block_bytes=%d; token_samples=%d",successComparison,successGap,successBytes,successItems,successInstructionBytes,len(cur.TokenSamples))
   if estimate,ok:=learnedCacheEstimate(cur.TokenSamples,measurement.WireBytes,at);ok{detail+=fmt.Sprintf("; learned_input_estimate=%d",estimate)}
   data,e:=json.Marshal(cur);if e!=nil{return e};if len(data)>maxCacheObservationBytes{return ErrInvalidSession}
   tmp,e:=os.CreateTemp(s.dir,".agent-cache-observation-*");if e!=nil{return e}
@@ -143,4 +176,16 @@ func(s *Store)RecordCacheObservation(id,owner string,p ProviderConfig,credential
   return s.syncDirectory()
  })
  return detail,stats,err
+}
+
+
+func validCacheObservationSnapshots(v cacheObservation,at time.Time)bool{
+ valid:=func(p cachePrefixSnapshot)bool{
+  return len(p.Input)<=maxItems&&len(p.InstructionBlocks)<=maxCacheInstructionBlocks
+ }
+ if !valid(v.Prefix)||(v.LastSuccessAt==nil)!=(v.LastSuccessPrefix==nil){return false}
+ if v.LastSuccessAt!=nil{
+  if v.Successes==0||v.LastSuccessAt.IsZero()||v.LastSuccessAt.After(v.At)||v.LastSuccessAt.After(at)||!valid(*v.LastSuccessPrefix){return false}
+ }
+ return true
 }
