@@ -18,7 +18,7 @@ func (s *Server) resumePreparedAgentProviderRun(ctx context.Context,store *agent
  if !ok{return false}
  defer release()
  x,err:=store.Get(id,"local")
- if err!=nil||x.Workspace!=s.Workspace||x.Status!="requesting_ai"||
+ if err!=nil||x.Archived||x.Workspace!=s.Workspace||x.Status!="requesting_ai"||
   x.ProviderRun==nil||x.ProviderRun.Phase!="prepared"{return false}
  run:=*x.ProviderRun
  fail:=func(code string){
@@ -101,8 +101,11 @@ func (s *Server) resumePreparedAgentProviderRun(ctx context.Context,store *agent
  result,callErr,_:=s.agentChatCallForOwner(turnCtx,"local",id,p,string(secret),payload)
  if callErr!=nil{
   x.Status="failed"
+  if turnCtx.Err()!=nil{x.Status="cancelled"}
+  x.PreviousResponseID=""
+  x.ConversationID=""
   markAgentProviderOutcome(&x,"unknown")
-  x.AppendEvent("provider_resume_unknown","failed",run.CallID,"provider_acknowledgement_unconfirmed")
+  x.AppendEvent("provider_resume_unknown",x.Status,run.CallID,"provider_acknowledgement_unconfirmed")
   if run.Kind=="feedback"{
    for i:=range x.ToolCalls{
     if agentFeedbackGroupContains(agentRejectedToolCallGroupByID(x,run.CallID),i){x.ToolCalls[i].FeedbackStatus="unknown"}
