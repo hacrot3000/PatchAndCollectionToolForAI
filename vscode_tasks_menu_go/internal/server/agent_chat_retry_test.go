@@ -142,7 +142,7 @@ func TestAgentUnlimitedRetriesIncompleteByExpandingOutputBudget(t *testing.T){
   if calls==1{return agentchat.ResponsesResult{},&agentchat.ProviderError{Code:"RESPONSE_INCOMPLETE",ProviderErrorCode:"max_output_tokens",Retryable:true}}
   return agentchat.ResponsesResult{ResponseID:"done",Text:"Recovered"},nil
  }
- result,err,_:=s.agentChatCallForOwner(context.Background(),"local",id,p,"key",[]byte(`{"model":"model","max_output_tokens":4096}`))
+ result,err,_:=s.agentChatCallForOwner(context.Background(),"local",id,p,"key",[]byte(`{"model":"model","store":false,"input":[{"role":"user","content":"original task"}],"max_output_tokens":4096}`))
  if err!=nil||calls!=2||result.Text!="Recovered"{t.Fatalf("retry failed: calls=%d result=%+v err=%v",calls,result,err)}
  if agentRetrySnapshot(s.Workspace,"local",id)!=nil{t.Fatal("progress state leaked")}
 }
@@ -163,8 +163,8 @@ func TestAgentUnlimitedStopsAtConfiguredOutputCap(t *testing.T){
   return agentchat.ResponsesResult{},&agentchat.ProviderError{Code:"RESPONSE_INCOMPLETE",ProviderErrorCode:"max_output_tokens",Retryable:true}
  }
  _,err,_=s.agentChatCallForOwner(context.Background(),"local",id,
-  agentchat.ProviderConfig{ID:"fake",Models:[]agentchat.ModelConfig{{ID:"model",MaxOutputTokens:4096}}},
-  "key",[]byte(`{"model":"model","max_output_tokens":4096}`))
+  agentchat.ProviderConfig{ID:"fake",APIType:"responses",Models:[]agentchat.ModelConfig{{ID:"model",MaxOutputTokens:4096}}},
+  "key",[]byte(`{"model":"model","store":false,"input":[{"role":"user","content":"original task"}],"max_output_tokens":4096}`))
  if err==nil||calls!=2{t.Fatalf("hard output cap must stop after one guided recovery: calls=%d err=%v",calls,err)}
 }
 
