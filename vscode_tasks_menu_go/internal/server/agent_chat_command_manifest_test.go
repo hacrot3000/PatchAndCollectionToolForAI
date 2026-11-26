@@ -85,3 +85,12 @@ func TestAgentCommandManifestApprovalQueuesExactlyOnce(t *testing.T){
  w=invokeAI(t,s.agentChatSessionItemAPI,"POST",route,map[string]any{"action":"approve","confirm_execution":true,"expected_revision":x.Revision})
  if w.Code!=409{t.Fatal("duplicate approval was admitted")}
 }
+
+
+func TestAgentCommandOnlySeparateApprovalsHaveDistinctZIPReceipts(t *testing.T){
+ identity:=patchtool.ProjectIdentity{Key:"project",ID:"project-id"}
+ raw:=testAgentCommandManifest(identity,[]string{"bash","scripts/regression.sh"})
+ a,err:=pastedCommandOnlyPackage(raw,identity);if err!=nil{t.Fatal(err)}
+ b,err:=pastedCommandOnlyPackage(raw,identity);if err!=nil{t.Fatal(err)}
+ if string(a)==string(b){t.Fatal("new regression invocation incorrectly aliases old native package")}
+}

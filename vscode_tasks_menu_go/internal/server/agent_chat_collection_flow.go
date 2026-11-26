@@ -162,16 +162,17 @@ func (s *Server) agentChatRunCollection(
 			// read-only model request. Finish with an actionable message.
 			return agentchat.ResponsesResult{ResponseID:result.ResponseID,
 				ConversationID:result.ConversationID,
+				RequestDisplay:result.RequestDisplay,
 				Text:"Automatic Collection is disabled for this conversation. Enable Auto Collection in the Automation menu and send the request again. No Collection or Patch was executed."},clearProviderRefs,nil
 		}
 
 		// Persist the actual model response before any native operation. On
 		// restart a pending Collection can be closed as unverified, not replayed.
-		if result.Text!=""{x.History=append(x.History,agentchat.HistoryItem{Type:"assistant",Content:result.Text})}
+		if result.Text!=""{x.History=append(x.History,result.RequestDisplay.WithHistoryItem(agentchat.HistoryItem{Type:"assistant",Content:result.Text}))}
 		callID:=""
 		if typed{
 			call:=result.Calls[0];callID=call.CallID
-			x.History=append(x.History,agentchat.HistoryItem{Type:"function_call",CallID:call.CallID,Name:call.Name,Arguments:call.Arguments})
+			x.History=append(x.History,result.RequestDisplay.WithHistoryItem(agentchat.HistoryItem{Type:"function_call",CallID:call.CallID,Name:call.Name,Arguments:call.Arguments}))
 		}
 		legacyCollectionRequested(x, callID, toolAvailable)
 		if x.ProviderRun!=nil&&x.ProviderRun.Phase=="acknowledged"{
@@ -301,8 +302,9 @@ func (s *Server) agentChatRunCollection(
 			forceStateless = true
 			clearProviderRefs = true
 		}
+		currentContract := agentInstalledCollectionContract(s.Workspace)
 		mode := x.Mode
-		if agentContextNeedsRebase(*x) || (mode==agentchat.Conversation && !s.agentConversationCapabilityVerified(x.Owner,provider,model)){
+		if agentContextNeedsRebase(*x) || agentHistoricalCollectionPackStale(*x,currentContract) || (mode==agentchat.Conversation && !s.agentConversationCapabilityVerified(x.Owner,provider,model)){
 			forceStateless=true
 			clearProviderRefs=true
 		}
@@ -336,7 +338,8 @@ func (s *Server) agentChatRunCollection(
 		limit := agentInitialOutputBudget(model,reasoning,toolAvailable)
 		contextModel := model
 		if mode==agentchat.Stateless{contextModel,limit=agentAdaptiveRequestBudget(store,*x,provider,model,key,limit)}
-		instructions := agentChatInstructionsWithAutomation(*x, toolAvailable, identity.Key) + collectionProgressAdvice(guardDecision) + requestAdvice + recoveryAdvice
+		instructions,currentInstructions := agentChatInstructionsWithAutomationParts(*x, toolAvailable, identity.Key)
+		currentInstructions += legacyCollectionProgressAdvisory(*x,guardDecision,toolAvailable) + requestAdvice + recoveryAdvice
 		projection:=*x
 		if nextCommitted{
 			// Next must retain the exact just-saved output once, paired with
@@ -344,19 +347,25 @@ func (s *Server) agentChatRunCollection(
 			if len(x.History)==0||x.History[len(x.History)-1]!=next{return result,clearProviderRefs,&agentCollectionLocalError{Stage:"stall_receipt_projection",Round:round+1,Cause:errors.New("committed Collection output missing from latest history")}}
 			projection.History=x.History[:len(x.History)-1]
 		}
-		payload, err := agentBuildContextRequest(projection,contextModel,provider,agentchat.RequestConfig{
-			Model: x.ModelID, Instructions: instructions,
+		payload, err := s.agentBuildCachedContextRequest(store,projection,contextModel,provider,key,agentchat.RequestConfig{
+			Model: x.ModelID, Instructions: instructions, CurrentInstructions: currentInstructions,
 			Mode: mode, PreviousResponseID: x.PreviousResponseID, ConversationID: conversationID,
 			Next: []agentchat.HistoryItem{next},
 			MaxOutputTokens: limit,
 			ReasoningEffort: reasoning,
 			EnablePatchTool: toolAvailable, EnableCollectionTool: toolAvailable,
-			NativeCollectionContract: agentInstalledCollectionContract(s.Workspace),
+			NativeCollectionContract: currentContract,
 		})
 		if err != nil {
-			if !nextCommitted{x.History=append(x.History,next)}
+			if !nextCommitted{
+				x.History=append(x.History,next)
+				x.AppendEvent("collect_observed",x.Status,next.CallID,"local_context_build_failed")
+			}
+			// No new provider run has been prepared or sent. Keep the previous
+			// acknowledged run unchanged and preserve the actual observation.
 			x.PreviousResponseID="";x.ConversationID=""
-			return result, clearProviderRefs, &agentCollectionLocalError{Stage: "request_build", Round: round+1, Cause: err}
+			x.AppendEvent("collect_context_checkpoint","failed",next.CallID,"local_request_not_prepared")
+			return result,true,&agentCollectionLocalError{Stage: "collection_context_checkpoint", Round: round+1, Cause: err}
 		}
 		x.Status = "requesting_ai"
 		if !nextCommitted{
@@ -364,6 +373,7 @@ func (s *Server) agentChatRunCollection(
 			x.AppendEvent("collect_observed", "requesting_ai", next.CallID, "")
 		}
 		if err=prepareAgentProviderRun(store,x,"collection",next.CallID,provider,model,payload);err!=nil{
+			s.agentPreparedFailure(*x,"collection",payload,err)
 			return result,clearProviderRefs,&agentCollectionLocalError{Stage:"persist_prepared",Round:round+1,Cause:err}
 		}
 		saved, err := store.Save(*x, x.Revision)
@@ -395,3 +405,5 @@ func (s *Server) agentChatRunCollection(
 	}
 }
 
+
+const agentCollectionContextCheckpointMessage = "Collection observation saved in the conversation. The next provider request could not be built locally (mandatory context or provider format); it was NOT prepared or sent. Resume the same conversation with a narrower missing scope or review the selected model limits. Existing native evidence remains available; do not rerun an old Patch."

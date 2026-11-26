@@ -46,6 +46,21 @@ func TestStreamAccumulatorCollectsTextAndToolCall(t *testing.T) {
 	}
 }
 
+func TestStreamStandardMessageAndFunctionItemLifecycle(t *testing.T) {
+ res := streamOf(t,
+  `{"type":"response.output_item.added","item":{"type":"reasoning","id":"rs1"}}`,
+  `{"type":"response.reasoning_summary_text.delta","delta":"Inspecting the workspace."}`,
+  `{"type":"response.output_item.added","item":{"type":"message","id":"msg1"}}`,
+  `{"type":"response.output_text.delta","delta":"Hello"}`,
+  `{"type":"response.output_item.done","item":{"type":"message","id":"msg1"}}`,
+  `{"type":"response.output_item.added","item":{"type":"function_call","id":"fc1","call_id":"call1","name":"taskdeck_submit_patch","arguments":""}}`,
+  `{"type":"response.function_call_arguments.delta","item_id":"fc1","delta":"{}"}`,
+  `{"type":"response.output_item.done","item":{"type":"function_call","id":"fc1","call_id":"call1","name":"taskdeck_submit_patch","arguments":"{}"}}`,
+  `{"type":"response.completed","response":{"id":"r1","status":"completed"}}`,
+ )
+ if res.Text!="Hello"||len(res.Calls)!=1||res.Calls[0].CallID!="call1"||res.Calls[0].Arguments!="{}"{t.Fatalf("invalid final response: %+v",res)}
+}
+
 func TestStreamAccumulatorEmitsValidatedDeltasInArrivalOrder(t *testing.T) {
 	acc := newStreamAccumulator()
 	var emitted []StreamEvent

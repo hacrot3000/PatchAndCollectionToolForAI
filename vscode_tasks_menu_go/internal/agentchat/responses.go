@@ -34,11 +34,19 @@ type HistoryItem struct {
 	ModelID               string `json:"model_id,omitempty"`
 	ParentTurnID          string `json:"parent_turn_id,omitempty"`
 	ExcludedPendingRunIDs string `json:"excluded_pending_run_ids,omitempty"`
+	RequestEffort string `json:"request_effort,omitempty"`
+	RequestContext string `json:"request_context,omitempty"`
+	RequestAt string `json:"request_at,omitempty"`
+	RequestInputTokens int `json:"request_input_tokens,omitempty"`
 }
 
 type RequestConfig struct {
 	Model                string
+	PromptCacheKey string
+	PromptCacheRetention string
+	PromptCacheTTL string
 	Instructions         string
+	CurrentInstructions string // trusted, mutable server guidance; appended after stable native contract
 	Mode                 ContextMode
 	PreviousResponseID   string
 	ConversationID       string
@@ -151,6 +159,7 @@ func BuildResponsesRequest(c RequestConfig) ([]byte, error) {
 		collectionParameters, guidance = collectionToolContract(c.NativeCollectionContract)
 		c.Instructions += "\n\n" + guidance
 	}
+	c.Instructions += c.CurrentInstructions
 	if strings.TrimSpace(c.Model) == "" || len(c.Model) > 128 {
 		return nil, errors.New("invalid model")
 	}
@@ -206,6 +215,13 @@ func BuildResponsesRequest(c RequestConfig) ([]byte, error) {
 		req["store"] = true
 	} else {
 		req["store"] = false
+	}
+	if !validPromptCacheLifetime(c.PromptCacheRetention,c.PromptCacheTTL){return nil,errors.New("invalid prompt cache lifetime")}
+	if c.PromptCacheRetention!=""{req["prompt_cache_retention"]=c.PromptCacheRetention}
+	if c.PromptCacheTTL!=""{req["prompt_cache_options"]=map[string]string{"ttl":c.PromptCacheTTL}}
+	if c.PromptCacheKey!="" {
+		if !validAffinityKey(c.PromptCacheKey){return nil,errors.New("invalid prompt cache key")}
+		req["prompt_cache_key"]=c.PromptCacheKey
 	}
 	if c.MaxOutputTokens > 0 {
 		req["max_output_tokens"] = c.MaxOutputTokens
@@ -281,11 +297,13 @@ type FunctionCall struct {
 }
 
 type ResponsesResult struct {
+	RequestDisplay RequestDisplay // trusted local request metadata; never parsed from provider output
 	ResponseID     string
 	ConversationID string
 	Text           string
 	Calls          []FunctionCall
 	InputTokens    int
+	CacheUsage ProviderCacheUsage
 	OutputTokens   int
 	Status         string
 	FinishReason   string
@@ -313,6 +331,7 @@ func ParseResponsesResult(body []byte) (ResponsesResult, error) {
 			} `json:"content"`
 		} `json:"output"`
 		Usage struct {
+			CacheUsageFields
 			InputTokens  int `json:"input_tokens"`
 			OutputTokens int `json:"output_tokens"`
 		} `json:"usage"`
@@ -327,7 +346,7 @@ func ParseResponsesResult(body []byte) (ResponsesResult, error) {
 	if raw.Status != "" && raw.Status != "completed" {
 		return ResponsesResult{}, fmt.Errorf("provider returned status %q", raw.Status)
 	}
-	res := ResponsesResult{ResponseID: raw.ID, Status: raw.Status, InputTokens: raw.Usage.InputTokens, OutputTokens: raw.Usage.OutputTokens}
+	res := ResponsesResult{ResponseID: raw.ID, Status: raw.Status, InputTokens: raw.Usage.InputTokens, OutputTokens: raw.Usage.OutputTokens, CacheUsage:raw.Usage.CacheUsageFields.normalized(raw.Usage.InputTokens)}
 	if len(raw.Conversation) != 0 && string(raw.Conversation) != "null" {
 		if raw.Conversation[0] == '"' {
 			if err := json.Unmarshal(raw.Conversation, &res.ConversationID); err != nil {

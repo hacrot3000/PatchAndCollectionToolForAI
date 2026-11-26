@@ -3,6 +3,8 @@ package server
 import (
  "archive/zip"
  "bytes"
+ "crypto/rand"
+ "encoding/hex"
  "encoding/json"
  "fmt"
  "io"
@@ -114,6 +116,12 @@ func pastedCommandOnlyPackage(raw string,identity patchtool.ProjectIdentity)([]b
  if err!=nil{return nil,err}
  var packed bytes.Buffer
  zw:=zip.NewWriter(&packed)
+ // Each independently approved command-only invocation has a distinct
+ // receipt. Preserve manifest semantics and all native safety gates.
+ // Source-changing PATCH duplicate protection is unchanged.
+ var invocation [16]byte
+ if _,err=rand.Read(invocation[:]);err!=nil{return nil,err}
+ if err=zw.SetComment("taskdeck-command-invocation:"+hex.EncodeToString(invocation[:]));err!=nil{return nil,err}
  member,err:=zw.Create("PATCH_TOOL_MANIFEST.json")
  if err!=nil{return nil,err}
  if _,err=member.Write(append(body,'\n'));err!=nil{return nil,err}

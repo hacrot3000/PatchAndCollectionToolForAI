@@ -142,7 +142,7 @@ func TestAgentUnlimitedRetriesIncompleteByExpandingOutputBudget(t *testing.T){
   if calls==1{return agentchat.ResponsesResult{},&agentchat.ProviderError{Code:"RESPONSE_INCOMPLETE",ProviderErrorCode:"max_output_tokens",Retryable:true}}
   return agentchat.ResponsesResult{ResponseID:"done",Text:"Recovered"},nil
  }
- result,err,_:=s.agentChatCallForOwner(context.Background(),"local",id,p,"key",[]byte(`{"model":"model","max_output_tokens":4096}`))
+ result,err,_:=s.agentChatCallForOwner(context.Background(),"local",id,p,"key",[]byte(`{"model":"model","store":false,"input":[{"role":"user","content":"original task"}],"max_output_tokens":4096}`))
  if err!=nil||calls!=2||result.Text!="Recovered"{t.Fatalf("retry failed: calls=%d result=%+v err=%v",calls,result,err)}
  if agentRetrySnapshot(s.Workspace,"local",id)!=nil{t.Fatal("progress state leaked")}
 }
@@ -163,8 +163,8 @@ func TestAgentUnlimitedStopsAtConfiguredOutputCap(t *testing.T){
   return agentchat.ResponsesResult{},&agentchat.ProviderError{Code:"RESPONSE_INCOMPLETE",ProviderErrorCode:"max_output_tokens",Retryable:true}
  }
  _,err,_=s.agentChatCallForOwner(context.Background(),"local",id,
-  agentchat.ProviderConfig{ID:"fake",Models:[]agentchat.ModelConfig{{ID:"model",MaxOutputTokens:4096}}},
-  "key",[]byte(`{"model":"model","max_output_tokens":4096}`))
+  agentchat.ProviderConfig{ID:"fake",APIType:"responses",Models:[]agentchat.ModelConfig{{ID:"model",MaxOutputTokens:4096}}},
+  "key",[]byte(`{"model":"model","store":false,"input":[{"role":"user","content":"original task"}],"max_output_tokens":4096}`))
  if err==nil||calls!=2{t.Fatalf("hard output cap must stop after one guided recovery: calls=%d err=%v",calls,err)}
 }
 
@@ -256,4 +256,33 @@ func TestAgentContextRecoveryRefusesStatefulReplay(t *testing.T){
  }{
   if _,ok:=agentRetryContextPayload([]byte(payload));ok{t.Fatal("stateful replay must not be rebuilt")}
  }
+}
+
+
+func TestAgentCLP20SmallContextRecoveryPreservesFullInput(t *testing.T){
+ history:=[]agentchat.HistoryItem{
+  {Type:"user",Content:"original objective"},
+  {Type:"function_call",CallID:"old-patch",Name:"taskdeck_submit_patch",Arguments:`{"name":"old","patch_python":"print(1)"}`},
+  {Type:"function_call_output",CallID:"old-patch",Content:`{"status":"PASS","run_id":"old-native"}`},
+  {Type:"function_call",CallID:"read",Name:"taskdeck_collect_workspace",Arguments:`{"actions":[{"type":"file","path":"a"}]}`},
+  {Type:"function_call_output",CallID:"read",Content:`{"status":"PASS","run_id":"current-native","text":"exact observation"}`},
+ }
+ body,err:=agentchat.BuildResponsesRequest(agentchat.RequestConfig{Model:"m",Mode:agentchat.Stateless,Instructions:"trusted policy",History:history[:4],Next:history[4:],MaxOutputTokens:32768,EnableCollectionTool:true})
+ if err!=nil{t.Fatal(err)}
+ reduced,ok:=agentRetryContextPayload(body)
+ if !ok{t.Fatal("output-only recovery refused")}
+ var old,now map[string]json.RawMessage
+ if json.Unmarshal(body,&old)!=nil||json.Unmarshal(reduced,&now)!=nil{t.Fatal("invalid request")}
+ if string(old["input"])!=string(now["input"])||string(now["max_output_tokens"])!="16384"{t.Fatal("small input should stay exact, output reservation should halve")}
+ for _,api:=range []string{"responses","chat_completions"}{
+  if _,err:=agentchat.MeasureProviderPayload(api,reduced);err!=nil{t.Fatal(err)}
+ }
+ s,id:=newAgentConversationFixture(t,"stateless")
+ store,err:=s.agentChatStore();if err!=nil{t.Fatal(err)}
+ x,err:=store.Get(id,"local");if err!=nil{t.Fatal(err)}
+ model:=agentchat.ModelConfig{ID:"m",MaxInputTokens:128000,MaxOutputTokens:32768}
+ p:=agentchat.ProviderConfig{ID:"p",APIType:"responses",Models:[]agentchat.ModelConfig{model}}
+ if !agentLearnContextRecovery(store,x,p,"key",body,reduced){t.Fatal("output hint not learned")}
+ effective,limit:=agentAdaptiveRequestBudget(store,x,p,model,"key",32768)
+ if effective.MaxInputTokens!=model.MaxInputTokens||limit!=16384{t.Fatal("output-only recovery falsely reduced input cap")}
 }

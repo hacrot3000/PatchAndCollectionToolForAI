@@ -309,24 +309,25 @@ func (s *Server) agentDeliverToolResult(ctx context.Context, store *agentchat.St
         }
     }
 	toolAvailable := model.ToolCalling && s.agentToolCapabilityVerified(owner, p, model)
-	instructions := agentChatInstructionsWithAutomation(x, toolAvailable, identity.Key)
-	instructions += s.agentRetireKnownFailedPatches(ctx, &x, identity, call.CallID)
+	instructions,currentInstructions := agentChatInstructionsWithAutomationParts(x, toolAvailable, identity.Key)
+	currentInstructions += s.agentRetireKnownFailedPatches(ctx, &x, identity, call.CallID)
 	failureProjection := s.agentFailureContextProjection(store, x, call.CallID, "")
 	reasoning:=agentProviderReasoningEffort(p,x.ReasoningEffort,model)
 	limit := agentInitialOutputBudget(model,reasoning,toolAvailable)
-	mode := agentContextRequestMode(x,p.APIType,s.agentConversationCapabilityVerified(owner,p,model))
+	currentContract := agentInstalledCollectionContract(s.Workspace)
+	mode := agentContextRequestMode(x,p.APIType,s.agentConversationCapabilityVerified(owner,p,model),currentContract)
 	if call.TextFallback || len(failureProjection.History)>len(x.History) {mode=agentchat.Stateless}
 	agentClearProviderRefsForStateless(&x,mode)
 	conversationID := x.ConversationID
 	contextModel := model
 	if mode==agentchat.Stateless{contextModel,limit=agentAdaptiveRequestBudget(store,x,p,model,string(secret),limit)}
-	payload, err := agentBuildContextRequest(failureProjection,contextModel,p,agentchat.RequestConfig{
-		Model: x.ModelID, Instructions: instructions,
+	payload, err := s.agentBuildCachedContextRequest(store,failureProjection,contextModel,p,string(secret),agentchat.RequestConfig{
+		Model: x.ModelID, Instructions: instructions, CurrentInstructions: currentInstructions,
 		Mode: mode, PreviousResponseID: x.PreviousResponseID, ConversationID: conversationID,
 		Next: next,
 		MaxOutputTokens: limit, ReasoningEffort: reasoning,
 		EnablePatchTool: toolAvailable, EnableCollectionTool: toolAvailable,
-		NativeCollectionContract: agentInstalledCollectionContract(s.Workspace),
+		NativeCollectionContract: currentContract,
 	})
 	if err != nil {
 		return agentDeliverResult{}, agentContinueError{413, "cannot format tool-result model request"}
@@ -345,7 +346,7 @@ func (s *Server) agentDeliverToolResult(ctx context.Context, store *agentchat.St
 	x.Status = "requesting_ai"
 	x.AppendEvent("feedback_prepared", "requesting_ai", call.CallID, "")
 	if err=prepareAgentProviderRun(store,&x,"feedback",call.CallID,p,model,payload);err!=nil{
-		return agentDeliverResult{},agentContinueError{409,"cannot persist prepared provider feedback"}
+		return agentDeliverResult{},agentContinueError{409,"cannot persist prepared provider feedback: "+s.agentPreparedFailure(x,"feedback",payload,err)}
 	}
 	x, err = store.Save(x, x.Revision)
     if err != nil {
@@ -418,6 +419,10 @@ for _,i:=range indices{x.ToolCalls[i].FeedbackStatus="acknowledged"}
 		if _,saveErr:=store.Save(x,x.Revision);saveErr!=nil{
 			s.recordAgentDebugEvent(owner,x.ID,call.CallID,"collection","collection.checkpoint_save_failed","COLLECTION_JOURNAL_WRITE_FAILED","Collection terminal checkpoint could not be persisted; use Cancel to reconcile the acknowledged local checkpoint")
 			return agentDeliverResult{},agentContinueError{409,"Collection terminal checkpoint could not be saved; inspect journal and cancel the interrupted local Collection"}
+		}
+		var local *agentCollectionLocalError
+		if code!=409 && errors.As(err,&local) && local.Stage=="collection_context_checkpoint"{
+			return agentDeliverResult{},agentContinueError{http.StatusRequestEntityTooLarge,agentCollectionContextCheckpointMessage}
 		}
 		return agentDeliverResult{}, agentContinueError{code, "Collection continuation after Patch result stopped; inspect the Agent journal"}
 	}

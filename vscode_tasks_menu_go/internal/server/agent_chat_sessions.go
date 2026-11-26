@@ -326,15 +326,31 @@ func (s *Server) agentChatSessionItemAPI(w http.ResponseWriter, r *http.Request)
  if recoveryState!=""&&(s.Config.SharedServerEnabled||s.agentConversationRequiresRunContinuation(item.Owner,id)||attemptErr!=nil){
   recoveryState="manual_review_required"
  }
+	// Poll through the gap between completed and the next Auto Continue.
+	// This is a read-only monitoring hint, not execution admission.
+	autoContinueMonitor:=false
+	if !s.Config.SharedServerEnabled && attemptErr==nil && item.Status=="completed" {
+		candidate:=item
+		if item.Continuation!=nil{
+			c:=*item.Continuation;c.NextRetryAt=nil;candidate.Continuation=&c
+		}
+		if item.TaskPlan!=nil{
+			p:=*item.TaskPlan;p.NextRetryAt=nil;candidate.TaskPlan=&p
+		}
+		autoContinueMonitor=(agentchat.StandaloneAutoContinueCandidate(candidate)||agentchat.TaskPlanAutoContinueCandidate(candidate))&&
+			!s.agentConversationRequiresRunContinuation(item.Owner,id)
+	}
 	// The API currently exposes a transcript only to its authenticated owner.
 	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, http.StatusOK, map[string]any{"session": item, "execution_enabled": false,
 		"retry_runtime": agentRetrySnapshot(s.Workspace,aiPlanOwner(r),id),
+		"live_preview": agentLivePreviewForSession(s.Workspace, item),
 		"provider_review": review,
 		"collection_resume_eligible": resumeEligible,
 		"collection_progress": agentchat.CollectionProgressViewForSession(item),
 		"collection_auto_recovery": recoveryState,
 		"auto_feedback_diagnostic":agentAutoFeedbackDiagnostic(item),
+		"auto_continue_monitor":autoContinueMonitor,
   "provider_attempts":attempts,
   "provider_attempts_integrity_error":attemptErr!=nil,
 		"patch_tool_status": s.agentPatchToolStatus(aiPlanOwner(r), item.ProviderID, item.ModelID)})
@@ -534,8 +550,63 @@ func (s *Server) agentChatSessionCancelAPI(w http.ResponseWriter, r *http.Reques
 			unlock()
 		}
 	}
-	// A tool call that already left the proposal stage cannot be declared
-	// cancelled from here; the native Patch session owns that execution.
+	// Cancel may also explicitly request Stop for a linked Legacy native
+	// Patch. Reconcile first; never cancel by rewriting a live result.
+	if !cancelled && r.URL.Query().Get("stop_native")=="1" {
+		if owner!="local"||s.Config.SharedServerEnabled {
+			http.Error(w,"Native Agent Stop is local-only; use the authorized native Patch console",403);return
+		}
+		unlock,acquired:=lockAgentTurn(s.Workspace,owner,id)
+		if !acquired{http.Error(w,"Agent conversation is busy; retry Stop",409);return}
+		defer unlock()
+		fresh,e:=store.Get(id,owner)
+		if e!=nil||fresh.Workspace!=s.Workspace||fresh.Archived||s.agentConversationRequiresRunContinuation(owner,id){
+			http.Error(w,"Native Agent Stop requires the current Legacy conversation",409);return
+		}
+		identity,e:=patchtool.ReadProjectIdentity(s.Workspace)
+		if e!=nil||identity.ID!=fresh.ProjectID{http.Error(w,"project identity mismatch",409);return}
+		idx:=-1
+		for i,c:=range fresh.ToolCalls {
+			switch c.Status {
+			case "queuing","queued","dispatching","running","unknown":
+				if idx!=-1||c.Name!="taskdeck_submit_patch"||c.AgentRunID!=""||c.FeedbackSent {
+					http.Error(w,"ambiguous native Patch ownership; inspect native console",409);return
+				}
+				idx=i
+			}
+		}
+		if idx<0{writeJSON(w,200,map[string]any{"cancelled":false,"note":"No unresolved native Patch remains. Refresh conversation."});return}
+		call:=fresh.ToolCalls[idx]
+		view:=agentToolReconcileView{Record:call}
+		s.agentReconcilePatchRecord(&view)
+		if view.Changed {
+			fresh.ToolCalls[idx]=view.Record
+			if view.Record.Status=="done"||view.Record.Status=="error"{fresh.Status="waiting_tool"}else{fresh.Status="tool_unknown"}
+			fresh.AppendEvent("tool_recovered",view.Record.Status,call.CallID,"user_stop_reconcile")
+			fresh,e=store.Save(fresh,fresh.Revision)
+			if e!=nil{http.Error(w,"Cannot persist native reconciliation",409);return}
+			call=view.Record
+		}
+		if call.Status=="done"||call.Status=="error"{
+			writeJSON(w,200,map[string]any{"cancelled":false,"status":fresh.Status,"note":"Native Patch already has a verified terminal outcome. Send that result to AI; no execution was stopped or repeated."});return
+		}
+		if s.Sessions==nil||call.PatchSessionID==""{http.Error(w,"Native session unavailable; execution outcome unverified. Inspect exact Patch History.",409);return}
+		meta,exists:=s.Sessions.Metadata(call.PatchSessionID)
+		if !exists||meta.Status=="exited"||meta.Status=="stopped"{
+			writeJSON(w,200,map[string]any{"cancelled":false,"status":fresh.Status,"note":"Native session is no longer active or available; final outcome remains UNKNOWN. No result was fabricated. Inspect the exact Patch History."});return
+		}
+		if meta.Status!="running"||filepath.Clean(meta.Cwd)!=filepath.Clean(s.Workspace)||
+			(!strings.EqualFold(meta.Kind,"patch")&&!strings.HasPrefix(meta.Label,"Patch Tool"))||
+			(meta.ProjectID!=""&&meta.ProjectID!=fresh.ProjectID){
+			http.Error(w,"Linked native session identity or liveness could not be verified",409);return
+		}
+		if !s.agentNativeStopMatches(call){http.Error(w,"Exact native selection could not be verified; use the linked native console",409);return}
+		if e=s.Sessions.Stop(call.PatchSessionID);e!=nil{http.Error(w,"Native Stop request failed; inspect linked console",409);return}
+		fresh.AppendEvent("tool_stop_requested",fresh.Status,call.CallID,"user_stop_native")
+		if _,e=store.Save(fresh,fresh.Revision);e!=nil{http.Error(w,"Native Stop requested, journal update failed; inspect linked console",409);return}
+		writeJSON(w,200,map[string]any{"cancelled":false,"native_stop_requested":true,"status":fresh.Status,"note":"Stop requested for the exact native Patch session. Waiting for terminal native evidence; no Patch result was fabricated or replayed."});return
+	}
+	// Without explicit native Stop, cancellation affects the provider only.
 	unresolved := false
 	for _, call := range x.ToolCalls {
 		switch call.Status {
@@ -700,15 +771,12 @@ func (s *Server) agentChatAutoFeedbackAPI(w http.ResponseWriter, r *http.Request
 		http.Error(w, "stale session revision", 409)
 		return
 	}
-	x.AutoFeedback = req.Enabled
-	x.AutoFeedbackPersistent = false // legacy endpoint grants only a time-bounded lease
+	var until *time.Time
 	if req.Enabled {
-		until := time.Now().UTC().Add(agentAutoFeedbackMaxAge)
-		x.AutoFeedbackUntil = &until
-	} else {
-		x.AutoFeedbackUntil = nil
+		deadline := time.Now().UTC().Add(agentAutoFeedbackMaxAge)
+		until = &deadline
 	}
-	x, err = store.Save(x, x.Revision)
+	x, err = store.UpdateLegacyAutoFeedback(id, owner, s.Workspace, req.ExpectedRevision, req.Enabled, until)
 	if err != nil {
 		http.Error(w, "cannot persist auto-feedback consent", 409)
 		return

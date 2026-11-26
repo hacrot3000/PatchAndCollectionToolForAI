@@ -147,3 +147,23 @@ func TestAgentStandaloneContinuationAfterClippedMilestoneAnnouncement(t *testing
  s.autoContinueConversationOne(context.Background(),store,id)
  if calls!=1{t.Fatal("completion claim scheduled an extra request")}
 }
+
+func TestAgentStandaloneLegacyUnknownLongProgressContinuesDirectly(t *testing.T){
+ s,store,id:=newStandaloneAutoContinueFixture(t)
+ x,err:=store.Get(id,"local");if err!=nil{t.Fatal(err)}
+ x.AutoContinueText=true
+ action:=strings.Repeat("kiểm tra dữ liệu production và backup; ",20)+"continue exact next record"
+ raw:=fmt.Sprintf("{\"status\":\"NEEDS_CONTINUATION\",\"next_action\":%q}",action)
+ text:="Report.\n\x60\x60\x60taskdeck-progress\n"+raw+"\n\x60\x60\x60"
+ x.History=append(x.History,agentchat.HistoryItem{Type:"assistant",Content:text})
+ x.Continuation=&agentchat.TurnContinuation{Disposition:agentchat.TurnUnknown,Reason:"unknown_model_turn",ResponseDigest:agentchat.ProviderPayloadDigest([]byte(text))}
+ if _,err=store.Save(x,x.Revision);err!=nil{t.Fatal(err)}
+ calls:=0
+ s.AgentChatCall=func(_ context.Context,_ agentchat.ProviderConfig,_ string,payload []byte)(agentchat.ResponsesResult,error){
+  calls++
+  if !strings.Contains(string(payload),"continue exact next record")||strings.Contains(string(payload),"TaskDeck user-authorized task status check"){t.Fatal("valid long progress must continue directly")}
+  return agentchat.ResponsesResult{ResponseID:"done-long-progress",Text:"Task complete: all work done."},nil
+ }
+ s.autoContinueConversationOne(context.Background(),store,id)
+ if calls!=1{t.Fatalf("reclassified legacy continuation did not run: %d",calls)}
+}

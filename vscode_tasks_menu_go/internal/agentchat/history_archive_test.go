@@ -93,7 +93,7 @@ func TestCurrentTextCollectionFallbackArchivesWithoutLosingHumanMessages(t *test
  x,err:=NewSession("local","/project","id","provider","model",Stateless);if err!=nil{t.Fatal(err)}
  x.History=[]HistoryItem{{Type:"user",Content:"Original task"}}
  x,err=store.Save(x,0);if err!=nil{t.Fatal(err)}
- for i:=0;i<90;i++{
+ for i:=0;i<140;i++{
   x.History=append(x.History,HistoryItem{Type:"assistant",Content:`{"project":{"key":"p","id":"id"},"actions":[{"type":"file","path":"a"}]}`},HistoryItem{Type:"user",Content:NativeCollectionTextObservationPrefix+`{"status":"INCOMPLETE","sequence":`+fmt.Sprint(i)+`}`})
   if i==5{x.History=append(x.History,HistoryItem{Type:"user",Content:"A real owner instruction: preserve this"})}
   x,err=store.Save(x,x.Revision);if err!=nil{t.Fatal(err)}
@@ -105,7 +105,7 @@ func TestCurrentTextCollectionFallbackArchivesWithoutLosingHumanMessages(t *test
   items,err:=store.ArchivedCollectionHistory(x.ID,x.Owner,i);if err!=nil{t.Fatal(err)}
   for _,it:=range items{if strings.HasPrefix(it.Content,NativeCollectionTextObservationPrefix){total++}}
  }
- if total!=90||!strings.Contains(fmt.Sprint(x.History),"A real owner instruction: preserve this"){t.Fatal("fallback receipt or owner goal lost")}
+ if total!=140||!strings.Contains(fmt.Sprint(x.History),"A real owner instruction: preserve this"){t.Fatal("fallback receipt or owner goal lost")}
 }
 
 
@@ -150,4 +150,17 @@ func TestArchiveStandaloneContinuationsAtLegacyHistoryLimit(t *testing.T){
   x.History=append(x.History,HistoryItem{Type:"user",Content:template(i)})
   x,err=store.Save(x,x.Revision);if err!=nil{t.Fatalf("continuation %d: %v",i,err)}
  }
+}
+
+func TestHistoryArchiveRetainsFullHistoryBelowActualLimits(t *testing.T){
+ store,err:=NewStore(filepath.Join(t.TempDir(),"private"));if err!=nil{t.Fatal(err)}
+ x,err:=NewSession("local","/project","id","provider","model",Stateless);if err!=nil{t.Fatal(err)}
+ x.History=[]HistoryItem{{Type:"user",Content:"Original goal"}}
+ for i:=0;i<85;i++{
+  id:=fmt.Sprintf("read-%d",i)
+  x.History=append(x.History,HistoryItem{Type:"function_call",Name:"taskdeck_collect_workspace",CallID:id,Arguments:"{}"},HistoryItem{Type:"function_call_output",CallID:id,Content:strings.Repeat("verified source ",1400)})
+ }
+ expected:=len(x.History)
+ x,err=store.Save(x,0);if err!=nil{t.Fatal(err)}
+ if len(x.History)!=expected||x.HistoryArchiveParts!=0{t.Fatalf("premature archive: %d/%d parts=%d",len(x.History),expected,x.HistoryArchiveParts)}
 }

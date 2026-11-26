@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"errors"
+ "fmt"
 
 	"bletonfc/vscode_tasks_menu/internal/agentchat"
 	"bletonfc/vscode_tasks_menu/internal/agentrun"
@@ -132,4 +133,53 @@ func (s *Server) NewAgentRunProviderRouter(owner string, options agentchat.Provi
 		}
 	}
 	return router, nil
+}
+
+
+// Unified uses a domain-separated namespace for output-only hints: Legacy's
+// input estimate and Unified's conservative byte admission are not equivalent.
+// Scope is the authoritative owner/project/conversation, exact execution
+// workspace, provider/model version and verified credential fingerprint.
+// The existing private bounded TTL store provides integrity and expiry.
+func(r ownerAgentRunProviderResolver) outputHintScope(ctx context.Context,spec agentchat.RunSpec,resolved agentchat.ResolvedProvider)(*agentchat.Store,agentchat.Session,string,bool){
+ if ctx.Err()!=nil||r.server==nil||r.owner==""||spec.CredentialFingerprint==""||
+  resolved.Config.ID!=spec.ProviderID||resolved.ConfigVersion!=spec.ProviderConfigVersion||
+  resolved.CredentialFingerprint!=spec.CredentialFingerprint||
+  agentchat.RunCredentialFingerprint([]byte(resolved.Credential))!=spec.CredentialFingerprint{return nil,agentchat.Session{},"",false}
+ inputs,err:=r.server.ResolveAgentRunInputs(agentrun.WithPrincipalOwner(ctx,r.owner),spec)
+ if err!=nil{return nil,agentchat.Session{},"",false}
+ store,err:=r.server.agentChatStore();if err!=nil{return nil,agentchat.Session{},"",false}
+ x,err:=store.Get(spec.ConversationID,r.owner)
+ if err!=nil||x.ProjectID!=inputs.ProjectID{return nil,agentchat.Session{},"",false}
+ version:=agentchat.BodyDigest([]byte("taskdeck-unified-output-hint-v1\x00"+spec.ExecutionWorkspaceID+"\x00"+spec.ProviderConfigVersion))
+ return store,x,version,true
+}
+
+func(r ownerAgentRunProviderResolver) OutputBudgetHint(ctx context.Context,spec agentchat.RunSpec,resolved agentchat.ResolvedProvider)int{
+ store,x,version,ok:=r.outputHintScope(ctx,spec,resolved);if !ok{return 0}
+ hint,found,err:=store.AdaptiveBudgetHint(x,version,spec.CredentialFingerprint)
+ if err!=nil||!found{return 0}
+ return hint.Output
+}
+
+func(r ownerAgentRunProviderResolver) RememberOutputBudgetHint(ctx context.Context,spec agentchat.RunSpec,resolved agentchat.ResolvedProvider,output int){
+ if output<8192||output>200000{return}
+ store,x,version,ok:=r.outputHintScope(ctx,spec,resolved);if !ok||ctx.Err()!=nil{return}
+ // Input is not used in this domain. Keep the existing store format and
+ // its minimum valid input marker; never interpret it as an input limit.
+ _=store.RememberAdaptiveBudgetHint(x,version,spec.CredentialFingerprint,4096,output)
+}
+
+
+// Keep each Unified attempt in a separate owner-bound safe trace so concurrent
+// runs in the same conversation cannot attach diagnostics to the wrong run.
+// No raw capture, secrets, prompt, tool arguments or response are supplied.
+func(r ownerAgentRunProviderResolver) ObserveProviderAttempt(spec agentchat.RunSpec,attempt int,m agentchat.ProviderPayloadMeasurement,digest string,outcome agentchat.ProviderAttemptOutcome){
+ if r.server==nil||r.owner==""||attempt<=0||m.CanonicalBytes<=0{return}
+ recorder,_:=r.server.startAgentDebug(r.owner,"unified_provider_attempt",spec.ConversationID,agentchat.ProviderConfig{ID:spec.ProviderID},spec.ModelID)
+ recorder.RecordProviderDiagnostic(agentchat.DiagnosticEvent{
+  Level:"info",Stage:"provider_retry",Event:"payload.budget",ProviderID:spec.ProviderID,ModelID:spec.ModelID,
+  RequestBytes:m.CanonicalBytes,RequestSHA256:digest,
+  SafeMessage:fmt.Sprintf("run=%s attempt=%d outcome=%s canonical_bytes=%d wire_template_bytes=%d estimated_input_tokens=%d output_budget=%d instruction_bytes=%d input_bytes=%d tools_bytes=%d other_bytes=%d stateful=%t",spec.RunID,attempt,outcome,m.CanonicalBytes,m.WireBytes,m.EstimatedInputTokens,m.OutputBudget,m.InstructionsBytes,m.InputBytes,m.ToolsBytes,m.OtherBytes,m.Stateful),
+ })
 }

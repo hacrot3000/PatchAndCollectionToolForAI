@@ -135,7 +135,7 @@ func latestAgentRunID(records []agentrun.Record, conversationID string) string {
 	return latest.Spec.RunID
 }
 
-func (s *Server) completedAgentRuns(owner, conversationID string) ([]agentrun.Record, error) {
+func (s *Server) agentRunRecords(owner string) ([]agentrun.Record,error) {
 	if s == nil {
 		return nil, nil
 	}
@@ -155,6 +155,12 @@ func (s *Server) completedAgentRuns(owner, conversationID string) ([]agentrun.Re
 			return nil, err
 		}
 	}
+	return records,nil
+}
+
+func (s *Server) completedAgentRuns(owner, conversationID string) ([]agentrun.Record, error) {
+ records,err:=s.agentRunRecords(owner)
+ if err!=nil{return nil,err}
 	filtered := make([]agentrun.Record, 0, len(records))
 	for _, record := range records {
 		if record.Spec.ConversationID == conversationID {

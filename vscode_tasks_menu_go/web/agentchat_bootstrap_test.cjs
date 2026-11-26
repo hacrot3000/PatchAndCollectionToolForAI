@@ -192,6 +192,15 @@ assert.equal(fold.open,false,'a different conversation starts collapsed');
 vm.runInNewContext('renderAgentStatusDetails(null)',context);
 assert.equal(fold.hidden,true,'no status disclosure without a selected conversation');
 
+// Display the historical request's immutable selection, not the current
+// composer selection. Format the saved timestamp in browser-local HH:MM.
+const historicalRequest={type:'user',content:'old request',provider_id:'recorded-provider',model_id:'gpt-6.1-sol',request_effort:'xhigh',request_context:'stateless',request_input_tokens:68200,request_at:new Date(2026,10,26,9,37).toISOString()};
+context.historicalRequest=historicalRequest;
+assert.equal(vm.runInNewContext("agentRequestBadgeText(historicalRequest,{provider_id:'changed-provider',model_id:'changed-model',reasoning_effort:'low',mode:'conversation'})",context),'recorded-provider · gpt-6.1-sol · Extra High · Stateless · ≈ 68,200 input tokens · 09:37');
+assert.equal(vm.runInNewContext("agentRequestBadgeText({provider_id:'recorded-provider',model_id:'old-model'},{reasoning_effort:'high',mode:'conversation'})",context),'recorded-provider · old-model','old records must not acquire invented request metadata');
+assert.equal(vm.runInNewContext("agentRequestClock('invalid')",context),'');
+assert.equal(vm.runInNewContext("agentHistoryItemEqual(historicalRequest,{...historicalRequest,request_effort:'medium'})",context),false,'poll must redraw metadata changes');
+assert.equal(vm.runInNewContext("agentHistoryItemEqual(historicalRequest,{...historicalRequest})",context),true);
 // Composer remains a single action row, with an independent one-line footer.
 const composerParts=vm.runInNewContext('({composer,actionLine,composerButtons,agentRunSelectorMount,cancel,send,footer,status,sessionStatus,prompt})',context);
 assert.deepEqual(composerParts.actionLine.children,[composerParts.agentRunSelectorMount,composerParts.composerButtons]);
@@ -199,7 +208,7 @@ assert.deepEqual(composerParts.composerButtons.children,[composerParts.cancel,co
 assert.deepEqual(composerParts.footer.children,[composerParts.status,composerParts.sessionStatus]);
 assert.ok(source.includes('text-overflow:ellipsis;white-space:nowrap'));
 assert.ok(source.includes('flex-wrap:nowrap;overflow-x:auto'));
-vm.runInNewContext("updateAgentFooterSession({id:'5764cb35-test',status:'requesting_ai',revision:135,auto_feedback:true},null)",context);
+vm.runInNewContext("updateAgentFooterSession({id:'5764cb35-test',status:'requesting_ai',revision:135,auto_feedback:true,auto_feedback_persistent:true},null)",context);
 assert.match(composerParts.status.textContent,/AI request is running on the server/);
 assert.match(composerParts.sessionStatus.textContent,/Session 5764cb35 · requesting_ai · revision 135 · auto-send ON/);
 assert.equal(composerParts.status.hidden,false);
@@ -207,7 +216,7 @@ assert.equal(composerParts.sessionStatus.hidden,true);
 vm.runInNewContext('rotateAgentFooter()',context);
 assert.equal(composerParts.status.hidden,true);
 assert.equal(composerParts.sessionStatus.hidden,false);
-vm.runInNewContext("updateAgentFooterSession({id:'5764cb35-test',status:'requesting_ai',revision:136,auto_feedback:true},null)",context);
+vm.runInNewContext("updateAgentFooterSession({id:'5764cb35-test',status:'requesting_ai',revision:136,auto_feedback:true,auto_feedback_persistent:true},null)",context);
 assert.equal(composerParts.status.hidden,true,'revision-only poll does not restart rotation');
 assert.match(composerParts.sessionStatus.textContent,/revision 136/);
 vm.runInNewContext('rotateAgentFooter()',context);
@@ -345,7 +354,26 @@ assert.ok(replyCopy,'every AI answer needs a Copy button for the entire reply');
 replyCopy.onclick();
 assert.equal(copiedMessages.at(-1),completeReply,
  'reply Copy must include the whole original Markdown and all fenced code, not only rendered text');
-console.log('PASS: outgoing five-line fold/toggle, full AI replies, entire-message Copy and hidden attachment boundary');
+const progressJSON='{"status":"IN_PROGRESS","next_action":"Read more"}';
+const progressFence='\x60\x60\x60taskdeck-progress\n'+progressJSON+'\n\x60\x60\x60';
+const rawWithProgress='<think>Visible thinking</think>\n'+completeReply+'\n\n'+progressFence;
+const progressRow=vm.runInNewContext("agentMessageBubble('assistant',"+JSON.stringify(rawWithProgress)+")",context);
+copyControl(progressRow).onclick();
+assert.equal(copiedMessages.at(-1),completeReply,'Main Copy excludes thinking and progress, preserves Markdown/code');
+const progressBlock=find(progressRow,n=>n.className==='agentchat-code-block'&&nodeText(n).includes(progressJSON));
+assert.ok(progressBlock,'Progress block remains visible');
+const progressCopy=find(progressBlock,n=>n.className==='agentchat-code-copy');
+assert.ok(progressCopy,'Progress retains independent Copy');
+progressCopy.onclick();
+assert.equal(copiedMessages.at(-1),progressJSON);
+const nestedProgress='\x60\x60\x60\x60markdown\n'+progressFence+'\n\x60\x60\x60\x60';
+assert.equal(vm.runInNewContext('agentCopyAnswer('+JSON.stringify(nestedProgress)+')',context),nestedProgress,'Preserve examples inside a larger ordinary code fence');
+assert.equal(vm.runInNewContext('agentCopyAnswer('+JSON.stringify('Answer\r\n\r\n~~~taskdeck-progress\r\n'+progressJSON+'\r\n~~~')+')',context),'Answer');
+assert.equal(vm.runInNewContext("agentCopyAnswer('<think>unfinished')",context),'');
+const userProgress=vm.runInNewContext("agentMessageBubble('user',"+JSON.stringify(rawWithProgress)+")",context);
+copyControl(userProgress).onclick();
+assert.equal(copiedMessages.at(-1),rawWithProgress,'User Copy must not strip literal input');
+console.log('PASS: outgoing five-line fold/toggle, full AI replies, filtered main Copy and independent metadata Copy');
 
 const sessionsButton = find(windowBox, node => node.textContent === 'History ▾');
 const sessionsList = find(windowBox, node => node.id === 'agentchat-saved-sessions');
@@ -427,7 +455,7 @@ assert.ok(renameDialog?.parentElement?.classList.contains('visible'),'rename mus
 const renameInput=find(renameDialog,node=>node.attributes?.['aria-label']==='Conversation name');
 assert.equal(renameInput?.value,'Old conversation','rename editor must use saved title even while Agent is busy');
 assert.equal(vm.runInNewContext('rename.disabled',context),false,'Conversation > Rename must stay enabled during an Agent turn');
-vm.runInNewContext('closeAgentRename();markAgentSessionBusy("deleted-view-only",false);agentActive=null;agentSessions=[];updateAgentSessionRows();autoFeedback.textContent="Auto-send results"', context);
+vm.runInNewContext('closeAgentRename();markAgentSessionBusy("deleted-view-only",false);agentActive=null;agentSessions=[];updateAgentSessionRows();renderAgentAutomationControls(null)', context);
 const collectLabels = node => [node.textContent, ...node.children.flatMap(collectLabels)];
 const labels = collectLabels(heading);
 const moreButton = heading.children.find(child => child.textContent === '⋯');
@@ -487,12 +515,12 @@ resizeObserver.callback();
 assert.equal(moreMenu.children.length,0,'wide toolbar restores all actions');
 assert.equal(moreButton.hidden,true,'More hides again after resizing back to wide');
 for (const label of ['AI Agent Chat', 'Bottom', 'Auto Hide', '⋯', 'Hide', '+ New session', 'Preview context',
-  'Rename', 'Archive', 'Delete conversation', 'Refresh', '+ File', 'Auto-send results',
+  'Rename', 'Archive', 'Delete conversation', 'Refresh', '+ File', 'Auto-send results: OFF',
   'Auto apply Patch: OFF', 'Auto Collection: ON', 'Conversation ▾', 'Automation ▾', 'Tools ▾', 'Layout ▾']) {
   assert.ok(labels.includes(label), 'Agent Chat control missing at runtime: ' + label);
 }
 for (const label of ['Bottom', 'Auto Hide', '⋯', 'Hide', '+ New session', 'Preview context',
-  'Rename', 'Archive', 'Delete conversation', 'Refresh', '+ File', 'Auto-send results',
+  'Rename', 'Archive', 'Delete conversation', 'Refresh', '+ File', 'Auto-send results: OFF',
   'Auto apply Patch: OFF', 'Auto Collection: ON']) {
   assert.equal(labels.filter(value => value === label).length, 1, 'Control duplicated: ' + label);
 }
@@ -646,6 +674,24 @@ console.log('PASS: safe Markdown, syntax-highlighted PHP/Python, per-block Copy,
   vm.runInNewContext('agentPendingAttachments.splice(0)', context);
   const oversized = await context.TaskMenuAgentChat.stageContext({kind:'file',name:'big.txt',mime:'text/plain',text:'x'.repeat(40 * 1024)}, {open:false});
   assert.equal(oversized.ok, false, 'Oversized attachment is rejected without truncation');
+  // Long clipboard text becomes exact, local, removable draft attachments.
+  vm.runInNewContext("agentPendingAttachments.splice(0);setAgentPromptValue('Inspect: ')",context);
+  const pastePrompt=vm.runInNewContext('prompt',context);
+  const paste=(text)=>{let prevented=false;for(const listener of pastePrompt.listeners.paste||[])listener({clipboardData:{getData:()=>text},preventDefault(){prevented=true;}});return prevented;};
+  assert.equal(paste('small text'),false,'Short paste uses normal browser behavior');
+  const longPaste='Tiếng Việt 🚲\n'.repeat(2500);
+  assert.equal(paste(longPaste),true,'Large paste becomes staged attachment(s)');
+  assert.equal(pastePrompt.value,'Inspect: ','Typed request must be preserved');
+  assert.equal(vm.runInNewContext("agentPendingAttachments.map(a=>a.rawText).join('')",context),longPaste,'No Unicode or clipboard content lost across parts');
+  assert.equal(vm.runInNewContext("agentPendingAttachments.every(a=>a.kind==='pasted_text'&&a.name.endsWith('.txt'))",context),true);
+  assert.equal(vm.runInNewContext("agentMessageWithPastedAttachments('',agentPendingAttachments)",context),'Please process the pasted text in the attached file(s) as my request, subject to TaskDeck rules.');
+  const stagedBefore=vm.runInNewContext('agentPendingAttachments.length',context);
+  assert.equal(paste('x'.repeat(70*1024)),false,'Over-limit paste must not be consumed');
+  assert.equal(vm.runInNewContext('agentPendingAttachments.length',context),stagedBefore,'Failed staging is atomic');
+  assert.equal(pastePrompt.value,'Inspect: ');
+  vm.runInNewContext("agentPendingAttachments.splice(0);setAgentPromptValue('');renderAgentAttachments()",context);
+  assert.equal(vm.runInNewContext("agentMessageWithPastedAttachments('',agentPendingAttachments)",context),'','Removed paste cannot generate a phantom message');
+  console.log('PASS: long clipboard paste becomes lossless UTF-8 attachment drafts; overflow keeps browser paste');
   const selection = await vm.runInNewContext(`editorSelectionContexts({
     closed:false, dirty:true, file:{path:'src/app/main.go'},
     cm:{state:{doc:{
@@ -1049,7 +1095,7 @@ console.log('PASS: safe Markdown, syntax-highlighted PHP/Python, per-block Copy,
   assert.deepEqual(requests,['/api/agent/sessions/test-session/sync']);
   assert.equal(vm.runInNewContext('agentPatchSyncInFlight.size',context),0,
     'poll in-flight guard must release after a conflicting request');
-  const awaitingFeedback={...edited,status:'waiting_tool',auto_feedback:true,
+  const awaitingFeedback={...edited,status:'waiting_tool',auto_feedback:true,auto_feedback_persistent:true,
     tool_calls:[{call_id:'queued-result',status:'done',feedback_sent:false}]};
   const readyMessage=vm.runInNewContext('agentLivePhase(readySyncSnapshot).message',
     Object.assign(context,{readySyncSnapshot:awaitingFeedback}));
@@ -1169,6 +1215,107 @@ console.log('PASS: safe Markdown, syntax-highlighted PHP/Python, per-block Copy,
   assert.equal(transcript.children.filter(x=>x.className==='agentchat-activity error').length,1,
     'journal polling must not repeat the same failure event');
   console.log('PASS: optimistic user send, Sending→Thinking→Collection progress, tool history and durable failure');
+
+  // A second manual Send can race server-owned Auto Continue. A 409 from
+  // that action must not replace the live request with a red failure row.
+  context.flowSession={...baseFlow,status:'ready',revision:6,event_seq:5,history:[{type:'user',content:'Original task'}]};
+  vm.runInNewContext("displayAgentSession(flowSession);prompt.value='Manual instruction';",context);
+  const beforeRefusal=transcript.children.length;
+  context.TaskMenuApp.jsonFetch=async(url)=>{
+    if(url.endsWith('/messages')){
+      context.flowSession={...context.flowSession,status:'requesting_ai',revision:7,event_seq:7,
+        history:[...context.flowSession.history,{type:'user',content:'Auto Continue'}],
+        events:[{seq:6,kind:'turn_started',status:'requesting_ai'},{seq:7,kind:'provider_egress',status:'requesting_ai'}]};
+      const e=new Error('another model turn is running in this session');e.httpStatus=409;throw e;
+    }
+    if(url.endsWith('/sessions/natural-flow'))return {session:context.flowSession,patch_tool_status:'enabled'};
+    throw Error('unexpected admission test '+url);
+  };
+  await assert.rejects(vm.runInNewContext('sendAgentMessage()',context),/another model turn/);
+  assert.equal(vm.runInNewContext('prompt.value',context),'Manual instruction','refused message remains a draft');
+  assert.equal(vm.runInNewContext("agentLiveTurns.has('natural-flow')",context),false,'refused action must not own the live row');
+  assert.equal(liveLine.className,'agentchat-live-status thinking');
+  assert.equal(liveLine.children[1].textContent,'Thinking…');
+  assert.equal(vm.runInNewContext('send.disabled',context),true,'finally must not enable Send while server still works');
+  assert.equal(vm.runInNewContext('cancel.disabled',context),false,'Cancel remains available for server-owned request');
+  assert.ok(!nodeText(transcript).includes('Not confirmed sent'),'confirmed refusal is not a chat message');
+  // A real transport error is still visible when no other request runs.
+  vm.runInNewContext("agentLiveTurns.set('natural-flow',{error:'network unavailable',phase:'sending',baseEventSeq:7})",context);
+  assert.equal(vm.runInNewContext('agentLivePhase(flowSession).message',context),'Thinking…','server activity takes precedence even for an ambiguous local failure');
+  assert.equal(vm.runInNewContext("agentLivePhase({...flowSession,status:'ready'}).error",context),true,'idle transport failure is not hidden');
+  assert.equal(vm.runInNewContext("agentTurnAdmissionBusy({httpStatus:409,message:'unrelated revision conflict'})",context),false);
+  vm.runInNewContext("agentLiveTurns.clear();prompt.value='';agentDrafts.delete('natural-flow');",context);
+  context.flowSession={...context.flowSession,status:'completed',revision:8,event_seq:8};
+  vm.runInNewContext('displayAgentSession(flowSession);markAgentSessionBusy(flowSession.id,false)',context);
+  assert.equal(vm.runInNewContext('send.disabled',context),false);
+  assert.equal(transcript.children.filter(n=>n.className.startsWith('agentchat-live-status')).length,0,'completion removes stale live status');
+  console.log('PASS: concurrent Auto Continue admission refusal preserves draft and canonical Thinking status');
+
+  // A completed snapshot can precede the background coordinator's next
+  // admission by seconds. Keep polling GET across that gap, never POST sync.
+  context.flowSession={...context.flowSession,status:'completed',auto_continue_monitor:true};
+  assert.equal(vm.runInNewContext('agentMonitorNeedsWork(flowSession)',context),true);
+  assert.equal(vm.runInNewContext("agentMonitorNeedsWork({...flowSession,auto_continue_monitor:false})",context),false);
+  const beforeAutoTimer=context.setTimeout;
+  let autoPoll;
+  const autoPollRequests=[];
+  context.setTimeout=(cb)=>{autoPoll=cb;return 42;};
+  context.TaskMenuApp.jsonFetch=async url=>{
+    autoPollRequests.push(url);
+    if(url.endsWith('/sessions/natural-flow'))return {session:{...context.flowSession,status:'requesting_ai',revision:9,event_seq:9,events:[{seq:9,kind:'provider_egress',status:'requesting_ai'}]},patch_tool_status:'enabled',auto_continue_monitor:false};
+    throw Error('unexpected Auto Continue gap request '+url);
+  };
+  vm.runInNewContext("displayAgentSession(flowSession);root.classList.add('visible');scheduleAgentMonitor(flowSession)",context);
+  assert.equal(typeof autoPoll,'function','completed Auto Continue gap must arm monitor');
+  await autoPoll();
+  assert.deepEqual(autoPollRequests,['/api/agent/sessions/natural-flow']);
+  assert.equal(liveLine.children[1].textContent,'Thinking…','next background turn appears without page reload');
+  assert.equal(vm.runInNewContext("agentThinkingParts('<think>Inspecting</think>Answer').thinking",context),'Inspecting');
+  assert.equal(vm.runInNewContext("agentThinkingParts('<think>Inspecting</think>Answer').answer",context),'Answer');
+  assert.equal(vm.runInNewContext("agentThinkingParts('Example: <think>literal</think>').thinking",context),null);
+  const liveThink=vm.runInNewContext("agentMessageBubble('assistant','<think>Inspecting</think>Answer')",context);
+  assert.ok(find(liveThink,node=>node.className==='agentchat-thinking-content'),'visible thinking has its own styled block');
+  vm.runInNewContext("agentUpdateLiveRow({...agentCurrentSession,status:'requesting_ai',live_preview:{streaming:true,request_id:'preview-test',text:'<think>partial inspection'}})",context);
+  assert.equal(vm.runInNewContext('agentLivePreview.hidden',context),false,'preview renders before completion');
+  assert.ok(nodeText(vm.runInNewContext('agentLivePreview',context)).includes('partial inspection'));
+  const thinkingLong=Array.from({length:12},(_,i)=>'Thinking line '+(i+1)).join('\n');
+  context.thinkingLong=thinkingLong;
+  const thinkingRow=vm.runInNewContext("agentMessageBubble('assistant','<think>'+thinkingLong+'</think>Final answer stays visible')",context);
+  const thinkingBody=find(thinkingRow,n=>n.className==='agentchat-thinking-body');
+  const thinkingText=find(thinkingRow,n=>n.className==='agentchat-thinking-text');
+  const thinkingToggle=find(thinkingRow,n=>n.className==='agentchat-thinking-toggle');
+  assert.ok(thinkingBody.classList.contains('is-collapsed'),'Thinking initially shows tail');
+  assert.equal(thinkingText.textContent,thinkingLong,'Folding retains exact full thinking text');
+  assert.equal(thinkingToggle.hidden,false);
+  assert.equal(thinkingToggle.getAttribute('aria-expanded'),'false');
+  thinkingToggle.onclick();
+  assert.equal(thinkingBody.classList.contains('is-collapsed'),false);
+  assert.equal(thinkingToggle.textContent,'Show less');
+  thinkingToggle.onclick();
+  assert.equal(thinkingBody.classList.contains('is-collapsed'),true);
+  assert.equal(thinkingToggle.textContent,'Show all');
+  assert.ok(nodeText(thinkingRow).includes('Final answer stays visible'));
+  assert.equal(find(liveThink,n=>n.className==='agentchat-thinking-toggle').hidden,true,'Short thinking needs no expansion');
+  assert.ok(source.includes('justify-content:flex-end;max-height:7.75em;overflow:hidden'),'Tail clipping must display the last five wrapped lines, not the first five');
+  const updateThinking=(requestID,text)=>{context.thinkingLive={streaming:true,request_id:requestID,text:'<think>'+text};vm.runInNewContext("agentUpdateLiveRow({...agentCurrentSession,status:'requesting_ai',live_preview:thinkingLive})",context);};
+  const previewNode=vm.runInNewContext('agentLivePreview',context);
+  updateThinking('preview-test',thinkingLong);
+  let toggleThinking=find(previewNode,n=>n.className==='agentchat-thinking-toggle');
+  assert.equal(toggleThinking.textContent,'Show all');
+  toggleThinking.onclick();
+  updateThinking('preview-test',thinkingLong+'\nMore live thinking');
+  toggleThinking=find(previewNode,n=>n.className==='agentchat-thinking-toggle');
+  assert.equal(toggleThinking.textContent,'Show less','Streaming updates must retain expansion');
+  assert.ok(nodeText(previewNode).includes('More live thinking'));
+  toggleThinking.onclick();
+  updateThinking('preview-test',thinkingLong+'\nLatest line');
+  assert.equal(find(previewNode,n=>n.className==='agentchat-thinking-toggle').textContent,'Show all','Streaming updates must retain collapse');
+  updateThinking('different-preview',thinkingLong);
+  assert.equal(find(previewNode,n=>n.className==='agentchat-thinking-toggle').textContent,'Show all','New attempt starts folded');
+  vm.runInNewContext("agentUpdateLiveRow({...agentCurrentSession,status:'requesting_ai',live_preview:{streaming:false,request_id:'preview-next'}})",context);
+  assert.equal(vm.runInNewContext('agentLivePreview.hidden',context),true,'new non-streaming attempt must not retain old preview');
+  context.setTimeout=beforeAutoTimer;
+  console.log('PASS: read-only polling across completed Auto Continue gap');
 
   // Sending a verified Patch result has the same one-row transition behavior.
   // The actual output and next AI reply remain in persisted history.
@@ -1346,6 +1493,54 @@ console.log('PASS: safe Markdown, syntax-highlighted PHP/Python, per-block Copy,
    console.log('PASS: owner-visible provider correlation copying, stale-run isolation, corrupt audit warning and no replay');
    console.log('PASS: provider warning per-run dismissal preserves SENDING/UNKNOWN and no replay');
 
+   // Invoke the real Resume button, not only its visibility. A detached
+   // old button must not submit a later run or a different conversation.
+   context.resumeSession={...baseFlow,id:'natural-flow',status:'failed',revision:30,
+     event_seq:20,history:[{type:'user',content:'Original owner task'}],
+     events:[],tool_calls:[],collection_resume_eligible:true,
+     provider_run:{id:'resume-checkpoint',kind:'collection',phase:'unknown'}};
+   vm.runInNewContext("agentActive='natural-flow';agentAttachments=[];setAgentPromptValue('');displayAgentSession(resumeSession);renderAgentProviderEgressReview(resumeSession,resumeWarning)",context);
+   const resumeButton=find(providerNotice,node=>node.tagName==='button'&&node.textContent==='Resume original task (new request)');
+   assert.ok(resumeButton);
+   const resumeRequests=[];
+   let resolveResume;
+   context.TaskMenuApp.jsonFetch=async(url,opts)=>{
+     if(url.endsWith('/sessions/natural-flow/messages')){
+       resumeRequests.push(JSON.parse(opts.body));
+       return new Promise(resolve=>{resolveResume=resolve;});
+     }
+     if(url.endsWith('/sessions/natural-flow'))return {session:context.resumeSession,patch_tool_status:'enabled',collection_resume_eligible:context.resumeSession.collection_resume_eligible};
+     throw Error('unexpected resume API '+url);
+   };
+   vm.runInNewContext("agentActive='other-session'",context);
+   await resumeButton.onclick();
+   vm.runInNewContext("agentActive='natural-flow';agentCurrentSession={...resumeSession,provider_run:{...resumeSession.provider_run,id:'newer-run'}}",context);
+   await resumeButton.onclick();
+   assert.equal(resumeRequests.length,0,'stale button or other conversation must not issue a request');
+   vm.runInNewContext("agentCurrentSession=resumeSession;setAgentPromptValue('unsent owner instruction')",context);
+   await resumeButton.onclick();
+   assert.equal(vm.runInNewContext('prompt.value',context),'unsent owner instruction','resume must preserve unrelated draft');
+   assert.equal(resumeRequests.length,0);
+   vm.runInNewContext("setAgentPromptValue('');agentAttachments=[]",context);
+   const resumed=resumeButton.onclick();
+   assert.equal(resumeRequests.length,1,'explicit click issues one new message');
+   assert.equal(resumeRequests[0].resume_collection_run_id,'resume-checkpoint');
+   assert.equal(resumeRequests[0].expected_revision,30);
+   assert.equal(resumeRequests[0].confirm_external,true);
+   assert.ok(resumeRequests[0].request_id);
+   assert.equal(resumeRequests[0].attachments.length,0);
+   await resumeButton.onclick();
+   assert.equal(resumeRequests.length,1,'double click cannot submit a second request');
+   context.resumeSession={...context.resumeSession,status:'completed',revision:31,collection_resume_eligible:false,
+     provider_run:{id:'new-completed',kind:'message',phase:'completed'},
+     history:[...context.resumeSession.history,{type:'user',content:resumeRequests[0].message},{type:'assistant',content:'Continued original task'}]};
+   resolveResume({status:'completed'});
+   await resumed;
+   await resumeButton.onclick();
+   assert.equal(resumeRequests.length,1,'stale Resume after completion cannot issue another request');
+   assert.equal(vm.runInNewContext('send.disabled',context),false);
+   console.log('PASS: actual UNKNOWN Resume click, exact checkpoint/revision, draft isolation and stale/double-click fence');
+
 // One click copies the WHOLE multi-trace/session report, not a selected tab
   // or only the currently visible subset. Prefetch is complete before click
   // so Firefox retains its transient clipboard activation.
@@ -1404,6 +1599,17 @@ console.log('PASS: safe Markdown, syntax-highlighted PHP/Python, per-block Copy,
   assert.equal(transcript.children.at(-1),retryLive,'retry phase must reuse one status DOM node');
   assert.ok(retryLive.children[1].textContent.includes('attempt 3'));
   assert.equal(transcript.children.filter(node=>node.className==='agentchat-live-status').length,1);
+  for(const phase of ['waiting','sending']){
+    context.stagnantRetry={...retryBase,retry_runtime:{mode:'unlimited',attempt:8,phase,same_digest_failures:7,last_code:'RESPONSE_HEADER_TIMEOUT',next_at:new Date(Date.now()+10000).toISOString()}};
+    vm.runInNewContext('displayAgentSession(stagnantRetry)',context);
+    assert.equal(transcript.children.at(-1),retryLive,'stagnation must use existing live status row');
+    assert.ok(retryLive.children[1].textContent.includes('same payload failed 7 times'));
+    assert.ok(retryLive.children[1].textContent.includes('No automatic provider switch'));
+    assert.ok(retryLive.children[1].textContent.includes('Stop request to cancel'));
+    assert.equal(vm.runInNewContext('cancel.disabled',context),false,'unlimited retry remains stoppable');
+    assert.equal(vm.runInNewContext("agentLivePhase({...stagnantRetry,status:'cancelled'})",context),null,'terminal state wins over stale retry runtime');
+  }
+  vm.runInNewContext('displayAgentSession(retrySending)',context);
 
   // The AI retry label opens a real submenu; it must never silently rotate
   // off → limited → unlimited just from clicking the label.
@@ -1461,6 +1667,24 @@ console.log('PASS: safe Markdown, syntax-highlighted PHP/Python, per-block Copy,
   assert.equal(retrySubmenu.classList.contains('open'),false);
   vm.runInNewContext("markAgentSessionBusy('retry-progress',false)",context);
   console.log('PASS: AI retry submenu selects Off / 5 times / Unlimited without cycling, including during active request');
+
+  // An older render shows OFF while the server has already persisted ON.
+  // Clicking Enable must be idempotent, never invert the server's setting.
+  context.retrySelection={...context.retrySelection,auto_feedback:true,auto_feedback_persistent:true};
+  vm.runInNewContext("renderAgentAutomationControls({...retrySelection,auto_feedback:false,auto_feedback_persistent:false})",context);
+  const feedbackControl=automationGroup.children[1].children.find(node=>node.textContent.startsWith('Auto-send results'));
+  await feedbackControl.onclick();
+  assert.equal(context.retrySelection.auto_feedback,true,'stale OFF control must not revoke enabled feedback');
+  assert.equal(feedbackControl.getAttribute('aria-pressed'),'true','idempotent enable refreshes actual state');
+  assert.equal(feedbackControl.textContent,'Auto-send results: ON');
+  vm.runInNewContext("displayAgentSession({...retrySelection,auto_feedback:true,auto_feedback_persistent:false,auto_feedback_until:'2000-01-01T00:00:00Z'})",context);
+  assert.equal(feedbackControl.textContent,'Auto-send results: OFF','expired grant must display OFF');
+  assert.equal(feedbackControl.getAttribute('aria-pressed'),'false');
+  vm.runInNewContext('displayAgentSession(retrySelection)',context);
+  assert.equal(feedbackControl.textContent,'Auto-send results: ON','canonical render restores the full label without a click');
+  vm.runInNewContext('displayAgentSession(null)',context);
+  assert.equal(feedbackControl.textContent,'Auto-send results: OFF','empty view must never retain an old or bare label');
+  assert.equal(feedbackControl.disabled,true);
 
   const stuckPatch={id:'old-patch',status:'waiting_tool',revision:8,
     history:[{type:'function_call',call_id:'old-call',name:'taskdeck_submit_patch',

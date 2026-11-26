@@ -229,6 +229,8 @@ type Session struct {
 	AutoContinueText bool `json:"auto_continue_text,omitempty"`
 	// Independent owner preferences generation; does not invalidate an admitted turn CAS.
 	AutomationRevision uint64 `json:"automation_revision,omitempty"`
+	// Only explicit owner preference writes may change feedback after opt-in.
+	FeedbackPreferenceRevision uint64 `json:"feedback_preference_revision,omitempty"`
 	ContinueResetRevision uint64 `json:"continue_reset_revision,omitempty"`
 	AutoFeedbackUntil *time.Time       `json:"auto_feedback_until,omitempty"`
 	Status            string           `json:"status"`
@@ -735,6 +737,15 @@ func (s *Store) saveSessionWithAdmissionLocked(x Session, expectedRevision uint6
 			// an owner rename. Renaming never changes the turn revision.
 			x.Title = existing.Title
 			x.RefreshAutomation(existing)
+			// Protect the persisted grant (and explicit revocation) even from a
+			// journal projection carrying the same automation generation. Older
+			// persistent grants have no dedicated preference marker yet.
+			if existing.FeedbackPreferenceRevision != 0 || existing.AutoFeedbackPersistent {
+				x.AutoFeedback = existing.AutoFeedback
+				x.AutoFeedbackPersistent = existing.AutoFeedbackPersistent
+				x.AutoFeedbackUntil = existing.AutoFeedbackUntil
+				x.FeedbackPreferenceRevision = existing.FeedbackPreferenceRevision
+			}
 			if existing.Owner != x.Owner || existing.Workspace != x.Workspace || existing.ProjectID != x.ProjectID || ((existing.ProviderID != x.ProviderID || existing.ModelID != x.ModelID) && messageOwner=="") || existing.Mode != x.Mode || !existing.CreatedAt.Equal(x.CreatedAt) ||
 				x.HistoryArchiveParts!=existing.HistoryArchiveParts || x.ArchivedHistoryItems!=existing.ArchivedHistoryItems ||
             x.PatchArchiveParts!=existing.PatchArchiveParts || x.ArchivedPatchCalls!=existing.ArchivedPatchCalls {
@@ -918,6 +929,8 @@ func (s *Store) Delete(id, owner string, expectedRevision uint64) error {
         // Attempt IDs contain only metadata, but leaving an orphan owner
         // support ledger after explicit session deletion is still incorrect.
         if err:=os.Remove(s.providerAttemptsPath(id));err!=nil&&!os.IsNotExist(err){return err}
+        if err:=os.Remove(s.cacheEpochPath(id));err!=nil&&!os.IsNotExist(err){return err}
+        if err:=os.Remove(s.cacheObservationPath(id));err!=nil&&!os.IsNotExist(err){return err}
 		if err:=os.Remove(s.providerHeartbeatFile(id));err!=nil&&!os.IsNotExist(err){return err}
   for _,ref:=range x.TaskPlanSegments{
    if err:=os.Remove(s.taskPlanSegmentPath(id,ref));err!=nil&&!os.IsNotExist(err){return err}
@@ -1000,6 +1013,7 @@ func (x *Session) RefreshAutomation(latest Session) {
  x.AutoFeedback=latest.AutoFeedback
  x.AutoFeedbackPersistent=latest.AutoFeedbackPersistent
  x.AutoFeedbackUntil=latest.AutoFeedbackUntil
+ x.FeedbackPreferenceRevision=latest.FeedbackPreferenceRevision
  x.AutoContinueText=latest.AutoContinueText
  x.RetryMode=latest.RetryMode
  x.AutomationRevision=latest.AutomationRevision
@@ -1010,6 +1024,17 @@ func (x *Session) RefreshAutomation(latest Session) {
 // as Save and Rename, without taking the long-lived execution lease or
 // changing the turn revision. Only this bounded metadata is writable.
 func (s *Store) UpdateAutomation(id,owner,workspace string, observedRevision uint64, option string, enabled bool, mode RetryMode) (Session,error) {
+ return s.updateAutomation(id,owner,workspace,observedRevision,option,enabled,mode,nil)
+}
+
+// UpdateLegacyAutoFeedback retains the bounded legacy grant without allowing a
+// stale compatibility request to downgrade an already persistent opt-in.
+func (s *Store) UpdateLegacyAutoFeedback(id,owner,workspace string, observedRevision uint64, enabled bool, until *time.Time) (Session,error) {
+ if enabled && (until==nil || !until.After(time.Now().UTC())) {return Session{},ErrInvalidSession}
+ return s.updateAutomation(id,owner,workspace,observedRevision,"feedback_legacy",enabled,"",until)
+}
+
+func (s *Store) updateAutomation(id,owner,workspace string, observedRevision uint64, option string, enabled bool, mode RetryMode, until *time.Time) (Session,error) {
  var updated Session
  err:=s.withLock(func()error{
   x,e:=s.readLocked(id)
@@ -1026,6 +1051,16 @@ func (s *Store) UpdateAutomation(id,owner,workspace string, observedRevision uin
    x.AutoFeedback=enabled
    x.AutoFeedbackPersistent=enabled
    x.AutoFeedbackUntil=nil
+   x.FeedbackPreferenceRevision=x.AutomationRevision
+  case "feedback_legacy":
+   if observedRevision!=x.Revision{return ErrStaleRevision}
+   if !enabled || !x.AutoFeedbackPersistent {
+    x.AutoFeedback=enabled
+    x.AutoFeedbackPersistent=false
+    x.AutoFeedbackUntil=nil
+    if enabled{x.AutoFeedbackUntil=until}
+   }
+   x.FeedbackPreferenceRevision=x.AutomationRevision
   case "continue":
    if enabled&&x.TaskPlan!=nil{return ErrInvalidSession}
    x.AutoContinueText=enabled

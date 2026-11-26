@@ -225,3 +225,100 @@ func TestConfiguredAdapterUnlimitedRetryStopsOnCancellation(t *testing.T) {
 		t.Fatalf("unlimited retry did not stop on cancel: calls=%d err=%v", calls, err)
 	}
 }
+
+type clp20StagnationBuilder struct{ body []byte }
+
+func (b clp20StagnationBuilder) Build(RunSpec, ProviderConfig, ModelConfig, []HistoryItem) ([]byte, error) {
+	return b.body,nil
+}
+
+type clp20StagnationInvoker struct {
+	calls int
+	payload []byte
+	t *testing.T
+}
+
+func (i *clp20StagnationInvoker) Invoke(_ context.Context, _ ProviderConfig, _ string, payload []byte) (ResponsesResult,error) {
+	i.calls++
+	if string(payload)!=string(i.payload) {i.t.Fatal("transport retry changed canonical payload")}
+	if i.calls<=3 {return ResponsesResult{}, &ProviderError{Code:"RESPONSE_HEADER_TIMEOUT",Retryable:true}}
+	return ResponsesResult{Text:"done"},nil
+}
+
+func TestConfiguredAdapterCLP20SameDigestStagnation(t *testing.T) {
+	for _,api:=range []string{"responses","chat_completions"} {
+		for _,mode:=range []RetryMode{RetryOff,RetryLimited,RetryUnlimited} {
+			t.Run(api+"/"+string(mode),func(t *testing.T){
+				provider:=ProviderConfig{ID:"gpt",APIType:api,Models:[]ModelConfig{{ID:"gpt-model"}}}
+				body,err:=BuildResponsesRequest(RequestConfig{Model:"gpt-model",Instructions:"trusted policy",Mode:Stateless,MaxOutputTokens:8192,Next:[]HistoryItem{{Type:"user",Content:"private prompt marker"}}})
+				if err!=nil{t.Fatal(err)}
+				resolver:=&fakeProviderResolver{resolved:ResolvedProvider{Config:provider,ConfigVersion:"cfg-v1",Credential:"private credential marker"}}
+				invoker:=&clp20StagnationInvoker{payload:body,t:t}
+				adapter:=ConfiguredProviderAdapter{ProviderID:"gpt",Resolver:resolver,Builder:clp20StagnationBuilder{body},Invoker:invoker,Wait:func(context.Context,time.Duration)error{return nil}}
+				spec:=runSpecFor("gpt","gpt-model","run-clp20-stagnation")
+				spec.ProviderConfigVersion,spec.RetryMode="cfg-v1",mode
+				sink:=&fixedProviderSink{}
+				err=adapter.Execute(context.Background(),spec,nil,sink)
+				if mode==RetryOff {
+					if err==nil||invoker.calls!=1{t.Fatal("Off retried")}
+					return
+				}
+				if err!=nil||invoker.calls!=4{t.Fatalf("expected three failures then success: %d %v",invoker.calls,err)}
+				measurement,err:=MeasureProviderPayload(api,body);if err!=nil{t.Fatal(err)}
+				n:=0
+				for _,event:=range sink.events{
+					if event.Type!=RunEventRetry{continue}
+					n++
+					var record struct{
+						Outcome ProviderAttemptOutcome `json:"outcome"`
+						Mode RetryMode `json:"retry_mode"`
+						Digest string `json:"payload_sha256"`
+						Stagnant int `json:"same_digest_failures"`
+						WireBytes int `json:"wire_template_bytes"`
+						Estimate int `json:"estimated_input_tokens"`
+						Output int `json:"output_budget"`
+					}
+					if err:=json.Unmarshal(event.Payload,&record);err!=nil{t.Fatal(err)}
+					if record.Outcome!=AttemptHeaderTimeout||record.Mode!=mode||record.Digest!=BodyDigest(body)||record.Stagnant!=n||record.WireBytes!=measurement.WireBytes||record.Estimate!=measurement.EstimatedInputTokens||record.Output!=8192{t.Fatalf("wrong retry telemetry: %+v",record)}
+					if strings.Contains(string(event.Payload),"private prompt marker")||strings.Contains(string(event.Payload),"private credential marker"){t.Fatal("private data leaked")}
+				}
+				if n!=3{t.Fatalf("retry events=%d",n)}
+			})
+		}
+	}
+}
+
+type clp20CancelAfterReturnInvoker struct{
+	cancel context.CancelFunc
+	calls int
+}
+
+func(i *clp20CancelAfterReturnInvoker) Invoke(context.Context,ProviderConfig,string,[]byte)(ResponsesResult,error){
+	i.calls++
+	i.cancel()
+	return ResponsesResult{Text:"late response",Calls:[]FunctionCall{{CallID:"late-tool",Name:"taskdeck_submit_patch",Arguments:"{}"}}},nil
+}
+
+func TestConfiguredAdapterCLP20StopWinsLateResponseAndRetryWait(t *testing.T){
+	provider:=ProviderConfig{ID:"gpt",APIType:"responses",Models:[]ModelConfig{{ID:"gpt-model"}}}
+	resolver:=&fakeProviderResolver{resolved:ResolvedProvider{Config:provider,ConfigVersion:"cfg-v1",Credential:"key"}}
+	spec:=runSpecFor("gpt","gpt-model","run-stop-late")
+	spec.ProviderConfigVersion,spec.RetryMode="cfg-v1",RetryUnlimited
+	t.Run("late success",func(t *testing.T){
+		ctx,cancel:=context.WithCancel(context.Background());defer cancel()
+		invoker:=&clp20CancelAfterReturnInvoker{cancel:cancel}
+		adapter:=ConfiguredProviderAdapter{ProviderID:"gpt",Resolver:resolver,Builder:&fakePayloadBuilder{},Invoker:invoker}
+		sink:=&fixedProviderSink{}
+		err:=adapter.Execute(ctx,spec,nil,sink)
+		if !errors.Is(err,context.Canceled)||invoker.calls!=1||len(sink.events)!=0{t.Fatalf("late result published after Stop: %v %d %+v",err,invoker.calls,sink.events)}
+	})
+	t.Run("cancelled wait",func(t *testing.T){
+		ctx,cancel:=context.WithCancel(context.Background());defer cancel()
+		calls:=0
+		adapter:=ConfiguredProviderAdapter{ProviderID:"gpt",Resolver:resolver,Builder:&fakePayloadBuilder{},Invoker:&alwaysRetryableInvoker{calls:&calls},Wait:func(context.Context,time.Duration)error{cancel();return nil}}
+		sink:=&fixedProviderSink{}
+		err:=adapter.Execute(ctx,spec,nil,sink)
+		if !errors.Is(err,context.Canceled)||calls!=1{t.Fatalf("retry crossed Stop: %v %d",err,calls)}
+		if len(sink.events)!=1||sink.events[0].Type!=RunEventRetry{t.Fatal("unexpected event after cancellation")}
+	})
+}

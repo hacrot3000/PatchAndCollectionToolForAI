@@ -7,7 +7,6 @@ import (
  "io"
  "net/http"
  "net/url"
- "strings"
  "strconv"
  "sync"
  "time"
@@ -67,24 +66,7 @@ func agentRetryTurnContext(parent context.Context,_ agentchat.RetryMode)(context
 // be repeated forever. For transient failure, the user's explicit setting
 // permits replay of the provider request; a remote processing ambiguity may
 // incur duplicate inference, but never automatically reruns native Patch.
-func agentProviderRetryable(err error)bool{
- if err==nil{return false}
- if errors.Is(err,context.Canceled){return false}
- var pe *agentchat.ProviderError
- if errors.As(err,&pe){
-  if pe.Retryable{return true}
-  // A 499 response means the upstream gateway/client canceled an
-  // in-flight request. It is transient for an explicitly authorized
-  // retrying turn even when a provider did not set Retryable=true.
-  // User Stop still wins: ctx.Err() is checked after the HTTP call.
-  if pe.HTTPStatus==499||pe.HTTPStatus==429||pe.HTTPStatus==408||pe.HTTPStatus>=500{return true}
-  // Provider_parse can be transient (partial stream); avoid auto replaying
-  // malformed JSON/unsupported feature responses without a status.
-  return pe.Ambiguous && pe.HTTPStatus==0
- }
- return errors.Is(err,context.DeadlineExceeded) ||
-  errors.Is(err,io.EOF) || errors.Is(err,io.ErrUnexpectedEOF)
-}
+func agentProviderRetryable(err error)bool{return agentchat.ProviderTransportRetryable(err)}
 func agentRetryFailureDetail(err error)string{
  var pe *agentchat.ProviderError
  if errors.As(err,&pe){
@@ -106,57 +88,11 @@ func agentRetryCode(err error)string{
 // incomplete response is executed, and the durable canonical payload is kept.
 // The next incomplete error is terminal EVEN for RetryUnlimited: rerunning
 // the same enormous task indefinitely wastes tokens and never makes progress.
-const agentIncompleteRecoveryNote = "\nOUTPUT-BOUND RECOVERY (prior provider response hit max_output_tokens): " +
- "This is a fresh response. No partial output or tool call from the previous attempt was accepted or executed. " +
- "Use your remaining output budget sparingly. Complete ONE small, verifiable part of the original task per response. " +
- "If all work cannot fit, provide a concise checkpoint listing completed and remaining work. " +
- "If using a function tool, submit ONE complete, valid function call or a smaller complete Patch; " +
- "NEVER truncate Python, JSON or tool arguments, and never claim unverified execution. " +
- "Do not dump large source files or repeat prior evidence; stay within max_output_tokens."
+const agentMaxContextRecoveries = agentchat.MaxContextRecoveries
 
+func agentContextLimitRejected(err error) bool { return agentchat.ContextLimitRejected(err) }
 func agentRetryConstrainedOutputPayload(payload []byte,p agentchat.ProviderConfig)([]byte,int,bool){
- var req map[string]json.RawMessage
- if json.Unmarshal(payload,&req)!=nil||req==nil{return nil,0,false}
- var current int
- var modelID string
- if json.Unmarshal(req["max_output_tokens"],&current)!=nil||current<=0||
-  json.Unmarshal(req["model"],&modelID)!=nil||modelID==""{return nil,0,false}
- var instructions string
- if raw,exists:=req["instructions"];exists&&json.Unmarshal(raw,&instructions)!=nil{return nil,0,false}
- if strings.Contains(instructions,"OUTPUT-BOUND RECOVERY"){return nil,0,false}
- if len(instructions)+len(agentIncompleteRecoveryNote)>(1<<20){return nil,0,false}
- cap:=32768
- for _,m:=range p.Models{
-  if m.ID==modelID{
-   if m.MaxOutputTokens>0{cap=m.MaxOutputTokens}
-   break
-  }
- }
- if cap>200000{cap=200000}
- if current>cap{cap=current}
- next:=current
- if current<cap{
-  next=current*2
-  if next>cap{next=cap}
- }
- req["max_output_tokens"],_=json.Marshal(next)
- req["instructions"],_=json.Marshal(instructions+agentIncompleteRecoveryNote)
- b,err:=json.Marshal(req)
- if err!=nil||len(b)>4<<20{return nil,0,false}
- return b,next,true
-}
-
-// Only a structured context-limit rejection authorizes a changed request.
-// A generic 400, lost response or unknown provider state is not proof.
-const agentMaxContextRecoveries = 3
-
-func agentContextLimitRejected(err error) bool {
- var pe *agentchat.ProviderError
- if !errors.As(err,&pe)||pe.HTTPStatus!=400||pe.Ambiguous {return false}
- switch pe.ProviderErrorCode {
- case "context_length_exceeded","context_window_exceeded":return true
- default:return false
- }
+ return agentchat.RetryConstrainedOutputPayload(payload,p)
 }
 
 // Recompact the already constructed stateless wire history, preserving the
@@ -229,7 +165,11 @@ func agentRetryContextPayload(payload []byte)([]byte,bool){
  if json.Unmarshal(payload,&old)!=nil{return nil,false}
  var oldLimit int
  _=json.Unmarshal(old["max_output_tokens"],&oldLimit)
- if len(req["input"])>len(old["input"])||limit>oldLimit{return nil,false}
+ // A summary can be larger than a short original history. In that case
+ // retain the complete original input and reduce only output reservation.
+ // Do not abandon an otherwise safe structured context recovery.
+ if len(req["input"])>len(old["input"]){return agentchat.RetryReducedOutputReservation(payload)}
+ if limit>oldLimit{return nil,false}
  if len(req["input"])==len(old["input"])&&!(limit>0&&limit<oldLimit){return nil,false}
  return b,true
 }
@@ -240,6 +180,18 @@ func agentRetryContextPayload(payload []byte)([]byte,bool){
 // max_output_tokens error is different: at most one guided recovery request
 // is allowed, even in unlimited mode. Native Patch execution is NEVER replayed.
 func (s *Server) agentChatProviderWithRetry(ctx context.Context,owner,sessionID string,p agentchat.ProviderConfig,key string,payload []byte)(agentchat.ResponsesResult,error,string){
+ return s.agentChatProviderWithRetryUsingWait(ctx,owner,sessionID,p,key,payload,waitLegacyProviderRetry)
+}
+
+// A wait seam allows deterministic tests of the actual Legacy retry loop
+// without sleeping or changing process-global timing policy.
+func waitLegacyProviderRetry(ctx context.Context,delay time.Duration)error{
+ timer:=time.NewTimer(delay)
+ defer timer.Stop()
+ select{case <-ctx.Done():return ctx.Err();case <-timer.C:return nil}
+}
+
+func (s *Server) agentChatProviderWithRetryUsingWait(ctx context.Context,owner,sessionID string,p agentchat.ProviderConfig,key string,payload []byte,wait func(context.Context,time.Duration)error)(agentchat.ResponsesResult,error,string){
  mode:=agentRetryModeForSession(s,owner,sessionID)
  replayPayload:=payload
  incompleteRecoverySent:=false
@@ -252,12 +204,14 @@ func (s *Server) agentChatProviderWithRetry(ctx context.Context,owner,sessionID 
  // keep using the existing transport without manufacturing a fake receipt.
  var attemptStore *agentchat.Store
  var runID string
+ var affinityKey string
  if sessionID!=""&&owner!=""{
   if candidate,e:=s.agentChatStore();e==nil{
    if x,e:=candidate.Get(sessionID,owner);e==nil&&x.Workspace==s.Workspace&&
     x.Status=="requesting_ai"&&x.ProviderRun!=nil&&x.ProviderRun.Phase=="sending"{
     attemptStore=candidate
     runID=x.ProviderRun.ID
+    affinityKey=agentchat.ProviderAffinityKey(x,p,modelFromAgentPayload(payload))
    }
   }
  }
@@ -277,6 +231,13 @@ func (s *Server) agentChatProviderWithRetry(ctx context.Context,owner,sessionID 
   agentRetryPublish(s.Workspace,owner,sessionID,agentRetryProgress{Mode:mode,Attempt:attempt,Remaining:remaining,Phase:"sending",SameDigestFailures:sameDigestFailures,RecoveryGeneration:generation})
   callCtx,cancel:=context.WithTimeout(ctx,agentchat.ProviderAttemptTimeout)
   if attemptStore!=nil{
+   // A reduced/reformatted retry is not the original cache projection.
+   // Never mutate the immutable PREPARED payload or native history.
+   if digest!=agentchat.ProviderPayloadDigest(payload){
+    if e:=attemptStore.InvalidateCacheEpochForRun(sessionID,owner,runID);e!=nil{
+     s.recordAgentDebugEvent(owner,sessionID,"","provider_cache","cache.epoch.invalidate_failed","","Derived checkpoint could not be removed after request rewrite; source/policy validation still applies.")
+    }
+   }
    // Flush the audit sidecar BEFORE each individual network attempt.
    // All retry attempts get distinct IDs, even if output budgets change.
    // Corrupt/missing storage blocks the attempt rather than losing the
@@ -291,7 +252,8 @@ func (s *Server) agentChatProviderWithRetry(ctx context.Context,owner,sessionID 
     callCtx=agentchat.WithProviderClientRequestID(callCtx,clientID)
    }
   }
-  result,err,trace:=s.agentChatObservedCall(callCtx,owner,"provider_request",sessionID,p,key,replayPayload)
+  callCtx=agentchat.WithProviderAffinity(callCtx,p,affinityKey)
+  result,err,trace:=s.agentChatObservedCall(callCtx,owner,"provider_request",sessionID,p,key,replayPayload,agentCacheAttemptIdentity{runID:runID,attempt:uint64(attempt)})
   cancel()
   outcome:=agentchat.ClassifyProviderAttemptOutcome(ctx.Err(),err)
   if attemptStore!=nil{
@@ -333,6 +295,7 @@ func (s *Server) agentChatProviderWithRetry(ctx context.Context,owner,sessionID 
     s.recordAgentDebugEvent(owner,sessionID,"","provider_retry","context_budget.minimum",agentRetryFailureDetail(err),"No safely smaller stateless request remains; mandatory current input and receipt cannot be discarded. Check provider limits or use a narrower next task.")
     return result,err,trace
    }
+   if _,e:=agentchat.MeasureProviderPayload(p.APIType,reduced);e!=nil{return result,err,trace}
    contextRejectedPayload=replayPayload
    replayPayload=reduced
    contextRecoveries++
@@ -350,6 +313,7 @@ func (s *Server) agentChatProviderWithRetry(ctx context.Context,owner,sessionID 
    }
    constrained,nextLimit,ok:=agentRetryConstrainedOutputPayload(replayPayload,p)
    if !ok{return result,err,trace}
+   if _,e:=agentchat.MeasureProviderPayload(p.APIType,constrained);e!=nil{return result,err,trace}
    replayPayload=constrained
    incompleteRecoverySent=true
    s.recordAgentDebugEvent(owner,sessionID,"","provider_retry","output_budget.recovery","","Retrying one bounded response with output budget "+strconv.Itoa(nextLimit)+" and concise completion guidance; no incomplete tool result was executed")
@@ -359,13 +323,7 @@ func (s *Server) agentChatProviderWithRetry(ctx context.Context,owner,sessionID 
    Mode:mode,Attempt:attempt,Remaining:remaining,Phase:"waiting",
    NextAt:&next,LastCode:agentRetryCode(err),SameDigestFailures:sameDigestFailures,Outcome:outcome,RecoveryGeneration:generation,
   })
-  timer:=time.NewTimer(agentRetryDelay)
-  select{
-  case <-ctx.Done():
-   if !timer.Stop(){select{case <-timer.C:default:}}
-   return agentchat.ResponsesResult{},ctx.Err(),trace
-  case <-timer.C:
-  }
+  if err:=wait(ctx,agentRetryDelay);err!=nil{return agentchat.ResponsesResult{},err,trace}
  }
 }
 func (s *Server) agentChatRetryAPI(w http.ResponseWriter,r *http.Request,id string){
@@ -395,3 +353,6 @@ func (s *Server) agentChatRetryAPI(w http.ResponseWriter,r *http.Request,id stri
  w.Header().Set("Cache-Control","no-store")
  writeJSON(w,200,map[string]any{"session":x,"retry_mode":x.RetryMode})
 }
+
+// Exact local attempt identity, never an execution authorization.
+type agentCacheAttemptIdentity struct{runID string;attempt uint64}

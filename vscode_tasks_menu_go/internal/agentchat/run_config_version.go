@@ -13,6 +13,10 @@ type runProviderConfigVersionInput struct {
 	Stream           bool        `json:"stream"`
 	TrustedSharedIPs []string    `json:"trusted_shared_ips,omitempty"`
 	Model            ModelConfig `json:"model"`
+	CacheAffinity string `json:"cache_affinity,omitempty"`
+	CacheSessionHeader string `json:"cache_session_header,omitempty"`
+	PromptCacheRetention string `json:"prompt_cache_retention,omitempty"`
+	PromptCacheTTL string `json:"prompt_cache_ttl,omitempty"`
 }
 
 // RunProviderConfigVersion pins every public setting that can affect request
@@ -30,7 +34,7 @@ func RunProviderConfigVersion(provider ProviderConfig, model ModelConfig) string
 	input := runProviderConfigVersionInput{
 		ProviderID: provider.ID, APIType: provider.APIType, BaseURL: provider.BaseURL,
 		Stream: provider.Stream, TrustedSharedIPs: append([]string(nil), provider.TrustedSharedIPs...),
-		Model: model,
+		Model: model, CacheAffinity:provider.CacheAffinity, CacheSessionHeader:provider.CacheSessionHeader, PromptCacheRetention:provider.PromptCacheRetention, PromptCacheTTL:provider.PromptCacheTTL,
 	}
 	body, _ := json.Marshal(input)
 	digest := sha256.Sum256(body)

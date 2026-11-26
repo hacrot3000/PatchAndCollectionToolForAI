@@ -192,6 +192,31 @@ func TestAgentPersistentAutoSendDeliversOnceWithoutExpiration(t *testing.T) {
 	if count!=1 {t.Fatal("persistent Auto-send retried acknowledged result")}
 }
 
+// A same-generation journal write must not erase explicit Auto-send consent
+// or resurrect it after revocation. A legacy enable must not shorten consent.
+func TestAgentFeedbackPreferenceSurvivesJournalProjectionAndLegacyEnable(t *testing.T) {
+ s,id,_:=agentPendingCallFixture(t,true)
+ store,err:=s.agentChatStore();if err!=nil{t.Fatal(err)}
+ x,err:=store.Get(id,"local");if err!=nil{t.Fatal(err)}
+ x,err=store.UpdateAutomation(id,"local",s.Workspace,x.Revision,"feedback",true,"");if err!=nil{t.Fatal(err)}
+ x.AutoFeedback=false;x.AutoFeedbackPersistent=false;x.AutoFeedbackUntil=nil
+ x.ToolCalls[0].Status="done";x.ToolCalls[0].Result=`{"status":"PASS","rc":0}`
+ x,err=store.Save(x,x.Revision);if err!=nil{t.Fatal(err)}
+ if !x.AutoFeedback||!x.AutoFeedbackPersistent{t.Fatal("journal lost explicitly enabled feedback")}
+ until:=time.Now().UTC().Add(time.Minute)
+ x,err=store.UpdateLegacyAutoFeedback(id,"local",s.Workspace,x.Revision,true,&until);if err!=nil{t.Fatal(err)}
+ if !x.AutoFeedback||!x.AutoFeedbackPersistent||x.AutoFeedbackUntil!=nil{t.Fatal("legacy enable downgraded persistent feedback")}
+ calls:=0
+ s.AgentChatCall=func(_ context.Context,_ agentchat.ProviderConfig,_ string,_ []byte)(agentchat.ResponsesResult,error){calls++;return agentchat.ResponsesResult{ResponseID:"feedback-preserved",Text:"Acknowledged"},nil}
+ s.runAgentAutoFeedback(context.Background());s.runAgentAutoFeedback(context.Background())
+ x,err=store.Get(id,"local");if err!=nil{t.Fatal(err)}
+ if calls!=1||!x.ToolCalls[0].FeedbackSent{t.Fatal("verified receipt was not delivered exactly once")}
+ x,err=store.UpdateAutomation(id,"local",s.Workspace,x.Revision,"feedback",false,"");if err!=nil{t.Fatal(err)}
+ x.AutoFeedback=true;x.AutoFeedbackPersistent=true
+ x,err=store.Save(x,x.Revision);if err!=nil{t.Fatal(err)}
+ if x.AutoFeedback||x.AutoFeedbackPersistent{t.Fatal("journal resurrected revoked feedback consent")}
+}
+
 func TestAgentDeleteAfterFinalPatchWithoutSendingAIResult(t *testing.T){
 	s,id,_:=agentPendingCallFixture(t,true)
 	store,err:=s.agentChatStore()

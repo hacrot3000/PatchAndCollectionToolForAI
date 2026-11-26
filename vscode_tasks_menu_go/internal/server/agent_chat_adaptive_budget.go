@@ -21,6 +21,13 @@ func agentLearnContextRecovery(store *agentchat.Store,x agentchat.Session,p agen
   (len(wire.Input)==len(old.Input)&&wire.Output==old.Output){return false}
  model,ok:=p.FindModel(wire.Model);if !ok{return false}
  budget:=contextcompact.Tokens(string(rejected))/2
+ if len(wire.Input)==len(old.Input){
+  // Output-only recovery provides no evidence of a smaller input limit.
+  // Keep the configured input ceiling instead of learning a false tiny cap.
+  budget=model.MaxInputTokens
+  if budget<=0{budget=contextcompact.DefaultInputTokens}
+  if budget>4000000{budget=4000000}
+ }
  if budget<4096{budget=4096}
  return store.RememberAdaptiveBudgetHint(x,agentchat.RunProviderConfigVersion(p,model),agentchat.RunCredentialFingerprint([]byte(key)),budget,wire.Output)==nil
 }

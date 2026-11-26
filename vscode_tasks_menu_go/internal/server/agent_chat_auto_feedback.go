@@ -130,7 +130,12 @@ func agentAutoFeedbackAdmission(x agentchat.Session)(int,string){
 func agentAutoFeedbackDiagnostic(x agentchat.Session)map[string]any{
  idx,reason:=agentAutoFeedbackAdmission(x)
  if reason==""&&x.Owner!="local"{reason="explicit_owner_action_required"}
- out:=map[string]any{"eligible":reason=="","reason":reason,"auto_feedback":x.AutoFeedback,"persistent":x.AutoFeedbackPersistent}
+ out:=map[string]any{"eligible":reason=="","reason":reason,"auto_feedback":x.AutoFeedback,"persistent":x.AutoFeedbackPersistent,"automation_revision":x.AutomationRevision,"feedback_preference_revision":x.FeedbackPreferenceRevision}
+ if reason=="auto_feedback_not_authorized_or_repair_limit"{
+  grantState:="disabled"
+  if x.AutoFeedbackPersistent&&x.AutoFeedback{grantState="persistent"}else if x.AutoFeedback&&x.AutoFeedbackUntil!=nil{grantState="expired";if !time.Now().UTC().After(*x.AutoFeedbackUntil){grantState="bounded"}}
+  out["grant_state"]=grantState
+ }
  if x.AutoFeedbackUntil!=nil{out["grant_until"]=x.AutoFeedbackUntil}
  if x.ProviderRun!=nil{out["provider_phase"]=x.ProviderRun.Phase}
  if reason==""{out["call_id"]=x.ToolCalls[idx].CallID}
@@ -419,7 +424,7 @@ func (s *Server) reconcileAgentSession(ctx context.Context, store *agentchat.Sto
 		s.agentReconcilePatchRecord(&view)
 		if view.Changed {
 			x.ToolCalls[i] = view.Record
-			if view.Record.Status=="done" || view.Record.Status=="error" {x.Status="waiting_tool"}
+			if view.Record.Status=="done" || view.Record.Status=="error" {x.Status="waiting_tool"}else if view.Record.Status=="unknown"{x.Status="tool_unknown"}
 			x.AppendEvent("tool_final", view.Record.Status, record.CallID, "background_reconcile")
 			changed = true
 		}

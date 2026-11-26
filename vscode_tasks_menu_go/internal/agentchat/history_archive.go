@@ -19,8 +19,7 @@ import (
 // active window. The initial user goal and all Patch commitments stay live.
 const (
  archiveHistoryWindow = 96
- archiveHistoryThreshold = 148
- archiveHistoryBytesThreshold = 1500 << 10
+ archiveHistoryThreshold = maxItems
 )
 
 type historyArchiveSegment struct {
@@ -64,10 +63,18 @@ func redundantStandaloneContinuation(it HistoryItem) bool {
 // on a subsequent identical CAS attempt; no verified evidence is lost.
 func (s *Store) archiveCollectionHistory(x *Session) error {
  count:=len(x.History)
- contentBytes:=0
- for _,it:=range x.History {contentBytes+=len(it.Content)+len(it.Arguments)}
- if count<=archiveHistoryThreshold && contentBytes<=archiveHistoryBytesThreshold{return nil}
+ // Archive only at the actual journal item/serialized-size limit.
+ // Account for JSON escaping and session metadata, not raw text bytes.
+ manifest:=*x
+ if len(x.TaskPlanSegments)>0&&x.TaskPlan!=nil{
+  plan:=*x.TaskPlan;plan.Steps=nil;manifest.TaskPlan=&plan
+ }
+ raw,err:=json.Marshal(manifest)
+ if err!=nil{return err}
+ sizeExceeded:=len(raw)>maxSessionBytes
+ if count<=archiveHistoryThreshold&&!sizeExceeded{return nil}
  until:=count-archiveHistoryWindow
+ if sizeExceeded&&until<=1{until=count/2}
  if until<=1{return nil}
  removed:=make([]bool,count)
  archived:=make([]HistoryItem,0,until)

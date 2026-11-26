@@ -4,6 +4,8 @@ import (
  "crypto/sha256"
  "encoding/hex"
  "fmt"
+ "errors"
+ "os"
  "time"
 
  "bletonfc/vscode_tasks_menu/internal/agentchat"
@@ -26,6 +28,7 @@ func setAgentPreparedProviderRun(x *agentchat.Session,kind,callID string,
  if x==nil{return agentchat.ErrInvalidSession}
  now:=time.Now().UTC()
  x.ProviderRun=&agentchat.ProviderRun{
+  RequestDisplay:agentRequestDisplay(p,payload,now),
   ID:fmt.Sprintf("r%d-e%d",x.Revision+1,x.EventSeq+1),
   Kind:kind,Phase:"prepared",CallID:callID,
   PayloadSHA256:agentchat.ProviderPayloadDigest(payload),
@@ -45,6 +48,7 @@ func markAgentProviderSending(store *agentchat.Store,x *agentchat.Session)error{
  }
  x.ProviderRun.Phase="sending"
  x.ProviderRun.UpdatedAt=time.Now().UTC()
+ if x.ProviderRun.RequestAt!=""{x.ProviderRun.RequestAt=x.ProviderRun.UpdatedAt.Format(time.RFC3339Nano)}
  x.AppendEvent("provider_egress",x.Status,x.ProviderRun.CallID,x.ProviderRun.Kind)
  saved,err:=store.Save(*x,x.Revision)
  if err!=nil{return err}
@@ -93,4 +97,24 @@ func recordAgentTokenUsage(x *agentchat.Session,result agentchat.ResponsesResult
 // It must never expose actual prompt/tool-result contents.
 func agentProviderPayloadShortHash(payload []byte)string{
  h:=sha256.Sum256(payload);return hex.EncodeToString(h[:8])
+}
+
+
+// Report only a bounded classification and numeric sizes, never raw I/O
+// errors (which can contain private paths) or request content.
+func agentPreparedFailureCode(err error)string{
+ switch{
+ case errors.Is(err,agentchat.ErrStaleRevision):return "STALE_REVISION"
+ case errors.Is(err,agentchat.ErrInvalidSession):return "INVALID_PREPARED_STATE"
+ case errors.Is(err,agentchat.ErrNotFound):return "SESSION_NOT_FOUND"
+ case os.IsPermission(err):return "STORAGE_PERMISSION"
+ case os.IsNotExist(err):return "STORAGE_MISSING"
+ default:return "STORAGE_OR_DURABILITY_FAILURE"
+ }
+}
+func(s *Server) agentPreparedFailure(x agentchat.Session,kind string,payload []byte,err error)string{
+ code:=agentPreparedFailureCode(err)
+ callID:="";if x.ProviderRun!=nil{callID=x.ProviderRun.CallID}
+ s.recordAgentDebugEvent(x.Owner,x.ID,callID,"provider_prepare","provider.prepare_failed",code,fmt.Sprintf("kind=%s; canonical_bytes=%d; code=%s; new request not sent",kind,len(payload),code))
+ return fmt.Sprintf("%s; payload=%d bytes; request not sent",code,len(payload))
 }

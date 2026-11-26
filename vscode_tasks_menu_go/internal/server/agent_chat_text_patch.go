@@ -85,9 +85,9 @@ func appendAgentTextPatchProposal(x *agentchat.Session, result agentchat.Respons
     for _, item := range x.History {
         if item.Type == "function_call" && item.CallID == callID { return false }
     }
-    x.History = append(x.History, agentchat.HistoryItem{
+    x.History = append(x.History, result.RequestDisplay.WithHistoryItem(agentchat.HistoryItem{
         Type: "function_call", CallID: callID, Name: "taskdeck_submit_patch", Arguments: string(rawArgs),
-    })
+    }))
     x.ToolCalls = append(x.ToolCalls, agentchat.ToolCallRecord{
         CallID: callID, Name: "taskdeck_submit_patch", Status: "pending",
         ModelTurnID: result.ResponseID, ArgumentsSHA256: agentPatchPayloadSHA256(string(rawArgs)),
@@ -104,16 +104,26 @@ func agentContextForRequest(x agentchat.Session, model agentchat.ModelConfig, in
  return agentContextForRequestWithPolicy(x,model,instructions,next,false)
 }
 func agentContextForRequestWithPolicy(x agentchat.Session, model agentchat.ModelConfig,instructions string,next []agentchat.HistoryItem,minimal bool)[]agentchat.HistoryItem{
+ policy:=agentContextPolicy(x,model,instructions,next,minimal)
+ visible,_:=contextcompact.Build(x.History,policy)
+ return visible
+}
+func agentContextPolicy(x agentchat.Session,model agentchat.ModelConfig,instructions string,next []agentchat.HistoryItem,minimal bool)contextcompact.Policy{
  policy:=contextcompact.Policy{
   MaxInputTokens:model.MaxInputTokens,CollectionPercent:30,Minimal:minimal,
   Instructions:instructions,Next:next,
   ArchivedItems:x.ArchivedHistoryItems,ArchivedParts:x.HistoryArchiveParts,
   ArchivedPatchCalls:x.ArchivedPatchCalls,ArchivedPatchSummaries:x.PatchArchiveSummaries,
   SyntheticPatchIDs:map[string]bool{},
+  AcknowledgedFailedPatchReceipts:map[string]string{},
  }
- for _,call:=range x.ToolCalls{if call.TextFallback{policy.SyntheticPatchIDs[call.CallID]=true}}
- visible,_:=contextcompact.Build(x.History,policy)
- return visible
+ for _,call:=range x.ToolCalls{
+  if call.TextFallback{policy.SyntheticPatchIDs[call.CallID]=true}
+  if call.Name=="taskdeck_submit_patch"&&call.Status=="error"&&call.FeedbackSent&&call.FeedbackStatus=="acknowledged"&&call.Result!=""{
+   policy.AcknowledgedFailedPatchReceipts[call.CallID]=agentchat.BodyDigest([]byte(call.Result))
+  }
+ }
+ return policy
 }
 
 // Legacy internal entry point retained for tests and callers that do not yet

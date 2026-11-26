@@ -51,12 +51,13 @@ func agentModelCapabilityFingerprint(p agentchat.ProviderConfig, m agentchat.Mod
 
 // agentStreamCapabilityVerified reports whether the SSE adapter was verified
 // for this exact provider/model configuration by a user-triggered probe.
-func (s *Server) agentStreamCapabilityVerified(owner string, p agentchat.ProviderConfig) bool {
+func (s *Server) agentStreamCapabilityVerified(owner string, p agentchat.ProviderConfig, modelID ...string) bool {
 	store, err := s.agentChatCapabilities()
 	if err != nil {
 		return false
 	}
 	for _, m := range p.Models {
+		if len(modelID) != 0 && m.ID != modelID[0] { continue }
 		rec, ok, err := store.Get(owner, p.ID, m.ID, agentchat.CapabilityFingerprint(p, m))
 		if err != nil || !ok {
 			continue

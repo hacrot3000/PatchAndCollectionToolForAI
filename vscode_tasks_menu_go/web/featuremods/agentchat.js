@@ -120,6 +120,19 @@ agentCSS.textContent=[
 '.agentchat-bubble.assistant{align-self:flex-start;background:transparent;border-color:transparent;padding:4px 0}',
 '.agentchat-bubble.tool{align-self:flex-start;background:#1d2936;border-color:#394b60}',
 '.agentchat-message-body{min-width:0;overflow-wrap:anywhere}',
+'.agentchat-thinking-content{color:#a8b9ce;border-left:2px solid #7187a3;padding:4px 9px;margin:4px 0 8px;font-size:11px;line-height:1.55;white-space:pre-wrap;overflow-wrap:anywhere}',
+'.agentchat-thinking-heading{display:block;font-size:11px;font-weight:600;margin-bottom:4px;color:inherit}',
+'.agentchat-thinking-body{min-width:0;line-height:1.55;white-space:pre-wrap;overflow-wrap:anywhere}',
+'.agentchat-thinking-body.is-collapsed{display:flex;flex-direction:column;justify-content:flex-end;max-height:7.75em;overflow:hidden}',
+'.agentchat-thinking-text{flex:none;min-width:0}',
+'.agentchat-window .agentchat-thinking-toggle{display:block;margin-top:4px;font-size:11px;padding:2px 6px;border:1px solid currentColor;border-radius:4px;background:transparent;color:inherit;line-height:1.4;cursor:pointer}',
+'.agentchat-window .agentchat-thinking-toggle[hidden]{display:none}',
+'.agentchat-window .agentchat-thinking-toggle:hover,.agentchat-window .agentchat-thinking-toggle:focus-visible{background:rgba(128,145,165,.18)}',
+'html[data-taskmenu-theme="light"] .agentchat-thinking-content{color:#52647b;border-color:#8296ad}',
+'.agentchat-live-status.thinking{color:#a8b9ce;flex-wrap:wrap}',
+'html[data-taskmenu-theme="light"] .agentchat-live-status.thinking{color:#52647b}',
+'.agentchat-live-preview{flex-basis:100%;min-width:0;white-space:pre-wrap;overflow-wrap:anywhere;max-height:300px;overflow:auto;color:inherit}',
+'.agentchat-live-preview:has(.agentchat-thinking-body:not(.is-collapsed)){max-height:none;overflow:visible}',
 '.agentchat-bubble.user .agentchat-message-body.is-collapsed{max-height:7.75em;overflow:hidden}',
 '.agentchat-message-actions{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:6px;min-width:0;white-space:normal}',
 '.agentchat-message-actions .agentchat-message-copy{margin-left:auto}',
@@ -371,7 +384,11 @@ agentLiveSpinner.setAttribute('aria-hidden','true');
 const agentLiveText=agentEl('span','','');
 agentLiveRow.setAttribute('role','status');
 agentLiveRow.setAttribute('aria-live','polite');
-agentLiveRow.append(agentLiveSpinner,agentLiveText);
+const agentLivePreview=agentEl('div','agentchat-live-preview');
+agentLivePreview.hidden=true;
+agentLivePreview.setAttribute('aria-live','off');
+let agentLiveThinkingKey='',agentLiveThinkingStates={};
+agentLiveRow.append(agentLiveSpinner,agentLiveText,agentLivePreview);
 const agentProgressTimers=new Map();
 
 let agentExecutionTarget=null,agentExecutionText='';
@@ -429,7 +446,8 @@ const agentRunUI=globalThis.TaskMenuAgentRunsUI?.create({selectorMount:agentRunS
  onSelectionChange:agentSyncComposerSelection});
 agentRunSelectorMount.append(agentConfigMenu);
 window.addEventListener('resize',()=>{if(agentConfigMenu.classList.contains('open'))positionAgentComposerOptions();});
-const autoFeedback=agentButton('Auto-send results',()=>toggleAutoFeedback().catch(showAgentError));
+const autoFeedback=agentButton('Auto-send results: OFF',()=>toggleAutoFeedback().catch(showAgentError));
+autoFeedback.setAttribute('aria-pressed','false');
 const autoContinueText=agentButton('Auto continue (no plan): OFF',
  ()=>toggleAgentAutomation('continue').catch(showAgentError));
 const attachToggle=agentButton('Attachments (0) ▸',()=>toggleAgentAttachmentsPopup());
@@ -462,6 +480,7 @@ attachPopup.addEventListener('click',event=>{
 let agentAttachments=[];
 const agentPendingAttachments=[];
 const agentMaxAttachmentBytes=32*1024,agentMaxAttachmentTotal=64*1024,agentMaxAttachmentCount=4;
+const agentPasteAttachmentThreshold=8*1024,agentMessageTextLimit=16*1024;
 prompt.setAttribute('placeholder','Type an AI request for this TaskDeck project…');
 prompt.setAttribute('rows','1');
 function resizeAgentPrompt(){
@@ -480,6 +499,7 @@ function resizeAgentPrompt(){
 }
 function setAgentPromptValue(value){prompt.value=value;resizeAgentPrompt();}
 prompt.addEventListener('input',()=>{resizeAgentPrompt();if(agentActive){agentDrafts.set(agentActive,prompt.value);agentRequestIDs.delete(agentActive);}});
+prompt.addEventListener('paste',handleAgentLongPaste);
 const actionLine=agentEl('div','agentchat-composer-actions');
 const status=agentEl('span','', 'No session selected. Patch execution requires per-call approval.');
 const sessionStatus=agentEl('span');
@@ -541,6 +561,12 @@ function makeAgentHeaderGroup(label,items){
   if(!opening&&group===automationGroup)toggleAgentRetryMenu(false);
   group.open=opening;
   summary.setAttribute('aria-expanded',String(opening));
+  if(opening&&group===automationGroup&&agentActive&&agentCurrentSession?.id===agentActive){
+   // Opening the menu refreshes its authoritative settings without toggling
+   // anything. The existing selection generation rejects late responses.
+   renderAgentAutomationControls(agentCurrentSession);
+   selectAgentSession(agentActive).catch(showAgentError);
+  }
  };
  panel.addEventListener('click',event=>{
   // Clicking the retry label only opens its inline submenu; selecting an
@@ -593,17 +619,17 @@ function updateAgentFooterSession(session,last){
   return;
  }
  sessionStatus.textContent='Session '+session.id.slice(0,8)+' · '+session.status+' · revision '+session.revision+
-  (session.auto_feedback?' · auto-send ON':'');
+  (agentFeedbackEnabled(session)?' · auto-send ON':'');
  // A revision-only poll must not restart the four-second rotation or erase
  // a useful transient notice. A real state change clears stale notices.
- const key=[session.id,session.status,last?.status,last?.feedback_sent].join(':');
+ const key=[session.id,session.status,last?.status,last?.feedback_sent,agentFeedbackEnabled(session),session.auto_feedback_diagnostic?.reason].join(':');
  if(key!==agentFooterSessionKey){
   agentFooterSessionKey=key;
   let notice='';
   if(session.status==='requesting_ai'){
    notice='AI request is running on the server · new responses will appear automatically. Use Cancel only to stop the request.';
   }else if(session.status==='waiting_tool'){
-   if(last?.status==='done')notice='Patch PASS · '+(last.feedback_sent?'result sent to AI':'result ready to send to AI');
+   if(last?.status==='done')notice='Patch PASS · '+(last.feedback_sent?'result sent to AI':(agentFeedbackEnabled(session)?agentFeedbackWaitMessage(session):'Auto-send results is OFF · result ready to send to AI'));
    else if(last?.status==='error')notice='Patch failed · inspect verified result';
    else if(last?.status==='running')notice='Patch Tool running · monitoring native status';
    else if(last?.status==='unknown')notice='Native Patch result unknown · inspect History';
@@ -622,7 +648,7 @@ const settingsOverlay=agentEl('div','agentchat-overlay agentchat-settings-overla
 settingsBox.setAttribute('role','dialog');settingsBox.setAttribute('aria-modal','true');settingsBox.setAttribute('aria-label','Agent provider settings');
 const settingsTitle=agentEl('h2','','Agent provider settings');
 const blockedIPNotice=agentEl('div','agentchat-info');blockedIPNotice.hidden=true;
-const settingsInfo=agentEl('p','','Configure an HTTPS Responses or Chat Completions provider. For a trusted 100.64.0.0/10 endpoint, explicitly add exact addresses to trusted_shared_ips in the provider JSON. This weakens network isolation; trust the endpoint and network first. API keys remain server-side.');
+const settingsInfo=agentEl('p','','Configure an HTTPS Responses or Chat Completions provider. For a trusted 100.64.0.0/10 endpoint, explicitly add exact addresses to trusted_shared_ips in the provider JSON. This weakens network isolation; trust the endpoint and network first. API keys remain server-side. Cache affinity defaults to session headers on custom gateways. Provider JSON: cache_affinity = headers, prompt_cache_key, both, or off; cache_session_header optionally selects X-Session-Id, X-Session-Affinity, session_id or x-opencode-session. Use prompt_cache_key only if your endpoint accepts it. Optional prompt_cache_retention = in_memory or 24h; for compatible Responses models use prompt_cache_ttl = 30m or 12h instead. Do not set both; check model support, cost and data-retention policy first.');
 const settingsPreset=agentButton('Load sample provider',()=>{providerEditor.value=JSON.stringify(agentSample,null,2);});
 const probeProvider=agentButton('Probe capabilities',()=>probeAgentProvider().catch(showAgentError));
 const deleteProvider=agentButton('Remove provider',()=>deleteAgentProvider().catch(showAgentError));
@@ -698,20 +724,44 @@ let agentProviders=[],agentSessions=[],agentActive=null,agentBusy=false,agentAbo
 // still be opened/read while one provider turn is pending.
 const agentBusySessions=new Set();
 function agentSessionBusy(id){return Boolean(id&&agentBusySessions.has(id));}
+// Legacy owns ordinary sends; a provider selector's canSend() is not
+// permission to start a concurrent turn.
+function agentServerTurnBusy(session){
+ return ['requesting_ai','tool_queuing'].includes(session?.status);
+}
+function agentUpdateSendAvailability(session){
+ const busy=agentSessionBusy(session?.id)||agentServerTurnBusy(session);
+ send.disabled=busy;
+ cancel.disabled=!agentSessionBusy(session?.id)&&session?.status!=='requesting_ai'&&!agentCanStopNative(session);
+}
+function agentTurnAdmissionBusy(error){
+ const status=Number(error?.httpStatus||0);
+ const message=String(error?.message||error).trim();
+ return (!status||status===409)&&/^(?:another model turn is running in this session|Agent (?:conversation|session) is busy|conversation is busy; queued turn handoff is unavailable; retry after the active turn finishes|Conversation is busy\. Retry after the active turn finishes; your draft is preserved\.)$/i.test(message);
+}
+function agentDiscardRefusedTurn(id,turn){
+ if(agentLiveTurns.get(id)!==turn)return;
+ if(turn.optimisticNode)turn.optimisticNode.remove();
+ agentLiveTurns.delete(id);
+}
 function markAgentSessionBusy(id,busy){
  if(!id)return;
  if(busy)agentBusySessions.add(id);else agentBusySessions.delete(id);
  if(id===agentActive){
-  send.disabled=busy&&!agentRunUI?.canSend();newChat.disabled=busy;rename.disabled=busy;archive.disabled=busy;
-  cancel.disabled=!busy;updateAgentModels();
+  agentUpdateSendAvailability(agentCurrentSession);newChat.disabled=busy;rename.disabled=busy;archive.disabled=busy;
+  updateAgentModels();
  }
 }
 let agentMonitorTimer=0,agentMonitorGeneration=0;
 function showAgentError(error){
  let message=String(error?.message||error);
  try{const parsed=JSON.parse(message);const detail=parsed?.error;if(detail)message='FAILED · '+String(detail.code||'UNKNOWN')+' · '+String(detail.stage||'unknown stage')+' · '+String(detail.message||'No safe provider message')+(detail.http_status?' · HTTP '+detail.http_status:'')+(detail.trace_id?' · Trace '+detail.trace_id:'')+(detail.ambiguous?' · outcome may be ambiguous':'');}catch{}
- setAgentStatusNotice('Error: '+message);
- settingsStatus.textContent='Error: '+message;
+ if(agentTurnAdmissionBusy(error)){
+  setAgentStatusNotice('Another AI request is active · this action was not admitted. Your message draft is retained.');
+ }else{
+  setAgentStatusNotice('Error: '+message);
+  settingsStatus.textContent='Error: '+message;
+ }
  agentDebugClientErrors.push({at:new Date().toISOString(),message:message.slice(0,2000),session_id:agentActive||null});
  if(agentDebugClientErrors.length>64)agentDebugClientErrors.shift();
  if(agentDebugView==='debug')loadAgentDebugReport().catch(()=>{});
@@ -727,6 +777,10 @@ function normalizeProvider(raw){
   base_url:String(data.base_url||data.baseUrl||ms[0]?.url||data.url||'').trim(),
   ...(data.trusted_shared_ips!==undefined?{trusted_shared_ips:data.trusted_shared_ips}:{}),
   stream:Boolean(data.stream),
+  ...(data.cache_affinity!==undefined?{cache_affinity:String(data.cache_affinity)}:{}),
+  ...(data.cache_session_header!==undefined?{cache_session_header:String(data.cache_session_header)}:{}),
+  ...(data.prompt_cache_retention!==undefined?{prompt_cache_retention:String(data.prompt_cache_retention)}:{}),
+  ...(data.prompt_cache_ttl!==undefined?{prompt_cache_ttl:String(data.prompt_cache_ttl)}:{}),
   models:ms.map(m=>({
    id:String(m.id||''),name:String(m.name||m.id||''),
    tool_calling:Boolean(m.tool_calling??m.toolCalling),vision:Boolean(m.vision),
@@ -1081,15 +1135,89 @@ function agentUserMessageIsLong(message){
  }
  return false;
 }
+// Interpret only provider-visible leading think blocks, never example tags
+// inside Markdown code fences. Preserve canonical source for Copy/history.
+function agentThinkingParts(raw){
+ const source=String(raw??'');
+ const opening=/^\s*<think>/i.exec(source);
+ if(!opening)return {thinking:null,answer:source};
+ const rest=source.slice(opening[0].length),closing=/<\/think>/i.exec(rest);
+ return closing?{thinking:rest.slice(0,closing.index).trim(),answer:rest.slice(closing.index+closing[0].length).trimStart()}:{thinking:rest.trim(),answer:''};
+}
+// Keep the complete text in the DOM. CSS clips from the top so the last
+// five rendered lines (including wrapped lines) remain visible by default.
+function agentThinkingNode(value,label='Thinking',state={expanded:false}){
+ const node=agentEl('div','agentchat-thinking-content');
+ const body=agentEl('div','agentchat-thinking-body');
+ const content=agentEl('div','agentchat-thinking-text',String(value??''));
+ body.append(content);
+ const toggle=agentButton('Show all',()=>{
+  state.expanded=!state.expanded;
+  paint();
+  syncVisibility();
+ });
+ toggle.className='agentchat-thinking-toggle';
+ toggle.setAttribute('aria-label','Expand or collapse '+label);
+ function paint(){
+  body.classList.toggle('is-collapsed',!state.expanded);
+  toggle.textContent=state.expanded?'Show less':'Show all';
+  toggle.setAttribute('aria-expanded',String(state.expanded));
+ }
+ function syncVisibility(){
+  // Before mounting, use the same conservative estimate as user messages.
+  // Once laid out, measure the actual wrapped text (not newline count).
+  const measured=body.clientHeight>0&&content.offsetHeight>0;
+  toggle.hidden=!state.expanded&&(measured
+   ?content.offsetHeight<=body.clientHeight+1
+   :!agentUserMessageIsLong(content.textContent));
+ }
+ node.agentSyncThinkingVisibility=syncVisibility;
+ paint();syncVisibility();
+ node.append(agentEl('strong','agentchat-thinking-heading',label),body,toggle);
+ return node;
+}
+function syncAgentThinkingToggles(container=transcript){
+ for(const node of container.querySelectorAll?.('.agentchat-thinking-content')||[]){
+  node.agentSyncThinkingVisibility?.();
+ }
+}
+// Clipboard projection only: preserve rendered code blocks, individual
+// Copy controls and canonical provider history.
+function agentCopyAnswer(raw){
+ const answer=agentThinkingParts(raw).answer;
+ const lines=answer.match(/[^\r\n]*(?:\r\n|\r|\n|$)/g)||[];
+ const keep=[];
+ let fence=null,removed=false;
+ for(const line of lines){
+  const plain=line.replace(/[\r\n]+$/,'');
+  if(fence){
+   const end=new RegExp('^[ \\t]{0,3}'+fence.char+'{'+fence.width+',}[ \\t]*$');
+   if(!fence.progress)keep.push(line);
+   if(end.test(plain))fence=null;
+   continue;
+  }
+  const m=/^[ \t]{0,3}(\x60{3,}|~{3,})[ \t]*([A-Za-z0-9_+#.-]{0,32})(?:[ \t]+(.*))?$/.exec(plain);
+  if(!m){keep.push(line);continue;}
+  const progress=m[2].toLowerCase()==='taskdeck-progress';
+  const tail=m[3]||'',at=tail.lastIndexOf(m[1]);
+  const inline=at>=0&&tail.slice(at+m[1].length).trim()==='';
+  if(progress)removed=true;else keep.push(line);
+  if(!inline)fence={char:m[1][0],width:m[1].length,progress};
+ }
+ const result=keep.join('');
+ return removed?result.trimEnd():result;
+}
 function agentMessageBubble(role,source){
  const raw=String(source??'');
- const bubble=agentRich.renderMessage(role,raw,showAgentError);
+ const split=role==='assistant'?agentThinkingParts(raw):{thinking:null,answer:raw};
+ const bubble=agentRich.renderMessage(role,split.answer,showAgentError);
  const body=agentEl('div','agentchat-message-body');
  // The Markdown renderer owns safe DOM nodes. Move them rather than parsing
  // markup again, and preserve its plain-text fallback for very large messages.
  const parts=[...(bubble.childNodes||bubble.children||[])];
  if(parts.length)body.append(...parts);
  else if(bubble.textContent)body.textContent=bubble.textContent;
+ if(split.thinking!==null)body.prepend(agentThinkingNode(split.thinking));
  bubble.textContent='';
  const actions=agentEl('div','agentchat-message-actions');
  if(role==='user'&&agentUserMessageIsLong(raw)){
@@ -1105,7 +1233,7 @@ function agentMessageBubble(role,source){
   toggle.setAttribute('aria-label','Expand or collapse sent message');
   actions.append(toggle);
  }
- // Copy the canonical source (including Markdown and text beyond line five),
+ // Copy the original Markdown answer, excluding thinking and taskdeck-progress,
  // never the clipped DOM and never a hidden attachment envelope.
  const copyLabel=role==='user'?'Copy sent message':'Copy entire AI response';
  const copy=agentButton('Copy',async()=>{
@@ -1115,7 +1243,7 @@ function agentMessageBubble(role,source){
    return;
   }
   try{
-   await clipboard.writeText(raw);
+   await clipboard.writeText(role==='assistant'?agentCopyAnswer(raw):raw);
    copy.textContent='Copied';
    copy.setAttribute('aria-label',role==='user'?'Sent message copied':'AI response copied');
    setTimeout(()=>{
@@ -1223,7 +1351,7 @@ function renderAgentTool(session,item){
   if(record?.result)box.append(detail('Patch rejection feedback',record.result,'patch-result'));
   if(rejectionPending){
    const actions=agentEl('div','agentchat-tool-actions');
-   if(session.auto_feedback)box.append(agentEl('p','agentchat-tool-summary',
+   if(agentFeedbackEnabled(session))box.append(agentEl('p','agentchat-tool-summary',
     'Auto feedback is enabled · forwarding the rejection to AI when permitted.'));
    actions.append(agentButton('Send rejection to AI',
     ()=>continueAgentTool(agentCurrentSession||session,item.call_id).catch(showAgentError)));
@@ -1264,7 +1392,7 @@ function renderAgentTool(session,item){
   actions.append(agentButton('View native result',()=>showAgentExecution(session.id,item.call_id).catch(showAgentError)));
  }
  if(!record.feedback_sent&&['running','dispatching','queued','unknown','done','error'].includes(state)){
-  if((session.auto_feedback||record.send_after_retry)&&['done','error'].includes(state)){
+  if((agentFeedbackEnabled(session)||record.send_after_retry)&&['done','error'].includes(state)){
    box.append(agentEl('p','agentchat-tool-summary',agentFeedbackWaitMessage(session)));
    if(session.auto_feedback_diagnostic?.eligible===false){
     actions.append(agentButton('Send verified result to AI',()=>recoverAgentPatch(agentCurrentSession||session,item.call_id,'send_existing').catch(showAgentError)));
@@ -1273,7 +1401,10 @@ function renderAgentTool(session,item){
    actions.append(agentButton('Get the last result and send to AI',
     ()=>recoverAgentPatch(agentCurrentSession||session,item.call_id,'send_existing').catch(showAgentError)));
   }
-  if(state==='error'){
+  let duplicateSkipped=false;
+  try{duplicateSkipped=JSON.parse(record.result||'{}').status==='SKIPPED_DUPLICATE_LOCAL';}catch{}
+  if(duplicateSkipped)box.append(agentEl('p','agentchat-tool-summary','Native duplicate filter skipped this invocation. No new test ran; send this outcome to AI.'));
+  if(state==='error'&&!duplicateSkipped){
    const reapply=agentButton('Re-apply Patch then send to AI',
     ()=>recoverAgentPatch(agentCurrentSession||session,item.call_id,'rerun_and_send').catch(showAgentError));
    reapply.disabled=Boolean(agentApp.sharedMode&&!agentApp.hasPermission?.('patch.run'));
@@ -1285,10 +1416,17 @@ function renderAgentTool(session,item){
    ()=>continueAgentTool(agentCurrentSession||session,item.call_id).catch(showAgentError)));
  }
  appendRecordedRejectionNotice();
+ if(['done','error'].includes(state)&&!record.feedback_sent&&!record.feedback_status&&!agentFeedbackEnabled(session)&&!record.send_after_retry){
+  box.append(agentEl('p','agentchat-tool-summary','Auto-send results is OFF · verified result has not been sent.'));
+  actions.append(agentButton('Enable Auto-send results',()=>{
+   if(agentActive!==session.id)return;
+   return queueAgentAutomationWrite(id=>writeAgentAutomation(id,'feedback',true)).catch(showAgentError);
+  }));
+ }
  if(state==='unknown'){
   box.append(agentEl('p','agentchat-tool-summary',
    'Native Patch execution was not confirmed for this Agent call. If you ran the queued ZIP manually, click Get the last result and send to AI: TaskDeck will look for unique matching completed native History and verify the original package hash. Re-apply is unavailable until a failed run is verified.'));
-  if(session.auto_patch&&!session.auto_feedback)box.append(agentEl('p','agentchat-tool-summary',
+  if(session.auto_patch&&!agentFeedbackEnabled(session))box.append(agentEl('p','agentchat-tool-summary',
    'Auto apply Patch is enabled, but Auto-send results is OFF. Enable Auto-send results to forward verified completions automatically.'));
  }
  if(actions.childElementCount)box.append(actions);
@@ -1297,20 +1435,45 @@ function renderAgentTool(session,item){
 function agentHistoryItemEqual(a,b){
  return a?.type===b?.type && a?.content===b?.content &&
   a?.call_id===b?.call_id && a?.name===b?.name && a?.arguments===b?.arguments &&
-  a?.seq===b?.seq && a?.kind===b?.kind && a?.status===b?.status && a?.detail===b?.detail;
+  a?.seq===b?.seq && a?.kind===b?.kind && a?.status===b?.status && a?.detail===b?.detail &&
+  a?.provider_id===b?.provider_id && a?.model_id===b?.model_id &&
+  a?.request_effort===b?.request_effort && a?.request_context===b?.request_context &&
+  a?.request_at===b?.request_at && a?.request_input_tokens===b?.request_input_tokens;
 }
 function agentToolIO(label,content){
  const details=agentEl('details','agentchat-io-details');
  details.append(agentEl('summary','',label),agentRich.renderCode(content,'',showAgentError));
  return details;
 }
+function agentRequestClock(value){
+ if(typeof value!=='string'||!value)return '';
+ const date=new Date(value);
+ if(!Number.isFinite(date.getTime()))return '';
+ return String(date.getHours()).padStart(2,'0')+':'+String(date.getMinutes()).padStart(2,'0');
+}
+function agentRequestBadgeText(item,session){
+ const providerID=String(item?.provider_id||session?.provider_id||'');
+ const modelID=String(item?.model_id||session?.model_id||'');
+ if(!providerID&&!modelID)return '';
+ const provider=agentProviders.find(entry=>entry.id===providerID);
+ const parts=[provider?.name||providerID||'Unknown provider'];
+ if(modelID)parts.push(modelID);
+ // Missing historical metadata must not be invented from current settings.
+ if(item?.request_effort)parts.push(item.request_effort==='default'?'Default':agentEffortLabel(item.request_effort));
+ const mode=({stateless:'Stateless',previous_response:'Response chain',conversation:'Conversations'})[item?.request_context];
+ if(mode)parts.push(mode);
+ const input=Number(item?.request_input_tokens||0);
+ if(Number.isSafeInteger(input)&&input>0)parts.push('≈ '+agentFormatTokenCount(input)+' input tokens');
+ const time=agentRequestClock(item?.request_at);
+ if(time)parts.push(time);
+ return parts.join(' · ');
+}
 function agentProviderBadge(row,item,session){
  if(!row)return row;
- const providerID=String(item.provider_id||session?.provider_id||'');
- const modelID=String(item.model_id||session?.model_id||'');
- if(!providerID&&!modelID)return row;
- const provider=agentProviders.find(entry=>entry.id===providerID);
- const badge=agentEl('span','agentchat-provider-badge',(provider?.name||providerID||'Unknown provider')+(modelID?' · '+modelID:''));
+ const label=agentRequestBadgeText(item,session);
+ if(!label)return row;
+ const badge=agentEl('span','agentchat-provider-badge',label);
+ if(item?.request_at)badge.title='Request time (local): '+new Date(item.request_at).toLocaleString();
  badge.style.display='block';badge.style.fontSize='10px';badge.style.opacity='.68';badge.style.marginBottom='4px';
  row.prepend(badge);
  return row;
@@ -1364,7 +1527,10 @@ function agentHistoryRow(session,item,callNames){
   }
   return agentProviderBadge(agentMessageBubble('assistant',raw),item,session);
  }
- if(item.type==='function_call')return renderAgentTool(session,item);
+ if(item.type==='function_call'){
+  const row=renderAgentTool(session,item);
+  return item.request_at?agentProviderBadge(row,item,session):row;
+ }
  if(item.type==='function_call_output'){
   const isCollection=callNames.get(item.call_id)==='taskdeck_collect_workspace';
   return agentToolIO(isCollection?'Collection result sent to AI · view contents':'Native Patch result sent to AI · view contents',String(item.content||''));
@@ -1415,20 +1581,39 @@ function agentLivePhase(session){
  const turn=agentLiveTurns.get(session.id);
  const lastCall=(session.tool_calls||[]).slice(-1)[0];
  const events=session.events||[];
- const newer=turn?events.filter(e=>Number(e.seq||0)>turn.baseEventSeq):events;
+ // A refused/failed local action is not the owner of the server turn.
+ // Use the canonical event tail to describe a request started elsewhere.
+ const newer=turn&&!turn.error?events.filter(e=>Number(e.seq||0)>turn.baseEventSeq):events;
  const lastEvent=newer.length?newer[newer.length-1]:null;
- const retry=session.retry_runtime;
+ const retry=session.status==='requesting_ai'?session.retry_runtime:null;
+ const stagnant=Number(retry?.same_digest_failures)>=3;
+ const stagnationHint=stagnant?' · same payload failed '+retry.same_digest_failures+' times; check provider connectivity. If needed, Stop and explicitly resume with narrower context or select a different model. No automatic provider switch.':'';
  if(retry?.phase==='waiting'){
   const remaining=Math.max(0,Math.ceil((Date.parse(retry.next_at||'')-Date.now())/1000));
   const max=retry.mode==='unlimited'?'∞':'5';
   return {message:'AI retry '+retry.attempt+'/'+max+' · '+(retry.last_code||'transient failure')+
-   (Number(retry.same_digest_failures)>=3?' · same payload failed '+retry.same_digest_failures+' times; check provider connectivity':'')+
+   stagnationHint+
    ' · trying again in '+remaining+'s · Stop request to cancel'};
  }
  if(retry?.phase==='sending'&&retry.attempt>1){
   return {message:'Retrying AI request · attempt '+retry.attempt+
-   (retry.mode==='unlimited'?' (unlimited)':' / 6 total attempts')+'…'};
+   (retry.mode==='unlimited'?' (unlimited)':' / 6 total attempts')+'…'+stagnationHint+(stagnant?' · Stop request to cancel':'')};
  }
+ if(session.status==='requesting_ai'){
+  if(!turn?.error&&turn?.phase==='sending'&&!turn.acknowledged&&!newer.some(e=>e.kind==='turn_started'||e.kind==='feedback_prepared'||e.kind==='provider_egress'))return {message:'Sending request…'};
+  if(lastEvent?.kind==='collect_started')return {message:'Running native Patch Tool COLLECT… large-file extraction in progress. Stop to cancel.'};
+  const preview=session.live_preview;
+  if(preview?.streaming){
+   return {message:preview.text&&agentThinkingParts(preview.text).answer.trim()?'Receiving response…':'Thinking…',thinking:true};
+  }
+  if(preview?.streaming===false)return {message:'Thinking… · waiting for provider (non-streaming)',thinking:true};
+  if(lastEvent?.kind==='collect_observed')return {message:'Sending Collection result to AI…'};
+  if(lastEvent?.kind==='feedback_prepared')return {message:'Sending native Patch result to AI…'};
+  if(lastCall?.feedback_status==='sending'||lastCall?.feedback_status==='prepared')return {message:'Sending native Patch result to AI…'};
+  return {message:'Thinking…',thinking:true};
+ }
+ if(session.status==='tool_queuing'||lastCall?.status==='queuing')return {message:'Submitting approved Patch to native queue…'};
+ if(['queued','dispatching','running'].includes(lastCall?.status))return {message:'Running native Patch…'};
  if(turn?.error){
   const persistedError=(session.events||[]).some(e=>Number(e.seq||0)>turn.baseEventSeq&&
    ['turn_failed','collect_failed','turn_cancelled','feedback_unknown'].includes(e.kind));
@@ -1436,18 +1621,8 @@ function agentLivePhase(session){
  }
  if(session.status==='failed')return null; // durable failure row in history
  if(session.status==='cancelled')return null;
- if(session.status==='requesting_ai'){
-  if(turn?.phase==='sending'&&!newer.some(e=>e.kind==='turn_started'||e.kind==='feedback_prepared'))return {message:'Sending request…'};
-  if(lastEvent?.kind==='collect_started')return {message:'Running native Patch Tool COLLECT… large-file extraction in progress. Stop to cancel.'};
-  if(lastEvent?.kind==='collect_observed')return {message:'Sending Collection result to AI…'};
-  if(lastEvent?.kind==='feedback_prepared')return {message:'Sending native Patch result to AI…'};
-  if(lastCall?.feedback_status==='sending'||lastCall?.feedback_status==='prepared')return {message:'Sending native Patch result to AI…'};
-  return {message:'Thinking…'};
- }
- if(turn?.phase==='feedback'&&!turn.acknowledged)return {message:'Sending native Patch result to AI…'};
- if(turn?.phase==='sending'&&!turn.acknowledged)return {message:'Sending request…'};
- if(session.status==='tool_queuing'||lastCall?.status==='queuing')return {message:'Submitting approved Patch to native queue…'};
- if(['queued','dispatching','running'].includes(lastCall?.status))return {message:'Running native Patch…'};
+ if(turn?.phase==='feedback'&&!turn.acknowledged&&!turn.error)return {message:'Sending native Patch result to AI…'};
+ if(turn?.phase==='sending'&&!turn.acknowledged&&!turn.error)return {message:'Sending request…'};
  if(session.status==='waiting_tool'&&lastCall?.status==='pending'&&(session.auto_patch||lastCall.auto_run_once)){
   if(lastCall.manual_retry_only)return {message:'Patch requires manual approval · no automatic dispatch'};
   const blocked=[...(session.events||[])].reverse().find(e=>e.kind==='tool_auto_patch_blocked'&&e.call_id===lastCall.call_id);
@@ -1457,7 +1632,7 @@ function agentLivePhase(session){
   return {message:age>30000?'Patch dispatch delayed · not confirmed queued · approve or reject in the proposal card':'Waiting for automatic Patch dispatch · not yet queued'};
  }
  if(['waiting_tool','tool_rejected'].includes(session.status)&&['done','error','rejected'].includes(lastCall?.status)&&
-    session.auto_feedback&&!lastCall.feedback_sent)return {message:agentFeedbackWaitMessage(session)};
+    agentFeedbackEnabled(session)&&!lastCall.feedback_sent)return {message:agentFeedbackWaitMessage(session)};
  return null;
 }
 function agentFormatTokenCount(value){
@@ -1504,21 +1679,48 @@ function agentUpdateLiveRow(session){
  const phase=agentLivePhase(session);
  if(!phase){
   if(agentLiveRow.parentElement)agentLiveRow.remove();
+  agentLiveThinkingKey='';agentLiveThinkingStates={};
+  agentLivePreview.dataset.previewKey='';agentLivePreview.replaceChildren();agentLivePreview.hidden=true;
   return;
  }
- agentLiveRow.className='agentchat-live-status'+(phase.error?' error':'');
+ agentLiveRow.className='agentchat-live-status'+(phase.error?' error':phase.thinking?' thinking':'');
+ const preview=session.status==='requesting_ai'&&phase.thinking?session.live_preview:null;
+ const thinkingKey=preview?.streaming?JSON.stringify([id,preview.request_id]):'';
+ if(agentLiveThinkingKey!==thinkingKey){
+  agentLiveThinkingKey=thinkingKey;
+  agentLiveThinkingStates={summary:{expanded:false},text:{expanded:false}};
+ }
+ const previewKey=preview?.streaming?JSON.stringify([id,preview.request_id,preview.summary,preview.text,preview.truncated]):'';
+ if(agentLivePreview.dataset.previewKey!==previewKey){
+  agentLivePreview.dataset.previewKey=previewKey;
+  agentLivePreview.replaceChildren();
+  if(preview?.streaming){
+   if(preview.summary)agentLivePreview.append(agentThinkingNode(preview.summary,'Thinking summary · live',agentLiveThinkingStates.summary));
+   if(preview.text){
+    const parts=agentThinkingParts(preview.text);
+    if(parts.thinking!==null)agentLivePreview.append(agentThinkingNode(parts.thinking,'Thinking · live',agentLiveThinkingStates.text));
+    if(parts.answer)agentLivePreview.append(agentEl('div','',parts.answer));
+   }
+   if(preview.truncated)agentLivePreview.append(agentEl('div','','Live preview limit reached; complete response will appear after validation.'));
+  }
+ }
+ agentLivePreview.hidden=!previewKey||!Boolean(preview?.summary||preview?.text);
  agentLiveSpinner.hidden=Boolean(phase.error);
  const requestEstimate=Number(session.provider_run?.estimated_input_tokens||0);
  const sendingOrThinking=session.status==='requesting_ai'&&
-  /^(Sending |Retrying AI request|Thinking)/.test(phase.message);
- const message=phase.message+(sendingOrThinking&&requestEstimate>0?
-  ' · request input ≈ '+agentFormatTokenCount(requestEstimate)+' tokens':'');
+  /^(Sending |Retrying AI request|Thinking|Receiving response)/.test(phase.message);
+ const requestInfo=session.provider_run;
+ const hasRequestInfo=sendingOrThinking&&Boolean(requestInfo?.request_at);
+ const requestLabel=hasRequestInfo?agentRequestBadgeText(requestInfo,session):'';
+ const message=phase.message+(requestLabel?' · '+requestLabel:
+  sendingOrThinking&&requestEstimate>0?' · request input ≈ '+agentFormatTokenCount(requestEstimate)+' tokens':'');
  if(agentLiveText.textContent!==message)agentLiveText.textContent=message;
  if(transcript.children[transcript.children.length-1]!==agentLiveRow){
   // append(existingNode) moves it without recreating it. This preserves its
   // animation/state and does not count as removing a history entry.
   transcript.append(agentLiveRow);
  }
+ syncAgentThinkingToggles(agentLivePreview);
 }
 function agentStartProgressPoll(sessionID){
  if(agentProgressTimers.has(sessionID))return;
@@ -1548,7 +1750,7 @@ function agentToolRenderVersion(item,records,outputs,session){
  }
  const record=records.get(item.call_id);
  return 'patch:'+JSON.stringify(record||null)+':output:'+Boolean(outputs.get(item.call_id))+
-  (record&&!record.feedback_sent?':feedback:'+JSON.stringify(session?.auto_feedback_diagnostic||null):'');
+  (record&&!record.feedback_sent?':feedback:'+agentFeedbackEnabled(session)+':'+JSON.stringify(session?.auto_feedback_diagnostic||null):'');
 }
 // Auto-follow recent activity without stealing scroll when the user reads history.
 function agentAtLatest(){
@@ -1695,11 +1897,14 @@ function renderAgentProviderEgressReview(session,review,attemptAudit=null,integr
  if(recoveryText)agentProviderEgressNotice.append(agentEl('div','',recoveryText));
  if(review.phase==='unknown'&&review.kind==='collection'&&session.collection_resume_eligible===true&&!integrityError){
   const resume=agentButton('Resume original task (new request)',()=>{
-   if(agentActive!==session.id||agentSessionBusy(session.id))return;
+   const current=agentCurrentSession;
+   if(agentActive!==session.id||current?.id!==session.id||agentSessionBusy(session.id)||agentServerTurnBusy(current))return;
+   if(current.archived||current.status!=='failed'||current.collection_resume_eligible!==true||
+      current.provider_run?.id!==review.run_id||current.provider_run?.kind!=='collection'||current.provider_run?.phase!=='unknown')return;
    const recoveryDraft='Resume original unfinished task from the canonical checkpoint (new request; do not replay old provider egress).';
    if((prompt.value.trim()&&prompt.value.trim()!==recoveryDraft)||(agentAttachments||[]).length){showAgentError(new Error('Preserve the current draft/attachments before resuming.'));return;}
    setAgentPromptValue(recoveryDraft);
-   sendAgentMessage(String(review.run_id)).catch(showAgentError);
+   return sendAgentMessage(String(review.run_id)).catch(showAgentError);
   });
   agentProviderEgressNotice.append(agentEl('div','','Previous PATCH acknowledgements remain intact. You can send any new message normally to the selected model or resume the original task. The previous provider request stays UNKNOWN.'),resume);
  }
@@ -1737,6 +1942,7 @@ function displayAgentSession(session){
    agentRenderedToolVersions.clear();
   }
   agentCurrentSession=null;
+  renderAgentAutomationControls(null);
   updateAgentFooterSession(null);
   agentUpdateTokenUsage(null);
   renderAgentProviderEgressReview(null,null);
@@ -1756,6 +1962,9 @@ function displayAgentSession(session){
   agentRenderedToolVersions.clear();
  }
  agentCurrentSession=session;
+ // A render from an authoritative session snapshot must refresh Stop/Send,
+ // including retry progress and restored conversations without a local fetch.
+ if(agentActive===session.id)agentUpdateSendAvailability(session);
  agentUpdateTokenUsage(session);
  const history=agentChronologicalHistory(session);
  const records=new Map((session.tool_calls||[]).map(call=>[call.call_id,call]));
@@ -1810,12 +2019,12 @@ function displayAgentSession(session){
   agentRenderedToolVersions.set(item.call_id,version);
  }
  agentUpdateLiveRow(session);
+ if(changed)syncAgentThinkingToggles();
  // The live status is appended after the history scroll decision.
  if(followLatest)agentScrollToLatest(session.id);
  const last=(session.tool_calls||[]).slice(-1)[0];
  updateAgentFooterSession(session,last);
- const nextFeedback=session.auto_feedback?'Auto-send: ON':'Auto-send results';
- if(autoFeedback.textContent!==nextFeedback)autoFeedback.textContent=nextFeedback;
+ renderAgentAutomationControls(session);
 }
 function agentConversationUnresolved(sess){
  if(sess&&typeof sess.unresolved==='boolean')return sess.unresolved;
@@ -1931,10 +2140,12 @@ async function selectAgentSession(id){
  if(generation!==agentSelectGeneration)return null;
  const sess=data.session;
  sess.retry_runtime=data.retry_runtime||null;
+ sess.live_preview=data.live_preview||null;
  sess.auto_feedback_diagnostic=data.auto_feedback_diagnostic||null;
  sess.collection_resume_eligible=data.collection_resume_eligible===true;
  sess.collection_progress=data.collection_progress||null;
  sess.collection_auto_recovery=data.collection_auto_recovery||'';
+ sess.auto_continue_monitor=data.auto_continue_monitor===true;
  renderAgentProviderEgressReview(sess,data.provider_review||null,
   data.provider_attempts||null,data.provider_attempts_integrity_error===true);
  if(switched||agentToolNoticeKey!==data.patch_tool_status+':'+(sess.auto_patch?'auto':'manual')){
@@ -1974,9 +2185,7 @@ async function selectAgentSession(id){
    agentPendingAttachments.splice(0,pendingToTransfer.length);renderAgentAttachments();
   }catch(error){setAgentStatusNotice('Pending attachments need room: '+String(error?.message||error));}
  }
- renderAgentAutomationControls(sess);
- send.disabled=(agentSessionBusy(id)||(sess.status==='requesting_ai'))&&!agentRunUI?.canSend();
- cancel.disabled=!agentSessionBusy(id)&&sess.status!=='requesting_ai';
+ agentUpdateSendAvailability(sess);
  const summary=agentSessions.find(x=>x.id===id);
  if(summary){
   summary.status=sess.status;
@@ -2029,7 +2238,7 @@ async function recoverAgentPatch(session,callID,action){
   if(!window.confirm('Re-apply this verified FAILED Patch exactly once through Native Patch Tool, then automatically send its final PASS/FAIL to AI? The old attempt remains in History. Reapplying may modify project files.'))return;
  }else if(action==='rerun_patch'){
   if(!window.confirm('Prepare a fresh manual Patch approval? The previous failed run stays in History.'))return;
- }else if(!window.confirm('Get the latest matching verified native Patch History result (PASS or FAIL) and send it to AI? The Patch will NOT run again.'))return;
+ }else if(!window.confirm('Get the latest matching verified native Patch History outcome (including a duplicate skip) and send it to AI? The Patch will NOT run again.'))return;
  const result=await agentApp.jsonFetch('/api/agent/sessions/'+encodeURIComponent(session.id)+
    '/tools/'+encodeURIComponent(callID)+'/recover',{
   method:'POST',headers:{'Content-Type':'application/json'},
@@ -2098,7 +2307,8 @@ async function syncAgentPatch(id,{quiet=false}={}){
   if(agentActive!==id)return result;
   // No journal revision change means native state did not change. Keep the
   // whole transcript/tab/console DOM untouched and avoid a second API call.
-  if(!agentCurrentSession||result.revision!==agentCurrentSession.revision){
+  if(!agentCurrentSession||result.revision!==agentCurrentSession.revision||
+    (result.automation_revision!==undefined&&Number(result.automation_revision)!==Number(agentCurrentSession.automation_revision||0))){
    await selectAgentSession(id);
   }
   if(!quiet){
@@ -2147,6 +2357,7 @@ async function continueAgentTool(session,callID){
   return result;
  }catch(error){
   turn.error=String(error?.message||error).slice(0,450);
+  if(agentTurnAdmissionBusy(error))agentDiscardRefusedTurn(session.id,turn);
   if(agentActive===session.id){
    try{await selectAgentSession(session.id);}catch{}
    if(agentCurrentSession?.id===session.id)agentUpdateLiveRow(agentCurrentSession);
@@ -2162,7 +2373,7 @@ async function continueAgentTool(session,callID){
 function agentMonitorNeedsWork(sess){
  if(!sess)return false;
  const calls=sess.tool_calls||[];
- return ['ready','retry_deferred'].includes(sess.collection_auto_recovery)||
+ return sess.auto_continue_monitor===true||['ready','retry_deferred'].includes(sess.collection_auto_recovery)||
   ['requesting_ai','tool_queuing'].includes(sess.status)||
   calls.some(call=>['queuing','running','dispatching','queued','unknown'].includes(call.status))||
   (sess.status==='waiting_tool'&&calls.some(call=>call.status==='pending'&&!call.manual_retry_only&&(sess.auto_patch||call.auto_run_once)))||
@@ -2170,12 +2381,12 @@ function agentMonitorNeedsWork(sess){
    (!sess.provider_run||sess.provider_run.phase==='completed')&&
    sess.history?.at(-1)?.type==='function_call'&&
    calls.some(call=>call.call_id===sess.history.at(-1).call_id&&call.status==='rejected'&&
-    !call.feedback_sent&&!call.feedback_status&&(sess.auto_feedback||sess.auto_continue_text||sess.task_plan?.auto_continue)))||
+    !call.feedback_sent&&!call.feedback_status&&(agentFeedbackEnabled(sess)||sess.auto_continue_text||sess.task_plan?.auto_continue)))||
   (['waiting_tool','tool_rejected'].includes(sess.status)&&calls.some(call=>!call.feedback_sent&&(
-   (sess.auto_feedback&&['done','error','rejected'].includes(call.status))||
+   (agentFeedbackEnabled(sess)&&['done','error','rejected'].includes(call.status))||
    (call.status==='rejected'&&(sess.auto_continue_text||sess.task_plan?.auto_continue)))));
 }
-function scheduleAgentMonitor(sess,delay=2800){
+function scheduleAgentMonitor(sess,delay=sess?.live_preview?.streaming?1200:2800){
  clearTimeout(agentMonitorTimer);agentMonitorTimer=0;
  const generation=++agentMonitorGeneration;
  if(!root.classList.contains('visible')||!sess||agentActive!==sess.id)return;
@@ -2186,10 +2397,10 @@ function scheduleAgentMonitor(sess,delay=2800){
  agentMonitorTimer=setTimeout(async()=>{
   if(!stillCurrent())return;
   agentMonitorTimer=0;
-  let nextDelay=2800;
+  let nextDelay=sess?.live_preview?.streaming?1200:2800;
   try{
    const current=agentCurrentSession?.id===id?agentCurrentSession:sess;
-   if(agentSessionBusy(id)||['requesting_ai','tool_queuing'].includes(current.status)||
+   if(current.auto_continue_monitor===true||agentSessionBusy(id)||['requesting_ai','tool_queuing'].includes(current.status)||
       (current.tool_calls||[]).some(call=>call.status==='queuing')){
     // QUEUING is a durable intermediate state. Use GET while approval may
     // still own the turn lock, then reconcile an unchanged marker via /sync.
@@ -2224,8 +2435,9 @@ async function sendAgentMessage(resumeCollectionRunID=""){
  if(typeof resumeCollectionRunID!=="string")resumeCollectionRunID="";
  if(!agentActive)throw new Error('Create a session first.');
  const sessionID=agentActive;
- const msg=prompt.value.trim();
  const attachments=(agentAttachments||[]).map(a=>({...a}));
+ const msg=agentMessageWithPastedAttachments(prompt.value,attachments);
+ if(attachmentByteLength(msg)>agentMessageTextLimit)throw new Error('Message exceeds 16 KiB. Shorten the draft or attach a smaller excerpt; your text is preserved.');
  const wireAttachments=attachments.map(({name,mime,text})=>({name,mime,text}));
  if(!msg)throw new Error('Enter a message.');
  const current=agentCurrentSession?.id===sessionID?agentCurrentSession:await selectAgentSession(sessionID);
@@ -2233,7 +2445,7 @@ async function sendAgentMessage(resumeCollectionRunID=""){
  // Legacy has one admitted turn per conversation. Pending-turn dispatch is
  // fail-closed. Do not replace its AbortController, live row or polling
  // ownership with a second optimistic send while Run Manager is drain-only.
- if(agentBusySessions.has(sessionID)||current.status==='requesting_ai'||current.status==='tool_queuing')
+ if(agentBusySessions.has(sessionID)||agentServerTurnBusy(current))
   throw new Error('Conversation is busy. Retry after the active turn finishes; your draft is preserved.');
  const canStartAgentRun=Boolean(agentRunUI?.canSend());
  const nextProvider=canStartAgentRun?agentRunUI.value():{providerId:providerSelect.value||current.provider_id,modelId:modelSelect.value||current.model_id};
@@ -2338,7 +2550,10 @@ const useRunManager=false;
   return response;
  }catch(error){
   turn.error=String(error?.message||error).slice(0,450);
-  if(turn.optimisticNode)turn.optimisticNode.append(agentEl('div','agentchat-info','(Not confirmed sent)'));
+  // A confirmed admission refusal never reached the provider. Keep the
+  // draft, not a misleading failed bubble or a competing live status.
+  if(agentTurnAdmissionBusy(error))agentDiscardRefusedTurn(sessionID,turn);
+  else if(turn.optimisticNode)turn.optimisticNode.append(agentEl('div','agentchat-info','(Not confirmed sent)'));
   agentAttachmentDrafts.set(sessionID,attachments);
   if(agentActive===sessionID){
    if(!prompt.value.trim())setAgentPromptValue(msg);
@@ -2373,7 +2588,7 @@ function normalizeStagedAttachments(items){
   try{if(new TextDecoder('utf-8',{fatal:true}).decode(new TextEncoder().encode(text))!==text)throw new Error();}catch{throw new Error(name+' is not valid UTF-8 text.');}
   if(bytes>agentMaxAttachmentBytes)throw new Error(name+' is '+bytes+' bytes; the per-file limit is 32 KiB. Select a smaller range.');
   const source=item.source&&typeof item.source==='object'?{...item.source}:{};
-  const kind=['file','file_selection','terminal_console','terminal_selection'].includes(item.kind)?item.kind:(source.kind||'file');
+  const kind=['file','file_selection','terminal_console','terminal_selection','pasted_text'].includes(item.kind)?item.kind:(source.kind||'file');
   const lines=['SOURCE_TYPE: '+safeAttachmentMetadata(kind)];
   if(source.path)lines.push('FILE_PATH: '+safeAttachmentMetadata(source.path));
   if(Array.isArray(source.ranges)&&source.ranges.length>1)source.ranges.forEach((range,index)=>lines.push('RANGE '+(index+1)+': L'+range.start_line+':C'+range.start_column+'-L'+range.end_line+':C'+range.end_column));
@@ -2397,6 +2612,66 @@ function normalizeStagedAttachments(items){
  });
 }
 function currentStagedAttachments(){return agentActive?agentAttachments:agentPendingAttachments;}
+// A paste-only turn is explicit owner input when Send is clicked. Ordinary
+// file attachments still require an independently typed request.
+function agentMessageWithPastedAttachments(value,items){
+ const text=String(value||'').trim();
+ if(text)return text;
+ if(items.some(item=>item.kind==='pasted_text'))return 'Please process the pasted text in the attached file(s) as my request, subject to TaskDeck rules.';
+ return '';
+}
+// Split on Unicode code-point boundaries and reserve source envelope space.
+function agentPastedTextItems(text,current){
+ if(!isValidUTF8Text(text))throw new Error('Pasted text is not valid UTF-8.');
+ if(attachmentByteLength(text)>agentMaxAttachmentTotal)throw new Error('Pasted text exceeds the 64 KiB combined attachment limit.');
+ const chunkLimit=agentMaxAttachmentBytes-1024;
+ const parts=[];
+ let start=0,offset=0,bytes=0;
+ for(const char of text){
+  const cp=char.codePointAt(0),width=cp<=0x7f?1:cp<=0x7ff?2:cp<=0xffff?3:4;
+  if(bytes+width>chunkLimit){parts.push(text.slice(start,offset));start=offset;bytes=0;}
+  bytes+=width;offset+=char.length;
+ }
+ if(offset>start)parts.push(text.slice(start));
+ let serial=1;
+ while(current.some(item=>item.name==='Pasted text '+serial+'.txt'||item.name.startsWith('Pasted text '+serial+' - part ')))serial++;
+ return parts.map((part,i)=>({
+  name:'Pasted text '+serial+(parts.length>1?' - part '+(i+1)+' of '+parts.length:'')+'.txt',
+  mime:'text/plain',kind:'pasted_text',text:part,source:{content_source:'clipboard_paste'},
+ }));
+}
+function handleAgentLongPaste(event){
+ if(event.defaultPrevented||prompt.disabled||prompt.readOnly)return;
+ const text=event.clipboardData?.getData('text/plain');
+ if(!text)return;
+ const value=prompt.value||'';
+ const start=Number.isInteger(prompt.selectionStart)?prompt.selectionStart:value.length;
+ const end=Number.isInteger(prompt.selectionEnd)?prompt.selectionEnd:start;
+ const remainder=value.slice(0,start)+value.slice(end);
+ const bytes=attachmentByteLength(text);
+ if(bytes<agentPasteAttachmentThreshold&&attachmentByteLength(value.slice(0,start)+text+value.slice(end))<=agentMessageTextLimit)return;
+ const current=currentStagedAttachments();
+ let staged,added;
+ try{
+  added=agentPastedTextItems(text,current);
+  staged=normalizeStagedAttachments([...current,...added]);
+ }catch(error){
+  // Default browser paste retains the entire clipboard on overflow.
+  setAgentStatusNotice('Paste kept in message: '+String(error?.message||error));
+  return;
+ }
+ event.preventDefault();
+ current.splice(0,current.length,...staged);
+ if(agentActive){
+  agentAttachmentDrafts.set(agentActive,staged.map(a=>({...a})));
+  agentDrafts.set(agentActive,remainder);
+  agentRequestIDs.delete(agentActive);
+ }
+ setAgentPromptValue(remainder);
+ prompt.setSelectionRange?.(start,start);
+ renderAgentAttachments();
+ setAgentStatusNotice('Pasted text attached · '+added.length+' file'+(added.length===1?'':'s')+' · '+bytes+' bytes. Review before sending.');
+}
 let agentAttachmentTooltip=null,agentAttachmentPreviewIndex=0,agentAttachmentViewButtons=[];
 function closeAgentAttachmentsPopup(){
  const wasOpen=attachPopup.classList.contains('open');
@@ -2750,12 +3025,19 @@ function renderAgentAutomationControls(session){
  autoPatch.setAttribute('aria-pressed',String(Boolean(session?.auto_patch)));
  autoCollection.textContent='Auto Collection: '+(session?.auto_collection===false?'OFF':'ON');
  autoCollection.setAttribute('aria-pressed',String(session?.auto_collection!==false));
- const feedbackActive=Boolean(session?.auto_feedback)&&
-  (!session?.auto_feedback_until || Date.parse(session.auto_feedback_until)>Date.now());
- autoFeedback.textContent='Auto-send results: '+(feedbackActive?'ON':'OFF');
- autoFeedback.setAttribute('aria-pressed',String(feedbackActive));
+ renderAgentFeedbackControl(session);
  autoContinueText.textContent='Auto continue (no plan): '+(session?.auto_continue_text?'ON':'OFF');
  autoContinueText.setAttribute('aria-pressed',String(Boolean(session?.auto_continue_text)));
+}
+function agentFeedbackEnabled(session){
+ return Boolean(session?.auto_feedback&&(session.auto_feedback_persistent||
+  (session.auto_feedback_until&&Date.parse(session.auto_feedback_until)>=Date.now())));
+}
+function renderAgentFeedbackControl(session){
+ const active=agentFeedbackEnabled(session);
+ const label='Auto-send results: '+(active?'ON':'OFF');
+ if(autoFeedback.textContent!==label)autoFeedback.textContent=label;
+ if(autoFeedback.getAttribute('aria-pressed')!==String(active))autoFeedback.setAttribute('aria-pressed',String(active));
 }
 // Serialize preference clicks per conversation, independently of provider
 // requests and polling. A late click cannot mutate a different active tab.
@@ -2769,17 +3051,22 @@ function queueAgentAutomationWrite(action){
  return pending.finally(()=>{if(agentAutomationWrites.get(id)===pending)agentAutomationWrites.delete(id);});
 }
 function toggleAgentAutomation(option){
- return queueAgentAutomationWrite(id=>writeAgentAutomation(id,option));
+ // Capture the user's intended setting from the visible control, not from
+ // a later GET which may already reflect an intervening successful write.
+ const control={patch:autoPatch,collection:autoCollection,continue:autoContinueText,feedback:autoFeedback}[option];
+ const enabled=control.getAttribute('aria-pressed')!=='true';
+ return queueAgentAutomationWrite(id=>writeAgentAutomation(id,option,enabled));
 }
-async function writeAgentAutomation(id,option){
+async function writeAgentAutomation(id,option,enabled){
  const data=await agentApp.jsonFetch('/api/agent/sessions/'+encodeURIComponent(id));
  const session=data.session;
  if(!session||session.id!==id)throw new Error('Conversation unavailable.');
  const current=option==='patch'?Boolean(session.auto_patch):
   option==='collection'?session.auto_collection!==false:
   option==='continue'?Boolean(session.auto_continue_text):
-  Boolean(session.auto_feedback) && (!session.auto_feedback_until || Date.parse(session.auto_feedback_until)>Date.now());
- const enabled=!current;
+  agentFeedbackEnabled(session);
+ if(typeof enabled!=='boolean')throw new Error('Missing explicit automation preference.');
+ if(current===enabled){if(agentActive===id)await selectAgentSession(id);return;}
  if(option==='continue'&&enabled&&session.task_plan)
   throw new Error('This conversation has a Task plan. Enable Auto continue in Tools → Task plan instead.');
  if(option==='continue'&&enabled&&!window.confirm(
@@ -2795,7 +3082,8 @@ async function writeAgentAutomation(id,option){
  if(agentActive!==session.id)return;
  const latest=await selectAgentSession(session.id);
  if(agentActive!==session.id)return;
- renderAgentAutomationControls(latest||result.session);
+ if(latest)renderAgentAutomationControls(latest);
+ else if(agentCurrentSession?.id===id&&Number(result.session?.automation_revision||0)>=Number(agentCurrentSession.automation_revision||0))renderAgentAutomationControls(result.session);
  setAgentStatusNotice((option==='patch'?'Automatic native Patch approval':
   option==='collection'?'Read-only Collection':option==='continue'?'Unfinished conversation continuation':'Automatic provider feedback')+
   (enabled?' enabled for this conversation.':' disabled for this conversation.')+
@@ -3271,17 +3559,21 @@ async function previewAgentContext(){
  transcript.append(box);transcript.scrollTop=transcript.scrollHeight;
  setAgentStatusNotice(data.note||'Preview only.');
 }
+function agentCanStopNative(sess){
+ return !agentApp.sharedMode&&Boolean(sess?.tool_calls?.some(c=>c.name==="taskdeck_submit_patch"&&!c.agent_run_id&&!c.feedback_sent&&["running","dispatching","unknown"].includes(c.status)&&c.patch_session_id));
+}
 async function cancelAgentTurn(){
  if(!agentActive)return;
  const id=agentActive;
+ const nativeStop=agentCurrentSession?.status!=="requesting_ai"&&agentCanStopNative(agentCurrentSession);
+ if(nativeStop&&!window.confirm("Check the exact native Patch outcome and request Stop if it is still running? Source or test side effects may remain. No Patch will be replayed."))return;
  try{
-  const result=await agentApp.jsonFetch('/api/agent/sessions/'+encodeURIComponent(id)+'/cancel',{
+  const result=await agentApp.jsonFetch('/api/agent/sessions/'+encodeURIComponent(id)+'/cancel'+(nativeStop?'?stop_native=1':''),{
    method:'POST',headers:{'Content-Type':'application/json'},body:'{}',
   });
   setAgentStatusNotice(result.note||(result.cancelled?'Request cancelled.':'Nothing to cancel.'));
-  // A server-side cancel is authoritative; the browser abort only stops the
-  // local fetch from lingering.
-  try{agentAbort?.abort();}catch{}
+  // Native Stop never aborts another conversation\u0027s provider fetch.
+  if(!nativeStop){try{agentAbort?.abort();}catch{}}
   await selectAgentSession(id);
  }catch(error){
   setAgentStatusNotice('Cancel request failed: '+String(error?.message||error));
@@ -3441,7 +3733,7 @@ function mountAgentDock(){
    const size=section.clientWidth+':'+section.clientHeight+':'+heading.clientWidth+':'+composer.clientWidth;
    if(size===lastSize)return;
    lastSize=size;
-   applyAgentDock();rebalanceAgentToolbar();
+   applyAgentDock();rebalanceAgentToolbar();syncAgentThinkingToggles();
   });
   agentDock.observer.observe(heading);agentDock.observer.observe(section);agentDock.observer.observe(composer);
  }

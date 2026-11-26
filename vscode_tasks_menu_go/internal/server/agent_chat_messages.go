@@ -10,6 +10,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"time"
 	"unicode/utf8"
 
 	"bletonfc/vscode_tasks_menu/internal/agentchat"
@@ -36,9 +37,9 @@ func (s *Server) agentChatCallForOwner(ctx context.Context, owner, sessionID str
 	return s.agentChatProviderWithRetry(ctx, owner, sessionID, p, key, payload)
 }
 
-func (s *Server) agentChatObservedCall(ctx context.Context, owner, action, sessionID string, p agentchat.ProviderConfig, key string, payload []byte) (agentchat.ResponsesResult, error, string) {
+func (s *Server) agentChatObservedCall(ctx context.Context, owner, action, sessionID string, p agentchat.ProviderConfig, key string, payload []byte, attempts ...agentCacheAttemptIdentity) (agentchat.ResponsesResult, error, string) {
 	traceCtx, recorder, traceID := s.beginAgentDebug(ctx, owner, action, sessionID, p, modelFromAgentPayload(payload))
-	streaming := p.Stream && owner != "" && s.agentStreamCapabilityVerified(owner, p)
+	streaming := p.Stream && owner != "" && s.agentStreamCapabilityVerified(owner, p, modelFromAgentPayload(payload))
 	metadata := agentRequestDiagnosticMetadata(payload)
 	metadata.Level = "info"
 	metadata.Stage = "request_build"
@@ -50,18 +51,29 @@ func (s *Server) agentChatObservedCall(ctx context.Context, owner, action, sessi
 	metadata.APIKeyPresent = key != ""
 	metadata.Streaming = streaming
 	recorder.RecordProviderDiagnostic(metadata)
+	if hint:=agentchat.PromptCacheKeyFingerprint(payload);hint!=""{
+		recorder.RecordProviderDiagnostic(agentchat.DiagnosticEvent{Level:"info",Stage:"provider_cache",Event:"affinity.cache_key",SafeMessage:"prompt_cache_key present; fingerprint="+hint})
+	}
+	startedAt:=time.Now().UTC()
+	requestDisplay:=agentRequestDisplay(p,payload,startedAt)
 	var result agentchat.ResponsesResult
 	var err error
+	var onEvent func(agentchat.StreamEvent) error
+	if action == "provider_request" && owner != "" && sessionID != "" {
+		var finish func()
+		onEvent, finish = beginAgentLivePreview(s.Workspace, owner, sessionID, traceID, streaming && s.AgentChatCall == nil, startedAt)
+		defer finish()
+	}
 	if s.AgentChatCall != nil {
 		result, err = s.AgentChatCall(traceCtx, p, key, payload)
 	} else if p.APIType == "chat_completions" {
 		if streaming {
-			result, err = agentchat.DoChatCompletionsStream(traceCtx, p, key, payload)
+			result, err = agentchat.DoChatCompletionsStreamWithEvents(traceCtx, p, key, payload, onEvent)
 		} else {
 			result, err = agentchat.DoChatCompletions(traceCtx, p, key, payload)
 		}
 	} else if streaming {
-		result, err = agentchat.DoResponsesStream(traceCtx, p, key, payload)
+		result, err = agentchat.DoResponsesStreamWithEvents(traceCtx, p, key, payload, onEvent)
 	} else {
 		result, err = agentchat.DoResponses(traceCtx, p, key, payload)
 	}
@@ -89,8 +101,23 @@ func (s *Server) agentChatObservedCall(ctx context.Context, owner, action, sessi
 			})
 		}
 	} else {
+		recorder.RecordProviderDiagnostic(agentchat.DiagnosticEvent{Level:"info",Stage:"provider_cache",Event:"cache.usage",SafeMessage:result.CacheUsage.Summary(result.InputTokens)})
 		recorder.finish("", "Provider request completed")
 	}
+	if action=="provider_request"&&sessionID!=""&&len(attempts)==1&&attempts[0].runID!="" {
+		if store,e:=s.agentChatStore();e==nil{
+			if note,stats,e:=store.RecordCacheObservation(sessionID,owner,attempts[0].runID,attempts[0].attempt,p,key,payload,startedAt,result.InputTokens,result.CacheUsage,err==nil);e==nil{
+				recordAgentCacheObservationDiagnostics(recorder,note,stats)
+			}else{
+				recorder.RecordProviderDiagnostic(agentchat.DiagnosticEvent{Level:"warn",Stage:"provider_cache",Event:"cache.observation_unavailable",SafeMessage:"Cache observation unavailable; attempt identity, scope or private metadata validation failed. Provider result is unchanged."})
+			}
+		}else{
+			recorder.RecordProviderDiagnostic(agentchat.DiagnosticEvent{Level:"warn",Stage:"provider_cache",Event:"cache.observation_unavailable",SafeMessage:"Cache observation store unavailable. Provider result is unchanged."})
+		}
+	}
+	// Attach local metadata after the transport returns, including the exact
+	// payload of the successful retry rather than the current UI selection.
+	result.RequestDisplay=requestDisplay
 	return result, err, traceID
 }
 
@@ -295,6 +322,11 @@ func (s *Server) agentChatAuthorizedMessage(w http.ResponseWriter, r *http.Reque
 		http.Error(w, "stale session revision", 409)
 		return
 	}
+	if digest, ok := r.Context().Value(standaloneContinuationContextKey{}).(string); ok {
+		if s.Config.SharedServerEnabled || owner!="local" || !agentchat.StandaloneAutoContinueCandidate(session) || session.Continuation.ResponseDigest!=digest {
+			http.Error(w,"automatic continuation no longer authorized or eligible",409);return
+		}
+	}
 	runRecords, err := s.completedAgentRuns(owner, id)
 	if err != nil {
 		http.Error(w, "Agent Run history unavailable; cannot build conversation context", http.StatusServiceUnavailable)
@@ -462,17 +494,18 @@ func (s *Server) agentChatAuthorizedMessage(w http.ResponseWriter, r *http.Reque
 	if !autoResumeCollection && !patchToolAvailable && agentNeedsWorkspaceTools(msg) {
 		patchToolAvailable = s.agentChatEnsureTools(r.Context(), owner, p, model, string(secret))
 	}
-	instructions := agentChatInstructionsWithAutomation(session, patchToolAvailable, identity.Key)
-	instructions += s.agentRetireKnownFailedPatches(r.Context(), &session, identity, "")
+	instructions,currentInstructions := agentChatInstructionsWithAutomationParts(session, patchToolAvailable, identity.Key)
+	currentInstructions += s.agentRetireKnownFailedPatches(r.Context(), &session, identity, "")
 	if newAfterCollection {
-		instructions += " The previous read-only Collection provider delivery is UNKNOWN. This is a new user request, not a replay. Follow the latest actual user message. Local verified receipts are historical evidence only; do not claim prior provider acknowledgement, resend old feedback, or re-execute an earlier Patch. Request fresh native COLLECT only if necessary."
+		currentInstructions += " The previous read-only Collection provider delivery is UNKNOWN. This is a new user request, not a replay. Follow the latest actual user message. Local verified receipts are historical evidence only; do not claim prior provider acknowledgement, resend old feedback, or re-execute an earlier Patch. Request fresh native COLLECT only if necessary."
 	}
 	failureProjection := s.agentFailureContextProjection(store, session, "", req.Message)
 	limit := agentInitialOutputBudget(model, reasoning, patchToolAvailable)
 	// Conversations mode is only trusted with verified evidence for this exact
 	// endpoint/model. Otherwise replay canonical history statelessly; the stored
 	// session mode stays immutable for audit and a later verified retry.
-	mode := agentContextRequestMode(session,p.APIType,s.agentConversationCapabilityVerified(owner,p,model))
+	currentContract := agentInstalledCollectionContract(s.Workspace)
+	mode := agentContextRequestMode(session,p.APIType,s.agentConversationCapabilityVerified(owner,p,model),currentContract)
 	if len(runRecords) != 0 || resumeCollection || newAfterCollection ||
 		previousProvider != p.ID || previousModel != model.ID || len(failureProjection.History)>len(session.History) {
 		mode = agentchat.Stateless
@@ -487,13 +520,13 @@ func (s *Server) agentChatAuthorizedMessage(w http.ResponseWriter, r *http.Reque
 		failureProjection.History,requestNext,ok=agentCollectionResumeProjection(session,failureProjection.History,next)
 		if !ok{http.Error(w,"cannot project the exact saved Collection checkpoint; canonical history retained",409);return}
 	}
-	payload, err := agentBuildContextRequest(failureProjection,contextModel,p,agentchat.RequestConfig{
-		Model: session.ModelID, Instructions: instructions, Mode: mode,
+	payload, err := s.agentBuildCachedContextRequest(store,failureProjection,contextModel,p,string(secret),agentchat.RequestConfig{
+		Model: session.ModelID, Instructions: instructions, CurrentInstructions: currentInstructions, Mode: mode,
 		PreviousResponseID: session.PreviousResponseID, ConversationID: conversationID,
 		Next: requestNext, MaxOutputTokens: limit,
 		ReasoningEffort: reasoning,
 		EnablePatchTool: patchToolAvailable, EnableCollectionTool: patchToolAvailable,
-		NativeCollectionContract: agentInstalledCollectionContract(s.Workspace),
+		NativeCollectionContract: currentContract,
 	})
 	if err != nil {
 		http.Error(w, "cannot build bounded AI context: "+err.Error(), 413)
@@ -511,6 +544,7 @@ func (s *Server) agentChatAuthorizedMessage(w http.ResponseWriter, r *http.Reque
 			session.AppendEvent("collection_new_message",session.Status,session.ProviderRun.CallID,session.ProviderRun.ID)
 		}
 	}
+	next=agentRequestDisplay(p,payload,time.Now().UTC()).WithHistoryItem(next)
 	session.History = append(session.History, next)
 	if admitPending {
 		// The durable binding currently records session.Mode. Do not admit a
@@ -535,7 +569,7 @@ func (s *Server) agentChatAuthorizedMessage(w http.ResponseWriter, r *http.Reque
 	// PREPARED in the authoritative journal. It can be recovered only if
 	// process failure occurred before the durable SENDING transition.
 	if err=prepareAgentProviderRun(store,&session,"message","",p,model,payload);err!=nil{
-		http.Error(w,"cannot persist prepared provider request",409)
+		http.Error(w,"cannot persist prepared provider request: "+s.agentPreparedFailure(session,"message",payload,err),409)
 		return
 	}
 	if err=agentPinActiveTurnBinding(&session,mode,p,model,reasoning,secret,payload,requestKey);err!=nil{
@@ -646,6 +680,7 @@ func (s *Server) agentChatAuthorizedMessage(w http.ResponseWriter, r *http.Reque
 				switch localErr.Stage{
 				case "invalid_project_identity":code,httpStatus="COLLECTION_IDENTITY_REJECTED",http.StatusConflict
 				case "collection_progress_checkpoint":code,httpStatus="COLLECTION_PROGRESS_CHECKPOINT",http.StatusConflict
+				case "collection_context_checkpoint":code,httpStatus="COLLECTION_CONTEXT_CHECKPOINT",http.StatusRequestEntityTooLarge
 				}
 			}
 		}
@@ -657,6 +692,7 @@ func (s *Server) agentChatAuthorizedMessage(w http.ResponseWriter, r *http.Reque
 			"stage="+stage+" trace="+traceID+" cause="+scrubAIContext(agentchat.SafeProviderText(callErr.Error()), 600))
 		publicMessage := "Collection result or request was saved, but continuation could not finish. No Patch was executed. Inspect the provider trace and Agent events."
 		if code=="COLLECTION_PROGRESS_CHECKPOINT"{publicMessage="Collection paused at a committed native receipt. Resume the same conversation with a new missing scope; no old provider request will be replayed."}
+		if code=="COLLECTION_CONTEXT_CHECKPOINT"{publicMessage=agentCollectionContextCheckpointMessage}
 		if code == "COLLECTION_IDENTITY_REJECTED" {
 			publicMessage = "Collection NOT executed: AI supplied a missing or mismatched project identity. Both project.key and project.id must match the active workspace."
 		}

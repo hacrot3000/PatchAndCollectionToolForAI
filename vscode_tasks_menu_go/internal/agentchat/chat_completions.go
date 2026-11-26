@@ -20,6 +20,9 @@ func BuildChatCompletionsRequest(responsesBody []byte) ([]byte, error) {
 	}
 	var in struct {
 		Model        string            `json:"model"`
+		PromptCacheKey string `json:"prompt_cache_key"`
+		PromptCacheRetention string `json:"prompt_cache_retention"`
+		PromptCacheOptions json.RawMessage `json:"prompt_cache_options"`
 		Instructions string            `json:"instructions"`
 		Input        []json.RawMessage `json:"input"`
 		Tools        []map[string]any  `json:"tools"`
@@ -94,6 +97,12 @@ func BuildChatCompletionsRequest(responsesBody []byte) ([]byte, error) {
 		}
 	}
 	request := map[string]any{"model": in.Model, "messages": messages, "stream": false}
+	if len(in.PromptCacheOptions)!=0||!validPromptCacheLifetime(in.PromptCacheRetention,""){return nil,errors.New("incompatible Chat Completions cache lifetime")}
+	if in.PromptCacheRetention!=""{request["prompt_cache_retention"]=in.PromptCacheRetention}
+	if in.PromptCacheKey!="" {
+		if !validAffinityKey(in.PromptCacheKey){return nil,errors.New("invalid prompt cache key")}
+		request["prompt_cache_key"]=in.PromptCacheKey
+	}
 	if in.MaxTokens > 0 {
 		request["max_tokens"] = in.MaxTokens
 	}
@@ -158,6 +167,7 @@ func ParseChatCompletionsResult(body []byte) (ResponsesResult, error) {
 			} `json:"message"`
 		} `json:"choices"`
 		Usage struct {
+			CacheUsageFields
 			PromptTokens     int `json:"prompt_tokens"`
 			CompletionTokens int `json:"completion_tokens"`
 		} `json:"usage"`
@@ -185,7 +195,7 @@ func ParseChatCompletionsResult(body []byte) (ResponsesResult, error) {
 	default:
 		return ResponsesResult{}, errors.New("provider returned non-text assistant content")
 	}
-	result := ResponsesResult{ResponseID: raw.ID, Text: text, InputTokens: raw.Usage.PromptTokens, OutputTokens: raw.Usage.CompletionTokens, Status: "completed", FinishReason: choice.FinishReason, Model: raw.Model}
+	result := ResponsesResult{ResponseID: raw.ID, Text: text, InputTokens: raw.Usage.PromptTokens, OutputTokens: raw.Usage.CompletionTokens, CacheUsage:raw.Usage.CacheUsageFields.normalized(raw.Usage.PromptTokens), Status: "completed", FinishReason: choice.FinishReason, Model: raw.Model}
 	seen := make(map[string]bool)
 	for _, tc := range choice.Message.ToolCalls {
 		if tc.Type != "function" || tc.ID == "" || len(tc.ID) > 256 || tc.Function.Name == "" || len(tc.Function.Name) > 128 || !json.Valid([]byte(tc.Function.Arguments)) || seen[tc.ID] {
@@ -240,6 +250,7 @@ func doChatCompletionsWithClient(ctx context.Context, p ProviderConfig, key stri
 		return ResponsesResult{}, &ProviderError{Code: code, Stage: "provider_http", Message: message, Retryable: ambiguous, Ambiguous: ambiguous, BlockedSharedIP: blockedSharedIP(err)}
 	}
 	defer resp.Body.Close()
+	recordProviderBackend(ctx,resp.Header)
 	raw, readErr := io.ReadAll(io.LimitReader(resp.Body, maxRequestBytes+1))
 	truncated := len(raw) > maxRequestBytes
 	if truncated {

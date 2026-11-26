@@ -228,3 +228,46 @@ func TestOrphanedCollectionCancelRejectsUncertainWork(t *testing.T){
   if agentCancelOrphanedCollection(&x)||x.Status!="requesting_ai"{t.Fatal("unsafe orphan cancellation")}
  }
 }
+
+
+// A long valid full-history request must not be rejected by the older
+// two-MiB PREPARED limit. The old UNKNOWN read stays evidence, not replay.
+func TestAgentUnknownCollectionAutoResumeLargeFullHistory(t *testing.T){
+ s,id:=newAgentConversationFixture(t,"stateless")
+ store,err:=s.agentChatStore();if err!=nil{t.Fatal(err)}
+ x,err:=store.Get(id,"local");if err!=nil{t.Fatal(err)}
+ p:=agentProviderFixture()
+ x.History=[]agentchat.HistoryItem{{Type:"user",Content:"original unfinished task"}}
+ for i:=0;i<24;i++{
+  call:=fmt.Sprintf("historical-read-%d",i)
+  x.History=append(x.History,agentchat.HistoryItem{Type:"function_call",CallID:call,Name:"taskdeck_collect_workspace",Arguments:"{}"},agentchat.HistoryItem{Type:"function_call_output",CallID:call,Content:strings.Repeat("source evidence ",6000)})
+ }
+ receipt:=`{"status":"PASS","read_only":true}`
+ x.History=append(x.History,agentchat.HistoryItem{Type:"function_call",CallID:"read",Name:"taskdeck_collect_workspace",Arguments:"{}"},agentchat.HistoryItem{Type:"function_call_output",CallID:"read",Content:receipt})
+ x.Status="requesting_ai";x.AutoContinueText=true;x.RetryMode=agentchat.RetryUnlimited
+ x.ProviderRun=&agentchat.ProviderRun{ID:"r50-e61",Kind:"collection",Phase:"sending",CallID:"read",PayloadSHA256:agentchat.ProviderPayloadDigest([]byte("old payload")),ProviderFingerprint:agentchat.CapabilityFingerprint(p,p.Models[0]),CreatedAt:time.Now().UTC(),UpdatedAt:time.Now().UTC()}
+ x.AppendEvent("provider_egress","requesting_ai","read","collection")
+ x,err=store.Save(x,x.Revision);if err!=nil{t.Fatal(err)}
+ s.agentReconcileOneStartupSession(context.Background(),store,id)
+ old,err:=store.Get(id,"local");if err!=nil{t.Fatal(err)}
+ if !agentUnknownCollectionResumeCandidate(old){t.Fatal("not eligible for fresh continuation")}
+ calls:=0
+ s.AgentCollectionCall=func(_ string,_ patchtool.ProjectIdentity,_ []byte)string{t.Fatal("old native read replayed");return ""}
+ s.AgentChatCall=func(_ context.Context,provider agentchat.ProviderConfig,key string,body []byte)(agentchat.ResponsesResult,error){
+  calls++
+  if len(body)<=2<<20||len(body)>4<<20{t.Fatalf("expected full payload in previously rejected range: %d",len(body))}
+  if provider.ID!=p.ID||key!="TEST-KEY"||agentchat.ProviderPayloadDigest(body)==old.ProviderRun.PayloadSHA256||!strings.Contains(string(body),"NEW continuation"){t.Fatal("wrong recovery binding")}
+  return agentchat.ResponsesResult{ResponseID:"fresh-response",Text:"recovered response"},nil
+ }
+ s.processAgentAutoFeedbackSession(context.Background(),store,id)
+ y,err:=store.Get(id,"local");if err!=nil{t.Fatal(err)}
+ if calls!=1||y.Status!="completed"||len(y.CollectionResumeHistory)!=1||y.CollectionResumeHistory[0].ReceiptSHA256!=agentchat.ProviderPayloadDigest([]byte(receipt)){t.Fatalf("resume did not complete: calls=%d status=%s",calls,y.Status)}
+ s.processAgentAutoFeedbackSession(context.Background(),store,id)
+ if calls!=1{t.Fatal("recovery repeated")}
+}
+
+func TestAgentPreparedFailureClassificationDoesNotExposeRawError(t *testing.T){
+ if got:=agentPreparedFailureCode(agentchat.ErrStaleRevision);got!="STALE_REVISION"{t.Fatal(got)}
+ if got:=agentPreparedFailureCode(agentchat.ErrInvalidSession);got!="INVALID_PREPARED_STATE"{t.Fatal(got)}
+ if got:=agentPreparedFailureCode(fmt.Errorf("private source path and credential"));got!="STORAGE_OR_DURABILITY_FAILURE"{t.Fatal(got)}
+}

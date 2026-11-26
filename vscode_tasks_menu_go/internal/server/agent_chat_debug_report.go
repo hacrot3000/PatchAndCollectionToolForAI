@@ -67,16 +67,65 @@ func (s *Server) agentChatDebugReportAPI(w http.ResponseWriter, r *http.Request)
   if listErr!=nil{
    report["journal_error"]="Unable to read the scoped Agent session journal"
   }else{
+   unifiedRuns,runErr:=s.agentDebugUnifiedRuns(owner,sessions,marker.At)
+   if runErr!=nil{report["unified_run_error"]="Unable to read scoped Unified run metadata"}
    visible:=make([]agentchat.Session,0,len(sessions))
+   // Attempt sidecars advance independently from the session CAS. A live
+   // retry after Clear must be visible even without a new journal event.
+   freshAttempts:=map[string]*agentchat.ProviderAttemptAudit{}
+   activity:=map[string]time.Time{}
    for _,sess:=range sessions {
-    if !marker.At.IsZero() && !sess.UpdatedAt.After(marker.At){continue}
+    activity[sess.ID]=sess.UpdatedAt
+    runs:=unifiedRuns[sess.ID]
+    if len(runs)>0&&runs[0].UpdatedAt.After(activity[sess.ID]){activity[sess.ID]=runs[0].UpdatedAt}
+    if !marker.At.IsZero() && !sess.UpdatedAt.After(marker.At){
+     if sess.ProviderRun!=nil&&sess.ProviderRun.Phase=="sending"{
+      audit,e:=journal.ProviderAttempts(sess.ID,owner)
+      if e==nil&&audit!=nil&&audit.RunID==sess.ProviderRun.ID&&len(audit.Attempts)>0{
+       last:=audit.Attempts[len(audit.Attempts)-1].RecordedAt
+       if last.After(marker.At){
+        freshAttempts[sess.ID]=audit
+        if last.After(activity[sess.ID]){activity[sess.ID]=last}
+       }
+      }
+     }
+     if !activity[sess.ID].After(marker.At){continue}
+    }
     visible=append(visible,sess)
    }
+   sort.SliceStable(visible,func(i,j int)bool{return activity[visible[i].ID].After(activity[visible[j].ID])})
    limit:=len(visible)
    if limit>32{limit=32;report["sessions_truncated"]=true}
    out:=make([]map[string]any,0,limit)
    for _,sess:=range visible[:limit] {
     continuationDiagnostic:=agentSafeContinuationDiagnostic(sess)
+    // Current objective counters are cumulative; do not expose a pre-clear
+    // aggregate as if it were fresh debug data.
+    _,preClear:=marker.Sessions[sess.ID]
+    var progress *agentchat.CollectionProgressView
+    if !preClear{progress=agentchat.CollectionProgressViewForSession(sess)}
+    var providerRun map[string]any
+    var attempts []agentchat.ProviderAttempt
+    if run:=sess.ProviderRun;run!=nil{
+     freshRun:=marker.At.IsZero()||run.CreatedAt.After(marker.At)
+     audit:=freshAttempts[sess.ID]
+     var e error
+     if audit==nil{audit,e=journal.ProviderAttempts(sess.ID,owner)}
+     matched:=e==nil&&audit!=nil&&audit.RunID==run.ID
+     if matched{
+      for _,a:=range audit.Attempts{if marker.At.IsZero()||a.RecordedAt.After(marker.At){attempts=append(attempts,a)}}
+     }
+     if freshRun||len(attempts)>0{
+      providerRun=map[string]any{"run_id":run.ID,"kind":run.Kind,"phase":run.Phase,"call_id":run.CallID,"payload_sha256":run.PayloadSHA256,"created_at":run.CreatedAt,"updated_at":run.UpdatedAt}
+      if matched{
+       providerRun["attempts_truncated"]=audit.Truncated
+       if freshRun{providerRun["attempt_total"]=audit.Total}else{
+        providerRun["attempt_scope"]="after_clear"
+        providerRun["visible_attempt_count"]=len(attempts)
+       }
+      }else if e!=nil{providerRun["attempt_integrity_error"]=true}
+     }
+    }
     if cursor,seen:=marker.Sessions[sess.ID];seen && !marker.At.IsZero(){
      // Existing sessions remain operational after clear. Expose only the
      // new journal tail; earlier history/tool metadata stays in the
@@ -125,8 +174,9 @@ func (s *Server) agentChatDebugReportAPI(w http.ResponseWriter, r *http.Request)
        // Native Patch result is already bounded and sanitized by the
        // protocol adapter, but explicitly remove stdout/free-text fields.
        if obj,ok:=parsed.(map[string]any);ok {
-        for _,key:=range []string{"stdout_tail","output","message","failure_reason"}{delete(obj,key)}
-        item["result_metadata"]=obj
+        item["result_metadata"]=agentSafeDebugPatchMetadata(obj)
+        item["result_size"]=len(call.Result)
+        item["result_sha256"]=agentchat.BodyDigest([]byte(call.Result))
        }
       }else {item["result_size"]=len(call.Result)}
      }
@@ -140,7 +190,9 @@ func (s *Server) agentChatDebugReportAPI(w http.ResponseWriter, r *http.Request)
      "created_at":sess.CreatedAt,"updated_at":sess.UpdatedAt,
      "last_request_status":sess.LastRequestCode,
      "last_request_digest":sess.LastRequestSHA,
-     "event_seq":sess.EventSeq,"events":sess.Events,
+     "event_seq":sess.EventSeq,"events":agentSafeDebugJournalEvents(sess.Events),
+     "collection_progress":progress,"provider_run":providerRun,"provider_attempts":attempts,
+     "unified_runs":unifiedRuns[sess.ID],
      "history_items":hist,"history_item_count":len(sess.History),
      "tool_calls":calls,"auto_feedback_diagnostic":feedbackDiagnostic,
      "continuation_diagnostic":continuationDiagnostic,
@@ -159,23 +211,9 @@ func (s *Server) agentChatDebugReportAPI(w http.ResponseWriter, r *http.Request)
  }
  // Limit the scope of the report to a single user's current project; avoid
  // embedding raw HTTP payload, workstation paths or unknown provider bodies.
- b,err:=json.MarshalIndent(report,"","  ")
+ b,err:=agentEncodeSafeDebugReport(report)
  if err!=nil{http.Error(w,"cannot encode safe report",500);return}
- // Keep the newest trace evidence when the report reaches its 2 MiB
- // limit. Never drop all diagnostic traces just because old ones are large.
- omitted:=0
- for len(b)>2<<20 && len(traces)>1 {
-  traces=traces[1:]
-  omitted++
-  report["provider_traces"]=traces
-  report["provider_trace_count"]=len(traces)
-  report["traces_truncated"]=true
-  report["omitted_oldest_traces"]=omitted
-  report["diagnostic_note"]="Safe report exceeded 2 MiB; oldest provider traces were omitted, newest trace evidence and durable sessions are retained."
-  b,err=json.MarshalIndent(report,"","  ")
-  if err!=nil{http.Error(w,"cannot encode report",500);return}
- }
- if len(b)>2<<20 {
+ if len(b)>agentDebugReportMaxBytes{
   http.Error(w,"debug report exceeds bounded safe export limit",413);return
  }
  // The response is safe, complete within explicitly declared retention/size
@@ -196,10 +234,12 @@ func agentSafeContinuationDiagnostic(x agentchat.Session)map[string]any{
  out:=map[string]any{
   "auto_continue_text":x.AutoContinueText,
   "standalone_eligible":agentchat.StandaloneAutoContinueCandidate(x),
+  "unknown_collection_recheck":agentchat.UnknownCollectionProgressRecheck(x),
   "task_plan_present":x.TaskPlan!=nil,
  }
- if c:=x.Continuation;c!=nil{
+ if c:=agentchat.EffectiveTurnContinuation(x);c!=nil{
   out["disposition"]=c.Disposition
+  if x.Continuation!=nil&&x.Continuation.Disposition!=c.Disposition{out["stored_disposition"]=x.Continuation.Disposition;out["metadata_reclassified"]=true}
   switch c.Reason{
   case "model_progress_metadata_unverified","model_blocker_unverified","incomplete_progress_report","next_action_in_report","model_completion_claim_unverified","unknown_model_turn","unfinished_action_announcement","stalled_without_verified_work","nonretryable_admission_failure":
    out["reason"]=c.Reason
@@ -212,4 +252,78 @@ func agentSafeContinuationDiagnostic(x agentchat.Session)map[string]any{
   out["response_digest"]=c.ResponseDigest
  }else{out["disposition"]="not_recorded"}
  return out
+}
+
+
+// Details in old journals may contain arbitrary native error text or
+// provider-generated content. Export only exact known transition reasons,
+// plus byte count/digest for everything else; preserve the canonical entry.
+func agentSafeDebugJournalEvents(events []agentchat.SessionEvent)[]map[string]any{
+ out:=make([]map[string]any,0,len(events))
+ for _,e:=range events{
+  row:=map[string]any{"seq":e.Seq,"at":e.At,"kind":e.Kind,"status":e.Status,"call_id":e.CallID,"history_index":e.HistoryIndex}
+  if e.Detail!=""{
+   switch e.Detail{
+   case "assess_readiness","bound_next_scope","repeated_verified_evidence","recovery_budget_exhausted","recovery_not_authorized","recovery_already_recorded","user_stopped","provider_egress_unresolved","canonical_call_output_pending","invalid_recovery_state","collection_context_checkpoint","local_request_not_prepared","provider_acknowledgement_unconfirmed","provider_egress_after_restart_unknown","acknowledged_response_local_processing_interrupted","collection_continuation","collection_cancelled","queue_outcome_unconfirmed","native_patch_tool_collect","message","feedback","collection","prepared_only","recovered_pre_egress","background_reconcile":
+    row["detail"]=e.Detail
+   default:
+    row["detail_bytes"]=len(e.Detail);row["detail_sha256"]=agentchat.BodyDigest([]byte(e.Detail))
+   }
+  }
+  out=append(out,row)
+ }
+ return out
+}
+
+// Never copy unknown JSON keys or nested result structures, even if the
+// native receipt was valid. This export is metadata, not an evidence reader.
+func agentSafeDebugPatchMetadata(obj map[string]any)map[string]any{
+ out:=map[string]any{}
+ for _,k:=range []string{"rc","item_index"}{if v,ok:=obj[k].(float64);ok&&v>=-1000000&&v<=1000000{out[k]=v}}
+ for _,k:=range []string{"patch_executed","patch_queued","project_unchanged","automatic_retry","manual_execution","evidence_verified","partial_evidence_available"}{if v,ok:=obj[k].(bool);ok{out[k]=v}}
+ for _,k:=range []string{"status","mutation_state","source","reason_code"}{
+  v,_:=obj[k].(string)
+  switch v{
+  case "PASS","FAIL","FAILED","INCOMPLETE","PREFLIGHT_FAIL","SKIPPED_DUPLICATE_LOCAL","REJECTED","UNKNOWN","UNCHANGED","CHANGED","native_patch_history","native_patch_history_manual","native_patch_tool_collect","PATCH_APPROVAL_STALE","INVALID_PATCH_ARGUMENTS","UNSUPPORTED_TOOL","MULTIPLE_TOOL_CALLS":out[k]=v
+  }
+ }
+ return out
+}
+
+
+const agentDebugReportMaxBytes=2<<20
+
+// Prefer a readable report, then compact JSON without loss. If the combined
+// bounded journal/trace sets still exceed the cap, omit oldest whole traces
+// and sessions, explicitly reporting omissions. Keep at least the latest
+// trace and latest session; never silently alter a canonical journal.
+func agentEncodeSafeDebugReport(report map[string]any)([]byte,error){
+ b,err:=json.MarshalIndent(report,"","  ")
+ if err!=nil||len(b)<=agentDebugReportMaxBytes{return b,err}
+ report["compact_encoding"]=true
+ b,err=json.Marshal(report)
+ if err!=nil||len(b)<=agentDebugReportMaxBytes{return b,err}
+ traces,_:=report["provider_traces"].([]agentDebugTrace)
+ sessions,_:=report["sessions"].([]map[string]any)
+ omittedTraces,omittedSessions:=0,0
+ for len(b)>agentDebugReportMaxBytes&&(len(traces)>1||len(sessions)>1){
+  // Alternate the two domains, retaining recent evidence from both.
+  if len(traces)>1&&(len(sessions)<=1||omittedTraces<=omittedSessions){
+   traces=traces[1:];omittedTraces++
+   report["provider_traces"]=traces
+   report["provider_trace_count"]=len(traces)
+   report["traces_truncated"]=true
+   report["omitted_oldest_traces"]=omittedTraces
+  }else{
+   sessions=sessions[:len(sessions)-1];omittedSessions++
+   report["sessions"]=sessions
+   report["session_count"]=len(sessions)
+   report["sessions_truncated"]=true
+   report["omitted_oldest_sessions"]=omittedSessions
+  }
+  report["diagnostic_note"]="Safe report exceeded 2 MiB; older whole diagnostic traces or session summaries were omitted. The latest evidence in each available domain remains; canonical journals are unchanged."
+  b,err=json.Marshal(report)
+  if err!=nil{return nil,err}
+ }
+ return b,nil
 }

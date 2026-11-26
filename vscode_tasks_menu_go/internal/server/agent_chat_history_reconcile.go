@@ -86,9 +86,10 @@ func agentManualPatchAfterRefusedSelection(call agentchat.ToolCallRecord) bool {
 }
 
 func (s *Server) agentHistoryResultFromHistory(call agentchat.ToolCallRecord,latest bool) (string,string,string,bool) {
- if (call.Status!="running" && call.Status!="unknown" && call.Status!="dispatching") || s.agentVerifyFinalPackage(call)!=nil {
+ if call.Status!="running" && call.Status!="unknown" && call.Status!="dispatching" {
   return "","","",false
  }
+ packageVerified:=s.agentVerifyFinalPackage(call)==nil
  identity,err:=patchtool.ReadProjectIdentity(s.Workspace)
  if err!=nil { return "","","",false }
  path:=s.Workspace
@@ -110,6 +111,8 @@ func (s *Server) agentHistoryResultFromHistory(call agentchat.ToolCallRecord,lat
   DiagnosisKind string `json:"diagnosis_kind"`
   Diagnosis struct {Kind string `json:"kind"`;Message string `json:"message"`} `json:"diagnosis"`
   OutputTail string `json:"output_tail"`
+  IgnorePath string `json:"ignore_path"`
+  PatchResult struct {SHA256 string `json:"patch_sha256"`} `json:"patch_result"`
  }
  type match struct{status,result,run string; finished time.Time}
  matches:=make([]match,0,2)
@@ -128,6 +131,7 @@ func (s *Server) agentHistoryResultFromHistory(call agentchat.ToolCallRecord,lat
    Selected []string `json:"selected"`
    ExecutionOrder []string `json:"execution_order"`
    Results []row `json:"results"`
+   LocalHistorySkipped []struct {Name string `json:"name"`;SHA256 string `json:"sha256"`;IgnorePath string `json:"ignore_path"`} `json:"local_history_skipped"`
   }
   if json.Unmarshal(raw,&report)!=nil || report.Format!="python-patch-tool-last-run" ||
     report.FormatVersion!=2 || report.RunID=="" || len(report.RunID)>128 ||
@@ -155,6 +159,27 @@ func (s *Server) agentHistoryResultFromHistory(call agentchat.ToolCallRecord,lat
   for _,item:=range report.Results {
    if item.Name!=name || strings.ToUpper(item.Kind)!="PATCH" { continue }
    status:=strings.ToUpper(item.Status)
+   if status=="SKIPPED_DUPLICATE_LOCAL" {
+    // Exact selected package, native non-execution row and immutable
+    // ignore archive. An older PASS with the same hash is not this result.
+    if manualRecovery||executed!=0||call.SelectedIndex<1||item.RC==nil||*item.RC!=0||stampErr!=nil||call.NativeStartedAt==nil{continue}
+    skips:=0
+    for _,d:=range report.LocalHistorySkipped{
+     if d.Name==name&&d.SHA256==call.PackageSHA256&&d.IgnorePath==item.IgnorePath{skips++}
+    }
+    if skips!=1||!s.agentVerifyDuplicateIgnore(call,item.IgnorePath){continue}
+    count++
+    if count!=1{break}
+    evidence:=map[string]any{"status":"SKIPPED_DUPLICATE_LOCAL","name":name,"run_id":report.RunID,
+     "source":"native_patch_history","diagnosis_kind":"duplicate_local_history","patch_executed":false,
+     "project_unchanged":true,"mutation_state":"UNCHANGED","automatic_retry":false,
+     "failure_reason":"Native duplicate filtering skipped this invocation. No new command or test executed. Do not reuse the earlier PASS as fresh evidence. If still required, propose a new separately approved command-only invocation."}
+    b,fit:=agentBoundPatchFeedback(evidence);if !fit{return "","","",false}
+    accepted=match{status:"error",result:string(b),run:report.RunID,finished:finished}
+    continue
+   }
+   if !packageVerified {continue}
+   if item.PatchResult.SHA256!=""&&item.PatchResult.SHA256!=call.PackageSHA256{continue}
    if executed==0 && status!="PREFLIGHT_FAIL" {continue}
    if call.SelectedIndex<1 && status!="PREFLIGHT_FAIL" && !manualRecovery {continue}
    if manualRecovery && (status!="PASS" || item.RC==nil || *item.RC!=0) {continue}
@@ -209,4 +234,35 @@ func (s *Server) agentHistoryResultFromHistory(call agentchat.ToolCallRecord,lat
  }
  a:=matches[newest]
  return a.status,a.result,a.run,true
+}
+
+
+// Only native-generated ignore names are accepted; History must separately
+// establish the exact selected non-executed duplicate.
+func (s *Server) agentVerifyDuplicateIgnore(call agentchat.ToolCallRecord,rel string)bool{
+ name:=filepath.Base(call.QueuePath)
+ base:=filepath.Base(rel)
+ if name=="."||name==""||call.QueuePath!="patchs/"+name||rel!="patchs/ignore/"+base||
+  !strings.HasSuffix(base,"-"+name)||call.PackageSize<=0||call.PackageSize>2<<20||len(call.PackageSHA256)!=64{return false}
+ prefix:=strings.TrimSuffix(base,"-"+name)
+ if len(prefix)<10{return false}
+ if _,e:=time.Parse("2006-01-02",prefix[:10]);e!=nil{return false}
+ if len(prefix)>10{
+  if prefix[10]!='-'||len(prefix)==11{return false}
+  for _,r:=range prefix[11:]{if r<'0'||r>'9'{return false}}
+ }
+ root:=s.Workspace
+ for _,dir:=range []string{"patchs","ignore"}{
+  root=filepath.Join(root,dir);fi,e:=os.Lstat(root)
+  if e!=nil||!fi.IsDir()||fi.Mode()&os.ModeSymlink!=0{return false}
+ }
+ p:=filepath.Join(root,base)
+ fi,e:=os.Lstat(p);if e!=nil||!fi.Mode().IsRegular()||fi.Size()!=call.PackageSize{return false}
+ raw,e:=os.ReadFile(p);if e!=nil||int64(len(raw))!=call.PackageSize{return false}
+ sum:=sha256.Sum256(raw);return hex.EncodeToString(sum[:])==call.PackageSHA256
+}
+
+func agentDuplicateSkipResult(raw string)bool{
+ var v struct{Status string `json:"status"`}
+ return json.Unmarshal([]byte(raw),&v)==nil&&v.Status=="SKIPPED_DUPLICATE_LOCAL"
 }

@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"io"
 	"strings"
 	"time"
 )
@@ -27,6 +26,20 @@ type ResolvedProvider struct {
 
 type ProviderResolver interface {
 	Resolve(context.Context, RunSpec) (ResolvedProvider, error)
+}
+
+// Optional owner-scoped advisory output budget. Implementations must not
+// mutate the RunSpec, provider configuration or immutable snapshot.
+type ProviderOutputBudgetHints interface {
+ OutputBudgetHint(context.Context,RunSpec,ResolvedProvider) int
+ RememberOutputBudgetHint(context.Context,RunSpec,ResolvedProvider,int)
+}
+
+// ProviderAttemptMeasurementObserver is an optional diagnostic-only seam.
+// It receives numeric measurements and opaque request digest, never payload
+// bytes or credentials. It cannot affect provider admission, retry or ACK.
+type ProviderAttemptMeasurementObserver interface {
+ ObserveProviderAttempt(RunSpec,int,ProviderPayloadMeasurement,string,ProviderAttemptOutcome)
 }
 
 type ProviderPayloadBuilder interface {
@@ -157,6 +170,13 @@ func (a ConfiguredProviderAdapter) Execute(ctx context.Context, spec RunSpec, hi
 	if err != nil {
 		return err
 	}
+	// Hints affect only future explicitly retry-enabled requests and only
+	// their output reservation. The verified mandatory input never changes.
+	if hints,ok:=a.Resolver.(ProviderOutputBudgetHints);ok&&(spec.RetryMode==RetryLimited||spec.RetryMode==RetryUnlimited){
+		if candidate,ok:=capStatelessOutputReservation(payload,hints.OutputBudgetHint(ctx,spec,resolved));ok{
+			if m,e:=MeasureProviderPayload(resolved.Config.APIType,candidate);e==nil&&(model.MaxInputTokens<=0||m.WireBytes<=model.MaxInputTokens){payload=candidate}
+		}
+	}
 	result, streamedText, publishedCalls, err := a.invokeWithRetry(ctx, spec, resolved, payload, sink)
 	if err != nil {
 		err = safeRunProviderError(err)
@@ -201,10 +221,23 @@ func (a ConfiguredProviderAdapter) Execute(ctx context.Context, spec RunSpec, hi
 
 func (a ConfiguredProviderAdapter) invokeWithRetry(ctx context.Context, spec RunSpec, resolved ResolvedProvider, payload []byte, sink EventSink) (ResponsesResult, bool, map[string]bool, error) {
 	attempt := 1
+	// Transport retries keep the exact canonical bytes. Only a structured
+	// context rejection or explicit output exhaustion may adapt the request.
+	contextRecoveries:=0
+	incompleteRecoverySent:=false
+	stagnant := 0
+	lastFailedDigest:=""
 	for {
+		// Stop or daemon shutdown must win even if an injected wait or
+		// provider transport returns a stale success after cancellation.
+		if err := ctx.Err(); err != nil {
+			return ResponsesResult{}, false, nil, err
+		}
+		measurement, measurementErr := MeasureProviderPayload(resolved.Config.APIType, payload)
+		digest := BodyDigest(payload)
 		requestTimeout := a.RequestTimeout
 		if requestTimeout <= 0 {
-			requestTimeout = 600 * time.Second
+			requestTimeout = ProviderAttemptTimeout
 		}
 		callCtx, cancel := context.WithTimeout(ctx, requestTimeout)
 		streamedText := false
@@ -256,6 +289,13 @@ func (a ConfiguredProviderAdapter) invokeWithRetry(ctx context.Context, spec Run
 			result, err = a.Invoker.Invoke(callCtx, resolved.Config, resolved.Credential, payload)
 		}
 		cancel()
+		outcome := ClassifyProviderAttemptOutcome(ctx.Err(), err)
+		if observer,ok:=a.Resolver.(ProviderAttemptMeasurementObserver);ok&&measurementErr==nil{
+			observer.ObserveProviderAttempt(spec,attempt,measurement,digest,outcome)
+		}
+		if stopErr := ctx.Err(); stopErr != nil {
+			return ResponsesResult{}, streamedText, publishedCalls, stopErr
+		}
 		if err == nil && len(streamedCalls) > 0 {
 			seen := make(map[string]bool, len(result.Calls))
 			for _, call := range result.Calls {
@@ -267,16 +307,76 @@ func (a ConfiguredProviderAdapter) invokeWithRetry(ctx context.Context, spec Run
 				}
 			}
 		}
-		if err == nil || !runProviderRetryAllowed(spec.RetryMode, attempt, err) {
+		if err==nil && contextRecoveries>0 && !incompleteRecoverySent && measurement.OutputBudget>=8192 {
+			// This is an advisory success observation, not a native ACK.
+			if hints,ok:=a.Resolver.(ProviderOutputBudgetHints);ok{
+				hints.RememberOutputBudgetHint(ctx,spec,resolved,measurement.OutputBudget)
+			}
+		}
+		if err == nil || errors.Is(err,context.Canceled) || (spec.RetryMode!=RetryLimited && spec.RetryMode!=RetryUnlimited) || (spec.RetryMode==RetryLimited && attempt>=6) {
 			return result, streamedText, publishedCalls, err
 		}
+		if outcome.StagnantTransport() {
+			if lastFailedDigest==digest{stagnant++}else{stagnant=1;lastFailedDigest=digest}
+		} else {
+			stagnant = 0
+			lastFailedDigest=""
+		}
+		recovery:=""
+		nextPayload:=payload
+		if ContextLimitRejected(err){
+			if contextRecoveries>=MaxContextRecoveries{return result,streamedText,publishedCalls,err}
+			reduced,ok:=RetryReducedOutputReservation(payload)
+			if !ok{return result,streamedText,publishedCalls,err}
+			if _,e:=MeasureProviderPayload(resolved.Config.APIType,reduced);e!=nil{return result,streamedText,publishedCalls,err}
+			nextPayload=reduced
+			contextRecoveries++
+			recovery="context_output_reservation"
+		}else{
+			var pe *ProviderError
+			if errors.As(err,&pe)&&pe.Code=="RESPONSE_INCOMPLETE"&&pe.ProviderErrorCode=="max_output_tokens"{
+				if incompleteRecoverySent||!runProviderRetryAllowed(spec.RetryMode,attempt,err){return result,streamedText,publishedCalls,err}
+				constrained,_,ok:=RetryConstrainedOutputPayload(payload,resolved.Config)
+				if !ok{return result,streamedText,publishedCalls,err}
+				m,e:=MeasureProviderPayload(resolved.Config.APIType,constrained)
+				model,_:=resolved.Config.FindModel(spec.ModelID)
+				if e!=nil||(model.MaxInputTokens>0&&m.WireBytes>model.MaxInputTokens){return result,streamedText,publishedCalls,err}
+				nextPayload=constrained
+				incompleteRecoverySent=true
+				recovery="bounded_output"
+			}else if !runProviderRetryAllowed(spec.RetryMode,attempt,err){
+				return result,streamedText,publishedCalls,err
+			}
+		}
+		generation:=contextRecoveries
+		if incompleteRecoverySent{generation++}
 		if sink != nil {
+			// Existing retry event only: no extra journal events, no prompt,
+			// credential or response contents, and no claim of delivery ACK.
 			retryEvent, marshalErr := json.Marshal(struct {
 				Attempt      int    `json:"attempt"`
 				NextAttempt  int    `json:"next_attempt"`
 				ErrorCode    string `json:"error_code"`
 				ResetPartial bool   `json:"reset_partial_output"`
-			}{attempt, attempt + 1, runProviderRetryCode(err), true})
+				Outcome ProviderAttemptOutcome `json:"outcome"`
+				RetryMode RetryMode `json:"retry_mode"`
+				PayloadSHA256 string `json:"payload_sha256"`
+				CanonicalBytes int `json:"canonical_bytes,omitempty"`
+				WireTemplateBytes int `json:"wire_template_bytes,omitempty"`
+				EstimatedInputTokens int `json:"estimated_input_tokens,omitempty"`
+				OutputBudget int `json:"output_budget,omitempty"`
+				SameDigestFailures int `json:"same_digest_failures"`
+				Recovery string `json:"recovery,omitempty"`
+				RecoveryGeneration int `json:"recovery_generation,omitempty"`
+				NextPayloadSHA256 string `json:"next_payload_sha256,omitempty"`
+				InstructionsBytes int `json:"instruction_bytes,omitempty"`
+				InputBytes int `json:"input_bytes,omitempty"`
+				ToolsBytes int `json:"tools_bytes,omitempty"`
+				OtherBytes int `json:"other_bytes,omitempty"`
+			}{attempt, attempt + 1, runProviderRetryCode(err), true, outcome,
+				spec.RetryMode, digest, measurement.CanonicalBytes, measurement.WireBytes,
+				measurement.EstimatedInputTokens, measurement.OutputBudget, stagnant,recovery,generation,BodyDigest(nextPayload),
+				measurement.InstructionsBytes,measurement.InputBytes,measurement.ToolsBytes,measurement.OtherBytes})
 			if marshalErr != nil {
 				return ResponsesResult{}, streamedText, publishedCalls, marshalErr
 			}
@@ -296,28 +396,14 @@ func (a ConfiguredProviderAdapter) invokeWithRetry(ctx context.Context, spec Run
 		if err != nil {
 			return ResponsesResult{}, streamedText, publishedCalls, err
 		}
+		payload=nextPayload
 		attempt++
 	}
 }
 
 func runProviderRetryAllowed(mode RetryMode, attempt int, err error) bool {
-	if mode == RetryOff || err == nil || errors.Is(err, context.Canceled) {
-		return false
-	}
-	var providerErr *ProviderError
-	retryable := false
-	if errors.As(err, &providerErr) {
-		retryable = providerErr.Retryable || providerErr.HTTPStatus == 408 || providerErr.HTTPStatus == 429 || providerErr.HTTPStatus == 499 || providerErr.HTTPStatus >= 500 || providerErr.Ambiguous && providerErr.HTTPStatus == 0
-	} else {
-		retryable = errors.Is(err, context.DeadlineExceeded) || errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF)
-	}
-	if !retryable {
-		return false
-	}
-	if mode == RetryUnlimited {
-		return true
-	}
-	return mode == RetryLimited && attempt <= 5
+ if !ProviderTransportRetryable(err){return false}
+ return mode==RetryUnlimited || (mode==RetryLimited && attempt<=5)
 }
 
 func runProviderRetryCode(err error) string {

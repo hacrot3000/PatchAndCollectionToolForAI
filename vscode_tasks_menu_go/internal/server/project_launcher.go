@@ -13,6 +13,8 @@ import (
  "strings"
  "sync"
  "time"
+
+ "bletonfc/vscode_tasks_menu/internal/config"
 )
 
 // A launcher always belongs to the native OS account that runs TaskDeck.
@@ -111,10 +113,26 @@ func launcherShellArg(value string) string {
  return "'" + strings.ReplaceAll(value,"'","'\\''") + "'"
 }
 
-func launcherDesktopContents(workspace,executable,iconPath string) string {
+// Read the same workspace-local setting as Edit title. Keep the existing
+// directory-derived label only when there is no custom title. The title is
+// display metadata, never a path component or a shell argument.
+func launcherDisplayName(workspace string)(string,error){
+ title,err:=config.ReadPageTitle(workspace)
+ if err!=nil{return "",err}
+ title=strings.TrimSpace(title)
+ switch title {
+ case "", "TaskDeck", "VS Code Tasks Menu", "VSCode Tasks Menu":
+  return "TaskDeck - "+launcherProjectName(workspace),nil
+ }
+ title=strings.TrimSpace(strings.TrimPrefix(title,"TaskDeck - "))
+ if title==""{return "TaskDeck - "+launcherProjectName(workspace),nil}
+ return "TaskDeck - "+strings.Map(func(r rune)rune{if r<32||r==127{return ' '};return r},title),nil
+}
+
+func launcherDesktopContents(workspace,executable,iconPath,displayName string) string {
  return "[Desktop Entry]\n"+
   "Type=Application\nVersion=1.0\n"+
-  "Name=TaskDeck - "+launcherTextValue(launcherProjectName(workspace))+"\n"+
+  "Name="+strings.ReplaceAll(launcherTextValue(displayName),"\\","\\\\")+"\n"+
   "Comment=Open TaskDeck project\n"+
   "Exec="+launcherDesktopArg(executable)+" --workspace "+launcherDesktopArg(workspace)+" --open-browser\n"+
   "Path="+launcherTextValue(workspace)+"\n"+
@@ -127,9 +145,9 @@ func launcherXML(value string)string{
  _=xml.EscapeText(&out,[]byte(value))
  return out.String()
 }
-func launcherMacPlist(workspace string)string{
+func launcherMacPlist(workspace,displayName string)string{
  id:=projectLauncherID(workspace)
- name:=launcherXML("TaskDeck - "+launcherProjectName(workspace))
+ name:=launcherXML(displayName)
  return "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"+
  "<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n"+
  "<plist version=\"1.0\"><dict>\n"+
@@ -194,6 +212,8 @@ func installProjectLauncher(home,workspace,executable,platform string)(string,er
  if strings.ContainsAny(workspace,"\n\r\x00")||strings.ContainsAny(executable,"\n\r\x00") {
   return "",errors.New("launcher arguments contain control characters")
  }
+ displayName,err:=launcherDisplayName(workspace)
+ if err!=nil{return "",err}
  path:=launcherLocation(home,workspace,platform)
  if info,err:=os.Lstat(path);err==nil {
   if platform=="linux"&&!info.Mode().IsRegular(){return "",errors.New("existing launcher is not a regular file")}
@@ -207,7 +227,7 @@ func installProjectLauncher(home,workspace,executable,platform string)(string,er
   // Publish icon before the .desktop entry, and refresh the same files
   // whenever this project is installed again.
   if err:=launcherAtomicWrite(iconPath,taskdeckLauncherPNG,0644);err!=nil{return "",err}
-  return path,launcherAtomicWrite(path,[]byte(launcherDesktopContents(workspace,executable,iconPath)),0644)
+  return path,launcherAtomicWrite(path,[]byte(launcherDesktopContents(workspace,executable,iconPath,displayName)),0644)
  }
  iconData,err:=launcherMacIcon();if err!=nil{return "",err}
  if err:=os.MkdirAll(filepath.Dir(path),0755);err!=nil{return "",err}
@@ -220,7 +240,7 @@ func installProjectLauncher(home,workspace,executable,platform string)(string,er
  if err:=launcherEnsureDirectory(resources);err!=nil{return "",err}
  if err:=launcherAtomicWrite(filepath.Join(resources,"taskdeck.icns"),iconData,0644);err!=nil{return "",err}
  if err:=launcherAtomicWrite(filepath.Join(macos,"launch"),[]byte(launcherMacScript(workspace,executable)),0755);err!=nil{return "",err}
- if err:=launcherAtomicWrite(filepath.Join(contents,"Info.plist"),[]byte(launcherMacPlist(workspace)),0644);err!=nil{return "",err}
+ if err:=launcherAtomicWrite(filepath.Join(contents,"Info.plist"),[]byte(launcherMacPlist(workspace,displayName)),0644);err!=nil{return "",err}
  // Update the bundle timestamp to help Finder notice an icon refresh.
  now:=time.Now()
  if err:=os.Chtimes(path,now,now);err!=nil{return "",err}

@@ -3,9 +3,11 @@ package server
 import (
 	"context"
 	"encoding/json"
+ "net/http/httptest"
 	"strings"
 	"sync/atomic"
 	"testing"
+ "time"
 
 	"bletonfc/vscode_tasks_menu/internal/agentchat"
 	"bletonfc/vscode_tasks_menu/internal/agentrun"
@@ -206,4 +208,40 @@ func TestAgentRunCollectionRepeatedShapeReadsChangedSource(t *testing.T){
  if _,ok:=readRunCollectionProgress("foreign",rec.Spec,inputs);ok{t.Fatal("cross-owner progress accepted")}
  foreign:=rec.Spec;foreign.ExecutionWorkspaceID="foreign-worktree"
  if _,ok:=readRunCollectionProgress("local",foreign,inputs);ok{t.Fatal("cross-worktree progress accepted")}
+ // Read-only diagnostic report sees the actual committed snapshot, not the
+ // in-flight tool result or private request/receipt bytes.
+ w:=httptest.NewRecorder()
+ s.agentChatDebugReportAPI(w,httptest.NewRequest("GET","/api/agent/debug/report",nil))
+ if w.Code!=200||!strings.Contains(w.Body.String(),`"verified_duplicate": 2`)||!strings.Contains(w.Body.String(),`"verified_new": 2`)||!strings.Contains(w.Body.String(),spec.RunID)||strings.Contains(w.Body.String(),"read-marker-"){t.Fatalf("Unified debug projection not safe or incomplete: %d %s",w.Code,w.Body)}
+
+ // A fresh Server reads only the persisted Unified record and snapshot.
+ // It must not instantiate workers or re-send a provider request.
+ reopened:=&Server{Workspace:s.Workspace,Config:s.Config,ConnectionSecrets:s.ConnectionSecrets}
+ report:=func(server *Server)string{
+  t.Helper()
+  w:=httptest.NewRecorder()
+  server.agentChatDebugReportAPI(w,httptest.NewRequest("GET","/api/agent/debug/report",nil))
+  if w.Code!=200{t.Fatalf("reopened report HTTP %d: %s",w.Code,w.Body)}
+  return w.Body.String()
+ }
+ body:=report(reopened)
+ if !strings.Contains(body,spec.RunID)||!strings.Contains(body,`"verified_duplicate": 2`)||strings.Contains(body,"read-marker-"){t.Fatal("restart lost or disclosed native evidence")}
+ journal,err:=reopened.agentChatStore();if err!=nil{t.Fatal(err)}
+ sessions,err:=journal.List("local");if err!=nil{t.Fatal(err)}
+ foreignRows,err:=reopened.agentDebugUnifiedRuns("foreign",sessions,time.Time{})
+ if err!=nil||len(foreignRows)!=0{t.Fatal("foreign owner can read Unified run metadata")}
+ clear:=httptest.NewRecorder()
+ reopened.agentChatDebugClearAPI(clear,httptest.NewRequest("POST","/api/agent/debug/clear",strings.NewReader("{}")))
+ if clear.Code!=200{t.Fatalf("clear HTTP %d: %s",clear.Code,clear.Body)}
+ afterClear:=&Server{Workspace:s.Workspace,Config:s.Config,ConnectionSecrets:s.ConnectionSecrets}
+ if body=report(afterClear);strings.Contains(body,spec.RunID)||strings.Contains(body,"read-marker-"){t.Fatal("old Unified run resurfaced after clear/restart")}
+ records,err:=afterClear.agentRunRecords("local");if err!=nil{t.Fatal(err)}
+ retained:=false
+ for _,r:=range records{if r.Spec.RunID==spec.RunID{
+  retained=r.Status==agentrun.Completed&&len(r.History)==len(rec.History)
+  for i,item:=range r.History{if i>=len(rec.History)||item!=rec.History[i]{t.Fatal("clear changed durable Unified receipt")}}
+ }}
+ if !retained||reads.Load()!=4||requests.Load()!=5||len(reopened.agentRunManagers)!=0||len(afterClear.agentRunManagers)!=0{t.Fatal("diagnostic read/clear scheduled work or lost journal")}
 }
+
+
