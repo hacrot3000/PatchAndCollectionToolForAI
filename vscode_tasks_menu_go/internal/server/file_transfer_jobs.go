@@ -1663,9 +1663,10 @@ func (s *Server) createFileTransferServerJob(req fileTransferJobCreateRequest, o
 		queue.enqueueScanLocked(jobID, req)
 	}
 	queue.touchLocked()
+	clone := cloneFileTransferJob(job)
 	queue.mu.Unlock()
 	signalFileTransferQueue(queue)
-	return cloneFileTransferJob(job), nil
+	return clone, nil
 }
 
 func decodeFileTransferJobJSON(w http.ResponseWriter, r *http.Request, value any) error {

@@ -407,9 +407,10 @@ func (s *Server) stageBrowserUpload(profileID, remotePath string, src io.Reader)
 		Status:"queued",Operation:"browser_staged_upload",Detail:"Waiting for FTP/SFTP upload slot",
 	})
 	queue.touchLocked()
+	clone := cloneFileTransferJob(job)
 	queue.mu.Unlock()
 	signalFileTransferQueue(queue)
-	return cloneFileTransferJob(job),nil
+	return clone,nil
 }
 
 func (s *Server) fileTransferUpload(w http.ResponseWriter, r *http.Request) {

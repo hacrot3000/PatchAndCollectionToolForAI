@@ -90,6 +90,11 @@ const agentPendingDispatchHandoffReady = false
 // agentChatDispatchPendingUserTurn starts a queued Legacy turn after the active
 // turn finishes. Dispatch is suspended until the atomic handoff is integrated.
 func (s *Server) agentChatDispatchPendingUserTurn(owner, id string) {
+	if !agentPendingDispatchHandoffReady {
+		// Central fail-closed gate: the atomic owner-scoped pending-to-PREPARED
+		// handoff is not verified. Never touch or clear a durable pending turn.
+		return
+	}
 	if s == nil || strings.TrimSpace(id) == "" {
 		return
 	}

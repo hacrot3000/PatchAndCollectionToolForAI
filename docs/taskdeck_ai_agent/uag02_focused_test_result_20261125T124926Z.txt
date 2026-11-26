@@ -1,0 +1,241 @@
+UAG-02 focused verification runner: PASS
+Generated (UTC): 20261125T124926Z
+Runner: vscode_tasks_menu_go/uag02_prepared_checks.py
+Return code: 0
+Subtests PASS: 31; Subtests FAIL: 0; package OK lines: 31
+
+--- runner console ---
+Checking ./internal/agentchat ^TestProviderRunStageDoesNotOverwritePreparedPayload$
+=== RUN   TestProviderRunStageDoesNotOverwritePreparedPayload
+--- PASS: TestProviderRunStageDoesNotOverwritePreparedPayload (0.01s)
+PASS
+ok  	bletonfc/vscode_tasks_menu/internal/agentchat	0.015s
+Checking ./internal/agentchat ^TestProviderRunConcurrentStagingPreservesCommittedPrepared$
+=== RUN   TestProviderRunConcurrentStagingPreservesCommittedPrepared
+--- PASS: TestProviderRunConcurrentStagingPreservesCommittedPrepared (0.01s)
+PASS
+ok  	bletonfc/vscode_tasks_menu/internal/agentchat	0.016s
+Checking ./internal/agentchat ^TestProviderRunPreparedPayloadSurvivesRestartAndIsNotReplayableAfterSending$
+=== RUN   TestProviderRunPreparedPayloadSurvivesRestartAndIsNotReplayableAfterSending
+--- PASS: TestProviderRunPreparedPayloadSurvivesRestartAndIsNotReplayableAfterSending (0.02s)
+PASS
+ok  	bletonfc/vscode_tasks_menu/internal/agentchat	0.022s
+Checking ./internal/agentchat ^TestProviderRunPayloadTamperingFailsClosed$
+=== RUN   TestProviderRunPayloadTamperingFailsClosed
+--- PASS: TestProviderRunPayloadTamperingFailsClosed (0.01s)
+PASS
+ok  	bletonfc/vscode_tasks_menu/internal/agentchat	0.016s
+Checking ./internal/agentchat ^TestStageProviderPayloadLockedRejectsInvalidInput$
+=== RUN   TestStageProviderPayloadLockedRejectsInvalidInput
+--- PASS: TestStageProviderPayloadLockedRejectsInvalidInput (0.00s)
+PASS
+ok  	bletonfc/vscode_tasks_menu/internal/agentchat	0.003s
+Checking ./internal/agentchat ^TestObsoletePreparedPayloadUnlinkFsyncIsIndependentFromProviderACK$
+=== RUN   TestObsoletePreparedPayloadUnlinkFsyncIsIndependentFromProviderACK
+--- PASS: TestObsoletePreparedPayloadUnlinkFsyncIsIndependentFromProviderACK (0.02s)
+PASS
+ok  	bletonfc/vscode_tasks_menu/internal/agentchat	0.020s
+Checking ./internal/agentchat ^TestStoreRejectsUnscopedProviderSelectionChanges$
+=== RUN   TestStoreRejectsUnscopedProviderSelectionChanges
+=== RUN   TestStoreRejectsUnscopedProviderSelectionChanges/provider
+=== RUN   TestStoreRejectsUnscopedProviderSelectionChanges/model
+--- PASS: TestStoreRejectsUnscopedProviderSelectionChanges (0.01s)
+    --- PASS: TestStoreRejectsUnscopedProviderSelectionChanges/provider (0.00s)
+    --- PASS: TestStoreRejectsUnscopedProviderSelectionChanges/model (0.00s)
+PASS
+ok  	bletonfc/vscode_tasks_menu/internal/agentchat	0.009s
+Checking ./internal/agentchat ^TestProviderRunCompetingStagedPayloadCAS$
+=== RUN   TestProviderRunCompetingStagedPayloadCAS
+--- PASS: TestProviderRunCompetingStagedPayloadCAS (0.02s)
+PASS
+ok  	bletonfc/vscode_tasks_menu/internal/agentchat	0.018s
+Checking ./internal/agentchat ^TestStoreRejectsPendingTurnRemoval$
+=== RUN   TestStoreRejectsPendingTurnRemoval
+--- PASS: TestStoreRejectsPendingTurnRemoval (0.01s)
+PASS
+ok  	bletonfc/vscode_tasks_menu/internal/agentchat	0.008s
+Checking ./internal/agentchat ^TestStoreRejectsPendingTurnReplacement$
+=== RUN   TestStoreRejectsPendingTurnReplacement
+--- PASS: TestStoreRejectsPendingTurnReplacement (0.01s)
+PASS
+ok  	bletonfc/vscode_tasks_menu/internal/agentchat	0.009s
+Checking ./internal/agentchat ^TestPreservesPendingUserTurnInvariant$
+=== RUN   TestPreservesPendingUserTurnInvariant
+--- PASS: TestPreservesPendingUserTurnInvariant (0.00s)
+PASS
+ok  	bletonfc/vscode_tasks_menu/internal/agentchat	0.003s
+Checking ./internal/agentchat ^TestPendingAdmissionRejectsEmptyOwner$
+=== RUN   TestPendingAdmissionRejectsEmptyOwner
+--- PASS: TestPendingAdmissionRejectsEmptyOwner (0.00s)
+PASS
+ok  	bletonfc/vscode_tasks_menu/internal/agentchat	0.003s
+Checking ./internal/agentchat ^TestPendingAdmissionBindingMatches$
+=== RUN   TestPendingAdmissionBindingMatches
+=== RUN   TestPendingAdmissionBindingMatches/request
+=== RUN   TestPendingAdmissionBindingMatches/provider
+=== RUN   TestPendingAdmissionBindingMatches/model
+=== RUN   TestPendingAdmissionBindingMatches/effort
+=== RUN   TestPendingAdmissionBindingMatches/config
+=== RUN   TestPendingAdmissionBindingMatches/credential
+=== RUN   TestPendingAdmissionBindingMatches/run
+=== RUN   TestPendingAdmissionBindingMatches/attempt
+=== RUN   TestPendingAdmissionBindingMatches/payload
+=== RUN   TestPendingAdmissionBindingMatches/phase
+=== RUN   TestPendingAdmissionBindingMatches/kind
+=== RUN   TestPendingAdmissionBindingMatches/invalid_pending_digest
+=== RUN   TestPendingAdmissionBindingMatches/invalid_binding_mode
+=== RUN   TestPendingAdmissionBindingMatches/invalid_run_timestamps
+--- PASS: TestPendingAdmissionBindingMatches (0.00s)
+    --- PASS: TestPendingAdmissionBindingMatches/request (0.00s)
+    --- PASS: TestPendingAdmissionBindingMatches/provider (0.00s)
+    --- PASS: TestPendingAdmissionBindingMatches/model (0.00s)
+    --- PASS: TestPendingAdmissionBindingMatches/effort (0.00s)
+    --- PASS: TestPendingAdmissionBindingMatches/config (0.00s)
+    --- PASS: TestPendingAdmissionBindingMatches/credential (0.00s)
+    --- PASS: TestPendingAdmissionBindingMatches/run (0.00s)
+    --- PASS: TestPendingAdmissionBindingMatches/attempt (0.00s)
+    --- PASS: TestPendingAdmissionBindingMatches/payload (0.00s)
+    --- PASS: TestPendingAdmissionBindingMatches/phase (0.00s)
+    --- PASS: TestPendingAdmissionBindingMatches/kind (0.00s)
+    --- PASS: TestPendingAdmissionBindingMatches/invalid_pending_digest (0.00s)
+    --- PASS: TestPendingAdmissionBindingMatches/invalid_binding_mode (0.00s)
+    --- PASS: TestPendingAdmissionBindingMatches/invalid_run_timestamps (0.00s)
+PASS
+ok  	bletonfc/vscode_tasks_menu/internal/agentchat	0.003s
+Checking ./internal/agentchat ^TestPendingAdmissionCandidateMatches$
+=== RUN   TestPendingAdmissionCandidateMatches
+=== RUN   TestPendingAdmissionCandidateMatches/owner
+=== RUN   TestPendingAdmissionCandidateMatches/candidate_owner
+=== RUN   TestPendingAdmissionCandidateMatches/archived_current
+=== RUN   TestPendingAdmissionCandidateMatches/archived_candidate
+=== RUN   TestPendingAdmissionCandidateMatches/revision
+=== RUN   TestPendingAdmissionCandidateMatches/session_ID
+=== RUN   TestPendingAdmissionCandidateMatches/candidate_revision
+=== RUN   TestPendingAdmissionCandidateMatches/workspace
+=== RUN   TestPendingAdmissionCandidateMatches/project
+=== RUN   TestPendingAdmissionCandidateMatches/pending_retained
+=== RUN   TestPendingAdmissionCandidateMatches/no_pending
+=== RUN   TestPendingAdmissionCandidateMatches/prepared_already
+=== RUN   TestPendingAdmissionCandidateMatches/completed_run_ID_reused
+=== RUN   TestPendingAdmissionCandidateMatches/sending_unresolved
+=== RUN   TestPendingAdmissionCandidateMatches/unknown_unresolved
+=== RUN   TestPendingAdmissionCandidateMatches/acknowledged_unresolved
+=== RUN   TestPendingAdmissionCandidateMatches/blocked_unresolved
+=== RUN   TestPendingAdmissionCandidateMatches/missing_run
+=== RUN   TestPendingAdmissionCandidateMatches/missing_binding
+=== RUN   TestPendingAdmissionCandidateMatches/binding_context_mode_drift
+=== RUN   TestPendingAdmissionCandidateMatches/candidate_context_mode_drift
+=== RUN   TestPendingAdmissionCandidateMatches/status
+=== RUN   TestPendingAdmissionCandidateMatches/payload
+--- PASS: TestPendingAdmissionCandidateMatches (0.00s)
+    --- PASS: TestPendingAdmissionCandidateMatches/owner (0.00s)
+    --- PASS: TestPendingAdmissionCandidateMatches/candidate_owner (0.00s)
+    --- PASS: TestPendingAdmissionCandidateMatches/archived_current (0.00s)
+    --- PASS: TestPendingAdmissionCandidateMatches/archived_candidate (0.00s)
+    --- PASS: TestPendingAdmissionCandidateMatches/revision (0.00s)
+    --- PASS: TestPendingAdmissionCandidateMatches/session_ID (0.00s)
+    --- PASS: TestPendingAdmissionCandidateMatches/candidate_revision (0.00s)
+    --- PASS: TestPendingAdmissionCandidateMatches/workspace (0.00s)
+    --- PASS: TestPendingAdmissionCandidateMatches/project (0.00s)
+    --- PASS: TestPendingAdmissionCandidateMatches/pending_retained (0.00s)
+    --- PASS: TestPendingAdmissionCandidateMatches/no_pending (0.00s)
+    --- PASS: TestPendingAdmissionCandidateMatches/prepared_already (0.00s)
+    --- PASS: TestPendingAdmissionCandidateMatches/completed_run_ID_reused (0.00s)
+    --- PASS: TestPendingAdmissionCandidateMatches/sending_unresolved (0.00s)
+    --- PASS: TestPendingAdmissionCandidateMatches/unknown_unresolved (0.00s)
+    --- PASS: TestPendingAdmissionCandidateMatches/acknowledged_unresolved (0.00s)
+    --- PASS: TestPendingAdmissionCandidateMatches/blocked_unresolved (0.00s)
+    --- PASS: TestPendingAdmissionCandidateMatches/missing_run (0.00s)
+    --- PASS: TestPendingAdmissionCandidateMatches/missing_binding (0.00s)
+    --- PASS: TestPendingAdmissionCandidateMatches/binding_context_mode_drift (0.00s)
+    --- PASS: TestPendingAdmissionCandidateMatches/candidate_context_mode_drift (0.00s)
+    --- PASS: TestPendingAdmissionCandidateMatches/status (0.00s)
+    --- PASS: TestPendingAdmissionCandidateMatches/payload (0.00s)
+PASS
+ok  	bletonfc/vscode_tasks_menu/internal/agentchat	0.003s
+Checking ./internal/agentchat ^TestPendingAdmissionConcurrentCommit$
+=== RUN   TestPendingAdmissionConcurrentCommit
+--- PASS: TestPendingAdmissionConcurrentCommit (0.01s)
+PASS
+ok  	bletonfc/vscode_tasks_menu/internal/agentchat	0.015s
+Checking ./internal/agentchat ^TestPendingAdmissionStagingFailurePreservesTurn$
+=== RUN   TestPendingAdmissionStagingFailurePreservesTurn
+--- PASS: TestPendingAdmissionStagingFailurePreservesTurn (0.01s)
+PASS
+ok  	bletonfc/vscode_tasks_menu/internal/agentchat	0.010s
+Checking ./internal/agentchat ^TestPendingAdmissionRejectsOtherOwner$
+=== RUN   TestPendingAdmissionRejectsOtherOwner
+--- PASS: TestPendingAdmissionRejectsOtherOwner (0.01s)
+PASS
+ok  	bletonfc/vscode_tasks_menu/internal/agentchat	0.008s
+Checking ./internal/agentchat ^TestPendingAdmissionStagedSidecarBeforeCommit$
+=== RUN   TestPendingAdmissionStagedSidecarBeforeCommit
+--- PASS: TestPendingAdmissionStagedSidecarBeforeCommit (0.01s)
+PASS
+ok  	bletonfc/vscode_tasks_menu/internal/agentchat	0.018s
+Checking ./internal/agentchat ^TestPendingTurnSurvivesUnrelatedJournalSave$
+=== RUN   TestPendingTurnSurvivesUnrelatedJournalSave
+--- PASS: TestPendingTurnSurvivesUnrelatedJournalSave (0.01s)
+PASS
+ok  	bletonfc/vscode_tasks_menu/internal/agentchat	0.013s
+Checking ./internal/agentchat ^TestPendingTurnConcurrentJournalCAS$
+=== RUN   TestPendingTurnConcurrentJournalCAS
+--- PASS: TestPendingTurnConcurrentJournalCAS (0.01s)
+PASS
+ok  	bletonfc/vscode_tasks_menu/internal/agentchat	0.014s
+Checking ./internal/server ^TestAgentPreparedIntentConstruction$
+=== RUN   TestAgentPreparedIntentConstruction
+--- PASS: TestAgentPreparedIntentConstruction (0.00s)
+PASS
+ok  	bletonfc/vscode_tasks_menu/internal/server	0.006s
+Checking ./internal/server ^TestAgentPreparedResumeRejectsCredentialDrift$
+=== RUN   TestAgentPreparedResumeRejectsCredentialDrift
+--- PASS: TestAgentPreparedResumeRejectsCredentialDrift (0.02s)
+PASS
+ok  	bletonfc/vscode_tasks_menu/internal/server	0.032s
+Checking ./internal/server ^TestAgentPreparedProviderRunResumesExactlyOnceAfterRestart$
+=== RUN   TestAgentPreparedProviderRunResumesExactlyOnceAfterRestart
+--- PASS: TestAgentPreparedProviderRunResumesExactlyOnceAfterRestart (0.03s)
+PASS
+ok  	bletonfc/vscode_tasks_menu/internal/server	0.040s
+Checking ./internal/server ^TestAgentSendingRunRestartBecomesAmbiguousWithoutProviderReplay$
+=== RUN   TestAgentSendingRunRestartBecomesAmbiguousWithoutProviderReplay
+--- PASS: TestAgentSendingRunRestartBecomesAmbiguousWithoutProviderReplay (0.03s)
+PASS
+ok  	bletonfc/vscode_tasks_menu/internal/server	0.034s
+Checking ./internal/server ^TestAgentPendingAdmissionBridgeRejectsInvalidCandidates$
+=== RUN   TestAgentPendingAdmissionBridgeRejectsInvalidCandidates
+--- PASS: TestAgentPendingAdmissionBridgeRejectsInvalidCandidates (0.01s)
+PASS
+ok  	bletonfc/vscode_tasks_menu/internal/server	0.020s
+Checking ./internal/server ^TestAgentPendingAdmissionBridgeCommitsPrepared$
+=== RUN   TestAgentPendingAdmissionBridgeCommitsPrepared
+--- PASS: TestAgentPendingAdmissionBridgeCommitsPrepared (0.02s)
+PASS
+ok  	bletonfc/vscode_tasks_menu/internal/server	0.029s
+Checking ./internal/server ^TestAgentPendingAdmissionWithoutPendingFailsClosed$
+=== RUN   TestAgentPendingAdmissionWithoutPendingFailsClosed
+--- PASS: TestAgentPendingAdmissionWithoutPendingFailsClosed (0.01s)
+PASS
+ok  	bletonfc/vscode_tasks_menu/internal/server	0.021s
+Checking ./internal/server ^TestAgentPendingAdmissionRejectsEffectiveModeDrift$
+=== RUN   TestAgentPendingAdmissionRejectsEffectiveModeDrift
+--- PASS: TestAgentPendingAdmissionRejectsEffectiveModeDrift (0.02s)
+PASS
+ok  	bletonfc/vscode_tasks_menu/internal/server	0.030s
+Checking ./internal/server ^TestAgentPendingFirstTurnRetainedWhenPackChangesHistory$
+=== RUN   TestAgentPendingFirstTurnRetainedWhenPackChangesHistory
+--- PASS: TestAgentPendingFirstTurnRetainedWhenPackChangesHistory (0.02s)
+PASS
+ok  	bletonfc/vscode_tasks_menu/internal/server	0.027s
+Checking ./internal/server ^TestAgentSuspendedPendingDispatchRetainsTurn$
+=== RUN   TestAgentSuspendedPendingDispatchRetainsTurn
+--- PASS: TestAgentSuspendedPendingDispatchRetainsTurn (0.01s)
+PASS
+ok  	bletonfc/vscode_tasks_menu/internal/server	0.020s
+Checking ./internal/server ^TestAgentSuspendedPendingDispatchRejectsForeignOwner$
+=== RUN   TestAgentSuspendedPendingDispatchRejectsForeignOwner
+--- PASS: TestAgentSuspendedPendingDispatchRejectsForeignOwner (0.02s)
+PASS
+ok  	bletonfc/vscode_tasks_menu/internal/server	0.022s
+

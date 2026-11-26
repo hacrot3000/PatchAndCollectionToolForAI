@@ -651,7 +651,9 @@ func (s *Store) AdmitPendingUserTurn(x Session, owner string, expectedRevision u
 }
 
 func (s *Store) admitPendingUserTurn(x Session, owner string, expectedRevision uint64, payload []byte) (Session, error) {
-	if owner == "" { return Session{}, ErrInvalidSession }
+	if owner == "" {
+		return Session{}, ErrInvalidSession
+	}
 	var saved Session
 	err := s.withLock(func() error {
 		var err error
@@ -663,33 +665,45 @@ func (s *Store) admitPendingUserTurn(x Session, owner string, expectedRevision u
 
 // AdmitNewUserMessage is an owner-scoped CAS for an authorized, staged new
 // Legacy request. Generic Save still cannot change provider or model.
-func (s *Store) AdmitNewUserMessage(x Session, owner string, expectedRevision uint64) (Session,error) {
- if owner==""{return Session{},ErrInvalidSession}
- var saved Session
- err:=s.withLock(func()error{
-  var err error
-  saved,err=s.saveSessionWithAdmissionLocked(x,expectedRevision,"",nil,owner)
-  return err
- })
- return saved,err
+func (s *Store) AdmitNewUserMessage(x Session, owner string, expectedRevision uint64) (Session, error) {
+	if owner == "" {
+		return Session{}, ErrInvalidSession
+	}
+	var saved Session
+	err := s.withLock(func() error {
+		var err error
+		saved, err = s.saveSessionWithAdmissionLocked(x, expectedRevision, "", nil, owner)
+		return err
+	})
+	return saved, err
 }
 
-func validNewUserMessageAdmission(old,next Session,owner string)bool{
- if old.Owner!=owner||next.Owner!=owner||old.Archived||next.Archived||
-  old.PendingUserTurn!=nil||next.PendingUserTurn!=nil||next.Status!="requesting_ai"||
-  next.ProviderRun==nil||next.ProviderRun.Kind!="message"||next.ProviderRun.Phase!="prepared"||
-  next.TurnBinding==nil||!ValidTurnBinding(next.TurnBinding)||
-  next.TurnBinding.ProviderID!=next.ProviderID||next.TurnBinding.ModelID!=next.ModelID||
-  next.TurnBinding.TurnID!=next.ProviderRun.ID||next.TurnBinding.AttemptID!=next.ProviderRun.ID||
-  next.TurnBinding.PayloadDigest!=next.ProviderRun.PayloadSHA256||
-  len(next.History)==0||next.History[len(next.History)-1].Type!="user"{return false}
- switch old.Status{case "created","ready","completed","failed","cancelled","tool_rejected":default:return false}
- if old.ProviderRun!=nil&&(old.ProviderRun.ID==next.ProviderRun.ID||
-  old.ProviderRun.Phase=="prepared"||old.ProviderRun.Phase=="sending"){return false}
- if old.ProviderID!=next.ProviderID||old.ModelID!=next.ModelID{
-  if next.TurnBinding.ContextMode!=Stateless||next.PreviousResponseID!=""||next.ConversationID!=""{return false}
- }
- return true
+func validNewUserMessageAdmission(old, next Session, owner string) bool {
+	if old.Owner != owner || next.Owner != owner || old.Archived || next.Archived ||
+		old.PendingUserTurn != nil || next.PendingUserTurn != nil || next.Status != "requesting_ai" ||
+		next.ProviderRun == nil || next.ProviderRun.Kind != "message" || next.ProviderRun.Phase != "prepared" ||
+		next.TurnBinding == nil || !ValidTurnBinding(next.TurnBinding) ||
+		next.TurnBinding.ProviderID != next.ProviderID || next.TurnBinding.ModelID != next.ModelID ||
+		next.TurnBinding.TurnID != next.ProviderRun.ID || next.TurnBinding.AttemptID != next.ProviderRun.ID ||
+		next.TurnBinding.PayloadDigest != next.ProviderRun.PayloadSHA256 ||
+		len(next.History) == 0 || next.History[len(next.History)-1].Type != "user" {
+		return false
+	}
+	switch old.Status {
+	case "created", "ready", "completed", "failed", "cancelled", "tool_rejected":
+	default:
+		return false
+	}
+	if old.ProviderRun != nil && (old.ProviderRun.ID == next.ProviderRun.ID ||
+		old.ProviderRun.Phase == "prepared" || old.ProviderRun.Phase == "sending") {
+		return false
+	}
+	if old.ProviderID != next.ProviderID || old.ModelID != next.ModelID {
+		if next.TurnBinding.ContextMode != Stateless || next.PreviousResponseID != "" || next.ConversationID != "" {
+			return false
+		}
+	}
+	return true
 }
 
 func (s *Store) saveSessionWithAdmissionLocked(x Session, expectedRevision uint64, owner string, payload []byte, messageOwner string) (Session, error) {
