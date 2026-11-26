@@ -420,6 +420,10 @@ for _,i:=range indices{x.ToolCalls[i].FeedbackStatus="acknowledged"}
 			s.recordAgentDebugEvent(owner,x.ID,call.CallID,"collection","collection.checkpoint_save_failed","COLLECTION_JOURNAL_WRITE_FAILED","Collection terminal checkpoint could not be persisted; use Cancel to reconcile the acknowledged local checkpoint")
 			return agentDeliverResult{},agentContinueError{409,"Collection terminal checkpoint could not be saved; inspect journal and cancel the interrupted local Collection"}
 		}
+		var local *agentCollectionLocalError
+		if code!=409 && errors.As(err,&local) && local.Stage=="collection_context_checkpoint"{
+			return agentDeliverResult{},agentContinueError{http.StatusRequestEntityTooLarge,agentCollectionContextCheckpointMessage}
+		}
 		return agentDeliverResult{}, agentContinueError{code, "Collection continuation after Patch result stopped; inspect the Agent journal"}
 	}
 	appendAgentProviderResult(&x, result, toolAvailable)

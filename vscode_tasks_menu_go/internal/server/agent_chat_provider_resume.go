@@ -125,8 +125,9 @@ func (s *Server) resumePreparedAgentProviderRun(ctx context.Context,store *agent
   result,p,model,string(secret),identity,patchToolAvailable)
  if err!=nil{
   x.Status="failed"
+  if turnCtx.Err()!=nil{x.Status="cancelled"}
   agentCloseInterruptedCollection(&x)
-   x.AppendEvent("provider_resume_collect_failed","failed",run.CallID,"inspect_collection_checkpoint_and_provider_phase")
+  x.AppendEvent("provider_resume_collect_failed",x.Status,run.CallID,"inspect_collection_checkpoint_and_provider_phase")
   _,_=store.Save(x,x.Revision)
   _=store.DeleteProviderPayload(id)
   return true

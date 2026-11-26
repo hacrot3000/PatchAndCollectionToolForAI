@@ -355,9 +355,15 @@ func (s *Server) agentChatRunCollection(
 			NativeCollectionContract: currentContract,
 		})
 		if err != nil {
-			if !nextCommitted{x.History=append(x.History,next)}
+			if !nextCommitted{
+				x.History=append(x.History,next)
+				x.AppendEvent("collect_observed",x.Status,next.CallID,"local_context_build_failed")
+			}
+			// No new provider run has been prepared or sent. Keep the previous
+			// acknowledged run unchanged and preserve the actual observation.
 			x.PreviousResponseID="";x.ConversationID=""
-			return result, clearProviderRefs, &agentCollectionLocalError{Stage: "request_build", Round: round+1, Cause: err}
+			x.AppendEvent("collect_context_checkpoint","failed",next.CallID,"local_request_not_prepared")
+			return result,true,&agentCollectionLocalError{Stage: "collection_context_checkpoint", Round: round+1, Cause: err}
 		}
 		x.Status = "requesting_ai"
 		if !nextCommitted{
@@ -396,3 +402,5 @@ func (s *Server) agentChatRunCollection(
 	}
 }
 
+
+const agentCollectionContextCheckpointMessage = "Collection observation saved in the conversation. The next provider request could not be built locally (mandatory context or provider format); it was NOT prepared or sent. Resume the same conversation with a narrower missing scope or review the selected model limits. Existing native evidence remains available; do not rerun an old Patch."
