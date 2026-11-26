@@ -23,6 +23,9 @@ const (
 type StreamEvent struct {
 	Type         string
 	TextDelta    string
+	// Explicit provider reasoning summary, not private reasoning fields.
+	SummaryDelta string
+	ItemID       string
 	CallID       string
 	CallName     string
 	Arguments    string
@@ -40,6 +43,7 @@ type StreamEvent struct {
 type streamAccumulator struct {
 	text         strings.Builder
 	callByItem   map[string]int
+	itemCallIDs  map[string]string
 	calls        []FunctionCall
 	argBuffers   []strings.Builder
 	responseID   string
@@ -53,7 +57,7 @@ type streamAccumulator struct {
 }
 
 func newStreamAccumulator() *streamAccumulator {
-	return &streamAccumulator{callByItem: make(map[string]int)}
+	return &streamAccumulator{callByItem: make(map[string]int), itemCallIDs: make(map[string]string)}
 }
 
 type streamEventCallbackError struct{ err error }
@@ -86,7 +90,16 @@ func (a *streamAccumulator) apply(ev StreamEvent, callbacks ...func(StreamEvent)
 		a.outputTokens = ev.OutputTokens
 	}
 	if ev.Type == "response.output_item.added" && ev.CallID != "" {
-		a.callByItem[ev.CallID] = -1
+		if ev.ItemID != "" { a.itemCallIDs[ev.ItemID] = ev.CallID }
+		if _, exists := a.callByItem[ev.CallID]; !exists {
+			a.calls = append(a.calls, FunctionCall{CallID: ev.CallID, Name: ev.CallName})
+			a.callByItem[ev.CallID] = len(a.calls)-1
+			a.argBuffers = append(a.argBuffers, strings.Builder{})
+		}
+	}
+	if ev.Type == "response.function_call_arguments.delta" && ev.CallID == "" {
+		ev.CallID = a.itemCallIDs[ev.ItemID]
+		if ev.CallID == "" { return errors.New("streamed arguments without a function call") }
 	}
 	if ev.CallID != "" && ev.CallName != "" {
 		if _, ok := a.callByItem[ev.CallID]; !ok {
@@ -107,6 +120,14 @@ func (a *streamAccumulator) apply(ev StreamEvent, callbacks ...func(StreamEvent)
 		if a.calls[idx].Name == "" && ev.CallName != "" {
 			a.calls[idx].Name = ev.CallName
 		}
+		// output_item.done repeats the complete arguments. Only append a
+		// missing suffix; a conflicting result must not execute a tool.
+		if ev.Type == "response.output_item.done" && a.argBuffers[idx].Len() > 0 {
+			prefix := a.argBuffers[idx].String()
+			if !strings.HasPrefix(ev.Arguments, prefix) { return errors.New("streamed final arguments disagree with deltas") }
+			ev.Arguments = strings.TrimPrefix(ev.Arguments, prefix)
+		}
+		if ev.CallName == "" { ev.CallName = a.calls[idx].Name }
 		if a.argBuffers[idx].Len()+len(ev.Arguments) > maxItemBytes {
 			return errors.New("streamed function arguments exceeded limit")
 		}
@@ -155,6 +176,7 @@ func parseSSEEvent(payload []byte) (StreamEvent, error) {
 		ResponseID   string          `json:"response_id"`
 		Delta        string          `json:"delta"`
 		CallID       string          `json:"call_id"`
+		ItemID       string          `json:"item_id"`
 		Name         string          `json:"name"`
 		Arguments    string          `json:"arguments"`
 		Conversation json.RawMessage `json:"conversation"`
@@ -174,6 +196,7 @@ func parseSSEEvent(payload []byte) (StreamEvent, error) {
 			} `json:"output"`
 		} `json:"response"`
 		Item *struct {
+			ID string `json:"id"`
 			Type      string `json:"type"`
 			CallID    string `json:"call_id"`
 			Name      string `json:"name"`
@@ -183,7 +206,12 @@ func parseSSEEvent(payload []byte) (StreamEvent, error) {
 	if err := json.Unmarshal(payload, &raw); err != nil {
 		return StreamEvent{}, errors.New("invalid provider stream event")
 	}
-	ev := StreamEvent{Type: raw.Type, ResponseID: raw.ResponseID, CallID: raw.CallID, CallName: raw.Name, Arguments: raw.Arguments}
+	ev := StreamEvent{Type: raw.Type, ResponseID: raw.ResponseID, CallID: raw.CallID, CallName: raw.Name, Arguments: raw.Arguments, ItemID: raw.ItemID}
+	if raw.Item != nil && ev.ItemID == "" { ev.ItemID = raw.Item.ID }
+	if (raw.Type == "response.output_item.added" || raw.Type == "response.output_item.done") && raw.Item != nil && raw.Item.Type != "function_call" {
+		// Message/reasoning lifecycle is not a tool proposal.
+		return StreamEvent{Type: "response.output_item.non_tool", ResponseID: raw.ResponseID}, nil
+	}
 	if ev.CallID == "" && raw.Item != nil {
 		ev.CallID = raw.Item.CallID
 		if ev.CallName == "" {
@@ -211,8 +239,10 @@ func parseSSEEvent(payload []byte) (StreamEvent, error) {
 	switch raw.Type {
 	case "response.output_text.delta":
 		ev.TextDelta = raw.Delta
+	case "response.reasoning_summary_text.delta":
+		ev.SummaryDelta = raw.Delta
 	case "response.function_call_arguments.delta":
-		if ev.CallID == "" {
+		if ev.CallID == "" && ev.ItemID == "" {
 			return StreamEvent{}, errors.New("function arguments event missing call ID")
 		}
 		// Responses puts the argument fragment in "delta", not "arguments".

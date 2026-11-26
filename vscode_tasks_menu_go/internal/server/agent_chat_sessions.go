@@ -344,6 +344,7 @@ func (s *Server) agentChatSessionItemAPI(w http.ResponseWriter, r *http.Request)
 	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, http.StatusOK, map[string]any{"session": item, "execution_enabled": false,
 		"retry_runtime": agentRetrySnapshot(s.Workspace,aiPlanOwner(r),id),
+		"live_preview": agentLivePreviewForSession(s.Workspace, item),
 		"provider_review": review,
 		"collection_resume_eligible": resumeEligible,
 		"collection_progress": agentchat.CollectionProgressViewForSession(item),

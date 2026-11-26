@@ -120,6 +120,12 @@ agentCSS.textContent=[
 '.agentchat-bubble.assistant{align-self:flex-start;background:transparent;border-color:transparent;padding:4px 0}',
 '.agentchat-bubble.tool{align-self:flex-start;background:#1d2936;border-color:#394b60}',
 '.agentchat-message-body{min-width:0;overflow-wrap:anywhere}',
+'.agentchat-thinking-content{color:#a8b9ce;border-left:2px solid #7187a3;padding:4px 9px;margin:4px 0 8px;font-size:11px;line-height:1.55;white-space:pre-wrap;overflow-wrap:anywhere}',
+'.agentchat-thinking-heading{display:block;font-size:11px;font-weight:600;margin-bottom:4px;color:inherit}',
+'html[data-taskmenu-theme="light"] .agentchat-thinking-content{color:#52647b;border-color:#8296ad}',
+'.agentchat-live-status.thinking{color:#a8b9ce;flex-wrap:wrap}',
+'html[data-taskmenu-theme="light"] .agentchat-live-status.thinking{color:#52647b}',
+'.agentchat-live-preview{flex-basis:100%;min-width:0;white-space:pre-wrap;overflow-wrap:anywhere;max-height:300px;overflow:auto;color:inherit}',
 '.agentchat-bubble.user .agentchat-message-body.is-collapsed{max-height:7.75em;overflow:hidden}',
 '.agentchat-message-actions{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:6px;min-width:0;white-space:normal}',
 '.agentchat-message-actions .agentchat-message-copy{margin-left:auto}',
@@ -371,7 +377,10 @@ agentLiveSpinner.setAttribute('aria-hidden','true');
 const agentLiveText=agentEl('span','','');
 agentLiveRow.setAttribute('role','status');
 agentLiveRow.setAttribute('aria-live','polite');
-agentLiveRow.append(agentLiveSpinner,agentLiveText);
+const agentLivePreview=agentEl('div','agentchat-live-preview');
+agentLivePreview.hidden=true;
+agentLivePreview.setAttribute('aria-live','off');
+agentLiveRow.append(agentLiveSpinner,agentLiveText,agentLivePreview);
 const agentProgressTimers=new Map();
 
 let agentExecutionTarget=null,agentExecutionText='';
@@ -1116,15 +1125,31 @@ function agentUserMessageIsLong(message){
  }
  return false;
 }
+// Interpret only provider-visible leading think blocks, never example tags
+// inside Markdown code fences. Preserve canonical source for Copy/history.
+function agentThinkingParts(raw){
+ const source=String(raw??'');
+ const opening=/^\s*<think>/i.exec(source);
+ if(!opening)return {thinking:null,answer:source};
+ const rest=source.slice(opening[0].length),closing=/<\/think>/i.exec(rest);
+ return closing?{thinking:rest.slice(0,closing.index).trim(),answer:rest.slice(closing.index+closing[0].length).trimStart()}:{thinking:rest.trim(),answer:''};
+}
+function agentThinkingNode(value,label='Thinking'){
+ const node=agentEl('div','agentchat-thinking-content');
+ node.append(agentEl('strong','agentchat-thinking-heading',label),agentEl('div','',value));
+ return node;
+}
 function agentMessageBubble(role,source){
  const raw=String(source??'');
- const bubble=agentRich.renderMessage(role,raw,showAgentError);
+ const split=role==='assistant'?agentThinkingParts(raw):{thinking:null,answer:raw};
+ const bubble=agentRich.renderMessage(role,split.answer,showAgentError);
  const body=agentEl('div','agentchat-message-body');
  // The Markdown renderer owns safe DOM nodes. Move them rather than parsing
  // markup again, and preserve its plain-text fallback for very large messages.
  const parts=[...(bubble.childNodes||bubble.children||[])];
  if(parts.length)body.append(...parts);
  else if(bubble.textContent)body.textContent=bubble.textContent;
+ if(split.thinking!==null)body.prepend(agentThinkingNode(split.thinking));
  bubble.textContent='';
  const actions=agentEl('div','agentchat-message-actions');
  if(role==='user'&&agentUserMessageIsLong(raw)){
@@ -1507,10 +1532,15 @@ function agentLivePhase(session){
  if(session.status==='requesting_ai'){
   if(!turn?.error&&turn?.phase==='sending'&&!turn.acknowledged&&!newer.some(e=>e.kind==='turn_started'||e.kind==='feedback_prepared'||e.kind==='provider_egress'))return {message:'Sending request…'};
   if(lastEvent?.kind==='collect_started')return {message:'Running native Patch Tool COLLECT… large-file extraction in progress. Stop to cancel.'};
+  const preview=session.live_preview;
+  if(preview?.streaming){
+   return {message:preview.text&&agentThinkingParts(preview.text).answer.trim()?'Receiving response…':'Thinking…',thinking:true};
+  }
+  if(preview?.streaming===false)return {message:'Thinking… · waiting for provider (non-streaming)',thinking:true};
   if(lastEvent?.kind==='collect_observed')return {message:'Sending Collection result to AI…'};
   if(lastEvent?.kind==='feedback_prepared')return {message:'Sending native Patch result to AI…'};
   if(lastCall?.feedback_status==='sending'||lastCall?.feedback_status==='prepared')return {message:'Sending native Patch result to AI…'};
-  return {message:'Thinking…'};
+  return {message:'Thinking…',thinking:true};
  }
  if(session.status==='tool_queuing'||lastCall?.status==='queuing')return {message:'Submitting approved Patch to native queue…'};
  if(['queued','dispatching','running'].includes(lastCall?.status))return {message:'Running native Patch…'};
@@ -1581,11 +1611,27 @@ function agentUpdateLiveRow(session){
   if(agentLiveRow.parentElement)agentLiveRow.remove();
   return;
  }
- agentLiveRow.className='agentchat-live-status'+(phase.error?' error':'');
+ agentLiveRow.className='agentchat-live-status'+(phase.error?' error':phase.thinking?' thinking':'');
+ const preview=session.status==='requesting_ai'&&phase.thinking?session.live_preview:null;
+ const previewKey=preview?.streaming?JSON.stringify([id,preview.request_id,preview.summary,preview.text,preview.truncated]):'';
+ if(agentLivePreview.dataset.previewKey!==previewKey){
+  agentLivePreview.dataset.previewKey=previewKey;
+  agentLivePreview.replaceChildren();
+  if(preview?.streaming){
+   if(preview.summary)agentLivePreview.append(agentThinkingNode(preview.summary,'Thinking summary · live'));
+   if(preview.text){
+    const parts=agentThinkingParts(preview.text);
+    if(parts.thinking!==null)agentLivePreview.append(agentThinkingNode(parts.thinking,'Thinking · live'));
+    if(parts.answer)agentLivePreview.append(agentEl('div','',parts.answer));
+   }
+   if(preview.truncated)agentLivePreview.append(agentEl('div','','Live preview limit reached; complete response will appear after validation.'));
+  }
+ }
+ agentLivePreview.hidden=!previewKey||!Boolean(preview?.summary||preview?.text);
  agentLiveSpinner.hidden=Boolean(phase.error);
  const requestEstimate=Number(session.provider_run?.estimated_input_tokens||0);
  const sendingOrThinking=session.status==='requesting_ai'&&
-  /^(Sending |Retrying AI request|Thinking)/.test(phase.message);
+  /^(Sending |Retrying AI request|Thinking|Receiving response)/.test(phase.message);
  const requestInfo=session.provider_run;
  const hasRequestInfo=sendingOrThinking&&Boolean(requestInfo?.request_at);
  const requestLabel=hasRequestInfo?agentRequestBadgeText(requestInfo,session):'';
@@ -2009,6 +2055,7 @@ async function selectAgentSession(id){
  if(generation!==agentSelectGeneration)return null;
  const sess=data.session;
  sess.retry_runtime=data.retry_runtime||null;
+ sess.live_preview=data.live_preview||null;
  sess.auto_feedback_diagnostic=data.auto_feedback_diagnostic||null;
  sess.collection_resume_eligible=data.collection_resume_eligible===true;
  sess.collection_progress=data.collection_progress||null;
@@ -2254,7 +2301,7 @@ function agentMonitorNeedsWork(sess){
    (agentFeedbackEnabled(sess)&&['done','error','rejected'].includes(call.status))||
    (call.status==='rejected'&&(sess.auto_continue_text||sess.task_plan?.auto_continue)))));
 }
-function scheduleAgentMonitor(sess,delay=2800){
+function scheduleAgentMonitor(sess,delay=sess?.live_preview?.streaming?1200:2800){
  clearTimeout(agentMonitorTimer);agentMonitorTimer=0;
  const generation=++agentMonitorGeneration;
  if(!root.classList.contains('visible')||!sess||agentActive!==sess.id)return;
@@ -2265,7 +2312,7 @@ function scheduleAgentMonitor(sess,delay=2800){
  agentMonitorTimer=setTimeout(async()=>{
   if(!stillCurrent())return;
   agentMonitorTimer=0;
-  let nextDelay=2800;
+  let nextDelay=sess?.live_preview?.streaming?1200:2800;
   try{
    const current=agentCurrentSession?.id===id?agentCurrentSession:sess;
    if(current.auto_continue_monitor===true||agentSessionBusy(id)||['requesting_ai','tool_queuing'].includes(current.status)||

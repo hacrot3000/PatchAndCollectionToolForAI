@@ -1233,6 +1233,16 @@ console.log('PASS: safe Markdown, syntax-highlighted PHP/Python, per-block Copy,
   await autoPoll();
   assert.deepEqual(autoPollRequests,['/api/agent/sessions/natural-flow']);
   assert.equal(liveLine.children[1].textContent,'Thinking…','next background turn appears without page reload');
+  assert.equal(vm.runInNewContext("agentThinkingParts('<think>Inspecting</think>Answer').thinking",context),'Inspecting');
+  assert.equal(vm.runInNewContext("agentThinkingParts('<think>Inspecting</think>Answer').answer",context),'Answer');
+  assert.equal(vm.runInNewContext("agentThinkingParts('Example: <think>literal</think>').thinking",context),null);
+  const liveThink=vm.runInNewContext("agentMessageBubble('assistant','<think>Inspecting</think>Answer')",context);
+  assert.ok(find(liveThink,node=>node.className==='agentchat-thinking-content'),'visible thinking has its own styled block');
+  vm.runInNewContext("agentUpdateLiveRow({...agentCurrentSession,status:'requesting_ai',live_preview:{streaming:true,request_id:'preview-test',text:'<think>partial inspection'}})",context);
+  assert.equal(vm.runInNewContext('agentLivePreview.hidden',context),false,'preview renders before completion');
+  assert.ok(nodeText(vm.runInNewContext('agentLivePreview',context)).includes('partial inspection'));
+  vm.runInNewContext("agentUpdateLiveRow({...agentCurrentSession,status:'requesting_ai',live_preview:{streaming:false,request_id:'preview-next'}})",context);
+  assert.equal(vm.runInNewContext('agentLivePreview.hidden',context),true,'new non-streaming attempt must not retain old preview');
   context.setTimeout=beforeAutoTimer;
   console.log('PASS: read-only polling across completed Auto Continue gap');
 

@@ -39,7 +39,7 @@ func (s *Server) agentChatCallForOwner(ctx context.Context, owner, sessionID str
 
 func (s *Server) agentChatObservedCall(ctx context.Context, owner, action, sessionID string, p agentchat.ProviderConfig, key string, payload []byte) (agentchat.ResponsesResult, error, string) {
 	traceCtx, recorder, traceID := s.beginAgentDebug(ctx, owner, action, sessionID, p, modelFromAgentPayload(payload))
-	streaming := p.Stream && owner != "" && s.agentStreamCapabilityVerified(owner, p)
+	streaming := p.Stream && owner != "" && s.agentStreamCapabilityVerified(owner, p, modelFromAgentPayload(payload))
 	metadata := agentRequestDiagnosticMetadata(payload)
 	metadata.Level = "info"
 	metadata.Stage = "request_build"
@@ -58,16 +58,22 @@ func (s *Server) agentChatObservedCall(ctx context.Context, owner, action, sessi
 	requestDisplay:=agentRequestDisplay(p,payload,startedAt)
 	var result agentchat.ResponsesResult
 	var err error
+	var onEvent func(agentchat.StreamEvent) error
+	if action == "provider_request" && owner != "" && sessionID != "" {
+		var finish func()
+		onEvent, finish = beginAgentLivePreview(s.Workspace, owner, sessionID, traceID, streaming && s.AgentChatCall == nil, startedAt)
+		defer finish()
+	}
 	if s.AgentChatCall != nil {
 		result, err = s.AgentChatCall(traceCtx, p, key, payload)
 	} else if p.APIType == "chat_completions" {
 		if streaming {
-			result, err = agentchat.DoChatCompletionsStream(traceCtx, p, key, payload)
+			result, err = agentchat.DoChatCompletionsStreamWithEvents(traceCtx, p, key, payload, onEvent)
 		} else {
 			result, err = agentchat.DoChatCompletions(traceCtx, p, key, payload)
 		}
 	} else if streaming {
-		result, err = agentchat.DoResponsesStream(traceCtx, p, key, payload)
+		result, err = agentchat.DoResponsesStreamWithEvents(traceCtx, p, key, payload, onEvent)
 	} else {
 		result, err = agentchat.DoResponses(traceCtx, p, key, payload)
 	}
