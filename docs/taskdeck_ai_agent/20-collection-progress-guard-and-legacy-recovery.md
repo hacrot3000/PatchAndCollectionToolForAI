@@ -412,10 +412,10 @@ Không bỏ qua function output của call đã nhận. Nếu checkpoint trướ
 
 - [ ] **Phase gate** — `TODO`; chỉ đánh dấu khi tất cả task cấp 2 DONE và remote delivery đã xác minh.
 
-- [ ] **CLP-09.01 — Full cross-pipeline regression matrix** (`TODO`, P1)
+- [ ] **CLP-09.01 — Full cross-pipeline regression matrix** (`IN_PROGRESS`, P1)
   - Chạy toàn bộ scenarios mục 6 và relevant existing tests; fake provider/no real secrets. Chạy race detector phù hợp concurrency, format/lint, test toàn bộ package liên quan và CI theo repo. Ghi command, exit code, logs/CI link.
   - **Acceptance:** không regression duplicate, schema, auth, capacity, approval, TaskPlan evidence; không test nào bị skip mà không giải trình. 55+ useful reads chạy; no unsafe replay.
-    - [ ] **CLP-09.01.01** — Lập mapping R01–R28 tới test names/packages, thêm test còn thiếu; không bỏ suite baseline. (`TODO`)
+    - [ ] **CLP-09.01.01** — Lập mapping R01–R28 tới test names/packages, thêm test còn thiếu; không bỏ suite baseline. (`IN_PROGRESS` — mapped all 28 gates in §6.1; missing integration tests remain)
     - [ ] **CLP-09.01.02** — Chạy targeted + package/full CI suite, format/lint/diff check, ghi exact commands/exit codes. (`TODO`)
     - [ ] **CLP-09.01.03** — Chạy race tests cho save/reconcile/lease/counters; kiểm tra native Python integration nếu chạm contract. (`TODO`)
     - [ ] **CLP-09.01.04** — Đối chiếu từng scenario, ghi failures/skip blockers, sửa regression trước DONE. (`TODO`)
@@ -440,34 +440,72 @@ Mỗi scenario cần test name, actual result và file/receipt/CI ref trong nh�
 
 | ID | Scenario | Expected |
 |---|---|---|
-| [ ] R01 | 55 hoặc 100 unique useful reads rồi PATCH | Không hard cap, proposal đi qua approval chuẩn |
+| [x] R01 | 55 hoặc 100 unique useful reads rồi PATCH | Không hard cap, proposal đi qua approval chuẩn |
 | [ ] R02 | Exact duplicate, đổi title/call ID | Phát hiện; không đọc lại vô ích khi proof còn hiệu lực |
-| [ ] R03 | A/B/A/B, range subset/overlap | Phát hiện overlap đã xác minh; phần mới được tính đúng |
-| [ ] R04 | Unknown novelty, incomplete/truncated output | Không fabricated success hoặc false duplicate rejection |
+| [x] R03 | A/B/A/B, range subset/overlap | Phát hiện overlap đã xác minh; phần mới được tính đúng |
+| [x] R04 | Unknown novelty, incomplete/truncated output | Không fabricated success hoặc false duplicate rejection |
 | [ ] R05 | Implementation 5/10 reads | Advisory phù hợp, không ép patch; no warning spam |
-| [ ] R06 | Read-only audit 100 reads, no PATCH | Hợp lệ; chỉ checkpoint nếu stall thật |
+| [x] R06 | Read-only audit 100 reads, no PATCH | Hợp lệ; chỉ checkpoint nếu stall thật |
 | [ ] R07 | PATCH rejected/fail/no-op/partial mutation | Không reset meaningful progress sai; invalidate coverage khi cần |
 | [ ] R08 | PATCH thực thi source change rồi đọc lại | Không stale duplicate suppression; receipt đúng |
-| [ ] R09 | Schema invalid `grep`, project identity mismatch | Existing repair + auth preserved; không queue invalid mutation |
+| [x] R09 | Schema invalid `grep`, project identity mismatch | Existing repair + auth preserved; không queue invalid mutation |
 | [ ] R10 | Crash trước/sau native observation, provider prepared/sending | Guard count idempotent; journal phases đúng; no tool replay |
 | [ ] R11 | Legacy conversation archive/stale pack, restart/self-update | Goal/history/settings/plan giữ nguyên; current contract dùng đúng |
-| [ ] R12 | 2 ACKed PATCH → 8 COLLECT → provider unknown | ACK không đổi; no resend/replay; đúng recovery reason |
-| [ ] R13 | Explicit consent resume old collection unknown | New run, same conversation, audit old unknown; no unresolved mutation bypass |
-| [ ] R14 | Pending/unconfirmed PATCH side effect | Block hoặc reconcile có proof; không tự execute lại |
-| [ ] R15 | 304→942 KB, HTTP400 context exceeded | Progressive compact, current receipt byte-exact; bounded recovery |
-| [ ] R16 | Mandatory input quá lớn | Explicit budget blocker/checkpoint; không silent discard |
-| [ ] R17 | Repeated timeout cùng payload, HTTP499, cancel | Correct retry policy, no duplicate native action, Stop hiệu lực |
+| [x] R12 | 2 ACKed PATCH → 8 COLLECT → provider unknown | ACK không đổi; no resend/replay; đúng recovery reason |
+| [x] R13 | Explicit consent resume old collection unknown | New run, same conversation, audit old unknown; no unresolved mutation bypass |
+| [x] R14 | Pending/unconfirmed PATCH side effect | Block hoặc reconcile có proof; không tự execute lại |
+| [x] R15 | 304→942 KB, HTTP400 context exceeded | Progressive compact, current receipt byte-exact; bounded recovery |
+| [x] R16 | Mandatory input quá lớn | Explicit budget blocker/checkpoint; không silent discard |
+| [x] R17 | Repeated timeout cùng payload, HTTP499, cancel | Correct retry policy, no duplicate native action, Stop hiệu lực |
 | [ ] R18 | Response incomplete/output budget | Bounded guidance; không chạy partial patch/function JSON |
-| [ ] R19 | Persistent adaptive hint restart, key rotation, TTL | Correct scope, invalidation, no credential leakage |
-| [ ] R20 | Multiple conversations / worktrees / provider hot-switch | Isolation, immutable binding, capacity/lease preserved |
-| [ ] R21 | Completion-aware TaskPlan acceptance | Provider completed != task done; only verified/attested acceptance |
+| [x] R19 | Persistent adaptive hint restart, key rotation, TTL | Correct scope, invalidation, no credential leakage |
+| [x] R20 | Multiple conversations / worktrees / provider hot-switch | Isolation, immutable binding, capacity/lease preserved |
+| [x] R21 | Completion-aware TaskPlan acceptance | Provider completed != task done; only verified/attested acceptance |
 | [ ] R22 | AutoCollection/Patch/Feedback/Continue opt-out | Respect permissions kể cả khi recovery |
-| [ ] R23 | Large source ~150 MB targeted native collect | Không reader mới; bounded overhead, no arbitrary source-size regression |
+| [x] R23 | Large source ~150 MB targeted native collect | Không reader mới; bounded overhead, no arbitrary source-size regression |
 | [ ] R24 | UI/debug export/light-dark/clear | True status, redacted, durable guard không mất |
 | [ ] R25 | Legacy vs unified cùng scenario | Policy parity, protocol-specific differences documented |
-| [ ] R26 | Stateless rebase và typed/text fallback | No orphan/fabricated tool pair, current contract and exact receipt |
+| [x] R26 | Stateless rebase và typed/text fallback | No orphan/fabricated tool pair, current contract and exact receipt |
 | [ ] R27 | Restart recovery sau user Stop | Không tự resume trái ý; explicit continue có quyền mới |
 | [ ] R28 | Concurrent save/reconcile/retry same logical call | Không double count, no stale overwrite, race tests |
+
+
+### 6.1. Regression evidence mapping — 2026-11-26
+
+Baseline evidence for rows below: [core CI 45799935359](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/45799935359), HEAD `7965a5ed`; [Go 45799935418](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/45799935418) and [PHP 45799935450](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/45799935450) PASS. PASS means listed automated scenario/acceptance satisfied at that SHA, not deployed or real-provider validation. New advisory changes at `e83728d3` pending CI. Package shorthand paths are under `vscode_tasks_menu_go/internal/`, except web Node test. No production logs copied.
+
+| Gate | Status | Tests / packages | Actual coverage / remaining gap |
+|---|---|---|---|
+| R01 | PASS | server: TestAgentCollectionContinuesWithoutRoundLimitToPatchProposal/55_useful_pages_then_pending_patch | 55 distinct nonempty pages, exact receipt, pending approval and unchanged source; test seam, real native worker verified separately. |
+| R02 | VERIFY_PENDING | collectionprogress: TestNativeEvidenceProofRequiresExactCompleteReceipt; server: TestAgentCollectionIdenticalReadsYieldRecoverableWarningWithoutStopping; TestAgentCLP20VerifiedStallPreservesReceiptAndBoundsReplan | Exact proof and advisory pass; no pre-read suppression authorized from request shape. Need explicit title/call-ID proof and reuse guidance acceptance. |
+| R03 | PASS | collectionprogress: TestCoverageOverlapAlternatingAnd55Pages; TestNativeRangeCoverageBoundToReceipt; server: TestAgentCollectionAlternatingReadsAdviseWithoutProoflessSkip | Verified overlap/alternation and conservative native receipt binding; no skip based on shape. |
+| R04 | PASS | collectionprogress: TestNativeEvidenceProofRequiresExactCompleteReceipt; TestVerifiedDuplicateCooldownAndUnknown; server: TestAgentNativeCollectionPartialArtifactSurvivesFailedWrapperRC3 | Unknown/truncated/partial evidence never becomes verified duplicate or fabricated success. |
+| R05 | VERIFY_PENDING | collectionprogress: TestReadAdvisoriesNeverCapUsefulReads; server: TestAgentCLP20StructuredCollectionAdviceBoundedAndPermissionNeutral; TestAgentCollectionContinuesWithoutRoundLimitToPatchProposal | Pure policy PASS; newly strengthened actual 5/10 and structured wire advisory tests await CI. |
+| R06 | PASS | server: TestAgentCollectionContinuesWithoutRoundLimitToPatchProposal/100_read_only_pages; TestAgentCLP20VerifiedStallPreservesReceiptAndBoundsReplan | 100 useful reads and no Patch proposal; verified-stall checkpoint independently tested. |
+| R07 | VERIFY_PENDING | agentchat: TestCollectionGuardPatchTransitionsShareSessionCASWithoutFalseProgress; TestCollectionGuardAcceptedStepProgressIsScopedAndIdempotent; collectionprogress: TestCoverageInvalidationAndEvictionFailConservative | PASS wrapper is not progress; complete no-op/rejection/partial real native ledger transition matrix still open. |
+| R08 | VERIFY_PENDING | server: TestAgentRunCollectionRepeatedShapeReadsChangedSource; agentchat: TestCollectionGuardPatchTransitionsShareSessionCASWithoutFalseProgress | Changed proof recognized; exact source-changing native Patch followed by same read plus external edit not yet combined. |
+| R09 | PASS | server: TestAgentCollectionMalformedReadRequestIsRepairable; TestAgentCollectionMalformedProjectStringReturnsRepairFeedback; TestAgentNativeCollectionRequestUsesOriginalSchemaAndIdentity; TestAgentCLP20LegacyCollectionFailurePreservesAcknowledgedPatches | Malformed/foreign/schema-invalid collection rejected or repaired; synthetic grep and real native validation tested. |
+| R10 | VERIFY_PENDING | server: TestAgentProviderRealSIGKILLAtEgressBoundaries; TestAgentCLP20MixedLegacyRestartMatrix; TestAgentCLP20InterruptedCollectionCheckpointProof; agentchat: TestCollectionGuardReconcilesAttemptLedgerOnceAcrossRestart | Egress crash/restart and guard/receipt idempotence separately pass; native observation exact crash window combined test remains. |
+| R11 | VERIFY_PENDING | server: TestAgentCLP20ArchivedLegacyPackUnknownResumeAcrossUpgrade; TestAgentCLP20RealPackSchemaUpgradeAcrossRestart | Synthetic old schema/journal restart PASS; actual binary self-update unavailable. |
+| R12 | PASS | server: TestAgentCLP20LegacyCollectionFailurePreservesAcknowledgedPatches | Two ACKed historical PATCH, 8 successful COLLECT + schema rejection; timeout/400/Stop/progressive retry synthetic incident; exact receipt and ACK preservation. |
+| R13 | PASS | server: TestAgentCLP20ExplicitUnknownCollectionResumePreservesAuditAndAck; TestAgentCLP20ArchivedLegacyPackUnknownResumeAcrossUpgrade; TestAgentCLP20NativeTargeted150MiBSourceReceipt | New run explicit consent, old UNKNOWN audit, same conversation, exact receipt/no replay; unresolved mutation fenced. |
+| R14 | PASS | server: TestAgentCLP20MixedLegacyRestartMatrix/pending_patch; TestAgentRunNativePatchRoundTripExecutesOnceAcrossRestart; TestAgentRunRecoversAfterProcessKillWithoutReplayingSideEffects; TestOrphanedCollectionCancelRejectsUncertainWork | Pending/ambiguous native effects remain fenced; exact native PATCH roundtrip once across restart. |
+| R15 | PASS | server: TestAgentCLP20LegacyCollectionFailurePreservesAcknowledgedPatches/progressive_retry_stop; TestAgentCLP20FinalWirePreservesMandatoryReceipt; TestAgentCLP20CrossPipelineRetryMatrix | Synthetic growth and explicit structured context limit recovery, exact current receipt, both provider formats; not claimed as incident's actual payload bytes. |
+| R16 | PASS | server: TestAgentCLP20FinalWirePreservesMandatoryReceipt; TestAgentCLP20LocalContextCheckpointPreservesReceiptAcrossRestart; TestAgentCLP20NativeTargeted150MiBSourceReceipt | Hard local mandatory-item overflow surfaced; exact canonical receipt preserved, no silent discard or fabricated success. |
+| R17 | PASS | server: TestAgentCollectionUnlimitedRetriesTimeoutAndHTTP499WithoutDuplicateRead; TestAgentCLP20LegacySameDigestTimeoutsAndStop; TestAgentCLP20CrossPipelineRetryMatrix | Retry Off/Limited/Unlimited and Stop; identical bytes for transport, no extra native read. |
+| R18 | VERIFY_PENDING | agentchat: TestConfiguredAdapterCLP20BoundedRecovery; server: TestAgentCLP20CrossPipelineRetryMatrix | One bounded max-output recovery and refusal of unsafe retry verified; map explicit partial Patch/function JSON stream denial test before closure. |
+| R19 | PASS | agentchat: TestAdaptiveBudgetHintDurableScopedExpiryAndCorruption; TestAdaptiveBudgetHintCapacity; server: TestOwnerRunRetryResolvesPinnedConfigAndRejectsRotatedCredential; TestRunPromptUsesPinnedSnapshotAndExecutionWorkspacePack | Durable advisory hint scoped to provider config/model/credential/project; expiry/corruption and rotation fences. |
+| R20 | PASS | agentrun: TestGlobalConcurrencyNeverExceedsFiveAcrossManagers; TestAcquireRunFenceExcludesSecondOwner; TestWorkspaceRegistryCreatesDetachedWorktreeWithoutCommitOrSecretCopy; server: TestAgentCacheEpochConcurrentConversationsTwentyTurns; TestOwnerRunRetryResolvesPinnedConfigAndRejectsRotatedCredential | Concurrent/capacity/worktree and pinned provider isolation in automated fixtures; no live gateway claim. |
+| R21 | PASS | agentchat: TestCollectionGuardAcceptedStepProgressIsScopedAndIdempotent; server: TestAgentTaskPlanAPIRequiresNativeOrExplicitManualEvidence; TestAgentRunPatchAutoCheckRequiresCanonicalAcknowledgedReceipt | Provider completion not acceptance; exact verified or explicit attested step; separate counters. |
+| R22 | VERIFY_PENDING | server: TestAgentCLP20StallRequiresExactDuplicateAndLiveConsent; TestAgentRunContinuationConsentAndUnknownEgressFence; TestAgentStandaloneContinuationRequiresUserConsent; TestAgentRecoveredCollectionResumeRequiresGrantAndRunsOnce | Opt-out tested at multiple gates; race between consent revocation and PREPARED actual egress remains open. |
+| R23 | PASS | server: TestAgentCLP20NativeTargeted150MiBSourceReceipt | Actual native Python queue 157286400-byte source, 12558-byte receipt, source hash unchanged, restart/Resume no duplicate native read. |
+| R24 | VERIFY_PENDING | server: TestAgentCLP20SafeDebugReportGuardAndRedaction; TestAgentCLP20DebugReportAttemptAuditAfterClear; TestAgentCLP20DebugReportBoundedExportRetainsNewestDomains; web/agentchat_bootstrap_test.cjs | Core/Node report/status/clear/tab PASS; actual browser light/dark and self-update smoke remain. |
+| R25 | VERIFY_PENDING | server: TestAgentCLP20CrossPipelineRetryMatrix; TestAgentRunCollectionRepeatedShapeReadsChangedSource; TestAgentCLP20VerifiedStallPreservesReceiptAndBoundsReplan | 72-case retry parity PASS; full native guard/recovery/acceptance parity not established, Unified creation remains drain-only. |
+| R26 | PASS | server: TestAgentCollectionLegacyTextFallbackStaysStatelessAcrossRounds; TestAgentCLP20MandatoryReceiptAcrossContextRecovery; TestAgentCLP20LocalContextCheckpointPreservesReceiptAcrossRestart; TestAgentCLP20RealPackSchemaUpgradeAcrossRestart | Typed and text fallback exact current pair, current contract; orphan-safe stateless projection. |
+| R27 | VERIFY_PENDING | server: TestAgentCLP20StopDuringPreparedResumePreservesUnknown; TestAgentCLP20MixedLegacyRestartMatrix/cancelled; TestAgentStopCancelsDurablePreparedRunBeforeEgress; agentrun: TestStoppedWaitingToolCanContinueOnlyFromReconciledResult | No startup replay on cancelled and Stop wins late provider result; combined explicit owner restart→continue with fresh grant still open. |
+| R28 | VERIFY_PENDING | agentchat: TestCollectionGuardSessionCASAndRestart; TestCollectionGuardReconcilesAttemptLedgerOnceAcrossRestart; TestCounterCursorRejectsConflictAndDoesNotCountOldReplay; agentrun: TestAcquireRunFenceExcludesSecondOwner | Race tests and separate durable CAS/cursor proofs PASS; concurrent same logical native observation combined fixture pending. |
+
+CI commands confirmed in job 139809274180 and latest core run: `go test -race -count=1 ./internal/agentchat/...`, `go test -v -race -count=1 ./internal/agentrun/...`, `go test -v -count=1 ./internal/server -run '^TestAgentCLP20'`, `go test -count=1 ./internal/server -run '^TestAgent'`, `go test -v -race -count=1 ./internal/server -run '^(TestAgentRun|TestAgentConversation|TestAgentCoordination|TestAgentContext|TestAgentTask|TestAgentProvider)'`, `go test -race -count=1 ./internal/taskmanifest`, `go vet ./internal/agentchat/... ./internal/agentrun/... ./internal/taskmanifest`, `go vet ./internal/server`, `node web/terminalchatcontext_test.cjs`, `node web/agentchat_bootstrap_test.cjs`: successful CI step, exit 0. Subprocess helper tests TestAgentRunJournalHelperProcess, TestAgentRunRecoveryHelperProcess and TestAgentRunWaitingToolHelperProcess skip in top-level test runner by design; their parent process/recovery tests pass. Local checkout/gofmt/diff and production browser/upgrade remain unavailable; do not mark CLP-09.01.02/.03 fully DONE yet.
 
 ## 7. Thứ tự triển khai và kiểm thử
 
@@ -500,7 +538,7 @@ Kiểm tra cả các Python/native Patch Tool test hiện có nếu sửa contra
 | CLP-06 Budget/Retry | 4 | 3 | IN_PROGRESS |
 | CLP-07 Legacy recovery | 4 | 4 | DONE |
 | CLP-08 UI/Debug | 2 | 1 | IN_PROGRESS |
-| CLP-09 Validation | 3 | 0 | TODO |
+| CLP-09 Validation | 3 | 0 | IN_PROGRESS |
 | **Total** | **36** | **15** | **IN_PROGRESS** |
 
 ### 8.0. Roll-up ba cấp (cập nhật cùng checklist)
@@ -519,7 +557,7 @@ Kiểm tra cả các Python/native Patch Tool test hiện có nếu sửa contra
 | CLP-09 | 0/1 | 0/3 | 0/12 |
 | **Total** | **1/10** | **15/36** | **86/144** |
 
-Regression gates: **0/28 PASS**. Mỗi lần cập nhật, ghi ID subtask cụ thể, file/test/receipt, trạng thái; chỉ roll up sau khi xác minh. Commit từng subtask có thay đổi độc lập hoặc nhóm nhỏ coherent, không để toàn phase mới commit. Không tạo commit rỗng chỉ để tick.
+Regression gates: **16/28 PASS**. Mỗi lần cập nhật, ghi ID subtask cụ thể, file/test/receipt, trạng thái; chỉ roll up sau khi xác minh. Commit từng subtask có thay đổi độc lập hoặc nhóm nhỏ coherent, không để toàn phase mới commit. Không tạo commit rỗng chỉ để tick.
 
 ### 8.1. Nhật ký triển khai (append, không xóa lịch sử)
 
@@ -857,3 +895,5 @@ Incident: native run `1795598230725789_1225262`; historical diagnostics missing 
 - 2026-11-26: strengthen CLP-04.01.04 / R01 / R06 integration: prior 55-read test used one-line source (many empty pages). Now 55 distinct nonempty pages with exact current receipt verified once before normal pending PATCH approval, plus 100 distinct pages for read-only owner goal with no Patch proposal. Verify call/receipt cardinality and exact bytes across canonical active+archived history, actual guard read counters, unchanged source, no additional provider/native calls. Test-only collector seam (not production native Python); real native 150 MiB verified separately. CI pending; R01/R06 not yet marked PASS.
 
 - 2026-11-26: latest HEAD 7965a5ed core/Go/PHP CI 45799935359/45799935418/45799935450 PASS; native 157286400 bytes, receipt 12558 bytes, source unchanged and UNKNOWN restart/resume exactly once; Unified persisted report and enum tests PASS; 55/100 useful-page suite PASS. Mark CLP-07.04.03, 08.02.01/.04, 04.01.04 DONE and their parent tasks; synthetic recovery phase CLP-07 DONE; actual self-update/browser smoke still open in CLP-09/08.01. CLP-04.04 implementation adds bounded versioned structured advisory to trusted current instructions only on real policy advisory, counters and fixed next strategy, no source/goal/hash, no change to receipt or permission. Shared Legacy/Unified helper; implementation guidance suppressed if Patch unavailable, read-only remains read-only. 55/100 fixture now asserts exactly two implementation advisories at 5/10 reads and zero read-only implementation advice, exact receipt unchanged. Pure permission/intent/redaction test added. CI pending; CLP-04.04 remains VERIFY_PENDING. No production or real provider run.
+
+- 2026-11-26: CLP-09.01 mapping created for all 28 regression gates in §6.1; 16/28 PASS at 7965a5ed, remaining 12 VERIFY_PENDING with exact missing evidence. All three CI suites at baseline PASS; no production deployment or browser/self-update claimed. Checklist rollup remains 1/10 phase, 15/36 task, 86/144 subtask. New advisory commit e83728d3 pending CI.
