@@ -119,7 +119,7 @@ func (s *Server) agentReconcileOneStartupSession(ctx context.Context,store *agen
  if !ok{return} // live worker owns it or lock unavailable: fail closed
  defer release()
  sess,err:=store.Get(id,"local")
- if err!=nil||sess.Workspace!=s.Workspace{return}
+ if err!=nil||sess.Workspace!=s.Workspace||sess.Archived{return}
  if ctx.Err()!=nil{return}
 	changed := agentRecoverAcknowledgedCollection(&sess)
 	if !s.agentConversationRequiresRunContinuation("local",id) {
@@ -138,6 +138,12 @@ func (s *Server) agentReconcileOneStartupSession(ctx context.Context,store *agen
 		} else {
 			sess.Status="failed"
 			agentCloseInterruptedCollection(&sess)
+			// A crashed worker with an acknowledged response may have
+			// lost local processing, not provider delivery. In all
+			// interrupted cases discard opaque continuation references;
+			// future explicitly authorized turns must rebase.
+			sess.PreviousResponseID=""
+			sess.ConversationID=""
 			markAgentProviderOutcome(&sess,"unknown")
 			detail:="provider_egress_after_restart_unknown"
 			if sess.ProviderRun!=nil&&(sess.ProviderRun.Phase=="acknowledged"||sess.ProviderRun.Phase=="completed"){detail="acknowledged_response_local_processing_interrupted"}

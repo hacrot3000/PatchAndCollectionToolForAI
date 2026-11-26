@@ -45,18 +45,24 @@ func agentCloseInterruptedCollection(x *agentchat.Session)bool{
  var event *agentchat.SessionEvent
  for i:=len(x.Events)-1;i>=0;i--{
   e:=&x.Events[i]
-  if e.Kind=="collect_response_checkpoint"&&e.Detail==x.ProviderRun.ID{event=e;break}
+  if e.Kind=="collect_response_checkpoint"&&e.Detail==x.ProviderRun.ID{
+   if event!=nil{return false} // contradictory/duplicate marker: no invented output
+   event=e
+  }
  }
  if event==nil{return false}
  const diagnostic=`{"status":"FAILED","error":{"code":"COLLECTION_LOCAL_INTERRUPTED","message":"The acknowledged native Collection response was interrupted during local processing. No verified evidence is available for this call. Inspect native history before any potentially mutating operation; do not replay the old request.","retry_allowed":false}}`
  if event.CallID!=""{
-  found:=false
-  for _,it:=range x.History{
+  source:=-1
+  for i,it:=range x.History{
    if it.CallID!=event.CallID{continue}
    if it.Type=="function_call_output"{x.PreviousResponseID="";x.ConversationID="";return false}
-   if it.Type=="function_call"&&it.Name=="taskdeck_collect_workspace"{found=true}
+   if it.Type!="function_call"||it.Name!="taskdeck_collect_workspace"||it.OriginRunID!=""||source>=0{return false}
+   source=i
   }
-  if !found{return false}
+  // Only the exact terminal local Collection call may be closed. Older
+  // orphan calls or a later pending Patch must remain reviewable.
+  if source<0||source!=len(x.History)-1{return false}
   x.History=append(x.History,agentchat.HistoryItem{Type:"function_call_output",CallID:event.CallID,Content:diagnostic})
  }else{
   if len(x.History)==0||x.History[len(x.History)-1].Type!="assistant"{x.PreviousResponseID="";x.ConversationID="";return false}
