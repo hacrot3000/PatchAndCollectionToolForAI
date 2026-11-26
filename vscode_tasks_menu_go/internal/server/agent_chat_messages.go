@@ -107,9 +107,12 @@ func (s *Server) agentChatObservedCall(ctx context.Context, owner, action, sessi
 	if action=="provider_request"&&sessionID!=""&&len(attempts)==1&&attempts[0].runID!="" {
 		if store,e:=s.agentChatStore();e==nil{
 			if note,stats,e:=store.RecordCacheObservation(sessionID,owner,attempts[0].runID,attempts[0].attempt,p,key,payload,startedAt,result.InputTokens,result.CacheUsage,err==nil);e==nil{
-				recorder.RecordProviderDiagnostic(agentchat.DiagnosticEvent{Level:"info",Stage:"provider_cache",Event:"cache.prefix",SafeMessage:note})
-				recorder.RecordProviderDiagnostic(agentchat.DiagnosticEvent{Level:"info",Stage:"provider_cache",Event:"cache.session_stats",SafeMessage:stats})
+				recordAgentCacheObservationDiagnostics(recorder,note,stats)
+			}else{
+				recorder.RecordProviderDiagnostic(agentchat.DiagnosticEvent{Level:"warn",Stage:"provider_cache",Event:"cache.observation_unavailable",SafeMessage:"Cache observation unavailable; attempt identity, scope or private metadata validation failed. Provider result is unchanged."})
 			}
+		}else{
+			recorder.RecordProviderDiagnostic(agentchat.DiagnosticEvent{Level:"warn",Stage:"provider_cache",Event:"cache.observation_unavailable",SafeMessage:"Cache observation store unavailable. Provider result is unchanged."})
 		}
 	}
 	// Attach local metadata after the transport returns, including the exact

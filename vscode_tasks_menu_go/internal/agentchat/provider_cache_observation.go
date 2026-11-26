@@ -90,6 +90,9 @@ type cacheObservation struct{
  Successes uint64 `json:"successes"`
  Reported uint64 `json:"reported"`
  Misses uint64 `json:"misses"`
+ // Additive counters: old records have no samples for this metric.
+ NearZeroSamples uint64 `json:"near_zero_samples,omitempty"`
+ NearZeroHits uint64 `json:"near_zero_hits,omitempty"`
  ReadTokens uint64 `json:"read_tokens"`
  WriteTokens uint64 `json:"write_tokens"`
  WriteReported uint64 `json:"write_reported"`
@@ -131,7 +134,7 @@ func(s *Store)RecordCacheObservation(id,owner,runID string,attempt uint64,p Prov
    if !fi.Mode().IsRegular()||fi.Mode().Perm()&0077!=0||fi.Size()>maxCacheObservationBytes{return ErrInvalidSession}
    raw,e:=os.ReadFile(path);if e!=nil{return e}
    var old cacheObservation
-   if len(raw)<=maxCacheObservationBytes&&json.Unmarshal(raw,&old)==nil&&old.Version==2&&old.Binding==binding&&old.Scope==scope&&validCacheObservationSnapshots(old,at)&&old.Attempts<1000000000&&old.Successes<=old.Attempts&&old.Reported<=old.Successes&&old.WriteReported<=old.Successes&&len(old.TokenSamples)<=maxCacheTokenSamples&&old.Misses<=old.Reported&&old.ComparableRead<=old.ComparableInput&&old.ComparableInput<=1000000000000000000&&old.ReadTokens<=1000000000000000000&&old.WriteTokens<=1000000000000000000&&!old.At.After(at){cur=old}
+   if len(raw)<=maxCacheObservationBytes&&json.Unmarshal(raw,&old)==nil&&old.Version==2&&old.Binding==binding&&old.Scope==scope&&validCacheObservationSnapshots(old,at)&&old.Attempts<1000000000&&old.Successes<=old.Attempts&&old.Reported<=old.Successes&&old.WriteReported<=old.Successes&&len(old.TokenSamples)<=maxCacheTokenSamples&&old.Misses<=old.Reported&&old.NearZeroHits<=old.NearZeroSamples&&old.NearZeroSamples<=old.Reported&&old.ComparableRead<=old.ComparableInput&&old.ComparableInput<=1000000000000000000&&old.ReadTokens<=1000000000000000000&&old.WriteTokens<=1000000000000000000&&!old.At.After(at){cur=old}
   }else if !os.IsNotExist(e){return e}
   if cur.LastRunID==audit.RunID&&cur.LastAttempt>=last.Attempt{return ErrStaleRevision}
   cur.LastRunID=audit.RunID;cur.LastAttempt=last.Attempt
@@ -154,7 +157,11 @@ func(s *Store)RecordCacheObservation(id,owner,runID string,attempt uint64,p Prov
    cur.LastSuccessAt=&successAt;cur.LastSuccessPrefix=&successPrefix
    if validReportedTokenCount(usage.ReadTokens){
     cur.Reported++;cur.ReadTokens+=uint64(*usage.ReadTokens);if *usage.ReadTokens==0{cur.Misses++}
-    if usage.ComparableTotal&&input>0&&input<=1000000000&&*usage.ReadTokens<=input{cur.ComparableRead+=uint64(*usage.ReadTokens);cur.ComparableInput+=uint64(input)}
+    if usage.ComparableTotal&&input>0&&input<=1000000000&&*usage.ReadTokens<=input{
+     cur.ComparableRead+=uint64(*usage.ReadTokens);cur.ComparableInput+=uint64(input)
+     cur.NearZeroSamples++
+     if int64(*usage.ReadTokens)*100<int64(input){cur.NearZeroHits++}
+    }
    }
    if validReportedTokenCount(usage.WriteTokens){cur.WriteReported++;cur.WriteTokens+=uint64(*usage.WriteTokens)}
   }
@@ -162,7 +169,10 @@ func(s *Store)RecordCacheObservation(id,owner,runID string,attempt uint64,p Prov
   ratio:="unreported";if input>0&&input<=1000000000&&success&&!snapshot.Stateful{ratio=fmt.Sprintf("%.2f",float64(measurement.WireBytes)/float64(input))}
   detail=fmt.Sprintf("reason=%s; instructions_digest=%s; tools_digest=%s; common_prefix_segment_bytes=%d; common_input_items=%d; previous_attempt_gap=%s; provider_input_tokens=%d; measured_wire_bytes_per_input_token=%s",reason,snapshot.Instructions.Digest,snapshot.Tools.Digest,bytes,n,gap,input,ratio)
   writeTotal:="unreported";if cur.WriteReported>0{writeTotal=fmt.Sprint(cur.WriteTokens)}
-  stats=fmt.Sprintf("scope attempts=%d; success=%d; read_reported=%d; zero_read=%d; reported_cache_read_total=%d; write_reported=%d; reported_cache_write_total=%s; comparable_weighted_hit=%s",cur.Attempts,cur.Successes,cur.Reported,cur.Misses,cur.ReadTokens,cur.WriteReported,writeTotal,hit)
+  readTotal:="unreported";if cur.Reported>0{readTotal=fmt.Sprint(cur.ReadTokens)}
+  stats=fmt.Sprintf("scope attempts=%d; success=%d; read_reported=%d; zero_read=%d; reported_cache_read_total=%s; write_reported=%d; reported_cache_write_total=%s; comparable_weighted_hit=%s",cur.Attempts,cur.Successes,cur.Reported,cur.Misses,readTotal,cur.WriteReported,writeTotal,hit)
+  nearZeroRate:="unreported";if cur.NearZeroSamples>0{nearZeroRate=fmt.Sprintf("%.1f%%",100*float64(cur.NearZeroHits)/float64(cur.NearZeroSamples))}
+  stats+=fmt.Sprintf("; near_zero_samples=%d; near_zero_hits=%d; near_zero_rate=%s",cur.NearZeroSamples,cur.NearZeroHits,nearZeroRate)
   detail+=fmt.Sprintf("; last_success_reason=%s; last_success_gap=%s; last_success_common_segment_bytes=%d; last_success_common_items=%d; last_success_common_instruction_block_bytes=%d; token_samples=%d",successComparison,successGap,successBytes,successItems,successInstructionBytes,len(cur.TokenSamples))
   if estimate,ok:=learnedCacheEstimate(cur.TokenSamples,measurement.WireBytes,at);ok{detail+=fmt.Sprintf("; learned_input_estimate=%d",estimate)}
   data,e:=json.Marshal(cur);if e!=nil{return e};if len(data)>maxCacheObservationBytes{return ErrInvalidSession}
