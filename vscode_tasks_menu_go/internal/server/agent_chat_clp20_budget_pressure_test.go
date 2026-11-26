@@ -24,8 +24,8 @@ func TestAgentCLP20CollectionBudgetPressureKeepsCurrentReceipt(t *testing.T){
    if err!=nil{t.Fatal(err)}
    var wire struct{Instructions string;Input []map[string]string}
    if err=json.Unmarshal(body,&wire);err!=nil{t.Fatal(err)}
-   if strings.Contains(wire.Instructions,"CONTEXT PRESSURE")!=high{t.Fatalf("unexpected advisory for %s high=%v",api,high)}
-   if high&&(!strings.Contains(wire.Instructions,"do not invent a Patch")||!strings.Contains(wire.Instructions,"exact missing path")){t.Fatal("missing bounded read-only advice")}
+   if !strings.Contains(wire.Instructions,"CONTEXT PRESSURE GUIDANCE"){t.Fatalf("missing stable advisory for %s high=%v",api,high)}
+   if (!strings.Contains(wire.Instructions,"do not invent a Patch")||!strings.Contains(wire.Instructions,"exact missing path")){t.Fatal("missing bounded read-only advice")}
    count:=0
    for _,item:=range wire.Input{
     if item["type"]=="function_call_output"&&item["call_id"]==call.CallID{

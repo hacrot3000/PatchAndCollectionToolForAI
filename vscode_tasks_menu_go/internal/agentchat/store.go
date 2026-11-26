@@ -915,6 +915,7 @@ func (s *Store) Delete(id, owner string, expectedRevision uint64) error {
         // Attempt IDs contain only metadata, but leaving an orphan owner
         // support ledger after explicit session deletion is still incorrect.
         if err:=os.Remove(s.providerAttemptsPath(id));err!=nil&&!os.IsNotExist(err){return err}
+        if err:=os.Remove(s.cacheEpochPath(id));err!=nil&&!os.IsNotExist(err){return err}
 		if err:=os.Remove(s.providerHeartbeatFile(id));err!=nil&&!os.IsNotExist(err){return err}
   for _,ref:=range x.TaskPlanSegments{
    if err:=os.Remove(s.taskPlanSegmentPath(id,ref));err!=nil&&!os.IsNotExist(err){return err}

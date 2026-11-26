@@ -26,6 +26,7 @@ const (
 
 type Policy struct {
  MaxInputTokens int
+ TargetInputPercent int // optional lower target; never raises the safe ceiling
  CollectionPercent int
  Minimal bool // omit optional full observations and narration on technical overflow
  Instructions string
@@ -311,7 +312,9 @@ func groups(history []agentchat.HistoryItem,synthetic map[string]bool,next []age
 func Build(history []agentchat.HistoryItem,p Policy)([]agentchat.HistoryItem,Stats){
  if p.MaxInputTokens<=0 {p.MaxInputTokens=DefaultInputTokens}
  if p.CollectionPercent<=0||p.CollectionPercent>50{p.CollectionPercent=DefaultCollectionPercent}
- ceiling:=p.MaxInputTokens*SafeInputPercent/100
+ percent:=SafeInputPercent
+ if p.TargetInputPercent>=50&&p.TargetInputPercent<percent{percent=p.TargetInputPercent}
+ ceiling:=p.MaxInputTokens*percent/100
  nextTokens:=groupTokens(p.Next)
  overhead:=Tokens(p.Instructions)+nextTokens
  budget:=ceiling-overhead

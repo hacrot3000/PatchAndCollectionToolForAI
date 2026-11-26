@@ -104,6 +104,11 @@ func agentContextForRequest(x agentchat.Session, model agentchat.ModelConfig, in
  return agentContextForRequestWithPolicy(x,model,instructions,next,false)
 }
 func agentContextForRequestWithPolicy(x agentchat.Session, model agentchat.ModelConfig,instructions string,next []agentchat.HistoryItem,minimal bool)[]agentchat.HistoryItem{
+ policy:=agentContextPolicy(x,model,instructions,next,minimal)
+ visible,_:=contextcompact.Build(x.History,policy)
+ return visible
+}
+func agentContextPolicy(x agentchat.Session,model agentchat.ModelConfig,instructions string,next []agentchat.HistoryItem,minimal bool)contextcompact.Policy{
  policy:=contextcompact.Policy{
   MaxInputTokens:model.MaxInputTokens,CollectionPercent:30,Minimal:minimal,
   Instructions:instructions,Next:next,
@@ -112,8 +117,7 @@ func agentContextForRequestWithPolicy(x agentchat.Session, model agentchat.Model
   SyntheticPatchIDs:map[string]bool{},
  }
  for _,call:=range x.ToolCalls{if call.TextFallback{policy.SyntheticPatchIDs[call.CallID]=true}}
- visible,_:=contextcompact.Build(x.History,policy)
- return visible
+ return policy
 }
 
 // Legacy internal entry point retained for tests and callers that do not yet
