@@ -49,3 +49,27 @@ func TestCacheEpochDoesNotReplayHistoricalPatchOrOrphan(t *testing.T){
  h[len(h)-1].Name="taskdeck_collect_workspace";p.Next=[]agentchat.HistoryItem{{Type:"user",Content:"new"}}
  if _,_,ok:=ReuseCacheEpoch(h,p,scope,e);ok{t.Fatal("orphan reused")}
 }
+
+
+func TestCacheEpochArchiveAndMultiplePendingReceiptsRebuild(t *testing.T){
+ goal:=agentchat.HistoryItem{Type:"user",Content:"Original task"}
+ scope:=agentchat.BodyDigest([]byte("archive-scope"))
+ p:=Policy{MaxInputTokens:65536,Instructions:"trusted",Next:[]agentchat.HistoryItem{{Type:"user",Content:"continue"}}}
+ history:=[]agentchat.HistoryItem{goal}
+ visible,_:=Build(history,p)
+ old:=NewCacheEpoch(history,visible,p,scope,"");if old==nil{t.Fatal("missing initial checkpoint")}
+ // Canonical source prefix no longer matches after archive projection.
+ p.ArchivedItems=2;p.ArchivedParts=1
+ if _,_,ok:=ReuseCacheEpoch([]agentchat.HistoryItem{goal},p,scope,old);ok{t.Fatal("shortened source accepted")}
+ history=append(history,p.Next...)
+ a:=agentchat.HistoryItem{Type:"function_call",Name:"taskdeck_collect_workspace",CallID:"c1",Arguments:"{}"}
+ b:=agentchat.HistoryItem{Type:"function_call",Name:"taskdeck_collect_workspace",CallID:"c2",Arguments:"{}"}
+ history=append(history,a,b)
+ p.Next=[]agentchat.HistoryItem{{Type:"function_call_output",CallID:"c1",Content:"exact first receipt"},{Type:"function_call_output",CallID:"c2",Content:"exact second receipt"}}
+ if _,_,ok:=ReuseCacheEpoch(history,p,scope,old);ok{t.Fatal("nonadjacent current call pairs accepted by append-only path")}
+ projected,_:=Build(history,p)
+ body,err:=agentchat.BuildResponsesRequest(agentchat.RequestConfig{Model:"m",Mode:agentchat.Stateless,Instructions:p.Instructions,History:projected,Next:p.Next})
+ if err!=nil||strings.Count(string(body),"exact first receipt")!=1||strings.Count(string(body),"exact second receipt")!=1{t.Fatalf("rebuild lost mandatory receipts: %v",err)}
+ // Archived evidence catalog is inserted before the first pending call.
+ if len(projected)<3||projected[len(projected)-2]!=a||projected[len(projected)-1]!=b{t.Fatalf("pending calls split by catalog: %+v",projected)}
+}

@@ -2,6 +2,7 @@ package server
 
 import (
  "encoding/json"
+ "path/filepath"
  "strings"
  "testing"
 
@@ -58,4 +59,22 @@ func TestAgentCacheEpochOptionalAdviceCannotBlockMandatoryRequest(t *testing.T){
  c.Instructions=strings.Repeat("x",(1<<20)-len(wire.Instructions)+1)
  got,_,reason,err:=agentBuildContextEpoch(agentchat.Session{},agentchat.ModelConfig{MaxInputTokens:4000000},agentchat.ProviderConfig{APIType:"responses"},c,nil,false)
  if err!=nil||!strings.Contains(reason,"optional_advice_omitted")||!strings.Contains(string(got),"mandatory owner instruction"){t.Fatalf("optional guidance prevented valid request: %s %v",reason,err)}
+}
+
+
+func TestAgentCacheEpochStatefulBoundaryResetsDerivedCheckpoint(t *testing.T){
+ store,err:=agentchat.NewStore(filepath.Join(t.TempDir(),"private"));if err!=nil{t.Fatal(err)}
+ x,err:=agentchat.NewSession("local","/project","project-id","gateway","m",agentchat.Stateless);if err!=nil{t.Fatal(err)}
+ x.History=[]agentchat.HistoryItem{{Type:"user",Content:"goal"}}
+ x,err=store.Save(x,0);if err!=nil{t.Fatal(err)}
+ s:=&Server{Workspace:x.Workspace}
+ p:=agentchat.ProviderConfig{APIType:"responses",ID:"gateway"}
+ model:=agentchat.ModelConfig{MaxInputTokens:65536}
+ c:=agentchat.RequestConfig{Model:"m",Instructions:"trusted policy",Mode:agentchat.Stateless,Next:[]agentchat.HistoryItem{{Type:"user",Content:"continue"}}}
+ if _,err=s.agentBuildCachedContextRequest(store,x,model,p,"credential",c);err!=nil{t.Fatal(err)}
+ if old,e:=store.ReadCacheEpoch(x.ID,x.Owner,x.Revision);e!=nil||old==nil{t.Fatalf("expected stateless checkpoint: %v",e)}
+ c.Mode=agentchat.PreviousResponse;c.PreviousResponseID="resp_1"
+ if _,err=s.agentBuildCachedContextRequest(store,x,model,p,"credential",c);err!=nil{t.Fatal(err)}
+ if old,e:=store.ReadCacheEpoch(x.ID,x.Owner,x.Revision);e!=nil||old!=nil{t.Fatalf("stateful boundary retained stateless checkpoint: %v",e)}
+ fresh,err:=store.Get(x.ID,x.Owner);if err!=nil||fresh.Revision!=x.Revision||len(fresh.History)!=1||fresh.History[0].Content!="goal"{t.Fatal("derived checkpoint change mutated session")}
 }
