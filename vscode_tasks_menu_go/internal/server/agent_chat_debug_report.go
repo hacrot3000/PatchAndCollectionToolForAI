@@ -67,6 +67,8 @@ func (s *Server) agentChatDebugReportAPI(w http.ResponseWriter, r *http.Request)
   if listErr!=nil{
    report["journal_error"]="Unable to read the scoped Agent session journal"
   }else{
+   unifiedRuns,runErr:=s.agentDebugUnifiedRuns(owner,sessions,marker.At)
+   if runErr!=nil{report["unified_run_error"]="Unable to read scoped Unified run metadata"}
    visible:=make([]agentchat.Session,0,len(sessions))
    // Attempt sidecars advance independently from the session CAS. A live
    // retry after Clear must be visible even without a new journal event.
@@ -74,14 +76,20 @@ func (s *Server) agentChatDebugReportAPI(w http.ResponseWriter, r *http.Request)
    activity:=map[string]time.Time{}
    for _,sess:=range sessions {
     activity[sess.ID]=sess.UpdatedAt
+    runs:=unifiedRuns[sess.ID]
+    if len(runs)>0&&runs[0].UpdatedAt.After(activity[sess.ID]){activity[sess.ID]=runs[0].UpdatedAt}
     if !marker.At.IsZero() && !sess.UpdatedAt.After(marker.At){
-     if sess.ProviderRun==nil||sess.ProviderRun.Phase!="sending"{continue}
-     audit,e:=journal.ProviderAttempts(sess.ID,owner)
-     if e!=nil||audit==nil||audit.RunID!=sess.ProviderRun.ID||len(audit.Attempts)==0{continue}
-     last:=audit.Attempts[len(audit.Attempts)-1].RecordedAt
-     if !last.After(marker.At){continue}
-     freshAttempts[sess.ID]=audit
-     activity[sess.ID]=last
+     if sess.ProviderRun!=nil&&sess.ProviderRun.Phase=="sending"{
+      audit,e:=journal.ProviderAttempts(sess.ID,owner)
+      if e==nil&&audit!=nil&&audit.RunID==sess.ProviderRun.ID&&len(audit.Attempts)>0{
+       last:=audit.Attempts[len(audit.Attempts)-1].RecordedAt
+       if last.After(marker.At){
+        freshAttempts[sess.ID]=audit
+        if last.After(activity[sess.ID]){activity[sess.ID]=last}
+       }
+      }
+     }
+     if !activity[sess.ID].After(marker.At){continue}
     }
     visible=append(visible,sess)
    }
@@ -184,6 +192,7 @@ func (s *Server) agentChatDebugReportAPI(w http.ResponseWriter, r *http.Request)
      "last_request_digest":sess.LastRequestSHA,
      "event_seq":sess.EventSeq,"events":agentSafeDebugJournalEvents(sess.Events),
      "collection_progress":progress,"provider_run":providerRun,"provider_attempts":attempts,
+     "unified_runs":unifiedRuns[sess.ID],
      "history_items":hist,"history_item_count":len(sess.History),
      "tool_calls":calls,"auto_feedback_diagnostic":feedbackDiagnostic,
      "continuation_diagnostic":continuationDiagnostic,

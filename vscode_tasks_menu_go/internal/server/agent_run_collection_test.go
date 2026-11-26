@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+ "net/http/httptest"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -206,4 +207,10 @@ func TestAgentRunCollectionRepeatedShapeReadsChangedSource(t *testing.T){
  if _,ok:=readRunCollectionProgress("foreign",rec.Spec,inputs);ok{t.Fatal("cross-owner progress accepted")}
  foreign:=rec.Spec;foreign.ExecutionWorkspaceID="foreign-worktree"
  if _,ok:=readRunCollectionProgress("local",foreign,inputs);ok{t.Fatal("cross-worktree progress accepted")}
+ // Read-only diagnostic report sees the actual committed snapshot, not the
+ // in-flight tool result or private request/receipt bytes.
+ w:=httptest.NewRecorder()
+ s.agentChatDebugReportAPI(w,httptest.NewRequest("GET","/api/agent/debug/report",nil))
+ if w.Code!=200||!strings.Contains(w.Body.String(),`"verified_duplicate": 2`)||!strings.Contains(w.Body.String(),`"verified_new": 2`)||!strings.Contains(w.Body.String(),spec.RunID)||strings.Contains(w.Body.String(),"read-marker-"){t.Fatalf("Unified debug projection not safe or incomplete: %d %s",w.Code,w.Body)}
 }
+
