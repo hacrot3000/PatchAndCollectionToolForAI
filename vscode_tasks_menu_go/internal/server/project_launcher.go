@@ -126,7 +126,7 @@ func launcherDisplayName(workspace string)(string,error){
  }
  title=strings.TrimSpace(strings.TrimPrefix(title,"TaskDeck - "))
  if title==""{return "TaskDeck - "+launcherProjectName(workspace),nil}
- return strings.Map(func(r rune)rune{if r<32||r==127{return ' '};return r},title),nil
+ return "TaskDeck - "+strings.Map(func(r rune)rune{if r<32||r==127{return ' '};return r},title),nil
 }
 
 func launcherDesktopContents(workspace,executable,iconPath,displayName string) string {

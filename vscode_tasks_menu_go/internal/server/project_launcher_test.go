@@ -214,17 +214,17 @@ func TestProjectLauncherUsesEditTitleAndUpdatesExistingShortcut(t *testing.T){
   path,err:=installProjectLauncher(home,workspace,"/usr/local/bin/taskdeck",platform)
   if err!=nil{t.Fatal(err)}
   entry:=path
-  expected:="\nName=HT server\n"
+  expected:="\nName=TaskDeck - HT server\n"
   if platform=="darwin"{
    entry=filepath.Join(path,"Contents","Info.plist")
-   expected="<key>CFBundleDisplayName</key><string>HT server</string>"
+   expected="<key>CFBundleDisplayName</key><string>TaskDeck - HT server</string>"
   }
   if !strings.Contains(string(mustReadLauncher(t,entry)),expected){t.Fatalf("%s: custom title not applied",platform)}
   if err:=config.SetPageTitle(workspace,"HT server & QA");err!=nil{t.Fatal(err)}
   again,err:=installProjectLauncher(home,workspace,"/usr/local/bin/taskdeck",platform)
   if err!=nil||again!=path{t.Fatalf("%s: rename duplicated launcher: %s %v",platform,again,err)}
-  expected="\nName=HT server & QA\n"
-  if platform=="darwin"{expected="<key>CFBundleDisplayName</key><string>HT server &amp; QA</string>"}
+  expected="\nName=TaskDeck - HT server & QA\n"
+  if platform=="darwin"{expected="<key>CFBundleDisplayName</key><string>TaskDeck - HT server &amp; QA</string>"}
   if !strings.Contains(string(mustReadLauncher(t,entry)),expected){t.Fatalf("%s: updated title missing",platform)}
   if err:=config.SetPageTitle(workspace,"");err!=nil{t.Fatal(err)}
   again,err=installProjectLauncher(home,workspace,"/usr/local/bin/taskdeck",platform)
@@ -232,4 +232,12 @@ func TestProjectLauncherUsesEditTitleAndUpdatesExistingShortcut(t *testing.T){
   if !strings.Contains(string(mustReadLauncher(t,entry)),"TaskDeck - server-patching"){t.Fatalf("%s: blank title did not restore default",platform)}
   if err:=config.SetPageTitle(workspace,"HT server");err!=nil{t.Fatal(err)}
  }
+}
+
+func TestProjectLauncherDoesNotDuplicateTitlePrefix(t *testing.T){
+ workspace:=t.TempDir()
+ if err:=os.MkdirAll(filepath.Join(workspace,".vscode"),0755);err!=nil{t.Fatal(err)}
+ if err:=config.SetPageTitle(workspace,"TaskDeck - HT server");err!=nil{t.Fatal(err)}
+ name,err:=launcherDisplayName(workspace)
+ if err!=nil||name!="TaskDeck - HT server"{t.Fatalf("display name=%q err=%v",name,err)}
 }
