@@ -322,6 +322,11 @@ func (s *Server) agentChatAuthorizedMessage(w http.ResponseWriter, r *http.Reque
 		http.Error(w, "stale session revision", 409)
 		return
 	}
+	if digest, ok := r.Context().Value(standaloneContinuationContextKey{}).(string); ok {
+		if s.Config.SharedServerEnabled || owner!="local" || !agentchat.StandaloneAutoContinueCandidate(session) || session.Continuation.ResponseDigest!=digest {
+			http.Error(w,"automatic continuation no longer authorized or eligible",409);return
+		}
+	}
 	runRecords, err := s.completedAgentRuns(owner, id)
 	if err != nil {
 		http.Error(w, "Agent Run history unavailable; cannot build conversation context", http.StatusServiceUnavailable)

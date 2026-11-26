@@ -1181,6 +1181,32 @@ function syncAgentThinkingToggles(container=transcript){
   node.agentSyncThinkingVisibility?.();
  }
 }
+// Clipboard projection only: preserve rendered code blocks, individual
+// Copy controls and canonical provider history.
+function agentCopyAnswer(raw){
+ const answer=agentThinkingParts(raw).answer;
+ const lines=answer.match(/[^\r\n]*(?:\r\n|\r|\n|$)/g)||[];
+ const keep=[];
+ let fence=null,removed=false;
+ for(const line of lines){
+  const plain=line.replace(/[\r\n]+$/,'');
+  if(fence){
+   const end=new RegExp('^[ \\t]{0,3}'+fence.char+'{'+fence.width+',}[ \\t]*$');
+   if(!fence.progress)keep.push(line);
+   if(end.test(plain))fence=null;
+   continue;
+  }
+  const m=/^[ \t]{0,3}(\x60{3,}|~{3,})[ \t]*([A-Za-z0-9_+#.-]{0,32})(?:[ \t]+(.*))?$/.exec(plain);
+  if(!m){keep.push(line);continue;}
+  const progress=m[2].toLowerCase()==='taskdeck-progress';
+  const tail=m[3]||'',at=tail.lastIndexOf(m[1]);
+  const inline=at>=0&&tail.slice(at+m[1].length).trim()==='';
+  if(progress)removed=true;else keep.push(line);
+  if(!inline)fence={char:m[1][0],width:m[1].length,progress};
+ }
+ const result=keep.join('');
+ return removed?result.trimEnd():result;
+}
 function agentMessageBubble(role,source){
  const raw=String(source??'');
  const split=role==='assistant'?agentThinkingParts(raw):{thinking:null,answer:raw};
@@ -1207,7 +1233,7 @@ function agentMessageBubble(role,source){
   toggle.setAttribute('aria-label','Expand or collapse sent message');
   actions.append(toggle);
  }
- // Copy the canonical source (including Markdown and text beyond line five),
+ // Copy the original Markdown answer, excluding thinking and taskdeck-progress,
  // never the clipped DOM and never a hidden attachment envelope.
  const copyLabel=role==='user'?'Copy sent message':'Copy entire AI response';
  const copy=agentButton('Copy',async()=>{
@@ -1217,7 +1243,7 @@ function agentMessageBubble(role,source){
    return;
   }
   try{
-   await clipboard.writeText(raw);
+   await clipboard.writeText(role==='assistant'?agentCopyAnswer(raw):raw);
    copy.textContent='Copied';
    copy.setAttribute('aria-label',role==='user'?'Sent message copied':'AI response copied');
    setTimeout(()=>{

@@ -204,15 +204,32 @@ func RecordTurnDisposition(x *Session,text string){
  x.Continuation=next
 }
 
+// UnknownCollectionProgressRecheck permits a fresh status-only question
+// after an exact, completed native COLLECT round, not a replay.
+// A new ordinary message changes ProviderRun.Kind, so an UNKNOWN response
+// to the status check cannot itself schedule another status check.
+func UnknownCollectionProgressRecheck(x Session)bool{
+ c:=x.Continuation
+ r:=x.ProviderRun
+ if c==nil||c.Disposition!=TurnUnknown||c.Reason!="unknown_model_turn"||
+  r==nil||r.Kind!="collection"||r.Phase!="completed"||r.CallID==""||
+  len(x.History)<3{return false}
+ n:=len(x.History)
+ last,output,call:=x.History[n-1],x.History[n-2],x.History[n-3]
+ return last.Type=="assistant"&&last.OriginRunID==""&&turnHash(last.Content)==c.ResponseDigest&&
+  output.Type=="function_call_output"&&output.CallID==r.CallID&&output.Content!=""&&
+  call.Type=="function_call"&&call.Name=="taskdeck_collect_workspace"&&call.CallID==r.CallID
+}
+
 func StandaloneAutoContinueCandidate(x Session)bool{
  c:=x.Continuation
  if !x.AutoContinueText||x.TaskPlan!=nil||x.Owner!="local"||x.Archived||
   x.Status!="completed"||c==nil||c.NoProgressTurns>=MaxContinuationNoWorkTurns||
-  (c.Disposition!=TurnNeedsContinuation&&c.Disposition!=TurnInProgress)||
-  HasUnresolvedWork(x){return false}
+  (c.Disposition!=TurnNeedsContinuation&&c.Disposition!=TurnInProgress&&!UnknownCollectionProgressRecheck(x))||
+  x.PendingUserTurn!=nil||HasUnresolvedWork(x){return false}
  if c.NextRetryAt!=nil&&time.Now().UTC().Before(*c.NextRetryAt){return false}
  if x.ProviderRun!=nil{
-  switch x.ProviderRun.Phase{case "prepared","sending","unknown":return false}
+  switch x.ProviderRun.Phase{case "prepared","sending","unknown","blocked":return false}
  }
  for _,call:=range x.ToolCalls{
   if (call.Status=="done"||call.Status=="error"||call.Status=="rejected")&&

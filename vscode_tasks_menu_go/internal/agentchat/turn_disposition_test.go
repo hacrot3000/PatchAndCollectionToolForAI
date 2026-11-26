@@ -126,3 +126,32 @@ func TestTurnDispositionClippedMilestoneActionUTF8Bound(t *testing.T){
  c:=AnalyzeTurnText("Tiếp tục P1.1.2.3: "+strings.Repeat("kiểm ",200))
  if c.Disposition!=TurnNeedsContinuation||!ValidTurnContinuation(c)||len(c.NextAction)>500{t.Fatalf("invalid bounded announcement: %+v",c)}
 }
+
+func TestUnknownCollectionProgressRecheckBounded(t *testing.T){
+ text:="The log shows the following transactions."
+ x:=Session{Owner:"local",Status:"completed",AutoContinueText:true,
+  ProviderRun:&ProviderRun{Kind:"collection",Phase:"completed",CallID:"read"},
+  History:[]HistoryItem{{Type:"user",Content:"Audit all records"},
+   {Type:"function_call",Name:"taskdeck_collect_workspace",CallID:"read",Arguments:"{}"},
+   {Type:"function_call_output",CallID:"read",Content:"{}"},
+   {Type:"assistant",Content:text}}}
+ RecordTurnDisposition(&x,text)
+ if !UnknownCollectionProgressRecheck(x)||!StandaloneAutoContinueCandidate(x){t.Fatal("confirmed collection UNKNOWN must get status check")}
+ x.AutoContinueText=false
+ if StandaloneAutoContinueCandidate(x){t.Fatal("opt-out bypassed")}
+ x.AutoContinueText=true
+ x.ProviderRun.Phase="unknown"
+ if StandaloneAutoContinueCandidate(x){t.Fatal("ambiguous provider replay")}
+ x.ProviderRun.Phase="completed"
+ x.ProviderRun.Kind="message"
+ if StandaloneAutoContinueCandidate(x){t.Fatal("UNKNOWN status check loop")}
+ x.ProviderRun.Kind="collection"
+ x.History[2].CallID="other"
+ if StandaloneAutoContinueCandidate(x){t.Fatal("mismatched receipt")}
+ x.History[2].CallID="read"
+ x.Continuation.NoProgressTurns=MaxContinuationNoWorkTurns
+ if StandaloneAutoContinueCandidate(x){t.Fatal("no-progress brake bypassed")}
+ x.Continuation.NoProgressTurns=0
+ RecordTurnDisposition(&x,"Task complete: all work done.")
+ if StandaloneAutoContinueCandidate(x){t.Fatal("completed task should not recheck")}
+}

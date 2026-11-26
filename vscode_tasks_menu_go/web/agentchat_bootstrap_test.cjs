@@ -354,7 +354,26 @@ assert.ok(replyCopy,'every AI answer needs a Copy button for the entire reply');
 replyCopy.onclick();
 assert.equal(copiedMessages.at(-1),completeReply,
  'reply Copy must include the whole original Markdown and all fenced code, not only rendered text');
-console.log('PASS: outgoing five-line fold/toggle, full AI replies, entire-message Copy and hidden attachment boundary');
+const progressJSON='{"status":"IN_PROGRESS","next_action":"Read more"}';
+const progressFence='\x60\x60\x60taskdeck-progress\n'+progressJSON+'\n\x60\x60\x60';
+const rawWithProgress='<think>Visible thinking</think>\n'+completeReply+'\n\n'+progressFence;
+const progressRow=vm.runInNewContext("agentMessageBubble('assistant',"+JSON.stringify(rawWithProgress)+")",context);
+copyControl(progressRow).onclick();
+assert.equal(copiedMessages.at(-1),completeReply,'Main Copy excludes thinking and progress, preserves Markdown/code');
+const progressBlock=find(progressRow,n=>n.className==='agentchat-code-block'&&nodeText(n).includes(progressJSON));
+assert.ok(progressBlock,'Progress block remains visible');
+const progressCopy=find(progressBlock,n=>n.className==='agentchat-code-copy');
+assert.ok(progressCopy,'Progress retains independent Copy');
+progressCopy.onclick();
+assert.equal(copiedMessages.at(-1),progressJSON);
+const nestedProgress='\x60\x60\x60\x60markdown\n'+progressFence+'\n\x60\x60\x60\x60';
+assert.equal(vm.runInNewContext('agentCopyAnswer('+JSON.stringify(nestedProgress)+')',context),nestedProgress,'Preserve examples inside a larger ordinary code fence');
+assert.equal(vm.runInNewContext('agentCopyAnswer('+JSON.stringify('Answer\r\n\r\n~~~taskdeck-progress\r\n'+progressJSON+'\r\n~~~')+')',context),'Answer');
+assert.equal(vm.runInNewContext("agentCopyAnswer('<think>unfinished')",context),'');
+const userProgress=vm.runInNewContext("agentMessageBubble('user',"+JSON.stringify(rawWithProgress)+")",context);
+copyControl(userProgress).onclick();
+assert.equal(copiedMessages.at(-1),rawWithProgress,'User Copy must not strip literal input');
+console.log('PASS: outgoing five-line fold/toggle, full AI replies, filtered main Copy and independent metadata Copy');
 
 const sessionsButton = find(windowBox, node => node.textContent === 'History ▾');
 const sessionsList = find(windowBox, node => node.id === 'agentchat-saved-sessions');

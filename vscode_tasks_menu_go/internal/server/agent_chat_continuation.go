@@ -40,7 +40,10 @@ func (s *Server) autoContinueConversationOne(ctx context.Context,store *agentcha
    "Never claim success without independent proof; never bypass native "+
    "Patch approval or reissue an ambiguous tool request.",
    c.Disposition,action)
- if c.NoProgressTurns>=2{
+ if agentchat.UnknownCollectionProgressRecheck(original){
+  message="TaskDeck user-authorized task status check for the ORIGINAL conversation. The last native COLLECT result has already been delivered and the provider reply did not establish task completion or a next action. Do not repeat the COLLECT or execute any tool in this status check. Review the original user goal and existing evidence, then return exactly one fenced taskdeck-progress JSON block. If work remains, use IN_PROGRESS or NEEDS_CONTINUATION with a concrete next_action. If the goal is fully satisfied, use CLAIMED_COMPLETE. If genuinely blocked, use BLOCKED with the precise reason in next_action. Do not invent evidence or claim completion from transport success."
+ }
+ if c.NoProgressTurns>=2&&!agentchat.UnknownCollectionProgressRecheck(original){
   message+=" No independently verified work has been recorded in the last "+
    "two automatic turns. Prioritize a specific read-only Collection now; "+
    "if one is impossible, report the precise blocker. Do not recycle "+
@@ -52,7 +55,7 @@ func (s *Server) autoContinueConversationOne(ctx context.Context,store *agentcha
  })
  if err!=nil{return}
  req:=httptest.NewRequest(http.MethodPost,
-  "/api/agent/sessions/"+id+"/messages",bytes.NewReader(body)).WithContext(collectionContinuationContext(ctx))
+  "/api/agent/sessions/"+id+"/messages",bytes.NewReader(body)).WithContext(context.WithValue(collectionContinuationContext(ctx),standaloneContinuationContextKey{},c.ResponseDigest))
  req.Header.Set("Content-Type","application/json")
  w:=httptest.NewRecorder()
  s.agentChatMessageAPI(w,req,id)
@@ -87,6 +90,8 @@ func (s *Server) autoContinueConversationOne(ctx context.Context,store *agentcha
  }
  _,_=store.Save(current,current.Revision)
 }
+
+type standaloneContinuationContextKey struct{}
 
 // A scheduler admission failure may be retried only while the prior request
 // was rejected before provider egress. SENDING/UNKNOWN are never replayed.
