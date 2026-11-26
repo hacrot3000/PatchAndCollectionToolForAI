@@ -8,6 +8,7 @@ import (
  "testing"
  "time"
  "encoding/json"
+ "fmt"
 
  "bletonfc/vscode_tasks_menu/internal/agentchat"
  "bletonfc/vscode_tasks_menu/internal/identity"
@@ -152,11 +153,54 @@ func TestAgentCLP20DebugReportAttemptAuditAfterClear(t *testing.T){
  clear:=httptest.NewRecorder();s.agentChatDebugClearAPI(clear,httptest.NewRequest("POST","/api/agent/debug/clear",strings.NewReader("{}")))
  if clear.Code!=200{t.Fatal("clear failed")}
  fresh,err:=journal.RecordProviderAttempt(id,"local",x.ProviderRun.ID,2,body,true,agentchat.ProviderAttemptPolicy{Mode:agentchat.RetryUnlimited});if err!=nil{t.Fatal(err)}
- x,err=journal.Get(id,"local");if err!=nil{t.Fatal(err)}
- x.AppendEvent("provider_egress","requesting_ai","read","collection")
- if _,err=journal.Save(x,x.Revision);err!=nil{t.Fatal(err)}
+ // Recording attempt 2 only changes the sidecar, not session revision or
+ // UpdatedAt. The report must still include the new post-clear attempt.
  after:=report()
  run=after["provider_run"].(map[string]any);a=after["provider_attempts"].([]any)
  if run["attempt_scope"]!="after_clear"||run["attempt_total"]!=nil||len(a)!=1||a[0].(map[string]any)["client_request_id"]!=fresh{t.Fatal("post-clear attempt lost or historical attempt leaked")}
  audit,err:=journal.ProviderAttempts(id,"local");if err!=nil||audit==nil||audit.Total!=2||audit.Attempts[0].ClientRequestID!=old{t.Fatal("debug clear changed durable attempt audit")}
+}
+
+
+func TestAgentCLP20DebugReportBoundedExportRetainsNewestDomains(t *testing.T){
+ // Metadata-only pressure; no raw request/source bytes. The actual encoder
+ // is shared with the owner-scoped HTTP endpoint.
+ traces:=make([]agentDebugTrace,24)
+ sessions:=make([]map[string]any,24)
+ for i:=range traces{
+  traces[i].ID=fmt.Sprintf("trace-%02d",i)
+  traces[i].Events=make([]agentDebugEvent,agentDebugMaxEvents)
+  for j:=range traces[i].Events{traces[i].Events[j]=agentDebugEvent{Seq:j+1,Event:"provider_http",SafeMessage:strings.Repeat("bounded diagnostic metadata ",30),Redacted:true}}
+  rows:=make([]map[string]any,128)
+  for j:=range rows{rows[j]=map[string]any{"seq":j+1,"detail_sha256":strings.Repeat("a",64),"call_id":fmt.Sprintf("call-%d",j)}}
+  sessions[i]=map[string]any{"id":fmt.Sprintf("session-%02d",i),"events":rows}
+ }
+ report:=map[string]any{"provider_traces":traces,"provider_trace_count":len(traces),"sessions":sessions,"session_count":len(sessions)}
+ out,err:=agentEncodeSafeDebugReport(report)
+ if err!=nil||len(out)>agentDebugReportMaxBytes||!json.Valid(out){t.Fatalf("invalid bounded export: %d bytes %v",len(out),err)}
+ var decoded struct{
+  Traces []agentDebugTrace `json:"provider_traces"`
+  Sessions []map[string]any `json:"sessions"`
+  OmittedTraces int `json:"omitted_oldest_traces"`
+  OmittedSessions int `json:"omitted_oldest_sessions"`
+ }
+ if err=json.Unmarshal(out,&decoded);err!=nil{t.Fatal(err)}
+ if len(decoded.Traces)==0||len(decoded.Sessions)==0||decoded.Traces[len(decoded.Traces)-1].ID!="trace-23"||decoded.Sessions[0]["id"]!="session-00"{t.Fatal("latest diagnostic domain lost")}
+ if decoded.OmittedTraces!=24-len(decoded.Traces)||decoded.OmittedSessions!=24-len(decoded.Sessions)||decoded.OmittedTraces==0{t.Fatal("omission not accurately disclosed")}
+ if traces[0].ID!="trace-00"||len(traces[0].Events)!=agentDebugMaxEvents||sessions[23]["id"]!="session-23"{t.Fatal("report encoding mutated original records")}
+}
+
+func TestAgentCLP20DebugTraceRetentionKeepsRecentEvidence(t *testing.T){
+ d:=&agentDebugStore{owners:map[string]*agentDebugOwner{}}
+ o:=d.owner("local")
+ now:=time.Now().UTC()
+ o.Traces=append(o.Traces,&agentDebugTrace{ID:"expired",UpdatedAt:now.Add(-agentDebugTTL-time.Second)})
+ for i:=0;i<agentDebugMaxTraces+3;i++{
+  o.Traces=append(o.Traces,&agentDebugTrace{ID:fmt.Sprint(i),UpdatedAt:now})
+ }
+ d.pruneLocked(o,now)
+ if len(o.Traces)!=agentDebugMaxTraces||o.Traces[0].ID!="3"{t.Fatal("trace retention did not keep newest bounded window")}
+ newest:=o.Traces[len(o.Traces)-1]
+ for i:=0;i<agentDebugMaxEvents+5;i++{d.addLocked(o,newest,agentDebugEvent{Event:"provider.attempt"})}
+ if len(newest.Events)!=agentDebugMaxEvents||newest.DroppedEvents!=5||newest.Events[0].Seq!=6||newest.Events[len(newest.Events)-1].Seq!=agentDebugMaxEvents+5{t.Fatal("event retention lost sequence/omission evidence")}
 }

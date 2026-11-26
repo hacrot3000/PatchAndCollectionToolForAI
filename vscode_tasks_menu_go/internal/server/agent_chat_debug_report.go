@@ -68,10 +68,24 @@ func (s *Server) agentChatDebugReportAPI(w http.ResponseWriter, r *http.Request)
    report["journal_error"]="Unable to read the scoped Agent session journal"
   }else{
    visible:=make([]agentchat.Session,0,len(sessions))
+   // Attempt sidecars advance independently from the session CAS. A live
+   // retry after Clear must be visible even without a new journal event.
+   freshAttempts:=map[string]*agentchat.ProviderAttemptAudit{}
+   activity:=map[string]time.Time{}
    for _,sess:=range sessions {
-    if !marker.At.IsZero() && !sess.UpdatedAt.After(marker.At){continue}
+    activity[sess.ID]=sess.UpdatedAt
+    if !marker.At.IsZero() && !sess.UpdatedAt.After(marker.At){
+     if sess.ProviderRun==nil||sess.ProviderRun.Phase!="sending"{continue}
+     audit,e:=journal.ProviderAttempts(sess.ID,owner)
+     if e!=nil||audit==nil||audit.RunID!=sess.ProviderRun.ID||len(audit.Attempts)==0{continue}
+     last:=audit.Attempts[len(audit.Attempts)-1].RecordedAt
+     if !last.After(marker.At){continue}
+     freshAttempts[sess.ID]=audit
+     activity[sess.ID]=last
+    }
     visible=append(visible,sess)
    }
+   sort.SliceStable(visible,func(i,j int)bool{return activity[visible[i].ID].After(activity[visible[j].ID])})
    limit:=len(visible)
    if limit>32{limit=32;report["sessions_truncated"]=true}
    out:=make([]map[string]any,0,limit)
@@ -86,7 +100,9 @@ func (s *Server) agentChatDebugReportAPI(w http.ResponseWriter, r *http.Request)
     var attempts []agentchat.ProviderAttempt
     if run:=sess.ProviderRun;run!=nil{
      freshRun:=marker.At.IsZero()||run.CreatedAt.After(marker.At)
-     audit,e:=journal.ProviderAttempts(sess.ID,owner)
+     audit:=freshAttempts[sess.ID]
+     var e error
+     if audit==nil{audit,e=journal.ProviderAttempts(sess.ID,owner)}
      matched:=e==nil&&audit!=nil&&audit.RunID==run.ID
      if matched{
       for _,a:=range audit.Attempts{if marker.At.IsZero()||a.RecordedAt.After(marker.At){attempts=append(attempts,a)}}
@@ -186,23 +202,9 @@ func (s *Server) agentChatDebugReportAPI(w http.ResponseWriter, r *http.Request)
  }
  // Limit the scope of the report to a single user's current project; avoid
  // embedding raw HTTP payload, workstation paths or unknown provider bodies.
- b,err:=json.MarshalIndent(report,"","  ")
+ b,err:=agentEncodeSafeDebugReport(report)
  if err!=nil{http.Error(w,"cannot encode safe report",500);return}
- // Keep the newest trace evidence when the report reaches its 2 MiB
- // limit. Never drop all diagnostic traces just because old ones are large.
- omitted:=0
- for len(b)>2<<20 && len(traces)>1 {
-  traces=traces[1:]
-  omitted++
-  report["provider_traces"]=traces
-  report["provider_trace_count"]=len(traces)
-  report["traces_truncated"]=true
-  report["omitted_oldest_traces"]=omitted
-  report["diagnostic_note"]="Safe report exceeded 2 MiB; oldest provider traces were omitted, newest trace evidence and durable sessions are retained."
-  b,err=json.MarshalIndent(report,"","  ")
-  if err!=nil{http.Error(w,"cannot encode report",500);return}
- }
- if len(b)>2<<20 {
+ if len(b)>agentDebugReportMaxBytes{
   http.Error(w,"debug report exceeds bounded safe export limit",413);return
  }
  // The response is safe, complete within explicitly declared retention/size
@@ -275,4 +277,42 @@ func agentSafeDebugPatchMetadata(obj map[string]any)map[string]any{
   }
  }
  return out
+}
+
+
+const agentDebugReportMaxBytes=2<<20
+
+// Prefer a readable report, then compact JSON without loss. If the combined
+// bounded journal/trace sets still exceed the cap, omit oldest whole traces
+// and sessions, explicitly reporting omissions. Keep at least the latest
+// trace and latest session; never silently alter a canonical journal.
+func agentEncodeSafeDebugReport(report map[string]any)([]byte,error){
+ b,err:=json.MarshalIndent(report,"","  ")
+ if err!=nil||len(b)<=agentDebugReportMaxBytes{return b,err}
+ report["compact_encoding"]=true
+ b,err=json.Marshal(report)
+ if err!=nil||len(b)<=agentDebugReportMaxBytes{return b,err}
+ traces,_:=report["provider_traces"].([]agentDebugTrace)
+ sessions,_:=report["sessions"].([]map[string]any)
+ omittedTraces,omittedSessions:=0,0
+ for len(b)>agentDebugReportMaxBytes&&(len(traces)>1||len(sessions)>1){
+  // Alternate the two domains, retaining recent evidence from both.
+  if len(traces)>1&&(len(sessions)<=1||omittedTraces<=omittedSessions){
+   traces=traces[1:];omittedTraces++
+   report["provider_traces"]=traces
+   report["provider_trace_count"]=len(traces)
+   report["traces_truncated"]=true
+   report["omitted_oldest_traces"]=omittedTraces
+  }else{
+   sessions=sessions[:len(sessions)-1];omittedSessions++
+   report["sessions"]=sessions
+   report["session_count"]=len(sessions)
+   report["sessions_truncated"]=true
+   report["omitted_oldest_sessions"]=omittedSessions
+  }
+  report["diagnostic_note"]="Safe report exceeded 2 MiB; older whole diagnostic traces or session summaries were omitted. The latest evidence in each available domain remains; canonical journals are unchanged."
+  b,err=json.Marshal(report)
+  if err!=nil{return nil,err}
+ }
+ return b,nil
 }
