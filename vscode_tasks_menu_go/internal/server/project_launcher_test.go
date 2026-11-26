@@ -11,6 +11,8 @@ import (
  "path/filepath"
  "strings"
  "testing"
+
+ "bletonfc/vscode_tasks_menu/internal/config"
 )
 
 func TestProjectLauncherLinuxDesktopFile(t *testing.T){
@@ -200,4 +202,34 @@ func mustReadLauncher(t *testing.T,path string)[]byte{
  t.Helper()
  data,err:=os.ReadFile(path);if err!=nil{t.Fatal(err)}
  return data
+}
+
+func TestProjectLauncherUsesEditTitleAndUpdatesExistingShortcut(t *testing.T){
+ home:=t.TempDir()
+ t.Setenv("XDG_DATA_HOME",filepath.Join(home,"data"))
+ workspace:=filepath.Join(home,"server-patching")
+ if err:=os.MkdirAll(filepath.Join(workspace,".vscode"),0755);err!=nil{t.Fatal(err)}
+ if err:=config.SetPageTitle(workspace,"HT server");err!=nil{t.Fatal(err)}
+ for _,platform:=range []string{"linux","darwin"}{
+  path,err:=installProjectLauncher(home,workspace,"/usr/local/bin/taskdeck",platform)
+  if err!=nil{t.Fatal(err)}
+  entry:=path
+  expected:="\nName=HT server\n"
+  if platform=="darwin"{
+   entry=filepath.Join(path,"Contents","Info.plist")
+   expected="<key>CFBundleDisplayName</key><string>HT server</string>"
+  }
+  if !strings.Contains(string(mustReadLauncher(t,entry)),expected){t.Fatalf("%s: custom title not applied",platform)}
+  if err:=config.SetPageTitle(workspace,"HT server & QA");err!=nil{t.Fatal(err)}
+  again,err:=installProjectLauncher(home,workspace,"/usr/local/bin/taskdeck",platform)
+  if err!=nil||again!=path{t.Fatalf("%s: rename duplicated launcher: %s %v",platform,again,err)}
+  expected="\nName=HT server & QA\n"
+  if platform=="darwin"{expected="<key>CFBundleDisplayName</key><string>HT server &amp; QA</string>"}
+  if !strings.Contains(string(mustReadLauncher(t,entry)),expected){t.Fatalf("%s: updated title missing",platform)}
+  if err:=config.SetPageTitle(workspace,"");err!=nil{t.Fatal(err)}
+  again,err=installProjectLauncher(home,workspace,"/usr/local/bin/taskdeck",platform)
+  if err!=nil||again!=path{t.Fatalf("%s: reset duplicated launcher: %s %v",platform,again,err)}
+  if !strings.Contains(string(mustReadLauncher(t,entry)),"TaskDeck - server-patching"){t.Fatalf("%s: blank title did not restore default",platform)}
+  if err:=config.SetPageTitle(workspace,"HT server");err!=nil{t.Fatal(err)}
+ }
 }
