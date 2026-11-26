@@ -35,7 +35,7 @@ func TestAgentCLP20ArchivedLegacyPackUnknownResumeAcrossUpgrade(t *testing.T){
  x.TaskPlan,err=agentchat.NewTaskPlan("Original owner objective",[]agentchat.TaskPlanStep{{ID:"inspect",Title:"Inspect",Acceptance:"Verified native evidence"},{ID:"finish",Title:"Finish",Acceptance:"Human acceptance"}})
  if err!=nil{t.Fatal(err)}
  x.AutoPatch=false;x.AutoFeedback=true;x.AutoFeedbackPersistent=true;x.AutoContinueText=false;x.RetryMode=agentchat.RetryLimited
- for i:=0;i<82;i++{
+ for i:=0;i<130;i++{
   callID:=fmt.Sprintf("historic-%d",i)
   x.History=append(x.History,agentchat.HistoryItem{Type:"function_call",CallID:callID,Name:"taskdeck_collect_workspace",Arguments:`{"actions":[{"type":"grep","query":"old"}]}`},agentchat.HistoryItem{Type:"function_call_output",CallID:callID,Content:fmt.Sprintf("historical observation %d",i)})
  }

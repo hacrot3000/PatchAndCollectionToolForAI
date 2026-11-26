@@ -302,6 +302,45 @@ func groups(history []agentchat.HistoryItem,synthetic map[string]bool,next []age
  return out
 }
 
+// FullHistory preserves all active canonical messages and completed tool
+// receipts. The only transformations are protocol repair for legacy orphan
+// calls, omission of internal synthetic Patch pairs, and archive notices.
+// Never use a token estimate or the cache checkpoint to discard valid items.
+func FullHistory(history []agentchat.HistoryItem,p Policy)[]agentchat.HistoryItem{
+ outputs:=map[string]bool{}
+ for _,it:=range history{if it.Type=="function_call_output"{outputs[it.CallID]=true}}
+ for _,it:=range p.Next{if it.Type=="function_call_output"{outputs[it.CallID]=true}}
+ seen:=map[string]bool{}
+ result:=make([]agentchat.HistoryItem,0,len(history)+2)
+ for _,it:=range history{
+  if (it.Type=="function_call"||it.Type=="function_call_output")&&p.SyntheticPatchIDs[it.CallID]{continue}
+  switch it.Type{
+  case "function_call":
+   if !outputs[it.CallID]{
+    result=append(result,agentchat.HistoryItem{Type:"assistant",Content:orphanCallSummary(it)})
+    continue
+   }
+   seen[it.CallID]=true
+  case "function_call_output":
+   if !seen[it.CallID]{
+    result=append(result,agentchat.HistoryItem{Type:"assistant",Content:orphanOutputSummary(it)})
+    continue
+   }
+  }
+  result=append(result,it)
+ }
+ if p.ArchivedPatchCalls>0{
+  note:=fmt.Sprintf("TaskDeck has archived %d completed Native Patch receipts. Full receipts remain in the private journal.",p.ArchivedPatchCalls)
+  if len(p.ArchivedPatchSummaries)>0{note+=" "+strings.Join(p.ArchivedPatchSummaries,"; ")}
+  result=appendBeforePending(result,agentchat.HistoryItem{Type:"assistant",Content:note},p.Next)
+ }
+ if p.ArchivedItems>0{
+  note:=fmt.Sprintf("[TaskDeck archive checkpoint] %d older history items stored in %d durable segments. Exact evidence is NOT in this request; request scoped reads if required.",p.ArchivedItems,p.ArchivedParts)
+  result=appendBeforePending(result,agentchat.HistoryItem{Type:"assistant",Content:note},p.Next)
+ }
+ return result
+}
+
 // Build returns a strictly NEW, provider-visible slice; the session journal
 // and native Patch receipts remain byte-exact and unchanged. N is selected
 // from the actual estimated token space left after instructions, Next and

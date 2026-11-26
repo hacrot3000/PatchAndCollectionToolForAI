@@ -3,6 +3,8 @@ package server
 import (
  "fmt"
  "encoding/json"
+ "reflect"
+ "strings"
 
  "bletonfc/vscode_tasks_menu/internal/agentchat"
  "bletonfc/vscode_tasks_menu/internal/agentchat/contextcompact"
@@ -61,55 +63,54 @@ func agentBuildContextEpochAttempt(x agentchat.Session,model agentchat.ModelConf
  budgetInstructions+=c.CurrentInstructions
  policy:=agentContextPolicy(x,model,budgetInstructions,c.Next,false)
  scoped:=policy;scoped.Next=nil
- scopeBytes,_:=json.Marshal([]any{"cache-epoch-v1",agentchat.RunProviderConfigVersion(p,model),c.Model,c.Mode,c.ReasoningEffort,c.EnablePatchTool,c.EnableCollectionTool,c.NativeCollectionContract,c.PromptCacheKey,scoped})
+ scopeBytes,_:=json.Marshal([]any{"cache-epoch-full-v2",agentchat.RunProviderConfigVersion(p,model),c.Model,c.Mode,c.ReasoningEffort,c.EnablePatchTool,c.EnableCollectionTool,c.NativeCollectionContract,c.PromptCacheKey,scoped})
  scope:=agentchat.BodyDigest(scopeBytes)
- reason:="epoch_disabled"
- if enabled&&c.Mode==agentchat.Stateless{
-  var reused bool
-  c.History,reason,reused=contextcompact.ReuseCacheEpoch(x.History,policy,scope,old)
-  if reused{
-   if body,e:=agentchat.BuildResponsesRequest(c);e==nil{
-    if m,e:=agentchat.MeasureProviderPayload(p.APIType,body);e==nil{
-     if fits,learned:=agentCacheEpochWireFits(model,m,hint,p.APIType,body);fits{
-      if next:=contextcompact.NewCacheEpoch(x.History,c.History,policy,scope,old.ID);next!=nil{
-       why:="append_only";if learned{why="append_only; learned_wire_estimate"}
-       return body,next,why,nil
-      }
-     }
-    }
-   }
-   reason="wire_budget_or_format"
-  }
+ // Always try the full valid history first. Token estimates, cache misses,
+ // changed instructions and low cache headroom are not compaction triggers.
+ // Explicit provider context rejection is handled by bounded context retry.
+ c.History=contextcompact.FullHistory(x.History,policy)
+ body,err:=agentchat.BuildResponsesRequest(c)
+ if err==nil{
+  _,err=agentchat.MeasureProviderPayload(p.APIType,body)
  }
- var last error
- attempts:=[]struct{target int;minimal bool}{{0,false},{0,true}}
- if enabled&&c.Mode==agentchat.Stateless{attempts=append([]struct{target int;minimal bool}{{60,false}},attempts...)}
- for _,attempt:=range attempts{
-  target,minimal:=attempt.target,attempt.minimal
-  {
-   policy.Minimal=minimal;policy.TargetInputPercent=target
-   var stats contextcompact.Stats
-   c.History,stats=contextcompact.Build(x.History,policy)
-   if target!=0&&stats.BudgetExceeded{continue}
-   body,err:=agentchat.BuildResponsesRequest(c)
-   if err==nil{
-    var m agentchat.ProviderPayloadMeasurement
-    m,err=agentchat.MeasureProviderPayload(p.APIType,body)
-    if err==nil{
-     var checkpoint *agentchat.CacheEpoch
-     if enabled&&c.Mode==agentchat.Stateless&&!minimal&&!stats.BudgetExceeded{
-      if fits,learned:=agentCacheEpochWireFits(model,m,hint,p.APIType,body);fits{
-       checkpoint=contextcompact.NewCacheEpoch(x.History,c.History,policy,scope,"")
-       if learned&&checkpoint!=nil{reason+="; learned_wire_estimate"}
-      }
-     }
-     return body,checkpoint,reason,nil
-    }
+ reason:="full_history"
+ if err==nil{
+  var checkpoint *agentchat.CacheEpoch
+  if enabled&&c.Mode==agentchat.Stateless{
+   id:=""
+   if visible,_,ok:=contextcompact.ReuseCacheEpoch(x.History,policy,scope,old);ok&&reflect.DeepEqual(visible,c.History){
+    id=old.ID;reason="append_only"
    }
-   last=err
+   checkpoint=contextcompact.NewCacheEpoch(x.History,c.History,policy,scope,id)
   }
+  return body,checkpoint,reason,nil
+ }
+ // Invalid configuration or format is not permission to discard context.
+ // Only actual local size/item errors activate this recovery path.
+ if !agentLocalContextLimit(err){
+  return nil,nil,reason,fmt.Errorf("mandatory context or provider format cannot fit; exact current receipt and owner instructions retained: %w",err)
+ }
+ reason="compact_local_limit"
+ last:=err
+ for _,minimal:=range []bool{false,true}{
+  policy.Minimal=minimal
+  c.History,_=contextcompact.Build(x.History,policy)
+  body,e:=agentchat.BuildResponsesRequest(c)
+  if e==nil{_,e=agentchat.MeasureProviderPayload(p.APIType,body)}
+  if e==nil{return body,nil,reason,nil}
+  last=e
  }
  return nil,nil,reason,fmt.Errorf("mandatory context or provider format cannot fit; exact current receipt and owner instructions retained: %w",last)
+}
+
+// The limits are explicit serializer/transport errors, not estimated tokens.
+func agentLocalContextLimit(err error)bool{
+ if err==nil{return false}
+ switch err.Error(){
+ case "too many history items","AI request exceeds 4 MiB context limit","Chat Completions request exceeds size limit","canonical payload exceeds technical size limit":
+  return true
+ }
+ return strings.Contains(err.Error(),"history item exceeds limit")
 }
 
 const agentCollectionBudgetAdvice = "\nCONTEXT PRESSURE GUIDANCE (advisory, not an execution restriction): If another authorized native COLLECT is needed, request only the exact missing path, symbol, search or line range. Prefer small bounded excerpts using the installed schema's supported actions and limits. Reuse verified earlier observations and native artifact references; do not fetch an entire large source file to repeat evidence. If the task is read-only, continue useful inspection; do not invent a Patch to end the read loop. Preserve the exact current receipt and original user objective."

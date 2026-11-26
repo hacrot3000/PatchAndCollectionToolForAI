@@ -135,3 +135,33 @@ func TestAgentCacheEpochConcurrentConversationsTwentyTurns(t *testing.T){
   })
  }
 }
+
+func TestAgentFullHistoryUntilActualContextLimit(t *testing.T){
+ for _,api:=range []string{"responses","chat_completions"}{
+  t.Run(api,func(t *testing.T){
+   goal:=agentchat.HistoryItem{Type:"user",Content:"Original objective"}
+   x:=agentchat.Session{History:[]agentchat.HistoryItem{goal}}
+   for i:=0;i<12;i++{
+    id:=fmt.Sprintf("read-%d",i)
+    x.History=append(x.History,agentchat.HistoryItem{Type:"assistant",Content:fmt.Sprintf("finding-%d ",i)+strings.Repeat("important finding ",200)},agentchat.HistoryItem{Type:"function_call",Name:"taskdeck_collect_workspace",CallID:id,Arguments:"{}"},agentchat.HistoryItem{Type:"function_call_output",CallID:id,Content:strings.Repeat("exact source ",4000)})
+   }
+   model:=agentchat.ModelConfig{MaxInputTokens:32768}
+   p:=agentchat.ProviderConfig{APIType:api}
+   cfg:=agentchat.RequestConfig{Model:"m",Mode:agentchat.Stateless,Instructions:"trusted",Next:[]agentchat.HistoryItem{{Type:"user",Content:"continue"}}}
+   for _,dynamic:=range []string{"first guidance","changed guidance"}{
+    cfg.CurrentInstructions=dynamic
+    body,_,reason,err:=agentBuildContextEpoch(x,model,p,cfg,nil,true)
+    if err!=nil||reason!="full_history"{t.Fatalf("premature compact: %s %v",reason,err)}
+    var wire struct{Input []map[string]string}
+    if json.Unmarshal(body,&wire)!=nil||len(wire.Input)!=len(x.History)+1{t.Fatal("history was discarded")}
+    for i,it:=range x.History{
+     if it.Type=="function_call_output"&&wire.Input[i]["output"]!=it.Content{t.Fatal("receipt changed")}
+     if it.Type=="assistant"&&wire.Input[i]["content"]!=it.Content{t.Fatal("finding changed")}
+    }
+   }
+   for len(x.History)<256{x.History=append(x.History,agentchat.HistoryItem{Type:"assistant",Content:"old narration"})}
+   body,_,reason,err:=agentBuildContextEpoch(x,model,p,cfg,nil,true)
+   if err!=nil||reason!="compact_local_limit"||!strings.Contains(string(body),goal.Content)||!strings.Contains(string(body),"continue"){t.Fatalf("actual local item limit recovery: %s %v",reason,err)}
+  })
+ }
+}
