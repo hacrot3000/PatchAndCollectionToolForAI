@@ -472,6 +472,7 @@ attachPopup.addEventListener('click',event=>{
 let agentAttachments=[];
 const agentPendingAttachments=[];
 const agentMaxAttachmentBytes=32*1024,agentMaxAttachmentTotal=64*1024,agentMaxAttachmentCount=4;
+const agentPasteAttachmentThreshold=8*1024,agentMessageTextLimit=16*1024;
 prompt.setAttribute('placeholder','Type an AI request for this TaskDeck project…');
 prompt.setAttribute('rows','1');
 function resizeAgentPrompt(){
@@ -490,6 +491,7 @@ function resizeAgentPrompt(){
 }
 function setAgentPromptValue(value){prompt.value=value;resizeAgentPrompt();}
 prompt.addEventListener('input',()=>{resizeAgentPrompt();if(agentActive){agentDrafts.set(agentActive,prompt.value);agentRequestIDs.delete(agentActive);}});
+prompt.addEventListener('paste',handleAgentLongPaste);
 const actionLine=agentEl('div','agentchat-composer-actions');
 const status=agentEl('span','', 'No session selected. Patch execution requires per-call approval.');
 const sessionStatus=agentEl('span');
@@ -2358,8 +2360,9 @@ async function sendAgentMessage(resumeCollectionRunID=""){
  if(typeof resumeCollectionRunID!=="string")resumeCollectionRunID="";
  if(!agentActive)throw new Error('Create a session first.');
  const sessionID=agentActive;
- const msg=prompt.value.trim();
  const attachments=(agentAttachments||[]).map(a=>({...a}));
+ const msg=agentMessageWithPastedAttachments(prompt.value,attachments);
+ if(attachmentByteLength(msg)>agentMessageTextLimit)throw new Error('Message exceeds 16 KiB. Shorten the draft or attach a smaller excerpt; your text is preserved.');
  const wireAttachments=attachments.map(({name,mime,text})=>({name,mime,text}));
  if(!msg)throw new Error('Enter a message.');
  const current=agentCurrentSession?.id===sessionID?agentCurrentSession:await selectAgentSession(sessionID);
@@ -2510,7 +2513,7 @@ function normalizeStagedAttachments(items){
   try{if(new TextDecoder('utf-8',{fatal:true}).decode(new TextEncoder().encode(text))!==text)throw new Error();}catch{throw new Error(name+' is not valid UTF-8 text.');}
   if(bytes>agentMaxAttachmentBytes)throw new Error(name+' is '+bytes+' bytes; the per-file limit is 32 KiB. Select a smaller range.');
   const source=item.source&&typeof item.source==='object'?{...item.source}:{};
-  const kind=['file','file_selection','terminal_console','terminal_selection'].includes(item.kind)?item.kind:(source.kind||'file');
+  const kind=['file','file_selection','terminal_console','terminal_selection','pasted_text'].includes(item.kind)?item.kind:(source.kind||'file');
   const lines=['SOURCE_TYPE: '+safeAttachmentMetadata(kind)];
   if(source.path)lines.push('FILE_PATH: '+safeAttachmentMetadata(source.path));
   if(Array.isArray(source.ranges)&&source.ranges.length>1)source.ranges.forEach((range,index)=>lines.push('RANGE '+(index+1)+': L'+range.start_line+':C'+range.start_column+'-L'+range.end_line+':C'+range.end_column));
@@ -2534,6 +2537,66 @@ function normalizeStagedAttachments(items){
  });
 }
 function currentStagedAttachments(){return agentActive?agentAttachments:agentPendingAttachments;}
+// A paste-only turn is explicit owner input when Send is clicked. Ordinary
+// file attachments still require an independently typed request.
+function agentMessageWithPastedAttachments(value,items){
+ const text=String(value||'').trim();
+ if(text)return text;
+ if(items.some(item=>item.kind==='pasted_text'))return 'Please process the pasted text in the attached file(s) as my request, subject to TaskDeck rules.';
+ return '';
+}
+// Split on Unicode code-point boundaries and reserve source envelope space.
+function agentPastedTextItems(text,current){
+ if(!isValidUTF8Text(text))throw new Error('Pasted text is not valid UTF-8.');
+ if(attachmentByteLength(text)>agentMaxAttachmentTotal)throw new Error('Pasted text exceeds the 64 KiB combined attachment limit.');
+ const chunkLimit=agentMaxAttachmentBytes-1024;
+ const parts=[];
+ let start=0,offset=0,bytes=0;
+ for(const char of text){
+  const cp=char.codePointAt(0),width=cp<=0x7f?1:cp<=0x7ff?2:cp<=0xffff?3:4;
+  if(bytes+width>chunkLimit){parts.push(text.slice(start,offset));start=offset;bytes=0;}
+  bytes+=width;offset+=char.length;
+ }
+ if(offset>start)parts.push(text.slice(start));
+ let serial=1;
+ while(current.some(item=>item.name==='Pasted text '+serial+'.txt'||item.name.startsWith('Pasted text '+serial+' - part ')))serial++;
+ return parts.map((part,i)=>({
+  name:'Pasted text '+serial+(parts.length>1?' - part '+(i+1)+' of '+parts.length:'')+'.txt',
+  mime:'text/plain',kind:'pasted_text',text:part,source:{content_source:'clipboard_paste'},
+ }));
+}
+function handleAgentLongPaste(event){
+ if(event.defaultPrevented||prompt.disabled||prompt.readOnly)return;
+ const text=event.clipboardData?.getData('text/plain');
+ if(!text)return;
+ const value=prompt.value||'';
+ const start=Number.isInteger(prompt.selectionStart)?prompt.selectionStart:value.length;
+ const end=Number.isInteger(prompt.selectionEnd)?prompt.selectionEnd:start;
+ const remainder=value.slice(0,start)+value.slice(end);
+ const bytes=attachmentByteLength(text);
+ if(bytes<agentPasteAttachmentThreshold&&attachmentByteLength(value.slice(0,start)+text+value.slice(end))<=agentMessageTextLimit)return;
+ const current=currentStagedAttachments();
+ let staged,added;
+ try{
+  added=agentPastedTextItems(text,current);
+  staged=normalizeStagedAttachments([...current,...added]);
+ }catch(error){
+  // Default browser paste retains the entire clipboard on overflow.
+  setAgentStatusNotice('Paste kept in message: '+String(error?.message||error));
+  return;
+ }
+ event.preventDefault();
+ current.splice(0,current.length,...staged);
+ if(agentActive){
+  agentAttachmentDrafts.set(agentActive,staged.map(a=>({...a})));
+  agentDrafts.set(agentActive,remainder);
+  agentRequestIDs.delete(agentActive);
+ }
+ setAgentPromptValue(remainder);
+ prompt.setSelectionRange?.(start,start);
+ renderAgentAttachments();
+ setAgentStatusNotice('Pasted text attached · '+added.length+' file'+(added.length===1?'':'s')+' · '+bytes+' bytes. Review before sending.');
+}
 let agentAttachmentTooltip=null,agentAttachmentPreviewIndex=0,agentAttachmentViewButtons=[];
 function closeAgentAttachmentsPopup(){
  const wasOpen=attachPopup.classList.contains('open');

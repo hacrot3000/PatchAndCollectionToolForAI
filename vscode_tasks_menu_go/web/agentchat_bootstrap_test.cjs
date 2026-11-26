@@ -655,6 +655,24 @@ console.log('PASS: safe Markdown, syntax-highlighted PHP/Python, per-block Copy,
   vm.runInNewContext('agentPendingAttachments.splice(0)', context);
   const oversized = await context.TaskMenuAgentChat.stageContext({kind:'file',name:'big.txt',mime:'text/plain',text:'x'.repeat(40 * 1024)}, {open:false});
   assert.equal(oversized.ok, false, 'Oversized attachment is rejected without truncation');
+  // Long clipboard text becomes exact, local, removable draft attachments.
+  vm.runInNewContext("agentPendingAttachments.splice(0);setAgentPromptValue('Inspect: ')",context);
+  const pastePrompt=vm.runInNewContext('prompt',context);
+  const paste=(text)=>{let prevented=false;for(const listener of pastePrompt.listeners.paste||[])listener({clipboardData:{getData:()=>text},preventDefault(){prevented=true;}});return prevented;};
+  assert.equal(paste('small text'),false,'Short paste uses normal browser behavior');
+  const longPaste='Tiếng Việt 🚲\n'.repeat(2500);
+  assert.equal(paste(longPaste),true,'Large paste becomes staged attachment(s)');
+  assert.equal(pastePrompt.value,'Inspect: ','Typed request must be preserved');
+  assert.equal(vm.runInNewContext("agentPendingAttachments.map(a=>a.rawText).join('')",context),longPaste,'No Unicode or clipboard content lost across parts');
+  assert.equal(vm.runInNewContext("agentPendingAttachments.every(a=>a.kind==='pasted_text'&&a.name.endsWith('.txt'))",context),true);
+  assert.equal(vm.runInNewContext("agentMessageWithPastedAttachments('',agentPendingAttachments)",context),'Please process the pasted text in the attached file(s) as my request, subject to TaskDeck rules.');
+  const stagedBefore=vm.runInNewContext('agentPendingAttachments.length',context);
+  assert.equal(paste('x'.repeat(70*1024)),false,'Over-limit paste must not be consumed');
+  assert.equal(vm.runInNewContext('agentPendingAttachments.length',context),stagedBefore,'Failed staging is atomic');
+  assert.equal(pastePrompt.value,'Inspect: ');
+  vm.runInNewContext("agentPendingAttachments.splice(0);setAgentPromptValue('');renderAgentAttachments()",context);
+  assert.equal(vm.runInNewContext("agentMessageWithPastedAttachments('',agentPendingAttachments)",context),'','Removed paste cannot generate a phantom message');
+  console.log('PASS: long clipboard paste becomes lossless UTF-8 attachment drafts; overflow keeps browser paste');
   const selection = await vm.runInNewContext(`editorSelectionContexts({
     closed:false, dirty:true, file:{path:'src/app/main.go'},
     cm:{state:{doc:{
