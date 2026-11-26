@@ -192,6 +192,15 @@ assert.equal(fold.open,false,'a different conversation starts collapsed');
 vm.runInNewContext('renderAgentStatusDetails(null)',context);
 assert.equal(fold.hidden,true,'no status disclosure without a selected conversation');
 
+// Display the historical request's immutable selection, not the current
+// composer selection. Format the saved timestamp in browser-local HH:MM.
+const historicalRequest={type:'user',content:'old request',provider_id:'recorded-provider',model_id:'gpt-6.1-sol',request_effort:'xhigh',request_context:'stateless',request_input_tokens:68200,request_at:new Date(2026,10,26,9,37).toISOString()};
+context.historicalRequest=historicalRequest;
+assert.equal(vm.runInNewContext("agentRequestBadgeText(historicalRequest,{provider_id:'changed-provider',model_id:'changed-model',reasoning_effort:'low',mode:'conversation'})",context),'recorded-provider · gpt-6.1-sol · Extra High · Stateless · ≈ 68,200 input tokens · 09:37');
+assert.equal(vm.runInNewContext("agentRequestBadgeText({provider_id:'recorded-provider',model_id:'old-model'},{reasoning_effort:'high',mode:'conversation'})",context),'recorded-provider · old-model','old records must not acquire invented request metadata');
+assert.equal(vm.runInNewContext("agentRequestClock('invalid')",context),'');
+assert.equal(vm.runInNewContext("agentHistoryItemEqual(historicalRequest,{...historicalRequest,request_effort:'medium'})",context),false,'poll must redraw metadata changes');
+assert.equal(vm.runInNewContext("agentHistoryItemEqual(historicalRequest,{...historicalRequest})",context),true);
 // Composer remains a single action row, with an independent one-line footer.
 const composerParts=vm.runInNewContext('({composer,actionLine,composerButtons,agentRunSelectorMount,cancel,send,footer,status,sessionStatus,prompt})',context);
 assert.deepEqual(composerParts.actionLine.children,[composerParts.agentRunSelectorMount,composerParts.composerButtons]);

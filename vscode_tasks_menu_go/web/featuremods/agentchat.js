@@ -1333,11 +1333,11 @@ function agentRequestBadgeText(item,session){
  const parts=[provider?.name||providerID||'Unknown provider'];
  if(modelID)parts.push(modelID);
  // Missing historical metadata must not be invented from current settings.
- if(item?.request_effort)parts.push(agentEffortLabel(item.request_effort));
+ if(item?.request_effort)parts.push(item.request_effort==='default'?'Default':agentEffortLabel(item.request_effort));
  const mode=({stateless:'Stateless',previous_response:'Response chain',conversation:'Conversations'})[item?.request_context];
  if(mode)parts.push(mode);
  const input=Number(item?.request_input_tokens||0);
- if(Number.isSafeInteger(input)&&input>0)parts.push('≈ '+agentFormatTokenCount(input)+' tokens');
+ if(Number.isSafeInteger(input)&&input>0)parts.push('≈ '+agentFormatTokenCount(input)+' input tokens');
  const time=agentRequestClock(item?.request_at);
  if(time)parts.push(time);
  return parts.join(' · ');
