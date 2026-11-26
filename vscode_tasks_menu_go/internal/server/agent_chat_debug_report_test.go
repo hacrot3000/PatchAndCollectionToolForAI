@@ -81,3 +81,34 @@ func TestSafeContinuationDiagnosticOmitsModelText(t *testing.T){
  if _,ok:=d["checkpoint_path"];ok{t.Fatal("checkpoint path exposed")}
  if strings.Contains(d["reason"].(string),"TOP_SECRET"){t.Fatal("model text exposed")}
 }
+
+
+func TestAgentCLP20SafeDebugReportGuardAndRedaction(t *testing.T){
+ s,id:=newAgentConversationFixture(t,"stateless")
+ store,err:=s.agentChatStore();if err!=nil{t.Fatal(err)}
+ x,err:=store.Get(id,"local");if err!=nil{t.Fatal(err)}
+ const secret="CLP20_PRIVATE_PAYLOAD_MARKER"
+ x.History=[]agentchat.HistoryItem{{Type:"user",Content:secret},{Type:"function_call",CallID:"patch",Name:"taskdeck_submit_patch",Arguments:secret}}
+ x.ToolCalls=[]agentchat.ToolCallRecord{{CallID:"patch",Name:"taskdeck_submit_patch",Status:"done",Result:`{"status":"PASS","rc":0,"nested":{"secret":"`+secret+`"},"stdout_tail":"`+secret+`","diagnosis_kind":"`+secret+`"}`}}
+ x.BindCollectionGuard("inspect "+secret,"",false)
+ x.AppendEvent("collect_request_rejected","failed","read",secret)
+ x.AppendEvent("clp_checkpoint","failed","read","recovery_budget_exhausted")
+ x.Status="failed"
+ x,err=store.Save(x,x.Revision);if err!=nil{t.Fatal(err)}
+ report:=func()string{
+  t.Helper()
+  w:=httptest.NewRecorder();s.agentChatDebugReportAPI(w,httptest.NewRequest("GET","/api/agent/debug/report",nil))
+  if w.Code!=200{t.Fatalf("report %d: %s",w.Code,w.Body)}
+  return w.Body.String()
+ }
+ first:=report()
+ if strings.Contains(first,secret)||!strings.Contains(first,"detail_sha256")||!strings.Contains(first,"recovery_budget_exhausted")||!strings.Contains(first,"collection_progress")||!strings.Contains(first,`"status": "PASS"`){t.Fatal("safe report leaked source or omitted structured metadata")}
+ clear:=httptest.NewRecorder();s.agentChatDebugClearAPI(clear,httptest.NewRequest("POST","/api/agent/debug/clear",strings.NewReader("{}")))
+ if clear.Code!=200{t.Fatal("clear failed")}
+ y,err:=store.Get(id,"local");if err!=nil{t.Fatal(err)}
+ if len(y.CollectionGuard)==0||string(y.CollectionGuard)!=string(x.CollectionGuard)||y.ToolCalls[0].Result!=x.ToolCalls[0].Result||y.Events[len(y.Events)-2].Detail!=secret{t.Fatal("debug clear changed authoritative data")}
+ y.AppendEvent("fresh_turn","failed","","local_request_not_prepared")
+ if _,err=store.Save(y,y.Revision);err!=nil{t.Fatal(err)}
+ after:=report()
+ if strings.Contains(after,secret)||strings.Contains(after,"recovery_budget_exhausted")||!strings.Contains(after,`"collection_progress": null`)||!strings.Contains(after,"local_request_not_prepared"){t.Fatal("clear boundary leaked old guard metadata or lost new event")}
+}
