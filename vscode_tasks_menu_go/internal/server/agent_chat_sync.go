@@ -82,6 +82,7 @@ func (s *Server) agentChatSyncAPI(w http.ResponseWriter, r *http.Request, id str
 	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, 200, map[string]any{
 		"session_id": id, "status": x.Status, "revision": x.Revision,
+		"automation_revision": x.AutomationRevision,
 		"tool_calls": x.ToolCalls, "execution_enabled": false,
 	})
 }

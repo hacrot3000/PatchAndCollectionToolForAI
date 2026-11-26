@@ -429,7 +429,8 @@ const agentRunUI=globalThis.TaskMenuAgentRunsUI?.create({selectorMount:agentRunS
  onSelectionChange:agentSyncComposerSelection});
 agentRunSelectorMount.append(agentConfigMenu);
 window.addEventListener('resize',()=>{if(agentConfigMenu.classList.contains('open'))positionAgentComposerOptions();});
-const autoFeedback=agentButton('Auto-send results',()=>toggleAutoFeedback().catch(showAgentError));
+const autoFeedback=agentButton('Auto-send results: OFF',()=>toggleAutoFeedback().catch(showAgentError));
+autoFeedback.setAttribute('aria-pressed','false');
 const autoContinueText=agentButton('Auto continue (no plan): OFF',
  ()=>toggleAgentAutomation('continue').catch(showAgentError));
 const attachToggle=agentButton('Attachments (0) ▸',()=>toggleAgentAttachmentsPopup());
@@ -541,6 +542,12 @@ function makeAgentHeaderGroup(label,items){
   if(!opening&&group===automationGroup)toggleAgentRetryMenu(false);
   group.open=opening;
   summary.setAttribute('aria-expanded',String(opening));
+  if(opening&&group===automationGroup&&agentActive&&agentCurrentSession?.id===agentActive){
+   // Opening the menu refreshes its authoritative settings without toggling
+   // anything. The existing selection generation rejects late responses.
+   renderAgentAutomationControls(agentCurrentSession);
+   selectAgentSession(agentActive).catch(showAgentError);
+  }
  };
  panel.addEventListener('click',event=>{
   // Clicking the retry label only opens its inline submenu; selecting an
@@ -593,7 +600,7 @@ function updateAgentFooterSession(session,last){
   return;
  }
  sessionStatus.textContent='Session '+session.id.slice(0,8)+' · '+session.status+' · revision '+session.revision+
-  (session.auto_feedback?' · auto-send ON':'');
+  (agentFeedbackEnabled(session)?' · auto-send ON':'');
  // A revision-only poll must not restart the four-second rotation or erase
  // a useful transient notice. A real state change clears stale notices.
  const key=[session.id,session.status,last?.status,last?.feedback_sent,agentFeedbackEnabled(session),session.auto_feedback_diagnostic?.reason].join(':');
@@ -1249,7 +1256,7 @@ function renderAgentTool(session,item){
   if(record?.result)box.append(detail('Patch rejection feedback',record.result,'patch-result'));
   if(rejectionPending){
    const actions=agentEl('div','agentchat-tool-actions');
-   if(session.auto_feedback)box.append(agentEl('p','agentchat-tool-summary',
+   if(agentFeedbackEnabled(session))box.append(agentEl('p','agentchat-tool-summary',
     'Auto feedback is enabled · forwarding the rejection to AI when permitted.'));
    actions.append(agentButton('Send rejection to AI',
     ()=>continueAgentTool(agentCurrentSession||session,item.call_id).catch(showAgentError)));
@@ -1290,7 +1297,7 @@ function renderAgentTool(session,item){
   actions.append(agentButton('View native result',()=>showAgentExecution(session.id,item.call_id).catch(showAgentError)));
  }
  if(!record.feedback_sent&&['running','dispatching','queued','unknown','done','error'].includes(state)){
-  if((session.auto_feedback||record.send_after_retry)&&['done','error'].includes(state)){
+  if((agentFeedbackEnabled(session)||record.send_after_retry)&&['done','error'].includes(state)){
    box.append(agentEl('p','agentchat-tool-summary',agentFeedbackWaitMessage(session)));
    if(session.auto_feedback_diagnostic?.eligible===false){
     actions.append(agentButton('Send verified result to AI',()=>recoverAgentPatch(agentCurrentSession||session,item.call_id,'send_existing').catch(showAgentError)));
@@ -1324,7 +1331,7 @@ function renderAgentTool(session,item){
  if(state==='unknown'){
   box.append(agentEl('p','agentchat-tool-summary',
    'Native Patch execution was not confirmed for this Agent call. If you ran the queued ZIP manually, click Get the last result and send to AI: TaskDeck will look for unique matching completed native History and verify the original package hash. Re-apply is unavailable until a failed run is verified.'));
-  if(session.auto_patch&&!session.auto_feedback)box.append(agentEl('p','agentchat-tool-summary',
+  if(session.auto_patch&&!agentFeedbackEnabled(session))box.append(agentEl('p','agentchat-tool-summary',
    'Auto apply Patch is enabled, but Auto-send results is OFF. Enable Auto-send results to forward verified completions automatically.'));
  }
  if(actions.childElementCount)box.append(actions);
@@ -1523,7 +1530,7 @@ function agentLivePhase(session){
   return {message:age>30000?'Patch dispatch delayed · not confirmed queued · approve or reject in the proposal card':'Waiting for automatic Patch dispatch · not yet queued'};
  }
  if(['waiting_tool','tool_rejected'].includes(session.status)&&['done','error','rejected'].includes(lastCall?.status)&&
-    session.auto_feedback&&!lastCall.feedback_sent)return {message:agentFeedbackWaitMessage(session)};
+    agentFeedbackEnabled(session)&&!lastCall.feedback_sent)return {message:agentFeedbackWaitMessage(session)};
  return null;
 }
 function agentFormatTokenCount(value){
@@ -1617,7 +1624,7 @@ function agentToolRenderVersion(item,records,outputs,session){
  }
  const record=records.get(item.call_id);
  return 'patch:'+JSON.stringify(record||null)+':output:'+Boolean(outputs.get(item.call_id))+
-  (record&&!record.feedback_sent?':feedback:'+JSON.stringify(session?.auto_feedback_diagnostic||null):'');
+  (record&&!record.feedback_sent?':feedback:'+agentFeedbackEnabled(session)+':'+JSON.stringify(session?.auto_feedback_diagnostic||null):'');
 }
 // Auto-follow recent activity without stealing scroll when the user reads history.
 function agentAtLatest(){
@@ -1806,6 +1813,7 @@ function displayAgentSession(session){
    agentRenderedToolVersions.clear();
   }
   agentCurrentSession=null;
+  renderAgentAutomationControls(null);
   updateAgentFooterSession(null);
   agentUpdateTokenUsage(null);
   renderAgentProviderEgressReview(null,null);
@@ -1883,7 +1891,7 @@ function displayAgentSession(session){
  if(followLatest)agentScrollToLatest(session.id);
  const last=(session.tool_calls||[]).slice(-1)[0];
  updateAgentFooterSession(session,last);
- renderAgentFeedbackControl(session);
+ renderAgentAutomationControls(session);
 }
 function agentConversationUnresolved(sess){
  if(sess&&typeof sess.unresolved==='boolean')return sess.unresolved;
@@ -2043,7 +2051,6 @@ async function selectAgentSession(id){
    agentPendingAttachments.splice(0,pendingToTransfer.length);renderAgentAttachments();
   }catch(error){setAgentStatusNotice('Pending attachments need room: '+String(error?.message||error));}
  }
- renderAgentAutomationControls(sess);
  agentUpdateSendAvailability(sess);
  const summary=agentSessions.find(x=>x.id===id);
  if(summary){
@@ -2166,7 +2173,8 @@ async function syncAgentPatch(id,{quiet=false}={}){
   if(agentActive!==id)return result;
   // No journal revision change means native state did not change. Keep the
   // whole transcript/tab/console DOM untouched and avoid a second API call.
-  if(!agentCurrentSession||result.revision!==agentCurrentSession.revision){
+  if(!agentCurrentSession||result.revision!==agentCurrentSession.revision||
+    (result.automation_revision!==undefined&&Number(result.automation_revision)!==Number(agentCurrentSession.automation_revision||0))){
    await selectAgentSession(id);
   }
   if(!quiet){
@@ -2239,9 +2247,9 @@ function agentMonitorNeedsWork(sess){
    (!sess.provider_run||sess.provider_run.phase==='completed')&&
    sess.history?.at(-1)?.type==='function_call'&&
    calls.some(call=>call.call_id===sess.history.at(-1).call_id&&call.status==='rejected'&&
-    !call.feedback_sent&&!call.feedback_status&&(sess.auto_feedback||sess.auto_continue_text||sess.task_plan?.auto_continue)))||
+    !call.feedback_sent&&!call.feedback_status&&(agentFeedbackEnabled(sess)||sess.auto_continue_text||sess.task_plan?.auto_continue)))||
   (['waiting_tool','tool_rejected'].includes(sess.status)&&calls.some(call=>!call.feedback_sent&&(
-   (sess.auto_feedback&&['done','error','rejected'].includes(call.status))||
+   (agentFeedbackEnabled(sess)&&['done','error','rejected'].includes(call.status))||
    (call.status==='rejected'&&(sess.auto_continue_text||sess.task_plan?.auto_continue)))));
 }
 function scheduleAgentMonitor(sess,delay=2800){
@@ -2827,12 +2835,14 @@ function renderAgentAutomationControls(session){
  autoContinueText.setAttribute('aria-pressed',String(Boolean(session?.auto_continue_text)));
 }
 function agentFeedbackEnabled(session){
- return Boolean(session?.auto_feedback)&&(session.auto_feedback_persistent||!session.auto_feedback_until||Date.parse(session.auto_feedback_until)>Date.now());
+ return Boolean(session?.auto_feedback&&(session.auto_feedback_persistent||
+  (session.auto_feedback_until&&Date.parse(session.auto_feedback_until)>=Date.now())));
 }
 function renderAgentFeedbackControl(session){
  const active=agentFeedbackEnabled(session);
- autoFeedback.textContent='Auto-send results: '+(active?'ON':'OFF');
- autoFeedback.setAttribute('aria-pressed',String(active));
+ const label='Auto-send results: '+(active?'ON':'OFF');
+ if(autoFeedback.textContent!==label)autoFeedback.textContent=label;
+ if(autoFeedback.getAttribute('aria-pressed')!==String(active))autoFeedback.setAttribute('aria-pressed',String(active));
 }
 // Serialize preference clicks per conversation, independently of provider
 // requests and polling. A late click cannot mutate a different active tab.
@@ -2877,7 +2887,8 @@ async function writeAgentAutomation(id,option,enabled){
  if(agentActive!==session.id)return;
  const latest=await selectAgentSession(session.id);
  if(agentActive!==session.id)return;
- renderAgentAutomationControls(latest||result.session);
+ if(latest)renderAgentAutomationControls(latest);
+ else if(agentCurrentSession?.id===id&&Number(result.session?.automation_revision||0)>=Number(agentCurrentSession.automation_revision||0))renderAgentAutomationControls(result.session);
  setAgentStatusNotice((option==='patch'?'Automatic native Patch approval':
   option==='collection'?'Read-only Collection':option==='continue'?'Unfinished conversation continuation':'Automatic provider feedback')+
   (enabled?' enabled for this conversation.':' disabled for this conversation.')+

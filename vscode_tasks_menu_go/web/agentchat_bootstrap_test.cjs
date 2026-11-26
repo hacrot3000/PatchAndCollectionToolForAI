@@ -208,7 +208,7 @@ assert.deepEqual(composerParts.composerButtons.children,[composerParts.cancel,co
 assert.deepEqual(composerParts.footer.children,[composerParts.status,composerParts.sessionStatus]);
 assert.ok(source.includes('text-overflow:ellipsis;white-space:nowrap'));
 assert.ok(source.includes('flex-wrap:nowrap;overflow-x:auto'));
-vm.runInNewContext("updateAgentFooterSession({id:'5764cb35-test',status:'requesting_ai',revision:135,auto_feedback:true},null)",context);
+vm.runInNewContext("updateAgentFooterSession({id:'5764cb35-test',status:'requesting_ai',revision:135,auto_feedback:true,auto_feedback_persistent:true},null)",context);
 assert.match(composerParts.status.textContent,/AI request is running on the server/);
 assert.match(composerParts.sessionStatus.textContent,/Session 5764cb35 · requesting_ai · revision 135 · auto-send ON/);
 assert.equal(composerParts.status.hidden,false);
@@ -216,7 +216,7 @@ assert.equal(composerParts.sessionStatus.hidden,true);
 vm.runInNewContext('rotateAgentFooter()',context);
 assert.equal(composerParts.status.hidden,true);
 assert.equal(composerParts.sessionStatus.hidden,false);
-vm.runInNewContext("updateAgentFooterSession({id:'5764cb35-test',status:'requesting_ai',revision:136,auto_feedback:true},null)",context);
+vm.runInNewContext("updateAgentFooterSession({id:'5764cb35-test',status:'requesting_ai',revision:136,auto_feedback:true,auto_feedback_persistent:true},null)",context);
 assert.equal(composerParts.status.hidden,true,'revision-only poll does not restart rotation');
 assert.match(composerParts.sessionStatus.textContent,/revision 136/);
 vm.runInNewContext('rotateAgentFooter()',context);
@@ -436,7 +436,7 @@ assert.ok(renameDialog?.parentElement?.classList.contains('visible'),'rename mus
 const renameInput=find(renameDialog,node=>node.attributes?.['aria-label']==='Conversation name');
 assert.equal(renameInput?.value,'Old conversation','rename editor must use saved title even while Agent is busy');
 assert.equal(vm.runInNewContext('rename.disabled',context),false,'Conversation > Rename must stay enabled during an Agent turn');
-vm.runInNewContext('closeAgentRename();markAgentSessionBusy("deleted-view-only",false);agentActive=null;agentSessions=[];updateAgentSessionRows();autoFeedback.textContent="Auto-send results"', context);
+vm.runInNewContext('closeAgentRename();markAgentSessionBusy("deleted-view-only",false);agentActive=null;agentSessions=[];updateAgentSessionRows();renderAgentAutomationControls(null)', context);
 const collectLabels = node => [node.textContent, ...node.children.flatMap(collectLabels)];
 const labels = collectLabels(heading);
 const moreButton = heading.children.find(child => child.textContent === '⋯');
@@ -496,12 +496,12 @@ resizeObserver.callback();
 assert.equal(moreMenu.children.length,0,'wide toolbar restores all actions');
 assert.equal(moreButton.hidden,true,'More hides again after resizing back to wide');
 for (const label of ['AI Agent Chat', 'Bottom', 'Auto Hide', '⋯', 'Hide', '+ New session', 'Preview context',
-  'Rename', 'Archive', 'Delete conversation', 'Refresh', '+ File', 'Auto-send results',
+  'Rename', 'Archive', 'Delete conversation', 'Refresh', '+ File', 'Auto-send results: OFF',
   'Auto apply Patch: OFF', 'Auto Collection: ON', 'Conversation ▾', 'Automation ▾', 'Tools ▾', 'Layout ▾']) {
   assert.ok(labels.includes(label), 'Agent Chat control missing at runtime: ' + label);
 }
 for (const label of ['Bottom', 'Auto Hide', '⋯', 'Hide', '+ New session', 'Preview context',
-  'Rename', 'Archive', 'Delete conversation', 'Refresh', '+ File', 'Auto-send results',
+  'Rename', 'Archive', 'Delete conversation', 'Refresh', '+ File', 'Auto-send results: OFF',
   'Auto apply Patch: OFF', 'Auto Collection: ON']) {
   assert.equal(labels.filter(value => value === label).length, 1, 'Control duplicated: ' + label);
 }
@@ -1058,7 +1058,7 @@ console.log('PASS: safe Markdown, syntax-highlighted PHP/Python, per-block Copy,
   assert.deepEqual(requests,['/api/agent/sessions/test-session/sync']);
   assert.equal(vm.runInNewContext('agentPatchSyncInFlight.size',context),0,
     'poll in-flight guard must release after a conflicting request');
-  const awaitingFeedback={...edited,status:'waiting_tool',auto_feedback:true,
+  const awaitingFeedback={...edited,status:'waiting_tool',auto_feedback:true,auto_feedback_persistent:true,
     tool_calls:[{call_id:'queued-result',status:'done',feedback_sent:false}]};
   const readyMessage=vm.runInNewContext('agentLivePhase(readySyncSnapshot).message',
     Object.assign(context,{readySyncSnapshot:awaitingFeedback}));
@@ -1536,6 +1536,15 @@ console.log('PASS: safe Markdown, syntax-highlighted PHP/Python, per-block Copy,
   await feedbackControl.onclick();
   assert.equal(context.retrySelection.auto_feedback,true,'stale OFF control must not revoke enabled feedback');
   assert.equal(feedbackControl.getAttribute('aria-pressed'),'true','idempotent enable refreshes actual state');
+  assert.equal(feedbackControl.textContent,'Auto-send results: ON');
+  vm.runInNewContext("displayAgentSession({...retrySelection,auto_feedback:true,auto_feedback_persistent:false,auto_feedback_until:'2000-01-01T00:00:00Z'})",context);
+  assert.equal(feedbackControl.textContent,'Auto-send results: OFF','expired grant must display OFF');
+  assert.equal(feedbackControl.getAttribute('aria-pressed'),'false');
+  vm.runInNewContext('displayAgentSession(retrySelection)',context);
+  assert.equal(feedbackControl.textContent,'Auto-send results: ON','canonical render restores the full label without a click');
+  vm.runInNewContext('displayAgentSession(null)',context);
+  assert.equal(feedbackControl.textContent,'Auto-send results: OFF','empty view must never retain an old or bare label');
+  assert.equal(feedbackControl.disabled,true);
 
   const stuckPatch={id:'old-patch',status:'waiting_tool',revision:8,
     history:[{type:'function_call',call_id:'old-call',name:'taskdeck_submit_patch',
