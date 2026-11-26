@@ -39,15 +39,15 @@ func TestAgentCLP20NativeTargeted150MiBSourceReceipt(t *testing.T){
  const size=150<<20
  path:=filepath.Join(s.Workspace,"large_source.c")
  f,err:=os.Create(path);if err!=nil{t.Fatal(err)}
- hash:=sha256.New();w:=io.MultiWriter(f,hash)
+ hash:=sha256.New();sourceWriter:=io.MultiWriter(f,hash)
  // Fixed 128-byte lines, not NUL-filled sparse bytes: the search backend
  // must actually inspect text beyond its default 64 MiB search limit.
  row:=strings.Repeat(" ",124)+"//x\n"
  block:=strings.Repeat(row,(1<<20)/len(row))
- for n:=0;n<149;n++{if _,err=io.WriteString(w,block);err!=nil{f.Close();t.Fatal(err)}}
+ for n:=0;n<149;n++{if _,err=io.WriteString(sourceWriter,block);err!=nil{f.Close();t.Fatal(err)}}
  tail:=fmt.Sprintf("int %s(void) { return 17; }\n",marker)
  remaining:=size-149*len(block)-len(tail)
- if _,err=io.WriteString(w,strings.Repeat(row,remaining/len(row))+strings.Repeat(" ",remaining%len(row))+tail);err!=nil{f.Close();t.Fatal(err)}
+ if _,err=io.WriteString(sourceWriter,strings.Repeat(row,remaining/len(row))+strings.Repeat(" ",remaining%len(row))+tail);err!=nil{f.Close();t.Fatal(err)}
  if err=f.Close();err!=nil{t.Fatal(err)}
  before:=fmt.Sprintf("%x",hash.Sum(nil))
  req,err:=agentNativeCollectionRequest(fmt.Sprintf(`{"id":"clp20-target","actions":[{"type":"search","paths":["large_source.c"],"query":%q,"context_lines":0,"max_matches":2,"report_coverage":true,"must_find":true}],"limits":{"max_search_file_bytes":200000000}}`,marker),identity,false)
