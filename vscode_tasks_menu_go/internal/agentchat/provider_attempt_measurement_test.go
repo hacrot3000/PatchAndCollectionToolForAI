@@ -40,3 +40,16 @@ func TestConfiguredAdapterCLP20MeasuresEveryAttempt(t *testing.T){
   }
  }
 }
+
+func TestConfiguredAdapterCLP20MeasurementStopDoesNotAcknowledge(t *testing.T){
+ p:=ProviderConfig{ID:"gpt",APIType:"responses",Models:[]ModelConfig{{ID:"gpt-model"}}}
+ body,e:=BuildResponsesRequest(RequestConfig{Model:"gpt-model",Mode:Stateless,Instructions:"policy",MaxOutputTokens:8192,Next:[]HistoryItem{{Type:"user",Content:"objective"}}});if e!=nil{t.Fatal(e)}
+ r:=&clp20MeasurementResolver{fakeProviderResolver:fakeProviderResolver{resolved:ResolvedProvider{Config:p,ConfigVersion:"cfg-v1",Credential:"owner-key"}}}
+ ctx,cancel:=context.WithCancel(context.Background());defer cancel()
+ inv:=&clp20CancelAfterReturnInvoker{cancel:cancel}
+ a:=ConfiguredProviderAdapter{ProviderID:"gpt",Resolver:r,Builder:clp20StagnationBuilder{body},Invoker:inv}
+ spec:=runSpecFor("gpt","gpt-model","measurement-stop");spec.ProviderConfigVersion,spec.RetryMode="cfg-v1",RetryUnlimited
+ sink:=&fixedProviderSink{}
+ err:=a.Execute(ctx,spec,nil,sink)
+ if err==nil||len(sink.events)!=0||len(r.records)!=1||r.records[0].outcome!=AttemptCancelled||r.records[0].digest!=BodyDigest(body){t.Fatalf("cancelled observation became ACK or was lost: %v %+v %+v",err,r.records,sink.events)}
+}
