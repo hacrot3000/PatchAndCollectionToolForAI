@@ -1,5 +1,7 @@
 # HANDOFF 20 — Exactly-once crash/reconcile/retry matrix (CLP-03.02.03/.04)
 
+> **Current local workflow (2026-11-27):** [20-coder-execution-contract.md](20-coder-execution-contract.md) supersedes historical process/stop instructions and completion claims below. Latest CI: TestCLP20ObservationCrashW4PreparedBeforeSending failed; clp20SpawnCrashChild has a stderr data race. Repair FIX-02; lower-level tests and server integration fixtures remain distinct. Local coder writes source/test fixes, operator runs CI/Git. Continue independent local work without external-only BLOCKED; no acceptance or safety relaxation.
+
 > Design and gap audit derived from read-only COLLECT of the actual source.
 > No test was executed. Do NOT treat this document as PASS evidence for R10/R27/R28.
 > Gates: R10 (native observation exact crash window), R27 (restart after Stop), R28 (concurrent save/reconcile/retry of one logical call).
