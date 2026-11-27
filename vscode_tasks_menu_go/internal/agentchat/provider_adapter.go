@@ -42,6 +42,14 @@ type ProviderAttemptMeasurementObserver interface {
  ObserveProviderAttempt(RunSpec,int,ProviderPayloadMeasurement,string,ProviderAttemptOutcome)
 }
 
+// ProviderAttemptAdmission is an optional live owner-consent check at the
+// final transport admission point, including each explicitly enabled retry.
+// It must not execute tools, modify the pinned payload, or hold a lock across
+// network I/O. An error terminates the attempt without invoking the provider.
+type ProviderAttemptAdmission interface {
+ AdmitProviderAttempt(context.Context,RunSpec) error
+}
+
 type ProviderPayloadBuilder interface {
 	Build(RunSpec, ProviderConfig, ModelConfig, []HistoryItem) ([]byte, error)
 }
@@ -280,6 +288,16 @@ func (a ConfiguredProviderAdapter) invokeWithRetry(ctx context.Context, spec Run
 					return nil
 				}
 			}
+		}
+		if admission,ok:=a.Resolver.(ProviderAttemptAdmission);ok{
+			if err:=admission.AdmitProviderAttempt(callCtx,spec);err!=nil{
+				cancel()
+				return ResponsesResult{},false,nil,err
+			}
+		}
+		if err:=callCtx.Err();err!=nil{
+			cancel()
+			return ResponsesResult{},false,nil,err
 		}
 		var result ResponsesResult
 		var err error
