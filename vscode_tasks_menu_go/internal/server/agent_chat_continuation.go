@@ -73,9 +73,10 @@ func (s *Server) autoContinueConversationOne(ctx context.Context,store *agentcha
  after:=agentchat.VerifiedWorkSignature(current)
  prior:=c.LastWorkSignature
  if c.LastContinuationKey==""{prior=""}
- reference:=agentchat.ContinuationWorkReference(original,current,prior)
+ reference:=agentchat.ContinuationWorkReference(original,current,prior,c.LastWorkSignatureVersion)
  if after==reference {c.NoProgressTurns++}else{c.NoProgressTurns=0}
  c.LastWorkSignature=after
+ c.LastWorkSignatureVersion=agentchat.WorkSignatureVersion(current)
  c.LastContinuationKey=requestID
  c.RetryStreak=0
  c.NextRetryAt=nil
