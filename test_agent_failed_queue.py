@@ -9,7 +9,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT / "_patch_lib"))
 from python_patch_project_state import ensure_project_identity
-from python_patch_queue_dispatcher import _retire_failed_agent_package, _update_unresolved_registry, QueueSafetyError
+from python_patch_queue_dispatcher import _retire_failed_agent_package, _update_unresolved_registry, QueueSafetyError, _agent_retired_predecessor_for_plan
 
 class FailedQueueTests(unittest.TestCase):
     def setUp(self):
@@ -60,7 +60,49 @@ class FailedQueueTests(unittest.TestCase):
         self.assertTrue((self.history/"r1.json").exists())
         reg = json.loads((self.history.parent/"UNRESOLVED_FAILURES.json").read_text())
         self.assertTrue(reg["entries"][0]["resolved"])
+        self.assertEqual(self.retire()["status"], "retired")
+    def test_retired_last_run_does_not_resurrect_predecessor(self):
+        report = self.report()
+        row = report["results"][0]
+        report["status"] = "FAIL"
+        self.assertFalse(_agent_retired_predecessor_for_plan(self.root, row, report))
+        receipt = self.retire()
+        self.assertTrue(_agent_retired_predecessor_for_plan(self.root, row, report))
+        self.assertFalse(_agent_retired_predecessor_for_plan(self.root, row, {**report, "run_id": "other"}))
+        self.assertFalse(_agent_retired_predecessor_for_plan(self.root, {**row, "batch_rolled_back": True}, report))
+        self.assertEqual(self.source.read_text(), "partially modified")
+        archive = self.root / receipt["archive"]
+        archive.write_bytes(b"wrong digest")
+        self.assertFalse(_agent_retired_predecessor_for_plan(self.root, row, report))
+
+    def test_retirement_recovers_archive_unlink_registry_crash(self):
+        report = self.report()
+        archive = self.queue / "ignore" / ("agent-failed-" + self.sha + ".zip")
+        archive.parent.mkdir()
+        archive.write_bytes(self.body)
+        (self.queue / self.name).unlink()
+        regpath = self.history.parent / "UNRESOLVED_FAILURES.json"
+        self.assertFalse(json.loads(regpath.read_text())["entries"][0]["resolved"])
+        receipt = self.retire()
+        self.assertEqual(receipt["status"], "retired")
+        self.assertTrue(json.loads(regpath.read_text())["entries"][0]["resolved"])
+        self.assertEqual(self.retire()["status"], "retired")
+        self.assertEqual(self.source.read_text(), "partially modified")
+        self.assertTrue(_agent_retired_predecessor_for_plan(self.root, report["results"][0], {**report, "status": "FAIL"}))
+
+    def test_missing_queue_without_archive_is_not_retired(self):
+        self.report()
+        (self.queue / self.name).unlink()
         self.assertEqual(self.retire()["status"], "not_queued")
+        self.assertFalse(json.loads((self.history.parent / "UNRESOLVED_FAILURES.json").read_text())["entries"][0]["resolved"])
+
+    def test_newer_failure_registry_not_retired_by_old_run(self):
+        self.report()
+        self.report(run="r2")
+        with self.assertRaises(QueueSafetyError):
+            self.retire(run="r1")
+        self.assertEqual((self.queue / self.name).read_bytes(), self.body)
+
     def test_pass_and_ambiguous_are_never_retired(self):
         self.report("PASS")
         with self.assertRaises(QueueSafetyError): self.retire()
