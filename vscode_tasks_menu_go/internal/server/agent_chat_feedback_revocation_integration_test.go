@@ -63,7 +63,7 @@ func TestFeedbackResumeStopBeforeSendingFencesEgress(t *testing.T) {
 			if len(got.History) < 3 || got.History[len(got.History)-1].Content != receipt {
 				t.Fatal("canonical receipt changed")
 			}
-			if _, e = store.PreparedProviderPayload(id, "local"); !errors.Is(e, agentchat.ErrInvalidSession) {
+			if _, _, e = store.PreparedProviderPayload(id, "local"); !errors.Is(e, agentchat.ErrInvalidSession) {
 				t.Fatal("blocked request remained replayable")
 			}
 		})
