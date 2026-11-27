@@ -120,24 +120,36 @@ func clp20CrashChild() {
 		os.Exit(2)
 	}
 
-	// Postcommit barrier: syncDirectory is called once before the canonical
-	// rename and once after. Fire on the second call, while withLock is held,
-	// so the parent observes the committed bytes and then really kills us.
-	calls := 0
+	// Deterministic commit boundary: fire the crash barrier only when the
+	// canonical journal actually reflects the committed candidate (the atomic
+	// rename has already happened), not on an assumed Nth directory fsync.
+	// withLock is held throughout the override, so no other writer can change
+	// the journal between the pre-rename sync and this observation. Staging
+	// (W4) writes only the private sidecar, never the canonical journal, so the
+	// boundary is identical for every crash mode.
+	journalBefore, e := os.ReadFile(store.file(x.ID))
+	if e != nil {
+		fmt.Fprintln(os.Stderr, "cannot read journal before Save:", e)
+		os.Exit(2)
+	}
 	store.syncDirectoryOverride = func() error {
-		calls++
-		if calls == 2 {
+		if raw, e := os.ReadFile(store.file(x.ID)); e == nil && !bytes.Equal(raw, journalBefore) {
+			// The new revision is named in the canonical journal. Kill here,
+			// before this post-rename fsync returns, so the parent observes
+			// committed bytes while delivery stays fenced as UNKNOWN.
 			fmt.Fprintln(os.Stdout, clp20CrashMarker)
 			time.Sleep(30 * time.Second)
 			os.Exit(3)
 		}
 		return syncAgentDirectory(store.dir)
 	}
-	// StageProviderPayload (W4) performs its own directory sync before Save.
-	// Count barrier calls from the canonical Save only so "second call" always
-	// means the post-rename, committed-journal boundary for every crash mode.
-	calls = 0
-	_, _ = store.Save(candidate, x.Revision)
+	if _, saveErr := store.Save(candidate, x.Revision); saveErr != nil {
+		// Never discard the real Save error: if the child fails to reach the
+		// barrier, the parent's "child never reached barrier" diagnostic must
+		// carry the underlying validation/durability cause on stderr.
+		fmt.Fprintln(os.Stderr, "postcommit barrier Save failed:", saveErr)
+		os.Exit(5)
+	}
 	fmt.Fprintln(os.Stderr, "unexpected return from postcommit barrier")
 	os.Exit(4)
 }
