@@ -92,7 +92,8 @@ func (s *Server) autoContinueConversationOne(ctx context.Context,store *agentcha
  c.RetryStreak=0
  c.NextRetryAt=nil
  if c.NoProgressTurns>=agentchat.MaxContinuationNoWorkTurns{
-  current.AutoContinueText=false
+  // Pause scheduling, not the owner preference. The persisted counter
+  // independently prevents further automatic turns until explicitly rearmed.
   c.Reason="stalled_without_verified_work"
   current.AppendEvent("continuation_stalled",current.Status,"","no_verified_work_after_recovery")
  }else if c.Disposition==agentchat.TurnBlocked&&!agentchat.RetiredPatchBlockerRecheck(current){
@@ -129,7 +130,7 @@ func (s *Server) deferStandaloneAdmission(store *agentchat.Store,id string,httpC
  case http.StatusConflict:
   return
  default:
-  x.AutoContinueText=false
+  // Keep the owner preference; the admission pause is an eligibility fence.
   c.Reason="nonretryable_admission_failure"
   x.AppendEvent("continuation_blocked",x.Status,"",fmt.Sprintf("http_%d_requires_review",httpCode))
  }
