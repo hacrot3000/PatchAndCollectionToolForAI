@@ -148,9 +148,7 @@ func legacyVerifiedDuplicateEvent(x agentchat.Session,callID string,g agentchat.
 }
 
 func legacyCollectionReplanAllowed(x agentchat.Session)bool{
- allowed:=x.Owner=="local"&&!x.Archived&&(x.AutoCollection==nil||*x.AutoCollection)
- if x.TaskPlan!=nil{return allowed&&x.TaskPlan.AutoContinue&&agentchat.TaskPlanNext(x.TaskPlan)!=nil}
- return allowed&&x.AutoContinueText
+ return agentchat.CollectionReplanAllowed(x)
 }
 
 // The caller has already saved the exact current observation in the same
