@@ -1599,6 +1599,7 @@ function agentHistoryRow(session,item,callNames){
    item.kind==='collect_request_rejected'?'Collection request rejected':
    item.kind==='collect_native_failed'?'Native Collection failed':
    item.kind==='turn_failed'?'AI request failed':
+   item.kind==='turn_interrupted'?({provider_response_save_failed:'AI response received · local save failed (checkpoint retained if available)',provider_response_not_saved:'AI response returned · response body not saved',orphaned_provider_run:'Interrupted AI request · delivery unresolved'}[item.detail]||'AI request interrupted'):
    item.kind==='turn_cancelled'?'AI request cancelled':
    item.kind==='feedback_unknown'?'Patch result delivery unconfirmed':'Operation failed';
   const note=item.detail?' · '+item.detail:'';
@@ -1658,7 +1659,7 @@ function agentHistoryRow(session,item,callNames){
 function agentChronologicalHistory(session){
  const history=Array.isArray(session?.history)?session.history:[];
  const failures=(session?.events||[]).filter(e=>
-  ['turn_failed','collect_failed','collect_request_rejected','collect_native_failed','turn_cancelled','feedback_unknown'].includes(e.kind));
+  ['turn_failed','turn_interrupted','collect_failed','collect_request_rejected','collect_native_failed','turn_cancelled','feedback_unknown'].includes(e.kind));
  if(!failures.length)return history;
  const byIndex=new Map();
  for(const event of failures){
@@ -1722,6 +1723,7 @@ function agentLivePhase(session){
    (retry.mode==='unlimited'?' (unlimited)':' / 6 total attempts')+'…'+stagnationHint+(stagnant?' · Stop request to cancel':'')};
  }
  if(session.status==='requesting_ai'){
+  if(turn?.error&&/provider responded; local response save failed/i.test(turn.error))return {message:'AI response received · local save failed · checking recovery checkpoint. Do not resend.',error:true};
   if(!turn?.error&&turn?.phase==='sending'&&!turn.acknowledged&&!newer.some(e=>e.kind==='turn_started'||e.kind==='feedback_prepared'||e.kind==='provider_egress'))return {message:'Sending request…'};
   if(lastEvent?.kind==='collect_started')return {message:'Running native Patch Tool COLLECT… large-file extraction in progress. Stop to cancel.'};
   const preview=session.live_preview;
@@ -1738,7 +1740,7 @@ function agentLivePhase(session){
  if(['queued','dispatching','running'].includes(lastCall?.status))return {message:'Running native Patch…'};
  if(turn?.error){
   const persistedError=(session.events||[]).some(e=>Number(e.seq||0)>turn.baseEventSeq&&
-   ['turn_failed','collect_failed','turn_cancelled','feedback_unknown'].includes(e.kind));
+   ['turn_failed','turn_interrupted','collect_failed','turn_cancelled','feedback_unknown'].includes(e.kind));
   if(!persistedError)return {message:'Request failed · '+turn.error,error:true};
  }
  if(session.status==='failed')return null; // durable failure row in history
