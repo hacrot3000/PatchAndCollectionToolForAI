@@ -114,7 +114,9 @@ agentCSS.textContent=[
 '.agentchat-modelbar{padding:8px;display:flex;align-items:center;gap:7px;border-bottom:1px solid #35445c;flex-wrap:wrap}',
 '.agentchat-modelbar select,.agentchat-window textarea,.agentchat-window input{box-sizing:border-box;padding:7px;color:inherit;background:#0f1723;border:1px solid #55667b;border-radius:5px;font:12px ui-monospace,monospace}',
 '.agentchat-modelbar select{min-width:110px;max-width:260px}',
-'.agentchat-transcript{flex:1;overflow:auto;min-height:0;display:flex;flex-direction:column;gap:9px;padding:12px}',
+'.agentchat-transcript{flex:1;overflow:auto;overflow-anchor:none;scroll-behavior:auto;min-height:0;display:flex;flex-direction:column;gap:9px;padding:12px}',
+'.agentchat-transcript>*{flex-shrink:0}',
+'.agentchat-window .agentchat-history-page{align-self:center;flex:none;font-size:11px;padding:5px 10px;max-width:100%;white-space:normal}',
 '.agentchat-bubble{white-space:pre-wrap;overflow-wrap:anywhere;font-size:12px;line-height:1.55;padding:9px;border:1px solid #384b61;border-radius:8px;max-width:94%}',
 '.agentchat-bubble.user{align-self:flex-end;background:#203b56}',
 '.agentchat-bubble.assistant{align-self:flex-start;background:transparent;border-color:transparent;padding:4px 0}',
@@ -354,12 +356,25 @@ agentTokenUsageLine.setAttribute('aria-label','Conversation token usage');
 // Keep inspection expansion and the execution viewer independent of transcript
 // replacements triggered by native status polling.
 const agentOpenReviewDetails=new Set();
-// Session views are append-only in ordinary operation. Only switching sessions
-// or an actual history-prefix edit invalidates already rendered rows.
+// Keep only a bounded sliding window of actual DOM nodes. The complete
+// canonical session remains untouched for tool execution, Copy and provider
+// context; evicted rows are recreated on demand, never cached as detached DOM.
+const AGENT_HISTORY_WINDOW=60;
+const AGENT_HISTORY_PAGE=20;
+const AGENT_HISTORY_EDGE=96;
 let agentRenderedSessionID=null;
 let agentRenderedHistory=[];
-let agentRenderedNodes=[];
-let agentRenderedToolVersions=new Map();
+const agentRenderedNodes=new Map(); // timeline index -> {item,node,version}
+let agentHistoryStart=0,agentHistoryEnd=0;
+let agentHistoryContext=null;
+let agentHistoryScrollTop=0;
+const agentHistoryEarlierButton=agentButton('Load earlier messages',()=>agentPageHistory(-1));
+const agentHistoryNewerButton=agentButton('Load newer messages',()=>agentPageHistory(1));
+const agentHistoryLatestButton=agentButton('Jump to latest',()=>agentScrollToLatest(agentRenderedSessionID));
+for(const button of [agentHistoryEarlierButton,agentHistoryNewerButton,agentHistoryLatestButton]){
+ button.className='agentchat-history-page';
+}
+transcript.addEventListener('scroll',agentTranscriptScrolled,{passive:true});
 let agentCurrentSession=null;
 let agentToolNoticeKey='';
 const agentTabNodes=new Map();
@@ -1545,14 +1560,16 @@ function agentChronologicalHistory(session){
  const failures=(session?.events||[]).filter(e=>
   ['turn_failed','collect_failed','collect_request_rejected','collect_native_failed','turn_cancelled','feedback_unknown'].includes(e.kind));
  if(!failures.length)return history;
- const ordered=failures.map(event=>({
-  ...event,type:'activity_event',
-  history_index:Number.isInteger(event.history_index)&&event.history_index>0?
-    Math.min(event.history_index,history.length):history.length,
- }));
+ const byIndex=new Map();
+ for(const event of failures){
+  const index=Number.isInteger(event.history_index)&&event.history_index>0?
+   Math.min(event.history_index,history.length):history.length;
+  if(!byIndex.has(index))byIndex.set(index,[]);
+  byIndex.get(index).push({...event,type:'activity_event',history_index:index});
+ }
  const result=[];
  for(let i=0;i<=history.length;i++){
-  for(const event of ordered){if(event.history_index===i)result.push(event);}
+  for(const event of byIndex.get(i)||[])result.push(event);
   if(i<history.length)result.push(history[i]);
  }
  return result;
@@ -1757,14 +1774,146 @@ function agentToolRenderVersion(item,records,outputs,session){
   (record&&!record.feedback_sent?':feedback:'+agentFeedbackEnabled(session)+':'+JSON.stringify(session?.auto_feedback_diagnostic||null):'');
 }
 // Auto-follow recent activity without stealing scroll when the user reads history.
+// Being at the bottom of an older page is not being at the end of the chat.
 function agentAtLatest(){
- return transcript.scrollHeight-transcript.scrollTop-transcript.clientHeight<=64;
+ return agentHistoryEnd===agentRenderedHistory.length&&
+  transcript.scrollHeight-transcript.scrollTop-transcript.clientHeight<=64;
+}
+function agentSetHistoryScroll(top){
+ transcript.scrollTop=top;
+ agentHistoryScrollTop=Number(transcript.scrollTop)||0;
+}
+function agentResetHistoryWindow(){
+ transcript.replaceChildren();
+ agentRenderedHistory=[];
+ agentRenderedNodes.clear();
+ agentHistoryStart=0;agentHistoryEnd=0;agentHistoryContext=null;
+ agentHistoryScrollTop=0;
+}
+// Preserve the visible row and its exact offset rather than just scrollHeight:
+// paging can prepend and evict rows in the same operation, with unequal heights.
+// Disable the browser's implicit scroll anchoring (CSS above) to avoid double
+// compensation. Use surviving rows as fallbacks when a card is replaced.
+function agentCaptureHistoryAnchor(){
+ const top=Number(transcript.scrollTop)||0;
+ const bounds=transcript.getBoundingClientRect?.();
+ const anchors=[];
+ if(bounds&&bounds.bottom>bounds.top){
+  for(const [index,entry] of agentRenderedNodes){
+   const rect=entry.node?.getBoundingClientRect?.();
+   if(rect&&rect.bottom>bounds.top&&rect.top<bounds.bottom)
+    anchors.push({index,item:entry.item,node:entry.node,offset:rect.top-bounds.top});
+  }
+  anchors.sort((a,b)=>a.index-b.index);
+ }
+ return {top,anchors};
+}
+function agentRestoreHistoryAnchor(anchor){
+ if(!anchor)return;
+ const bounds=transcript.getBoundingClientRect?.();
+ if(bounds){
+  for(const saved of anchor.anchors){
+   let entry=agentRenderedNodes.get(saved.index);
+   if(!entry||!agentHistoryItemEqual(entry.item,saved.item)){
+    entry=[...agentRenderedNodes.values()].find(e=>e.node===saved.node||agentHistoryItemEqual(e.item,saved.item));
+   }
+   const rect=entry?.node?.getBoundingClientRect?.();
+   if(rect){
+    agentSetHistoryScroll((Number(transcript.scrollTop)||0)+rect.top-bounds.top-saved.offset);
+    return;
+   }
+  }
+ }
+ agentSetHistoryScroll(anchor.top);
+}
+function agentRenderHistoryWindow(start,end){
+ if(!agentHistoryContext||!agentCurrentSession)return false;
+ const {history,records,outputs,callNames}=agentHistoryContext;
+ const session=agentCurrentSession;
+ end=Math.max(0,Math.min(history.length,end));
+ start=Math.max(0,Math.min(end,start));
+ start=Math.max(start,end-AGENT_HISTORY_WINDOW);
+ let changed=false;
+ for(const [index,entry] of agentRenderedNodes){
+  if(index<start||index>=end){
+   entry.node?.remove();agentRenderedNodes.delete(index);changed=true;
+  }
+ }
+ for(let i=start;i<end;i++){
+  const item=history[i],entry=agentRenderedNodes.get(i);
+  const version=item.type==='function_call'?agentToolRenderVersion(item,records,outputs,session):'';
+  if(entry&&agentHistoryItemEqual(entry.item,item)&&entry.version===version){
+   entry.item=item;continue;
+  }
+  const node=agentHistoryRow(session,item,callNames);
+  if(entry?.node){
+   if(node)entry.node.replaceWith(node);else entry.node.remove();
+  }
+  agentRenderedNodes.set(i,{item,node,version});
+  changed=true;
+ }
+ const desired=[];
+ if(start>0){
+  const label='↑ Load '+Math.min(AGENT_HISTORY_PAGE,start)+' earlier · '+start+' hidden';
+  if(agentHistoryEarlierButton.textContent!==label)agentHistoryEarlierButton.textContent=label;
+  desired.push(agentHistoryEarlierButton);
+ }else if(agentHistoryEarlierButton.parentElement){agentHistoryEarlierButton.remove();changed=true;}
+ if(end<history.length)desired.push(agentHistoryLatestButton);
+ else if(agentHistoryLatestButton.parentElement){agentHistoryLatestButton.remove();changed=true;}
+ for(let i=start;i<end;i++){
+  const node=agentRenderedNodes.get(i)?.node;if(node)desired.push(node);
+ }
+ if(end<history.length){
+  const label='↓ Load '+Math.min(AGENT_HISTORY_PAGE,history.length-end)+' newer · '+(history.length-end)+' hidden';
+  if(agentHistoryNewerButton.textContent!==label)agentHistoryNewerButton.textContent=label;
+  desired.push(agentHistoryNewerButton);
+ }else if(agentHistoryNewerButton.parentElement){agentHistoryNewerButton.remove();changed=true;}
+ // Insert only new/moved rows, in order, before the transient optimistic
+ // message/live spinner/preview. No-op polls leave all mounted nodes intact.
+ const owned=new Set(desired);
+ let next=Array.from(transcript.children).find(node=>!owned.has(node))||null;
+ for(let i=desired.length-1;i>=0;i--){
+  const node=desired[i],children=Array.from(transcript.children);
+  const at=children.indexOf(node);
+  if(at<0||(children[at+1]||null)!==next){
+   transcript.insertBefore(node,next);changed=true;
+  }
+  next=node;
+ }
+ agentHistoryStart=start;agentHistoryEnd=end;
+ if(changed)syncAgentThinkingToggles();
+ return changed;
+}
+function agentPageHistory(direction){
+ if(agentActive!==agentRenderedSessionID||!agentHistoryContext)return;
+ const length=agentRenderedHistory.length;
+ const delta=direction<0?-Math.min(AGENT_HISTORY_PAGE,agentHistoryStart):
+  Math.min(AGENT_HISTORY_PAGE,length-agentHistoryEnd);
+ if(!delta)return;
+ const anchor=agentCaptureHistoryAnchor();
+ const start=direction<0?agentHistoryStart+delta:Math.max(0,agentHistoryEnd+delta-AGENT_HISTORY_WINDOW);
+ const end=direction<0?Math.min(length,start+AGENT_HISTORY_WINDOW):agentHistoryEnd+delta;
+ agentRenderHistoryWindow(start,end);
+ agentRestoreHistoryAnchor(anchor);
+}
+function agentTranscriptScrolled(){
+ const top=Number(transcript.scrollTop)||0;
+ const previous=agentHistoryScrollTop;agentHistoryScrollTop=top;
+ // Ignore programmatic scroll events generated by anchor restoration or
+ // latest-follow. Load at most one page per movement, never cascade on layout.
+ if(top<previous&&top<=AGENT_HISTORY_EDGE&&agentHistoryStart>0)agentPageHistory(-1);
+ else if(top>previous&&transcript.scrollHeight-top-transcript.clientHeight<=AGENT_HISTORY_EDGE&&
+  agentHistoryEnd<agentRenderedHistory.length)agentPageHistory(1);
 }
 function agentScrollToLatest(sessionID){
- if(agentActive!==sessionID)return;
- transcript.scrollTop=transcript.scrollHeight;
+ if(!sessionID||agentActive!==sessionID)return;
+ if(agentRenderedSessionID===sessionID&&agentHistoryEnd<agentRenderedHistory.length){
+  const end=agentRenderedHistory.length;
+  agentRenderHistoryWindow(Math.max(0,end-AGENT_HISTORY_WINDOW),end);
+ }
+ agentSetHistoryScroll(transcript.scrollHeight);
  if(typeof requestAnimationFrame==='function')requestAnimationFrame(()=>{
-  if(agentActive===sessionID&&agentAtLatest())transcript.scrollTop=transcript.scrollHeight;
+  if(agentActive===sessionID&&agentAtLatest())agentSetHistoryScroll(transcript.scrollHeight);
  });
 }
 // The local audit is a pre-send hint. It does NOT prove provider receipt.
@@ -1941,9 +2090,8 @@ function displayAgentSession(session){
   closeAgentHistoryAttachmentsPopup();
   if(agentLiveRow.parentElement)agentLiveRow.remove();
   if(agentRenderedSessionID!==null){
-   transcript.replaceChildren();
-   agentRenderedSessionID=null;agentRenderedHistory=[];agentRenderedNodes=[];
-   agentRenderedToolVersions.clear();
+   agentResetHistoryWindow();
+   agentRenderedSessionID=null;
   }
   agentCurrentSession=null;
   renderAgentAutomationControls(null);
@@ -1958,12 +2106,11 @@ function displayAgentSession(session){
  const switched=agentRenderedSessionID!==session.id;
  if(switched){closeAgentAttachmentsPopup();closeAgentHistoryAttachmentsPopup();}
  const followLatest=switched||agentAtLatest();
+ const anchor=followLatest?null:agentCaptureHistoryAnchor();
  if(switched){
   if(agentLiveRow.parentElement)agentLiveRow.remove();
-  transcript.replaceChildren();
+  agentResetHistoryWindow();
   agentRenderedSessionID=session.id;
-  agentRenderedHistory=[];agentRenderedNodes=[];
-  agentRenderedToolVersions.clear();
  }
  agentCurrentSession=session;
  // A render from an authoritative session snapshot must refresh Stop/Send,
@@ -1977,55 +2124,38 @@ function displayAgentSession(session){
   if(item.type==='function_call')callNames.set(item.call_id,item.name);
   else if(item.type==='function_call_output')outputs.set(item.call_id,item);
  }
- let prefix=0;
- const common=Math.min(history.length,agentRenderedHistory.length);
- while(prefix<common&&agentHistoryItemEqual(history[prefix],agentRenderedHistory[prefix]))prefix++;
- // Source compaction or a changed history item invalidates only its tail.
- // Polling the same canonical transcript does not touch any existing nodes.
- // A submitted message is painted optimistically while the provider request
- // runs. Replace that exact pending node when the journal confirms the user
- // message; do not leave a duplicate or rebuild unrelated transcript rows.
+ // Keep the current reading window on background polls. A short chat can
+ // append without evicting a row; a full window exposes a newer-page button.
+ let start=agentHistoryStart,end=agentHistoryEnd;
+ if(followLatest){end=history.length;start=Math.max(0,end-AGENT_HISTORY_WINDOW);}
+ else{
+  // Compaction/activity insertion can shift indices. Rebase to the visible
+  // item when it still exists; otherwise clamp to a valid window.
+  const saved=anchor?.anchors[0];
+  if(saved&&!agentHistoryItemEqual(history[saved.index],saved.item)){
+   const moved=history.findIndex(item=>agentHistoryItemEqual(item,saved.item));
+   if(moved>=0){const shift=moved-saved.index;start+=shift;end+=shift;}
+  }
+  end=Math.max(0,Math.min(end,history.length));
+  start=Math.max(0,Math.min(start,end));
+  if(agentHistoryEnd===agentRenderedHistory.length)
+   end=Math.min(history.length,start+AGENT_HISTORY_WINDOW);
+  if(end===start&&history.length){end=Math.min(history.length,start+AGENT_HISTORY_WINDOW);start=Math.max(0,end-AGENT_HISTORY_WINDOW);}
+ }
+ // The canonical user message replaces the optimistic bubble, without
+ // duplicating it or moving unrelated visible history nodes.
  const live=agentLiveTurns.get(session.id);
  if(live?.optimisticNode&&agentTurnIsPersisted(session,live)){
   live.optimisticNode.remove();
   live.optimisticNode=null;live.acknowledged=true;
  }
- const changed=switched||prefix<history.length||prefix<agentRenderedHistory.length;
- if(changed){
-  const nearBottom=followLatest;
-  const previousScroll=transcript.scrollTop;
-  for(let i=agentRenderedHistory.length-1;i>=prefix;i--){
-   agentRenderedNodes[i]?.remove();
-  }
-  agentRenderedHistory.length=prefix;agentRenderedNodes.length=prefix;
-  const added=[];
-  for(let i=prefix;i<history.length;i++){
-   const item=history[i];
-   const node=agentHistoryRow(session,item,callNames);
-   agentRenderedHistory.push(item);agentRenderedNodes.push(node);
-   if(node)added.push(node);
-   if(item.type==='function_call')agentRenderedToolVersions.set(item.call_id,agentToolRenderVersion(item,records,outputs,session));
-  }
-  if(added.length)transcript.append(...added);
-  if(nearBottom)transcript.scrollTop=transcript.scrollHeight;
-  else transcript.scrollTop=previousScroll;
- }
- // A new native status, receipt or Collection observation affects its own
- // tool card only, never the surrounding messages or open console viewer.
- for(let i=0;i<history.length;i++){
-  const item=history[i];
-  if(item.type!=='function_call'||!agentRenderedNodes[i])continue;
-  const version=agentToolRenderVersion(item,records,outputs,session);
-  if(agentRenderedToolVersions.get(item.call_id)===version)continue;
-  const updated=renderAgentTool(session,item);
-  agentRenderedNodes[i].replaceWith(updated);
-  agentRenderedNodes[i]=updated;
-  agentRenderedToolVersions.set(item.call_id,version);
- }
+ agentRenderedHistory=history;
+ agentHistoryContext={history,records,outputs,callNames};
+ agentRenderHistoryWindow(start,end);
  agentUpdateLiveRow(session);
- if(changed)syncAgentThinkingToggles();
- // The live status is appended after the history scroll decision.
+ // Restore after live status/row heights have settled synchronously.
  if(followLatest)agentScrollToLatest(session.id);
+ else agentRestoreHistoryAnchor(anchor);
  const last=(session.tool_calls||[]).slice(-1)[0];
  updateAgentFooterSession(session,last);
  renderAgentAutomationControls(session);
@@ -3601,7 +3731,7 @@ async function deleteAgentSession(id){
  if(agentActive===id){
   agentActive=null;agentCurrentSession=null;
   agentExecutionPanel.classList.remove('visible');agentExecutionTarget=null;
-  agentRenderedSessionID=null;agentRenderedHistory=[];agentRenderedNodes=[];agentRenderedToolVersions.clear();
+  agentResetHistoryWindow();agentRenderedSessionID=null;
   setAgentPromptValue('');agentAttachments=[];renderAgentAttachments();
  }
  toggleAgentSessions(false);
