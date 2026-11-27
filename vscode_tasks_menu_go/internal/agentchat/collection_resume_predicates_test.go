@@ -130,8 +130,8 @@ func TestCollectionAutoResumeAllowedNeedsLiveOwnerConsent(t *testing.T) {
 	exhausted := resumeFenceSession(t)
 	exhausted.AutoContinueText = true
 	exhausted.Continuation = &TurnContinuation{NoProgressTurns: MaxContinuationNoWorkTurns}
-	if CollectionAutoResumeAllowed(exhausted) {
-		t.Fatal("no-progress hysteresis bypassed")
+	if !CollectionAutoResumeAllowed(exhausted) {
+		t.Fatal("exact eligible receipt was blocked by diagnostic no-progress count")
 	}
 	stalledPlan := resumeFenceSession(t)
 	stalledPlan.TaskPlan = &TaskPlan{State: "blocked"}
