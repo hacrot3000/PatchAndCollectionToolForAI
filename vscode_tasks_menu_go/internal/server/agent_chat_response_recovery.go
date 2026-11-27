@@ -54,6 +54,10 @@ func (s *Server) saveAgentReceivedResponse(store *agentchat.Store, candidate age
   if errors.Is(last,agentchat.ErrStaleRevision){break}
   if attempt+1<agentResponseSaveAttempts{time.Sleep(time.Duration(attempt+1)*50*time.Millisecond)}
  }
+ if current,e:=store.Get(candidate.ID,candidate.Owner);e==nil&&agentResponseAlreadyCommitted(current,candidate){
+  _=store.ClearCommittedProviderResponse(candidate.ID,candidate.Owner,runID)
+  return current,nil
+ }
  // Preserve the exact candidate if the initial checkpoint write failed.
  // This never changes the primary journal or retries the network.
  if stageErr!=nil{
@@ -81,8 +85,10 @@ func (s *Server) recordAgentResponseSaveDiagnostic(x agentchat.Session,event str
 func (s *Server) recoverAgentReceivedResponseLocked(store *agentchat.Store,x agentchat.Session,closeOrphan bool)(agentchat.Session,bool,error){
  if x.Status!="requesting_ai"||x.ProviderRun==nil||
   (x.ProviderRun.Phase!="sending"&&x.ProviderRun.Phase!="acknowledged"){return x,false,nil}
- if s.agentConversationRequiresRunContinuation(x.Owner,x.ID){return x,false,nil}
+ // An exact checkpoint was produced only by the Legacy response path.
+ // Historical Run Manager records cannot veto its local-only commit.
  saved,found,err:=store.RecoverProviderResponse(x.ID,x.Owner)
+ if !found&&s.agentConversationRequiresRunContinuation(x.Owner,x.ID){return x,false,nil}
  if found&&err==nil{
   s.recordAgentDebugEvent(x.Owner,x.ID,"","response_storage","response.recovered","completed","Recovered exact local response checkpoint; no provider request replayed")
   return saved,true,nil
