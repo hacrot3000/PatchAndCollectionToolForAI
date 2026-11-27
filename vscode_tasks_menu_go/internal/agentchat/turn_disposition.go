@@ -372,10 +372,18 @@ func exactPatchCorrectionFeedback(x Session,retired bool)bool{
  return source==1&&receipts==1
 }
 
+// StandaloneContinuationGranted separates the saved owner preference from
+// the scheduler brake. A pause must never silently revoke the preference.
+// Independent AutoFeedback grants are not changed by this predicate.
+func StandaloneContinuationGranted(x Session)bool{
+ return x.AutoContinueText&&(x.Continuation==nil||
+  (x.Continuation.NoProgressTurns<MaxContinuationNoWorkTurns&&x.Continuation.Reason!="nonretryable_admission_failure"))
+}
+
 func StandaloneAutoContinueCandidate(x Session)bool{
  c:=EffectiveTurnContinuation(x)
- if !x.AutoContinueText||x.TaskPlan!=nil||x.Owner!="local"||x.Archived||
-  x.Status!="completed"||c==nil||c.NoProgressTurns>=MaxContinuationNoWorkTurns||
+ if !StandaloneContinuationGranted(x)||x.TaskPlan!=nil||x.Owner!="local"||x.Archived||
+  x.Status!="completed"||c==nil||
   (c.Disposition!=TurnNeedsContinuation&&c.Disposition!=TurnInProgress&&!UnknownCollectionProgressRecheck(x)&&!UnknownPatchCorrectionRecheck(x)&&!RetiredPatchBlockerRecheck(x))||
   x.PendingUserTurn!=nil||HasUnresolvedWork(x){return false}
  if c.NextRetryAt!=nil&&time.Now().UTC().Before(*c.NextRetryAt){return false}
