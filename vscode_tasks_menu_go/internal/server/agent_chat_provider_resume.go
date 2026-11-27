@@ -159,7 +159,7 @@ func (s *Server) resumePreparedAgentProviderRun(ctx context.Context,store *agent
  }
  markAgentProviderOutcome(&x,"completed")
  x.AppendEvent("provider_resume_finished",x.Status,run.CallID,"prepared_only")
- if _,err=store.Save(x,x.Revision);err==nil{
+ if _,err=s.saveAgentReceivedResponse(store,x);err==nil{
   _=store.DeleteProviderPayload(id)
  }
  return true
