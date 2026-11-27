@@ -78,7 +78,7 @@ func (s *Server) recordAgentResponseSaveDiagnostic(x agentchat.Session,event str
 // Recover only an abandoned Legacy turn under its cross-process lease.
 // The attempt ledger is telemetry, not a response body or replay authority.
 // With no checkpoint it can explain the loss, but cannot reconstruct content.
-func (s *Server) recoverAgentReceivedResponseLocked(store *agentchat.Store,x agentchat.Session)(agentchat.Session,bool,error){
+func (s *Server) recoverAgentReceivedResponseLocked(store *agentchat.Store,x agentchat.Session,closeOrphan bool)(agentchat.Session,bool,error){
  if x.Status!="requesting_ai"||x.ProviderRun==nil||
   (x.ProviderRun.Phase!="sending"&&x.ProviderRun.Phase!="acknowledged"){return x,false,nil}
  if s.agentConversationRequiresRunContinuation(x.Owner,x.ID){return x,false,nil}
@@ -87,6 +87,7 @@ func (s *Server) recoverAgentReceivedResponseLocked(store *agentchat.Store,x age
   s.recordAgentDebugEvent(x.Owner,x.ID,"","response_storage","response.recovered","completed","Recovered exact local response checkpoint; no provider request replayed")
   return saved,true,nil
  }
+ if !found&&!closeOrphan{return x,false,err}
  // Re-read after any ambiguous journal rename, and do not overwrite a newer
  // revision. If the candidate was committed, the primary journal wins.
  fresh,e:=store.Get(x.ID,x.Owner)
@@ -132,7 +133,7 @@ func (s *Server) recoverAgentReceivedResponseOne(ctx context.Context,store *agen
  defer release()
  x,err=store.Get(id,"local")
  if err!=nil||x.Workspace!=s.Workspace||!agentResponseRecoveryCandidate(x){return false}
- _,handled,_:=s.recoverAgentReceivedResponseLocked(store,x)
+ _,handled,_:=s.recoverAgentReceivedResponseLocked(store,x,true)
  return handled
 }
 
