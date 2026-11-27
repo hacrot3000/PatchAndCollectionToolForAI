@@ -1,5 +1,7 @@
 # HANDOFF 20 — Regression scenario reconciliation (CLP-09.01.04)
 
+> **Current local workflow (2026-11-27):** [20-coder-execution-contract.md](20-coder-execution-contract.md) supersedes historical process/stop instructions and completion claims below. Historical gate count stays 20/28. Current core 45985473641 and Go 45985473473 FAIL; PHP 45985473638 PASS at 9a9c350b. Repair current failing code before promotion. Do not use external verification or delivery as a local BLOCKED condition. No acceptance or safety relaxation.
+
 > Reconciliation of R01–R28 against verified evidence. Derived from read-only COLLECT of the
 > authoritative §6.1 mapping (checklist lines 487–516). No test was executed here; do NOT
 > treat this document as PASS evidence. CLP-09.01.04 stays VERIFY_PENDING because its
