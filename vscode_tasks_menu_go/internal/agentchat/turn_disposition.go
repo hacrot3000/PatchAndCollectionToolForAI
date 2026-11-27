@@ -40,6 +40,7 @@ type TurnContinuation struct {
  RepeatedTurns int `json:"repeated_turns,omitempty"`
  NoProgressTurns int `json:"no_progress_turns,omitempty"`
  LastWorkSignature string `json:"last_work_signature,omitempty"`
+ LastWorkSignatureVersion int `json:"last_work_signature_version,omitempty"`
  LastContinuationKey string `json:"last_continuation_key,omitempty"`
  RetryStreak int `json:"retry_streak,omitempty"`
  NextRetryAt *time.Time `json:"next_retry_at,omitempty"`
@@ -69,7 +70,7 @@ func ValidTurnContinuation(c *TurnContinuation)bool{
  if !validTurnDisposition(c.Disposition)||len(c.NextAction)>MaxTurnNextActionBytes||!utf8.ValidString(c.NextAction)||len(c.CheckpointPath)>240||
   len(c.EvidenceRefs)>8||len(c.Reason)>120||len(c.ResponseDigest)>64||len(c.ProgressSignature)>64||
   c.RepeatedTurns<0||c.RepeatedTurns>100||c.NoProgressTurns<0||c.NoProgressTurns>100||
-  len(c.LastWorkSignature)>64||len(c.LastContinuationKey)>128||
+  c.LastWorkSignatureVersion<0||c.LastWorkSignatureVersion>1||len(c.LastWorkSignature)>64||len(c.LastContinuationKey)>128||
   c.RetryStreak<0||c.RetryStreak>100{return false}
  for _,s:=range []string{c.ResponseDigest,c.ProgressSignature,c.LastWorkSignature}{
   if s!=""&&!validSHA256(s){return false}
@@ -207,6 +208,7 @@ func RecordTurnDisposition(x *Session,text string){
  if old!=nil{
   next.NoProgressTurns=old.NoProgressTurns
   next.LastWorkSignature=old.LastWorkSignature
+  next.LastWorkSignatureVersion=old.LastWorkSignatureVersion
   next.LastContinuationKey=old.LastContinuationKey
   next.RetryStreak=old.RetryStreak
   next.NextRetryAt=old.NextRetryAt
