@@ -742,9 +742,9 @@ func (s *Server) agentChatAuthorizedMessage(w http.ResponseWriter, r *http.Reque
 	if requestKey != "" {
 		session.LastRequestCode = 200
 	}
-	session, err = store.Save(session, session.Revision)
+	session, err = s.saveAgentReceivedResponse(store, session)
 	if err != nil {
-		http.Error(w, "provider responded but durable session update failed; inspect session before retry", 409)
+		http.Error(w, "Provider responded; local response save failed ("+agentchat.ProviderResponseSaveErrorCode(err)+"). Recovery will inspect the saved checkpoint; do not resend this request.", 409)
 		return
 	}
 	w.Header().Set("Cache-Control", "no-store")
