@@ -3445,14 +3445,16 @@ function renderAgentAutomationControls(session){
  autoContinueText.setAttribute('aria-pressed',String(Boolean(session?.auto_continue_text)));
  const baseTitle='Allow additional AI requests for an unfinished conversation without a Task plan. No extra Patch permission.';
  const reason=session?.continuation?.reason;
- // Do not conceal a deliberate server-side safety stop as a lost preference.
- const stopped=!session?.auto_continue_text&&(
-  reason==='stalled_without_verified_work'?'Stopped after repeated turns without verified work.':
-  reason==='nonretryable_admission_failure'?'Stopped after an admission error that requires review.':
-  session?.continuation?.disposition==='BLOCKED'?'The conversation reported a blocker.':'');
+ // Saved owner preference and scheduler eligibility are different states.
+ const pausedReason=reason==='stalled_without_verified_work'||Number(session?.continuation?.no_progress_turns||0)>=5
+  ?'Paused after repeated turns without verified work.':
+  reason==='nonretryable_admission_failure'?'Paused after an admission error that requires review.':'';
+ const paused=Boolean(session?.auto_continue_text&&pausedReason);
  const advisoryBlocker=Boolean(session?.auto_continue_text&&session?.continuation?.disposition==='BLOCKED');
- if(advisoryBlocker)autoContinueText.textContent='Auto continue (no plan): ON · review/recovery';
- autoContinueText.title=stopped?baseTitle+' '+stopped+' Review the conversation before enabling again.':advisoryBlocker?baseTitle+' The model reported a blocker; TaskDeck checks exact native recovery evidence before scheduling another turn. Your preference remains ON.':baseTitle;
+ if(paused)autoContinueText.textContent='Auto continue (no plan): ON · paused';
+ else if(advisoryBlocker)autoContinueText.textContent='Auto continue (no plan): ON · review/recovery';
+ autoContinueText.title=paused?baseTitle+' '+pausedReason+' Your preference remains ON. Review the conversation and toggle OFF then ON to explicitly rearm.':
+  advisoryBlocker?baseTitle+' The model reported a blocker; TaskDeck checks exact native recovery evidence before scheduling another turn. Your preference remains ON.':baseTitle;
 }
 function agentFeedbackEnabled(session){
  return Boolean(session?.auto_feedback&&(session.auto_feedback_persistent||
@@ -3582,9 +3584,9 @@ function renderAgentTaskPlan(data){
  const autoWithoutPlan=Boolean(agentCurrentSession?.auto_continue_text);
  const waiting=Boolean(['waiting_tool','tool_queuing'].includes(agentCurrentSession?.status));
  const planCompleted=plan?.state==='completed';
- const stalled=turn?.reason==='stalled_without_verified_work'||plan?.state==='paused'&&Number(plan?.no_progress_turns)>=5;
+ const stalled=turn?.reason==='stalled_without_verified_work'||Number(turn?.no_progress_turns||0)>=5||plan?.state==='paused'&&Number(plan?.no_progress_turns)>=5;
  const label=planCompleted?'Task completed':stalled?'Stalled':waiting?'Waiting for tool':
-  plan?.state==='paused'||turn?.disposition==='BLOCKED'?'Needs review':
+  plan?.state==='paused'||turn?.disposition==='BLOCKED'||turn?.reason==='nonretryable_admission_failure'?'Needs review':
   (plan?.auto_continue||autoWithoutPlan)?'Continuing':'Needs review';
  const summary=agentEl('div','agentchat-info',
   'Continuation: '+label+' · Last AI turn: '+String(turn?.disposition||'UNKNOWN')+
