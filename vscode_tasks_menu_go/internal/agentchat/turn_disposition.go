@@ -19,7 +19,8 @@ const (
  TurnBlocked = "BLOCKED"
  TurnClaimedComplete = "CLAIMED_COMPLETE"
  TurnUnknown = "UNKNOWN"
- // This is a verified-work brake, not a number of permitted provider turns.
+ // Threshold for diagnostics, TaskPlan braking and ambiguous status-only rechecks;
+ // not a limit on explicit no-plan continuation.
  MaxContinuationNoWorkTurns = 5
  // Bound persisted advisory text independently from the status enum.
  MaxTurnNextActionBytes = 4096
@@ -372,12 +373,10 @@ func exactPatchCorrectionFeedback(x Session,retired bool)bool{
  return source==1&&receipts==1
 }
 
-// StandaloneContinuationGranted separates the saved owner preference from
-// the scheduler brake. A pause must never silently revoke the preference.
-// Independent AutoFeedback grants are not changed by this predicate.
+// StandaloneContinuationGranted is the persistent owner's grant. No-progress
+// counters and historical admission-pause reasons must not disable it.
 func StandaloneContinuationGranted(x Session)bool{
- return x.AutoContinueText&&(x.Continuation==nil||
-  (x.Continuation.NoProgressTurns<MaxContinuationNoWorkTurns&&x.Continuation.Reason!="nonretryable_admission_failure"))
+ return x.AutoContinueText
 }
 
 func StandaloneAutoContinueCandidate(x Session)bool{
@@ -386,6 +385,9 @@ func StandaloneAutoContinueCandidate(x Session)bool{
   x.Status!="completed"||c==nil||
   (c.Disposition!=TurnNeedsContinuation&&c.Disposition!=TurnInProgress&&!UnknownCollectionProgressRecheck(x)&&!UnknownPatchCorrectionRecheck(x)&&!RetiredPatchBlockerRecheck(x))||
   x.PendingUserTurn!=nil||HasUnresolvedWork(x){return false}
+ // An explicit unfinished turn has no no-work limit. Status-only checks
+ // are different: do not keep asking a model that has not requested continuation.
+ if c.NoProgressTurns>=MaxContinuationNoWorkTurns&&c.Disposition!=TurnNeedsContinuation&&c.Disposition!=TurnInProgress{return false}
  if c.NextRetryAt!=nil&&time.Now().UTC().Before(*c.NextRetryAt){return false}
  if x.ProviderRun!=nil{
   switch x.ProviderRun.Phase{case "prepared","sending","unknown","blocked":return false}
