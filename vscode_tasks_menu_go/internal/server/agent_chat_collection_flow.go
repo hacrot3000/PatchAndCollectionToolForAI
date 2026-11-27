@@ -347,6 +347,18 @@ func (s *Server) agentChatRunCollection(
 			if len(x.History)==0||x.History[len(x.History)-1]!=next{return result,clearProviderRefs,&agentCollectionLocalError{Stage:"stall_receipt_projection",Round:round+1,Cause:errors.New("committed Collection output missing from latest history")}}
 			projection.History=x.History[:len(x.History)-1]
 		}
+        // Carry the verified predecessor disposition through every fresh
+        // native Collection turn, including reads of Nim receipts. Never
+        // append the diagnostic to canonical history or replay a tool output.
+        beforeFailureProjection:=len(projection.History)
+        projection=s.agentFailureContextProjection(store,projection,"","")
+        if len(projection.History)>beforeFailureProjection&&mode!=agentchat.Stateless{
+            forceStateless=true
+            clearProviderRefs=true
+            mode=agentchat.Stateless
+            x.PreviousResponseID="";x.ConversationID="";conversationID=""
+            contextModel,limit=agentAdaptiveRequestBudget(store,*x,provider,model,key,limit)
+        }
 		payload, err := s.agentBuildCachedContextRequest(store,projection,contextModel,provider,key,agentchat.RequestConfig{
 			Model: x.ModelID, Instructions: instructions, CurrentInstructions: currentInstructions,
 			Mode: mode, PreviousResponseID: x.PreviousResponseID, ConversationID: conversationID,
