@@ -2168,6 +2168,44 @@ console.log('PASS: active Agent Rename persists once and updates tab and History
  console.log('PASS: exact artifact bytes, Unicode split, limits, deduplication, session/workspace isolation, no provider request');
 }
 
+// Reload must reopen the selected conversation rather than the newest
+// conversation with potentially different automation consent.
+{
+ const start=source.indexOf('function agentSelectionKey(){');
+ const end=source.indexOf('function closeAgentTab(id){',start);
+ const loadStart=source.indexOf('let agentSelectionRestored=false;');
+ const loadEnd=source.indexOf('function agentDockKey(){',loadStart);
+ assert.ok(start>=0&&end>start&&loadStart>=0&&loadEnd>loadStart);
+ const storage=new Map();
+ const sessions=[{id:'newest',auto_continue_text:false},{id:'selected',auto_continue_text:true}];
+ const create=workspace=>{
+  const opened=[];
+  const ctx={agentApp:{taskData:{workspace}},agentActive:null,agentTabs:[],agentSessions:sessions,
+   localStorage:{getItem:k=>storage.get(k)||null,setItem:(k,v)=>storage.set(k,v)},
+   loadAgentProviders:async()=>{},loadAgentSessions:async()=>{},renderAgentTabs:()=>{},
+   renderAgentAttachments:()=>{},displayAgentSession:()=>{},
+   selectAgentSession:async id=>{ctx.agentActive=id;opened.push(sessions.find(s=>s.id===id));},
+  };
+  vm.runInNewContext(source.slice(start,end)+source.slice(loadStart,loadEnd)+'\nthis.restore=loadAgentState;this.save=saveAgentSelection;',ctx);
+  return {ctx,opened};
+ };
+ const initial=create('/workspace-a');
+ initial.ctx.agentActive='selected';initial.ctx.agentTabs=['newest','selected'];initial.ctx.save();
+ const reloaded=create('/workspace-a');
+ await reloaded.ctx.restore();
+ assert.equal(reloaded.ctx.agentActive,'selected');
+ assert.equal(reloaded.opened[0].auto_continue_text,true,'reload reads the selected conversation server preference');
+ assert.equal(JSON.stringify(reloaded.ctx.agentTabs),JSON.stringify(['newest','selected']));
+ const isolated=create('/workspace-b');await isolated.ctx.restore();
+ assert.equal(isolated.ctx.agentActive,'newest','navigation is isolated by workspace');
+ assert.equal(isolated.opened[0].auto_continue_text,false,'never copy consent to another conversation');
+ sessions.pop();
+ const deleted=create('/workspace-a');await deleted.ctx.restore();
+ assert.equal(deleted.ctx.agentActive,'newest','deleted selection falls back to available conversation');
+ assert.equal(JSON.stringify(deleted.ctx.agentTabs),JSON.stringify(['newest']));
+ console.log('PASS: reload restores selected conversation and authoritative per-conversation automation, workspace isolation and deleted-tab fallback');
+}
+
 // Tests have no authority to execute native Patch or contact the real provider.
 
 })().catch(error => { console.error(error); process.exitCode = 1; });
