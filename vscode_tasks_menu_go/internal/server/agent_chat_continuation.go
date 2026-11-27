@@ -85,22 +85,20 @@ func (s *Server) autoContinueConversationOne(ctx context.Context,store *agentcha
  prior:=c.LastWorkSignature
  if c.LastContinuationKey==""{prior=""}
  reference:=agentchat.ContinuationWorkReference(original,current,prior,c.LastWorkSignatureVersion)
- if after==reference {c.NoProgressTurns++}else{c.NoProgressTurns=0}
+ if after==reference {if c.NoProgressTurns<100{c.NoProgressTurns++}}else{c.NoProgressTurns=0}
  c.LastWorkSignature=after
  c.LastWorkSignatureVersion=agentchat.WorkSignatureVersion(current)
  c.LastContinuationKey=requestID
  c.RetryStreak=0
  c.NextRetryAt=nil
- if c.NoProgressTurns>=agentchat.MaxContinuationNoWorkTurns{
-  // Pause scheduling, not the owner preference. The persisted counter
-  // independently prevents further automatic turns until explicitly rearmed.
-  c.Reason="stalled_without_verified_work"
-  current.AppendEvent("continuation_stalled",current.Status,"","no_verified_work_after_recovery")
- }else if c.Disposition==agentchat.TurnBlocked&&!agentchat.RetiredPatchBlockerRecheck(current){
-  // A model blocker pauses scheduling through the disposition predicate;
-  // it must not silently revoke the user's persisted Auto continue grant.
+ if c.Disposition==agentchat.TurnBlocked&&!agentchat.RetiredPatchBlockerRecheck(current){
   current.AppendEvent("continuation_blocked",current.Status,"","model_reported_blocker_requires_review")
  }else{
+  // The no-work count is diagnostic only for an explicit unfinished turn.
+  // Never stop or rewrite consent merely because the count reached five.
+  if c.NoProgressTurns==agentchat.MaxContinuationNoWorkTurns&&original.Continuation.NoProgressTurns<c.NoProgressTurns{
+   current.AppendEvent("continuation_no_progress",current.Status,"","continuing_under_owner_grant")
+  }
   current.AppendEvent("continuation_advanced",current.Status,"",c.Disposition)
  }
  _,_=store.Save(current,current.Revision)
@@ -117,22 +115,18 @@ func (s *Server) deferStandaloneAdmission(store *agentchat.Store,id string,httpC
  x,err:=store.Get(id,"local")
  if err!=nil||!x.AutoContinueText||x.Continuation==nil||x.Status!="completed"{return}
  c:=x.Continuation
- switch httpCode {
- case http.StatusTooManyRequests,http.StatusInternalServerError,http.StatusServiceUnavailable:
-  if c.RetryStreak<8{c.RetryStreak++}
-  shift:=c.RetryStreak-1
-  if shift>6{shift=6}
-  delay:=10*time.Second*time.Duration(1<<shift)
-  if delay>10*time.Minute{delay=10*time.Minute}
-  until:=time.Now().UTC().Add(delay)
-  c.NextRetryAt=&until
-  x.AppendEvent("continuation_deferred",x.Status,"",fmt.Sprintf("http_%d_retry_after_%ds",httpCode,int(delay.Seconds())))
- case http.StatusConflict:
-  return
- default:
-  // Keep the owner preference; the admission pause is an eligibility fence.
-  c.Reason="nonretryable_admission_failure"
-  x.AppendEvent("continuation_blocked",x.Status,"",fmt.Sprintf("http_%d_requires_review",httpCode))
- }
+ // A rejected pre-egress admission is retried indefinitely with capped
+ // backoff. No request is replayed: the scheduler rechecks all live grants,
+ // pending tools and provider fences on every fresh admission.
+ if httpCode==http.StatusConflict{return}
+ if c.RetryStreak<8{c.RetryStreak++}
+ shift:=c.RetryStreak-1
+ if shift>6{shift=6}
+ delay:=10*time.Second*time.Duration(1<<shift)
+ if delay>10*time.Minute{delay=10*time.Minute}
+ until:=time.Now().UTC().Add(delay)
+ c.NextRetryAt=&until
+ c.Reason="admission_retry_scheduled"
+ x.AppendEvent("continuation_deferred",x.Status,"",fmt.Sprintf("http_%d_retry_after_%ds",httpCode,int(delay.Seconds())))
  _,_=store.Save(x,x.Revision)
 }
