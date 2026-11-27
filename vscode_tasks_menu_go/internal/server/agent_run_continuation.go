@@ -104,12 +104,12 @@ func runVerifiedProgressSignature(run agentrun.Record, session agentchat.Session
 func runContinuationWorkSignature(owner string,run agentrun.Record,inputs AgentRunInputs,x agentchat.Session)string{
  done,total:=agentchat.TaskPlanProgress(x.TaskPlan)
  if g,ok:=readRunCollectionProgress(owner,run.Spec,inputs);ok{
-  digest:=sha256.Sum256([]byte(fmt.Sprintf("%s:%d:%d:%d:%d/%d",g.Counters.Objective.Key,g.Counters.NewEvidence,g.Counters.VerifiedProgressEvents,g.Counters.AttestedProgressEvents,done,total)))
-  return "clp-v1:"+hex.EncodeToString(digest[:])
+  digest:=sha256.Sum256([]byte(fmt.Sprintf("clp-v1:%s:%d:%d:%d:%d/%d",g.Counters.Objective.Key,g.Counters.NewEvidence,g.Counters.VerifiedProgressEvents,g.Counters.AttestedProgressEvents,done,total)))
+  return hex.EncodeToString(digest[:])
  }
  if inputs.Snapshot.Policy!=nil&&len(inputs.Snapshot.Policy.CollectionProgress)!=0{
-  digest:=sha256.Sum256([]byte(fmt.Sprintf("%d/%d",done,total)))
-  return "clp-unknown:"+hex.EncodeToString(digest[:])
+  digest:=sha256.Sum256([]byte(fmt.Sprintf("clp-unknown:%d/%d",done,total)))
+  return hex.EncodeToString(digest[:])
  }
  return runVerifiedProgressSignature(run,x)
 }
@@ -147,11 +147,12 @@ func (e ownerBoundAgentRunExecutor) ResolveCompletedTurn(ctx context.Context, ru
 	mode := runAutoContinueMode(x, inputs.Snapshot.Policy.Automation)
 	signature := runContinuationWorkSignature(e.owner,run,inputs,x)
 	progress.LastWorkSignature = signature
+	if _,ok:=readRunCollectionProgress(e.owner,run.Spec,inputs);ok||len(inputs.Snapshot.Policy.CollectionProgress)!=0{progress.LastWorkSignatureVersion=1}
 	if old := run.Continuation; old != nil {
 		progress.NoProgressTurns = old.NoProgressTurns
 		if old.LastWorkSignature == signature {
 			progress.NoProgressTurns++
-		} else if strings.HasPrefix(signature,"clp-")&&old.LastWorkSignature!=""&&!strings.HasPrefix(old.LastWorkSignature,"clp-"){
+		} else if progress.LastWorkSignatureVersion==1&&old.LastWorkSignature!=""&&old.LastWorkSignatureVersion!=1{
 			// Upgrade from an unversioned signature: the format change
 			// alone cannot prove work. Preserve the existing brake unless
 			// the old projection itself proves no change.
