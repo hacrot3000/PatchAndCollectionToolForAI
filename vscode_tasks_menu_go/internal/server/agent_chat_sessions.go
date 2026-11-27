@@ -326,6 +326,10 @@ func (s *Server) agentChatSessionItemAPI(w http.ResponseWriter, r *http.Request)
  attempts,attemptErr:=store.ProviderAttempts(id,aiPlanOwner(r))
  _,resumeEligible:=agentchat.CollectionResumeReceipt(item)
  if s.Config.SharedServerEnabled||attemptErr!=nil{resumeEligible=false}
+ var resendTarget *agentReceiptResendTarget
+ if !s.Config.SharedServerEnabled&&attemptErr==nil&&!s.agentConversationRequiresRunContinuation(item.Owner,id){
+  resendTarget=agentReceiptResendCandidate(item)
+ }
  recoveryState:=agentUnknownCollectionRecoveryState(item,time.Now().UTC())
  if recoveryState!=""&&(s.Config.SharedServerEnabled||s.agentConversationRequiresRunContinuation(item.Owner,id)||attemptErr!=nil){
   recoveryState="manual_review_required"
@@ -355,6 +359,7 @@ func (s *Server) agentChatSessionItemAPI(w http.ResponseWriter, r *http.Request)
 		"native_work_wait":agentNativeWaitSnapshot(s.Workspace,item.Owner,id),
 		"provider_review": review,
 		"collection_resume_eligible": resumeEligible,
+		"receipt_resend":resendTarget,
 		"collection_progress": agentchat.CollectionProgressViewForSession(item),
 		"collection_auto_recovery": recoveryState,
 		"auto_feedback_diagnostic":agentAutoFeedbackDiagnostic(item),
