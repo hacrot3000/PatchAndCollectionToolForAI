@@ -6817,6 +6817,51 @@ def _failure_relation_targets(row: dict[str, object] | None) -> set[str]:
     return out
 
 
+def _agent_retired_predecessor_for_plan(root: Path, row: dict[str, object], previous: dict[str, object] | None) -> bool:
+    """Do not resurrect an exact, natively retired predecessor from LAST_RUN.
+
+    This is queue lifecycle only, not rollback or source-integrity evidence.
+    Require the native registry receipt, matching run (when LAST_RUN supplied
+    the row), absent queue input, and the exact immutable archive. Unknown,
+    requeued/rolled-back, mismatched and unresolved records remain constraints.
+    """
+    kind, _, digest, name = _failure_identity(row)
+    if (kind != "PATCH" or not re.fullmatch(r"[0-9a-f]{64}", digest)
+            or not name.startswith("PATCH_CLEAR_TEXT_")
+            or not re.fullmatch(r"[A-Za-z0-9_.-]+\.zip", name)
+            or row.get("batch_rolled_back") or row.get("requeued_as")):
+        return False
+    try:
+        registry = _unresolved_registry_path(root)
+        if registry.is_symlink() or not registry.is_file() or registry.stat().st_size > 8 * 1024 * 1024:
+            return False
+        data = _load_json(registry)
+        if not isinstance(data, dict) or data.get("format") != "python-patch-tool-unresolved-failures" or data.get("format_version") != 1 or not isinstance(data.get("entries"), list):
+            return False
+        matches = [entry for entry in data["entries"] if isinstance(entry, dict)
+                   and isinstance(entry.get("row"), dict)
+                   and _failure_identity(entry["row"]) == _failure_identity(row)]
+        if len(matches) != 1:
+            return False
+        entry = matches[0]
+        if (entry.get("resolved") is not True or entry.get("resolution") != "agent_retired_failed_queue_item"
+                or not entry.get("last_run_id") or entry["row"].get("status") not in {"FAIL", "PREFLIGHT_FAIL", "INCOMPLETE"}):
+            return False
+        if isinstance(previous, dict) and row in _failed_recovery_rows(previous) and previous.get("run_id") != entry["last_run_id"]:
+            return False
+        queue = root / "patchs"
+        ignore = queue / "ignore"
+        source = queue / name
+        archive = ignore / ("agent-failed-" + digest + ".zip")
+        if (queue.is_symlink() or ignore.is_symlink() or not queue.is_dir() or not ignore.is_dir()
+                or source.exists() or source.is_symlink()
+                or archive.is_symlink() or not archive.is_file() or archive.stat().st_size > 2 * 1024 * 1024):
+            return False
+        return _sha256_file(archive) == digest
+    except (OSError, ValueError, TypeError):
+        return False
+
+
 def _build_batch_plan(root: Path, chosen: list[QueueItem], available: list[QueueItem], previous: dict[str, object] | None):
     """Resolve explicit dependencies and unresolved-predecessor actions.
 
@@ -6842,6 +6887,8 @@ def _build_batch_plan(root: Path, chosen: list[QueueItem], available: list[Queue
     initial_meta = {item.name: load_patch_meta(root, item.name) for item in work}
     related_contexts: list[dict[str, object]] = []
     for failed_row in _merged_failed_recovery_rows(root, previous):
+        if _agent_retired_predecessor_for_plan(root, failed_row, previous):
+            continue
         _failed_kind, failed_id, _failed_sha, failed_name = _failure_identity(failed_row)
         if not failed_name:
             continue
