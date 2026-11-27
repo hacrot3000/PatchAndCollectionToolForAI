@@ -132,6 +132,18 @@ func (e ownerBoundAgentRunExecutor) ResolveCompletedTurn(ctx context.Context, ru
 	if strings.TrimSpace(text)=="" {return agentrun.TurnDecision{},nil}
 	mode := runAutoContinueMode(x, inputs.Snapshot.Policy.Automation)
 	signature := runVerifiedProgressSignature(run,x)
+	// The inner reducer has exact receipt proof and scope. Do not let the
+	// outer scheduler treat request-shape changes or duplicate receipts
+	// as independently verified work, nor miss a changed source revision.
+	if g,ok:=readRunCollectionProgress(e.owner,run.Spec,inputs);ok{
+		done,total:=agentchat.TaskPlanProgress(x.TaskPlan)
+		digest:=sha256.Sum256([]byte(fmt.Sprintf("clp-v1:%s:%d:%d:%d:%d/%d",g.Counters.Objective.Key,g.Counters.NewEvidence,g.Counters.VerifiedProgressEvents,g.Counters.AttestedProgressEvents,done,total)))
+		signature=hex.EncodeToString(digest[:])
+	}else if len(inputs.Snapshot.Policy.CollectionProgress)!=0{
+		done,total:=agentchat.TaskPlanProgress(x.TaskPlan)
+		digest:=sha256.Sum256([]byte(fmt.Sprintf("clp-unknown:%d/%d",done,total)))
+		signature=hex.EncodeToString(digest[:])
+	}
 	progress.LastWorkSignature = signature
 	if old := run.Continuation; old != nil {
 		progress.NoProgressTurns = old.NoProgressTurns
