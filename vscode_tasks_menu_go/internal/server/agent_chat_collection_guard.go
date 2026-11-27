@@ -171,6 +171,14 @@ func assessLegacyCollectionStall(ctx context.Context,x *agentchat.Session,next a
  state,decision:=cp.AssessRecovery(g.Policy,g.Counters,e,g.Recovery,cp.RecoveryGate{
   Stopped:ctx.Err()!=nil,SafeEgress:safe,CanonicalOutputCommitted:committed,OwnerAllowsContinuation:allowed,
  })
+ // A no-plan owner opted into continued work, not unlimited replan
+ // reservations. After the one reservation is used, deliver the NEW exact
+ // observation with advice instead of stopping solely for duplicate evidence.
+ // Every other checkpoint reason remains a fence.
+ if decision.Kind==cp.Checkpoint&&decision.Reason==cp.RecoveryBudgetExhausted&&x.TaskPlan==nil&&allowed&&safe&&committed&&ctx.Err()==nil{
+  x.AppendEvent("clp_continue_no_progress",x.Status,next.CallID,string(decision.Reason))
+  return cp.RecoveryDecision{Kind:cp.Continue,Reason:cp.RecoveryBudgetExhausted,NextAction:cp.NarrowMissingScope},nil
+ }
  if decision.Kind==cp.Replan{
   g.Recovery=state
   if !x.SetCollectionGuard(g){return cp.RecoveryDecision{},errors.New("cannot retain collection recovery reservation")}
