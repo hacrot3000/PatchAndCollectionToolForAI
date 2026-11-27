@@ -9906,6 +9906,7 @@ def _retire_failed_agent_package(root: Path, project_key: str, project_id: str,
     if len(files) > 1000:
         raise QueueSafetyError("native History exceeds safe inspection bound")
     matched = []
+    matched_report_run = None
     for path in files:
         if path.is_symlink() or not path.is_file() or path.stat().st_size > 8 * 1024 * 1024:
             raise QueueSafetyError("unsafe native History record")
@@ -9929,6 +9930,7 @@ def _retire_failed_agent_package(root: Path, project_key: str, project_id: str,
                 (report.get("run_id") == run_id or (kind == "COLLECT" and row.get("native_run_id") == run_id)) and
                 row.get("status") in {"FAIL", "PREFLIGHT_FAIL", "INCOMPLETE"}):
                 matched.append(row)
+                matched_report_run = report.get("run_id")
     if len(matched) != 1:
         raise QueueSafetyError("no unique SHA-bound final failure in native History")
     # Protect against previously successful bytes even when normal History has
@@ -9965,16 +9967,16 @@ def _retire_failed_agent_package(root: Path, project_key: str, project_id: str,
         raise QueueSafetyError("ambiguous failure registry identity")
     if entries:
         entry = entries[0]
-        if entry.get("last_run_id") != run_id:
+        if entry.get("last_run_id") != matched_report_run:
             raise QueueSafetyError("failure registry belongs to another native run")
-        if entry.get("resolved") is True and entry.get("resolution") != "agent_retired_failed_queue_item":
-            raise QueueSafetyError("failure registry already resolved by another lifecycle action")
+        if entry.get("resolved") is True and (entry.get("resolution") != "agent_retired_failed_queue_item" or not source_absent):
+            raise QueueSafetyError("failure registry already resolved; do not retire a requeued package")
     else:
         if source_absent:
             # An archive without an exact registry entry could be an older,
             # pruned or manually moved package: do not fabricate retirement.
             return {"status": "not_queued", "name": name, "sha256": digest}
-        _update_unresolved_registry(root, {"run_id": run_id, "results": matched})
+        _update_unresolved_registry(root, {"run_id": matched_report_run, "results": matched})
     # Publish an immutable recovery copy first, then retire ONLY the same
     # input bytes using the existing native COLLECT archive lifecycle helper.
     # Never touch source files, result archives, FAIL_HANDOFF or History.
