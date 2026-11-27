@@ -1,5 +1,7 @@
 # HANDOFF 20 — Upgrade, rollback and diagnostic guidance
 
+> **Current local workflow (2026-11-27):** [20-coder-execution-contract.md](20-coder-execution-contract.md) supersedes historical process/stop instructions and completion claims below. Upgrade and rollback execution belong to the operator. Local coder authors missing fixtures/procedures and continues other source work. Do not use external verification or delivery as a local BLOCKED condition. No acceptance or safety relaxation.
+
 > Operator-run guidance for CLP-09.02.04 (regression gates R11, R24).
 > Commands here are DOCUMENTATION ONLY. They were not executed by the TaskDeck AI session.
 > Runtime verification, binary self-update, SIGKILL crash injection and browser smoke are NOT available in that session; all such steps below are PENDING for the operator.
