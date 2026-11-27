@@ -176,6 +176,18 @@ func TestAgentRunUnsupportedToolDenialContinuesPinnedProvider(t *testing.T){
 func TestAgentRunCollectionRepeatedShapeReadsChangedSource(t *testing.T){
  s,_,_,spec:=providerToolRunFixture(t,"run-native-repeated")
  spec,history:=enableRunAutomationFixture(t,s,spec,true,false)
+ // Pin a deliberately different advisory threshold to the actual Run
+ // snapshot. The existing default requires 3 duplicates, this requires 1.
+ journal,err:=s.agentChatStore();if err!=nil{t.Fatal(err)}
+ session,err:=journal.Get(spec.ConversationID,"local");if err!=nil{t.Fatal(err)}
+ snapshots,err:=s.agentContextSnapshotStore("local");if err!=nil{t.Fatal(err)}
+ initial,err:=snapshots.Get(spec.ContextSnapshotID,spec.OwnerWorkspaceID,spec.ConversationID,session.ProjectID);if err!=nil{t.Fatal(err)}
+ policy:=*initial.Policy
+ policy.CollectionGuardPolicy=agentrun.NewCollectionGuardPolicySnapshot()
+ policy.CollectionGuardPolicy.Thresholds.DuplicateStreak=1
+ pinned,err:=snapshots.CreateWithPolicy(spec.OwnerWorkspaceID,spec.ConversationID,session.ProjectID,history,initial.SourceRefs,&policy);if err!=nil{t.Fatal(err)}
+ spec.ContextSnapshotID=pinned.ID
+ policy.CollectionGuardPolicy.Thresholds.DuplicateStreak=9 // caller mutation must not alter active run
  var requests,reads atomic.Int32
  s.AgentCollectionCall=func(_ string,identity patchtool.ProjectIdentity,_ []byte)string{
   n:=reads.Add(1);digest:=strings.Repeat("a",64);if n>=3{digest=strings.Repeat("b",64)}
@@ -186,6 +198,8 @@ func TestAgentRunCollectionRepeatedShapeReadsChangedSource(t *testing.T){
   n:=requests.Add(1)
   if p.ID!=spec.ProviderID{t.Errorf("provider drift")}
   if n>1&&!strings.Contains(string(payload),"read-marker-"+string(rune('0'+n-1))){t.Errorf("current native receipt missing at request %d",n)}
+  if n==3&&!strings.Contains(string(payload),"repeated_verified_evidence"){t.Errorf("pinned duplicate threshold was not used")}
+  if n!=3&&strings.Contains(string(payload),"Collection advisory metadata (not new evidence or authorization):"){t.Errorf("unexpected duplicate advisory at request %d",n)}
   if n<=4{return agentchat.ResponsesResult{ResponseID:"read-response",Calls:[]agentchat.FunctionCall{{CallID:"collect-"+string(rune('0'+n)),Name:"taskdeck_collect_workspace",Arguments:`{"actions":[{"type":"file","path":"main.go"}]}`}}},nil}
   return agentchat.ResponsesResult{ResponseID:"complete",Text:"Read completed."},nil
  }
@@ -203,6 +217,7 @@ func TestAgentRunCollectionRepeatedShapeReadsChangedSource(t *testing.T){
  }
  if n!=4{t.Fatalf("receipt count %d",n)}
  inputs,err:=s.ResolveAgentRunInputs(agentrun.WithPrincipalOwner(context.Background(),"local"),rec.Spec);if err!=nil{t.Fatal(err)}
+ if threshold,ok:=inputs.Snapshot.Policy.CollectionPolicy();!ok||threshold.DuplicateStreak!=1{t.Fatal("derived Run snapshot lost immutable threshold")}
  g,ok:=readRunCollectionProgress("local",rec.Spec,inputs)
  if !ok||g.Counters.Requested!=4||g.Counters.NativeReads!=4||g.Counters.NewEvidence!=2||g.Counters.DuplicateEvidence!=2{t.Fatalf("guard not retained: %+v",g)}
  if _,ok:=readRunCollectionProgress("foreign",rec.Spec,inputs);ok{t.Fatal("cross-owner progress accepted")}
@@ -226,7 +241,7 @@ func TestAgentRunCollectionRepeatedShapeReadsChangedSource(t *testing.T){
  }
  body:=report(reopened)
  if !strings.Contains(body,spec.RunID)||!strings.Contains(body,`"verified_duplicate": 2`)||strings.Contains(body,"read-marker-"){t.Fatal("restart lost or disclosed native evidence")}
- journal,err:=reopened.agentChatStore();if err!=nil{t.Fatal(err)}
+ journal,err=reopened.agentChatStore();if err!=nil{t.Fatal(err)}
  sessions,err:=journal.List("local");if err!=nil{t.Fatal(err)}
  foreignRows,err:=reopened.agentDebugUnifiedRuns("foreign",sessions,time.Time{})
  if err!=nil||len(foreignRows)!=0{t.Fatal("foreign owner can read Unified run metadata")}
