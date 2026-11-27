@@ -84,7 +84,6 @@ func agentPatchFeedbackResumeReceipt(x agentchat.Session)(int,bool){
   x.RetryMode!=agentchat.RetryUnlimited||agentchat.HasUnresolvedWork(x)||
   r==nil||r.Kind!="feedback"||r.Phase!="unknown"||r.UsageRecorded||r.CallID==""||
   len(r.PayloadSHA256)!=64||r.ProviderFingerprint==""||len(x.History)<2{return -1,false}
- if x.Continuation!=nil&&x.Continuation.NoProgressTurns>=agentchat.MaxContinuationNoWorkTurns{return -1,false}
  _,seqText,ok:=strings.Cut(r.ID,"-e")
  if !ok{return -1,false}
  seq,err:=strconv.ParseUint(seqText,10,64)
