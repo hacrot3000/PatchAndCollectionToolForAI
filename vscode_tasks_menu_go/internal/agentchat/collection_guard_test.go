@@ -83,3 +83,38 @@ func TestCollectionGuardPatchTransitionsShareSessionCASWithoutFalseProgress(t *t
  g,_=x.ReadCollectionGuard()
  if g.Counters.PatchExecutions!=1||x.ToolCalls[0].FeedbackStatus!="acknowledged"{t.Fatal("ACK double-counted execution or changed feedback")}
 }
+
+
+func TestCollectionGuardHydratesRetainedTextPairsWithoutInventingNovelty(t *testing.T) {
+ dir:=filepath.Join(t.TempDir(),"private")
+ store,err:=NewStore(dir);if err!=nil{t.Fatal(err)}
+ x,err:=NewSession("local","/workspace","project","provider","model",Stateless);if err!=nil{t.Fatal(err)}
+ x.History=[]HistoryItem{
+  {Type:"user",Content:"Old owner goal"},
+  {Type:"function_call",Name:"taskdeck_collect_workspace",CallID:"typed",Arguments:`{"actions":[{"type":"file","path":"a"}]}`},
+  {Type:"function_call_output",CallID:"typed",Content:`{"status":"PASS"}`},
+  {Type:"assistant",Content:`{"project":{"key":"p","id":"id"},"actions":[{"type":"file","path":"b"}]}`},
+  {Type:"user",Content:NativeCollectionTextObservationPrefix+`{"status":"INCOMPLETE"}`},
+  {Type:"user",Content:NativeCollectionTextObservationPrefix+`{"status":"PASS"}`},
+  {Type:"user",Content:legacyCollectionTextObservationPrefix+" old format"},
+ }
+ x,err=store.Save(x,0);if err!=nil{t.Fatal(err)}
+ original:=append([]HistoryItem(nil),x.History...)
+ if !x.BindCollectionGuard("Continue","",true){t.Fatal("hydrate")}
+ g,ok:=x.ReadCollectionGuard()
+ if !ok||g.Legacy.RetainedCalls!=2||g.Legacy.RetainedOutputs!=2||!g.Legacy.Incomplete||
+  g.Counters.NativeReads!=0||g.Counters.NewEvidence!=0||g.Counters.DuplicateEvidence!=0||len(g.Evidence.Entries)!=0{
+  t.Fatalf("historical retained counts confused with evidence: %+v",g)
+ }
+ x,err=store.Save(x,x.Revision);if err!=nil{t.Fatal(err)}
+ reopened,err:=NewStore(dir);if err!=nil{t.Fatal(err)}
+ got,err:=reopened.Get(x.ID,x.Owner);if err!=nil{t.Fatal(err)}
+ if !got.BindCollectionGuard("","",true){t.Fatal("continue")}
+ after,ok:=got.ReadCollectionGuard()
+ if !ok||!reflect.DeepEqual(g,after)||!reflect.DeepEqual(original,got.History){t.Fatal("hydration reran or rewrote canonical history")}
+ // A new explicit goal must preserve the historical lower-bound counts
+ // without merging them into the new objective's current counters.
+ if !got.BindCollectionGuard("Fix the issue","",false){t.Fatal("new objective")}
+ fresh,ok:=got.ReadCollectionGuard()
+ if !ok||fresh.Generation!=g.Generation+1||fresh.Legacy!=g.Legacy||fresh.Counters.Observed!=0{t.Fatal("historical counts reset or attributed to new goal")}
+}
