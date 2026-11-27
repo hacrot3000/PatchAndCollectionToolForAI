@@ -793,6 +793,8 @@ func (s *Store) saveSessionWithAdmissionLocked(x Session, expectedRevision uint6
 			s.reconcileCollectionGuardAttempts(&x,existing)
 			x.recordCollectionGuardPatchTransitions(existing)
 		}
+		// Hydrate only pre-bind immutable archive parts, under this same CAS.
+		s.hydrateCollectionGuardArchiveLocked(&x)
 		if err:=s.archivePatchHistory(&x);err!=nil{return err}
         if err:=s.archiveCollectionHistory(&x);err!=nil{return err}
 		if err:=validateSession(x);err!=nil{return err}
