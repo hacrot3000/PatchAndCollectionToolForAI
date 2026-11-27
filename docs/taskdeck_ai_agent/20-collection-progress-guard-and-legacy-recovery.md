@@ -10,8 +10,8 @@
 | Nhánh triển khai | **`main` — không tạo feature branch/PR thay cho yêu cầu này** |
 | Baseline audit | `1c1e2ba0d5004bf5cee75b3fd8a2baa6be9c5422` (25/11/2026, 15:40:33 ICT) |
 | Vị trí tài liệu trong repo (đề xuất) | `docs/taskdeck_ai_agent/20-collection-progress-guard-and-legacy-recovery.md` |
-| Trạng thái hiện tại | `IN_PROGRESS` — text fallback and native external-edit core CI PASS at 821f9cfc; native PATCH matrix pending CI; local checkout unavailable |
-| Tiến độ | **1/10 phase · 16/36 task · 90/144 subtask DONE** |
+| Trạng thái hiện tại | `IN_PROGRESS` — native PATCH matrix core/PHP PASS at d5f4a510; objective switch regression pending CI; local checkout unavailable |
+| Tiến độ | **1/10 phase · 16/36 task · 91/144 subtask DONE** |
 | Phạm vi | Legacy Agent Chat, unified Agent Run, native COLLECT/PATCH, provider retry, compact context, journal, UI và migration |
 | Ưu tiên | P1: tránh lặp/gián đoạn và bảo toàn dữ liệu; P2: quan sát, tuning và vận hành |
 
@@ -175,13 +175,13 @@ Không bỏ qua function output của call đã nhận. Nếu checkpoint trướ
     - [x] **CLP-01.02.01** — Xác định objective key từ scope owner/workspace/conversation + user goal/plan step/generation. (`DONE` — scope helper and unit tests pass in 45583866679; runtime binding pending)
     - [x] **CLP-01.02.02** — Xây intent classification bảo thủ, dựa trên user-owned goal và permissions, không dựa duy nhất vào model. (`DONE` — conservative advisory-only classifier and tests PASS in 45583866679; runtime input provenance pending)
     - [ ] **CLP-01.02.03** — Cài transitions khi đổi goal/step, user intervention, worktree, provider; không reset tùy tiện. (`TODO`)
-    - [ ] **CLP-01.02.04** — Test no-plan, read-only/mixed/unknown, provider switch, Stop và permission không tăng. (`TODO`)
+    - [ ] **CLP-01.02.04** — Test no-plan, read-only/mixed/unknown, provider switch, Stop và permission không tăng. (`VERIFY_PENDING` — new Legacy provider-switch/Stop/new-objective integration at 05e0ff72; plan/worktree scope tests separate; CI pending)
 - [ ] **CLP-01.03 — Guard counters và hysteresis** (`IN_PROGRESS`, P1)
   - Đếm requested/observed/verified-new/duplicate/unknown/error, streak since progress, since last PATCH proposal/execution/confirmed progress riêng, recovery count, warning watermark. Dedupe logical observation; retry HTTP không phải COLLECT mới. Không reset no-progress vì proposal fail/no-op.
   - **Acceptance:** test duplicates, retry, rejected/no-op PATCH, actual change, read-only progress, threshold không spam.
     - [x] **CLP-01.03.01** — Định nghĩa counters riêng requested, observed, verified-new, duplicate, unknown, error, HTTP attempts. (`DONE` — pure counters; full core CI 45584061420 PASS; runtime adapter pending)
     - [x] **CLP-01.03.02** — Cài streak/watermark/cooldown, phân biệt last PATCH proposal, executed, meaningful progress. (`DONE` — independent counters/hysteresis verified in CI 45584061420; runtime receipt adapter pending)
-    - [ ] **CLP-01.03.03** — Đảm bảo rejected/no-op/partial PATCH và retry không reset sai; dùng receipt thật. (`VERIFY_PENDING` — PATCH ledger transitions and independent HTTP attempt counters verified; meaningful progress/partial/no-op parity still pending)
+    - [x] **CLP-01.03.03** — Đảm bảo rejected/no-op/partial PATCH và retry không reset sai; dùng receipt thật. (`DONE` — actual Legacy native PATCH matrix core 45924058798, independent retry counters and scoped acceptance tests; Unified parity tracked separately under CLP-04.02/04.03)
     - [ ] **CLP-01.03.04** — Test idempotence, boundaries, repeated warnings và progress reset hợp lệ. (`TODO`)
 - [ ] **CLP-01.04 — Checkpoint và bounded recovery policy** (`IN_PROGRESS`, P1)
   - Tạo decisions `CONTINUE`, `ADVISE`, `REPLAN`, `CHECKPOINT` (tên có thể điều chỉnh). Recovery dùng tiếp continuation framework đã có; phân biệt stalled với user stop/unknown delivery. Ghi next action và reason; không tự báo completed.
@@ -229,7 +229,7 @@ Không bỏ qua function output của call đã nhận. Nếu checkpoint trướ
     - [ ] **CLP-02.04.01** — Nối invalidation với native PATCH receipt, changed files và external/worktree drift signal. (`VERIFY_PENDING` — Native range revision and broad PATCH invalidation connected; CI 45605499411 PASS; selective mutation-path proof pending)
     - [ ] **CLP-02.04.02** — Invalidate theo path khi proof đầy đủ, scope rộng khi partial/unknown mutation; xử lý rename/delete. (`VERIFY_PENDING` — pure invalidation; authoritative mutation adapter pending)
     - [ ] **CLP-02.04.03** — Cài TTL/eviction/size cap và benchmark metadata; không scan/hash lại toàn source. (`VERIFY_PENDING` — bounded metadata index; benchmark pending)
-    - [ ] **CLP-02.04.04** — Test read-after-patch, failed partial patch, external edit, 150MB source và bounded overhead. (`TODO`)
+    - [ ] **CLP-02.04.04** — Test read-after-patch, failed partial patch, external edit, 150MB source và bounded overhead. (`VERIFY_PENDING` — native patch matrix 45924058798, external-edit 45923521173, 150 MiB 45755533750 PASS; rename/delete and bounded overhead benchmark pending)
 
 ### CLP-03 — Durable state, restart và cross-turn (3 task, P1)
 
@@ -446,8 +446,8 @@ Mỗi scenario cần test name, actual result và file/receipt/CI ref trong nh�
 | [x] R04 | Unknown novelty, incomplete/truncated output | Không fabricated success hoặc false duplicate rejection |
 | [x] R05 | Implementation 5/10 reads | Advisory phù hợp, không ép patch; no warning spam |
 | [x] R06 | Read-only audit 100 reads, no PATCH | Hợp lệ; chỉ checkpoint nếu stall thật |
-| [ ] R07 | PATCH rejected/fail/no-op/partial mutation | Không reset meaningful progress sai; invalidate coverage khi cần |
-| [ ] R08 | PATCH thực thi source change rồi đọc lại | Không stale duplicate suppression; receipt đúng |
+| [x] R07 | PATCH rejected/fail/no-op/partial mutation | Không reset meaningful progress sai; invalidate coverage khi cần |
+| [x] R08 | PATCH thực thi source change rồi đọc lại | Không stale duplicate suppression; receipt đúng |
 | [x] R09 | Schema invalid `grep`, project identity mismatch | Existing repair + auth preserved; không queue invalid mutation |
 | [ ] R10 | Crash trước/sau native observation, provider prepared/sending | Guard count idempotent; journal phases đúng; no tool replay |
 | [ ] R11 | Legacy conversation archive/stale pack, restart/self-update | Goal/history/settings/plan giữ nguyên; current contract dùng đúng |
@@ -482,8 +482,8 @@ Baseline evidence for rows below: [core CI 45799935359](https://github.com/hacro
 | R04 | PASS | collectionprogress: TestNativeEvidenceProofRequiresExactCompleteReceipt; TestVerifiedDuplicateCooldownAndUnknown; server: TestAgentNativeCollectionPartialArtifactSurvivesFailedWrapperRC3 | Unknown/truncated/partial evidence never becomes verified duplicate or fabricated success. |
 | R05 | PASS | collectionprogress: TestReadAdvisoriesNeverCapUsefulReads; server: TestAgentCLP20StructuredCollectionAdviceBoundedAndPermissionNeutral; TestAgentCollectionContinuesWithoutRoundLimitToPatchProposal | Actual 5/10 and structured wire advisory tests PASS core 45809058385; no read quota. |
 | R06 | PASS | server: TestAgentCollectionContinuesWithoutRoundLimitToPatchProposal/100_read_only_pages; TestAgentCLP20VerifiedStallPreservesReceiptAndBoundsReplan | 100 useful reads and no Patch proposal; verified-stall checkpoint independently tested. |
-| R07 | VERIFY_PENDING | agentchat: TestCollectionGuardPatchTransitionsShareSessionCASWithoutFalseProgress; TestCollectionGuardAcceptedStepProgressIsScopedAndIdempotent; collectionprogress: TestCoverageInvalidationAndEvictionFailConservative | PASS wrapper is not progress; d5f4a510 adds TestAgentCLP20NativePatchMutationGuardMatrix with actual native PATCH approval, rejection/no-op/change/partial failure, sync, exact feedback, re-read and duplicate delivery fence; CI pending. |
-| R08 | VERIFY_PENDING | server: TestAgentRunCollectionRepeatedShapeReadsChangedSource; agentchat: TestCollectionGuardPatchTransitionsShareSessionCASWithoutFalseProgress | Changed proof recognized; 821f9cfc adds TestAgentCLP20NativeRangeExternalMutationInvalidatesCoverage, actual native range reads across external A/A/B/B/A revisions, 3 verified-new and 2 verified-duplicate, exact receipts and 5 native artifacts; core 45923521173 PASS. d5f4a510 adds actual native PATCH mutation/re-read matrix; CI pending. |
+| R07 | PASS | agentchat: TestCollectionGuardPatchTransitionsShareSessionCASWithoutFalseProgress; TestCollectionGuardAcceptedStepProgressIsScopedAndIdempotent; collectionprogress: TestCoverageInvalidationAndEvictionFailConservative | PASS wrapper is not progress; d5f4a510 adds TestAgentCLP20NativePatchMutationGuardMatrix with actual native PATCH approval, rejection/no-op/change/partial failure, sync, exact feedback, re-read and duplicate delivery fence; core 45924058798 PASS. |
+| R08 | PASS | server: TestAgentRunCollectionRepeatedShapeReadsChangedSource; agentchat: TestCollectionGuardPatchTransitionsShareSessionCASWithoutFalseProgress | Changed proof recognized; 821f9cfc adds TestAgentCLP20NativeRangeExternalMutationInvalidatesCoverage, actual native range reads across external A/A/B/B/A revisions, 3 verified-new and 2 verified-duplicate, exact receipts and 5 native artifacts; core 45923521173 PASS. d5f4a510 actual native PATCH mutation/re-read matrix PASS core 45924058798. |
 | R09 | PASS | server: TestAgentCollectionMalformedReadRequestIsRepairable; TestAgentCollectionMalformedProjectStringReturnsRepairFeedback; TestAgentNativeCollectionRequestUsesOriginalSchemaAndIdentity; TestAgentCLP20LegacyCollectionFailurePreservesAcknowledgedPatches | Malformed/foreign/schema-invalid collection rejected or repaired; synthetic grep and real native validation tested. |
 | R10 | VERIFY_PENDING | server: TestAgentProviderRealSIGKILLAtEgressBoundaries; TestAgentCLP20MixedLegacyRestartMatrix; TestAgentCLP20InterruptedCollectionCheckpointProof; agentchat: TestCollectionGuardReconcilesAttemptLedgerOnceAcrossRestart | Egress crash/restart and guard/receipt idempotence separately pass; native observation exact crash window combined test remains. |
 | R11 | VERIFY_PENDING | server: TestAgentCLP20ArchivedLegacyPackUnknownResumeAcrossUpgrade; TestAgentCLP20RealPackSchemaUpgradeAcrossRestart | Synthetic old schema/journal restart PASS; actual binary self-update unavailable. |
@@ -546,7 +546,7 @@ Kiểm tra cả các Python/native Patch Tool test hiện có nếu sửa contra
 | Phase | Phase DONE | Task DONE / total | Subtask DONE / total |
 |---|---:|---:|---:|
 | CLP-00 | 0/1 | 2/3 | 8/12 |
-| CLP-01 | 0/1 | 1/5 | 11/20 |
+| CLP-01 | 0/1 | 1/5 | 12/20 |
 | CLP-02 | 0/1 | 2/4 | 11/16 |
 | CLP-03 | 0/1 | 0/3 | 3/12 |
 | CLP-04 | 0/1 | 2/4 | 10/16 |
@@ -555,9 +555,9 @@ Kiểm tra cả các Python/native Patch Tool test hiện có nếu sửa contra
 | CLP-07 | 1/1 | 4/4 | 16/16 |
 | CLP-08 | 0/1 | 1/2 | 7/8 |
 | CLP-09 | 0/1 | 0/3 | 0/12 |
-| **Total** | **1/10** | **16/36** | **90/144** |
+| **Total** | **1/10** | **16/36** | **91/144** |
 
-Regression gates: **18/28 PASS**. Mỗi lần cập nhật, ghi ID subtask cụ thể, file/test/receipt, trạng thái; chỉ roll up sau khi xác minh. Commit từng subtask có thay đổi độc lập hoặc nhóm nhỏ coherent, không để toàn phase mới commit. Không tạo commit rỗng chỉ để tick.
+Regression gates: **20/28 PASS**. Mỗi lần cập nhật, ghi ID subtask cụ thể, file/test/receipt, trạng thái; chỉ roll up sau khi xác minh. Commit từng subtask có thay đổi độc lập hoặc nhóm nhỏ coherent, không để toàn phase mới commit. Không tạo commit rỗng chỉ để tick.
 
 ### 8.1. Nhật ký triển khai (append, không xóa lịch sử)
 
@@ -905,3 +905,5 @@ Incident: native run `1795598230725789_1225262`; historical diagnostics missing 
 - 2026-11-27: R08/CLP-02.04.04 adds actual native Python range read integration at 821f9cfc. Five native requests across explicit external fixture edits A/A/B/B/A; verify revision SHA matches each source version, new evidence on A->B and B->A (not stale coverage), exact receipt in provider wire and durable journal, distinct native run IDs, five ZIP artifacts, no Patch or implicit permission. External edits performed by test fixture, not native PATCH; R07/R08 remain VERIFY_PENDING. CI pending. No local checkout or production mutation; progress unchanged.
 
 - 2026-11-27: verified d2538267 core 45923442506 and descendant 821f9cfc core/PHP 45923521173/45923521182 PASS; remote Go 45923521197 not yet completed at inspection (prior d2538267 Go cancelled by concurrency). CLP-04.04.03 and parent DONE (16/36 tasks, 90/144 subtasks). External A/A/B/B/A actual native range test PASS. R07/R08: d5f4a510 adds a four-case Legacy end-to-end matrix using existing native Python queue and session manager, real reads before/after rejected/no-op/source-changing/partial-failure PATCH, explicit approval and consent, actual native protocol final result and sync, exact feedback and ACK, conservative invalidation (first post-mutation novelty UNKNOWN, then duplicate), no fabricated milestone progress or repeated egress. Synthetic temporary workspace and mock provider only. CI pending; R07/R08 and CLP-02.04.04 not ticked. Next: verify matrix; diagnose any failure, then finish objective/policy transition tests. No local checkout, live provider or production runtime verification.
+
+- 2026-11-27: d5f4a510 core 45924058798 and PHP 45924058989 PASS; remote Go 45924058813 still running at inspection. R07/R08 PASS (20/28); CLP-01.03.03 DONE (91/144 subtasks). CLP-02.04.04 remains pending benchmark and rename/delete proof; no selective mutation proof asserted. Added 05e0ff72 TestAgentCLP20ObjectiveSurvivesProviderSwitchAndStop, actual Legacy message admission with pinned second configured provider, Vietnamese Continue, Stop during provider call, then new read-only objective. Checks retained generation and duplicate evidence across switch/Stop, distinct generation/new evidence after goal change, no implicit Patch grant and exact history receipt cardinality. Provider/collector synthetic; CI pending. Next: verify test and add durable policy/legacy hydration coverage. No local checkout or production self-update claimed.
