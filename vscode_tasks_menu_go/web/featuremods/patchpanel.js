@@ -1420,6 +1420,31 @@ function installPatchPanel(){
     return [...groups.values()];
   }
 
+  // One action per artifact group: the TXT companion carries the same
+  // evidence as the paired ZIP and is directly readable by the Agent.
+  function appendSendArtifactToAgent(host,path){
+    if(!path||!historyTextFile(path))return;
+    const button=document.createElement('button');button.type='button';
+    const label='Send to AI Agent Chat';
+    button.textContent=label;
+    button.title='Attach the complete text artifact to the selected conversation draft. Does not send a provider request.';
+    button.onclick=async()=>{
+      if(button.disabled)return;
+      button.disabled=true;button.textContent='Attaching…';
+      try{
+        const agent=globalThis.TaskMenuAgentChat;
+        if(!agent?.attachPatchArtifact)throw new Error('AI Agent Chat artifact attachments are unavailable');
+        const target=agent.selectedSessionID||null;
+        const result=await agent.attachPatchArtifact(path,{session_id:target});
+        if(!result?.ok)throw new Error(result?.error||'Artifact was not attached');
+        button.textContent=result.duplicate?'Already attached':'✓ Attached';
+        setTimeout(()=>{if(button.isConnected)button.textContent=label;},1800);
+      }catch(error){button.textContent=label;app.showError(error);}
+      finally{button.disabled=false;}
+    };
+    host.append(button);
+  }
+
   function appendHistoryFiles(host,files){
     for(const group of groupHistoryFiles(files)){
       const row=document.createElement('div');row.className='task-patch-history-file';
@@ -1440,7 +1465,7 @@ function installPatchPanel(){
         const copyPath=document.createElement('button');copyPath.type='button';copyPath.textContent=file.format+' Copy path';copyPath.title='Copy full project path';copyPath.onclick=()=>copyFullPath(file.path,copyPath).catch(app.showError);actionsNode.append(copyPath);
       }
       const textFile=filesSorted.find(file=>file.format==='TXT');
-      if(textFile){const open=document.createElement('button');open.type='button';open.textContent='Open TXT';open.onclick=()=>openProjectFile(textFile.path);actionsNode.append(open);}
+      if(textFile){const open=document.createElement('button');open.type='button';open.textContent='Open TXT';open.onclick=()=>openProjectFile(textFile.path);actionsNode.append(open);appendSendArtifactToAgent(actionsNode,textFile.path);}
       line.append(format,pathNode,actionsNode);variants.append(line);
       row.append(head,variants);host.append(row);
     }
@@ -3575,7 +3600,7 @@ function installPatchPanel(){
       const copyPath=document.createElement('button');copyPath.type='button';copyPath.textContent=String(row.format||'FILE')+' Copy path';copyPath.title='Copy full project path';copyPath.onclick=()=>copyFullPath(row.path,copyPath).catch(app.showError);actionsNode.append(copyPath);
     }
     const textVariant=rows.find(row=>String(row.format)==='TXT');
-    if(textVariant){const open=document.createElement('button');open.type='button';open.textContent='Open TXT';open.onclick=()=>openProjectFile(textVariant.path);actionsNode.append(open);}
+    if(textVariant){const open=document.createElement('button');open.type='button';open.textContent='Open TXT';open.onclick=()=>openProjectFile(textVariant.path);actionsNode.append(open);appendSendArtifactToAgent(actionsNode,textVariant.path);}
     line.append(formatNode,pathNode,actionsNode);host.append(line);
   }
 
