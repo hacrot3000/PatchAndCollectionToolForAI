@@ -198,3 +198,24 @@ func TestIncompleteOutputRetainsReasonAndUsageForSafeDiagnostics(t *testing.T){
   t.Fatal("incomplete provider tool output must never be accepted")
  }
 }
+
+func TestEmptyProviderResponseRetriesWithoutAcceptingTools(t *testing.T){
+ cases:=[]struct{body string;chat,retry bool}{
+  {`{"id":"r","status":"completed","output":[]}`,false,true},
+  {`{"id":"r","status":"completed","output":[{"type":"reasoning"},{"type":"message","content":[{"type":"output_text","text":" "}]}]}`,false,true},
+  {`{"id":"r","status":"completed","output":[{"type":"message","content":[{"type":"refusal","refusal":"declined"}]}]}`,false,false},
+  {`{"id":"r","status":"completed","output":[{"type":"function_call","call_id":"c","name":"taskdeck_submit_patch","arguments":"invalid"}]}`,false,false},
+  {`{"id":"r","choices":[{"finish_reason":"stop","message":{"content":null}}]}`,true,true},
+  {`{"id":"r","choices":[{"finish_reason":"stop","message":{"content":null,"refusal":"declined"}}]}`,true,false},
+  {`{"id":"r","choices":[{"finish_reason":"content_filter","message":{"content":null}}]}`,true,false},
+ }
+ for _,tc:=range cases{
+  var result ResponsesResult
+  var err error
+  if tc.chat{result,err=ParseChatCompletionsResult([]byte(tc.body))}else{result,err=ParseResponsesResult([]byte(tc.body))}
+  if err==nil||len(result.Calls)!=0{t.Fatalf("invalid response accepted: %s",tc.body)}
+  pe:=classifyProviderResponseParseError([]byte(tc.body),err)
+  if ProviderTransportRetryable(pe)!=tc.retry{t.Fatalf("wrong retry classification for %s: %+v",tc.body,pe)}
+  if tc.retry&&(pe.Code!="RESPONSE_EMPTY"||!pe.Ambiguous){t.Fatalf("empty response classification: %+v",pe)}
+ }
+}

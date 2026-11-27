@@ -554,6 +554,15 @@ func classifyProviderResponseParseError(raw []byte, cause error) *ProviderError 
   Usage struct { OutputTokens int `json:"output_tokens"` } `json:"usage"`
  }
  if json.Unmarshal(raw,&v)!=nil {return pe}
+ // Only a parsed, otherwise successful empty response is transient.
+ // Do not retry explicit refusals, filters, unsupported output items or
+ // invalid tool arguments as though they were an empty model response.
+ if errors.Is(cause,ErrEmptyProviderResponse)&&emptyProviderOutputRetryable(raw){
+  pe.Code="RESPONSE_EMPTY"
+  pe.Retryable=true
+  pe.Ambiguous=true
+  return pe
+ }
  switch v.Status {
  case "incomplete":
   reason:=SafeProviderText(v.IncompleteDetails.Reason)
@@ -578,6 +587,38 @@ func classifyProviderResponseParseError(raw []byte, cause error) *ProviderError 
   }
  }
  return pe
+}
+
+func emptyProviderOutputRetryable(raw []byte)bool{
+ var v struct{
+  ID string `json:"id"`
+  Status string `json:"status"`
+  Error json.RawMessage `json:"error"`
+  Output []struct{
+   Type string `json:"type"`
+   Content []struct{Type string `json:"type"`;Text string `json:"text"`} `json:"content"`
+  } `json:"output"`
+  Choices []struct{
+   FinishReason string `json:"finish_reason"`
+   Message struct{Refusal json.RawMessage `json:"refusal"`} `json:"message"`
+  } `json:"choices"`
+ }
+ if json.Unmarshal(raw,&v)!=nil||v.ID==""||(v.Status!=""&&v.Status!="completed")||
+  (len(v.Error)>0&&string(v.Error)!="null"){return false}
+ if len(v.Choices)>0{
+  if len(v.Choices)!=1||v.Choices[0].FinishReason!="stop"{return false}
+  refusal:=v.Choices[0].Message.Refusal
+  return len(refusal)==0||string(refusal)=="null"||string(refusal)=="\"\""
+ }
+ for _,item:=range v.Output{
+  switch item.Type{
+  case "reasoning":
+  case "message":
+   for _,part:=range item.Content{if part.Type!="output_text"||strings.TrimSpace(part.Text)!=""{return false}}
+  default:return false
+  }
+ }
+ return true
 }
 
 func DoResponses(ctx context.Context, p ProviderConfig, key string, body []byte) (ResponsesResult, error) {
@@ -634,6 +675,8 @@ func DoResponses(ctx context.Context, p ProviderConfig, key string, body []byte)
 	result, parseErr := ParseResponsesResult(raw)
 	if parseErr != nil {
 		pe := classifyProviderResponseParseError(raw,parseErr)
+		// Keep the successful HTTP status for empty-response diagnostics.
+		if pe.Code=="RESPONSE_EMPTY"{pe.HTTPStatus=resp.StatusCode}
 		diagnostic.Level = "error"
 		diagnostic.Stage = pe.Stage
 		diagnostic.Event = "response.parse_error"
