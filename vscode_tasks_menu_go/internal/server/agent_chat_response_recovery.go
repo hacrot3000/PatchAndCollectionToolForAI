@@ -93,7 +93,6 @@ func (s *Server) recoverAgentReceivedResponseLocked(store *agentchat.Store,x age
   s.recordAgentDebugEvent(x.Owner,x.ID,"","response_storage","response.recovered","completed","Recovered exact local response checkpoint; no provider request replayed")
   return saved,true,nil
  }
- if !found&&!closeOrphan{return x,false,err}
  // Re-read after any ambiguous journal rename, and do not overwrite a newer
  // revision. If the candidate was committed, the primary journal wins.
  fresh,e:=store.Get(x.ID,x.Owner)
@@ -109,6 +108,9 @@ func (s *Server) recoverAgentReceivedResponseLocked(store *agentchat.Store,x age
    code="provider_response_not_saved"
   }
  }
+ // On startup keep the legacy recovery path for unrelated interrupted
+ // requests, but recognize a matching response-returned telemetry record.
+ if !found&&!closeOrphan&&code!="provider_response_not_saved"{return x,false,err}
  // Leave unknown egress fenced. A local save failure is not grounds to
  // automatically resend the old user message or tool feedback.
  fresh.Status="failed"
