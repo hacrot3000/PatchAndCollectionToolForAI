@@ -819,7 +819,7 @@ func (s *Store) saveSessionWithAdmissionLocked(x Session, expectedRevision uint6
 			return e
 		}
 		if len(raw) > maxSessionBytes {
-			return errors.New("agent session exceeds size limit")
+			return ErrSessionSizeLimit
 		}
 		temp, e := os.CreateTemp(s.dir, ".agent-session-*")
 		if e != nil {
@@ -930,6 +930,13 @@ func (s *Store) Delete(id, owner string, expectedRevision uint64) error {
 		if err:=os.Remove(s.file(id));err!=nil{return err}
 		if err:=os.Remove(s.handoffFile(id));err!=nil&&!os.IsNotExist(err){return err}
 		if err:=os.Remove(s.providerRunFile(id));err!=nil&&!os.IsNotExist(err){return err}
+        // Response checkpoints are private conversation evidence. Explicit
+        // owner deletion must remove failed as well as committed run files.
+        checkpoints,err:=filepath.Glob(filepath.Join(s.dir,id+".response.*.json"))
+        if err!=nil{return err}
+        for _,path:=range checkpoints{
+         if err=os.Remove(path);err!=nil&&!os.IsNotExist(err){return err}
+        }
         // Attempt IDs contain only metadata, but leaving an orphan owner
         // support ledger after explicit session deletion is still incorrect.
         if err:=os.Remove(s.providerAttemptsPath(id));err!=nil&&!os.IsNotExist(err){return err}
@@ -1106,7 +1113,7 @@ func (s *Store) writeSessionMetadataLocked(x Session) error {
   }
   raw, e := json.Marshal(onDisk)
   if e != nil { return e }
-  if len(raw) > maxSessionBytes { return errors.New("agent session exceeds size limit") }
+  if len(raw) > maxSessionBytes { return ErrSessionSizeLimit }
   temp, e := os.CreateTemp(s.dir, ".agent-session-rename-*")
   if e != nil { return e }
   defer os.Remove(temp.Name())
