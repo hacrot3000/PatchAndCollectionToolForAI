@@ -20,6 +20,9 @@ func agentBuildContextRequest(x agentchat.Session,model agentchat.ModelConfig,p 
 // Checkpoints are optional derived projections, never a provider receipt,
 // PREPARED payload or execution authority. Failure falls back to rebuilding.
 func(s *Server) agentBuildCachedContextRequest(store *agentchat.Store,x agentchat.Session,model agentchat.ModelConfig,p agentchat.ProviderConfig,credential string,c agentchat.RequestConfig)([]byte,error){
+ // Ask User is an interactive local legacy tool, not a Run Manager worker.
+ c.EnableAskUserTool=c.EnablePatchTool&&x.Owner=="local"&&!s.Config.SharedServerEnabled
+ if c.EnableAskUserTool{c.Instructions+=" "+agentchat.AskUserInstructions}
  if store==nil{return agentBuildContextRequest(x,model,p,c)}
  if c.Mode!=agentchat.Stateless{
   body,err:=agentBuildContextRequest(x,model,p,c)
@@ -62,7 +65,7 @@ func agentBuildContextEpochAttempt(x agentchat.Session,model agentchat.ModelConf
  budgetInstructions+=c.CurrentInstructions
  policy:=agentContextPolicy(x,model,budgetInstructions,c.Next,false)
  scoped:=policy;scoped.Next=nil
- scopeBytes,_:=json.Marshal([]any{"cache-epoch-full-v3",agentchat.RunProviderConfigVersion(p,model),c.Model,c.Mode,c.ReasoningEffort,c.EnablePatchTool,c.EnableCollectionTool,c.NativeCollectionContract,c.PromptCacheKey,scoped})
+ scopeBytes,_:=json.Marshal([]any{"cache-epoch-full-v3",agentchat.RunProviderConfigVersion(p,model),c.Model,c.Mode,c.ReasoningEffort,c.EnablePatchTool,c.EnableCollectionTool,c.EnableAskUserTool,c.NativeCollectionContract,c.PromptCacheKey,scoped})
  scope:=agentchat.BodyDigest(scopeBytes)
  // Always try the full valid history first. Token estimates, cache misses,
  // changed instructions and low cache headroom are not compaction triggers.

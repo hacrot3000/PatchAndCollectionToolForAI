@@ -194,6 +194,7 @@ agentCSS.textContent=[
 'html[data-taskmenu-theme="light"] .agentchat-attachments-trigger{background:#e8f0fa;color:#21456a}',
 'html[data-taskmenu-theme="light"] .agentchat-attachments-popup{background:#fff;color:#17283a;border-color:#bac8d8}',
 'html[data-taskmenu-theme="light"] .agentchat-attachment-preview-full{background:#f5f8fc;border-color:#bac8d8}',
+'.agentchat-questions{display:flex;flex-direction:column;gap:10px;margin:8px 0}.agentchat-question{min-width:0;border:1px solid #65758a;border-radius:6px;padding:8px;display:flex;flex-direction:column;gap:6px}.agentchat-question legend{font-weight:650;max-width:100%;white-space:normal;overflow-wrap:anywhere}.agentchat-question-choice{display:flex;align-items:flex-start;gap:8px;cursor:pointer}.agentchat-question-choice input{flex:none;margin-top:3px}.agentchat-question-text{display:flex;flex-direction:column;gap:4px}.agentchat-question-text textarea{box-sizing:border-box;width:100%;resize:vertical;font:inherit;min-height:64px;color:inherit;background:transparent;border:1px solid #65758a;border-radius:4px;padding:6px}.agentchat-question-actions{display:flex;flex-wrap:wrap;gap:8px}.agentchat-question-summary{display:flex;flex-direction:column;gap:4px;white-space:pre-wrap;overflow-wrap:anywhere}',
 '.agentchat-attachment-card{display:grid;grid-template-columns:minmax(0,1fr) auto;grid-template-rows:auto auto;gap:2px 8px;padding:6px 8px;border:1px solid #465365;border-radius:6px;font-size:11px}',
 '.agentchat-attachment-title{display:flex;gap:6px;min-width:0;font-weight:650}',
 '.agentchat-attachment-title span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
@@ -746,7 +747,7 @@ function agentServerTurnBusy(session){
 }
 function agentUpdateSendAvailability(session){
  const busy=agentSessionBusy(session?.id)||agentServerTurnBusy(session)||Boolean(session?.native_work_wait);
- send.disabled=busy;
+ send.disabled=busy||agentPendingQuestions(session);
  cancel.disabled=!agentSessionBusy(session?.id)&&session?.status!=='requesting_ai'&&!session?.native_work_wait&&!agentCanStopNative(session);
 }
 function agentTurnAdmissionBusy(error){
@@ -1287,9 +1288,108 @@ function agentUserMessageNode(message,attachmentText,attachmentCount){
 function agentHasRecordedToolOutput(session,callID){
  return (session?.history||[]).some(item=>item.type==='function_call_output'&&item.call_id===callID);
 }
+// Render question text as textContent, never as executable markup.
+// Preserve unsent draft answers across transcript redraws and tab switches.
+const agentQuestionDrafts=new Map();
+function agentPendingQuestions(session){
+ return session?.status==='waiting_tool'&&(session.tool_calls||[]).some(c=>c.name==='taskdeck_ask_user'&&!c.feedback_sent&&['pending','done'].includes(c.status));
+}
+function renderAgentQuestionnaire(session,item,record,box){
+ const key=session.id+':'+item.call_id;
+ box.append(agentEl('strong','','AI needs your input'));
+ if(record?.status==='rejected'){
+  box.append(agentEl('p','','Questionnaire rejected · '+String(record.result||'')));
+  if(!record.feedback_sent&&!record.feedback_status)box.append(agentButton('Send rejection to AI',()=>continueAgentTool(session,item.call_id).catch(showAgentError)));
+  return box;
+ }
+ let questions;
+ try{questions=JSON.parse(item.arguments).questions;}catch{}
+ if(!Array.isArray(questions)||!questions.length||questions.length>8){box.append(agentEl('p','','Invalid questionnaire.'));return box;}
+ const output=record?.result||(session.history||[]).find(x=>x.type==='function_call_output'&&x.call_id===item.call_id)?.content;
+ const active=record?.status==='pending'&&session.status==='waiting_tool'&&!session.archived&&!record.feedback_sent&&!agentHasRecordedToolOutput(session,item.call_id);
+ if(!active){
+  agentQuestionDrafts.delete(key);
+  const summary=agentEl('div','agentchat-question-summary');
+  let result;try{result=JSON.parse(output||'');}catch{}
+  for(const q of questions){
+   const a=result?.answers?.find(x=>x.question_id===q.id);
+   summary.append(agentEl('strong','',q.prompt));
+   if(a){
+    const labels=(q.options||[]).filter(o=>(a.selected||[]).includes(o.id)).map(o=>o.label);
+    summary.append(agentEl('div','',[...labels,a.text].filter(Boolean).join('\n')||'(No answer)'));
+   }
+  }
+  box.append(summary,agentEl('p','agentchat-tool-summary',result?.status==='CANCELLED'?'Questionnaire cancelled':record?.feedback_status==='acknowledged'?'Answers delivered to AI':output?'Answers saved · '+(record?.feedback_status||'not yet delivered'):'Questionnaire no longer pending'));
+  if(record?.status==='done'&&!record.feedback_sent&&!record.feedback_status&&session.status==='waiting_tool'){
+   box.append(agentButton('Send saved answers to AI',()=>continueAgentTool(session,item.call_id).catch(showAgentError)));
+  }
+  return box;
+ }
+ let draft=agentQuestionDrafts.get(key);
+ if(!draft){draft=new Map();agentQuestionDrafts.set(key,draft);}
+ const fields=agentEl('div','agentchat-questions');
+ const error=agentEl('p','agentchat-info','');
+ error.setAttribute('role','alert');
+ const buttons=agentEl('div','agentchat-question-actions');
+ let sending=false;
+ const submit=agentButton('Send answers',()=>send(false));
+ const cancelQuestions=agentButton('Skip questions',()=>{if(window.confirm('Skip this questionnaire and tell AI that you declined to answer?'))send(true);});
+ const update=()=>{
+  submit.disabled=sending||questions.some(q=>{const a=draft.get(q.id);return q.required&&(q.type==='text'?!a?.text?.trim():!a?.selected?.length);});
+  cancelQuestions.disabled=sending;
+ };
+ const send=async cancelled=>{
+  if(sending||agentActive!==session.id||agentSessionBusy(session.id))return;
+  sending=true;update();error.textContent='';
+  const answers=cancelled?[]:questions.map(q=>{const a=draft.get(q.id)||{};return {question_id:q.id,selected:a.selected||[],text:a.text||''};});
+  markAgentSessionBusy(session.id,true);agentStartProgressPoll(session.id);
+  try{
+   await agentApp.jsonFetch('/api/agent/sessions/'+encodeURIComponent(session.id)+'/tools/'+encodeURIComponent(item.call_id)+'/answer',{
+    method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({confirm_external:true,arguments_sha256:record.arguments_sha256,cancelled,answers})
+   });
+   agentQuestionDrafts.delete(key);
+   if(agentActive===session.id)await selectAgentSession(session.id);
+  }catch(e){
+   error.textContent=String(e?.message||e);
+   if(agentActive===session.id){try{await selectAgentSession(session.id);}catch{}setAgentStatusNotice('Questionnaire: '+String(e?.message||e));}
+  }finally{sending=false;agentStopProgressPoll(session.id);markAgentSessionBusy(session.id,false);update();}
+ };
+ for(let i=0;i<questions.length;i++){
+  const q=questions[i];
+  let a=draft.get(q.id);if(!a){a={selected:[],text:''};draft.set(q.id,a);}
+  const field=agentEl('fieldset','agentchat-question');
+  field.append(agentEl('legend','',(i+1)+'. '+q.prompt+(q.required?' *':' (optional)')));
+  for(const o of q.options||[]){
+   const label=agentEl('label','agentchat-question-choice'),input=agentEl('input');
+   input.type=q.type==='single_choice'?'radio':'checkbox';input.name='agent-question-'+key+'-'+q.id;input.value=o.id;
+   input.checked=a.selected.includes(o.id);
+   input.addEventListener('change',()=>{
+    if(q.type==='single_choice')a.selected=input.checked?[o.id]:[];
+    else a.selected=input.checked?[...new Set([...a.selected,o.id])]:a.selected.filter(v=>v!==o.id);
+    update();
+   });
+   label.append(input,agentEl('span','',o.label));field.append(label);
+  }
+  if(q.type==='text'||q.allow_comment){
+   const label=agentEl('label','agentchat-question-text',q.type==='text'?'Your answer':'Additional details (optional)');
+   const input=agentEl('textarea');input.value=a.text;input.rows=3;input.maxLength=1200;
+   input.addEventListener('input',()=>{a.text=input.value;update();});
+   label.append(input);field.append(label);
+  }
+  if(q.type==='single_choice'&&!q.required)field.append(agentButton('Clear choice',()=>{
+   a.selected=[];for(const input of field.querySelectorAll('input'))input.checked=false;update();
+  }));
+  fields.append(field);
+ }
+ buttons.append(submit,cancelQuestions);
+ box.append(agentEl('p','agentchat-tool-summary','Answer the questions, then send your responses to the configured AI provider. Do not enter credentials or secrets.'),fields,error,buttons);
+ update();return box;
+}
+
 function renderAgentTool(session,item){
  const box=agentEl('div','agentchat-bubble tool');
  const record=(session.tool_calls||[]).find(c=>c.call_id===item.call_id);
+ if(item.name==='taskdeck_ask_user')return renderAgentQuestionnaire(session,item,record,box);
  const outputRecorded=agentHasRecordedToolOutput(session,item.call_id);
  const rejectionPending=record?.status==='rejected'&&!record.feedback_sent&&!record.feedback_status&&!outputRecorded;
  const appendRecordedRejectionNotice=()=>{
@@ -1548,7 +1648,7 @@ function agentHistoryRow(session,item,callNames){
  }
  if(item.type==='function_call_output'){
   const isCollection=callNames.get(item.call_id)==='taskdeck_collect_workspace';
-  return agentToolIO(isCollection?'Collection result sent to AI · view contents':'Native Patch result sent to AI · view contents',String(item.content||''));
+  return agentToolIO(callNames.get(item.call_id)==='taskdeck_ask_user'?'User answers sent to AI · view contents':isCollection?'Collection result sent to AI · view contents':'Native Patch result sent to AI · view contents',String(item.content||''));
  }
  return null;
 }
@@ -1595,6 +1695,7 @@ function agentFeedbackWaitMessage(session){
 }
 function agentLivePhase(session){
  if(!session)return null;
+ if(agentPendingQuestions(session))return {message:'Waiting for your answers · complete the questionnaire to continue.'};
  if(session.native_work_wait){
   const resource={waiting_for_patch:'PATCH',waiting_for_collect:'COLLECT',waiting_for_workspace:'workspace'}[session.native_work_wait]||'native resource';
   return {message:'Waiting for '+resource+' · AI Agent will start automatically. Stop to cancel.'};
@@ -1770,7 +1871,7 @@ function agentToolRenderVersion(item,records,outputs,session){
   return 'collect:'+String(output?.content||'');
  }
  const record=records.get(item.call_id);
- return 'patch:'+JSON.stringify(record||null)+':output:'+Boolean(outputs.get(item.call_id))+
+ return (item.name==='taskdeck_ask_user'?'questionnaire:'+session.status+':':'patch:')+JSON.stringify(record||null)+':output:'+Boolean(outputs.get(item.call_id))+
   (record&&!record.feedback_sent?':feedback:'+agentFeedbackEnabled(session)+':'+JSON.stringify(session?.auto_feedback_diagnostic||null):'');
 }
 // Auto-follow recent activity without stealing scroll when the user reads history.
@@ -2523,7 +2624,7 @@ function agentMonitorNeedsWork(sess){
  return Boolean(sess.native_work_wait)||sess.auto_continue_monitor===true||['ready','retry_deferred'].includes(sess.collection_auto_recovery)||
   ['requesting_ai','tool_queuing'].includes(sess.status)||
   calls.some(call=>['queuing','running','dispatching','queued','unknown'].includes(call.status))||
-  (sess.status==='waiting_tool'&&calls.some(call=>call.status==='pending'&&!call.manual_retry_only&&(sess.auto_patch||call.auto_run_once)))||
+  (sess.status==='waiting_tool'&&calls.some(call=>call.name==='taskdeck_submit_patch'&&call.status==='pending'&&!call.manual_retry_only&&(sess.auto_patch||call.auto_run_once)))||
   (['failed','completed','tool_unknown','tool_queuing'].includes(sess.status)&&
    (!sess.provider_run||sess.provider_run.phase==='completed')&&
    sess.history?.at(-1)?.type==='function_call'&&
@@ -2592,6 +2693,7 @@ async function sendAgentMessage(resumeCollectionRunID=""){
  // Legacy has one admitted turn per conversation. Pending-turn dispatch is
  // fail-closed. Do not replace its AbortController, live row or polling
  // ownership with a second optimistic send while Run Manager is drain-only.
+ if(agentPendingQuestions(current))throw new Error('Answer or skip the pending questionnaire before sending another message.');
  if(agentBusySessions.has(sessionID)||agentServerTurnBusy(current))
   throw new Error('Conversation is busy. Retry after the active turn finishes; your draft is preserved.');
  const canStartAgentRun=Boolean(agentRunUI?.canSend());

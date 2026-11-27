@@ -438,7 +438,9 @@ func validateSession(x Session) error {
 		// Non-Patch functions are NEVER executable: only a permanently
         // rejected protocol feedback record can be persisted. Any native
         // queue, approval, execution or retry fields invalidate the session.
-        if call.Name!="taskdeck_submit_patch" {
+        if call.Name==AskUserToolName&&call.Status!="rejected" {
+            if !ValidAskUserRecord(call,x.History){return ErrInvalidSession}
+        } else if call.Name!="taskdeck_submit_patch" {
             var feedback struct{
                 Status string `json:"status"`
                 ReasonCode string `json:"reason_code"`

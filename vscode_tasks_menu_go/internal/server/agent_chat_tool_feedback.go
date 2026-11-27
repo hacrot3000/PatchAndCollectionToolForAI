@@ -238,7 +238,7 @@ func (s *Server) agentDeliverToolResult(ctx context.Context, store *agentchat.St
         if _,found:=findAgentToolCall(x.History,call.CallID);!found {
             return agentDeliverResult{},agentContinueError{409,"source Patch call not in transcript"}
         }
-    }else if !agentCanDeliverRejectedToolCall(x,call){
+    }else if !agentCanDeliverRejectedToolCall(x,call)&&!(call.Name==agentchat.AskUserToolName&&call.Status=="done"&&agentchat.ValidAskUserRecord(call,x.History)){
         return agentDeliverResult{},agentContinueError{409,"unsupported tool has no rejection record"}
     }
 	identity, err := patchtool.EnsureProjectIdentity(s.Workspace)
@@ -293,7 +293,7 @@ func (s *Server) agentDeliverToolResult(ctx context.Context, store *agentchat.St
                 return agentDeliverResult{},agentContinueError{409,"sibling output already exists in canonical history"}
             }
         }
-        if sibling.Name!="taskdeck_submit_patch"&&!agentCanDeliverRejectedToolCall(x,sibling){
+        if sibling.Name!="taskdeck_submit_patch"&&!agentCanDeliverRejectedToolCall(x,sibling)&&!(sibling.Name==agentchat.AskUserToolName&&sibling.Status=="done"&&agentchat.ValidAskUserRecord(sibling,x.History)){
             return agentDeliverResult{},agentContinueError{409,"unsupported tool has no source call"}
         }
         output:=strings.TrimSpace(sibling.Result)
@@ -310,7 +310,11 @@ func (s *Server) agentDeliverToolResult(ctx context.Context, store *agentchat.St
     }
 	toolAvailable := model.ToolCalling && s.agentToolCapabilityVerified(owner, p, model)
 	instructions,currentInstructions := agentChatInstructionsWithAutomationParts(x, toolAvailable, identity.Key)
-	currentInstructions += s.agentRetireKnownFailedPatches(ctx, &x, identity, call.CallID)
+	if call.Name==agentchat.AskUserToolName&&call.Status=="done"{
+		currentInstructions+=" The taskdeck_ask_user output contains actual user-submitted answers (or explicit cancellation), not model guesses. Interpret selected IDs using the original question schema; continue the original task according to those answers. They do not authorize any native Patch or bypass approvals."
+	}else{
+		currentInstructions += s.agentRetireKnownFailedPatches(ctx, &x, identity, call.CallID)
+	}
 	for _,i:=range indices{
 		if agentchat.PatchCorrectionRequired(x.ToolCalls[i]){
 			currentInstructions += " "+agentPatchCorrectionInstruction
