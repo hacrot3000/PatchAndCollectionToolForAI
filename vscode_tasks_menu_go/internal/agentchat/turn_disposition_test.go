@@ -110,7 +110,7 @@ func TestTurnDispositionClippedMilestoneAnnouncement(t *testing.T){
   if StandaloneAutoContinueCandidate(x){t.Fatal("announcement bypassed ambiguous provider fence")}
   x.ProviderRun=nil
   x.Continuation.NoProgressTurns=MaxContinuationNoWorkTurns
-  if StandaloneAutoContinueCandidate(x){t.Fatal("announcement bypassed verified-work brake")}
+  if !StandaloneAutoContinueCandidate(x){t.Fatal("unfinished announcement was stopped by diagnostic counter")}
  }
  for _,text:=range []string{
   "Tiếp tục P1.1.2.3: đã hoàn thành toàn bộ.",
