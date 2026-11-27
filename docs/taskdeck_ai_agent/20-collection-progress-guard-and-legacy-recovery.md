@@ -184,7 +184,7 @@ Policy v1 là cấu hình nội bộ, không phải quota COLLECT và không ph�
   - **Acceptance:** coding/read-only/mixed/unknown, task switch, user Stop, no plan, task plan pending/accepted được test; không nâng quyền mutating.
     - [x] **CLP-01.02.01** — Xác định objective key từ scope owner/workspace/conversation + user goal/plan step/generation. (`DONE` — scope helper and unit tests pass in 45583866679; runtime binding pending)
     - [x] **CLP-01.02.02** — Xây intent classification bảo thủ, dựa trên user-owned goal và permissions, không dựa duy nhất vào model. (`DONE` — conservative advisory-only classifier and tests PASS in 45583866679; runtime input provenance pending)
-    - [ ] **CLP-01.02.03** — Cài transitions khi đổi goal/step, user intervention, worktree, provider; không reset tùy tiện. (`TODO`)
+    - [ ] **CLP-01.02.03** — Cài transitions khi đổi goal/step, user intervention, worktree, provider; không reset tùy tiện. (`VERIFY_PENDING` — transition-guard regression source added in objective_transition_guard_test.go covering provider/model/attempt signals outside scope, Stop suspend-without-reset and step transition; pure CompareObjective/BindObjective implementation already present; execution deferred to operator V-BATCH-01)
     - [x] **CLP-01.02.04** — Test no-plan, read-only/mixed/unknown, provider switch, Stop và permission không tăng. (`DONE` — Legacy provider switch/Stop/new objective core 45924630116 PASS; four-intent text matrix 45923442506 PASS; task-plan and worktree runtime transitions tracked under .03/CLP-04.03)
 - [ ] **CLP-01.03 — Guard counters và hysteresis** (`IN_PROGRESS`, P1)
   - Đếm requested/observed/verified-new/duplicate/unknown/error, streak since progress, since last PATCH proposal/execution/confirmed progress riêng, recovery count, warning watermark. Dedupe logical observation; retry HTTP không phải COLLECT mới. Không reset no-progress vì proposal fail/no-op.
@@ -192,14 +192,14 @@ Policy v1 là cấu hình nội bộ, không phải quota COLLECT và không ph�
     - [x] **CLP-01.03.01** — Định nghĩa counters riêng requested, observed, verified-new, duplicate, unknown, error, HTTP attempts. (`DONE` — pure counters; full core CI 45584061420 PASS; runtime adapter pending)
     - [x] **CLP-01.03.02** — Cài streak/watermark/cooldown, phân biệt last PATCH proposal, executed, meaningful progress. (`DONE` — independent counters/hysteresis verified in CI 45584061420; runtime receipt adapter pending)
     - [x] **CLP-01.03.03** — Đảm bảo rejected/no-op/partial PATCH và retry không reset sai; dùng receipt thật. (`DONE` — actual Legacy native PATCH matrix core 45924058798, independent retry counters and scoped acceptance tests; Unified parity tracked separately under CLP-04.02/04.03)
-    - [ ] **CLP-01.03.04** — Test idempotence, boundaries, repeated warnings và progress reset hợp lệ. (`TODO`)
+    - [ ] **CLP-01.03.04** — Test idempotence, boundaries, repeated warnings và progress reset hợp lệ. (`VERIFY_PENDING` — boundary saturation, max-sequence replay idempotence and progress-reset test source added in counter_boundary_test.go; execution deferred to operator V-BATCH-01)
 - [ ] **CLP-01.04 — Checkpoint và bounded recovery policy** (`IN_PROGRESS`, P1)
   - Tạo decisions `CONTINUE`, `ADVISE`, `REPLAN`, `CHECKPOINT` (tên có thể điều chỉnh). Recovery dùng tiếp continuation framework đã có; phân biệt stalled với user stop/unknown delivery. Ghi next action và reason; không tự báo completed.
   - **Acceptance:** sau nhiều lượt không novelty, tạo checkpoint và tối đa số recovery cho phép theo generation; khi có bằng chứng mới thì tiếp tục; không mất tool pair.
     - [x] **CLP-01.04.01** — Cài decisions continue/advisory/replan/checkpoint với reason và next action có schema bounded. (`DONE` — pure bounded decisions/reasons/actions verified in CI 45584362259)
     - [ ] **CLP-01.04.02** — Nối recovery generation/budget vào framework continuation, giữ stop/unknown là trạng thái riêng. (`VERIFY_PENDING` — Legacy verified receipt checkpoint/replan; CI and Unified pending)
     - [x] **CLP-01.04.03** — Định nghĩa cách đóng pending call thật khi checkpoint, không invent output hoặc mark task done. (`DONE` — exact native output committed before recovery and preserved at checkpoint; named test PASS 45587765715)
-    - [ ] **CLP-01.04.04** — Test stall lặp, recovery tối đa, novelty xuất hiện lại, pending pair và no continuation storm. (`TODO`)
+    - [ ] **CLP-01.04.04** — Test stall lặp, recovery tối đa, novelty xuất hiện lại, pending pair và no continuation storm. (`VERIFY_PENDING` — repeated-stall/no-continuation-storm, novelty-resume, pending-pair gate and invalid-state test source added in recovery_boundary_test.go; execution deferred to operator V-BATCH-01/04)
 - [x] **CLP-01.05 — Policy configuration và compatibility** (`DONE` — pinned and invalid/future policy runtime matrix, restart, tuning and long reads verified; core 45925697952 PASS)
   - Central defaults + validate range; không rải magic numbers. Dùng internal config trước nếu UI không cần chỉnh. Policy version/snapshot phù hợp unified run; tránh thay policy giữa active immutable run.
   - **Acceptance:** legacy session thiếu config dùng defaults an toàn; invalid values không phá workflow; 55+ unique reads hợp lệ vẫn chạy.
@@ -257,8 +257,8 @@ Policy v1 là cấu hình nội bộ, không phải quota COLLECT và không ph�
   - **Acceptance:** crash trước/sau native run, receipt save, provider egress; restart và auto continuation giữ streak; không replay native call do guard.
     - [x] **CLP-03.02.01** — Xác định logical observation key từ scoped call/receipt identity, không dùng HTTP attempt. (`DONE` — Legacy scoped event sequence and run/call; Unified exact unresolved call/provider/model/parent-turn fence and resolved-call replay test core 45930921487 PASS)
     - [x] **CLP-03.02.02** — Gắn guard transition vào durable observation checkpoint; reconcile hai bước nếu transaction không chung. (`DONE` — Legacy receipt/counters same CAS; Unified deterministic staged projection, immutable snapshot and manager result/pointer commit, reopen/replay test PASS core 45930921487; actual process crash scenarios tracked separately in .03/.04)
-    - [ ] **CLP-03.02.03** — Cài idempotent replay metadata sau crash; không rerun native action hoặc resend ACK. (`VERIFY_PENDING` — attempt sidecar cursor reconciles restart exactly once; actual Collection crash-replay coverage pending)
-    - [ ] **CLP-03.02.04** — Test crash trước/sau tool, receipt, egress; retry/reconcile/reload chỉ count một lần. (`VERIFY_PENDING` — 132 recorded attempts/reopen/idempotence/corruption tests PASS 45592281917; full crash matrix pending)
+    - [ ] **CLP-03.02.03** — Cài idempotent replay metadata sau crash; không rerun native action hoặc resend ACK. (`VERIFY_PENDING` — attempt sidecar cursor reconciles restart exactly once; crash/reconcile matrix design + verified seam/gap audit in docs/taskdeck_ai_agent/20-crash-recovery-matrix.md; actual Collection crash-replay execution pending operator)
+    - [ ] **CLP-03.02.04** — Test crash trước/sau tool, receipt, egress; retry/reconcile/reload chỉ count một lần. (`VERIFY_PENDING` — 132 recorded attempts/reopen/idempotence/corruption tests PASS 45592281917; crash-window/test-function matrix in docs/taskdeck_ai_agent/20-crash-recovery-matrix.md; execution pending operator V-BATCH-03)
 - [ ] **CLP-03.03 — Legacy hydration và bounded history** (`IN_PROGRESS`, P1)
   - Khởi tạo lazy từ journal/canonical history/archived metadata sẵn có; phân biệt historical known vs unknown, không fabricate novelty. History compacted không làm mất guard. Bound scan, không đọc toàn bộ archive mỗi request.
   - **Acceptance:** fixture session 20/11, partial journal/archived pairs, migration idempotent, restart/self-update giữ counters và original history; nhiều conversations không lẫn state.
@@ -291,7 +291,7 @@ Policy v1 là cấu hình nội bộ, không phải quota COLLECT và không ph�
     - [x] **CLP-04.03.01** — Trace no-progress signatures và TaskPlan acceptance ở cả hai continuation paths. (`DONE` — trace in progress log: Legacy coordinators, Unified completed-turn resolver, pinned autocheck, manager queue and live prompt policy)
     - [x] **CLP-04.03.02** — Thống nhất ownership counters inner/outer, không double count hoặc reset do provider completed. (`DONE` — scoped verified novelty/accepted progress and migration-aware SHA-256-compatible work signature; core 45932960307/45932985758 PASS, Remote Go 45932960190 and PHP 45932960188 PASS; prior first-bind regression repaired, Unified duplicate/change fixture PASS)
     - [ ] **CLP-04.03.03** — Nối checkpoint, reason, next action và auto-continue policy; bounded replan theo generation. (`VERIFY_PENDING` — Exact duplicate event check and replan consent refresh at 5a82814b; atomic PREPARED-to-SENDING replan consent in 86c6f63e/f2597af2/6d8bbc54/ca14a4d4; live/restart regression 0e080f4f and checkpoint mapping d754486c PASS core 45931252944/45931277359; Unified final pre-transport per-attempt admission hook ee18bfd8/f4196aeb and after-build/before-retry/manual-turn regression 88a909b4 pending CI; not an atomic cross-store network operation)
-    - [ ] **CLP-04.03.04** — Test stall storm, read-only progress, pending plan step và verified/attested acceptance. (`TODO`)
+    - [ ] **CLP-04.03.04** — Test stall storm, read-only progress, pending plan step và verified/attested acceptance. (`VERIFY_PENDING` — read-only-vs-coding-stall, attested/verified acceptance reset and neutral pending-continuation test source added in agent_chat_clp20_guard_boundary_test.go; execution deferred to operator V-BATCH-01/04)
 - [x] **CLP-04.04 — Model-visible bounded feedback** (`DONE` — structured typed/text advisory, exact receipt and intent matrix PASS core 45923442506/45923521173)
   - Tạo advisory ngắn, có structured reason, counts, missing evidence và next strategy; giữ exact receipt gốc riêng, không sửa nội dung bằng chứng để chèn cảnh báo. Tôn trọng output budget, prompt untrusted tool data boundary và fallback protocol.
   - **Acceptance:** model mock nhận warning sau threshold, có thể chọn targeted COLLECT hoặc submit PATCH; read-only không bị ép patch; no fabricated tool output; metadata không cấp quyền.
@@ -308,13 +308,13 @@ Policy v1 là cấu hình nội bộ, không phải quota COLLECT và không ph�
   - Đo budget sau serialize thực tế: instructions, schema/tools, current receipt, mandatory user goal, history, reserved output/reasoning; phân biệt bytes và estimated tokens. Kiểm tra duplicate item giữa History/Next và legacy fallback prefix; dùng estimator/tokenizer phù hợp nếu có.
   - **Acceptance:** regression 304 KB→942 KB synthetic; tránh gửi duplicate tool pair; nếu mandatory input vượt giới hạn thì báo cụ thể, không âm thầm bỏ receipt; test cả Responses/Chat Completions, stateful rebase.
     - [x] **CLP-05.01.01** — Instrument final serialized payload bytes/estimated tokens và reserved output; breakdown theo input component. (`DONE` — Legacy and Unified per-attempt numeric component breakdown, final success/failure/Stop, owner isolation and no raw capture; core CI 45741857302 PASS)
-    - [ ] **CLP-05.01.02** — Audit History/Next duplicate, schema overhead, initial pack và legacy fallback grouping. (`TODO`)
+    - [ ] **CLP-05.01.02** — Audit History/Next duplicate, schema overhead, initial pack và legacy fallback grouping. (`VERIFY_PENDING` — static audit authored in docs/taskdeck_ai_agent/20-payload-budget-audit.md with exact symbol/test references; no implementation gap found in Build/groups/FullHistory; runtime 304->942KB and Responses/Chat Completions/rebase regressions remain operator evidence)
     - [ ] **CLP-05.01.03** — Thêm final budget validation cho Responses/Chat Completions/rebase, explicit mandatory-overflow reason. (`VERIFY_PENDING` — Legacy final request builder and prior core CI 45607362484 PASS; named final-wire matrix PASS 45608650711)
     - [ ] **CLP-05.01.04** — Test synthetic 304→942 KB, no duplicate pair, mandatory receipt intact và estimator error bounds. (`VERIFY_PENDING` — TestAgentCLP20FinalWirePreservesMandatoryReceipt PASS 45608650711; actual tokenizer error bounds and full matrix pending)
 - [ ] **CLP-05.02 — Evidence catalog có ích cho bước tiếp theo** (`IN_PROGRESS`, P1)
   - Mở rộng compact catalog bounded: objective, canonical scope, coverage/status, hash/proof ref, exact missing scope, invalidation marker. Giữ current receipt byte-exact; prior PATCH metadata only; recent COLLECT theo budget. Đảm bảo legacy text fallback được phân loại đúng.
   - **Acceptance:** prior evidence có thể reuse không đọc lại toàn file, incomplete không thành success, old patch không resend source, no tool orphan; test compact/rebase nhiều ngày.
-    - [ ] **CLP-05.02.01** — Mở rộng catalog metadata objective/scope/coverage/status/proof/hash/invalidation; bound size. (`TODO`)
+    - [ ] **CLP-05.02.01** — Mở rộng catalog metadata objective/scope/coverage/status/proof/hash/invalidation; bound size. (`VERIFY_PENDING` — collection catalog now carries bounded native_status/verified/coverage-partial invalidation markers in addition to scope/status/hash; focused regression source added in catalog_metadata_test.go; objective remains carried by the retained user goal, not per-entry; execution deferred to operator V-BATCH-01)
     - [x] **CLP-05.02.02** — Giữ current receipt byte-exact, prior PATCH metadata-only, recent COLLECT theo budget. (`DONE` — existing receipt/provenance regression and new compact tests PASS in 45583866679)
     - [x] **CLP-05.02.03** — Nhận diện đúng legacy fallback prefix, orphan pairs và stale evidence; không mark incomplete success. (`DONE` — current/legacy text envelope, archive and orphan handling; core CI 45592717708 PASS)
     - [ ] **CLP-05.02.04** — Test long/multiday compact, rebase, catalog reuse và no lost user goal. (`VERIFY_PENDING` — 90 text fallback reads/archive and 20 large historical results budget tests PASS; full multiday matrix pending)
@@ -428,21 +428,21 @@ Policy v1 là cấu hình nội bộ, không phải quota COLLECT và không ph�
     - [ ] **CLP-09.01.01** — Lập mapping R01–R28 tới test names/packages, thêm test còn thiếu; không bỏ suite baseline. (`IN_PROGRESS` — mapped all 28 gates in §6.1; missing integration tests remain)
     - [ ] **CLP-09.01.02** — Chạy targeted + package/full CI suite, format/lint/diff check, ghi exact commands/exit codes. (`TODO`)
     - [ ] **CLP-09.01.03** — Chạy race tests cho save/reconcile/lease/counters; kiểm tra native Python integration nếu chạm contract. (`TODO`)
-    - [ ] **CLP-09.01.04** — Đối chiếu từng scenario, ghi failures/skip blockers, sửa regression trước DONE. (`TODO`)
+    - [ ] **CLP-09.01.04** — Đối chiếu từng scenario, ghi failures/skip blockers, sửa regression trước DONE. (`VERIFY_PENDING` — scenario/blocker reconciliation authored in docs/taskdeck_ai_agent/20-regression-reconciliation.md from verified §6.1 mapping; 8 gates remain VERIFY_PENDING with exact missing evidence; runtime scenario verification and any regression fix are operator work)
 - [ ] **CLP-09.02 — Upgrade smoke test & rollback guidance** (`TODO`, P1)
   - Build bằng quy trình repo; dùng synthetic copy của legacy state để self-update/reload/restart. Smoke test auto apply off/on, auto continue, provider switch, Stop, concurrent conversations, old session resume. Nếu có user environment được cấp phép, kiểm tra riêng với backup; không thực thi lại patch production.
   - **Acceptance:** xác nhận runtime build SHA, migration và resume thực tế hoặc ghi rõ phần chưa có môi trường; rollback không phá canonical journal; hướng dẫn vận hành/diagnostic.
     - [ ] **CLP-09.02.01** — Build theo repo, ghi build SHA và tạo synthetic backup legacy state; không dùng production patch. (`TODO`)
     - [ ] **CLP-09.02.02** — Thực hiện self-update/reload/restart smoke, kiểm tra migration/recovery/counters/ACK. (`TODO`)
     - [ ] **CLP-09.02.03** — Test auto flags, provider switch, Stop, concurrency và rollback compatibility; lưu evidence. (`TODO`)
-    - [ ] **CLP-09.02.04** — Viết hướng dẫn upgrade/rollback/diagnostic, đánh dấu runtime verification chưa có nếu thiếu môi trường. (`TODO`)
+    - [x] **CLP-09.02.04** — Viết hướng dẫn upgrade/rollback/diagnostic, đánh dấu runtime verification chưa có nếu thiếu môi trường. (`DONE` — guidance authored in docs/taskdeck_ai_agent/20-upgrade-rollback-guidance.md from installed workflow + SELF_UPDATE.md; runtime/self-update/browser smoke explicitly NOT performed in this environment and queued for operator)
 - [ ] **CLP-09.03 — Final integration, docs và remote verification** (`TODO`, P1)
   - Rà soát main mới nhất, cập nhật handoff index/config docs, đóng các task có bằng chứng, thống kê checklist, liệt kê blockers còn lại. Commit/push trực tiếp main, verify remote ancestry và CI trạng thái nếu có. Không bỏ qua unresolved mandatory test.
   - **Acceptance:** toàn bộ 36 task được đối chiếu, chỉ DONE khi đủ chứng cứ; report cuối gồm baseline/final SHA, tests, migration proof, remaining risks. Không tuyên bố release đã deploy khi chỉ push code.
-    - [ ] **CLP-09.03.01** — Reconcile HEAD mới nhất, audit toàn bộ checkbox/evidence và unresolved failures, cập nhật docs/index. (`TODO`)
-    - [ ] **CLP-09.03.02** — Xác minh invariants, regression matrix, migration và acceptance; không mark done nếu thiếu proof. (`TODO`)
+    - [ ] **CLP-09.03.01** — Reconcile HEAD mới nhất, audit toàn bộ checkbox/evidence và unresolved failures, cập nhật docs/index. (`VERIFY_PENDING` — reconciliation/limitations audit authored in docs/taskdeck_ai_agent/20-final-integration-report.md from verified evidence; last verified git HEAD f3756029, operator must re-fetch and reconcile concurrent commits before DONE)
+    - [ ] **CLP-09.03.02** — Xác minh invariants, regression matrix, migration và acceptance; không mark done nếu thiếu proof. (`VERIFY_PENDING` — static invariant/regression/migration verification status recorded in docs/taskdeck_ai_agent/20-final-integration-report.md; runtime proof for 8 gates still operator-owned)
     - [ ] **CLP-09.03.03** — Commit code+tracker lên main, push và verify ancestry/CI; ghi actual SHA và delivery status. (`TODO`)
-    - [ ] **CLP-09.03.04** — Tổng kết final report: baseline/final SHA, test outcomes, limitations, blockers, rollout status; không claim deploy. (`TODO`)
+    - [ ] **CLP-09.03.04** — Tổng kết final report: baseline/final SHA, test outcomes, limitations, blockers, rollout status; không claim deploy. (`VERIFY_PENDING` — final report drafted in docs/taskdeck_ai_agent/20-final-integration-report.md; final SHA pending operator commit, no deploy claimed)
 
 ## 6. Regression matrix bắt buộc
 
@@ -564,8 +564,8 @@ Kiểm tra cả các Python/native Patch Tool test hiện có nếu sửa contra
 | CLP-06 | 0/1 | 3/4 | 15/16 |
 | CLP-07 | 1/1 | 4/4 | 16/16 |
 | CLP-08 | 0/1 | 1/2 | 7/8 |
-| CLP-09 | 0/1 | 0/3 | 0/12 |
-| **Total** | **1/10** | **18/36** | **105/144** |
+| CLP-09 | 0/1 | 0/3 | 1/12 |
+| **Total** | **1/10** | **18/36** | **106/144** |
 
 Regression gates: **20/28 PASS**. Mỗi lần cập nhật, ghi ID subtask cụ thể, file/test/receipt, trạng thái; chỉ roll up sau khi xác minh. Commit từng subtask có thay đổi độc lập hoặc nhóm nhỏ coherent, không để toàn phase mới commit. Không tạo commit rỗng chỉ để tick.
 

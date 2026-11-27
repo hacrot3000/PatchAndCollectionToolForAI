@@ -128,6 +128,9 @@ func collectionSummary(call,output agentchat.HistoryItem)string{
  }
  var data struct{
  Status string `json:"status"`
+ NativeStatus string `json:"native_status"`
+ EvidenceVerified bool `json:"evidence_verified"`
+ PartialEvidence bool `json:"partial_evidence_available"`
  RunID string `json:"run_id"`
  ResultText string `json:"result_text"`
  Error *struct{Code string `json:"code"`;Message string `json:"message"`} `json:"error"`
@@ -155,6 +158,13 @@ func collectionSummary(call,output agentchat.HistoryItem)string{
  if data.Error!=nil{evidence=append(evidence,"error="+truncate(data.Error.Code,60)+" "+truncate(data.Error.Message,160))}
  if data.RunID!=""{evidence=append(evidence,"run="+truncate(data.RunID,90))}
  if data.ResultText!=""{evidence=append(evidence,"artifact="+truncate(data.ResultText,220))}
+ hasNative:=data.Status!=""||data.NativeStatus!=""||data.RunID!=""||data.ResultText!=""||data.Error!=nil||len(data.Results)>0
+ if hasNative{
+ 	if data.NativeStatus!=""{evidence=append(evidence,"native_status="+truncate(data.NativeStatus,40))}
+ 	verified:="false";if data.EvidenceVerified{verified="true"}
+ 	evidence=append(evidence,"verified="+verified)
+ 	if data.PartialEvidence{evidence=append(evidence,"coverage=partial; re-read required before reuse")}
+ }
  if len(evidence)==0{evidence=append(evidence,"See archived Collection result for file/evidence details")}
  return fmt.Sprintf("Prior Collection observation [%s]; call_id=%s; evidence: %s; result_hash=%s. This catalog is not proof of success; reuse prior evidence where sufficient and re-read only specific missing details.",
   truncate(label,180),truncate(call.CallID,100),strings.Join(evidence,"; "),digest(output.Content))
