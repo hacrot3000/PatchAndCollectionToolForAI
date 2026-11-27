@@ -11,7 +11,7 @@
 | Baseline audit | `1c1e2ba0d5004bf5cee75b3fd8a2baa6be9c5422` (25/11/2026, 15:40:33 ICT) |
 | Vị trí tài liệu trong repo (đề xuất) | `docs/taskdeck_ai_agent/20-collection-progress-guard-and-legacy-recovery.md` |
 | Trạng thái hiện tại | `IN_PROGRESS` — native PATCH matrix core/PHP PASS at d5f4a510; objective switch regression pending CI; local checkout unavailable |
-| Tiến độ | **1/10 phase · 16/36 task · 93/144 subtask DONE** |
+| Tiến độ | **1/10 phase · 16/36 task · 94/144 subtask DONE** |
 | Phạm vi | Legacy Agent Chat, unified Agent Run, native COLLECT/PATCH, provider retry, compact context, journal, UI và migration |
 | Ưu tiên | P1: tránh lặp/gián đoạn và bảo toàn dữ liệu; P2: quan sát, tuning và vận hành |
 
@@ -130,6 +130,16 @@ Provider response → validate/bind native call → progress precheck
 
 Không bỏ qua function output của call đã nhận. Nếu checkpoint trước khi chạy tool, ghi rõ NOT_EXECUTED/REJECTED và đóng pending call đúng protocol. Nếu không chắc chắn tool đã chạy hay chưa, bảo toàn unknown và reconciliation, không tạo kết quả giả.
 
+### 4.x. Vận hành và tuning Collection Progress Guard
+
+Policy v1 là cấu hình nội bộ, không phải quota COLLECT và không phải quyền thực thi PATCH. Defaults: advisory readiness sau 5 native reads kể từ meaningful progress; advisory scope sau 10 reads; cảnh báo duplicate sau 3 verified duplicates liên tiếp, cooldown tối thiểu 5 native reads giữa hai cảnh báo duplicate. Read-only/unknown intent không nhận lời nhắc triển khai PATCH; duplicate advisory vẫn trung lập về quyền.
+
+- Chỉ tính native logical observation một lần. Retry HTTP, schema rejection trước native execution, provider completion, PATCH proposal, no-op và wrapper PASS không phải meaningful progress. Chỉ evidence acceptance hoặc owner attestation đúng objective mới reset progress; unknown/error phá duplicate streak nhưng không tự chứng minh stall.
+- Khi điều tra cảnh báo quá nhiều, xem safe debug report: native_reads, verified_new, verified_duplicate, unknown, errors, reads_since_progress và reason. Nếu new evidence tiếp tục tăng, cho phép đọc tiếp; 55/100+ useful reads là regression bắt buộc. Không tăng output budget hoặc threshold để che lỗi receipt/context.
+- Muốn chỉnh ngưỡng, sửa central policy cho generation/run mới; kiểm tra 0 < first < second <= 10000, duplicate streak/cooldown trong 1..10000. Không sửa snapshot/journal đang chạy. Legacy guard đã pin giữ policy cũ; Unified snapshot cũ thiếu trường dùng frozen v1 defaults. Unknown/invalid explicit policy không có quyền tự bật guard hoặc replay; native read hợp lệ tiếp tục.
+- Verified-stall recovery là gate riêng, không đồng nghĩa advisory. Không dùng threshold để auto-approve PATCH, bypass user opt-out, owner/project binding, UNKNOWN egress, native execution fences hoặc TaskPlan acceptance. Không auto replay receipt cũ. Dùng Continue đúng objective với missing scope cụ thể sau checkpoint.
+- Không thêm full-source scan để tính novelty; metadata eviction chỉ giảm độ chắc chắn và không xóa canonical receipt. Khi thiếu mutation proof đầy đủ, invalidate rộng; không dùng danh sách changed-files phục vụ UI làm bằng chứng toàn workspace. Benchmark metadata dùng CPU/allocations của CI runner, không phải thời gian native COLLECT hoặc SLA production.
+
 ## 5. Implementation checklist — 3 cấp: 10 phase / 36 task / 144 subtask
 
 ### CLP-00 — Baseline, audit và nền kiểm thử (3 task, P1)
@@ -196,7 +206,7 @@ Không bỏ qua function output của call đã nhận. Nếu checkpoint trướ
     - [x] **CLP-01.05.01** — Đặt defaults tập trung, validate ranges/cooldown và version; ghi policy semantics. (`DONE` — central threshold validation and version; CI 45584362259 PASS; snapshot integration pending)
     - [ ] **CLP-01.05.02** — Áp dụng defaults an toàn cho session cũ; cấu hình immutable snapshot cho Run. (`VERIFY_PENDING` — versioned immutable Unified snapshot policy at beae8845/c65b2ee8, API/workflow admission pinning; CI pending)
     - [ ] **CLP-01.05.03** — Test invalid config, restart, policy change giữa active run và 55+ unique reads. (`VERIFY_PENDING` — snapshot reopen/legacy defaults/invalid metadata/digest tests and actual Unified pinned threshold continuation at 376e2198/13ef4c55; CI pending)
-    - [ ] **CLP-01.05.04** — Viết tài liệu tuning; không biến thresholds thành quota hoặc giới hạn tổng. (`TODO`)
+    - [x] **CLP-01.05.04** — Viết tài liệu tuning; không biến thresholds thành quota hoặc giới hạn tổng. (`DONE` — §4.x internal policy, compatibility, operator counters, permission/recovery boundaries)
 
 ### CLP-02 — Evidence novelty, overlap và invalidation (4 task, P1)
 
@@ -546,7 +556,7 @@ Kiểm tra cả các Python/native Patch Tool test hiện có nếu sửa contra
 | Phase | Phase DONE | Task DONE / total | Subtask DONE / total |
 |---|---:|---:|---:|
 | CLP-00 | 0/1 | 2/3 | 8/12 |
-| CLP-01 | 0/1 | 1/5 | 13/20 |
+| CLP-01 | 0/1 | 1/5 | 14/20 |
 | CLP-02 | 0/1 | 2/4 | 11/16 |
 | CLP-03 | 0/1 | 0/3 | 4/12 |
 | CLP-04 | 0/1 | 2/4 | 10/16 |
@@ -555,7 +565,7 @@ Kiểm tra cả các Python/native Patch Tool test hiện có nếu sửa contra
 | CLP-07 | 1/1 | 4/4 | 16/16 |
 | CLP-08 | 0/1 | 1/2 | 7/8 |
 | CLP-09 | 0/1 | 0/3 | 0/12 |
-| **Total** | **1/10** | **16/36** | **93/144** |
+| **Total** | **1/10** | **16/36** | **94/144** |
 
 Regression gates: **20/28 PASS**. Mỗi lần cập nhật, ghi ID subtask cụ thể, file/test/receipt, trạng thái; chỉ roll up sau khi xác minh. Commit từng subtask có thay đổi độc lập hoặc nhóm nhỏ coherent, không để toàn phase mới commit. Không tạo commit rỗng chỉ để tick.
 
@@ -913,3 +923,5 @@ Incident: native run `1795598230725789_1225262`; historical diagnostics missing 
 - 2026-11-27: reconciled concurrent docs-only HEAD 2c8262de. 05e0ff72 core 45924630116 and PHP 45924630160 PASS; 17b09b37 and b7a99c6f core 45924667303/45924681905 PASS. CLP-01.02.04 and 03.03.02 DONE (93/144); .02.03 and archived migration cursor remain open. Immutable Unified policy: beae8845 adds optional digest-bound versioned thresholds to snapshot (nil field preserves old digest and uses frozen v1 defaults); 89e41819/8a5a525b pin at API/workflow creation; c65b2ee8 consumes pinned thresholds on each observation rather than current defaults, invalid/future explicit policy disables advisory only. 376e2198 tests copy isolation, reopen, legacy default and integrity; 13ef4c55 actual Unified drain test pins duplicate threshold 1, mutates caller copy to 9, expects warning on second native read and retained threshold after continuation. New CI pending. No changes to permissions, no new Unified admission, no provider credentials or real production requests. Next: verify CI; benchmark bounded coverage metadata/rename-delete and finish policy tuning, migration cursor and objective transitions.
 
 - 2026-11-27: 05172f47 adds aggregate metadata eviction at 1025 intervals, serialized coverage bound 64 KiB, complete rename old/new and delete path invalidation, retained unrelated coverage; benchmark compares 1 vs 64 scopes using native receipt metadata only, no extra source scan. This is a pure metadata test, not authoritative native rename/delete path proof. CI and actual benchmark execution pending. CLP-02.04.02/.03/.04 remain VERIFY_PENDING.
+
+- 2026-11-27: CLP-01.05.04 DONE: §4.x operational tuning and compatibility instructions (94/144). Added actual benchmark step to core CI; initial de0a7a6d run 45925567954 failed workflow parsing (JS replacement expanded regex dollar-quote); f6dcd5d4 restores exact prior workflow with one literal benchmark step, verified remote content equals intended bytes, no test removal. Corrected CI 45925627155 running. Prior immutable-policy and aggregate test core CI still pending, PHP 45925334546 PASS. Native changed-files UI report publishes filtered measured paths only on PASS and has no completeness guarantee; not authorized for selective guard invalidation. Broad invalidation remains safe. No actual benchmark values or production verification claimed.
