@@ -1,0 +1,42 @@
+# HANDOFF 20 — Active local coder execution contract
+
+Effective 2026-11-27. This is the current operating instruction for local TaskDeck / Composer sessions. It supersedes older HANDOFF 20 process instructions and terminal status claims; it does not supersede technical acceptance criteria, permissions, owner consent, Stop, ACK/UNKNOWN or native tool safety.
+
+## Scope and roles
+
+The local coder's assignment is source implementation and regression repair, not the complete operator delivery/verification lifecycle. Use the available native COLLECT and PATCH tools. The operator/remote reviewer supplies CI outcomes, runs tests/build/browser/upgrade and Git operations. These are separate operator tasks, never prerequisites to unrelated local source work. Do not search for inaccessible CI logs or request unavailable tools. No command execution through PATCH, fabricated evidence, permission changes, or weakened safety/acceptance.
+
+The source checklist and implementation ledger are the worklist. Historical audit documents are references, not instructions to stop, re-audit everything, or prove completion before making a patch.
+
+## Work immediately
+
+1. Select the first unresolved concrete defect or implementation requirement from the active repair queue below or the master checklist/ledger.
+2. COLLECT only the files/functions necessary for that change. PATCH the production fix and meaningful regression test(s) using current anchors. Check the returned receipt. If it fails, reconcile the exact failure and correct the patch.
+3. Move to the next independent source task; do not wait for external CI. Avoid repeated full-repo collection or rewriting audits with no source change.
+4. At a coherent batch boundary, update only the affected ledger/checklist rows and the root checkpoint (test file/function, patch receipt, next source task). No compulsory rewrite of every audit after every patch; no requirement to run Git/CI or prove runtime acceptance locally.
+
+## Active repair queue — remote evidence at 9a9c350bf3688727a2138a6427127c592e317d30
+
+38 commits/36 changed files since f7225b5f. Core 45985473641 FAIL (jobs 140459847323, 140459847614); Remote Go 45985473473 FAIL (job 140459848054); PHP 45985473638 PASS for this SHA only. Prior core 45981082792 also failed W4/race. These are independently verified remote results supplied to the local coder. No local test execution is required or claimed.
+
+- FIX-01 (P0): internal/server/agent_chat_feedback_revocation_integration_test.go:51:5 missing ',' before newline in argument list. Inspect malformed conditional around feedback_legacy vs other revocation branches; remove unmatched brace, confirm correct UpdateAutomation option and RetryMode from production signature. Inspect TestFeedbackResumeRestartRevokedConsentRefused baseline: FeedbackAutoResumeAllowed rejects failed status; make the positive fixture match actual PREPARED/requesting_ai state, preserve negative Stop/revocation cases. Confirm explicit owner fixture stages/saves PREPARED before markAgentProviderSending according to production contract.
+- FIX-02 (P0): internal/agentchat/collection_observation_crash_test.go TestCLP20ObservationCrashW4PreparedBeforeSending: child never reached barrier, "unexpected return from postcommit barrier". Inspect actual Store.Save error, ProviderRun phase/kind/ID constraints and required prepared payload sidecar and commit path. Do not discard errors. Use valid prepared journal/sidecar and an actual deterministic commit boundary (not assumed fsync count); W4 must exercise PREPARED without fabricating egress. Fix race in clp20SpawnCrashChild: exec stderr writer races bytes.Buffer.String() before Wait; use synchronized capture or kill/wait before reading, validate intended signal rather than deadline or arbitrary exit; don't pass dummy ctxErr. Audit W5/W6 valid phase names and fixtures as well.
+- FIX-03 (P0): internal/agentchat/collectionprogress/mutation_proof_test.go TestMutationProofIncompleteOrForeignFallsBack fails in signedProof on invalid rename arity, before negative assertion; tampered_paths resets IntegrityDigest before re-signing. Construct valid proof first then tamper; assert digest construction rejects malformed rename set, and SelectiveMutationPaths rejects bad/tampered proof. TestMutationProofTraversalRejected currently FAIL because mutationProofCanonical only rejects empty/dot/dotdot/duplicate strings, NOT ../escape. Enforce safe canonical relative paths consistent with existing coverage path validator: absolute, traversal, ambiguous separators, dot components, NUL/control and noncanonical aliases rejected; bound total metadata and preserve paired rename identity or explicitly define affected-set semantics. Add positive/negative cases. Do not weaken rejection tests.
+- FIX-04: inspect the latest ledger claims against actual production paths. MutationProof is currently an isolated helper (ledger explicitly NOT wired). Implement a trusted complete native mutation proof producer/consumer where supported; broad invalidation when completeness cannot be proven. Do not treat UI report, unsigned model content, or a self-computed digest alone as authority. Keep optional/compatible and preserve existing safety. If specific execution modes cannot establish complete scope, defer only that subset.
+- FIX-05: complete genuinely missing production-path regression assertions, especially R10/R27/R28 startup/native/receipt/count boundaries, R22 automatic feedback transport retry consent (distinguish explicit retry policy vs fresh automatic egress), R18 adapter/no-dispatch, R25 drain-only Unified recovery. Review new response-checkpoint/resend changes for receipt and egress invariants. Do not redo already satisfied cases, or enable prohibited Unified creation/replan. Work from actual source, not stale audit conclusions.
+
+Paths above are relative to vscode_tasks_menu_go. All new test source stays VERIFY_PENDING until operator evidence. Newer externally supplied failures take priority over this static queue. If a defect was already corrected in current local files, record the exact correction and move on.
+
+## Progress and stopping
+
+- While a concrete independent source task exists, use the existing taskdeck-progress schema with IN_PROGRESS or NEEDS_CONTINUATION and the exact next source action. Actually invoke COLLECT/PATCH, rather than respond with only status.
+- Never use BLOCKED merely because CI, Git, compiler, shell, browser, test execution or delivery is unavailable, or a receipt archive has no new information. These belong to the operator.
+- If a particular task needs a genuine architectural/policy choice, defer that requirement and continue other source work. Ask the operator only when no supported independent work remains and a decision is actually needed.
+- Once the current local source assignment is genuinely exhausted, report SOURCE_BATCH_COMPLETE with external verification pending in prose. CLAIMED_COMPLETE may describe ONLY that bounded local source assignment, not HANDOFF-wide acceptance; use the existing taskdeck-progress schema, no invented enum. Do not emit BLOCKED for operator-only work. Do not fabricate progress or churn source to force additional turns. A later supplied CI failure is a new concrete source repair assignment, even after a prior local batch completed.
+- Keep checklist DONE and historical PASS tied to real evidence. Local PATCH PASS is not compile/test PASS; 106/144 checked leaves and 20/28 historical gates are unchanged until evidence supports a change. No FULL_HANDOFF_COMPLETE claim until mandatory verification/delivery criteria actually pass.
+
+## Operator verification
+
+After the source repair batch, operator runs V-BATCH-00 and the targeted CI failures, then V-BATCH-01..08 as appropriate in 20-external-verification-queue.md. Return exact source SHA, test names, logs and exit codes. Local coder fixes real failures on receipt, without a new capability audit.
+
+This contract replaces prior demands to finish all external verification before ending a local source assignment, repetitive all-document audits, and any instruction to label an external-only dependency as the entire task BLOCKED. It does not override TaskDeck scheduler controls, Stop, approval, retry/UNKNOWN fences, or the actual available tools.
