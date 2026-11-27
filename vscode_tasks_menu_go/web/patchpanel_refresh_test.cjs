@@ -358,3 +358,42 @@ console.log('PASS: opening a RUNNING console jumps to its tail; live updates fol
  assert.equal(ctx.parallelCollectRuns.size,1,'manual in-page run results are retained');
  console.log('PASS: live discovery, AI origin, deduplication, terminal pruning, no historical resurrection, manual result retention');
 })().catch(error=>{console.error(error);process.exitCode=1;});
+
+
+ // Exercise the same action shared by History and live artifact renderers.
+(async()=>{
+ const start=source.indexOf('  function appendSendArtifactToAgent(');
+ const end=source.indexOf('  function appendHistoryFiles(',start);
+ assert.ok(start>=0&&end>start);
+ const calls=[],errors=[];
+ const ctx={
+  document:{createElement:()=>({disabled:false,isConnected:true})},
+  historyTextFile:path=>/\.txt$/i.test(path),
+  TaskMenuAgentChat:{selectedSessionID:'conversation-a',attachPatchArtifact:async(path,options)=>{
+   calls.push({path,options});return {ok:true};
+  }},
+  app:{showError:error=>errors.push(error.message)},setTimeout:()=>1,
+ };
+ const append=vm.runInNewContext(source.slice(start,end)+'\nappendSendArtifactToAgent;',ctx);
+ const host={children:[],append(node){this.children.push(node);}};
+ append(host,'artifacts/result.zip');
+ assert.equal(host.children.length,0,'binary ZIP is not an attachment');
+ append(host,'artifacts/result.txt');
+ assert.equal(host.children.length,1);
+ const button=host.children[0];
+ assert.equal(button.textContent,'Send to AI Agent Chat');
+ await button.onclick();
+ assert.equal(calls.length,1);
+ assert.equal(calls[0].path,'artifacts/result.txt');
+ assert.equal(calls[0].options.session_id,'conversation-a');
+ assert.equal(button.textContent,'✓ Attached');
+ assert.equal(button.disabled,false);
+ ctx.TaskMenuAgentChat.selectedSessionID='conversation-b';
+ ctx.TaskMenuAgentChat.attachPatchArtifact=async()=>{throw Error('file unavailable');};
+ await button.onclick();
+ assert.equal(errors[0],'file unavailable');
+ assert.equal(button.disabled,false);
+ assert.ok(source.includes('appendSendArtifactToAgent(actionsNode,textFile.path)'),'History result action');
+ assert.ok(source.includes('appendSendArtifactToAgent(actionsNode,textVariant.path)'),'Live result action');
+ console.log('PASS: History/live Send to AI Agent Chat action targets the selected draft and reports errors');
+})().catch(error=>{console.error(error);process.exitCode=1;});
