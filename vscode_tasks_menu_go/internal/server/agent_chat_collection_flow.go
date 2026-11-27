@@ -376,6 +376,7 @@ func (s *Server) agentChatRunCollection(
 			s.agentPreparedFailure(*x,"collection",payload,err)
 			return result,clearProviderRefs,&agentCollectionLocalError{Stage:"persist_prepared",Round:round+1,Cause:err}
 		}
+		x.ProviderRun.CollectionReplan=recoveryAdvice!=""
 		saved, err := store.Save(*x, x.Revision)
 		if err != nil {
 			return result, clearProviderRefs, &agentCollectionLocalError{Stage: "journal_write", Round: round+1, Cause: err}
