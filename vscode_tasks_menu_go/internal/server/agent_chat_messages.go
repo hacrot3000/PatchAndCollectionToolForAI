@@ -585,6 +585,7 @@ func (s *Server) agentChatAuthorizedMessage(w http.ResponseWriter, r *http.Reque
 		http.Error(w,"cannot persist prepared provider request: "+s.agentPreparedFailure(session,"message",payload,err),409)
 		return
 	}
+	if autoResumePatchFeedback&&session.ProviderRun!=nil{session.ProviderRun.FeedbackAutoResume=true}
 	if err=agentPinActiveTurnBinding(&session,mode,p,model,reasoning,secret,payload,requestKey);err!=nil{
 		http.Error(w,"cannot persist turn binding",409)
 		return

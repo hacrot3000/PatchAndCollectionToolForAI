@@ -22,6 +22,7 @@ type ProviderRun struct {
  Phase string `json:"phase"` // prepared, sending, acknowledged, unknown, completed, blocked
  CallID string `json:"call_id,omitempty"`
  CollectionReplan bool `json:"collection_replan,omitempty"`
+ FeedbackAutoResume bool `json:"feedback_auto_resume,omitempty"` // auto PATCH feedback resume; consent rechecked at SENDING
  PayloadSHA256 string `json:"payload_sha256"`
  ProviderFingerprint string `json:"provider_fingerprint"`
  EstimatedInputTokens uint64 `json:"estimated_input_tokens,omitempty"`
@@ -51,6 +52,7 @@ func validProviderRun(run *ProviderRun) bool {
   len(run.PayloadSHA256)!=64 || len(run.ProviderFingerprint)>128 ||
   run.CreatedAt.IsZero() || run.UpdatedAt.IsZero(){return false}
  if run.CollectionReplan&&run.Kind!="collection"{return false}
+ if run.FeedbackAutoResume&&run.Kind!="message"{return false}
  switch run.Kind{case "message","collection","feedback":default:return false}
  switch run.Phase{case "prepared","sending","acknowledged","unknown","completed","blocked":default:return false}
  return true
@@ -176,6 +178,16 @@ func CollectionReplanAllowed(x Session)bool{
 // first wins; after SENDING, the normal ambiguous-egress fence applies.
 // Return the durable blocked session together with the sentinel so the
 // caller cannot accidentally persist a stale in-memory SENDING candidate.
+
+// FeedbackAutoResumeAllowed re-checks live owner consent at the SENDING
+// boundary for an automatic PATCH feedback resume. UpdateAutomation does
+// not advance the turn revision, so admission-time consent alone is not
+// sufficient; a revocation committed first must win before egress.
+func FeedbackAutoResumeAllowed(x Session)bool{
+ if x.Owner!="local"||x.Archived||x.Status=="cancelled"||x.Status=="failed"{return false}
+ if x.TaskPlan!=nil{return false}
+ return x.AutoContinueText&&x.AutoFeedback&&x.AutoFeedbackPersistent&&x.RetryMode==RetryUnlimited
+}
 func(s *Store) CommitProviderSending(candidate Session,expectedRevision uint64)(Session,error){
  var saved Session
  revoked:=false
@@ -186,8 +198,8 @@ func(s *Store) CommitProviderSending(candidate Session,expectedRevision uint64)(
   if current.Owner!=candidate.Owner||current.Workspace!=candidate.Workspace||current.ProjectID!=candidate.ProjectID||
    old==nil||next==nil||old.Phase!="prepared"||next.Phase!="sending"||
    old.ID!=next.ID||old.Kind!=next.Kind||old.CallID!=next.CallID||old.PayloadSHA256!=next.PayloadSHA256||
-   old.ProviderFingerprint!=next.ProviderFingerprint||old.CollectionReplan!=next.CollectionReplan{return ErrInvalidSession}
-  if old.CollectionReplan&&!CollectionReplanAllowed(current){
+   old.ProviderFingerprint!=next.ProviderFingerprint||old.CollectionReplan!=next.CollectionReplan||old.FeedbackAutoResume!=next.FeedbackAutoResume{return ErrInvalidSession}
+  if (old.CollectionReplan&&!CollectionReplanAllowed(current))||(old.FeedbackAutoResume&&!FeedbackAutoResumeAllowed(current)){
    current.Status="failed"
    current.ProviderRun.Phase="blocked"
    current.ProviderRun.UpdatedAt=time.Now().UTC()

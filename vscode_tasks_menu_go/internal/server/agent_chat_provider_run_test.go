@@ -271,3 +271,35 @@ func TestAgentCLP20PreparedReplanRevocationWinsEgressCAS(t *testing.T){
   if calls!=0{t.Fatal("blocked replan replayed")}
  })}
 }
+
+
+// An automatic PATCH feedback resume must re-check consent at the durable
+// SENDING boundary. A revocation committed after PREPARED but before egress
+// (same turn revision, via UpdateAutomation) must win and never cross SENDING.
+func TestAgentCLP20PatchFeedbackResumeRevocationWinsEgressCAS(t *testing.T){
+ for _,tc:=range []struct{name,option string}{
+  {"continue_revoked","continue"},{"feedback_revoked","feedback"},
+ }{t.Run(tc.name,func(t *testing.T){
+  s,id:=newAgentConversationFixture(t,"stateless")
+  store,err:=s.agentChatStore();if err!=nil{t.Fatal(err)}
+  x,err:=store.Get(id,"local");if err!=nil{t.Fatal(err)}
+  x.AutoContinueText=true;x.AutoFeedback=true;x.AutoFeedbackPersistent=true;x.RetryMode=agentchat.RetryUnlimited
+  x.Status="requesting_ai"
+  p:=agentProviderFixture()
+  payload:=[]byte(`{"model":"gpt-4.1-mini","input":"feedback resume fixture"}`)
+  if err=prepareAgentProviderRun(store,&x,"message","",p,p.Models[0],payload);err!=nil{t.Fatal(err)}
+  x.ProviderRun.FeedbackAutoResume=true
+  x,err=store.Save(x,x.Revision);if err!=nil{t.Fatal(err)}
+  stale:=x
+  updated,err:=store.UpdateAutomation(id,"local",x.Workspace,x.Revision,tc.option,false,"");if err!=nil{t.Fatal(err)}
+  if updated.Revision!=stale.Revision||updated.AutomationRevision<=stale.AutomationRevision{t.Fatal("fixture did not hit same-revision metadata race")}
+  calls:=0
+  s.AgentChatCall=func(_ context.Context,_ agentchat.ProviderConfig,_ string,_ []byte)(agentchat.ResponsesResult,error){calls++;return agentchat.ResponsesResult{},nil}
+  if err=markAgentProviderSending(store,&stale);!errors.Is(err,agentchat.ErrCollectionReplanRevoked){t.Fatalf("expected revoked egress: %v",err)}
+  if stale.ProviderRun.Phase!="blocked"{t.Fatal("caller retained stale sending state")}
+  got,err:=store.Get(id,"local");if err!=nil{t.Fatal(err)}
+  if calls!=0||got.ProviderRun.Phase!="blocked"{t.Fatalf("revocation crossed egress: calls=%d phase=%s",calls,got.ProviderRun.Phase)}
+  for _,event:=range got.Events{if event.Kind=="provider_egress"{t.Fatal("revoked feedback resume crossed sending boundary")}}
+  if _,_,err=store.PreparedProviderPayload(id,"local");!errors.Is(err,agentchat.ErrInvalidSession){t.Fatal("blocked request remained replayable")}
+ })}
+}
