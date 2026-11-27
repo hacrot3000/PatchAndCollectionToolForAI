@@ -139,11 +139,10 @@ func TestAgentToolContinuationExactCallIDAndOnceOnly(t *testing.T) {
 		if !strings.Contains(output["output"].(string), `"PASS"`) {
 			t.Fatal("missing verified native status")
 		}
-		tools := req["tools"].([]any)
-		if len(tools) != 2 || tools[0].(map[string]any)["name"] != "taskdeck_collect_workspace" ||
-			tools[1].(map[string]any)["name"] != "taskdeck_submit_patch" {
-			t.Fatal("Collection/Patch tool contract not refreshed")
-		}
+		// HANDOFF 21: preserve exact tool identities, uniqueness and the
+		// permission condition (local + Patch enabled => ask_user advertised).
+		assertAdvertisedTools(t, req["tools"],
+			"taskdeck_collect_workspace", "taskdeck_submit_patch", agentchat.AskUserToolName)
 		return agentchat.ResponsesResult{ResponseID: "resp_after_tool", Text: "Patch verified as PASS"}, nil
 	}
 	path := "/api/agent/sessions/" + id + "/tools/call_agent_001/continue"
@@ -220,4 +219,41 @@ func TestAgentNativeOversizedFailurePreservesIdentity(t *testing.T) {
  for k,want:=range map[string]any{"status":"FAIL","run_id":item.RunID,"name":item.Name,"failure_reason":"anchor mismatch","diagnosis_kind":"source_drift","rc":float64(17),"mutation_state":"UNKNOWN","diagnostics_truncated":true} {
   if got[k]!=want {t.Fatalf("%s=%v want %v",k,got[k],want)}
  }
+}
+
+
+// assertAdvertisedTools validates the exact advertised function-tool contract:
+// the ordered identities must match want, every name must be unique and every
+// schema must be a well-formed function object. It replaces obsolete
+// `len(tools) == 2` assertions that broke when taskdeck_ask_user was added.
+func assertAdvertisedTools(t *testing.T, raw any, want ...string) {
+	t.Helper()
+	tools, ok := raw.([]any)
+	if !ok {
+		t.Fatalf("advertised tools is not an array: %#v", raw)
+	}
+	if len(tools) != len(want) {
+		t.Fatalf("advertised tool count=%d want %d: %#v", len(tools), len(want), tools)
+	}
+	seen := map[string]bool{}
+	for i, item := range tools {
+		m, ok := item.(map[string]any)
+		if !ok {
+			t.Fatalf("tool[%d] is not an object: %#v", i, item)
+		}
+		name, _ := m["name"].(string)
+		if name == "" {
+			t.Fatalf("tool[%d] has no name: %#v", i, m)
+		}
+		if seen[name] {
+			t.Fatalf("duplicate advertised tool %q", name)
+		}
+		seen[name] = true
+		if name != want[i] {
+			t.Fatalf("tool[%d]=%q want %q (full set %#v)", i, name, want[i], tools)
+		}
+		if typ, _ := m["type"].(string); typ != "function" {
+			t.Fatalf("tool[%d] %q has type %q, want function", i, name, typ)
+		}
+	}
 }

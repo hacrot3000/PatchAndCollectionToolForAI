@@ -30,3 +30,19 @@ Unified's progress decision `g.Decision` is produced by `ApplyCounterEvent`, not
 
 ## 5. Status
 This audit closes the documentation half only. CLP-01.04.02/.04, CLP-04.03.03/.04 and R25 remain VERIFY_PENDING / IN_PROGRESS: authoritative source integration beyond advisory is intentionally NOT attempted because the current architecture is drain-only and the task forbids enabling automatic Unified creation or replan. Runtime proof of the advisory path and of Legacy recovery remains operator work (V-BATCH-01/03/05). No gate promoted; no test disabled or weakened.
+
+
+## 6. Resolution — bounded recovery integrated (drain-only preserved) 2026-11-27
+
+> This section SUPERSEDES the Section 2 "genuine gap" and Section 5 "not attempted" wording above. Those described the state at audit time; the feasible recovery-state integration has since been implemented via native PATCH. The historical audit text is retained unchanged.
+
+Verified current source (`vscode_tasks_menu_go/internal/server/agent_run_collection_progress.go`, native COLLECT Coverage VERIFIED):
+- Line 21: `Recovery cp.RecoveryState \`json:"recovery,omitempty"\`` added to the persisted progress projection (omitempty preserves zero-value backward compatibility).
+- Lines 54-57: validation bounds on `Recovery.Attempts <= MaxRecoveryAttempts`, `LastSequence <= Counters.LastSequence`, `LastAttemptReads <= Counters.NativeReads`, and paired-zero/nonzero invariants — a tampered/stale recovery state fails closed.
+- Line 107: `nextRecovery,_ := cp.AssessRecovery(policy, c, observedEvent, g.Recovery, cp.RecoveryGate{Stopped, SafeEgress, CanonicalOutputCommitted, OwnerAllowsContinuation})` — the pure reducer is now actually consumed on the Unified progress-update path (previously only Legacy consumed it); gates derived from run Status and immutable snapshot Automation.
+- Line 108: `g.Recovery = nextRecovery` persists the advanced budget across observations; provider retry/reload cannot rearm it (reducer returns unchanged state at exhaustion).
+- Lines 119-122: a reserved recovery generation yields a BOUNDED ADVISORY (`collectionReplanAdvice`) only. Drain-only policy is preserved: no run creation, no replan execution, no permission grant, no new pipeline, no native receipt replay.
+
+Regression source: `internal/server/agent_run_recovery_state_test.go` (receipt 1795769748557946_406767; companion 1795769589553551_397251/1795769628590192_399870) — real assertions: zero-value default, JSON roundtrip equality, bounded permission-neutral advisory, and exhausted-budget-not-rearmed -> Checkpoint. Registered in V-BATCH-01/03. All VERIFY_PENDING (PATCH PASS = applied only; no Go test executed in the authoring session).
+
+Remaining scope unchanged: automatic replan EXECUTION stays deferred by the drain-only policy (explicitly out of scope). R25/CLP-01.04.02/.04, CLP-04.03.03/.04 stay VERIFY_PENDING until the operator runs the advisory-path and Legacy recovery tests with real receipts. No gate promoted; no test weakened.

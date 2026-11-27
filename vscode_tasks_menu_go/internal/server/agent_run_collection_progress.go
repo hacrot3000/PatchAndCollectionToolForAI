@@ -2,6 +2,7 @@ package server
 
 import (
  "encoding/json"
+ "strings"
 
  "bletonfc/vscode_tasks_menu/internal/agentchat"
  cp "bletonfc/vscode_tasks_menu/internal/agentchat/collectionprogress"
@@ -17,6 +18,7 @@ type runCollectionProgress struct{
  Evidence cp.EvidenceIndex `json:"evidence"`
  Coverage *cp.CoverageIndex `json:"coverage,omitempty"`
  Decision cp.Decision `json:"decision"`
+ Recovery cp.RecoveryState `json:"recovery,omitempty"`
  LastHistorySize int `json:"last_history_size"`
 }
 
@@ -48,7 +50,11 @@ func readRunCollectionProgress(owner string,spec agentchat.RunSpec,inputs AgentR
   len(g.Evidence.Entries)>cp.MaxEvidenceEntries||(g.Coverage!=nil&&!cp.ValidateCoverage(*g.Coverage,binding))||g.LastHistorySize<1||
   g.LastHistorySize>len(inputs.Snapshot.History)||g.Counters.LastSequence!=uint64(g.LastHistorySize)*2-1||
   g.Counters.Observed>g.Counters.Requested||g.Counters.NativeReads>g.Counters.Observed||
-  g.Counters.Progress.DuplicateStreak>g.Counters.NativeReads{
+  g.Counters.Progress.DuplicateStreak>g.Counters.NativeReads||
+  g.Recovery.Attempts>cp.MaxRecoveryAttempts||g.Recovery.LastSequence>g.Counters.LastSequence||
+  g.Recovery.LastAttemptReads>g.Counters.NativeReads||
+  (g.Recovery.Attempts==0&&(g.Recovery.LastSequence!=0||g.Recovery.LastAttemptReads!=0))||
+  (g.Recovery.Attempts!=0&&(g.Recovery.LastSequence==0||g.Recovery.LastAttemptReads==0)){
   return runCollectionProgress{},false
  }
  return g,true
@@ -88,8 +94,18 @@ func runCollectionProgressUpdate(owner string,run agentrun.Record,inputs AgentRu
  id:=agentchat.ProviderPayloadDigest([]byte(run.Spec.RunID+"\x00"+call.CallID))
  c,_,applied,err:=cp.ApplyCounterEvent(policy,g.Counters,cp.CounterEvent{Sequence:seq,Identity:id,Kind:cp.CollectionRequested},false)
  if err!=nil||!applied{return raw}
- c,d,applied,err:=cp.ApplyCounterEvent(policy,c,cp.CounterEvent{Sequence:seq+1,Identity:id,Kind:cp.CollectionObserved,Novelty:novelty,NativeRead:native},false)
+ observedEvent:=cp.CounterEvent{Sequence:seq+1,Identity:id,Kind:cp.CollectionObserved,Novelty:novelty,NativeRead:native}
+ c,d,applied,err:=cp.ApplyCounterEvent(policy,c,observedEvent,false)
  if err!=nil||!applied{return raw}
+ // P2: persist bounded recovery state via the pure reducer. No Unified
+ // creation, replan execution or new pipeline is enabled by this metadata.
+ stopped:=run.Status==agentrun.Stopped||run.Status==agentrun.Interrupted
+ auto:=inputs.Snapshot.Policy.Automation
+ ownerAllows:=auto.AutoContinueText||auto.AutoContinuePlan
+ safe:=!stopped&&run.Status!=agentrun.Failed&&(ownerAllows||auto.ContinuationMode!="")
+ committed:=native&&found&&pending==call
+ nextRecovery,_:=cp.AssessRecovery(policy,c,observedEvent,g.Recovery,cp.RecoveryGate{Stopped:stopped,SafeEgress:safe,CanonicalOutputCommitted:committed,OwnerAllowsContinuation:ownerAllows})
+ g.Recovery=nextRecovery
  g.Counters=c;g.Decision=d;g.LastHistorySize=len(run.History)+1
  out,err:=json.Marshal(g)
  if err!=nil||len(out)>96<<10{return raw}
@@ -99,5 +115,11 @@ func runCollectionProgressAdvice(owner string,spec agentchat.RunSpec,inputs Agen
  g,ok:=readRunCollectionProgress(owner,spec,inputs)
  if !ok||g.LastHistorySize!=len(inputs.Snapshot.History){return ""}
  // Advisory only: do not enable Unified creation or automatic replan.
- return collectionProgressAdvisory(g.Decision,g.Counters,false)
+ advice:=collectionProgressAdvisory(g.Decision,g.Counters,false)
+ // A reserved recovery generation yields a bounded advisory only. Drain-only
+ // policy stays: this never creates a run, grants permission or asserts a receipt.
+ if g.Recovery.Attempts>0&&g.Counters.Version==cp.Version&&g.Counters.Objective.Valid(){
+  advice=strings.TrimSpace(advice+" "+collectionReplanAdvice)
+ }
+ return advice
 }

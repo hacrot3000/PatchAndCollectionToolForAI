@@ -86,10 +86,10 @@ func TestAgentChatLegacyCollectionFeedsPatchProposal(t *testing.T) {
 			t.Fatal(err)
 		}
 		if count == 1 {
-			tools := request["tools"].([]any)
-			if len(tools) != 2 {
-				t.Fatalf("missing Collection + Patch tools: %#v", tools)
-			}
+			// HANDOFF 21: a local stateless legacy conversation with Patch
+			// enabled also advertises the interactive questionnaire tool.
+			assertAdvertisedTools(t, request["tools"],
+				"taskdeck_collect_workspace", "taskdeck_submit_patch", agentchat.AskUserToolName)
 			return agentchat.ResponsesResult{ResponseID: "collect-raw", Text: string(legacy)}, nil
 		}
 		if count == 2 {
