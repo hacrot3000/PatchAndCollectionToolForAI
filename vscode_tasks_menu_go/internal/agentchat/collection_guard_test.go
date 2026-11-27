@@ -257,3 +257,24 @@ func TestCollectionGuardOuterWorkSignatureUsesNoveltyNotReceiptIdentity(t *testi
  x.History=append(x.History,HistoryItem{Type:"function_call_output",CallID:"opaque",Content:"PASS"})
  if VerifiedWorkSignature(x)!=opaque{t.Fatal("opaque guard fabricated work")}
 }
+
+
+func TestContinuationWorkReferenceMigrationDoesNotResetBrake(t *testing.T){
+ x,err:=NewSession("local","/workspace","project","provider","model",Stateless);if err!=nil{t.Fatal(err)}
+ x.History=[]HistoryItem{{Type:"user",Content:"Audit read-only"},{Type:"function_call",Name:"taskdeck_collect_workspace",CallID:"legacy",Arguments:"{}"},{Type:"function_call_output",CallID:"legacy",Content:"historical receipt"}}
+ original:=x
+ prior:=VerifiedWorkSignature(original)
+ if !x.BindCollectionGuard("Continue","",true){t.Fatal("bind")}
+ if ContinuationWorkReference(original,x,prior)!=VerifiedWorkSignature(x){t.Fatal("first guard binding fabricated work")}
+ bound:=x
+ if ContinuationWorkReference(bound,x,"old-unversioned-signature")!=VerifiedWorkSignature(x){t.Fatal("upgrade signature change fabricated work")}
+ g,_:=x.ReadCollectionGuard()
+ x.AppendEvent("clp_collection_observed",x.Status,"new-read","")
+ g.Counters,_,_,err=cp.ApplyCounterEvent(g.Policy,g.Counters,cp.CounterEvent{Sequence:x.EventSeq,Identity:guardDigest("new-read"),Kind:cp.CollectionObserved,Novelty:cp.VerifiedNew,NativeRead:true},false)
+ if err!=nil||!x.SetCollectionGuard(g){t.Fatal("new evidence")}
+ if ContinuationWorkReference(original,x,prior)==VerifiedWorkSignature(x){t.Fatal("migration hid actual new work")}
+ if ContinuationWorkReference(bound,x,VerifiedWorkSignature(bound))==VerifiedWorkSignature(x){t.Fatal("existing guard hid actual new work")}
+ beforeStep:=x
+ if !x.BindCollectionGuard("Audit next step","next-step",true){t.Fatal("step")}
+ if ContinuationWorkReference(beforeStep,x,VerifiedWorkSignature(beforeStep))!=VerifiedWorkSignature(x){t.Fatal("step rebinding fabricated work")}
+}
