@@ -784,6 +784,7 @@ console.log('PASS: safe Markdown, syntax-highlighted PHP/Python, per-block Copy,
   assert.equal(stagedOne.ok,true,stagedOne.error);
   assert.equal(stagedTwo.ok,true,stagedTwo.error);
   assert.equal(stagedTwo.attachment_count,1,'Repeated quotes from same file must share an attachment');
+  assert.equal(stagedTwo.selection_count,2,'Expose the number of accumulated selections');
   const quoted=vm.runInNewContext('agentPendingAttachments[0]',context);
   assert.equal(quoted.quotes.length,2);
   assert.match(quoted.text,/RANGE 1: L1:C1-L1:C6/);
@@ -809,7 +810,7 @@ console.log('PASS: safe Markdown, syntax-highlighted PHP/Python, per-block Copy,
   assert.equal(toggle.attributes['aria-expanded'],'true');
   const quoteCard=vm.runInNewContext('attachList.children[0]',context);
   assert.equal(quoteCard.children.length,3,'Compact chips have only label, source and actions');
-  assert.equal(quoteCard.children[0].children[0].textContent,'main.go');
+  assert.equal(quoteCard.children[0].children[0].textContent,'main.go · 2 selections');
   assert.equal(quoteCard.children[1].textContent,'src/app/main.go');
   assert.equal(Boolean(find(quoteCard,n=>n.className==='agentchat-attachment-preview')),false);
   const view=quoteCard.children[2].children[0],info=quoteCard.children[2].children[1],
@@ -854,6 +855,25 @@ console.log('PASS: safe Markdown, syntax-highlighted PHP/Python, per-block Copy,
   assert.equal(vm.runInNewContext("attachPopup.classList.contains('open')",context),false);
   assert.equal(vm.runInNewContext('attachList.children.length',context),0);
   console.log('PASS: lazy hidden attachments, per-item popup preview, removal and multi-range quotes');
+  // Mix an unsaved selection with a later saved buffer and a rendered
+  // selection that has no source coordinates. All text must survive.
+  await context.TaskMenuAgentChat.stageContext(quoteOne,{open:false});
+  const savedQuote={...quoteTwo,source:{...quoteTwo.source,dirty:false,content_source:'editor_buffer'}};
+  await context.TaskMenuAgentChat.stageContext(savedQuote,{open:false});
+  const previewQuote={kind:'file_selection',name:'main.go',mime:'text/plain',text:'rendered selection',source:{path:quoteOne.source.path,source_line_unavailable:true,content_source:'structured_view_selection'}};
+  const combined=await context.TaskMenuAgentChat.stageContext(previewQuote,{open:false});
+  assert.equal(combined.ok,true,combined.error);
+  assert.equal(combined.attachment_count,1);
+  assert.equal(combined.selection_count,3);
+  const mixed=vm.runInNewContext('agentPendingAttachments[0]',context);
+  assert.equal(mixed.quotes.map(q=>q.text).join('|'),'alpha|gamma|rendered selection');
+  assert.equal(mixed.quotes[0].dirty,true);
+  assert.equal(mixed.quotes[1].dirty,false);
+  assert.match(mixed.text,/QUOTE 3 · source position unavailable\nrendered selection/);
+  const rejected=await context.TaskMenuAgentChat.stageContext({...previewQuote,text:'x'.repeat(32768)},{open:false});
+  assert.equal(rejected.ok,false,'Oversize addition must be rejected atomically');
+  assert.equal(vm.runInNewContext('agentPendingAttachments[0].quotes.length',context),3);
+  vm.runInNewContext('agentPendingAttachments.splice(0);renderAgentAttachments()',context);
 
   let saved;
   context.window.confirm = () => true;
@@ -889,6 +909,17 @@ console.log('PASS: safe Markdown, syntax-highlighted PHP/Python, per-block Copy,
   vm.runInNewContext('toggleAgentAttachmentsPopup(true)',context);
   assert.equal(vm.runInNewContext('attachList.children.length',context),1);
   vm.runInNewContext('closeAgentAttachmentsPopup()',context);
+  // Exercise the real open:true editor action twice, including a collapsed
+  // dock, and switch away/back before adding another range.
+  const addedFirst=await context.TaskMenuAgentChat.stageContext(quoteOne,{open:true,session_id:'session-1'});
+  assert.equal(addedFirst.ok,true,addedFirst.error);
+  context.TaskMenuAgentChat.close();
+  const addedSecond=await context.TaskMenuAgentChat.stageContext(quoteTwo,{open:true,session_id:'session-1'});
+  assert.equal(addedSecond.ok,true,addedSecond.error);
+  assert.equal(addedSecond.selection_count,2);
+  await vm.runInNewContext("selectAgentSession('session-2')",context);
+  await vm.runInNewContext("selectAgentSession('session-1')",context);
+  assert.equal(vm.runInNewContext("agentAttachments.find(a=>a.kind==='file_selection').quotes.map(q=>q.text).join('|')",context),'alpha|gamma');
   vm.runInNewContext("agentAttachments.splice(0);agentActive=null",context);
   vm.runInNewContext(`
     agentProviders=[{id:'p',name:'Provider',api_type:'responses',base_url:'https://example.com/v1',models:[]}];
