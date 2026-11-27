@@ -1509,9 +1509,7 @@ function renderAgentTool(session,item){
  if(!record.feedback_sent&&['running','dispatching','queued','unknown','done','error'].includes(state)){
   if((agentFeedbackEnabled(session)||record.send_after_retry)&&['done','error'].includes(state)){
    box.append(agentEl('p','agentchat-tool-summary',agentFeedbackWaitMessage(session)));
-   if(session.auto_feedback_diagnostic?.eligible===false){
-    actions.append(agentButton('Send verified result to AI',()=>recoverAgentPatch(agentCurrentSession||session,item.call_id,'send_existing').catch(showAgentError)));
-   }
+   actions.append(agentButton('Send verified result to AI',()=>recoverAgentPatch(agentCurrentSession||session,item.call_id,'send_existing').catch(showAgentError)));
   }else{
    actions.append(agentButton('Get the last result and send to AI',
     ()=>recoverAgentPatch(agentCurrentSession||session,item.call_id,'send_existing').catch(showAgentError)));
@@ -1956,7 +1954,7 @@ function agentRenderHistoryWindow(start,end){
  }
  for(let i=start;i<end;i++){
   const item=history[i],entry=agentRenderedNodes.get(i);
-  const version=item.type==='function_call'?agentToolRenderVersion(item,records,outputs,session):'';
+  const version=agentToolRenderVersion(item,records,outputs,session);
   if(entry&&agentHistoryItemEqual(entry.item,item)&&entry.version===version){
    entry.item=item;continue;
   }
