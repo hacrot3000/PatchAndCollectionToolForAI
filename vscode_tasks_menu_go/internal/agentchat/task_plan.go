@@ -147,7 +147,7 @@ func ValidateTaskPlan(p *TaskPlan)error{
  if p==nil{return nil}
  if len(p.Goal)==0||len(p.Goal)>MaxTaskPlanGoalBytes||strings.TrimSpace(p.Goal)==""||
   len(p.Steps)==0||len(p.Steps)>MaxTaskPlanSteps||p.CreatedAt.IsZero()||p.UpdatedAt.IsZero()||
-  len(p.LastContinuationKey)>128||len(p.LastWorkSignature)>128||p.NoProgressTurns<0||p.NoProgressTurns>100||
+  len(p.LastContinuationKey)>128||len(p.LastWorkSignature)>128||p.LastWorkSignatureVersion<0||p.LastWorkSignatureVersion>1||p.NoProgressTurns<0||p.NoProgressTurns>100||
   p.RetryStreak<0||p.RetryStreak>100||len(p.Suggestions)>MaxTaskPlanSuggestions {
   return ErrInvalidSession
  }
