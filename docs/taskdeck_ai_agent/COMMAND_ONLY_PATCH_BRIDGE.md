@@ -44,3 +44,12 @@ go test ./internal/server ./internal/agentchat/...
 ```
 
 Status: IMPLEMENTED_UNVERIFIED for full integration. No UAG dependency gates changed.
+
+
+## 2026-11-27 — instruction clarity and manual-execution avoidance
+
+- Agent Chat refreshes the same explicit automatic local script workflow on each new request, including tool feedback and continuation. Function and text-only examples are built from the verified project key/ID and use a JSON **string** for `patch_manifest`.
+- Direct shell/terminal tools remain unavailable. This is **not** a prohibition on reviewed, pre-existing project scripts through the approved native command-only PATCH lane. Prefer that lane for eligible compile, build, test and diagnostic scripts. A genuinely required new script is created in a separate successful PATCH before a second command-only PATCH can invoke it; never use a wrapper to bypass the whitelist.
+- Tool descriptions, unsupported-tool feedback and Ask User guidance distinguish execution from approval; manual execution is a last resort for a real out-of-scope operation or verified blocker. Run Manager current capability guidance explicitly supersedes older snapshot tool guidance, and permits the lane only when its Patch tool is actually advertised. Existing pinned prepared request bytes are not rewritten by this change.
+- Regression source: `TestAgentExistingScriptInstructionsUseAcceptedManifest` and `TestAgentExistingScriptInstructionsDistinguishDirectShellFromNative`. Native parser, execution policy, script origin guard, approval, failure lineage and SSH whitelist are unchanged.
+- Full Go/CI and live provider behavior are not verified in this environment. An instruction improves model behavior but cannot guarantee compliance.
