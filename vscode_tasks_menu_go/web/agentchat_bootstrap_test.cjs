@@ -2206,6 +2206,27 @@ console.log('PASS: active Agent Rename persists once and updates tab and History
  console.log('PASS: reload restores selected conversation and authoritative per-conversation automation, workspace isolation and deleted-tab fallback');
 }
 
+// An HTTP success followed by failed local storage must not masquerade
+// as model thinking, and an interrupted journal must have a visible row.
+{
+ const begin=source.indexOf('function agentLivePhase(session){');
+ const end=source.indexOf('function agentFormatTokenCount(',begin);
+ assert.ok(begin>=0&&end>begin);
+ const turns=new Map();
+ const ctx={agentLiveTurns:turns,agentPendingQuestions:()=>null};
+ const live=vm.runInNewContext(source.slice(begin,end)+'\nagentLivePhase;',ctx);
+ const sess={id:'orphan',status:'requesting_ai',events:[],tool_calls:[]};
+ turns.set(sess.id,{baseEventSeq:0,error:'Provider responded; local response save failed (invalid_session_projection). Recovery will inspect the saved checkpoint; do not resend this request.'});
+ const status=live(sess);
+ assert.equal(status.error,true);
+ assert.ok(status.message.includes('local save failed'));
+ assert.ok(!status.message.includes('Thinking'));
+ const closed={...sess,status:'failed',events:[{seq:1,kind:'turn_interrupted',status:'failed',detail:'provider_response_save_failed'}]};
+ assert.equal(live(closed),null,'durable interruption replaces ephemeral error row');
+ assert.ok(source.includes("'turn_interrupted','collect_failed'"),'interrupted event appears in transcript activity rows');
+ console.log('PASS: response-storage failure is not Thinking; durable interruption replaces transient error');
+}
+
 // Tests have no authority to execute native Patch or contact the real provider.
 
 })().catch(error => { console.error(error); process.exitCode = 1; });
