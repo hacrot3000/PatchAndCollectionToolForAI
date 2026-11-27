@@ -5,6 +5,7 @@ import (
  "path/filepath"
  "strings"
  "testing"
+ "time"
 )
 
 func TestHandoffRegeneratedEverySessionRevision(t *testing.T){
@@ -73,4 +74,20 @@ func TestHandoffShowsUntrustedModelSuggestionWithoutGrantingCompletion(t *testin
   x.TaskPlan.Steps[0].AutoCheck!=nil{
   t.Fatal("handoff suggestion became accepted milestone")
  }
+}
+
+func TestHandoffPlanIncludesRetirementWithoutClaimingRollback(t *testing.T){
+ p,err:=NewTaskPlan("Repair and retest",[]TaskPlanStep{{ID:"fix",Title:"Fix source",Acceptance:"Verified corrective PATCH and retest"}})
+ if err!=nil{t.Fatal(err)}
+ digest:=strings.Repeat("a",64)
+ x:=Session{ID:"s1",ProjectID:"project",Status:"completed",TaskPlan:p,ToolCalls:[]ToolCallRecord{
+  {Name:"taskdeck_submit_patch",CallID:"failed-test",Status:"error",RunID:"native-failure",PackageSHA256:digest,FeedbackStatus:"acknowledged",
+   FailedQueueRetirement:&FailedQueueRetirement{Status:"retired",RunID:"native-failure",PackageSHA256:digest,Archive:"patchs/ignore/agent-failed-"+digest+".zip",ObservedAt:time.Now().UTC()}},
+ }}
+ RecordTurnDisposition(&x,"Blocked by missing predecessor disposition.")
+ text:=HandoffMarkdown(x)
+ for _,want:=range []string{"Durable task plan","Repair and retest","Native queue lifecycle (journal observation): retired","native-failure",digest,"Not rollback, not source-integrity proof","not proof of a native planning refusal"}{
+  if !strings.Contains(text,want){t.Fatalf("handoff omitted %q: %s",want,text)}
+ }
+ if TaskPlanAllDone(x.TaskPlan){t.Fatal("retirement incorrectly accepted the plan")}
 }
