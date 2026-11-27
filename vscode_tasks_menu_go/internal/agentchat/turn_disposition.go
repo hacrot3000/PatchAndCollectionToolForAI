@@ -288,9 +288,23 @@ func PatchCorrectionRequired(call ToolCallRecord)bool{
 // message changes the run kind and cannot itself satisfy this predicate.
 func UnknownPatchCorrectionRecheck(x Session)bool{
  c:=EffectiveTurnContinuation(x)
+ return c!=nil&&c.Disposition==TurnUnknown&&c.Reason=="unknown_model_turn"&&exactPatchCorrectionFeedback(x,false)
+}
+
+// A model-only blocker after an exact acknowledged terminal failure with
+// durable retirement may receive one fresh recovery turn. This grants no
+// native execution and cannot replay a prior tool result. A subsequent
+// ordinary message is not feedback, so repeated narration cannot rearm it.
+func RetiredPatchBlockerRecheck(x Session)bool{
+ c:=EffectiveTurnContinuation(x)
+ return c!=nil&&c.Disposition==TurnBlocked&&
+  (c.Reason=="model_progress_metadata_unverified"||c.Reason=="model_blocker_unverified")&&exactPatchCorrectionFeedback(x,true)
+}
+
+func exactPatchCorrectionFeedback(x Session,retired bool)bool{
+ c:=EffectiveTurnContinuation(x)
  r:=x.ProviderRun
- if c==nil||c.Disposition!=TurnUnknown||c.Reason!="unknown_model_turn"||
-  r==nil||r.Kind!="feedback"||r.Phase!="completed"||r.CallID==""||len(x.History)<3{return false}
+ if c==nil||r==nil||r.Kind!="feedback"||r.Phase!="completed"||r.CallID==""||len(x.History)<3{return false}
  n:=len(x.History)
  last,output:=x.History[n-1],x.History[n-2]
  if last.Type!="assistant"||last.OriginRunID!=""||turnHash(last.Content)!=c.ResponseDigest||
@@ -300,7 +314,16 @@ func UnknownPatchCorrectionRecheck(x Session)bool{
   call:=&x.ToolCalls[i]
   if call.CallID!=r.CallID{continue}
   if record!=nil||call.AgentRunID!=""||call.TextFallback||!call.FeedbackSent||call.FeedbackStatus!="acknowledged"||
-   strings.TrimSpace(call.Result)!=output.Content||!PatchCorrectionRequired(*call){return false}
+   strings.TrimSpace(call.Result)!=output.Content{return false}
+  if retired{
+   receipt:=call.FailedQueueRetirement
+   if call.Name!="taskdeck_submit_patch"||call.Status!="error"||call.RunID==""||
+    receipt==nil||receipt.Status!="retired"||receipt.RunID!=call.RunID||!validSHA256(call.PackageSHA256)||
+    receipt.PackageSHA256!=call.PackageSHA256||receipt.Archive!="patchs/ignore/agent-failed-"+call.PackageSHA256+".zip"{return false}
+   var native struct{Status string `json:"status"`;RunID string `json:"run_id"`}
+   if json.Unmarshal([]byte(call.Result),&native)!=nil||native.RunID!=call.RunID||
+    (native.Status!="FAIL"&&native.Status!="PREFLIGHT_FAIL"&&native.Status!="INCOMPLETE"){return false}
+  }else if !PatchCorrectionRequired(*call){return false}
   record=call
  }
  if record==nil{return false}
@@ -318,7 +341,7 @@ func StandaloneAutoContinueCandidate(x Session)bool{
  c:=EffectiveTurnContinuation(x)
  if !x.AutoContinueText||x.TaskPlan!=nil||x.Owner!="local"||x.Archived||
   x.Status!="completed"||c==nil||c.NoProgressTurns>=MaxContinuationNoWorkTurns||
-  (c.Disposition!=TurnNeedsContinuation&&c.Disposition!=TurnInProgress&&!UnknownCollectionProgressRecheck(x)&&!UnknownPatchCorrectionRecheck(x))||
+  (c.Disposition!=TurnNeedsContinuation&&c.Disposition!=TurnInProgress&&!UnknownCollectionProgressRecheck(x)&&!UnknownPatchCorrectionRecheck(x)&&!RetiredPatchBlockerRecheck(x))||
   x.PendingUserTurn!=nil||HasUnresolvedWork(x){return false}
  if c.NextRetryAt!=nil&&time.Now().UTC().Before(*c.NextRetryAt){return false}
  if x.ProviderRun!=nil{
