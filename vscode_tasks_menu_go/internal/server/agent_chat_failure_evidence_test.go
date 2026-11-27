@@ -220,3 +220,30 @@ func TestAgentCommandOnlyPassDoesNotHideEarlierAtomicFailure(t *testing.T){
  fresh,err:=f.store.Get(x.ID,x.Owner);if err!=nil{t.Fatal(err)}
  if len(fresh.History)!=len(x.History)||fresh.ToolCalls[0].Result!=f.call.Result{t.Fatal("projection changed canonical receipt")}
 }
+
+func TestAgentFailureEvidenceSurvivesCollectionAndQuestions(t *testing.T){
+ f:=newCLP10FailureFixture(t)
+ for _,id:=range []string{"native-collection-call","questionnaire-call",""}{
+  p:=f.s.agentFailureContextProjection(f.store,f.x,id,"")
+  if len(p.History)!=len(f.x.History)+1||!strings.Contains(p.History[len(p.History)-1].Content,"\"predecessor_disposition\":\"retired\""){
+   t.Fatalf("predecessor absent after non-PATCH feedback %q: %+v",id,p.History)
+  }
+ }
+ fresh,err:=f.store.Get(f.x.ID,f.x.Owner)
+ if err!=nil||len(fresh.History)!=len(f.x.History)||fresh.ToolCalls[0].Result!=f.call.Result{t.Fatal("canonical history or receipt changed")}
+}
+
+func TestAgentFailurePackageKindRequiresExactManifestBytes(t *testing.T){
+ f:=newCLP10FailureFixture(t)
+ identity,err:=patchtool.ReadProjectIdentity(f.s.Workspace);if err!=nil{t.Fatal(err)}
+ if got:=f.s.agentFailurePackageKind(f.call,identity);got!="unknown"{t.Fatal("non-ZIP bytes misclassified",got)}
+ body,err:=pastedCommandOnlyPackage(testAgentCommandManifest(identity,[]string{"bash","scripts/regression.sh"}),identity)
+ if err!=nil{t.Fatal(err)}
+ c:=f.call
+ c.PackageSize=int64(len(body));c.PackageSHA256=agentFailureSHA(body)
+ archive:=filepath.Join(f.s.Workspace,"patchs","ignore","agent-failed-"+c.PackageSHA256+".zip")
+ if err=os.WriteFile(archive,body,0600);err!=nil{t.Fatal(err)}
+ if got:=f.s.agentFailurePackageKind(c,identity);got!="verified_command_only"{t.Fatal("command manifest not recognized",got)}
+ if err=os.WriteFile(archive,[]byte("changed"),0600);err!=nil{t.Fatal(err)}
+ if got:=f.s.agentFailurePackageKind(c,identity);got!="unknown"{t.Fatal("changed bytes misclassified",got)}
+}
