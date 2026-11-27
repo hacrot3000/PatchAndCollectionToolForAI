@@ -137,6 +137,13 @@ func HandoffMarkdown(x Session) string {
   c:=x.Continuation
   fmt.Fprintf(&b,"## Last assistant-turn continuation advisory (not acceptance)\n\nDisposition: %s; reason: %s; automatic continuation (without plan): %t\n",
    handoffTrim(c.Disposition,32),handoffTrim(c.Reason,120),x.AutoContinueText&&x.TaskPlan==nil)
+  if c.Disposition==TurnBlocked{
+   if StandaloneAutoContinueCandidate(x)&&RetiredPatchBlockerRecheck(x){
+    b.WriteString("Lifecycle decision: eligible for one fresh automatic recovery turn after exact acknowledged retirement. No old native execution will be replayed.\n")
+   }else{
+    b.WriteString("Lifecycle decision: model-reported blocker (advisory); automatic scheduling is paused unless an independent authorized recovery applies. This is not proof of a native planning refusal.\n")
+   }
+  }
   fmt.Fprintf(&b,"Next proposed action: %s\nCheckpoint path (UNVERIFIED): %s\nResponse SHA-256: %s; action signature: %s; repeated advice: %d; no-verified-work turns: %d\n\n",
    handoffTrim(c.NextAction,500),handoffTrim(c.CheckpointPath,240),
    c.ResponseDigest,c.ProgressSignature,c.RepeatedTurns,c.NoProgressTurns)
@@ -144,7 +151,7 @@ func HandoffMarkdown(x Session) string {
    fmt.Fprintf(&b,"Continuation admission deferred until: %s\n\n",c.NextRetryAt.UTC().Format(time.RFC3339))
   }
  }
- b.WriteString("## Recent verified progress\n\n")
+ b.WriteString("## Recent journal observations (assistant narration is advisory)\n\n")
  count:=0
  for i:=len(x.History)-1;i>=0 && count<9;i-- {
   it:=x.History[i]
@@ -169,6 +176,12 @@ func HandoffMarkdown(x Session) string {
    handoffTrim(call.CallID,90),handoffTrim(call.Status,35),
    handoffTrim(call.FeedbackStatus,35),handoffTrim(call.RunID,90),
    handoffDigest(call.Result))
+  if r:=call.FailedQueueRetirement;r!=nil&&validFailedQueueRetirement(r,call.Status,call.RunID,call.PackageSHA256){
+   fmt.Fprintf(&b,"  - Native queue lifecycle (journal observation): %s; run=%s; package_sha256=%s; archive=%s; observed=%s. Not rollback, not source-integrity proof; revalidate current queue before execution.\n",
+    handoffTrim(r.Status,32),handoffTrim(r.RunID,90),r.PackageSHA256,handoffTrim(r.Archive,180),r.ObservedAt.UTC().Format(time.RFC3339))
+  }else if call.Name=="taskdeck_submit_patch"&&call.Status=="error"&&call.RunID!=""{
+   b.WriteString("  - Queue disposition is not confirmed in this journal. Inspect exact native evidence; absence of metadata alone is not a native planning denial.\n")
+  }
  }
  fmt.Fprintf(&b,"\nArchived: %d Collection/narration items in %d segments; %d acknowledged Patch calls in %d segments.\n",
   x.ArchivedHistoryItems,x.HistoryArchiveParts,x.ArchivedPatchCalls,x.PatchArchiveParts)
