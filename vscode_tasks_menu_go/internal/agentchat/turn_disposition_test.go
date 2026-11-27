@@ -241,6 +241,17 @@ func TestRetiredPatchBlockerRecheckIsOneFreshTurn(t *testing.T){
  }
  x:=fixture()
  if !RetiredPatchBlockerRecheck(x)||!StandaloneAutoContinueCandidate(x){t.Fatal("verified retired failure should get one fresh recovery turn")}
+ // Follow-up COLLECT must not erase the exact acknowledged failure.
+ y:=fixture()
+ y.ProviderRun=&ProviderRun{Kind:"collection",Phase:"completed",CallID:"read"}
+ report:="Blocked by missing predecessor disposition for run native-run."
+ y.History=append(y.History,HistoryItem{Type:"function_call",Name:"taskdeck_collect_workspace",CallID:"read",Arguments:"{}"},HistoryItem{Type:"function_call_output",CallID:"read",Content:"verified collection"},HistoryItem{Type:"assistant",Content:report})
+ RecordTurnDisposition(&y,report)
+ if !RetiredPatchBlockerRecheck(y)||!StandaloneAutoContinueCandidate(y){t.Fatal("COLLECT hid exact retired predecessor")}
+ y.History[len(y.History)-1].Content="Blocked by missing owner credentials."
+ RecordTurnDisposition(&y,y.History[len(y.History)-1].Content)
+ if StandaloneAutoContinueCandidate(y){t.Fatal("unrelated blocker must not trigger recovery")}
+
  for _,tc:=range []struct{name string;mutate func(*Session)}{
   {"revoked",func(y *Session){y.AutoContinueText=false}},
   {"new message",func(y *Session){y.ProviderRun.Kind="message"}},
