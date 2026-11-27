@@ -1717,20 +1717,22 @@ console.log('PASS: safe Markdown, syntax-highlighted PHP/Python, per-block Copy,
   assert.equal(feedbackControl.getAttribute('aria-pressed'),'true','idempotent enable refreshes actual state');
   assert.equal(feedbackControl.textContent,'Auto-send results: ON');
 
-  // A scheduler pause is not a revocation of the persisted owner setting.
+  // Historical no-work/admission pauses must not hide the unlimited grant.
   for(const continuation of [
-    {reason:'stalled_without_verified_work',no_progress_turns:5},
+    {reason:'stalled_without_verified_work',no_progress_turns:100},
     {reason:'nonretryable_admission_failure',no_progress_turns:0},
   ]){
     context.pausedContinue={...context.retrySelection,auto_continue_text:true,continuation};
     vm.runInNewContext('renderAgentAutomationControls(pausedContinue)',context);
     const control=vm.runInNewContext('autoContinueText',context);
-    assert.equal(control.getAttribute('aria-pressed'),'true','scheduler pause must preserve ON');
-    assert.equal(control.textContent,'Auto continue (no plan): ON · paused');
-    assert.match(control.title,/Your preference remains ON/);
+    assert.equal(control.getAttribute('aria-pressed'),'true');
+    assert.equal(control.textContent,'Auto continue (no plan): ON');
   }
+  context.pausedContinue={...context.retrySelection,auto_continue_text:true,continuation:{reason:'admission_retry_scheduled',next_retry_at:new Date(Date.now()+60000).toISOString()}};
+  vm.runInNewContext('renderAgentAutomationControls(pausedContinue)',context);
+  assert.equal(vm.runInNewContext('autoContinueText.textContent',context),'Auto continue (no plan): ON · retry scheduled');
   vm.runInNewContext('renderAgentAutomationControls({...pausedContinue,auto_continue_text:false})',context);
-  assert.equal(vm.runInNewContext('autoContinueText.getAttribute("aria-pressed")',context),'false','explicit OFF remains OFF');
+  assert.equal(vm.runInNewContext('autoContinueText.getAttribute("aria-pressed")',context),'false');
   assert.equal(vm.runInNewContext('autoContinueText.textContent',context),'Auto continue (no plan): OFF');
   vm.runInNewContext('renderAgentAutomationControls(retrySelection)',context);
 
