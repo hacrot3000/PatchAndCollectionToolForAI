@@ -44,7 +44,7 @@
 - Source files: `vscode_tasks_menu_go/web/agentchat_bootstrap_test.cjs`, `vscode_tasks_menu_go/web/terminalchatcontext_test.cjs`, `vscode_tasks_menu_go/web/featuremods/*.js`.
 - Test functions: Node CJS test files listed in `taskdeck_agentchat_core.yml` lines 106-110.
 - Purpose: report/status/clear, tab and bootstrap UI protocol compatibility.
-- Working directory: repository root (workflow runs `node web/...` from `vscode_tasks_menu_go`; adapt to checked-out layout).
+- Working directory: `vscode_tasks_menu_go` (commands below use `web/...`).
 - Exact commands:
   - `node --check web/featuremods/terminalchatcontext.js`
   - `node web/terminalchatcontext_test.cjs`
@@ -62,8 +62,65 @@
 - Purpose: crash before native execution, after native execution before observation commit, after commit before PREPARED, PREPARED before SENDING, SENDING before ACK, restart after ACK, concurrent save/reconcile of one logical observation, explicit owner continuation after Stop/restart; count exactly once; no stale overwrite; no double count.
 - Working directory: `vscode_tasks_menu_go`.
 - Exact commands:
-  - `go test -race -count=1 ./internal/agentchat -run '^(TestCollectionGuardSessionCASAndRestart|TestCollectionGuardReconcilesAttemptLedgerOnceAcrossRestart|TestCounterCursorRejectsConflictAndDoesNotCountOldReplay|TestUnknownCollectionDeliveryMarkerIsTerminalAndNarrow|TestCollectionResumeReceiptRequiresExactCanonicalPair|TestCanSendAfterUnknownCollectionRequiresTerminalToolCalls|TestCollectionAutoResumeAllowedNeedsLiveOwnerConsent|TestCollectionResumeHistoryRejectsReplayAndConflictingProof)$'` (last five: resume-fence predicate regression, collection_resume_predicates_test.go)
-  - `go test -race -count=1 ./internal/agentrun -run '^TestAcquireRunFenceExcludesSecondOwner$'`
+  - `go test -race -count=1 ./internal/agentchat -run '^(TestCollectionGuardSessionCASAndRestart|TestCollectionGuardReconcilesAttemptLedgerOnceAcrossRestart|TestUnknownCollectionDeliveryMarkerIsTerminalAndNarrow|TestCollectionResumeReceiptRequiresExactCanonicalPair|TestCanSendAfterUnknownCollectionRequiresTerminalToolCalls|TestCollectionAutoResumeAllowedNeedsLiveOwnerConsent|TestCollectionResumeHistoryRejectsReplayAndConflictingProof)$'` (last five: resume-fence predicate regression, collection_resume_predicates_test.go)
+  - `go test -v -race -count=1 ./internal/agentchat/collectionprogress -run '^TestCounterCursorRejectsConflictAndDoesNotCountOldReplay
+  - `go test -v -race -count=1 ./internal/server -run '^(TestAgentProviderRealSIGKILLAtEgressBoundaries|TestAgentCLP20MixedLegacyRestartMatrix|TestAgentCLP20InterruptedCollectionCheckpointProof|TestAgentCLP20StopDuringPreparedResumePreservesUnknown|TestAgentStopCancelsDurablePreparedRunBeforeEgress); counter deltas exactly one; canonical receipt unchanged; no replayed native call; no ACK resend; isolation holds.
+- Evidence to return: CI URL + conclusion, per-test PASS lines, race report absence, source SHA, exact crash window observed in fixture logs.
+- Safety conditions: SIGKILL only against fixture subprocesses; no production daemon; no real provider/network egress; synthetic workspace.
+- Dependencies: V-BATCH-01 should be green first. Status: PENDING.
+
+## V-BATCH-04 — Opt-out, revocation and live-consent at transport (CLP-01.04.02, CLP-04.03.03; gate R22)
+- Source files: `vscode_tasks_menu_go/internal/server/agent_run_provider.go`, `agent_chat_continuation.go`, `agent_chat_plan_coordinator.go`, `agent_run_continuation.go`.
+- Test functions: TestAgentCLP20StallRequiresExactDuplicateAndLiveConsent, TestAgentRunContinuationConsentAndUnknownEgressFence, TestAgentStandaloneContinuationRequiresUserConsent, TestAgentRecoveredCollectionResumeRequiresGrantAndRunsOnce, TestAgentCLP20PreparedReplanRevocationWinsEgressCAS, TestAgentRunAutomaticContinuationRevokedAtTransportAdmission.
+- Purpose: confirm AutoCollection/Patch/Feedback/Continue opt-out honored at every gate including recovery, Unified per-attempt admission, after-build and before-retry revocation; no egress after revocation; unknown egress fenced.
+- Working directory: `vscode_tasks_menu_go`.
+- Exact commands:
+  - `go test -v -race -count=1 ./internal/server -run '^(TestAgentCLP20StallRequiresExactDuplicateAndLiveConsent|TestAgentRunContinuationConsentAndUnknownEgressFence|TestAgentStandaloneContinuationRequiresUserConsent|TestAgentRecoveredCollectionResumeRequiresGrantAndRunsOnce|TestAgentCLP20PreparedReplanRevocationWinsEgressCAS|TestAgentRunAutomaticContinuationRevokedAtTransportAdmission)$'`
+- Expected result: all exit 0; zero invocations after revocation; canonical receipt intact; explicit owner turn still authorized.
+- Evidence to return: CI URL + conclusion, per-subtest PASS (after_build/before_retry/explicit_owner_turn), source SHA. Note: named tests already PASS for commit `88a909b4...` per EXTERNALLY_SUPPLIED_CI_EVIDENCE; remaining scope is Unified/all-automatic-path coverage — return whether that broader scope is now fully exercised before closing R22.
+- Safety conditions: fake provider only; no real credentials; consent toggles in synthetic session.
+- Dependencies: none. Status: PENDING.
+
+## V-BATCH-05 — Native mutation, selective invalidation and pipeline parity (CLP-02.04.01/.02, CLP-04.02.03/.04; gates R18, R25)
+- Source files: `vscode_tasks_menu_go/internal/agentchat/collectionprogress`, `vscode_tasks_menu_go/internal/server/agent_run_collection_test.go`, `agent_chat_collection_flow.go`.
+- Test functions: TestAgentCLP20NativePatchMutationGuardMatrix, TestAgentCLP20NativeRangeExternalMutationInvalidatesCoverage, TestAgentRunCollectionRepeatedShapeReadsChangedSource, TestAgentCLP20CrossPipelineRetryMatrix, TestConfiguredAdapterCLP20BoundedRecovery (mutation/parity); R18 streamed function-call denial: TestChatCompletionsStreamRejectsMissingFinishAndInvalidFragments (agentchat/chat_completions_stream_test.go:42 — missing finish reason, malformed fragmented arguments, call-ID change).
+- Purpose: authoritative mutation proof, selective invalidation only with full proof, broad invalidation otherwise, rename/delete, external drift, partial PATCH failure, typed/text fallback, partial streamed function call denial, unsupported tool denial, native execution count, Legacy/Unified parity.
+- Working directory: `vscode_tasks_menu_go`.
+- Exact commands:
+  - `go test -v -count=1 ./internal/server -run '^(TestAgentCLP20NativePatchMutationGuardMatrix|TestAgentCLP20NativeRangeExternalMutationInvalidatesCoverage|TestAgentRunCollectionRepeatedShapeReadsChangedSource|TestAgentCLP20CrossPipelineRetryMatrix)$'`
+  - `go test -v -count=1 ./internal/agentchat -run '^TestConfiguredAdapterCLP20BoundedRecovery$'`
+  - `go test -v -count=1 ./internal/agentchat -run '^TestChatCompletionsStreamRejectsMissingFinishAndInvalidFragments$'` (R18 streamed denial)
+- Expected result: all exit 0; no selective invalidation without authoritative proof; UI changed-files report not treated as complete mutation evidence.
+- Evidence to return: CI URL + conclusion, per-test PASS lines, source SHA.
+- Safety conditions: native calls against synthetic workspace only; no production source mutation.
+- Dependencies: none. Status: PENDING.
+
+## V-BATCH-06 — Upgrade smoke and rollback (CLP-09.02; gates R11, R24)
+- Source files: self-update paths under `vscode_tasks_menu_go/internal/selfupdate`, installer scripts `install.sh`, `self-install-and-update.sh`.
+- Purpose: build from checked-out source, record build SHA, create synthetic backup of legacy state, run self-update/reload/restart smoke, verify migration/recovery/counters/ACK; exercise auto flags, provider switch, Stop, concurrency and rollback compatibility.
+- Working directory: repository root.
+- Exact commands (manual procedure; do NOT run in this session): build per `.github/workflows/vscode_tasks_menu_go.yml` (native CLI build step), then run the staged self-update smoke described there; run `.github/workflows/taskdeck_selfupdate_multi_instance.yml` steps against a synthetic instance.
+- Expected result: upgrade preserves canonical history, receipts, ACK and counters; rollback restores prior state; no production data used.
+- Evidence to return: build SHA, synthetic-state snapshots before/after, CI/manual log, exit codes.
+- Safety conditions: disposable instance only; never point at production paths or real provider credentials.
+- Dependencies: V-BATCH-01 green. Status: PENDING.
+
+## V-BATCH-07 — Delivery (CLP-09.03.03/.04)
+- Source files: `docs/taskdeck_ai_agent/20-collection-progress-guard-and-legacy-recovery.md`, `TASKDECK_HANDOFF_20_CHECKPOINT.md`, this queue.
+- Purpose: commit code + tracker to `main`, push, verify ancestry and combined CI, then write the final report.
+- Working directory: repository root.
+- Exact commands (operator-only, not executed here): `git fetch origin main`; `git add -- <task files> docs/taskdeck_ai_agent/20-collection-progress-guard-and-legacy-recovery.md docs/taskdeck_ai_agent/20-external-verification-queue.md`; `git commit -m "fix(agent): HANDOFF 20 source implementation"`; `git push origin main`; `git merge-base --is-ancestor <commit-sha> origin/main`.
+- Expected result: commit present on remote, ancestry verified, combined CI green after push, checklist rollups updated only from verified results.
+- Evidence to return: commit SHA, remote HEAD, ancestry check exit 0, CI URLs.
+- Safety conditions: reconcile concurrent commits; no force push, no reset hard, no `git add .`; preserve changes outside task scope.
+- Dependencies: V-BATCH-01..06 resolved. Status: PENDING.
+
+## Notes
+- This queue documents commands only. Nothing here was executed by the authoring session.
+- Audit refinements (see 20-source-completeness-audit.md §3): V-BATCH-03 needs a new narrowly scoped test-only Store commit-barrier hook for W1–W7 (existing task-plan crash fixtures do NOT cover the collection-observation boundary); V-BATCH-05 must include an explicit partial streamed function-call JSON denial assertion for R18. Compile/test batches (01/02/05) are non-destructive; SIGKILL/self-update/rollback (03/06) require isolated fixtures only; git (07) is operator-only and is not a prerequisite for local batches.
+- Return real receipts before changing any PENDING status or promoting a gate/checklist checkbox.
+`
+  - `go test -v -race -count=1 ./internal/agentrun -run '^(TestAcquireRunFenceExcludesSecondOwner|TestStoppedWaitingToolCanContinueOnlyFromReconciledResult)
   - `go test -v -race -count=1 ./internal/server -run '^(TestAgentProviderRealSIGKILLAtEgressBoundaries|TestAgentCLP20MixedLegacyRestartMatrix|TestAgentCLP20InterruptedCollectionCheckpointProof|TestAgentCLP20StopDuringPreparedResumePreservesUnknown|TestAgentStopCancelsDurablePreparedRunBeforeEgress|TestStoppedWaitingToolCanContinueOnlyFromReconciledResult)$'`
 - Expected result: all exit 0 under race detector; counter deltas exactly one; canonical receipt unchanged; no replayed native call; no ACK resend; isolation holds.
 - Evidence to return: CI URL + conclusion, per-test PASS lines, race report absence, source SHA, exact crash window observed in fixture logs.
@@ -120,3 +177,237 @@
 - This queue documents commands only. Nothing here was executed by the authoring session.
 - Audit refinements (see 20-source-completeness-audit.md §3): V-BATCH-03 needs a new narrowly scoped test-only Store commit-barrier hook for W1–W7 (existing task-plan crash fixtures do NOT cover the collection-observation boundary); V-BATCH-05 must include an explicit partial streamed function-call JSON denial assertion for R18. Compile/test batches (01/02/05) are non-destructive; SIGKILL/self-update/rollback (03/06) require isolated fixtures only; git (07) is operator-only and is not a prerequisite for local batches.
 - Return real receipts before changing any PENDING status or promoting a gate/checklist checkbox.
+`
+  - `go test -v -race -count=1 ./internal/server -run '^(TestAgentProviderRealSIGKILLAtEgressBoundaries|TestAgentCLP20MixedLegacyRestartMatrix|TestAgentCLP20InterruptedCollectionCheckpointProof|TestAgentCLP20StopDuringPreparedResumePreservesUnknown|TestAgentStopCancelsDurablePreparedRunBeforeEgress|TestStoppedWaitingToolCanContinueOnlyFromReconciledResult)$'`
+- Expected result: all exit 0 under race detector; counter deltas exactly one; canonical receipt unchanged; no replayed native call; no ACK resend; isolation holds.
+- Evidence to return: CI URL + conclusion, per-test PASS lines, race report absence, source SHA, exact crash window observed in fixture logs.
+- Safety conditions: SIGKILL only against fixture subprocesses; no production daemon; no real provider/network egress; synthetic workspace.
+- Dependencies: V-BATCH-01 should be green first. Status: PENDING.
+
+## V-BATCH-04 — Opt-out, revocation and live-consent at transport (CLP-01.04.02, CLP-04.03.03; gate R22)
+- Source files: `vscode_tasks_menu_go/internal/server/agent_run_provider.go`, `agent_chat_continuation.go`, `agent_chat_plan_coordinator.go`, `agent_run_continuation.go`.
+- Test functions: TestAgentCLP20StallRequiresExactDuplicateAndLiveConsent, TestAgentRunContinuationConsentAndUnknownEgressFence, TestAgentStandaloneContinuationRequiresUserConsent, TestAgentRecoveredCollectionResumeRequiresGrantAndRunsOnce, TestAgentCLP20PreparedReplanRevocationWinsEgressCAS, TestAgentRunAutomaticContinuationRevokedAtTransportAdmission.
+- Purpose: confirm AutoCollection/Patch/Feedback/Continue opt-out honored at every gate including recovery, Unified per-attempt admission, after-build and before-retry revocation; no egress after revocation; unknown egress fenced.
+- Working directory: `vscode_tasks_menu_go`.
+- Exact commands:
+  - `go test -v -race -count=1 ./internal/server -run '^(TestAgentCLP20StallRequiresExactDuplicateAndLiveConsent|TestAgentRunContinuationConsentAndUnknownEgressFence|TestAgentStandaloneContinuationRequiresUserConsent|TestAgentRecoveredCollectionResumeRequiresGrantAndRunsOnce|TestAgentCLP20PreparedReplanRevocationWinsEgressCAS|TestAgentRunAutomaticContinuationRevokedAtTransportAdmission)$'`
+- Expected result: all exit 0; zero invocations after revocation; canonical receipt intact; explicit owner turn still authorized.
+- Evidence to return: CI URL + conclusion, per-subtest PASS (after_build/before_retry/explicit_owner_turn), source SHA. Note: named tests already PASS for commit `88a909b4...` per EXTERNALLY_SUPPLIED_CI_EVIDENCE; remaining scope is Unified/all-automatic-path coverage — return whether that broader scope is now fully exercised before closing R22.
+- Safety conditions: fake provider only; no real credentials; consent toggles in synthetic session.
+- Dependencies: none. Status: PENDING.
+
+## V-BATCH-05 — Native mutation, selective invalidation and pipeline parity (CLP-02.04.01/.02, CLP-04.02.03/.04; gates R18, R25)
+- Source files: `vscode_tasks_menu_go/internal/agentchat/collectionprogress`, `vscode_tasks_menu_go/internal/server/agent_run_collection_test.go`, `agent_chat_collection_flow.go`.
+- Test functions: TestAgentCLP20NativePatchMutationGuardMatrix, TestAgentCLP20NativeRangeExternalMutationInvalidatesCoverage, TestAgentRunCollectionRepeatedShapeReadsChangedSource, TestAgentCLP20CrossPipelineRetryMatrix, TestConfiguredAdapterCLP20BoundedRecovery (mutation/parity); R18 streamed function-call denial: TestChatCompletionsStreamRejectsMissingFinishAndInvalidFragments (agentchat/chat_completions_stream_test.go:42 — missing finish reason, malformed fragmented arguments, call-ID change).
+- Purpose: authoritative mutation proof, selective invalidation only with full proof, broad invalidation otherwise, rename/delete, external drift, partial PATCH failure, typed/text fallback, partial streamed function call denial, unsupported tool denial, native execution count, Legacy/Unified parity.
+- Working directory: `vscode_tasks_menu_go`.
+- Exact commands:
+  - `go test -v -count=1 ./internal/server -run '^(TestAgentCLP20NativePatchMutationGuardMatrix|TestAgentCLP20NativeRangeExternalMutationInvalidatesCoverage|TestAgentRunCollectionRepeatedShapeReadsChangedSource|TestAgentCLP20CrossPipelineRetryMatrix)$'`
+  - `go test -v -count=1 ./internal/agentchat -run '^TestConfiguredAdapterCLP20BoundedRecovery$'`
+  - `go test -v -count=1 ./internal/agentchat -run '^TestChatCompletionsStreamRejectsMissingFinishAndInvalidFragments$'` (R18 streamed denial)
+- Expected result: all exit 0; no selective invalidation without authoritative proof; UI changed-files report not treated as complete mutation evidence.
+- Evidence to return: CI URL + conclusion, per-test PASS lines, source SHA.
+- Safety conditions: native calls against synthetic workspace only; no production source mutation.
+- Dependencies: none. Status: PENDING.
+
+## V-BATCH-06 — Upgrade smoke and rollback (CLP-09.02; gates R11, R24)
+- Source files: self-update paths under `vscode_tasks_menu_go/internal/selfupdate`, installer scripts `install.sh`, `self-install-and-update.sh`.
+- Purpose: build from checked-out source, record build SHA, create synthetic backup of legacy state, run self-update/reload/restart smoke, verify migration/recovery/counters/ACK; exercise auto flags, provider switch, Stop, concurrency and rollback compatibility.
+- Working directory: repository root.
+- Exact commands (manual procedure; do NOT run in this session): build per `.github/workflows/vscode_tasks_menu_go.yml` (native CLI build step), then run the staged self-update smoke described there; run `.github/workflows/taskdeck_selfupdate_multi_instance.yml` steps against a synthetic instance.
+- Expected result: upgrade preserves canonical history, receipts, ACK and counters; rollback restores prior state; no production data used.
+- Evidence to return: build SHA, synthetic-state snapshots before/after, CI/manual log, exit codes.
+- Safety conditions: disposable instance only; never point at production paths or real provider credentials.
+- Dependencies: V-BATCH-01 green. Status: PENDING.
+
+## V-BATCH-07 — Delivery (CLP-09.03.03/.04)
+- Source files: `docs/taskdeck_ai_agent/20-collection-progress-guard-and-legacy-recovery.md`, `TASKDECK_HANDOFF_20_CHECKPOINT.md`, this queue.
+- Purpose: commit code + tracker to `main`, push, verify ancestry and combined CI, then write the final report.
+- Working directory: repository root.
+- Exact commands (operator-only, not executed here): `git fetch origin main`; `git add -- <task files> docs/taskdeck_ai_agent/20-collection-progress-guard-and-legacy-recovery.md docs/taskdeck_ai_agent/20-external-verification-queue.md`; `git commit -m "fix(agent): HANDOFF 20 source implementation"`; `git push origin main`; `git merge-base --is-ancestor <commit-sha> origin/main`.
+- Expected result: commit present on remote, ancestry verified, combined CI green after push, checklist rollups updated only from verified results.
+- Evidence to return: commit SHA, remote HEAD, ancestry check exit 0, CI URLs.
+- Safety conditions: reconcile concurrent commits; no force push, no reset hard, no `git add .`; preserve changes outside task scope.
+- Dependencies: V-BATCH-01..06 resolved. Status: PENDING.
+
+## Notes
+- This queue documents commands only. Nothing here was executed by the authoring session.
+- Audit refinements (see 20-source-completeness-audit.md §3): V-BATCH-03 needs a new narrowly scoped test-only Store commit-barrier hook for W1–W7 (existing task-plan crash fixtures do NOT cover the collection-observation boundary); V-BATCH-05 must include an explicit partial streamed function-call JSON denial assertion for R18. Compile/test batches (01/02/05) are non-destructive; SIGKILL/self-update/rollback (03/06) require isolated fixtures only; git (07) is operator-only and is not a prerequisite for local batches.
+- Return real receipts before changing any PENDING status or promoting a gate/checklist checkbox.
+`
+- Expected result: all exit 0 under race detector; counter deltas exactly one; canonical receipt unchanged; no replayed native call; no ACK resend; isolation holds.
+- Evidence to return: CI URL + conclusion, per-test PASS lines, race report absence, source SHA, exact crash window observed in fixture logs.
+- Safety conditions: SIGKILL only against fixture subprocesses; no production daemon; no real provider/network egress; synthetic workspace.
+- Dependencies: V-BATCH-01 should be green first. Status: PENDING.
+
+## V-BATCH-04 — Opt-out, revocation and live-consent at transport (CLP-01.04.02, CLP-04.03.03; gate R22)
+- Source files: `vscode_tasks_menu_go/internal/server/agent_run_provider.go`, `agent_chat_continuation.go`, `agent_chat_plan_coordinator.go`, `agent_run_continuation.go`.
+- Test functions: TestAgentCLP20StallRequiresExactDuplicateAndLiveConsent, TestAgentRunContinuationConsentAndUnknownEgressFence, TestAgentStandaloneContinuationRequiresUserConsent, TestAgentRecoveredCollectionResumeRequiresGrantAndRunsOnce, TestAgentCLP20PreparedReplanRevocationWinsEgressCAS, TestAgentRunAutomaticContinuationRevokedAtTransportAdmission.
+- Purpose: confirm AutoCollection/Patch/Feedback/Continue opt-out honored at every gate including recovery, Unified per-attempt admission, after-build and before-retry revocation; no egress after revocation; unknown egress fenced.
+- Working directory: `vscode_tasks_menu_go`.
+- Exact commands:
+  - `go test -v -race -count=1 ./internal/server -run '^(TestAgentCLP20StallRequiresExactDuplicateAndLiveConsent|TestAgentRunContinuationConsentAndUnknownEgressFence|TestAgentStandaloneContinuationRequiresUserConsent|TestAgentRecoveredCollectionResumeRequiresGrantAndRunsOnce|TestAgentCLP20PreparedReplanRevocationWinsEgressCAS|TestAgentRunAutomaticContinuationRevokedAtTransportAdmission)$'`
+- Expected result: all exit 0; zero invocations after revocation; canonical receipt intact; explicit owner turn still authorized.
+- Evidence to return: CI URL + conclusion, per-subtest PASS (after_build/before_retry/explicit_owner_turn), source SHA. Note: named tests already PASS for commit `88a909b4...` per EXTERNALLY_SUPPLIED_CI_EVIDENCE; remaining scope is Unified/all-automatic-path coverage — return whether that broader scope is now fully exercised before closing R22.
+- Safety conditions: fake provider only; no real credentials; consent toggles in synthetic session.
+- Dependencies: none. Status: PENDING.
+
+## V-BATCH-05 — Native mutation, selective invalidation and pipeline parity (CLP-02.04.01/.02, CLP-04.02.03/.04; gates R18, R25)
+- Source files: `vscode_tasks_menu_go/internal/agentchat/collectionprogress`, `vscode_tasks_menu_go/internal/server/agent_run_collection_test.go`, `agent_chat_collection_flow.go`.
+- Test functions: TestAgentCLP20NativePatchMutationGuardMatrix, TestAgentCLP20NativeRangeExternalMutationInvalidatesCoverage, TestAgentRunCollectionRepeatedShapeReadsChangedSource, TestAgentCLP20CrossPipelineRetryMatrix, TestConfiguredAdapterCLP20BoundedRecovery (mutation/parity); R18 streamed function-call denial: TestChatCompletionsStreamRejectsMissingFinishAndInvalidFragments (agentchat/chat_completions_stream_test.go:42 — missing finish reason, malformed fragmented arguments, call-ID change).
+- Purpose: authoritative mutation proof, selective invalidation only with full proof, broad invalidation otherwise, rename/delete, external drift, partial PATCH failure, typed/text fallback, partial streamed function call denial, unsupported tool denial, native execution count, Legacy/Unified parity.
+- Working directory: `vscode_tasks_menu_go`.
+- Exact commands:
+  - `go test -v -count=1 ./internal/server -run '^(TestAgentCLP20NativePatchMutationGuardMatrix|TestAgentCLP20NativeRangeExternalMutationInvalidatesCoverage|TestAgentRunCollectionRepeatedShapeReadsChangedSource|TestAgentCLP20CrossPipelineRetryMatrix)$'`
+  - `go test -v -count=1 ./internal/agentchat -run '^TestConfiguredAdapterCLP20BoundedRecovery$'`
+  - `go test -v -count=1 ./internal/agentchat -run '^TestChatCompletionsStreamRejectsMissingFinishAndInvalidFragments$'` (R18 streamed denial)
+- Expected result: all exit 0; no selective invalidation without authoritative proof; UI changed-files report not treated as complete mutation evidence.
+- Evidence to return: CI URL + conclusion, per-test PASS lines, source SHA.
+- Safety conditions: native calls against synthetic workspace only; no production source mutation.
+- Dependencies: none. Status: PENDING.
+
+## V-BATCH-06 — Upgrade smoke and rollback (CLP-09.02; gates R11, R24)
+- Source files: self-update paths under `vscode_tasks_menu_go/internal/selfupdate`, installer scripts `install.sh`, `self-install-and-update.sh`.
+- Purpose: build from checked-out source, record build SHA, create synthetic backup of legacy state, run self-update/reload/restart smoke, verify migration/recovery/counters/ACK; exercise auto flags, provider switch, Stop, concurrency and rollback compatibility.
+- Working directory: repository root.
+- Exact commands (manual procedure; do NOT run in this session): build per `.github/workflows/vscode_tasks_menu_go.yml` (native CLI build step), then run the staged self-update smoke described there; run `.github/workflows/taskdeck_selfupdate_multi_instance.yml` steps against a synthetic instance.
+- Expected result: upgrade preserves canonical history, receipts, ACK and counters; rollback restores prior state; no production data used.
+- Evidence to return: build SHA, synthetic-state snapshots before/after, CI/manual log, exit codes.
+- Safety conditions: disposable instance only; never point at production paths or real provider credentials.
+- Dependencies: V-BATCH-01 green. Status: PENDING.
+
+## V-BATCH-07 — Delivery (CLP-09.03.03/.04)
+- Source files: `docs/taskdeck_ai_agent/20-collection-progress-guard-and-legacy-recovery.md`, `TASKDECK_HANDOFF_20_CHECKPOINT.md`, this queue.
+- Purpose: commit code + tracker to `main`, push, verify ancestry and combined CI, then write the final report.
+- Working directory: repository root.
+- Exact commands (operator-only, not executed here): `git fetch origin main`; `git add -- <task files> docs/taskdeck_ai_agent/20-collection-progress-guard-and-legacy-recovery.md docs/taskdeck_ai_agent/20-external-verification-queue.md`; `git commit -m "fix(agent): HANDOFF 20 source implementation"`; `git push origin main`; `git merge-base --is-ancestor <commit-sha> origin/main`.
+- Expected result: commit present on remote, ancestry verified, combined CI green after push, checklist rollups updated only from verified results.
+- Evidence to return: commit SHA, remote HEAD, ancestry check exit 0, CI URLs.
+- Safety conditions: reconcile concurrent commits; no force push, no reset hard, no `git add .`; preserve changes outside task scope.
+- Dependencies: V-BATCH-01..06 resolved. Status: PENDING.
+
+## Notes
+- This queue documents commands only. Nothing here was executed by the authoring session.
+- Audit refinements (see 20-source-completeness-audit.md §3): V-BATCH-03 needs a new narrowly scoped test-only Store commit-barrier hook for W1–W7 (existing task-plan crash fixtures do NOT cover the collection-observation boundary); V-BATCH-05 must include an explicit partial streamed function-call JSON denial assertion for R18. Compile/test batches (01/02/05) are non-destructive; SIGKILL/self-update/rollback (03/06) require isolated fixtures only; git (07) is operator-only and is not a prerequisite for local batches.
+- Return real receipts before changing any PENDING status or promoting a gate/checklist checkbox.
+`
+  - `go test -v -race -count=1 ./internal/agentrun -run '^(TestAcquireRunFenceExcludesSecondOwner|TestStoppedWaitingToolCanContinueOnlyFromReconciledResult)
+  - `go test -v -race -count=1 ./internal/server -run '^(TestAgentProviderRealSIGKILLAtEgressBoundaries|TestAgentCLP20MixedLegacyRestartMatrix|TestAgentCLP20InterruptedCollectionCheckpointProof|TestAgentCLP20StopDuringPreparedResumePreservesUnknown|TestAgentStopCancelsDurablePreparedRunBeforeEgress|TestStoppedWaitingToolCanContinueOnlyFromReconciledResult)$'`
+- Expected result: all exit 0 under race detector; counter deltas exactly one; canonical receipt unchanged; no replayed native call; no ACK resend; isolation holds.
+- Evidence to return: CI URL + conclusion, per-test PASS lines, race report absence, source SHA, exact crash window observed in fixture logs.
+- Safety conditions: SIGKILL only against fixture subprocesses; no production daemon; no real provider/network egress; synthetic workspace.
+- Dependencies: V-BATCH-01 should be green first. Status: PENDING.
+
+## V-BATCH-04 — Opt-out, revocation and live-consent at transport (CLP-01.04.02, CLP-04.03.03; gate R22)
+- Source files: `vscode_tasks_menu_go/internal/server/agent_run_provider.go`, `agent_chat_continuation.go`, `agent_chat_plan_coordinator.go`, `agent_run_continuation.go`.
+- Test functions: TestAgentCLP20StallRequiresExactDuplicateAndLiveConsent, TestAgentRunContinuationConsentAndUnknownEgressFence, TestAgentStandaloneContinuationRequiresUserConsent, TestAgentRecoveredCollectionResumeRequiresGrantAndRunsOnce, TestAgentCLP20PreparedReplanRevocationWinsEgressCAS, TestAgentRunAutomaticContinuationRevokedAtTransportAdmission.
+- Purpose: confirm AutoCollection/Patch/Feedback/Continue opt-out honored at every gate including recovery, Unified per-attempt admission, after-build and before-retry revocation; no egress after revocation; unknown egress fenced.
+- Working directory: `vscode_tasks_menu_go`.
+- Exact commands:
+  - `go test -v -race -count=1 ./internal/server -run '^(TestAgentCLP20StallRequiresExactDuplicateAndLiveConsent|TestAgentRunContinuationConsentAndUnknownEgressFence|TestAgentStandaloneContinuationRequiresUserConsent|TestAgentRecoveredCollectionResumeRequiresGrantAndRunsOnce|TestAgentCLP20PreparedReplanRevocationWinsEgressCAS|TestAgentRunAutomaticContinuationRevokedAtTransportAdmission)$'`
+- Expected result: all exit 0; zero invocations after revocation; canonical receipt intact; explicit owner turn still authorized.
+- Evidence to return: CI URL + conclusion, per-subtest PASS (after_build/before_retry/explicit_owner_turn), source SHA. Note: named tests already PASS for commit `88a909b4...` per EXTERNALLY_SUPPLIED_CI_EVIDENCE; remaining scope is Unified/all-automatic-path coverage — return whether that broader scope is now fully exercised before closing R22.
+- Safety conditions: fake provider only; no real credentials; consent toggles in synthetic session.
+- Dependencies: none. Status: PENDING.
+
+## V-BATCH-05 — Native mutation, selective invalidation and pipeline parity (CLP-02.04.01/.02, CLP-04.02.03/.04; gates R18, R25)
+- Source files: `vscode_tasks_menu_go/internal/agentchat/collectionprogress`, `vscode_tasks_menu_go/internal/server/agent_run_collection_test.go`, `agent_chat_collection_flow.go`.
+- Test functions: TestAgentCLP20NativePatchMutationGuardMatrix, TestAgentCLP20NativeRangeExternalMutationInvalidatesCoverage, TestAgentRunCollectionRepeatedShapeReadsChangedSource, TestAgentCLP20CrossPipelineRetryMatrix, TestConfiguredAdapterCLP20BoundedRecovery (mutation/parity); R18 streamed function-call denial: TestChatCompletionsStreamRejectsMissingFinishAndInvalidFragments (agentchat/chat_completions_stream_test.go:42 — missing finish reason, malformed fragmented arguments, call-ID change).
+- Purpose: authoritative mutation proof, selective invalidation only with full proof, broad invalidation otherwise, rename/delete, external drift, partial PATCH failure, typed/text fallback, partial streamed function call denial, unsupported tool denial, native execution count, Legacy/Unified parity.
+- Working directory: `vscode_tasks_menu_go`.
+- Exact commands:
+  - `go test -v -count=1 ./internal/server -run '^(TestAgentCLP20NativePatchMutationGuardMatrix|TestAgentCLP20NativeRangeExternalMutationInvalidatesCoverage|TestAgentRunCollectionRepeatedShapeReadsChangedSource|TestAgentCLP20CrossPipelineRetryMatrix)$'`
+  - `go test -v -count=1 ./internal/agentchat -run '^TestConfiguredAdapterCLP20BoundedRecovery$'`
+  - `go test -v -count=1 ./internal/agentchat -run '^TestChatCompletionsStreamRejectsMissingFinishAndInvalidFragments$'` (R18 streamed denial)
+- Expected result: all exit 0; no selective invalidation without authoritative proof; UI changed-files report not treated as complete mutation evidence.
+- Evidence to return: CI URL + conclusion, per-test PASS lines, source SHA.
+- Safety conditions: native calls against synthetic workspace only; no production source mutation.
+- Dependencies: none. Status: PENDING.
+
+## V-BATCH-06 — Upgrade smoke and rollback (CLP-09.02; gates R11, R24)
+- Source files: self-update paths under `vscode_tasks_menu_go/internal/selfupdate`, installer scripts `install.sh`, `self-install-and-update.sh`.
+- Purpose: build from checked-out source, record build SHA, create synthetic backup of legacy state, run self-update/reload/restart smoke, verify migration/recovery/counters/ACK; exercise auto flags, provider switch, Stop, concurrency and rollback compatibility.
+- Working directory: repository root.
+- Exact commands (manual procedure; do NOT run in this session): build per `.github/workflows/vscode_tasks_menu_go.yml` (native CLI build step), then run the staged self-update smoke described there; run `.github/workflows/taskdeck_selfupdate_multi_instance.yml` steps against a synthetic instance.
+- Expected result: upgrade preserves canonical history, receipts, ACK and counters; rollback restores prior state; no production data used.
+- Evidence to return: build SHA, synthetic-state snapshots before/after, CI/manual log, exit codes.
+- Safety conditions: disposable instance only; never point at production paths or real provider credentials.
+- Dependencies: V-BATCH-01 green. Status: PENDING.
+
+## V-BATCH-07 — Delivery (CLP-09.03.03/.04)
+- Source files: `docs/taskdeck_ai_agent/20-collection-progress-guard-and-legacy-recovery.md`, `TASKDECK_HANDOFF_20_CHECKPOINT.md`, this queue.
+- Purpose: commit code + tracker to `main`, push, verify ancestry and combined CI, then write the final report.
+- Working directory: repository root.
+- Exact commands (operator-only, not executed here): `git fetch origin main`; `git add -- <task files> docs/taskdeck_ai_agent/20-collection-progress-guard-and-legacy-recovery.md docs/taskdeck_ai_agent/20-external-verification-queue.md`; `git commit -m "fix(agent): HANDOFF 20 source implementation"`; `git push origin main`; `git merge-base --is-ancestor <commit-sha> origin/main`.
+- Expected result: commit present on remote, ancestry verified, combined CI green after push, checklist rollups updated only from verified results.
+- Evidence to return: commit SHA, remote HEAD, ancestry check exit 0, CI URLs.
+- Safety conditions: reconcile concurrent commits; no force push, no reset hard, no `git add .`; preserve changes outside task scope.
+- Dependencies: V-BATCH-01..06 resolved. Status: PENDING.
+
+## Notes
+- This queue documents commands only. Nothing here was executed by the authoring session.
+- Audit refinements (see 20-source-completeness-audit.md §3): V-BATCH-03 needs a new narrowly scoped test-only Store commit-barrier hook for W1–W7 (existing task-plan crash fixtures do NOT cover the collection-observation boundary); V-BATCH-05 must include an explicit partial streamed function-call JSON denial assertion for R18. Compile/test batches (01/02/05) are non-destructive; SIGKILL/self-update/rollback (03/06) require isolated fixtures only; git (07) is operator-only and is not a prerequisite for local batches.
+- Return real receipts before changing any PENDING status or promoting a gate/checklist checkbox.
+`
+  - `go test -v -race -count=1 ./internal/server -run '^(TestAgentProviderRealSIGKILLAtEgressBoundaries|TestAgentCLP20MixedLegacyRestartMatrix|TestAgentCLP20InterruptedCollectionCheckpointProof|TestAgentCLP20StopDuringPreparedResumePreservesUnknown|TestAgentStopCancelsDurablePreparedRunBeforeEgress|TestStoppedWaitingToolCanContinueOnlyFromReconciledResult)$'`
+- Expected result: all exit 0 under race detector; counter deltas exactly one; canonical receipt unchanged; no replayed native call; no ACK resend; isolation holds.
+- Evidence to return: CI URL + conclusion, per-test PASS lines, race report absence, source SHA, exact crash window observed in fixture logs.
+- Safety conditions: SIGKILL only against fixture subprocesses; no production daemon; no real provider/network egress; synthetic workspace.
+- Dependencies: V-BATCH-01 should be green first. Status: PENDING.
+
+## V-BATCH-04 — Opt-out, revocation and live-consent at transport (CLP-01.04.02, CLP-04.03.03; gate R22)
+- Source files: `vscode_tasks_menu_go/internal/server/agent_run_provider.go`, `agent_chat_continuation.go`, `agent_chat_plan_coordinator.go`, `agent_run_continuation.go`.
+- Test functions: TestAgentCLP20StallRequiresExactDuplicateAndLiveConsent, TestAgentRunContinuationConsentAndUnknownEgressFence, TestAgentStandaloneContinuationRequiresUserConsent, TestAgentRecoveredCollectionResumeRequiresGrantAndRunsOnce, TestAgentCLP20PreparedReplanRevocationWinsEgressCAS, TestAgentRunAutomaticContinuationRevokedAtTransportAdmission.
+- Purpose: confirm AutoCollection/Patch/Feedback/Continue opt-out honored at every gate including recovery, Unified per-attempt admission, after-build and before-retry revocation; no egress after revocation; unknown egress fenced.
+- Working directory: `vscode_tasks_menu_go`.
+- Exact commands:
+  - `go test -v -race -count=1 ./internal/server -run '^(TestAgentCLP20StallRequiresExactDuplicateAndLiveConsent|TestAgentRunContinuationConsentAndUnknownEgressFence|TestAgentStandaloneContinuationRequiresUserConsent|TestAgentRecoveredCollectionResumeRequiresGrantAndRunsOnce|TestAgentCLP20PreparedReplanRevocationWinsEgressCAS|TestAgentRunAutomaticContinuationRevokedAtTransportAdmission)$'`
+- Expected result: all exit 0; zero invocations after revocation; canonical receipt intact; explicit owner turn still authorized.
+- Evidence to return: CI URL + conclusion, per-subtest PASS (after_build/before_retry/explicit_owner_turn), source SHA. Note: named tests already PASS for commit `88a909b4...` per EXTERNALLY_SUPPLIED_CI_EVIDENCE; remaining scope is Unified/all-automatic-path coverage — return whether that broader scope is now fully exercised before closing R22.
+- Safety conditions: fake provider only; no real credentials; consent toggles in synthetic session.
+- Dependencies: none. Status: PENDING.
+
+## V-BATCH-05 — Native mutation, selective invalidation and pipeline parity (CLP-02.04.01/.02, CLP-04.02.03/.04; gates R18, R25)
+- Source files: `vscode_tasks_menu_go/internal/agentchat/collectionprogress`, `vscode_tasks_menu_go/internal/server/agent_run_collection_test.go`, `agent_chat_collection_flow.go`.
+- Test functions: TestAgentCLP20NativePatchMutationGuardMatrix, TestAgentCLP20NativeRangeExternalMutationInvalidatesCoverage, TestAgentRunCollectionRepeatedShapeReadsChangedSource, TestAgentCLP20CrossPipelineRetryMatrix, TestConfiguredAdapterCLP20BoundedRecovery (mutation/parity); R18 streamed function-call denial: TestChatCompletionsStreamRejectsMissingFinishAndInvalidFragments (agentchat/chat_completions_stream_test.go:42 — missing finish reason, malformed fragmented arguments, call-ID change).
+- Purpose: authoritative mutation proof, selective invalidation only with full proof, broad invalidation otherwise, rename/delete, external drift, partial PATCH failure, typed/text fallback, partial streamed function call denial, unsupported tool denial, native execution count, Legacy/Unified parity.
+- Working directory: `vscode_tasks_menu_go`.
+- Exact commands:
+  - `go test -v -count=1 ./internal/server -run '^(TestAgentCLP20NativePatchMutationGuardMatrix|TestAgentCLP20NativeRangeExternalMutationInvalidatesCoverage|TestAgentRunCollectionRepeatedShapeReadsChangedSource|TestAgentCLP20CrossPipelineRetryMatrix)$'`
+  - `go test -v -count=1 ./internal/agentchat -run '^TestConfiguredAdapterCLP20BoundedRecovery$'`
+  - `go test -v -count=1 ./internal/agentchat -run '^TestChatCompletionsStreamRejectsMissingFinishAndInvalidFragments$'` (R18 streamed denial)
+- Expected result: all exit 0; no selective invalidation without authoritative proof; UI changed-files report not treated as complete mutation evidence.
+- Evidence to return: CI URL + conclusion, per-test PASS lines, source SHA.
+- Safety conditions: native calls against synthetic workspace only; no production source mutation.
+- Dependencies: none. Status: PENDING.
+
+## V-BATCH-06 — Upgrade smoke and rollback (CLP-09.02; gates R11, R24)
+- Source files: self-update paths under `vscode_tasks_menu_go/internal/selfupdate`, installer scripts `install.sh`, `self-install-and-update.sh`.
+- Purpose: build from checked-out source, record build SHA, create synthetic backup of legacy state, run self-update/reload/restart smoke, verify migration/recovery/counters/ACK; exercise auto flags, provider switch, Stop, concurrency and rollback compatibility.
+- Working directory: repository root.
+- Exact commands (manual procedure; do NOT run in this session): build per `.github/workflows/vscode_tasks_menu_go.yml` (native CLI build step), then run the staged self-update smoke described there; run `.github/workflows/taskdeck_selfupdate_multi_instance.yml` steps against a synthetic instance.
+- Expected result: upgrade preserves canonical history, receipts, ACK and counters; rollback restores prior state; no production data used.
+- Evidence to return: build SHA, synthetic-state snapshots before/after, CI/manual log, exit codes.
+- Safety conditions: disposable instance only; never point at production paths or real provider credentials.
+- Dependencies: V-BATCH-01 green. Status: PENDING.
+
+## V-BATCH-07 — Delivery (CLP-09.03.03/.04)
+- Source files: `docs/taskdeck_ai_agent/20-collection-progress-guard-and-legacy-recovery.md`, `TASKDECK_HANDOFF_20_CHECKPOINT.md`, this queue.
+- Purpose: commit code + tracker to `main`, push, verify ancestry and combined CI, then write the final report.
+- Working directory: repository root.
+- Exact commands (operator-only, not executed here): `git fetch origin main`; `git add -- <task files> docs/taskdeck_ai_agent/20-collection-progress-guard-and-legacy-recovery.md docs/taskdeck_ai_agent/20-external-verification-queue.md`; `git commit -m "fix(agent): HANDOFF 20 source implementation"`; `git push origin main`; `git merge-base --is-ancestor <commit-sha> origin/main`.
+- Expected result: commit present on remote, ancestry verified, combined CI green after push, checklist rollups updated only from verified results.
+- Evidence to return: commit SHA, remote HEAD, ancestry check exit 0, CI URLs.
+- Safety conditions: reconcile concurrent commits; no force push, no reset hard, no `git add .`; preserve changes outside task scope.
+- Dependencies: V-BATCH-01..06 resolved. Status: PENDING.
+
+## Notes
+- This queue documents commands only. Nothing here was executed by the authoring session.
+- Audit refinements (see 20-source-completeness-audit.md §3): V-BATCH-03 needs a new narrowly scoped test-only Store commit-barrier hook for W1–W7 (existing task-plan crash fixtures do NOT cover the collection-observation boundary); V-BATCH-05 must include an explicit partial streamed function-call JSON denial assertion for R18. Compile/test batches (01/02/05) are non-destructive; SIGKILL/self-update/rollback (03/06) require isolated fixtures only; git (07) is operator-only and is not a prerequisite for local batches.
+- Return real receipts before changing any PENDING status or promoting a gate/checklist checkbox.
+
+
+## V-BATCH-00 — Compile regression preflight (operator only)
+2026-11-27 — Remote review of user-pushed HEAD `9e4ca30aa299d8538006e9a763fac8d0d3409e01` (17 commits ahead of `f3756029`, 36 changed files). Core 45961114805 FAIL: job 140378893842, `internal/agentchat/collectionprogress/recovery_boundary_test.go:48:28` assignment mismatch (ApplyCounterEvent returns FOUR values; use `replayed, _, applied, err := ...`); job 140378894346, `internal/server/agent_chat_clp20_guard_boundary_test.go:20:10` invalid indirect (NewSession returns Session value; use `return x`). Same failures in core 45953634340/45953522819 and server failure in Remote Go 45953522802. PHP 45953522701 PASS on 190d7d89 only. Fix test source first, no weakened assertions. No full current-source PASS, no gate promoted. Prior CI at 88a909b4 (core 45937055745/Go 45937055780/PHP 45937055761) remains historical PASS. Counted 106/144 checked leaves, 38 unchecked; 1/10 phase, 18/36 tasks, 20/28 historical gates. Current combined acceptance remains unverified.
+
+After coder patches both errors, from `vscode_tasks_menu_go` run `go test -count=1 -run '^$' ./internal/agentchat/collectionprogress ./internal/server` (expect exit 0), then `go test -v -count=1 ./internal/agentchat/collectionprogress -run '^TestRecovery'` and `go test -v -count=1 ./internal/server -run '^TestAgentCLP20(ReadOnlyProgressIsNotCodingStall|AcceptanceResetsStallWithoutRecovery|PendingContinuationBindsNeutralFallbackWithoutPatch)$'`. Capture named PASS/FAIL and source SHA. Do not interpret no tests to run as PASS. Then V-BATCH-01..06. V-BATCH-03 is not yet sufficient for W1–W7: add exact test names/commands after source implementation. V-BATCH-07 delivery partially performed by operator push through 9e4ca30a; final ancestry/CI still pending. Historical package filters corrected: TestCounterCursorRejectsConflictAndDoesNotCountOldReplay in collectionprogress, TestStoppedWaitingToolCanContinueOnlyFromReconciledResult in agentrun. Do not ask local coder to execute any batch.
