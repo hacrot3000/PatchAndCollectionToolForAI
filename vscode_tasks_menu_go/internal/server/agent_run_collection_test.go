@@ -126,13 +126,15 @@ func TestAgentRunContinuationConsentAndUnknownEgressFence(t *testing.T){
  if runAutoContinueMode(x,policy)!="" {t.Fatal("ambiguous legacy provider outcome bypassed")}
 }
 
-func TestAgentRunContinuationNoWorkBrake(t *testing.T) {
+func TestAgentRunContinuationBeyondNoWorkThreshold(t *testing.T) {
  s,_,_,spec:=providerToolRunFixture(t,"run-no-work-brake")
  spec,history:=enableRunAutomationFixture(t,s,spec,false,true)
  var requests atomic.Int32
  s.AgentChatCall=func(_ context.Context,_ agentchat.ProviderConfig,_ string,_ []byte)(agentchat.ResponsesResult,error){
-  requests.Add(1)
-  return agentchat.ResponsesResult{ResponseID:"repeated",Text:"Audit chưa hoàn tất. Bước tiếp theo: kiểm tra nguồn."},nil
+  n:=requests.Add(1)
+  answer:="Audit chưa hoàn tất. Bước tiếp theo: kiểm tra nguồn."
+  if n>=int32(agentchat.MaxContinuationNoWorkTurns+4){answer="Task complete: all work done."}
+  return agentchat.ResponsesResult{ResponseID:"repeated",Text:answer},nil
  }
  manager,err:=s.agentRunManager("local")
  if err!=nil {t.Fatal(err)}
@@ -140,7 +142,7 @@ func TestAgentRunContinuationNoWorkBrake(t *testing.T) {
  if _,err=manager.Submit(spec,history);err!=nil{t.Fatal(err)}
  waitForAgentRunStatus(t,manager,spec.RunID,agentrun.Completed)
  record,_:=manager.Get(spec.RunID)
- if requests.Load()!=int32(agentchat.MaxContinuationNoWorkTurns+1)||record.Continuation==nil||record.Continuation.Reason!="stalled_without_verified_work"{t.Fatalf("no-work brake not applied: %d %+v",requests.Load(),record.Continuation)}
+ if requests.Load()!=int32(agentchat.MaxContinuationNoWorkTurns+4)||record.Continuation==nil||record.Continuation.Disposition!=agentchat.TurnClaimedComplete{t.Fatalf("unfinished run stopped early or completion ignored: %d %+v",requests.Load(),record.Continuation)}
 }
 
 func TestAgentRunUnsupportedToolDenialContinuesPinnedProvider(t *testing.T){
