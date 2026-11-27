@@ -386,6 +386,9 @@ func (s *Server) agentChatRunCollection(
 			return result, clearProviderRefs, &agentCollectionLocalError{Stage: "cancelled_before_provider_request", Round: round+1, Cause: ctx.Err()}
 		}
 		if err=markAgentProviderSending(store,x);err!=nil{
+			if errors.Is(err,agentchat.ErrCollectionReplanRevoked){
+				return result,true,&agentCollectionLocalError{Stage:"collection_progress_checkpoint",Round:round+1,Cause:err}
+			}
 			return result,clearProviderRefs,&agentCollectionLocalError{Stage:"persist_sending",Round:round+1,Cause:err}
 		}
 		// A slow inspection round must not exhaust the next provider request.
