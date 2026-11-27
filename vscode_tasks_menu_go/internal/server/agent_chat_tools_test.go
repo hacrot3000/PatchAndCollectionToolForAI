@@ -363,3 +363,47 @@ func TestAgentSessionStoreRejectsOrphanToolOutput(t *testing.T) {
 		t.Fatalf("orphan tool output accepted: %v", err)
 	}
 }
+
+func TestAgentAskUserWaitsForOwnerAndContinuesExactCall(t *testing.T){
+ s,id:=newAgentConversationFixture(t,"stateless")
+ store,err:=s.agentChatStore();if err!=nil{t.Fatal(err)}
+ arguments:=`{"questions":[{"id":"platform","prompt":"Platform?","type":"single_choice","required":true,"options":[{"id":"ios","label":"iOS"},{"id":"android","label":"Android"}],"allow_comment":true},{"id":"features","prompt":"Features?","type":"multiple_choice","required":false,"options":[{"id":"a","label":"A"},{"id":"b","label":"B"}],"allow_comment":false},{"id":"details","prompt":"Details?","type":"text","required":true,"options":[],"allow_comment":false}]}`
+ calls:=0
+ s.AgentChatCall=func(_ context.Context,_ agentchat.ProviderConfig,_ string,payload []byte)(agentchat.ResponsesResult,error){
+  calls++
+  if calls==1{
+   if !strings.Contains(string(payload),agentchat.AskUserToolName){t.Fatal("questionnaire tool not advertised")}
+   return agentchat.ResponsesResult{ResponseID:"questions",Calls:[]agentchat.FunctionCall{{CallID:"q1",Name:agentchat.AskUserToolName,Arguments:arguments}}},nil
+  }
+  if calls!=2{t.Fatal("duplicate answer egress")}
+  var wire struct{Input []struct{Type string;CallID string `json:"call_id"`;Output string}}
+  if err:=json.Unmarshal(payload,&wire);err!=nil{t.Fatal(err)}
+  found:=0
+  for _,item:=range wire.Input{if item.Type=="function_call_output"&&item.CallID=="q1"{
+   found++;var result agentchat.AskUserResult
+   if json.Unmarshal([]byte(item.Output),&result)!=nil||result.Status!="ANSWERED"||len(result.Answers)!=3||result.Answers[0].Selected[0]!="ios"||len(result.Answers[1].Selected)!=2||result.Answers[2].Text!="Chi tiết"{t.Fatalf("invalid answer receipt: %s",item.Output)}
+  }}
+  if found!=1{t.Fatalf("wrong call output count: %d",found)}
+  return agentchat.ResponsesResult{ResponseID:"continued",Text:"Proceeding from actual answers."},nil
+ }
+ path:="/api/agent/sessions/"+id
+ first:=invokeAI(t,s.agentChatSessionItemAPI,"POST",path+"/messages",map[string]any{"message":"Ask for missing choices","confirm_external":true,"expected_revision":1})
+ if first.Code!=200{t.Fatalf("question request: %d %s",first.Code,first.Body)}
+ x,err:=store.Get(id,"local");if err!=nil{t.Fatal(err)}
+ if x.Status!="waiting_tool"||len(x.ToolCalls)!=1||x.ToolCalls[0].Name!=agentchat.AskUserToolName||x.ToolCalls[0].Status!="pending"{t.Fatalf("question not durably pending: %+v",x.ToolCalls)}
+ x.AutoPatch=true;x.AutoFeedback=true;x.AutoFeedbackPersistent=true;x.AutoContinueText=true
+ if _,ok:=agentAutoPatchCandidate(x);ok{t.Fatal("question incorrectly auto-approved")}
+ if _,ok:=agentAutoFeedbackCandidate(x);ok||agentchat.StandaloneAutoContinueCandidate(x){t.Fatal("question incorrectly auto-answered")}
+ answerPath:=path+"/tools/q1/answer"
+ payload:=map[string]any{"confirm_external":true,"arguments_sha256":x.ToolCalls[0].ArgumentsSHA256,"answers":[]agentchat.AskUserAnswer{{QuestionID:"platform",Selected:[]string{"ios"},Text:"Extra"},{QuestionID:"features",Selected:[]string{"a","b"}},{QuestionID:"details",Text:"Chi tiết"}}}
+ invalid:=invokeAI(t,s.agentChatSessionItemAPI,"POST",answerPath,map[string]any{"confirm_external":true,"arguments_sha256":x.ToolCalls[0].ArgumentsSHA256})
+ if invalid.Code!=400||calls!=1{t.Fatalf("missing required answers accepted: %d",invalid.Code)}
+ native:=invokeAI(t,s.agentChatSessionItemAPI,"POST",path+"/tools/q1/decision",map[string]any{"action":"approve","confirm_execution":true,"expected_revision":x.Revision})
+ if native.Code!=409{t.Fatalf("question became native Patch: %d",native.Code)}
+ sent:=invokeAI(t,s.agentChatSessionItemAPI,"POST",answerPath,payload)
+ if sent.Code!=200{t.Fatalf("answer continuation: %d %s",sent.Code,sent.Body)}
+ after,err:=store.Get(id,"local");if err!=nil{t.Fatal(err)}
+ if after.Status!="completed"||after.ToolCalls[0].FeedbackStatus!="acknowledged"||after.ToolCalls[0].QueuePath!=""||calls!=2{t.Fatalf("answer journal not acknowledged: %+v",after.ToolCalls)}
+ again:=invokeAI(t,s.agentChatSessionItemAPI,"POST",answerPath,payload)
+ if again.Code!=409||calls!=2{t.Fatal("duplicate answer was sent")}
+}

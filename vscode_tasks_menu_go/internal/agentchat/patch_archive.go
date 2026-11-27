@@ -33,6 +33,9 @@ func (s *Store) patchArchivePath(id string,n uint64)string {
  return filepath.Join(s.dir,id+".patch."+strconv.FormatUint(n,10)+".json")
 }
 func archivedPatchSummary(call ToolCallRecord,history []HistoryItem)string {
+ if call.Name==AskUserToolName&&call.Status=="done"{
+  return fmt.Sprintf("User questionnaire answered or cancelled | call=%s",call.CallID)
+ }
  if call.Name!="taskdeck_submit_patch"{
   return fmt.Sprintf("Rejected tool %s | call=%s",call.Name,call.CallID)
  }

@@ -213,7 +213,7 @@ func (s *Server) agentChatToolDecisionAPI(w http.ResponseWriter, r *http.Request
 			break
 		}
 	}
-	if idx < 0 || x.ToolCalls[idx].Status != "pending" {
+	if idx < 0 || x.ToolCalls[idx].Name!="taskdeck_submit_patch" || x.ToolCalls[idx].Status != "pending" {
 		http.Error(w, "pending approved tool call not found", 409)
 		return
 	}

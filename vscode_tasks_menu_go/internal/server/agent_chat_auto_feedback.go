@@ -121,7 +121,9 @@ func agentAutoFeedbackAdmission(x agentchat.Session)(int,string){
    if call.FeedbackStatus!=""{return 0,"feedback_already_attempted"}
    if !agentFeedbackGrantForCall(x,call){return 0,"auto_feedback_not_authorized_or_repair_limit"}
    return i,""
-  default:return 0,"native_work_unresolved"
+  default:
+   if call.Name==agentchat.AskUserToolName&&call.Status=="pending"{return 0,"waiting_user_answers"}
+   return 0,"native_work_unresolved"
   }
  }
  return 0,"no_current_pending_result"

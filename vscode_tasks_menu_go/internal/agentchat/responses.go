@@ -56,6 +56,7 @@ type RequestConfig struct {
 	ReasoningEffort      string
 	EnablePatchTool      bool // gated, approval-required native Patch function
 	EnableCollectionTool bool // bounded, read-only project inspection
+	EnableAskUserTool bool // explicitly interactive legacy conversation tool
 	NativeCollectionContract string // current installed native schema document, advisory only
 	// ProbeToolName advertises a single harmless function with no required
 	// arguments. It exists only for a user-triggered capability probe and can
@@ -279,6 +280,11 @@ func BuildResponsesRequest(c RequestConfig) ([]byte, error) {
 			},
 		})
 		req["parallel_tool_calls"] = false
+	}
+	if c.EnableAskUserTool {
+		tools,_:=req["tools"].([]any)
+		req["tools"]=append(tools,AskUserToolSchema())
+		req["parallel_tool_calls"]=false
 	}
 	b, err := json.Marshal(req)
 	if err != nil {
