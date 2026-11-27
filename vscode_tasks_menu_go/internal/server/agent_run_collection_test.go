@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+ "errors"
  "fmt"
  "net/http/httptest"
 	"strings"
@@ -376,4 +377,66 @@ func TestAgentRunCollectionProjectionRequiresExactPendingCallAcrossSnapshots(t *
   signature:=runContinuationWorkSignature("local",run,derived,session)
   if (signature==firstSignature)!=(i==0){t.Fatalf("outer progress signature changed incorrectly for observation %d",i)}
  }
+}
+
+
+type clpRunAdmissionBuilder struct{
+ inner agentchat.CanonicalProviderPayloadBuilder
+ afterBuild func()
+}
+func(b clpRunAdmissionBuilder) Build(spec agentchat.RunSpec,p agentchat.ProviderConfig,m agentchat.ModelConfig,history []agentchat.HistoryItem)([]byte,error){
+ payload,err:=b.inner.Build(spec,p,m,history)
+ if err==nil&&b.afterBuild!=nil{b.afterBuild()}
+ return payload,err
+}
+
+func TestAgentRunAutomaticContinuationRevokedAtTransportAdmission(t *testing.T){
+ for _,tc:=range []struct{name string;automatic,retry bool;want int}{
+  {"after_build",true,false,0},
+  {"before_retry",true,true,1},
+  {"explicit_owner_turn",false,false,1},
+ }{t.Run(tc.name,func(t *testing.T){
+  s,id,_,spec:=providerToolRunFixture(t,"run-clp-live-admission")
+  spec,history:=enableRunAutomationFixture(t,s,spec,false,true)
+  journal,err:=s.agentChatStore();if err!=nil{t.Fatal(err)}
+  x,err:=journal.Get(id,"local");if err!=nil{t.Fatal(err)}
+  snapshots,err:=s.agentContextSnapshotStore("local");if err!=nil{t.Fatal(err)}
+  initial,err:=snapshots.Get(spec.ContextSnapshotID,spec.OwnerWorkspaceID,id,x.ProjectID);if err!=nil{t.Fatal(err)}
+  policy:=*initial.Policy
+  if tc.automatic{policy.Automation.ContinuationMode="conversation"}
+  if tc.retry{
+   spec.RetryMode=agentchat.RetryLimited
+   policy.RetryMode=spec.RetryMode
+   binding:=*policy.RunBinding;binding.RetryMode=spec.RetryMode;policy.RunBinding=&binding
+  }
+  pinned,err:=snapshots.CreateWithPolicy(spec.OwnerWorkspaceID,id,x.ProjectID,history,initial.SourceRefs,&policy);if err!=nil{t.Fatal(err)}
+  spec.ContextSnapshotID=pinned.ID
+  revoke:=func(){
+   updated,e:=journal.UpdateAutomation(id,"local",x.Workspace,x.Revision,"continue",false,"")
+   if e!=nil{t.Fatal(e)}
+   if updated.Revision!=x.Revision||updated.AutoContinueText{t.Fatal("did not reproduce same-revision revocation")}
+  }
+  calls:=0
+  s.AgentChatCall=func(_ context.Context,p agentchat.ProviderConfig,key string,payload []byte)(agentchat.ResponsesResult,error){
+   calls++
+   if p.ID!=spec.ProviderID||key!="TEST-KEY"||len(payload)==0{t.Fatal("provider binding drift")}
+   if tc.retry{return agentchat.ResponsesResult{},context.DeadlineExceeded}
+   return agentchat.ResponsesResult{Text:"Owner request completed."},nil
+  }
+  builder:=clpRunAdmissionBuilder{inner:agentchat.CanonicalProviderPayloadBuilder{Options:serverAgentRunPromptOptions{server:s,owner:"local"}}}
+  if !tc.retry{builder.afterBuild=revoke}
+  adapter:=agentchat.ConfiguredProviderAdapter{
+   ProviderID:spec.ProviderID,Resolver:ownerAgentRunProviderResolver{server:s,owner:"local"},
+   Builder:builder,Invoker:serverAgentRunProviderInvoker{server:s},
+   Wait:func(context.Context,time.Duration)error{revoke();return nil},
+  }
+  err=adapter.Execute(agentrun.WithPrincipalOwner(context.Background(),"local"),spec,history,nil)
+  if tc.automatic{
+   var pe *agentchat.ProviderError
+   if !errors.As(err,&pe)||pe.Code!="AUTOMATIC_CONTINUATION_REVOKED"||pe.Retryable{t.Fatalf("wrong revocation outcome: %v",err)}
+  }else if err!=nil{t.Fatal(err)}
+  if calls!=tc.want{t.Fatalf("provider attempts=%d want=%d",calls,tc.want)}
+  got,e:=journal.Get(id,"local");if e!=nil||got.AutoContinueText{t.Fatal("revocation lost")}
+  if len(got.History)!=len(x.History)||len(got.ToolCalls)!=len(x.ToolCalls){t.Fatal("admission mutated canonical legacy history or tools")}
+ })}
 }
