@@ -2,6 +2,7 @@ package server
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -281,12 +282,51 @@ func (s *Server) agentChatToolDecisionAPI(w http.ResponseWriter, r *http.Request
 	}
 	// Reserve the canonical workspace for the whole queue/launch/select sequence
 	// so two Agent approvals cannot mutate the same worktree concurrently.
-	lease, err := agentReserveWorkspaceExecution(r.Context(), s.Workspace)
-	if err != nil {
-		http.Error(w, "another Agent execution currently owns this workspace", 409)
+	// Wait before any QUEUING marker or ZIP publication. Revalidate the
+	// original approval and current owner settings when the slot is free.
+	waitCtx,cancelWait:=context.WithCancel(agentNativeWaitContext(r.Context(),s.Workspace,owner,sessionID))
+	defer cancelWait()
+	unregisterWait:=registerAgentRequest(agentRequestKey(s.Workspace,owner,sessionID),cancelWait)
+	defer unregisterWait()
+	r=r.WithContext(waitCtx)
+	cancelAdmission:=func(){
+		// Explicit Stop must not turn into another automatic approval.
+		if errors.Is(waitCtx.Err(),context.Canceled){
+			fresh,e:=store.Get(sessionID,owner)
+			if e==nil&&idx<len(fresh.ToolCalls)&&fresh.ToolCalls[idx].CallID==callID&&fresh.ToolCalls[idx].Status=="pending"{
+				fresh.ToolCalls[idx].AutoRunOnce=false
+				fresh.ToolCalls[idx].SendAfterRetry=false
+				fresh.ToolCalls[idx].ManualRetryOnly=true
+				fresh.AppendEvent("tool_wait_cancelled",fresh.Status,callID,"no_package_queued")
+				if _,e=store.Save(fresh,fresh.Revision);e==nil{
+					writeJSON(w,200,map[string]any{"session_id":sessionID,"call_id":callID,"status":"pending","note":"Patch wait cancelled; no package queued. Approve again to resume."})
+					return
+				}
+			}
+		}
+		http.Error(w,"Agent Patch admission cancelled or unavailable; no package queued",409)
+	}
+	var lease func()
+	err=waitAgentNativeAdmission(waitCtx,func()error{
+		var e error
+		lease,e=agentReserveWorkspaceExecution(waitCtx,s.Workspace)
+		return e
+	})
+	if err!=nil{cancelAdmission();return}
+	defer lease()
+	intentRelease,err:=s.reserveAgentNativeIntent(waitCtx,"PATCH")
+	if err!=nil{cancelAdmission();return}
+	defer intentRelease()
+	fresh,e:=store.Get(sessionID,owner)
+	if e!=nil||fresh.Status!="waiting_tool"||fresh.Workspace!=x.Workspace||
+		idx>=len(fresh.ToolCalls)||fresh.ToolCalls[idx].CallID!=callID||fresh.ToolCalls[idx].Status!="pending"||
+		fresh.ToolCalls[idx].ArgumentsSHA256!=x.ToolCalls[idx].ArgumentsSHA256||
+		(request.Automatic&&!agentAutoApprovalAuthorized(fresh,callID)){
+		http.Error(w,"Patch approval changed while waiting; no package queued",409)
 		return
 	}
-	defer lease()
+	x=fresh
+	if waitCtx.Err()!=nil{cancelAdmission();return}
 	// The proposal normally captured Git evidence when the model returned the
 	// tool call. Legacy/pending records without a snapshot are captured here.
 	// An already expired approval is refused; a fresh one gets a bounded TTL.

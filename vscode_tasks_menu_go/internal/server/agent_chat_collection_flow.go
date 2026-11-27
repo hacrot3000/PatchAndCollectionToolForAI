@@ -218,7 +218,7 @@ func (s *Server) agentChatRunCollection(
 			}
 			*x=saved
 			var nativeErr error
-			observed,nativeErr = s.agentRunNativeCollection(ctx,x.Owner,nativeRequest,identity)
+			observed,nativeErr = s.agentRunNativeCollection(agentNativeWaitContext(ctx,s.Workspace,x.Owner,x.ID),x.Owner,nativeRequest,identity)
 			nativeRead = nativeErr == nil
 			if nativeErr!=nil {
 				code:="NATIVE_COLLECTION_FAILED"

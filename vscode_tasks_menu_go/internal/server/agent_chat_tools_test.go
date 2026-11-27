@@ -316,38 +316,33 @@ func TestAgentApprovalRefusesChangedToolArguments(t *testing.T) {
 	}
 }
 
-func TestAgentWorkspaceLeaseRejectsConcurrentExecution(t *testing.T) {
-	s, id, _ := agentPendingCallFixture(t, true)
-	release, err := agentReserveWorkspaceExecution(context.Background(), s.Workspace)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer release()
-	store, e := s.agentChatStore()
-	if e != nil {
-		t.Fatal(e)
-	}
-	x, e := store.Get(id, "local")
-	if e != nil {
-		t.Fatal(e)
-	}
-	w := invokeAI(t, s.agentChatSessionItemAPI, http.MethodPost, "/api/agent/sessions/"+id+"/tools/call_agent_001/decision",
-		map[string]any{"action": "approve", "confirm_execution": true, "expected_revision": x.Revision})
-	if w.Code != 409 {
-		t.Fatalf("concurrent workspace execution admitted: %d %s", w.Code, w.Body)
-	}
-	y, e := store.Get(id, "local")
-	if e != nil {
-		t.Fatal(e)
-	}
-	if y.ToolCalls[0].Status != "pending" {
-		t.Fatalf("refused approval mutated the ledger: %s", y.ToolCalls[0].Status)
-	}
-	/*
-	 * Note: the manual native Patch panel does not take this lease. The
-	 * documented guarantee is Agent-vs-Agent exclusion plus the Git snapshot
-	 * check, not exclusion of every external writer.
-	 */
+func TestAgentWorkspaceLeaseWaitsForConcurrentExecution(t *testing.T) {
+ s,id,_:=agentPendingCallFixture(t,true)
+ release,err:=agentReserveWorkspaceExecution(context.Background(),s.Workspace)
+ if err!=nil{t.Fatal(err)}
+ defer release()
+ store,e:=s.agentChatStore();if e!=nil{t.Fatal(e)}
+ x,e:=store.Get(id,"local");if e!=nil{t.Fatal(e)}
+ done:=make(chan *httptest.ResponseRecorder,1)
+ go func(){
+  path:="/api/agent/sessions/"+id+"/tools/call_agent_001/decision"
+  body,_:=json.Marshal(map[string]any{"action":"approve","confirm_execution":true,"expected_revision":x.Revision})
+  req:=httptest.NewRequest(http.MethodPost,path,strings.NewReader(string(body)))
+  req.Header.Set("Content-Type","application/json")
+  w:=httptest.NewRecorder()
+  s.agentChatSessionItemAPI(w,req)
+  done<-w
+ }()
+ deadline:=time.Now().Add(3*time.Second)
+ for agentNativeWaitSnapshot(s.Workspace,"local",id)!="waiting_for_workspace"{
+  select{case w:=<-done:t.Fatalf("approval did not wait: %d %s",w.Code,w.Body);default:}
+  if time.Now().After(deadline){t.Fatal("wait state not visible")}
+  time.Sleep(10*time.Millisecond)
+ }
+ y,e:=store.Get(id,"local");if e!=nil||y.ToolCalls[0].Status!="pending"{t.Fatal("waiting approval changed ledger")}
+ release()
+ select{case w:=<-done:if w.Code!=200{t.Fatalf("approval did not resume: %d %s",w.Code,w.Body)}
+ case <-time.After(5*time.Second):t.Fatal("approval did not resume")}
 }
 
 func TestAgentSessionStoreRejectsOrphanToolOutput(t *testing.T) {

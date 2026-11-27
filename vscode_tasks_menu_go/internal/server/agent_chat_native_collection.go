@@ -314,6 +314,10 @@ func (s *Server) agentRunNativeCollection(ctx context.Context,owner string,reque
  // publishing an Agent-generated ZIP. Invalid actions become AI feedback
  // rather than accumulating in the shared manual Patch Tool queue.
  if err:=s.agentPrevalidateNativeCollect(ctx,request);err!=nil{return "",err}
+ releaseIntent,err:=s.reserveAgentNativeIntent(ctx,"COLLECT")
+ if err!=nil{return "",err}
+ defer releaseIntent()
+ if err=ctx.Err();err!=nil{return "",err}
  receipt,err:=s.agentQueueNativeCollection(ctx,request)
  if err!=nil{return "",err}
  spec,err:=patchCollectExecution(s.Workspace,receipt.Name)
@@ -327,8 +331,9 @@ func (s *Server) agentRunNativeCollection(ctx context.Context,owner string,reque
   "TASKDECK_PATCH_PROGRESS_RUN_ID":expectedRunID,
  });err!=nil{return "",err}
  spec.Label += agentNativeRunLabelSuffix
- meta,err:=s.startAgentNativeCollectDirect(spec)
+ meta,err:=s.startAgentNativeCollectWaiting(ctx,spec)
  if err!=nil{return "",fmt.Errorf("native COLLECT not started for %s: %w",receipt.Name,err)}
+ releaseIntent() // native reservation now protects this worker
  nativeID:=meta.ID
  defer func(){
   if ctx.Err()!=nil {_=s.Sessions.Stop(nativeID)}

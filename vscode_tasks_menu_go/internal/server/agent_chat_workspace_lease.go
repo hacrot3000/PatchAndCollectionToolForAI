@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
@@ -23,6 +24,8 @@ var agentWorkspaceLeases = struct {
 }{active: make(map[string]bool)}
 
 var errAgentWorkspaceBusy = errors.New("another Agent execution owns this workspace")
+var errAgentWorkspaceContended = fmt.Errorf("temporary workspace contention: %w",errAgentWorkspaceBusy)
+var errRemoteWorkspaceLockContended = errors.New("workspace advisory lock held")
 
 func agentReserveWorkspaceExecution(ctx context.Context, workspace string) (func(), error) {
 	if ctx == nil || ctx.Err() != nil || workspace == "" {
@@ -43,7 +46,7 @@ func agentReserveWorkspaceExecution(ctx context.Context, workspace string) (func
 	agentWorkspaceLeases.Lock()
 	if agentWorkspaceLeases.active[root] {
 		agentWorkspaceLeases.Unlock()
-		return nil, errAgentWorkspaceBusy
+		return nil, errAgentWorkspaceContended
 	}
 	agentWorkspaceLeases.active[root] = true
 	agentWorkspaceLeases.Unlock()
@@ -52,6 +55,7 @@ func agentReserveWorkspaceExecution(ctx context.Context, workspace string) (func
 		agentWorkspaceLeases.Lock()
 		delete(agentWorkspaceLeases.active, root)
 		agentWorkspaceLeases.Unlock()
+		if errors.Is(err,errRemoteWorkspaceLockContended){return nil,errAgentWorkspaceContended}
 		return nil, errAgentWorkspaceBusy
 	}
 	var once sync.Once
