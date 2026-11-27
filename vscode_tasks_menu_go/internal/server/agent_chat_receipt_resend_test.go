@@ -88,7 +88,10 @@ func TestReceiptResendAPIUsesExactSavedCollectionWithoutNativeReplay(t *testing.
  done,err:=store.Get(id,"local");if err!=nil{t.Fatal(err)}
  if done.Status!="completed"||done.ProviderRun.ID==target.RunID||agentReceiptResendCandidate(done)!=nil{t.Fatal("resend not completed as a new turn")}
  count:=0
- for _,it:=range done.History{if it.Type=="function_call_output"&&it.CallID=="read"{count++}}
+ for _,it:=range done.History{
+  if it.Type=="function_call_output"&&it.CallID=="read"{count++}
+  if it.Type=="user"&&strings.Contains(it.Content,"--- SAVED NATIVE RECEIPT ---"){t.Fatal("large receipt was duplicated in canonical user history")}
+ }
  if count!=1{t.Fatal("duplicate canonical tool result")}
  w=invokeAI(t,s.agentChatSessionItemAPI,http.MethodPost,path,request)
  if w.Code!=200||calls!=1{t.Fatal("same explicit request replayed provider")}
