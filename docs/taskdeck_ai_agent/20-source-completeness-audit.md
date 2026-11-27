@@ -1,5 +1,7 @@
 # HANDOFF 20 — Final source completeness audit
 
+> **ACTIVE INSTRUCTION (2026-11-27):** follow [20-coder-execution-contract.md](20-coder-execution-contract.md). Local coder owns source/test authoring and repair; operator owns execution/delivery. No external-only `BLOCKED`, no repeated completion audit, and no requirement to rewrite every document per PATCH. Historical claims below are retained as history, not current instructions. Latest reviewed source `9a9c350b`: core/Go FAIL; local source repair IN_PROGRESS. Technical acceptance, permissions and evidence requirements remain intact.
+
 > Objective audit of the current local workspace. Every statement derives from native
 > read-only COLLECT. No test, build, git, CI, browser, SIGKILL or self-update was executed
 > by this session. A PATCH receipt is not a build/test PASS. This audit does NOT promote
@@ -137,3 +139,6 @@ All six actionable gaps from the remote review are resolved with implementation 
 7. R18 (gap 6): end-to-end fake-transport partial-stream denial `r18_stream_dispatch_test.go`, receipt `1795770222563964_435876`; catalog metadata audited covered.
 
 All 25 named section-6.1 gate tests were re-verified present in source via native COLLECT (Coverage VERIFIED). Current authoritative status: SOURCE_IMPLEMENTATION_COMPLETE / EXTERNAL_VERIFICATION_PENDING per `TASKDECK_HANDOFF_20_CHECKPOINT.md` and `20-remaining-implementation-ledger.md`. No gate promoted and no runtime PASS claimed from static inspection or PATCH receipts. Operator runs V-BATCH-00 compile preflight first, then the remaining batches in `20-external-verification-queue.md`.
+
+## Current audit correction
+Remote CI at 9a9c350b found compile, race, crash fixture and mutation proof defects. The old external-only classification is no longer valid. Repair FIX-01..05 from the active contract; retain evidence, avoid another full audit cycle. No subtask or gate promoted.
