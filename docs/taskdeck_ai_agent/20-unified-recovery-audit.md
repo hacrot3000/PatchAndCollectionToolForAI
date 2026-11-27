@@ -1,5 +1,7 @@
 # HANDOFF 20 — Unified bounded recovery audit (P2: CLP-01.04.02/.04, CLP-04.03.03/.04, R25)
 
+> **Current local workflow (2026-11-27):** [20-coder-execution-contract.md](20-coder-execution-contract.md) supersedes historical process/stop instructions and completion claims below. RecoveryState/advisory integration has since been authored. Preserve drain-only; review actual regression failures and supported source gaps, not the historical audit-only boundary. Do not use external verification or delivery as a local BLOCKED condition. No acceptance or safety relaxation.
+
 > Static source audit from native read-only COLLECT. No compile, test or runtime
 > execution. This documents the precise supported scope and limit; it does NOT
 > claim SOURCE_IMPLEMENTATION_COMPLETE for P2 and promotes no gate.
