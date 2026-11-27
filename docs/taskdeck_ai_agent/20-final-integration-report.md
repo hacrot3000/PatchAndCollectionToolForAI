@@ -1,5 +1,7 @@
 # HANDOFF 20 — Final integration report and limitations (CLP-09.03)
 
+> **Current local workflow (2026-11-27):** [20-coder-execution-contract.md](20-coder-execution-contract.md) supersedes historical process/stop instructions and completion claims below. Source batch is reopened by current core/Go failures at 9a9c350b. Prior SOURCE_IMPLEMENTATION_COMPLETE is not current; operator verification is independent. Local coder writes source/test fixes, operator runs CI/Git. Continue independent local work without external-only BLOCKED; no acceptance or safety relaxation.
+
 > Drafted from read-only COLLECT evidence. No test, build, git operation, deploy or
 > provider call was executed by the TaskDeck AI session that authored this file.
 > Do NOT treat this as FULL_HANDOFF_COMPLETE or as deploy evidence.
