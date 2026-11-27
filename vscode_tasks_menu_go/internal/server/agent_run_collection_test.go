@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+ "fmt"
  "net/http/httptest"
 	"strings"
 	"sync/atomic"
@@ -353,4 +354,26 @@ func TestAgentRunCollectionProjectionRequiresExactPendingCallAcrossSnapshots(t *
  if got:=runCollectionProgressUpdate("local",run,derived,identity,call,request,string(raw),true);string(got)!=string(projected){t.Fatal("stale observation counted again")}
  got,ok:=readRunCollectionProgress("local",run.Spec,derived)
  if !ok||got.Counters!=g.Counters{t.Fatal("committed counters changed on reopen")}
+ // Advance two actual immutable projections for the same request, first
+ // an exact duplicate with new receipt ID, then a changed source revision.
+ session:=agentchat.Session{}
+ firstSignature:=runContinuationWorkSignature("local",run,derived,session)
+ run.History=committed
+ for i:=0;i<2;i++{
+  nextCall:=call
+  nextCall.CallID=fmt.Sprintf("followup-%d",i)
+  nextRaw:=strings.ReplaceAll(string(raw),"logical-receipt",fmt.Sprintf("native-followup-%d",i))
+  if i==1{nextRaw=strings.ReplaceAll(nextRaw,strings.Repeat("a",64),strings.Repeat("b",64))}
+  run.History=append(append([]agentchat.HistoryItem(nil),run.History...),nextCall)
+  nextProgress:=runCollectionProgressUpdate("local",run,derived,identity,nextCall,request,nextRaw,true)
+  var state runCollectionProgress
+  if json.Unmarshal(nextProgress,&state)!=nil||state.Counters.NativeReads!=uint64(i+2)||state.Counters.DuplicateEvidence!=1||state.Counters.NewEvidence!=uint64(i+1){t.Fatalf("bad continuation novelty: %+v",state.Counters)}
+  nextResult:=result;nextResult.CallID=nextCall.CallID;nextResult.Content=nextRaw
+  run.History=append(run.History,nextResult)
+  nextPolicy:=*derived.Snapshot.Policy;nextPolicy.CollectionProgress=nextProgress
+  nextSnap,err:=snapshots.CreateWithPolicy(spec.OwnerWorkspaceID,spec.ConversationID,inputs.ProjectID,run.History,inputs.Snapshot.SourceRefs,&nextPolicy);if err!=nil{t.Fatal(err)}
+  derived.Snapshot=nextSnap;run.Spec.ContextSnapshotID=nextSnap.ID
+  signature:=runContinuationWorkSignature("local",run,derived,session)
+  if (signature==firstSignature)!=(i==0){t.Fatalf("outer progress signature changed incorrectly for observation %d",i)}
+ }
 }
