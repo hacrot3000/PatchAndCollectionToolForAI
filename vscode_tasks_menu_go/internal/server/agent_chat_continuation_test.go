@@ -167,3 +167,22 @@ func TestAgentStandaloneLegacyUnknownLongProgressContinuesDirectly(t *testing.T)
  s.autoContinueConversationOne(context.Background(),store,id)
  if calls!=1{t.Fatalf("reclassified legacy continuation did not run: %d",calls)}
 }
+
+func TestAgentStandaloneBlockerPausesWithoutRevokingPreference(t *testing.T){
+ s,store,id:=newStandaloneAutoContinueFixture(t)
+ x,err:=store.Get(id,"local");if err!=nil{t.Fatal(err)}
+ x.AutoContinueText=true
+ if _,err=store.Save(x,x.Revision);err!=nil{t.Fatal(err)}
+ calls:=0
+ s.AgentChatCall=func(_ context.Context,_ agentchat.ProviderConfig,_ string,_ []byte)(agentchat.ResponsesResult,error){
+  calls++
+  return agentchat.ResponsesResult{ResponseID:"actual-blocker",Text:"Blocked by missing owner decision."},nil
+ }
+ s.autoContinueConversationOne(context.Background(),store,id)
+ x,err=store.Get(id,"local");if err!=nil{t.Fatal(err)}
+ if calls!=1||!x.AutoContinueText||x.Continuation==nil||x.Continuation.Disposition!=agentchat.TurnBlocked||agentchat.StandaloneAutoContinueCandidate(x){
+  t.Fatalf("genuine blocker should pause without silently revoking consent: calls=%d continuation=%+v",calls,x.Continuation)
+ }
+ s.autoContinueConversationOne(context.Background(),store,id)
+ if calls!=1{t.Fatal("ordinary blocker repeatedly sent provider requests")}
+}
