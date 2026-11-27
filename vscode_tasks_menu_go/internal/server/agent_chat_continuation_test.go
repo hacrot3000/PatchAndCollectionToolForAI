@@ -51,38 +51,34 @@ func TestAgentStandaloneContinuationRequiresUserConsent(t *testing.T){
   t.Fatalf("auto turn disposition was not recorded: %+v",x.Continuation)
  }
 }
-func TestAgentStandaloneUnfinishedAuditAutomaticallyContinuesThenStalls(t *testing.T){
+func TestAgentStandaloneUnfinishedAuditContinuesBeyondNoWorkThreshold(t *testing.T){
  s,store,id:=newStandaloneAutoContinueFixture(t)
  x,err:=store.Get(id,"local");if err!=nil{t.Fatal(err)}
- x.AutoContinueText=true // simulates explicit owner opt-in after separate consent test
- _,err=store.Save(x,x.Revision);if err!=nil{t.Fatal(err)}
+ x,err=store.UpdateAutomation(id,"local",x.Workspace,x.Revision,"continue",true,"");if err!=nil{t.Fatal(err)}
  calls:=0
+ finish:=false
  s.AgentChatCall=func(_ context.Context,_ agentchat.ProviderConfig,_ string,payload []byte)(agentchat.ResponsesResult,error){
   calls++
-  if calls==1&&(!strings.Contains(string(payload),"M07")||!strings.Contains(string(payload),"Collection")){
-   t.Fatal("continuation failed to preserve concrete audit action and Collection instruction")
-  }
-  return agentchat.ResponsesResult{ResponseID:fmt.Sprintf("follow-up-%d",calls),Text:auditProgress},nil
+  if calls==1&&(!strings.Contains(string(payload),"M07")||!strings.Contains(string(payload),"Collection")){t.Fatal("original action lost")}
+  answer:=auditProgress
+  if finish{answer="Task complete: all work done."}
+  return agentchat.ResponsesResult{ResponseID:fmt.Sprintf("follow-up-%d",calls),Text:answer},nil
  }
- for i:=0;i<agentchat.MaxContinuationNoWorkTurns;i++{
-  s.autoContinueConversationOne(context.Background(),store,id)
- }
+ for i:=0;i<agentchat.MaxContinuationNoWorkTurns+3;i++{s.autoContinueConversationOne(context.Background(),store,id)}
  got,err:=store.Get(id,"local");if err!=nil{t.Fatal(err)}
- if calls!=agentchat.MaxContinuationNoWorkTurns||!got.AutoContinueText||
-  got.Continuation==nil||got.Continuation.NoProgressTurns!=agentchat.MaxContinuationNoWorkTurns{
-  t.Fatalf("text loop not stopped safely, calls=%d continuation=%+v",calls,got.Continuation)
- }
- var stalled bool
- for _,event:=range got.Events{if event.Kind=="continuation_stalled"{stalled=true}}
- if !stalled{t.Fatal("no durable stall event")}
+ if calls!=agentchat.MaxContinuationNoWorkTurns+3||!got.AutoContinueText||got.Continuation==nil||got.Continuation.NoProgressTurns!=calls||!agentchat.StandaloneAutoContinueCandidate(got){t.Fatalf("unfinished conversation stopped: calls=%d continuation=%+v",calls,got.Continuation)}
+ // A persisted saturated counter must not eventually make the journal invalid.
+ got.Continuation.NoProgressTurns=100
+ got,err=store.Save(got,got.Revision);if err!=nil{t.Fatal(err)}
  s.autoContinueConversationOne(context.Background(),store,id)
- if calls!=agentchat.MaxContinuationNoWorkTurns{t.Fatal("stalled conversation requested provider again")}
- // A fresh store read and a scheduler pass do not revoke the saved setting.
  got,err=store.Get(id,"local");if err!=nil{t.Fatal(err)}
- if !got.AutoContinueText||agentchat.StandaloneContinuationGranted(got)||agentchat.StandaloneAutoContinueCandidate(got){t.Fatal("stall must preserve preference but fence scheduling")}
- if _,err=store.UpdateAutomation(id,"local",got.Workspace,got.Revision,"continue",true,"");err!=nil{t.Fatal(err)}
+ if calls!=agentchat.MaxContinuationNoWorkTurns+4||got.Continuation.NoProgressTurns!=100||!got.AutoContinueText{t.Fatal("saturated counter stopped continuation")}
+ finish=true
  s.autoContinueConversationOne(context.Background(),store,id)
- if calls!=agentchat.MaxContinuationNoWorkTurns+1{t.Fatal("explicit rearm did not permit new turn")}
+ s.autoContinueConversationOne(context.Background(),store,id)
+ if calls!=agentchat.MaxContinuationNoWorkTurns+5{t.Fatal("completion should stop further requests")}
+ got,err=store.Get(id,"local");if err!=nil{t.Fatal(err)}
+ if !got.AutoContinueText{t.Fatal("completion changed owner preference")}
 }
 
 func TestAgentStandaloneContinuationRespectsNativeAndProviderFences(t *testing.T){
@@ -195,23 +191,27 @@ func TestAgentStandaloneBlockerPausesWithoutRevokingPreference(t *testing.T){
 }
 
 
-func TestAgentStandaloneAdmissionFailurePausesWithoutRevokingPreference(t *testing.T){
+func TestAgentStandaloneAdmissionFailureRetriesAutomaticallyWithoutRevokingPreference(t *testing.T){
  s,store,id:=newStandaloneAutoContinueFixture(t)
  x,err:=store.Get(id,"local");if err!=nil{t.Fatal(err)}
  if _,err=store.UpdateAutomation(id,"local",x.Workspace,x.Revision,"continue",true,"");err!=nil{t.Fatal(err)}
- s.deferStandaloneAdmission(store,id,http.StatusForbidden)
+ for i:=0;i<12;i++{s.deferStandaloneAdmission(store,id,http.StatusForbidden)}
  got,err:=store.Get(id,"local");if err!=nil{t.Fatal(err)}
- if !got.AutoContinueText||got.Continuation==nil||got.Continuation.Reason!="nonretryable_admission_failure"||agentchat.StandaloneContinuationGranted(got)||agentchat.StandaloneAutoContinueCandidate(got){t.Fatalf("admission failure lost preference or did not pause: %+v",got.Continuation)}
+ if !got.AutoContinueText||got.Continuation==nil||got.Continuation.Reason!="admission_retry_scheduled"||got.Continuation.NextRetryAt==nil||got.Continuation.RetryStreak!=8||!agentchat.StandaloneContinuationGranted(got)||agentchat.StandaloneAutoContinueCandidate(got){t.Fatalf("admission did not schedule bounded backoff: %+v",got.Continuation)}
  calls:=0
  s.AgentChatCall=func(_ context.Context,_ agentchat.ProviderConfig,_ string,_ []byte)(agentchat.ResponsesResult,error){
-  calls++;return agentchat.ResponsesResult{ResponseID:"after-owner-rearm",Text:auditProgress},nil
+  calls++;return agentchat.ResponsesResult{ResponseID:"after-backoff",Text:auditProgress},nil
  }
- for i:=0;i<3;i++{s.autoContinueConversationOne(context.Background(),store,id)}
- if calls!=0{t.Fatal("paused admission repeatedly contacted provider")}
- got,err=store.UpdateAutomation(id,"local",got.Workspace,got.Revision,"continue",true,"");if err!=nil{t.Fatal(err)}
- if !got.AutoContinueText||!agentchat.StandaloneAutoContinueCandidate(got){t.Fatal("explicit rearm did not clear admission pause")}
  s.autoContinueConversationOne(context.Background(),store,id)
- if calls!=1{t.Fatalf("expected one rearmed request, got %d",calls)}
+ if calls!=0{t.Fatal("backoff ignored")}
+ got.Continuation.NextRetryAt=nil // Simulate expiry of persisted retry delay without sleeping.
+ got,err=store.Save(got,got.Revision);if err!=nil{t.Fatal(err)}
+ s.autoContinueConversationOne(context.Background(),store,id)
+ if calls!=1{t.Fatalf("automatic retry did not resume: %d",calls)}
+ got,err=store.Get(id,"local");if err!=nil{t.Fatal(err)}
+ if _,err=store.UpdateAutomation(id,"local",got.Workspace,got.Revision,"continue",false,"");err!=nil{t.Fatal(err)}
+ s.autoContinueConversationOne(context.Background(),store,id)
+ if calls!=1{t.Fatal("explicit OFF did not stop")}
 }
 
 func TestAgentStandalonePreferenceSurvivesSameGenerationJournalWrites(t *testing.T){
