@@ -176,7 +176,10 @@ func (o serverAgentRunPromptOptions) Options(spec agentchat.RunSpec, provider ag
 		return agentchat.RequestConfig{}, err
 	}
 	if support.PatchTool {
-		instructions += " You may call taskdeck_submit_patch to propose a Python Patch. TaskDeck executes it only after approval in the isolated execution workspace; never claim a proposal was applied."
+		instructions += " CURRENT RUN CAPABILITY (overrides older snapshot tool guidance): taskdeck_submit_patch is advertised for Python and command-only manifests. TaskDeck executes only after approval in the isolated execution workspace; never claim a proposal was applied. Use the execution workspace's script paths, not owner-host absolute paths."
+        instructions += agentExistingScriptInstructions(identity.ID,identity.Key,true)
+    } else {
+        instructions += " CURRENT RUN CAPABILITY (overrides older snapshot tool guidance): this Run Manager worker has no authorized Patch tool. Legacy text-only Patch proposals are not an execution route for this worker. Do not fabricate execution or request manual execution merely because direct shell is unavailable; report the actual missing run capability if it prevents progress."
 	}
 	reasoning := agentProviderReasoningEffort(provider, policy.ReasoningEffort, model)
 	limit := agentInitialOutputBudget(model, reasoning, support.PatchTool || support.CollectionTool)

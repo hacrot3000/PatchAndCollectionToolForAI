@@ -10,7 +10,7 @@ import (
  "unicode/utf8"
 )
 const AskUserToolName="taskdeck_ask_user"
-const AskUserInstructions="When information or a decision only the user can supply is necessary, call taskdeck_ask_user with 1-8 questions in the user's language. Each question has a unique id, prompt, type (single_choice, multiple_choice or text), required, options (empty for text), and allow_comment (false for text). Choice options have unique id and label. Ask independent questions together. Wait for actual user answers; never infer them. Never request passwords, tokens, private keys or other secrets. Cancellation is not approval. This tool is not native COLLECT or Patch approval."
+const AskUserInstructions="When information or a decision only the user can supply is necessary, call taskdeck_ask_user with 1-8 questions in the user's language. Each question has a unique id, prompt, type (single_choice, multiple_choice or text), required, options (empty for text), and allow_comment (false for text). Choice options have unique id and label. Ask independent questions together. Do not ask the user to manually execute an eligible project-local script when the native command-only PATCH lane is available; use its normal approval workflow instead. Wait for actual user answers; never infer them. Never request passwords, tokens, private keys or other secrets. Cancellation is not approval. This tool is not native COLLECT or Patch approval."
 var askUserID=regexp.MustCompile("^[A-Za-z0-9][A-Za-z0-9_-]{0,39}$")
 type AskUserOption struct{ID string `json:"id"`;Label string `json:"label"`}
 type AskUserQuestion struct{

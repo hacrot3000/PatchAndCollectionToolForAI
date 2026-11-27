@@ -255,7 +255,7 @@ func BuildResponsesRequest(c RequestConfig) ([]byte, error) {
 		// Never reintroduce a second hard-coded Go Collection action parser.
 		req["tools"] = []any{map[string]any{
 			"type": "function", "name": "taskdeck_collect_workspace",
-			"description": "Run the SAME native Python Patch Tool COLLECT as its manual Queue/Paste text workflow. Use current COLLECT_ACTION_SCHEMA.json. Actions include overview, find, search, file, range, head, tail, symbol, references, dependencies, directory, decompile, ida, ghidra, database_select, git, command and pack. For a 150 MB decompile/source dump prefer targeted decompile/address/symbol/search instead of pack. Tool produces ZIP + TXT, and INCOMPLETE rc=3 retains usable evidence; never assume missing matches prove absence. Do not print Collection JSON as chat text.",
+			"description": "Run the SAME native Python Patch Tool COLLECT as its manual Queue/Paste text workflow. Use current COLLECT_ACTION_SCHEMA.json. Actions include overview, find, search, file, range, head, tail, symbol, references, dependencies, directory, decompile, ida, ghidra, database_select, git, command and pack. For a 150 MB decompile/source dump prefer targeted decompile/address/symbol/search instead of pack. COLLECT command actions are read-only whitelist evidence; use an approved native command-only PATCH, not COLLECT, to run an eligible existing local project script. Tool produces ZIP + TXT, and INCOMPLETE rc=3 retains usable evidence; never assume missing matches prove absence. Do not print Collection JSON as chat text.",
 			"strict": false,
 			"parameters": collectionParameters,
 		}}
@@ -266,7 +266,7 @@ func BuildResponsesRequest(c RequestConfig) ([]byte, error) {
 		req["tools"] = append(tools, map[string]any{
 			"type":        "function",
 			"name":        "taskdeck_submit_patch",
-			"description": "Submit a Python Patch or a strict native command-only manifest. Set exactly one of patch_python and patch_manifest nonempty; set the other to an empty string. TaskDeck validates the project identity and executes only via Native Patch Tool with either a user-enabled per-conversation Auto apply grant or explicit per-Patch approval. Never claim that submission means execution.",
+			"description": "Submit a Python Patch OR run an eligible existing project-local build/test/diagnostic script via native command-only PATCH. Prefer the command-only lane to asking the user to run an eligible script manually. Set exactly one of patch_python and patch_manifest nonempty; set the other to an empty string. A command-only manifest contains one structured argv command (for example bash scripts/check.sh), never inline shell. Native validation, project identity, script origin and approval gates still apply. Never claim submission means execution.",
 			"strict":      true,
 			"parameters": map[string]any{
 				"type": "object",
