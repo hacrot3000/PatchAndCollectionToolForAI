@@ -2,6 +2,8 @@ package agentchat
 
 import (
  "encoding/json"
+ "fmt"
+ "os"
  "errors"
  "path/filepath"
  "reflect"
@@ -117,4 +119,61 @@ func TestCollectionGuardHydratesRetainedTextPairsWithoutInventingNovelty(t *test
  if !got.BindCollectionGuard("Fix the issue","",false){t.Fatal("new objective")}
  fresh,ok:=got.ReadCollectionGuard()
  if !ok||fresh.Generation!=g.Generation+1||fresh.Legacy!=g.Legacy||fresh.Counters.Observed!=0{t.Fatal("historical counts reset or attributed to new goal")}
+}
+
+func TestCollectionGuardArchiveMigrationBoundedCursorAndIsolation(t *testing.T){
+ dir:=filepath.Join(t.TempDir(),"private")
+ store,err:=NewStore(dir);if err!=nil{t.Fatal(err)}
+ x,err:=NewSession("local","/workspace","project","provider","model",Stateless);if err!=nil{t.Fatal(err)}
+ x.History=[]HistoryItem{{Type:"user",Content:"Original owner task"}}
+ x,err=store.Save(x,0);if err!=nil{t.Fatal(err)}
+ // Generate actual private immutable archive parts through the normal CAS.
+ for batch:=0;batch<8;batch++{
+  for i:=0;i<100;i++{
+   id:=fmt.Sprintf("old-read-%d-%d",batch,i)
+   x.History=append(x.History,HistoryItem{Type:"function_call",Name:"taskdeck_collect_workspace",CallID:id,Arguments:`{"actions":[{"type":"ls","path":"."}]}`},HistoryItem{Type:"function_call_output",CallID:id,Content:`{"status":"PASS"}`})
+  }
+  x,err=store.Save(x,x.Revision);if err!=nil{t.Fatal(err)}
+ }
+ for i:=0;i<28;i++{
+  id:=fmt.Sprintf("old-patch-%d",i)
+  x.History=append(x.History,HistoryItem{Type:"function_call",Name:"taskdeck_submit_patch",CallID:id,Arguments:"{}"},HistoryItem{Type:"function_call_output",CallID:id,Content:`{"status":"PASS"}`})
+  x.ToolCalls=append(x.ToolCalls,ToolCallRecord{CallID:id,Name:"taskdeck_submit_patch",Status:"done",Result:`{"status":"PASS"}`,FeedbackSent:true,FeedbackStatus:"acknowledged"})
+ }
+ x,err=store.Save(x,x.Revision);if err!=nil{t.Fatal(err)}
+ if x.HistoryArchiveParts<=maxLegacyArchiveParts||x.PatchArchiveParts==0{t.Fatal("fixture did not create archive bounds")}
+ historicalHistory,historicalPatch:=x.HistoryArchiveParts,x.PatchArchiveParts
+ // Remove part 2 before migration. Its failure is recorded, not interpreted
+ // as a negative receipt, and not retried on every subsequent Save.
+ missing:=store.historyArchivePath(x.ID,2)
+ raw,err:=os.ReadFile(missing);if err!=nil{t.Fatal(err)}
+ if err=os.Remove(missing);err!=nil{t.Fatal(err)}
+ original:=append([]HistoryItem(nil),x.History...)
+ if !x.BindCollectionGuard("Audit the source read-only","",false){t.Fatal("bind")}
+ x,err=store.Save(x,x.Revision);if err!=nil{t.Fatal(err)}
+ g,ok:=x.ReadCollectionGuard()
+ if !ok||g.Legacy.HistoryPartsAtBind!=historicalHistory||g.Legacy.PatchPartsAtBind!=historicalPatch||g.Legacy.HistoryCursor!=1||g.Legacy.PatchCursor!=1||g.Legacy.ArchivedCalls==0||g.Legacy.ArchivedAcknowledgedPatches==0{t.Fatalf("first migration batch: %+v",g.Legacy)}
+ old:=x
+ x,err=store.Save(x,x.Revision);if err!=nil{t.Fatal(err)}
+ g,ok=x.ReadCollectionGuard()
+ if !ok||g.Legacy.HistoryCursor!=2||g.Legacy.ArchiveReadErrors!=1||!g.Legacy.Incomplete{t.Fatalf("missing archive not recorded: %+v",g.Legacy)}
+ if _,err=store.Save(old,old.Revision);!errors.Is(err,ErrStaleRevision){t.Fatal("stale migration CAS accepted")}
+ if err=os.WriteFile(missing,raw,0600);err!=nil{t.Fatal(err)}
+ reopened,err:=NewStore(dir);if err!=nil{t.Fatal(err)}
+ x,err=reopened.Get(x.ID,"local");if err!=nil{t.Fatal(err)}
+ for i:=0;i<6;i++{x,err=reopened.Save(x,x.Revision);if err!=nil{t.Fatal(err)}}
+ g,ok=x.ReadCollectionGuard()
+ if !ok||g.Legacy.HistoryCursor!=maxLegacyArchiveParts||g.Legacy.ArchiveReadErrors!=1||g.Legacy.ArchivedCalls!=g.Legacy.ArchivedOutputs||g.Counters.NativeReads!=0||g.Counters.NewEvidence!=0||g.Counters.PatchExecutions!=0||len(g.Evidence.Entries)!=0{t.Fatalf("migration exceeded bounds or fabricated evidence: %+v",g)}
+ if !reflect.DeepEqual(original,x.History){t.Fatal("migration changed retained canonical history")}
+ if _,err=reopened.Get(x.ID,"other-owner");!errors.Is(err,ErrNotFound){t.Fatal("migration leaked another owner's archive")}
+ summary:=g.Legacy
+ if !x.BindCollectionGuard("Fix the issue","",false){t.Fatal("new goal")}
+ x,err=reopened.Save(x,x.Revision);if err!=nil{t.Fatal(err)}
+ next,ok:=x.ReadCollectionGuard()
+ if !ok||next.Legacy!=summary||next.Generation!=g.Generation+1{t.Fatal("new goal rescanned historical archive")}
+ // Old guards with no captured cut must not retroactively read archives.
+ other,err:=NewSession("other-owner","/workspace","project","provider","model",Stateless);if err!=nil{t.Fatal(err)}
+ if !other.BindCollectionGuard("Continue","",true){t.Fatal("other bind")}
+ og,_:=other.ReadCollectionGuard()
+ if og.Legacy.ArchivedCalls!=0||og.Legacy.ArchivedAcknowledgedPatches!=0{t.Fatal("cross-conversation migration")}
 }
