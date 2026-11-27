@@ -231,6 +231,8 @@ type Session struct {
 	AutomationRevision uint64 `json:"automation_revision,omitempty"`
 	// Only explicit owner preference writes may change feedback after opt-in.
 	FeedbackPreferenceRevision uint64 `json:"feedback_preference_revision,omitempty"`
+	// Only an explicit owner Automation write changes this preference.
+	ContinuePreferenceRevision uint64 `json:"continue_preference_revision,omitempty"`
 	ContinueResetRevision uint64 `json:"continue_reset_revision,omitempty"`
 	AutoFeedbackUntil *time.Time       `json:"auto_feedback_until,omitempty"`
 	Status            string           `json:"status"`
@@ -745,6 +747,13 @@ func (s *Store) saveSessionWithAdmissionLocked(x Session, expectedRevision uint6
 			// an owner rename. Renaming never changes the turn revision.
 			x.Title = existing.Title
 			x.RefreshAutomation(existing)
+			// Preserve explicit ON and OFF even in same-generation journal
+			// projections. ContinueResetRevision also identifies old opt-ins.
+			// Legacy ON sessions without a marker retain their saved grant.
+			if existing.ContinuePreferenceRevision!=0||existing.ContinueResetRevision!=0||existing.AutoContinueText{
+				x.AutoContinueText=existing.AutoContinueText
+				x.ContinuePreferenceRevision=existing.ContinuePreferenceRevision
+			}
 			// Protect the persisted grant (and explicit revocation) even from a
 			// journal projection carrying the same automation generation. Older
 			// persistent grants have no dedicated preference marker yet.
@@ -1025,6 +1034,9 @@ func (x *Session) RefreshAutomation(latest Session) {
   x.Continuation.LastContinuationKey=latest.Continuation.LastContinuationKey
   x.Continuation.NextRetryAt=latest.Continuation.NextRetryAt
   x.Continuation.RetryStreak=latest.Continuation.RetryStreak
+  if x.Continuation.Reason=="nonretryable_admission_failure"||x.Continuation.Reason=="stalled_without_verified_work"{
+   x.Continuation.Reason=latest.Continuation.Reason
+  }
  }
  x.AutoPatch=latest.AutoPatch
  x.AutoCollection=latest.AutoCollection
@@ -1033,6 +1045,7 @@ func (x *Session) RefreshAutomation(latest Session) {
  x.AutoFeedbackUntil=latest.AutoFeedbackUntil
  x.FeedbackPreferenceRevision=latest.FeedbackPreferenceRevision
  x.AutoContinueText=latest.AutoContinueText
+ x.ContinuePreferenceRevision=latest.ContinuePreferenceRevision
  x.RetryMode=latest.RetryMode
  x.AutomationRevision=latest.AutomationRevision
  x.ContinueResetRevision=latest.ContinueResetRevision
@@ -1082,6 +1095,7 @@ func (s *Store) updateAutomation(id,owner,workspace string, observedRevision uin
   case "continue":
    if enabled&&x.TaskPlan!=nil{return ErrInvalidSession}
    x.AutoContinueText=enabled
+   x.ContinuePreferenceRevision=x.AutomationRevision
    if enabled{
     x.ContinueResetRevision=x.AutomationRevision
     if x.Continuation!=nil{
@@ -1091,6 +1105,9 @@ func (s *Store) updateAutomation(id,owner,workspace string, observedRevision uin
      x.Continuation.LastContinuationKey=""
      x.Continuation.NextRetryAt=nil
      x.Continuation.RetryStreak=0
+     if x.Continuation.Reason=="nonretryable_admission_failure"||x.Continuation.Reason=="stalled_without_verified_work"{
+      x.Continuation.Reason="owner_continuation_reenabled"
+     }
     }
    }
   case "retry":
