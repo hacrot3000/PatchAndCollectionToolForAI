@@ -218,7 +218,7 @@ func (s *Server) agentChatRunCollection(
 			}
 			*x=saved
 			var nativeErr error
-			observed,nativeErr = s.agentRunNativeCollection(ctx,x.Owner,nativeRequest,identity)
+			observed,nativeErr = s.agentRunNativeCollection(agentNativeWaitContext(ctx,s.Workspace,x.Owner,x.ID),x.Owner,nativeRequest,identity)
 			nativeRead = nativeErr == nil
 			if nativeErr!=nil {
 				code:="NATIVE_COLLECTION_FAILED"
@@ -376,6 +376,7 @@ func (s *Server) agentChatRunCollection(
 			s.agentPreparedFailure(*x,"collection",payload,err)
 			return result,clearProviderRefs,&agentCollectionLocalError{Stage:"persist_prepared",Round:round+1,Cause:err}
 		}
+		x.ProviderRun.CollectionReplan=recoveryAdvice!=""
 		saved, err := store.Save(*x, x.Revision)
 		if err != nil {
 			return result, clearProviderRefs, &agentCollectionLocalError{Stage: "journal_write", Round: round+1, Cause: err}
@@ -385,6 +386,9 @@ func (s *Server) agentChatRunCollection(
 			return result, clearProviderRefs, &agentCollectionLocalError{Stage: "cancelled_before_provider_request", Round: round+1, Cause: ctx.Err()}
 		}
 		if err=markAgentProviderSending(store,x);err!=nil{
+			if errors.Is(err,agentchat.ErrCollectionReplanRevoked){
+				return result,true,&agentCollectionLocalError{Stage:"collection_progress_checkpoint",Round:round+1,Cause:err}
+			}
 			return result,clearProviderRefs,&agentCollectionLocalError{Stage:"persist_sending",Round:round+1,Cause:err}
 		}
 		// A slow inspection round must not exhaust the next provider request.

@@ -513,6 +513,9 @@ func (s *Server) sessionsRoot(w http.ResponseWriter, r *http.Request) {
 				http.Error(w, err.Error(), http.StatusBadRequest)
 				return
 			}
+			if fromAgent, _ := r.Context().Value(agentNativeRunOriginKey{}).(bool); fromAgent {
+				spec.Label += agentNativeRunLabelSuffix
+			}
 			// Queue discovery must never move/delete inputs while another Patch
 			// Tool process may be using them. Enforce after user env overrides.
 			if strings.EqualFold(strings.TrimSpace(req.PatchMode), "queue") {

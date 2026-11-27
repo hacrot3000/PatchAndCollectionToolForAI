@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+ "fmt"
  "net/http/httptest"
 	"strings"
 	"sync/atomic"
@@ -10,6 +11,7 @@ import (
  "time"
 
 	"bletonfc/vscode_tasks_menu/internal/agentchat"
+ cp "bletonfc/vscode_tasks_menu/internal/agentchat/collectionprogress"
 	"bletonfc/vscode_tasks_menu/internal/agentrun"
 	"bletonfc/vscode_tasks_menu/internal/patchtool"
 )
@@ -176,6 +178,18 @@ func TestAgentRunUnsupportedToolDenialContinuesPinnedProvider(t *testing.T){
 func TestAgentRunCollectionRepeatedShapeReadsChangedSource(t *testing.T){
  s,_,_,spec:=providerToolRunFixture(t,"run-native-repeated")
  spec,history:=enableRunAutomationFixture(t,s,spec,true,false)
+ // Pin a deliberately different advisory threshold to the actual Run
+ // snapshot. The existing default requires 3 duplicates, this requires 1.
+ journal,err:=s.agentChatStore();if err!=nil{t.Fatal(err)}
+ session,err:=journal.Get(spec.ConversationID,"local");if err!=nil{t.Fatal(err)}
+ snapshots,err:=s.agentContextSnapshotStore("local");if err!=nil{t.Fatal(err)}
+ initial,err:=snapshots.Get(spec.ContextSnapshotID,spec.OwnerWorkspaceID,spec.ConversationID,session.ProjectID);if err!=nil{t.Fatal(err)}
+ policy:=*initial.Policy
+ policy.CollectionGuardPolicy=agentrun.NewCollectionGuardPolicySnapshot()
+ policy.CollectionGuardPolicy.Thresholds.DuplicateStreak=1
+ pinned,err:=snapshots.CreateWithPolicy(spec.OwnerWorkspaceID,spec.ConversationID,session.ProjectID,history,initial.SourceRefs,&policy);if err!=nil{t.Fatal(err)}
+ spec.ContextSnapshotID=pinned.ID
+ policy.CollectionGuardPolicy.Thresholds.DuplicateStreak=9 // caller mutation must not alter active run
  var requests,reads atomic.Int32
  s.AgentCollectionCall=func(_ string,identity patchtool.ProjectIdentity,_ []byte)string{
   n:=reads.Add(1);digest:=strings.Repeat("a",64);if n>=3{digest=strings.Repeat("b",64)}
@@ -186,6 +200,8 @@ func TestAgentRunCollectionRepeatedShapeReadsChangedSource(t *testing.T){
   n:=requests.Add(1)
   if p.ID!=spec.ProviderID{t.Errorf("provider drift")}
   if n>1&&!strings.Contains(string(payload),"read-marker-"+string(rune('0'+n-1))){t.Errorf("current native receipt missing at request %d",n)}
+  if n==3&&!strings.Contains(string(payload),"repeated_verified_evidence"){t.Errorf("pinned duplicate threshold was not used")}
+  if n!=3&&strings.Contains(string(payload),"Collection advisory metadata (not new evidence or authorization):"){t.Errorf("unexpected duplicate advisory at request %d",n)}
   if n<=4{return agentchat.ResponsesResult{ResponseID:"read-response",Calls:[]agentchat.FunctionCall{{CallID:"collect-"+string(rune('0'+n)),Name:"taskdeck_collect_workspace",Arguments:`{"actions":[{"type":"file","path":"main.go"}]}`}}},nil}
   return agentchat.ResponsesResult{ResponseID:"complete",Text:"Read completed."},nil
  }
@@ -203,6 +219,7 @@ func TestAgentRunCollectionRepeatedShapeReadsChangedSource(t *testing.T){
  }
  if n!=4{t.Fatalf("receipt count %d",n)}
  inputs,err:=s.ResolveAgentRunInputs(agentrun.WithPrincipalOwner(context.Background(),"local"),rec.Spec);if err!=nil{t.Fatal(err)}
+ if threshold,ok:=inputs.Snapshot.Policy.CollectionPolicy();!ok||threshold.DuplicateStreak!=1{t.Fatal("derived Run snapshot lost immutable threshold")}
  g,ok:=readRunCollectionProgress("local",rec.Spec,inputs)
  if !ok||g.Counters.Requested!=4||g.Counters.NativeReads!=4||g.Counters.NewEvidence!=2||g.Counters.DuplicateEvidence!=2{t.Fatalf("guard not retained: %+v",g)}
  if _,ok:=readRunCollectionProgress("foreign",rec.Spec,inputs);ok{t.Fatal("cross-owner progress accepted")}
@@ -226,7 +243,7 @@ func TestAgentRunCollectionRepeatedShapeReadsChangedSource(t *testing.T){
  }
  body:=report(reopened)
  if !strings.Contains(body,spec.RunID)||!strings.Contains(body,`"verified_duplicate": 2`)||strings.Contains(body,"read-marker-"){t.Fatal("restart lost or disclosed native evidence")}
- journal,err:=reopened.agentChatStore();if err!=nil{t.Fatal(err)}
+ journal,err=reopened.agentChatStore();if err!=nil{t.Fatal(err)}
  sessions,err:=journal.List("local");if err!=nil{t.Fatal(err)}
  foreignRows,err:=reopened.agentDebugUnifiedRuns("foreign",sessions,time.Time{})
  if err!=nil||len(foreignRows)!=0{t.Fatal("foreign owner can read Unified run metadata")}
@@ -245,3 +262,118 @@ func TestAgentRunCollectionRepeatedShapeReadsChangedSource(t *testing.T){
 }
 
 
+
+
+ // Invalid advisory configuration is a compatibility condition, not a new
+ // authorization or execution gate. Keep the actual native receipt pipeline.
+func TestAgentRunInvalidCollectionPolicyDoesNotBlockNativeRead(t *testing.T){
+ for _,version:=range []int{1,999}{
+  t.Run(map[int]string{1:"invalid_thresholds",999:"future_version"}[version],func(t *testing.T){
+   s,_,_,spec:=providerToolRunFixture(t,"run-invalid-clp-policy")
+   spec,history:=enableRunAutomationFixture(t,s,spec,true,false)
+   journal,err:=s.agentChatStore();if err!=nil{t.Fatal(err)}
+   x,err:=journal.Get(spec.ConversationID,"local");if err!=nil{t.Fatal(err)}
+   snapshots,err:=s.agentContextSnapshotStore("local");if err!=nil{t.Fatal(err)}
+   initial,err:=snapshots.Get(spec.ContextSnapshotID,spec.OwnerWorkspaceID,spec.ConversationID,x.ProjectID);if err!=nil{t.Fatal(err)}
+   policy:=*initial.Policy
+   policy.CollectionGuardPolicy=agentrun.NewCollectionGuardPolicySnapshot()
+   policy.CollectionGuardPolicy.Version=version
+   if version==1{policy.CollectionGuardPolicy.Thresholds.DuplicateStreak=0}
+   pinned,err:=snapshots.CreateWithPolicy(spec.OwnerWorkspaceID,spec.ConversationID,x.ProjectID,history,initial.SourceRefs,&policy);if err!=nil{t.Fatal(err)}
+   spec.ContextSnapshotID=pinned.ID
+   var reads,calls atomic.Int32
+   receipts:=make(chan string,2)
+   s.AgentCollectionCall=func(_ string,identity patchtool.ProjectIdentity,_ []byte)string{
+    n:=reads.Add(1)
+    raw,_:=json.Marshal(map[string]any{"source":"native_patch_tool_collect","project":identity,"native_session_id":"fixture","run_id":"invalid-policy-"+string(rune('0'+n)),"status":"PASS","native_status":"PASS","rc":0,"evidence_verified":true,"text_excerpt_truncated":false,"native_full_file_reads":[]map[string]any{{"path":"main.go","action_index":1,"total_lines":1,"report_sha256":strings.Repeat("a",64)}}})
+    receipts<-string(raw);return string(raw)
+   }
+   s.AgentChatCall=func(_ context.Context,p agentchat.ProviderConfig,_ string,payload []byte)(agentchat.ResponsesResult,error){
+    n:=calls.Add(1)
+    if p.ID!=spec.ProviderID{t.Errorf("provider drift")}
+    if strings.Contains(string(payload),"Collection advisory metadata (not new evidence or authorization):"){t.Errorf("invalid policy emitted advisory")}
+    if n>1{
+     want:=<-receipts
+     var wire struct{Input []map[string]any}
+     if json.Unmarshal(payload,&wire)!=nil{t.Errorf("bad payload")}
+     count:=0;for _,item:=range wire.Input{if item["output"]==want{count++}}
+     if count!=1{t.Errorf("receipt missing or duplicated: %d",count)}
+    }
+    if n<=2{return agentchat.ResponsesResult{ResponseID:"read",Calls:[]agentchat.FunctionCall{{CallID:"invalid-policy-read-"+string(rune('0'+n)),Name:"taskdeck_collect_workspace",Arguments:`{"actions":[{"type":"file","path":"main.go"}]}`}}},nil}
+    return agentchat.ResponsesResult{ResponseID:"done",Text:"Inspected source."},nil
+   }
+   manager,err:=s.agentRunManager("local");if err!=nil{t.Fatal(err)}
+   defer manager.Close()
+   if _,err=manager.Submit(spec,history);err!=nil{t.Fatal(err)}
+   waitForAgentRunStatus(t,manager,spec.RunID,agentrun.Completed)
+   rec,_:=manager.Get(spec.RunID)
+   if reads.Load()!=2||calls.Load()!=3{t.Fatalf("invalid policy blocked read or caused replay: %d/%d",reads.Load(),calls.Load())}
+   inputs,err:=s.ResolveAgentRunInputs(agentrun.WithPrincipalOwner(context.Background(),"local"),rec.Spec);if err!=nil{t.Fatal(err)}
+   if _,ok:=readRunCollectionProgress("local",rec.Spec,inputs);ok||len(inputs.Snapshot.Policy.CollectionProgress)!=0{t.Fatal("invalid policy enabled guard")}
+   if inputs.Snapshot.Policy.CollectionGuardPolicy==nil||*inputs.Snapshot.Policy.CollectionGuardPolicy!=*pinned.Policy.CollectionGuardPolicy{t.Fatal("invalid/future policy was rewritten")}
+  })
+ }
+}
+
+func TestAgentRunCollectionProjectionRequiresExactPendingCallAcrossSnapshots(t *testing.T){
+ s,_,_,spec:=providerToolRunFixture(t,"run-clp-exact-projection")
+ spec,history:=enableRunAutomationFixture(t,s,spec,true,false)
+ ctx:=agentrun.WithPrincipalOwner(context.Background(),"local")
+ inputs,err:=s.ResolveAgentRunInputs(ctx,spec);if err!=nil{t.Fatal(err)}
+ identity,err:=patchtool.ReadProjectIdentity(inputs.ExecutionWorkspacePath);if err!=nil{t.Fatal(err)}
+ call:=agentchat.HistoryItem{Type:"function_call",Name:"taskdeck_collect_workspace",CallID:"logical-read",Arguments:`{"actions":[{"type":"file","path":"main.go"}]}`,OriginRunID:spec.RunID,ProviderID:spec.ProviderID,ModelID:spec.ModelID,ParentTurnID:spec.ParentTurnID}
+ request,err:=agentNativeCollectionRequest(call.Arguments,identity,false);if err!=nil{t.Fatal(err)}
+ raw,err:=json.Marshal(map[string]any{"source":"native_patch_tool_collect","project":identity,"status":"PASS","native_status":"PASS","rc":0,"evidence_verified":true,"native_session_id":"native","run_id":"logical-receipt","text_excerpt_truncated":false,"native_full_file_reads":[]any{map[string]any{"path":"main.go","action_index":1,"total_lines":1,"report_sha256":strings.Repeat("a",64)}}});if err!=nil{t.Fatal(err)}
+ run:=agentrun.Record{Spec:spec,History:append(append([]agentchat.HistoryItem(nil),history...),call)}
+ // Different call/owner/worktree/provenance cannot mint a progress event.
+ wrong:=call;wrong.CallID="another-call"
+ if got:=runCollectionProgressUpdate("local",run,inputs,identity,wrong,request,string(raw),true);len(got)!=0{t.Fatal("foreign call counted")}
+ wrong=call;wrong.ProviderID="other-provider"
+ foreign:=run;foreign.History=append(append([]agentchat.HistoryItem(nil),history...),wrong)
+ if got:=runCollectionProgressUpdate("local",foreign,inputs,identity,wrong,request,string(raw),true);len(got)!=0{t.Fatal("foreign provider counted")}
+ // First projection is deterministic even if an uncommitted snapshot is
+ // staged twice. It is not a second native execution or observation.
+ projected:=runCollectionProgressUpdate("local",run,inputs,identity,call,request,string(raw),true)
+ again:=runCollectionProgressUpdate("local",run,inputs,identity,call,request,string(raw),true)
+ if len(projected)==0||string(again)!=string(projected){t.Fatal("projection not deterministic")}
+ var g runCollectionProgress
+ if json.Unmarshal(projected,&g)!=nil||g.Counters.Requested!=1||g.Counters.Observed!=1||g.Counters.NativeReads!=1||g.Counters.NewEvidence!=1||g.Decision.Kind!=cp.Continue{t.Fatalf("unexpected counters: %+v",g)}
+ result:=agentchat.HistoryItem{Type:"function_call_output",CallID:call.CallID,Content:string(raw),OriginRunID:spec.RunID,ProviderID:spec.ProviderID,ModelID:spec.ModelID,ParentTurnID:spec.ParentTurnID}
+ committed:=append(append([]agentchat.HistoryItem(nil),run.History...),result)
+ snapshots,err:=s.agentContextSnapshotStore("local");if err!=nil{t.Fatal(err)}
+ policy:=*inputs.Snapshot.Policy;policy.CollectionProgress=projected
+ snap,err:=snapshots.CreateWithPolicy(spec.OwnerWorkspaceID,spec.ConversationID,inputs.ProjectID,committed,inputs.Snapshot.SourceRefs,&policy);if err!=nil{t.Fatal(err)}
+ reopened,err:=snapshots.Get(snap.ID,spec.OwnerWorkspaceID,spec.ConversationID,inputs.ProjectID);if err!=nil{t.Fatal(err)}
+ derived:=inputs;derived.Snapshot=reopened
+ run.Spec.ContextSnapshotID=snap.ID
+ run.History=committed
+ if got:=runCollectionProgressUpdate("local",run,derived,identity,call,request,string(raw),true);string(got)!=string(projected){t.Fatal("resolved observation changed counters")}
+ // Old snapshot prefix cannot be used to attribute a second count to a
+ // completed call even if history has subsequently grown.
+ run.History=append(run.History,agentchat.HistoryItem{Type:"assistant",Content:"Read complete."})
+ if got:=runCollectionProgressUpdate("local",run,derived,identity,call,request,string(raw),true);string(got)!=string(projected){t.Fatal("stale observation counted again")}
+ got,ok:=readRunCollectionProgress("local",run.Spec,derived)
+ if !ok||got.Counters!=g.Counters{t.Fatal("committed counters changed on reopen")}
+ // Advance two actual immutable projections for the same request, first
+ // an exact duplicate with new receipt ID, then a changed source revision.
+ session:=agentchat.Session{}
+ firstSignature:=runContinuationWorkSignature("local",run,derived,session)
+ run.History=committed
+ for i:=0;i<2;i++{
+  nextCall:=call
+  nextCall.CallID=fmt.Sprintf("followup-%d",i)
+  nextRaw:=strings.ReplaceAll(string(raw),"logical-receipt",fmt.Sprintf("native-followup-%d",i))
+  if i==1{nextRaw=strings.ReplaceAll(nextRaw,strings.Repeat("a",64),strings.Repeat("b",64))}
+  run.History=append(append([]agentchat.HistoryItem(nil),run.History...),nextCall)
+  nextProgress:=runCollectionProgressUpdate("local",run,derived,identity,nextCall,request,nextRaw,true)
+  var state runCollectionProgress
+  if json.Unmarshal(nextProgress,&state)!=nil||state.Counters.NativeReads!=uint64(i+2)||state.Counters.DuplicateEvidence!=1||state.Counters.NewEvidence!=uint64(i+1){t.Fatalf("bad continuation novelty: %+v",state.Counters)}
+  nextResult:=result;nextResult.CallID=nextCall.CallID;nextResult.Content=nextRaw
+  run.History=append(run.History,nextResult)
+  nextPolicy:=*derived.Snapshot.Policy;nextPolicy.CollectionProgress=nextProgress
+  nextSnap,err:=snapshots.CreateWithPolicy(spec.OwnerWorkspaceID,spec.ConversationID,inputs.ProjectID,run.History,inputs.Snapshot.SourceRefs,&nextPolicy);if err!=nil{t.Fatal(err)}
+  derived.Snapshot=nextSnap;run.Spec.ContextSnapshotID=nextSnap.ID
+  signature:=runContinuationWorkSignature("local",run,derived,session)
+  if (signature==firstSignature)!=(i==0){t.Fatalf("outer progress signature changed incorrectly for observation %d",i)}
+ }
+}

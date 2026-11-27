@@ -28,6 +28,7 @@ func acquireRemoteWorkspaceOSLock(root string,expected os.FileInfo)(func(),error
  }
  if err:=syscall.Flock(int(dir.Fd()),syscall.LOCK_EX|syscall.LOCK_NB);err!=nil{
   _=dir.Close()
+  if errors.Is(err,syscall.EWOULDBLOCK)||errors.Is(err,syscall.EAGAIN){return nil,errRemoteWorkspaceLockContended}
   return nil,err
  }
  var once sync.Once

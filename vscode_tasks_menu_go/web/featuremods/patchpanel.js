@@ -304,6 +304,17 @@ function installPatchPanel(){
   .task-patch-parallel-run-head{display:flex;align-items:flex-start;gap:7px}
   .task-patch-parallel-run-name{min-width:0;flex:1;font-weight:600;overflow-wrap:anywhere}
   .task-patch-parallel-run-status{font-weight:700;white-space:nowrap}
+  .task-patch-parallel-run.ai-agent{border-left:3px solid #b49af4;background:#25213a}
+  .task-patch-parallel-run-origin{font-size:10px;font-weight:700;color:#c4b5fd;white-space:nowrap}
+  .task-patch-parallel-run.ai-agent .task-patch-parallel-run-status{color:#c4b5fd}
+  .task-patch-parallel-run[data-outcome="pass"] .task-patch-parallel-run-status{color:#70d6a1}
+  .task-patch-parallel-run[data-outcome="fail"] .task-patch-parallel-run-status{color:#ff9a96}
+  .task-patch-parallel-run[data-outcome="unknown"] .task-patch-parallel-run-status{color:#e4be63}
+  html[data-taskmenu-theme="light"] .task-patch-parallel-run.ai-agent{background:#f1ecff;border-color:#7955bd}
+  html[data-taskmenu-theme="light"] .task-patch-parallel-run.ai-agent .task-patch-parallel-run-status,html[data-taskmenu-theme="light"] .task-patch-parallel-run-origin{color:#6741a8}
+  html[data-taskmenu-theme="light"] .task-patch-parallel-run[data-outcome="pass"] .task-patch-parallel-run-status{color:#17653c}
+  html[data-taskmenu-theme="light"] .task-patch-parallel-run[data-outcome="fail"] .task-patch-parallel-run-status{color:#a62929}
+  html[data-taskmenu-theme="light"] .task-patch-parallel-run[data-outcome="unknown"] .task-patch-parallel-run-status{color:#805b09}
   .task-patch-parallel-run-meta{margin-top:3px;opacity:.72;overflow-wrap:anywhere}
   .task-patch-parallel-run-meta.stale{color:#e4be63;opacity:1}
   .task-patch-parallel-run-actions{display:flex;gap:5px;margin-top:5px}
@@ -754,6 +765,8 @@ function installPatchPanel(){
   let parallelCollectBusy=false;
   let parallelCollectPollGeneration=0;
   const parallelCollectRuns=new Map();
+  const dismissedNativeRuns=new Set();
+  let nativeRunDiscoveryTimer=0,nativeRunDiscoveryBusy=false,nativeRunDiscoveryGeneration=0;
   let foregroundRunDescriptor=null;
   let foregroundProtocolState=null;
   const commandOpenPaths=new Set();
@@ -938,6 +951,7 @@ function installPatchPanel(){
     historySupportPollGeneration+=1;
     historyCleanupPollGeneration+=1;
     parallelCollectPollGeneration+=1;
+    cancelNativeRunDiscovery();
   }
   function resumePatchPanelPolling(){
     if(activeSessionId)void pollProtocol(activeSessionId,!runningMode&&!planMode&&!healthMode,true);
@@ -1021,7 +1035,8 @@ function installPatchPanel(){
     const changed=panel.classList.contains('visible')!==visible;
     panel.classList.toggle('visible',visible);
     patchTab.classList.toggle('active',visible);
-    if(!visible)cancelQueueAutoRefreshTimer();
+    if(!visible){cancelQueueAutoRefreshTimer();cancelNativeRunDiscovery();}
+    else scheduleNativeRunDiscovery(0);
     if(changed)window.dispatchEvent(new CustomEvent('taskmenu:patch-panel-visible',{detail:{visible}}));
   }
   function rememberReturnView(){
@@ -1091,8 +1106,9 @@ function installPatchPanel(){
   });
   window.addEventListener('focus',()=>{void refreshQueueForActivity('window-focus');});
   document.addEventListener('visibilitychange',()=>{
-    if(document.visibilityState==='visible')void refreshQueueForActivity('visibility');
-    else cancelQueueAutoRefreshTimer();
+    if(document.visibilityState==='visible'){
+      void refreshQueueForActivity('visibility');scheduleNativeRunDiscovery(0);
+    }else{cancelQueueAutoRefreshTimer();cancelNativeRunDiscovery();}
   });
 
   function resetSummary(status='Not loaded'){
@@ -3976,6 +3992,7 @@ function installPatchPanel(){
           throw new Error('This session is still running. It cannot be removed from Active runs yet.');
         }
       }
+      if(run?.sessionId)dismissedNativeRuns.add(String(run.sessionId));
       parallelCollectRuns.delete(key);
       renderParallelCollectRuns();
       refreshActionDisabledState();
@@ -3993,11 +4010,114 @@ function installPatchPanel(){
     parallelCollectBox.hidden=true;
   }
 
+  function nativeRunDiscoveryVisible(){
+    return !lifecycleSuspended&&patchUIMode()==='native'&&panel.classList.contains('visible')&&document.visibilityState!=='hidden';
+  }
+  function cancelNativeRunDiscovery(){
+    nativeRunDiscoveryGeneration++;
+    if(nativeRunDiscoveryTimer){clearTimeout(nativeRunDiscoveryTimer);nativeRunDiscoveryTimer=0;}
+  }
+  function scheduleNativeRunDiscovery(delay=1500){
+    if(nativeRunDiscoveryTimer){clearTimeout(nativeRunDiscoveryTimer);nativeRunDiscoveryTimer=0;}
+    if(!nativeRunDiscoveryVisible())return;
+    nativeRunDiscoveryTimer=setTimeout(()=>{
+      nativeRunDiscoveryTimer=0;void refreshNativeRunDiscovery();
+    },delay);
+  }
+  function nativeRunOrigin(meta,state){
+    if(String(meta?.label||'').endsWith(' · AI Agent'))return 'ai-agent';
+    const ids=[state?.progress?.run_id,...(Array.isArray(state?.items)?state.items.map(item=>item?.run_id):[])];
+    return ids.some(id=>/^agent_collect_[a-f0-9]{24}$/.test(String(id||'')))?'ai-agent':'native';
+  }
+  function nativeRunEvidence(state){
+    const items=Array.isArray(state?.items)?state.items:[];
+    const rows=items.filter(row=>['PATCH','COLLECT'].includes(patchItemKind(row?.kind))&&
+      ['RUNNING','PASS','SUCCESS','DONE','FAIL','FAILED','INCOMPLETE','PREFLIGHT_FAIL','CANCELLED','CANCELED','STOPPED','SKIPPED'].includes(patchItemKind(row?.status)));
+    const progress=state?.progress;
+    const kind=patchItemKind(progress?.item_kind||progress?.scope);
+    const names=rows.map(row=>String(row.name||'')).filter(Boolean);
+    const kinds=rows.map(row=>patchItemKind(row.kind));
+    if(['PATCH','COLLECT'].includes(kind)&&progress?.item_name){
+      names.push(String(progress.item_name));kinds.push(kind);
+    }
+    return {names:[...new Set(names)],kinds:[...new Set(kinds)]};
+  }
+  async function refreshNativeRunDiscovery(){
+    if(nativeRunDiscoveryBusy||!nativeRunDiscoveryVisible())return;
+    nativeRunDiscoveryBusy=true;
+    const generation=nativeRunDiscoveryGeneration;
+    const current=()=>generation===nativeRunDiscoveryGeneration&&nativeRunDiscoveryVisible();
+    try{
+      const response=await app.jsonFetch('/api/sessions');
+      if(!current())return;
+      if(!Array.isArray(response?.sessions))throw new Error('Invalid native session list');
+      const workspace=String(app.taskData?.workspace||'').replace(/[\\/]+$/,'');
+      const eligible=response.sessions.filter(meta=>{
+        const id=String(meta?.id||'');
+        return workspace&&id&&id!==String(activeSessionId||'')&&!dismissedNativeRuns.has(id)&&Number(meta.task_id)===-1&&
+          String(meta.cwd||'').replace(/[\\/]+$/,'')===workspace&&String(meta.label||'').startsWith('Patch Tool');
+      });
+      const recent=eligible.filter(meta=>!sessionMetadataRunning(meta)&&
+        (String(meta.label).endsWith(' · AI Agent')||String(meta.label).startsWith('Patch Tool · COLLECT ·')))
+        .sort((a,b)=>String(b.started_at||'').localeCompare(String(a.started_at||''))).slice(0,30);
+      const candidates=[...eligible.filter(sessionMetadataRunning),...recent,
+        ...eligible.filter(meta=>parallelCollectRuns.get('session:'+meta.id)?.discovered&&parallelCollectRuns.get('session:'+meta.id)?.active)];
+      const seen=new Set();
+      for(const meta of candidates){
+        const id=String(meta.id),key='session:'+id;
+        if(seen.has(id))continue;seen.add(id);
+        const existing=parallelCollectRuns.get(key);
+        if(existing&&!existing.discovered)continue;
+        if(existing?.active===false&&existing.state&&!existing.protocolError&&!sessionMetadataRunning(meta))continue;
+        let state;
+        try{state=await app.jsonFetch('/api/sessions/'+encodeURIComponent(id)+'/protocol');}
+        catch(error){
+          if(!current())return;
+          if(existing){existing.protocolError='Protocol state unavailable: '+String(error?.message||error);existing.metadata=meta;existing.active=sessionMetadataRunning(meta);}
+          continue;
+        }
+        if(!current())return;
+        if(id===String(activeSessionId||'')||dismissedNativeRuns.has(id))continue;
+        if(parallelCollectRuns.has(key)&&!parallelCollectRuns.get(key).discovered)continue;
+        const origin=nativeRunOrigin(meta,state);
+        const evidence=nativeRunEvidence(state);
+        const direct=String(meta.label).startsWith('Patch Tool · COLLECT ·');
+        // Ignore idle queue, plan and history prompts, not actual executions.
+        if(!evidence.kinds.length&&!direct&&!existing)continue;
+        if(!sessionMetadataRunning(meta)&&!existing&&origin!=='ai-agent')continue;
+        const names=evidence.names.length?evidence.names:(existing?.names||[String(meta.label).replace(/^Patch Tool · COLLECT · /,'').replace(/ · AI Agent$/,'')]);
+        const kinds=evidence.kinds.length?evidence.kinds:(existing?.kinds||(direct?['COLLECT']:[]));
+        const startedAt=Number(existing?.startedAt||Date.parse(meta.started_at)||Date.now());
+        const eventCount=Number(state?.event_count||0);
+        const active=sessionMetadataRunning(meta)&&!protocolRunFinished(state);
+        parallelCollectRuns.set(key,{...(existing||{}),discovered:true,origin,active,
+          name:names.length===1?names[0]:((kinds[0]||'Native')+' batch · '+names.length+' items'),
+          names,kinds,sessionId:id,metadata:meta,state,startedAt,
+          completedAt:active?0:(existing?.completedAt||Date.parse(meta.ended_at)||Date.now()),
+          lastEventCount:eventCount,lastEventAt:existing&&existing.lastEventCount===eventCount?existing.lastEventAt:Date.now(),protocolError:''});
+      }
+      const ids=new Set(response.sessions.map(meta=>String(meta.id)));
+      for(const run of parallelCollectRuns.values()){
+        if(run.discovered&&run.active&&!ids.has(run.sessionId)){
+          run.active=false;run.completedAt=Date.now();run.protocolError='Native session is no longer available';
+        }
+      }
+      const finished=[...parallelCollectRuns.entries()].filter(([,run])=>run.discovered&&!run.active)
+        .sort((a,b)=>b[1].startedAt-a[1].startedAt);
+      for(const [key] of finished.slice(30))parallelCollectRuns.delete(key);
+      renderParallelCollectRuns();refreshActionDisabledState();
+    }catch(error){console.warn('Native run discovery unavailable:',error);}
+    finally{nativeRunDiscoveryBusy=false;scheduleNativeRunDiscovery();}
+  }
+
   function parallelRunStatus(run){
     if(run.error)return 'LAUNCH FAILED';
     const items=Array.isArray(run.state?.items)?run.state.items:[];
     const item=items.find(row=>String(row?.status||'').toUpperCase()==='RUNNING')||items.find(row=>['FAIL','FAILED','INCOMPLETE'].includes(String(row?.status||'').toUpperCase()))||items[items.length-1]||null;
     const status=String(item?.status||run.state?.progress?.status||'').toUpperCase();
+    if(run.active===false&&(!status||['RUNNING','STARTING','QUEUED'].includes(status))){
+      return String(run.metadata?.status||'').toLowerCase()==='stopped'?'STOPPED':'RESULT UNKNOWN';
+    }
     if(status)return status;
     return run.sessionId?'RUNNING':'STARTING';
   }
@@ -4013,6 +4133,14 @@ function installPatchPanel(){
       const head=document.createElement('div');head.className='task-patch-parallel-run-head';
       const name=document.createElement('span');name.className='task-patch-parallel-run-name';name.textContent=run.name;
       const statusValue=parallelRunStatus(run);
+      if(run.origin==='ai-agent'){
+        card.classList.add('ai-agent');
+        const origin=document.createElement('span');origin.className='task-patch-parallel-run-origin';origin.textContent='AI Agent';
+        head.append(origin);
+      }
+      card.dataset.outcome=['PASS','SUCCESS','DONE','COMPLETED'].includes(statusValue)?'pass':
+        ['FAIL','FAILED','INCOMPLETE','PREFLIGHT_FAIL','LAUNCH FAILED'].includes(statusValue)?'fail':
+        ['RESULT UNKNOWN','STOPPED','CANCELLED','CANCELED'].includes(statusValue)?'unknown':'running';
       const status=document.createElement('span');status.className='task-patch-parallel-run-status';status.textContent=statusValue;
       head.append(name,status);card.append(head);
       const now=Date.now();
@@ -4053,6 +4181,7 @@ function installPatchPanel(){
     while(generation===parallelCollectPollGeneration&&!lifecycleSuspended){
       let pending=0;
       for(const [key,run] of [...parallelCollectRuns.entries()]){
+        if(run.discovered)continue; // discovery owns these native sessions
         if(run.error){run.active=false;continue;}
         if(!run.sessionId){parallelCollectRuns.delete(key);continue;}
         let meta;
@@ -4643,7 +4772,7 @@ function installPatchPanel(){
       const id=String(run?.sessionId||key);if(!id||seen.has(id))continue;
       const raw=run?.error?'LAUNCH FAILED':parallelRunStatus(run);
       operations.push({
-        source:'patch',id,title:String(run?.name||'Patch Tool run'),detail:'Patch Tool background run',
+        source:'patch',id,title:String(run?.name||'Patch Tool run'),detail:run.origin==='ai-agent'?'AI Agent native run':'Patch Tool background run',
         status:patchOperationStateLabel(raw),error:String(run?.error||run?.protocolError||''),
         created_at:run?.startedAt?new Date(Number(run.startedAt)).toISOString():'',
         can_cancel:Boolean(run?.sessionId)&&patchOperationStateLabel(raw)==='running',can_retry:false,can_open:true,session_id:String(run?.sessionId||'')

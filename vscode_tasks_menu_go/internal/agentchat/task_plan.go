@@ -133,6 +133,7 @@ type TaskPlan struct {
  // is never replayed after the SENDING/UNKNOWN egress boundary.
  LastContinuationKey string `json:"last_continuation_key,omitempty"`
  LastWorkSignature string `json:"last_work_signature,omitempty"`
+ LastWorkSignatureVersion int `json:"last_work_signature_version,omitempty"`
  NoProgressTurns int `json:"no_progress_turns,omitempty"`
  RetryStreak int `json:"retry_streak,omitempty"`
  NextRetryAt *time.Time `json:"next_retry_at,omitempty"`
@@ -146,7 +147,7 @@ func ValidateTaskPlan(p *TaskPlan)error{
  if p==nil{return nil}
  if len(p.Goal)==0||len(p.Goal)>MaxTaskPlanGoalBytes||strings.TrimSpace(p.Goal)==""||
   len(p.Steps)==0||len(p.Steps)>MaxTaskPlanSteps||p.CreatedAt.IsZero()||p.UpdatedAt.IsZero()||
-  len(p.LastContinuationKey)>128||len(p.LastWorkSignature)>128||p.NoProgressTurns<0||p.NoProgressTurns>100||
+  len(p.LastContinuationKey)>128||len(p.LastWorkSignature)>128||p.LastWorkSignatureVersion<0||p.LastWorkSignatureVersion>1||p.NoProgressTurns<0||p.NoProgressTurns>100||
   p.RetryStreak<0||p.RetryStreak>100||len(p.Suggestions)>MaxTaskPlanSuggestions {
   return ErrInvalidSession
  }
@@ -310,6 +311,15 @@ func TaskPlanAutoContinueCandidate(x Session)bool{
 func VerifiedWorkSignature(x Session)string{
  var b strings.Builder
  done,total:=TaskPlanProgress(x.TaskPlan)
+ // Once CLP has a scoped reducer, the outer scheduler must not count
+ // receipt IDs, archive movement, or native PASS a second time as work.
+ // New verified evidence is a read-progress signal, not task acceptance.
+ if g,ok:=x.ReadCollectionGuard();ok{
+  return scopedWorkSignature(g.Counters.Objective.Key,g.Counters.NewEvidence,g.Counters.VerifiedProgressEvents,g.Counters.AttestedProgressEvents,done,total)
+ }
+ // An opaque guard cannot establish progress. Preserve old unguarded
+ // compatibility only when no projection has been installed at all.
+ if len(x.CollectionGuard)!=0{return taskPlanDigest(fmt.Sprintf("clp-unknown:%d/%d",done,total))}
  fmt.Fprintf(&b,"done:%d/%d archive:%d/%d\n",done,total,x.ArchivedHistoryItems,x.ArchivedPatchCalls)
  for _,it:=range x.History{
   if it.Type!="function_call_output"{continue}
@@ -321,6 +331,37 @@ func VerifiedWorkSignature(x Session)string{
   }
  }
  return taskPlanDigest(b.String())
+}
+
+// Keep SHA-256 format compatible with older journal readers. The scheduler
+// stores a separate optional version marker, not a prefix in the digest.
+func WorkSignatureVersion(x Session)int{if len(x.CollectionGuard)!=0{return 1};return 0}
+
+func scopedWorkSignature(key string,novel,verified,attested uint64,done,total int)string{
+ return taskPlanDigest(fmt.Sprintf("clp-v1:%s:%d:%d:%d:%d/%d",key,novel,verified,attested,done,total))
+}
+
+// ContinuationWorkReference rebases only the signature format/objective,
+// not the no-work counter. First guard binding or a step change is not
+// evidence of new work. Compare actual new events and accepted plan changes
+// against a zero-event baseline for the newly bound objective.
+func ContinuationWorkReference(before,after Session,prior string,priorVersion int)string{
+ old,oldOK:=before.ReadCollectionGuard()
+ next,nextOK:=after.ReadCollectionGuard()
+ if nextOK{
+  if !oldOK||old.Counters.Objective.Key!=next.Counters.Objective.Key{
+   done,total:=TaskPlanProgress(before.TaskPlan)
+   return scopedWorkSignature(next.Counters.Objective.Key,0,0,0,done,total)
+  }
+  if priorVersion!=1{return VerifiedWorkSignature(before)}
+ }else if len(after.CollectionGuard)!=0{
+  if priorVersion!=1||len(before.CollectionGuard)==0||oldOK{
+   done,total:=TaskPlanProgress(before.TaskPlan)
+   return taskPlanDigest(fmt.Sprintf("clp-unknown:%d/%d",done,total))
+  }
+ }
+ if prior==""{return VerifiedWorkSignature(before)}
+ return prior
 }
 
 // VerifyArchivedTaskPlanEvidence allows a milestone to reference an older

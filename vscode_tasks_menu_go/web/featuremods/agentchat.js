@@ -730,9 +730,9 @@ function agentServerTurnBusy(session){
  return ['requesting_ai','tool_queuing'].includes(session?.status);
 }
 function agentUpdateSendAvailability(session){
- const busy=agentSessionBusy(session?.id)||agentServerTurnBusy(session);
+ const busy=agentSessionBusy(session?.id)||agentServerTurnBusy(session)||Boolean(session?.native_work_wait);
  send.disabled=busy;
- cancel.disabled=!agentSessionBusy(session?.id)&&session?.status!=='requesting_ai'&&!agentCanStopNative(session);
+ cancel.disabled=!agentSessionBusy(session?.id)&&session?.status!=='requesting_ai'&&!session?.native_work_wait&&!agentCanStopNative(session);
 }
 function agentTurnAdmissionBusy(error){
  const status=Number(error?.httpStatus||0);
@@ -1578,6 +1578,10 @@ function agentFeedbackWaitMessage(session){
 }
 function agentLivePhase(session){
  if(!session)return null;
+ if(session.native_work_wait){
+  const resource={waiting_for_patch:'PATCH',waiting_for_collect:'COLLECT',waiting_for_workspace:'workspace'}[session.native_work_wait]||'native resource';
+  return {message:'Waiting for '+resource+' · AI Agent will start automatically. Stop to cancel.'};
+ }
  const turn=agentLiveTurns.get(session.id);
  const lastCall=(session.tool_calls||[]).slice(-1)[0];
  const events=session.events||[];
@@ -2141,6 +2145,7 @@ async function selectAgentSession(id){
  const sess=data.session;
  sess.retry_runtime=data.retry_runtime||null;
  sess.live_preview=data.live_preview||null;
+ sess.native_work_wait=data.native_work_wait||'';
  sess.auto_feedback_diagnostic=data.auto_feedback_diagnostic||null;
  sess.collection_resume_eligible=data.collection_resume_eligible===true;
  sess.collection_progress=data.collection_progress||null;
@@ -2373,7 +2378,7 @@ async function continueAgentTool(session,callID){
 function agentMonitorNeedsWork(sess){
  if(!sess)return false;
  const calls=sess.tool_calls||[];
- return sess.auto_continue_monitor===true||['ready','retry_deferred'].includes(sess.collection_auto_recovery)||
+ return Boolean(sess.native_work_wait)||sess.auto_continue_monitor===true||['ready','retry_deferred'].includes(sess.collection_auto_recovery)||
   ['requesting_ai','tool_queuing'].includes(sess.status)||
   calls.some(call=>['queuing','running','dispatching','queued','unknown'].includes(call.status))||
   (sess.status==='waiting_tool'&&calls.some(call=>call.status==='pending'&&!call.manual_retry_only&&(sess.auto_patch||call.auto_run_once)))||
@@ -2400,7 +2405,7 @@ function scheduleAgentMonitor(sess,delay=sess?.live_preview?.streaming?1200:2800
   let nextDelay=sess?.live_preview?.streaming?1200:2800;
   try{
    const current=agentCurrentSession?.id===id?agentCurrentSession:sess;
-   if(current.auto_continue_monitor===true||agentSessionBusy(id)||['requesting_ai','tool_queuing'].includes(current.status)||
+   if(current.native_work_wait||current.auto_continue_monitor===true||agentSessionBusy(id)||['requesting_ai','tool_queuing'].includes(current.status)||
       (current.tool_calls||[]).some(call=>call.status==='queuing')){
     // QUEUING is a durable intermediate state. Use GET while approval may
     // still own the turn lock, then reconcile an unchanged marker via /sync.
@@ -3565,7 +3570,7 @@ function agentCanStopNative(sess){
 async function cancelAgentTurn(){
  if(!agentActive)return;
  const id=agentActive;
- const nativeStop=agentCurrentSession?.status!=="requesting_ai"&&agentCanStopNative(agentCurrentSession);
+ const nativeStop=!agentCurrentSession?.native_work_wait&&agentCurrentSession?.status!=="requesting_ai"&&agentCanStopNative(agentCurrentSession);
  if(nativeStop&&!window.confirm("Check the exact native Patch outcome and request Stop if it is still running? Source or test side effects may remain. No Patch will be replayed."))return;
  try{
   const result=await agentApp.jsonFetch('/api/agent/sessions/'+encodeURIComponent(id)+'/cancel'+(nativeStop?'?stop_native=1':''),{

@@ -100,6 +100,20 @@ func runVerifiedProgressSignature(run agentrun.Record, session agentchat.Session
 	return hex.EncodeToString(digest[:])
 }
 
+// A versioned scoped signature excludes volatile call IDs and request shape.
+func runContinuationWorkSignature(owner string,run agentrun.Record,inputs AgentRunInputs,x agentchat.Session)string{
+ done,total:=agentchat.TaskPlanProgress(x.TaskPlan)
+ if g,ok:=readRunCollectionProgress(owner,run.Spec,inputs);ok{
+  digest:=sha256.Sum256([]byte(fmt.Sprintf("clp-v1:%s:%d:%d:%d:%d/%d",g.Counters.Objective.Key,g.Counters.NewEvidence,g.Counters.VerifiedProgressEvents,g.Counters.AttestedProgressEvents,done,total)))
+  return hex.EncodeToString(digest[:])
+ }
+ if inputs.Snapshot.Policy!=nil&&len(inputs.Snapshot.Policy.CollectionProgress)!=0{
+  digest:=sha256.Sum256([]byte(fmt.Sprintf("clp-unknown:%d/%d",done,total)))
+  return hex.EncodeToString(digest[:])
+ }
+ return runVerifiedProgressSignature(run,x)
+}
+
 func (e ownerBoundAgentRunExecutor) ResolveCompletedTurn(ctx context.Context, run agentrun.Record) (agentrun.TurnDecision, error) {
 	text := finalRunTurnText(run)
 	// Even an empty successful provider turn can acknowledge an exact native receipt.
@@ -131,11 +145,19 @@ func (e ownerBoundAgentRunExecutor) ResolveCompletedTurn(ctx context.Context, ru
 	}
 	if strings.TrimSpace(text)=="" {return agentrun.TurnDecision{},nil}
 	mode := runAutoContinueMode(x, inputs.Snapshot.Policy.Automation)
-	signature := runVerifiedProgressSignature(run,x)
+	signature := runContinuationWorkSignature(e.owner,run,inputs,x)
 	progress.LastWorkSignature = signature
+	if _,ok:=readRunCollectionProgress(e.owner,run.Spec,inputs);ok||len(inputs.Snapshot.Policy.CollectionProgress)!=0{progress.LastWorkSignatureVersion=1}
 	if old := run.Continuation; old != nil {
 		progress.NoProgressTurns = old.NoProgressTurns
-		if old.LastWorkSignature == signature { progress.NoProgressTurns++ } else { progress.NoProgressTurns = 0 }
+		if old.LastWorkSignature == signature {
+			progress.NoProgressTurns++
+		} else if progress.LastWorkSignatureVersion==1&&old.LastWorkSignature!=""&&old.LastWorkSignatureVersion!=1{
+			// Upgrade from an unversioned signature: the format change
+			// alone cannot prove work. Preserve the existing brake unless
+			// the old projection itself proves no change.
+			if old.LastWorkSignature==runVerifiedProgressSignature(run,x){progress.NoProgressTurns++}
+		} else { progress.NoProgressTurns = 0 }
 		if old.ProgressSignature == progress.ProgressSignature {
 			progress.RepeatedTurns = old.RepeatedTurns+1
 			if progress.RepeatedTurns>100 { progress.RepeatedTurns=100 }

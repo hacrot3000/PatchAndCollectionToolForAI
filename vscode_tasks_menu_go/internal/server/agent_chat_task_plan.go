@@ -583,6 +583,7 @@ func (s *Server) agentChatTaskPlanAPI(w http.ResponseWriter,r *http.Request,id s
   x.TaskPlan.AutoContinue=req.Enabled
   x.TaskPlan.NoProgressTurns=0
   x.TaskPlan.LastWorkSignature=""
+  x.TaskPlan.LastWorkSignatureVersion=0
   x.TaskPlan.RetryStreak=0
   x.TaskPlan.NextRetryAt=nil
   x.TaskPlan.UpdatedAt=now

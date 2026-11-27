@@ -530,7 +530,7 @@ func (c *taskWorkflowCoordinator) startTask(state agentrun.TaskState, task taskm
 		sources = append(sources, fmt.Sprintf("context-group:%s@%d:%s", c.record.ContextGroupID, c.record.ContextGroupRevision, c.record.ContextGroupSHA256))
 	}
 	parentTurnID := c.record.ID + "-" + task.ID + "-" + fmt.Sprint(state.Attempt)
-	policy := &agentrun.ContextSnapshotPolicy{SystemInstructions: agentChatInstructions(c.record.ProjectID, false, project.Key), RetryMode: conversation.RetryMode,
+	policy := &agentrun.ContextSnapshotPolicy{CollectionGuardPolicy: agentrun.NewCollectionGuardPolicySnapshot(),SystemInstructions: agentChatInstructions(c.record.ProjectID, false, project.Key), RetryMode: conversation.RetryMode,
 		ReasoningEffort: conversation.ReasoningEffort, Automation: agentrun.AutomationSnapshot{AutoPatch: conversation.AutoPatch,
 			AutoCollection: conversation.AutoCollection, AutoFeedback: conversation.AutoFeedback,
 			AutoFeedbackPersistent: conversation.AutoFeedbackPersistent, AutoFeedbackUntil: conversation.AutoFeedbackUntil}}

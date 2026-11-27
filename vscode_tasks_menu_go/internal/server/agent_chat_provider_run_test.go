@@ -2,6 +2,7 @@ package server
 
 import (
  "context"
+ "errors"
  "encoding/json"
  "os"
  "path/filepath"
@@ -227,4 +228,46 @@ func TestAgentRunningProviderHeartbeatUpdatesLiveHandoff(t *testing.T){
  if !found{t.Fatal("live provider worker did not provide owner-scoped heartbeat")}
  fresh,err:=store.Get(id,"local");if err!=nil{t.Fatal(err)}
  if fresh.Revision!=revision{t.Fatal("heartbeat invalidated running provider CAS")}
+}
+
+
+func TestAgentCLP20PreparedReplanRevocationWinsEgressCAS(t *testing.T){
+ for _,tc:=range []struct{name,option string;restart bool}{
+  {"live_continue","continue",false},{"live_collection","collection",false},{"restart_continue","continue",true},
+ }{t.Run(tc.name,func(t *testing.T){
+  s,id:=newAgentConversationFixture(t,"stateless")
+  store,err:=s.agentChatStore();if err!=nil{t.Fatal(err)}
+  x,err:=store.Get(id,"local");if err!=nil{t.Fatal(err)}
+  x.AutoContinueText=true
+  x.Status="requesting_ai"
+  const callID="replan-read"
+  const receipt=`{"status":"PASS","run_id":"verified-replan-receipt"}`
+  x.History=append(x.History,agentchat.HistoryItem{Type:"user",Content:"Fix the original issue"},agentchat.HistoryItem{Type:"function_call",Name:"taskdeck_collect_workspace",CallID:callID,Arguments:"{}"},agentchat.HistoryItem{Type:"function_call_output",CallID:callID,Content:receipt})
+  if !x.BindCollectionGuard("Fix the original issue","",false){t.Fatal("guard bind")}
+  p:=agentProviderFixture()
+  payload:=[]byte(`{"model":"gpt-4.1-mini","input":"bounded replan fixture"}`)
+  if err=prepareAgentProviderRun(store,&x,"collection",callID,p,p.Models[0],payload);err!=nil{t.Fatal(err)}
+  x.ProviderRun.CollectionReplan=true
+  x,err=store.Save(x,x.Revision);if err!=nil{t.Fatal(err)}
+  stale:=x
+  // Owner update does NOT advance the turn revision. The atomic egress
+  // transaction must nevertheless see the latest revocation.
+  updated,err:=store.UpdateAutomation(id,"local",x.Workspace,x.Revision,tc.option,false,"");if err!=nil{t.Fatal(err)}
+  if updated.Revision!=stale.Revision||updated.AutomationRevision<=stale.AutomationRevision{t.Fatal("fixture did not hit same-revision metadata race")}
+  calls:=0
+  s.AgentChatCall=func(_ context.Context,_ agentchat.ProviderConfig,_ string,_ []byte)(agentchat.ResponsesResult,error){calls++;return agentchat.ResponsesResult{},nil}
+  if tc.restart{
+   s.agentReconcilePendingOnStartup(context.Background())
+   if !s.resumePreparedAgentProviderRun(context.Background(),store,id){t.Fatal("restart did not inspect prepared replan")}
+  }else{
+   if err=markAgentProviderSending(store,&stale);!errors.Is(err,agentchat.ErrCollectionReplanRevoked){t.Fatalf("expected revoked egress: %v",err)}
+   if stale.ProviderRun.Phase!="blocked"{t.Fatal("caller retained stale sending state")}
+  }
+  got,err:=store.Get(id,"local");if err!=nil{t.Fatal(err)}
+  if calls!=0||got.Status!="failed"||got.ProviderRun.Phase!="blocked"||got.ProviderRun.ID!=x.ProviderRun.ID||got.History[len(got.History)-1].Content!=receipt{t.Fatal("revocation lost canonical receipt or crossed egress")}
+  for _,event:=range got.Events{if event.Kind=="provider_egress"{t.Fatal("revoked replan crossed sending boundary")}}
+  if _,_,err=store.PreparedProviderPayload(id,"local");!errors.Is(err,agentchat.ErrInvalidSession){t.Fatal("blocked request remained replayable")}
+  s.processAgentAutoFeedbackSession(context.Background(),store,id)
+  if calls!=0{t.Fatal("blocked replan replayed")}
+ })}
 }

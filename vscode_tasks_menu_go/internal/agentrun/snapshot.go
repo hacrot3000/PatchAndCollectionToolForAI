@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"bletonfc/vscode_tasks_menu/internal/agentchat"
+ cp "bletonfc/vscode_tasks_menu/internal/agentchat/collectionprogress"
 )
 
 const maxSnapshotBytes = 4 << 20
@@ -51,6 +52,27 @@ type ContextSnapshotPolicy struct {
 	RunBinding         *RunBindingSnapshot `json:"run_binding,omitempty"`
 	// Non-authorizing progress metadata from the existing drain worker.
 	CollectionProgress json.RawMessage `json:"collection_progress,omitempty"`
+ // Optional for pre-policy snapshots; absence preserves the original digest.
+ CollectionGuardPolicy *CollectionGuardPolicySnapshot `json:"collection_guard_policy,omitempty"`
+}
+
+// CollectionGuardPolicySnapshot pins advisory thresholds, not permissions.
+type CollectionGuardPolicySnapshot struct {
+ Version int `json:"version"`
+ Thresholds cp.Policy `json:"thresholds"`
+}
+func NewCollectionGuardPolicySnapshot() *CollectionGuardPolicySnapshot {
+ return &CollectionGuardPolicySnapshot{Version:cp.Version,Thresholds:cp.Defaults()}
+}
+// CollectionPolicy resolves pre-policy runs using frozen v1 defaults. Unknown
+// or invalid explicit metadata disables the advisory guard, not native reads.
+func (p *ContextSnapshotPolicy) CollectionPolicy()(cp.Policy,bool){
+ if p==nil{return cp.Policy{},false}
+ if p.CollectionGuardPolicy==nil{
+  return cp.Policy{FirstReadAdvisory:5,SecondReadAdvisory:10,DuplicateStreak:3,DuplicateCooldown:5},true
+ }
+ v:=p.CollectionGuardPolicy
+ return v.Thresholds,v.Version==cp.Version&&v.Thresholds.Valid()
 }
 
 type ContextSnapshot struct {
@@ -246,6 +268,7 @@ func cloneSnapshotPolicy(policy *ContextSnapshotPolicy) *ContextSnapshotPolicy {
 	}
 	copy := *policy
 	copy.CollectionProgress=append(json.RawMessage(nil),policy.CollectionProgress...)
+ if policy.CollectionGuardPolicy!=nil{v:=*policy.CollectionGuardPolicy;copy.CollectionGuardPolicy=&v}
 	if policy.RunBinding!=nil{binding:=*policy.RunBinding;copy.RunBinding=&binding}
 	if policy.Automation.AutoCollection != nil {
 		autoCollection := *policy.Automation.AutoCollection

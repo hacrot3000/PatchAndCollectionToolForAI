@@ -39,6 +39,17 @@ type LegacyCollectionSummary struct {
  RetainedOutputs uint64 `json:"retained_outputs"`
  AcknowledgedPatches uint64 `json:"acknowledged_patches"`
  Incomplete bool `json:"incomplete"`
+ // Fixed migration boundary; counts from verified archive segments remain
+ // historical lower bounds, never current objective evidence.
+ ArchiveVersion int `json:"archive_version,omitempty"`
+ HistoryPartsAtBind uint64 `json:"history_parts_at_bind,omitempty"`
+ PatchPartsAtBind uint64 `json:"patch_parts_at_bind,omitempty"`
+ HistoryCursor uint64 `json:"history_cursor,omitempty"`
+ PatchCursor uint64 `json:"patch_cursor,omitempty"`
+ ArchivedCalls uint64 `json:"archived_calls,omitempty"`
+ ArchivedOutputs uint64 `json:"archived_outputs,omitempty"`
+ ArchivedAcknowledgedPatches uint64 `json:"archived_acknowledged_patches,omitempty"`
+ ArchiveReadErrors uint64 `json:"archive_read_errors,omitempty"`
 }
 
 func guardDigest(v any)string{
@@ -65,6 +76,8 @@ func (x Session) validCollectionGuard(g CollectionGuardState)bool{
  }
  if (g.Counters.LastSequence==0&&g.Counters.LastEventDigest!="")||(g.Counters.LastSequence!=0&&!validGuardDigest(g.Counters.LastEventDigest)){return false}
  if len(g.AttemptRunID)>256||(g.AttemptRunID=="")!=(g.AttemptCursor==0)||g.AttemptCursor>1000000000{return false}
+ l:=g.Legacy
+ if l.ArchiveVersion!=0&&(l.ArchiveVersion!=1||l.HistoryPartsAtBind>x.HistoryArchiveParts||l.PatchPartsAtBind>x.PatchArchiveParts||l.HistoryCursor>l.HistoryPartsAtBind||l.PatchCursor>l.PatchPartsAtBind||l.HistoryCursor>maxLegacyArchiveParts||l.PatchCursor>maxLegacyArchiveParts){return false}
  c:=g.Counters
  if g.Coverage!=nil&&!cp.ValidateCoverage(*g.Coverage,c.Objective){return false}
  if c.NativeReads>c.Observed||c.NewEvidence>c.Observed||c.DuplicateEvidence>c.Observed||
@@ -100,7 +113,7 @@ func (x *Session) SetCollectionGuard(g CollectionGuardState)bool{
 }
 
 func (x Session) retainedCollectionSummary()LegacyCollectionSummary{
- out:=LegacyCollectionSummary{Incomplete:x.ArchivedHistoryItems!=0||x.ArchivedPatchCalls!=0}
+ out:=LegacyCollectionSummary{Incomplete:x.ArchivedHistoryItems!=0||x.ArchivedPatchCalls!=0,ArchiveVersion:1,HistoryPartsAtBind:x.HistoryArchiveParts,PatchPartsAtBind:x.PatchArchiveParts}
  calls:=map[string]bool{}
  for i,item:=range x.History{
   if item.Type=="function_call"&&item.Name=="taskdeck_collect_workspace"{
@@ -141,12 +154,12 @@ func (x *Session) BindCollectionGuard(goal,step string,continuation bool)bool{
  digest:=guardDigest([]string{goal,step})
  if ok&&old.GoalDigest==digest{return true}
  generation:=uint64(1)
- legacy:=x.retainedCollectionSummary()
+ var legacy LegacyCollectionSummary
  if ok{
   if old.Generation==^uint64(0){return false}
   generation=old.Generation+1
   legacy=old.Legacy
- }
+ }else{legacy=x.retainedCollectionSummary()}
  binding,err:=cp.BindObjective(cp.ObjectiveScope{
   Owner:x.Owner,ProjectID:x.ProjectID,OwnerWorkspace:x.Workspace,ExecutionWorkspace:x.Workspace,
   ConversationID:x.ID,Goal:goal,StepID:step,Generation:generation,
@@ -260,5 +273,43 @@ func(x *Session)recordCollectionGuardAcceptedStep(step TaskPlanStep,evidence Tas
  if err!=nil||!applied{return}
  g.Counters=c;g.AcceptedStep=true
  x.AppendEvent("clp_"+string(kind),x.Status,"","")
+ x.SetCollectionGuard(g)
+}
+
+
+// Bound historical archive work to at most one segment of each kind per
+// successful journal CAS, four per kind for the lifetime of the migration.
+// Missing/corrupt segments are attempted once and remain explicitly unknown.
+// Existing v1 guards without a captured boundary are not retroactively
+// scanned: their archived items may already belong to current counters.
+const maxLegacyArchiveParts uint64=4
+
+func(s *Store) hydrateCollectionGuardArchiveLocked(x *Session){
+ g,ok:=x.ReadCollectionGuard()
+ if !ok||g.Legacy.ArchiveVersion!=1{return}
+ l:=g.Legacy
+ if l.HistoryCursor<l.HistoryPartsAtBind&&l.HistoryCursor<maxLegacyArchiveParts{
+  l.HistoryCursor++
+  items,err:=s.readArchivedCollectionHistoryLocked(*x,l.HistoryCursor)
+  if err!=nil{l.ArchiveReadErrors++;l.Incomplete=true}else{
+   summary:=(Session{History:items}).retainedCollectionSummary()
+   l.ArchivedCalls+=summary.RetainedCalls
+   l.ArchivedOutputs+=summary.RetainedOutputs
+   l.Incomplete=l.Incomplete||summary.Incomplete
+  }
+ }
+ if l.PatchCursor<l.PatchPartsAtBind&&l.PatchCursor<maxLegacyArchiveParts{
+  l.PatchCursor++
+  entries,err:=s.readArchivedPatchHistoryLocked(*x,l.PatchCursor)
+  if err!=nil{l.ArchiveReadErrors++;l.Incomplete=true}else{
+   for _,entry:=range entries{
+    if entry.Call.Name=="taskdeck_submit_patch"&&patchArchiveEligible(entry.Call,entry.History){
+     l.ArchivedAcknowledgedPatches++
+    }else if entry.Call.Name=="taskdeck_submit_patch"{l.Incomplete=true}
+   }
+  }
+ }
+ if l==g.Legacy{return}
+ g.Legacy=l
  x.SetCollectionGuard(g)
 }
