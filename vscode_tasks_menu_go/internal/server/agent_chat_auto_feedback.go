@@ -81,7 +81,7 @@ func agentDenialAutoContinueGranted(x agentchat.Session, call agentchat.ToolCall
 		return p.State == "active" && p.AutoContinue && agentchat.TaskPlanNext(p) != nil &&
 			p.NoProgressTurns < agentchat.MaxContinuationNoWorkTurns
 	}
-	return x.AutoContinueText && (x.Continuation == nil || x.Continuation.NoProgressTurns < agentchat.MaxContinuationNoWorkTurns)
+	return agentchat.StandaloneContinuationGranted(x)
 }
 
 func agentFeedbackGrantForCall(x agentchat.Session, call agentchat.ToolCallRecord) bool {
