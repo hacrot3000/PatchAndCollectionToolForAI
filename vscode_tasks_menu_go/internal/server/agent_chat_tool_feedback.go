@@ -312,6 +312,7 @@ func (s *Server) agentDeliverToolResult(ctx context.Context, store *agentchat.St
 	instructions,currentInstructions := agentChatInstructionsWithAutomationParts(x, toolAvailable, identity.Key)
 	if call.Name==agentchat.AskUserToolName&&call.Status=="done"{
 		currentInstructions+=" The taskdeck_ask_user output contains actual user-submitted answers (or explicit cancellation), not model guesses. Interpret selected IDs using the original question schema; continue the original task according to those answers. They do not authorize any native Patch or bypass approvals."
+		currentInstructions += s.agentRetireKnownFailedPatches(ctx, &x, identity, "")
 	}else{
 		currentInstructions += s.agentRetireKnownFailedPatches(ctx, &x, identity, call.CallID)
 	}
