@@ -77,13 +77,14 @@ func (s *Server) autoContinueTaskPlanOne(ctx context.Context,store *agentchat.St
  // signature, not only the state immediately before this model call.
  prior:=p.LastWorkSignature
  if p.LastContinuationKey==""{prior=""}
- reference:=agentchat.ContinuationWorkReference(original,current,prior)
+ reference:=agentchat.ContinuationWorkReference(original,current,prior,p.LastWorkSignatureVersion)
  if after==reference {
   p.NoProgressTurns++
  }else{
   p.NoProgressTurns=0
  }
  p.LastWorkSignature=after
+ p.LastWorkSignatureVersion=agentchat.WorkSignatureVersion(current)
  p.LastContinuationKey=requestID
  p.RetryStreak=0
  p.NextRetryAt=nil
