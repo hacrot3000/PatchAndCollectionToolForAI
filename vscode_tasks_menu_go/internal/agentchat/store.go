@@ -1006,6 +1006,7 @@ func (x *Session) RefreshAutomation(latest Session) {
     latest.Continuation != nil && x.Continuation.ResponseDigest == latest.Continuation.ResponseDigest {
   x.Continuation.NoProgressTurns=latest.Continuation.NoProgressTurns
   x.Continuation.LastWorkSignature=latest.Continuation.LastWorkSignature
+  x.Continuation.LastWorkSignatureVersion=latest.Continuation.LastWorkSignatureVersion
   x.Continuation.LastContinuationKey=latest.Continuation.LastContinuationKey
   x.Continuation.NextRetryAt=latest.Continuation.NextRetryAt
   x.Continuation.RetryStreak=latest.Continuation.RetryStreak
@@ -1071,6 +1072,7 @@ func (s *Store) updateAutomation(id,owner,workspace string, observedRevision uin
     if x.Continuation!=nil{
      x.Continuation.NoProgressTurns=0
      x.Continuation.LastWorkSignature=""
+     x.Continuation.LastWorkSignatureVersion=0
      x.Continuation.LastContinuationKey=""
      x.Continuation.NextRetryAt=nil
      x.Continuation.RetryStreak=0
