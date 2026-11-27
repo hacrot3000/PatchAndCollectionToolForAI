@@ -25,7 +25,6 @@ func (s *Server) autoContinueConversationOne(ctx context.Context,store *agentcha
   !agentchat.StandaloneAutoContinueCandidate(original){return}
  original.Continuation=agentchat.EffectiveTurnContinuation(original)
  c:=original.Continuation
- before:=agentchat.VerifiedWorkSignature(original)
  requestID:=fmt.Sprintf("conversation-%s-r%d",id,original.Revision)
  action:=strings.TrimSpace(c.NextAction)
  if action==""{
@@ -72,8 +71,9 @@ func (s *Server) autoContinueConversationOne(ctx context.Context,store *agentcha
   current.Status!="completed"{return}
  c=current.Continuation
  after:=agentchat.VerifiedWorkSignature(current)
- reference:=c.LastWorkSignature
- if c.LastContinuationKey==""{reference=before}
+ prior:=c.LastWorkSignature
+ if c.LastContinuationKey==""{prior=""}
+ reference:=agentchat.ContinuationWorkReference(original,current,prior)
  if after==reference {c.NoProgressTurns++}else{c.NoProgressTurns=0}
  c.LastWorkSignature=after
  c.LastContinuationKey=requestID
