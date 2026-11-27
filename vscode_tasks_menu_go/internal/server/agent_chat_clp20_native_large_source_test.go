@@ -236,3 +236,154 @@ func TestAgentCLP20NativeRangeExternalMutationInvalidatesCoverage(t *testing.T) 
  artifacts, err := filepath.Glob(filepath.Join(s.Workspace,"artifacts","patch_tool_code_collections","CODE_COLLECTION_RESULT_*.zip"))
  if err != nil || len(artifacts) != 5 { t.Fatalf("native artifact count %d: %v",len(artifacts),err) }
 }
+
+
+ // Real Legacy approval, native Python PATCH, sync, feedback and native
+ // COLLECT on both sides. Wrapper success or a partial write is not acceptance.
+func TestAgentCLP20NativePatchMutationGuardMatrix(t *testing.T) {
+ for _, tc := range []struct {
+  name, body, decision, nativeStatus, finalSource string
+  executed bool
+ }{
+  {"rejected", "print('must not execute')\n", "reject", "", "package fixture\n// BEFORE\n", false},
+  {"noop", "print('no source change')\n", "approve", "PASS", "package fixture\n// BEFORE\n", true},
+  {"changed", "from pathlib import Path\nPath('clp20_patch.go').write_text('package fixture\\n// AFTER\\n')\n", "approve", "PASS", "package fixture\n// AFTER\n", true},
+  {"partial_failure", "from pathlib import Path\nPath('clp20_patch.go').write_text('package fixture\\n// PARTIAL\\n')\nraise RuntimeError('fixture failure after write')\n", "approve", "FAIL", "package fixture\n// PARTIAL\n", true},
+ } {
+  t.Run(tc.name, func(t *testing.T) {
+   s, id := newAgentConversationFixture(t, "stateless")
+   s.AgentCollectionCall = nil
+   _, testFile, _, ok := runtime.Caller(0)
+   if !ok { t.Fatal("cannot locate runtime") }
+   entry := filepath.Clean(filepath.Join(filepath.Dir(testFile), "..", "..", "..", "python_patch_entry.py"))
+   if _, err := os.Stat(entry); err != nil { t.Fatal(err) }
+   python, err := exec.LookPath("python3")
+   if err != nil { t.Fatal(err) }
+   t.Setenv("TASKDECK_PATCH_RUNTIME", entry)
+   t.Setenv("TASKDECK_PATCH_PYTHON", python)
+   native := sessionpkg.NewManager(1 << 20)
+   s.Sessions = native
+   t.Cleanup(func(){ native.Shutdown(2*time.Second) })
+   identity, err := patchtool.ReadProjectIdentity(s.Workspace)
+   if err != nil { t.Fatal(err) }
+   const before = "package fixture\n// BEFORE\n"
+   path := filepath.Join(s.Workspace,"clp20_patch.go")
+   if err := os.WriteFile(path, []byte(before), 0600); err != nil { t.Fatal(err) }
+   patchCode := fmt.Sprintf("# TASKDECK_PROJECT_KEY: %s\n# TASKDECK_PROJECT_ID: %s\n%s",identity.Key,identity.ID,tc.body)
+   args,err := json.Marshal(map[string]string{"name":"CLP20 fixture "+tc.name,"patch_python":patchCode})
+   if err != nil { t.Fatal(err) }
+   endpoint := "/api/agent/sessions/"+id
+   store,err := s.agentChatStore()
+   if err != nil { t.Fatal(err) }
+   calls := 0
+   readReceipts := map[string]string{}
+   nativeReads := map[string]bool{}
+   revisions := []string{}
+   patchReceipt := ""
+   s.AgentChatCall = func(_ context.Context,_ agentchat.ProviderConfig,_ string,payload []byte)(agentchat.ResponsesResult,error){
+    calls++
+    var wire struct { Input []map[string]any }
+    if json.Unmarshal(payload,&wire)!=nil { t.Fatal("invalid provider payload") }
+    receiptFor := func(key string) string {
+     t.Helper()
+     n:=0; out:=""
+     for _,item:=range wire.Input {
+      if item["type"]=="function_call_output"&&item["call_id"]==key { n++;out,_=item["output"].(string) }
+     }
+     if n!=1||out=="" { t.Fatalf("receipt %s count=%d",key,n) }
+     return out
+    }
+    if calls==2||calls==3||calls==5||calls==6 {
+     key:=fmt.Sprintf("read-%d",calls-1)
+     raw:=receiptFor(key)
+     readReceipts[key]=raw
+     var obs struct {
+      Status string
+      Verified bool `json:"evidence_verified"`
+      RunID string `json:"run_id"`
+      Lines []struct{ Revision string `json:"source_revision_sha256"` } `json:"native_line_reads"`
+     }
+     if json.Unmarshal([]byte(raw),&obs)!=nil||obs.Status!="PASS"||!obs.Verified||obs.RunID==""||nativeReads[obs.RunID]||len(obs.Lines)!=1 { t.Fatalf("bad native read: %s",raw) }
+     expected:=before
+     if calls>=5 { expected=tc.finalSource }
+     digest:=fmt.Sprintf("%x",sha256.Sum256([]byte(expected)))
+     if obs.Lines[0].Revision!=digest { t.Fatalf("unexpected native revision %s want %s",obs.Lines[0].Revision,digest) }
+     revisions=append(revisions,obs.Lines[0].Revision)
+     nativeReads[obs.RunID]=true
+    }
+    if calls==4 {
+     if receiptFor("matrix-patch")!=patchReceipt { t.Fatal("Patch feedback mutated the exact receipt") }
+    }
+    if calls==3 { return agentchat.ResponsesResult{ResponseID:"proposal",Calls:[]agentchat.FunctionCall{{CallID:"matrix-patch",Name:"taskdeck_submit_patch",Arguments:string(args)}}},nil }
+    if calls==6 { return agentchat.ResponsesResult{ResponseID:"done",Text:"Native observations inspected; no acceptance claim."},nil }
+    if calls>6 { t.Fatalf("unexpected provider call %d",calls) }
+    return agentchat.ResponsesResult{ResponseID:fmt.Sprintf("reply-%d",calls),Calls:[]agentchat.FunctionCall{{CallID:fmt.Sprintf("read-%d",calls),Name:"taskdeck_collect_workspace",Arguments:`{"actions":[{"type":"range","path":"clp20_patch.go","start_line":1,"end_line":2}]}`}}},nil
+   }
+   w:=invokeAI(t,s.agentChatSessionItemAPI,"POST",endpoint+"/messages",map[string]any{"message":"Fix the fixture defect","confirm_external":true,"expected_revision":1})
+   if w.Code!=200||calls!=3 { t.Fatalf("proposal HTTP=%d calls=%d %s",w.Code,calls,w.Body) }
+   x,err:=store.Get(id,"local")
+   if err!=nil { t.Fatal(err) }
+   g,ok:=x.ReadCollectionGuard()
+   if !ok||g.Counters.NativeReads!=2||g.Counters.NewEvidence!=1||g.Counters.DuplicateEvidence!=1||g.Counters.PatchProposals!=1||g.Counters.Progress.ReadsSinceProgress!=2||len(x.ToolCalls)!=1||x.ToolCalls[0].Status!="pending" { t.Fatal("proposal changed source evidence or progress") }
+   w=invokeAI(t,s.agentChatSessionItemAPI,"POST",endpoint+"/tools/matrix-patch/decision",map[string]any{"action":tc.decision,"confirm_execution":tc.executed,"expected_revision":x.Revision})
+   if w.Code!=200 { t.Fatalf("decision HTTP=%d %s",w.Code,w.Body) }
+   x,err=store.Get(id,"local")
+   if err!=nil { t.Fatal(err) }
+   if tc.executed {
+    call:=x.ToolCalls[0]
+    if call.Status!="running"||call.PatchSessionID=="" { t.Fatalf("native Patch not dispatched: %+v",call) }
+    deadline:=time.Now().Add(90*time.Second)
+    var final sessionpkg.ProtocolItemState
+    for time.Now().Before(deadline) {
+     state,e:=native.ProtocolState(call.PatchSessionID)
+     if e==nil {
+      for _,item:=range state.Items {
+       if item.Index==call.SelectedIndex&&item.Name==filepath.Base(call.QueuePath)&&(item.Status=="PASS"||item.Status=="FAIL"||item.Status=="PREFLIGHT_FAIL"||item.Status=="INCOMPLETE") { final=item;break }
+      }
+     }
+     if final.RunID!="" { break }
+     time.Sleep(100*time.Millisecond)
+    }
+    if final.RunID==""||final.Status!=tc.nativeStatus { t.Fatalf("unexpected actual native result: %+v",final) }
+    w=invokeAI(t,s.agentChatSessionItemAPI,"POST",endpoint+"/sync",map[string]any{})
+    if w.Code!=200 { t.Fatalf("sync HTTP=%d %s",w.Code,w.Body) }
+    x,err=store.Get(id,"local")
+    if err!=nil { t.Fatal(err) }
+    wantStatus:="done";if tc.nativeStatus=="FAIL"{wantStatus="error"}
+    if x.ToolCalls[0].Status!=wantStatus||x.ToolCalls[0].RunID!=final.RunID { t.Fatalf("native result not adopted: %+v",x.ToolCalls[0]) }
+   } else {
+    if x.ToolCalls[0].Status!="rejected"||x.ToolCalls[0].PatchSessionID!=""||x.ToolCalls[0].QueuePath!="" { t.Fatal("rejected Patch executed") }
+   }
+   contents,err:=os.ReadFile(path)
+   if err!=nil||string(contents)!=tc.finalSource { t.Fatalf("actual fixture source=%q err=%v",contents,err) }
+   g,ok=x.ReadCollectionGuard()
+   if !ok||g.Counters.Progress.ReadsSinceProgress!=2||g.Counters.VerifiedProgressEvents!=0 { t.Fatal("native result falsely reset progress") }
+   if tc.executed {
+    if g.Counters.PatchExecutions!=1||g.Coverage==nil||!g.Coverage.Evicted||len(g.Coverage.Entries)!=0 { t.Fatalf("possible mutation did not invalidate coverage: %+v",g) }
+   } else if g.Counters.PatchExecutions!=0||g.Coverage==nil||len(g.Coverage.Entries)!=1 { t.Fatal("rejection discarded valid coverage") }
+   patchReceipt=strings.TrimSpace(x.ToolCalls[0].Result)
+   if patchReceipt=="" { t.Fatal("missing exact Patch result") }
+   w=invokeAI(t,s.agentChatSessionItemAPI,"POST",endpoint+"/tools/matrix-patch/continue",map[string]any{"confirm_external":true,"expected_revision":x.Revision})
+   if w.Code!=200||calls!=6||len(nativeReads)!=4 { t.Fatalf("feedback HTTP=%d calls=%d native reads=%d %s",w.Code,calls,len(nativeReads),w.Body) }
+   x,err=store.Get(id,"local")
+   if err!=nil { t.Fatal(err) }
+   g,ok=x.ReadCollectionGuard()
+   if !ok||g.Counters.NativeReads!=4||g.Counters.Progress.ReadsSinceProgress!=4||g.Counters.VerifiedProgressEvents!=0||!x.ToolCalls[0].FeedbackSent||x.ToolCalls[0].FeedbackStatus!="acknowledged" { t.Fatalf("bad final guard or ACK: %+v",g) }
+   if tc.executed {
+    if g.Counters.PatchExecutions!=1||g.Counters.NewEvidence!=1||g.Counters.UnknownEvidence!=1||g.Counters.DuplicateEvidence!=2 { t.Fatalf("post-mutation proof was not conservative: %+v",g.Counters) }
+   } else if g.Counters.PatchExecutions!=0||g.Counters.DuplicateEvidence!=3||g.Counters.NewEvidence!=1 { t.Fatalf("rejected Patch changed evidence: %+v",g.Counters) }
+   n:=0
+   for _,item:=range x.History {
+    if item.Type=="function_call_output" {
+     n++
+     want:=readReceipts[item.CallID]
+     if item.CallID=="matrix-patch" { want=patchReceipt }
+     if want==""||item.Content!=want { t.Fatal("canonical receipt mutated") }
+    }
+   }
+   if n!=5||len(revisions)!=4 { t.Fatalf("wrong receipt count %d",n) }
+   w=invokeAI(t,s.agentChatSessionItemAPI,"POST",endpoint+"/tools/matrix-patch/continue",map[string]any{"confirm_external":true,"expected_revision":x.Revision})
+   if w.Code<400||calls!=6 { t.Fatal("acknowledged Patch result replayed") }
+  })
+ }
+}
