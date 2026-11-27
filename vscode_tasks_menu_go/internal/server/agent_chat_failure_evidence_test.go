@@ -247,3 +247,19 @@ func TestAgentFailurePackageKindRequiresExactManifestBytes(t *testing.T){
  if err=os.WriteFile(archive,[]byte("changed"),0600);err!=nil{t.Fatal(err)}
  if got:=f.s.agentFailurePackageKind(c,identity);got!="unknown"{t.Fatal("changed bytes misclassified",got)}
 }
+
+func TestAgentConfirmedRetirementSurvivesHistoryCleanup(t *testing.T){
+ f:=newCLP10FailureFixture(t)
+ x:=f.x
+ agentRecordFailedRetirement(&x.ToolCalls[0],"retired","patchs/ignore/agent-failed-"+f.call.PackageSHA256+".zip")
+ x,err:=f.store.Save(x,x.Revision);if err!=nil{t.Fatal(err)}
+ if err=os.Remove(f.reportPath);err!=nil{t.Fatal(err)}
+ if err=os.Remove(f.registryPath);err!=nil{t.Fatal(err)}
+ e:=f.s.agentResolveFailedPatchEvidence(f.store,x,x.ToolCalls[0])
+ if e.Predecessor!="retired"||e.Availability!="verified_retirement_history_unavailable"||e.MutationState!="UNKNOWN"||e.Integrity!="receipt_only"{
+  t.Fatalf("lost independently verified retirement or invented mutation evidence: %+v",e)
+ }
+ if err=os.WriteFile(f.archivePath,[]byte("wrong bytes"),0600);err!=nil{t.Fatal(err)}
+ e=f.s.agentResolveFailedPatchEvidence(f.store,x,x.ToolCalls[0])
+ if e.Predecessor=="retired"{t.Fatal("accepted changed archive")}
+}
