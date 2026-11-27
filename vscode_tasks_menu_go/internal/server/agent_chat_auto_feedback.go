@@ -175,6 +175,7 @@ func (s *Server) runAgentAutoFeedback(ctx context.Context) {
 // all other conversations.
 func (s *Server) processAgentAutoFeedbackSession(ctx context.Context, store *agentchat.Store, id string) {
 	if ctx.Err() != nil { return }
+	if s.recoverAgentReceivedResponseOne(ctx,store,id){return}
 	// Resume an exact legacy PREPARED request using its durable provider
 	// attempt record. Never replay SENDING/UNKNOWN.
 	if s.resumePreparedAgentProviderRun(ctx,store,id){return}
@@ -218,6 +219,7 @@ func (s *Server) processAgentAutoFeedbackSession(ctx context.Context, store *age
 
 func agentAutoFeedbackNeedsWork(x agentchat.Session) bool {
 	if x.Owner != "local" || x.Archived { return false }
+	if agentResponseRecoveryCandidate(x){return true}
 	if x.Status=="requesting_ai" && x.ProviderRun!=nil && x.ProviderRun.Phase=="prepared"{return true}
 	if agentRecoveredCollectionResumeCandidate(x)||agentUnknownCollectionResumeCandidate(x)||agentPatchFeedbackAutoResumeReady(x){return true}
 	if agentchat.TaskPlanAutoContinueCandidate(x){return true}
