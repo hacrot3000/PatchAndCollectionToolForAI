@@ -1716,6 +1716,24 @@ console.log('PASS: safe Markdown, syntax-highlighted PHP/Python, per-block Copy,
   assert.equal(context.retrySelection.auto_feedback,true,'stale OFF control must not revoke enabled feedback');
   assert.equal(feedbackControl.getAttribute('aria-pressed'),'true','idempotent enable refreshes actual state');
   assert.equal(feedbackControl.textContent,'Auto-send results: ON');
+
+  // A scheduler pause is not a revocation of the persisted owner setting.
+  for(const continuation of [
+    {reason:'stalled_without_verified_work',no_progress_turns:5},
+    {reason:'nonretryable_admission_failure',no_progress_turns:0},
+  ]){
+    context.pausedContinue={...context.retrySelection,auto_continue_text:true,continuation};
+    vm.runInNewContext('renderAgentAutomationControls(pausedContinue)',context);
+    const control=vm.runInNewContext('autoContinueText',context);
+    assert.equal(control.getAttribute('aria-pressed'),'true','scheduler pause must preserve ON');
+    assert.equal(control.textContent,'Auto continue (no plan): ON · paused');
+    assert.match(control.title,/Your preference remains ON/);
+  }
+  vm.runInNewContext('renderAgentAutomationControls({...pausedContinue,auto_continue_text:false})',context);
+  assert.equal(vm.runInNewContext('autoContinueText.getAttribute("aria-pressed")',context),'false','explicit OFF remains OFF');
+  assert.equal(vm.runInNewContext('autoContinueText.textContent',context),'Auto continue (no plan): OFF');
+  vm.runInNewContext('renderAgentAutomationControls(retrySelection)',context);
+
   vm.runInNewContext("displayAgentSession({...retrySelection,auto_feedback:true,auto_feedback_persistent:false,auto_feedback_until:'2000-01-01T00:00:00Z'})",context);
   assert.equal(feedbackControl.textContent,'Auto-send results: OFF','expired grant must display OFF');
   assert.equal(feedbackControl.getAttribute('aria-pressed'),'false');
