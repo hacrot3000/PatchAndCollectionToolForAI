@@ -1,5 +1,7 @@
 # HANDOFF 20 — AI Pack compatibility audit (CLP-05.03.02/.03)
 
+> **Current local workflow (2026-11-27):** [20-coder-execution-contract.md](20-coder-execution-contract.md) supersedes historical process/stop instructions and completion claims below. Reference evidence only; use this audit to guide concrete source changes, not as a mandatory repeated audit or reason to stop. Local coder writes source/test fixes, operator runs CI/Git. Continue independent local work without external-only BLOCKED; no acceptance or safety relaxation.
+
 > Static audit of the 34 design/handoff documents under `docs/taskdeck_ai_agent/`
 > against the current trusted contract. Derived from native read-only COLLECT.
 > No provider, native tool, build, test or runtime rebase was executed. This
