@@ -1,5 +1,17 @@
 # TaskDeck HANDOFF 20 — checkpoint 2026-11-27
 
+## CURRENT RESUME POINT — source repair, not BLOCKED (2026-11-27)
+
+Follow `docs/taskdeck_ai_agent/20-coder-execution-contract.md` as the current operating instruction. All historical completion and stopping claims below are superseded. Local coder owns source/test repairs using native COLLECT/PATCH. Operator owns test execution, CI, Git and delivery. Do not re-audit capability, read every archive, or wait for external verification to do independent source work. Update only affected checklist/ledger rows and this checkpoint at coherent batch boundaries.
+
+Reviewed source HEAD `9a9c350bf3688727a2138a6427127c592e317d30`: 38 commits/36 changed files since f7225b5f. Core 45985473641 FAIL (140459847323/140459847614), Go 45985473473 FAIL (140459848054), PHP 45985473638 PASS. 106/144 checked leaves, 38 unchecked; 18/36 tasks, 1/10 phases, 20/28 historical gates. Not current acceptance.
+
+Next local actions: FIX-01 repair feedback revocation fixture syntax and consent baseline; FIX-02 fix W4 crash barrier/valid PREPARED fixture and race in stderr capture; FIX-03 mutation-proof traversal/invalid negative-test setup/tamper fixtures; FIX-04 trusted mutation producer/consumer where complete native proof is possible; FIX-05 remaining actual production-path regression gaps. See exact file/function and evidence in execution contract. Begin with FIX-01; use native PATCH immediately, then next defect. No local compiler or CI required. When the local batch is truly exhausted, report bounded SOURCE_BATCH_COMPLETE and external verification pending, not overall BLOCKED or FULL_HANDOFF_COMPLETE. New CI FAIL reopens source repair. Do not fabricate progress or bypass safety.
+
+---
+
+## Historical checkpoint records (reference only)
+
 Repository: `hacrot3000/PatchAndCollectionToolForAI`, branch `main`.
 Authoritative checklist: https://github.com/hacrot3000/PatchAndCollectionToolForAI/blob/main/docs/taskdeck_ai_agent/20-collection-progress-guard-and-legacy-recovery.md
 Latest tracker commit: `f37560299dd2f8d257b1ddeb5e0b8980f7d7b24f`.
