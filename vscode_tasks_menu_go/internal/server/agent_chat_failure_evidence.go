@@ -281,7 +281,15 @@ func (s *Server) agentResolveFailedPatchEvidence(store *agentchat.Store,x agentc
  out.ProposalKind=s.agentFailurePackageKind(call,identity)
  row,patch,err:=s.agentFailureHistory(call,identity)
  if err!=nil {
-  if !errors.Is(err,os.ErrNotExist){out.Availability="native_history_integrity_or_limit_refused"}
+  if !errors.Is(err,os.ErrNotExist){out.Availability="native_history_integrity_or_limit_refused";return out}
+  // History is bounded and may legitimately age out. Independently retain
+  // the confirmed canonical retirement + immutable archive observation;
+  // do not reconstruct diagnosis, mutation state, or a native PASS.
+  disposition,source:=s.agentFailurePredecessor(call)
+  if disposition=="retired"&&source=="durable_native_retirement_and_archive"{
+   out.Predecessor=disposition;out.PredecessorSource=source
+   out.Availability="verified_retirement_history_unavailable"
+  }
   return out
  }
  // A known failure receipt can never be contradicted by a different result.
