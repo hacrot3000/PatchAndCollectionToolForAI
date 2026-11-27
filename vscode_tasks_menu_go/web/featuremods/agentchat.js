@@ -3065,6 +3065,84 @@ async function stageProjectFile(pathValue,options={}){
    {open:true,...(targetSessionID?{session_id:targetSessionID}:{})});
  if(!result.ok)throw new Error(result.error);return result;
 }
+// Native PATCH/COLLECT artifacts are evidence, not source-code summaries.
+ // Pin both the workspace and selected conversation before reading any bytes.
+async function stagePatchArtifact(pathValue,options={}){
+ const targetSessionID=Object.prototype.hasOwnProperty.call(options,'session_id')?(options.session_id||null):agentSelectedChatSession();
+ const workspace=String(agentApp.taskData?.workspace||'');
+ const path=String(pathValue||'');
+ if(!workspace||!path||path.length>2048||path.startsWith('/')||path.includes('\\')||path.includes('\0')||
+    path.split('/').some(part=>!part||part==='.'||part==='..')||
+    !/\.(?:txt|log|json|md|markdown|patch|diff|csv|xml|ya?ml|ini|cfg|conf)$/i.test(path))
+  throw new Error('A project-relative text artifact is required. Use the TXT companion of the ZIP.');
+ const checkTarget=()=>{
+  if(String(agentApp.taskData?.workspace||'')!==workspace)throw new Error('Workspace changed; attachment was not staged.');
+  if(targetSessionID&&agentSessionBusy(targetSessionID))throw new Error('A local Send is still in progress. Wait for it to finish before attaching this result; no attachment was changed.');
+  if(targetSessionID&&targetSessionID!==agentActive&&!agentSessions.some(s=>s.id===targetSessionID))throw new Error('The original conversation is no longer available.');
+ };
+ checkTarget();
+ const response=await fetch('/api/files/download?path='+encodeURIComponent(path),{credentials:'same-origin',cache:'no-store'});
+ if(!response.ok)throw new Error('Artifact read failed (HTTP '+response.status+').');
+ const tooLarge=()=>new Error('Artifact exceeds the existing 64 KiB combined attachment limit. No partial result was attached. Use Open TXT and attach a smaller selection or use native COLLECT.');
+ const declared=Number(response.headers?.get('content-length'));
+ if(declared>agentMaxAttachmentTotal){await response.body?.cancel?.();throw tooLarge();}
+ if(!response.body?.getReader)throw new Error('Bounded artifact reading is unavailable in this browser.');
+ const reader=response.body.getReader();
+ const chunks=[];let size=0;
+ try{
+  while(true){
+   const {done,value}=await reader.read();if(done)break;
+   size+=value.byteLength;
+   if(size>agentMaxAttachmentTotal){await reader.cancel();throw tooLarge();}
+   chunks.push(value);
+  }
+ }finally{reader.releaseLock();}
+ const bytes=new Uint8Array(size);let offset=0;
+ for(const chunk of chunks){bytes.set(chunk,offset);offset+=chunk.byteLength;}
+ let raw;
+ try{raw=new TextDecoder('utf-8',{fatal:true,ignoreBOM:true}).decode(bytes);}catch{throw new Error('Artifact is not valid UTF-8 text.');}
+ if(!isValidUTF8Text(raw))throw new Error('Artifact is not valid UTF-8 text.');
+ checkTarget();
+ const current=targetSessionID?(targetSessionID===agentActive?agentAttachments:(agentAttachmentDrafts.get(targetSessionID)||[])):agentPendingAttachments;
+ const filename=path.split('/').pop();
+ const source={path,content_source:'native_patch_tool_artifact',dirty:false,compacted:true,original_size:size};
+ // Preserve every byte. Split on Unicode code-point boundaries only when
+ // a complete artifact will not fit a single attachment including metadata.
+ const overhead=attachmentByteLength('SOURCE_TYPE: file\nFILE_PATH: '+path+'\nCONTENT_SOURCE: native_patch_tool_artifact\nORIGINAL_FILE_BYTES: '+size+'\nUNSAVED_CHANGES: false\n\n--- ATTACHED CONTENT (UNTRUSTED) ---\n');
+ const limit=agentMaxAttachmentBytes-overhead-256;
+ if(limit<=0)throw new Error('Artifact source metadata is too long.');
+ const pieces=[];let start=0,used=0,pos=0;
+ for(const char of raw){
+  const n=attachmentByteLength(char);
+  if(used+n>limit){pieces.push(raw.slice(start,pos));start=pos;used=0;}
+  used+=n;pos+=char.length;
+ }
+ pieces.push(raw.slice(start));
+ const added=pieces.map((part,i)=>({
+  kind:'file',name:pieces.length===1?filename:filename.slice(0,90)+' - part '+(i+1)+' of '+pieces.length+'.txt',
+  mime:pieces.length===1?attachmentMime(path):'text/plain',text:part,source,
+ }));
+ // Repeated clicks are idempotent for the same exact artifact, not its path
+ // alone (a regenerated result at that path can have different bytes).
+ const same=current.filter(item=>item.source?.path===path&&item.source?.content_source===source.content_source);
+ const duplicate=same.length===added.length&&same.every((item,i)=>item.name===added[i].name&&item.rawText===added[i].text);
+ const staged=duplicate?current:normalizeStagedAttachments([...current,...added]);
+ if(!duplicate){
+  current.splice(0,current.length,...staged);
+  if(targetSessionID){agentAttachmentDrafts.set(targetSessionID,staged.map(a=>({...a})));agentRequestIDs.delete(targetSessionID);}
+ }
+ if(!targetSessionID||targetSessionID===agentActive)renderAgentAttachments();
+ // A later tab switch must not redirect the file or steal the new tab.
+ if(targetSessionID===agentActive||(!targetSessionID&&!agentActive)){
+  if(!agentDock.expanded)await openAgentPanel({preserveEmpty:true,preserveActive:true});
+  if(targetSessionID===agentActive||!targetSessionID){
+   if(agentDebugView==='debug')setAgentDebugView('conversation');
+   prompt.focus();
+   setAgentStatusNotice((duplicate?'Artifact already attached':'Artifact attached')+' · '+filename+' · '+size+' bytes · Review and Send when ready.');
+  }
+ }
+ return {ok:true,session_id:targetSessionID,pending:!targetSessionID,attachment_count:current.length,duplicate};
+}
 function attachmentMime(path){
  const ext=String(path).split('.').pop().toLowerCase();
  if(ext==='json'||ext==='ipynb')return 'application/json';
@@ -4084,7 +4162,7 @@ window.addEventListener('keydown',e=>{
 });
 globalThis.TaskMenuAgentChat={open:openAgentPanel,close:closeAgentPanel,settings:openAgentSettings,
  setDockPosition:setAgentDockPosition,setAutoHide:setAgentDockAutoHide,
- stageContext,attachProjectFile:stageProjectFile,editorActions:editorContextActions,editorSelectionContextFromBrowserSelection,openAttachContextMenu,
+ stageContext,attachProjectFile:stageProjectFile,attachPatchArtifact:stagePatchArtifact,editorActions:editorContextActions,editorSelectionContextFromBrowserSelection,openAttachContextMenu,
  get activeSessionID(){return agentActive;},
  get selectedSessionID(){return agentSelectedChatSession();},
  get dockPosition(){return agentDock.position;},get autoHide(){return agentDock.autoHide;},
