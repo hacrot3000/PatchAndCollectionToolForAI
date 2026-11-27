@@ -94,3 +94,41 @@ func TestAgentCommandOnlySeparateApprovalsHaveDistinctZIPReceipts(t *testing.T){
  b,err:=pastedCommandOnlyPackage(raw,identity);if err!=nil{t.Fatal(err)}
  if string(a)==string(b){t.Fatal("new regression invocation incorrectly aliases old native package")}
 }
+
+
+func TestAgentExistingScriptInstructionsUseAcceptedManifest(t *testing.T){
+ identity:=patchtool.ProjectIdentity{Key:"example-project",ID:"actual-project-id"}
+ for _,functions:=range []bool{true,false}{
+  guidance:=agentExistingScriptInstructions(identity.ID,identity.Key,functions)
+  for _,phrase:=range []string{"Do not ask the user to run an eligible script manually","do not declare BLOCKED merely because direct shell access is unavailable","PATCH A","verified PASS","PATCH B","An approval request is not a request to run the script manually.","legacy_strict","JSON STRING","review its behavior and arguments"}{
+   if !strings.Contains(guidance,phrase){t.Fatalf("missing script instruction %q",phrase)}
+  }
+  // The only literal JSON object is the complete, route-specific example.
+  start,end:=strings.Index(guidance,"{"),strings.LastIndex(guidance,"}")
+  if start<0||end<=start{t.Fatal("missing complete example")}
+  raw:=guidance[start:end+1]
+  var args agentPatchArguments
+  var err error
+  if functions{args,err=parseAgentPatchArguments(raw)}else{args,err=parseAgentTextPatchProposal(raw,identity)}
+  if err!=nil{t.Fatalf("advertised example rejected, functions=%v: %v",functions,err)}
+  manifest,err:=parseCommandOnlyManifest(args.PatchManifest)
+  if err!=nil||args.PatchPython!=""||manifest.Project!=identity||manifest.PostPatch.SafetyProfile!="legacy_strict"||
+   len(manifest.PostPatch.Commands)!=1||strings.Join(manifest.PostPatch.Commands[0].Argv," ")!="bash scripts/check.sh"{
+   t.Fatalf("example does not match the actual native contract: %+v %v",manifest,err)
+  }
+ }
+}
+func TestAgentExistingScriptInstructionsDistinguishDirectShellFromNative(t *testing.T){
+ for _,functions:=range []bool{true,false}{
+  for _,auto:=range []bool{true,false}{
+   x:=agentchat.Session{ProjectID:"actual-project-id",AutoPatch:auto}
+   policy:=agentChatInstructionsWithAutomation(x,functions,"example-project")
+   for _,phrase:=range []string{"Never invoke a direct shell","DOES NOT prohibit an approved native command-only PATCH","Do not ask the user to run an eligible script manually","manual_execution","Never claim success until verified native result arrives"}{
+    if phrase=="Never claim success until verified native result arrives"&&!auto{continue}
+    if !strings.Contains(policy,phrase){t.Fatalf("missing policy %q",phrase)}
+   }
+   if strings.Contains(policy,"Never invoke shell, terminal"){t.Fatal("ambiguous old blanket restriction returned")}
+   if !auto&&!strings.Contains(policy,"native execution requires a separate user approval"){t.Fatal("approval gate guidance removed")}
+  }
+ }
+}
