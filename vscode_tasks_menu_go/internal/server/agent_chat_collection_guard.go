@@ -101,7 +101,7 @@ func collectionProgressAdvice(d cp.Decision)string{
  case cp.BoundNextScope:
   return " Collection progress: identify the next concrete objective and exact missing evidence. Prefer one bounded native read or a justified small Patch proposal. Continue necessary reads; never bypass approval or claim completion without evidence."
  case cp.RepeatedEvidence:
-  return " Collection progress: verified repeated evidence was observed. Change the inspection strategy or narrow the missing scope. This advisory does not authorize cache reuse, a Patch, or task completion."
+  return " Collection progress: verified repeated evidence was observed. Use the already delivered receipt to answer what it actually proves; choose a distinct missing scope or change strategy. Re-read when freshness or completeness is uncertain. This advisory does not authorize skipping a native read, a Patch, or task completion."
  default:return ""
  }
 }

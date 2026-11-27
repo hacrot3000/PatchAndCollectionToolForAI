@@ -102,13 +102,24 @@ func (x *Session) SetCollectionGuard(g CollectionGuardState)bool{
 func (x Session) retainedCollectionSummary()LegacyCollectionSummary{
  out:=LegacyCollectionSummary{Incomplete:x.ArchivedHistoryItems!=0||x.ArchivedPatchCalls!=0}
  calls:=map[string]bool{}
- for _,item:=range x.History{
+ for i,item:=range x.History{
   if item.Type=="function_call"&&item.Name=="taskdeck_collect_workspace"{
+   if item.CallID==""||calls[item.CallID]{out.Incomplete=true;continue}
    calls[item.CallID]=true
    out.RetainedCalls++
   }else if item.Type=="function_call_output"&&calls[item.CallID]{
    delete(calls,item.CallID)
    out.RetainedOutputs++
+  }else if item.Type=="user"&&strings.HasPrefix(item.Content,NativeCollectionTextObservationPrefix){
+   // Count only structurally paired, retained text observations. Older
+   // envelopes and missing request prefixes are not sufficient evidence.
+   // These historical counts never seed current objective novelty.
+   if CollectionTextObservation(x.History,i){
+    out.RetainedCalls++
+    out.RetainedOutputs++
+   }else{out.Incomplete=true}
+  }else if item.Type=="user"&&strings.HasPrefix(item.Content,legacyCollectionTextObservationPrefix){
+   out.Incomplete=true
   }
  }
  for _,call:=range x.ToolCalls{
