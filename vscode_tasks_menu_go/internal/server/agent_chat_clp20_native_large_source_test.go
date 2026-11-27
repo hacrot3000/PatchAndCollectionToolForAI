@@ -134,3 +134,105 @@ func TestAgentCLP20NativeTargeted150MiBSourceReceipt(t *testing.T){
  if w.Code!=200||calls!=3{t.Fatal("duplicate resume egress")}
  t.Logf("real native source=%d bytes, run=%s, receipt=%d bytes, original SHA256 unchanged; UNKNOWN restart/resume exactly once",n,obs.RunID,len(receipt))
 }
+
+
+ // Exercise real native line proofs after external writes between provider turns.
+ // No replacement collector, no external provider, no implicit Patch approval.
+func TestAgentCLP20NativeRangeExternalMutationInvalidatesCoverage(t *testing.T) {
+ s, id := newAgentConversationFixture(t, "stateless")
+ s.AgentCollectionCall = nil
+ _, testFile, _, ok := runtime.Caller(0)
+ if !ok { t.Fatal("cannot locate runtime") }
+ entry := filepath.Clean(filepath.Join(filepath.Dir(testFile), "..", "..", "..", "python_patch_entry.py"))
+ if _, err := os.Stat(entry); err != nil { t.Fatal(err) }
+ python, err := exec.LookPath("python3")
+ if err != nil { t.Fatal(err) }
+ t.Setenv("TASKDECK_PATCH_RUNTIME", entry)
+ t.Setenv("TASKDECK_PATCH_PYTHON", python)
+ native := sessionpkg.NewManager(1 << 20)
+ s.Sessions = native
+ t.Cleanup(func() { native.Shutdown(2*time.Second) })
+ path := filepath.Join(s.Workspace, "clp20_mutation.go")
+ const a = "package fixture\n// CLP20_REVISION_A\n"
+ const b = "package fixture\n// CLP20_REVISION_B\n"
+ if err := os.WriteFile(path, []byte(a), 0600); err != nil { t.Fatal(err) }
+ expected := []string{a,a,b,b,a}
+ revisions := []string{}
+ receipts := map[string]string{}
+ runs := map[string]bool{}
+ calls := 0
+ s.AgentChatCall = func(_ context.Context, _ agentchat.ProviderConfig, _ string, payload []byte) (agentchat.ResponsesResult,error) {
+  calls++
+  if calls > 1 {
+   var wire struct { Input []map[string]any }
+   if err := json.Unmarshal(payload, &wire); err != nil { t.Fatal(err) }
+   key := fmt.Sprintf("mutation-read-%d", calls-1)
+   receipt := ""
+   n := 0
+   for _, item := range wire.Input {
+    if item["type"] == "function_call_output" && item["call_id"] == key {
+     n++
+     receipt, _ = item["output"].(string)
+    }
+   }
+   if n != 1 || receipt == "" { t.Fatal("missing or duplicate current receipt") }
+   receipts[key] = receipt
+   var o struct {
+    Status string
+    EvidenceVerified bool `json:"evidence_verified"`
+    RunID string `json:"run_id"`
+    Text string `json:"text_excerpt"`
+    Lines []struct {
+     Path string `json:"path"`
+     Revision string `json:"source_revision_sha256"`
+     First uint64 `json:"start_line"`
+     Last uint64 `json:"end_line"`
+    } `json:"native_line_reads"`
+   }
+   if err := json.Unmarshal([]byte(receipt), &o); err != nil { t.Fatal(err) }
+   if o.Status != "PASS" || !o.EvidenceVerified || o.RunID == "" || runs[o.RunID] ||
+    len(o.Lines) != 1 || o.Lines[0].Path != "clp20_mutation.go" || o.Lines[0].First != 1 ||
+    o.Lines[0].Last != 2 || len(o.Lines[0].Revision) != 64 {
+    t.Fatalf("expected verified native line proof: %+v", o)
+   }
+   runs[o.RunID] = true
+   revisions = append(revisions, o.Lines[0].Revision)
+   current, err := os.ReadFile(path)
+   if err != nil || string(current) != expected[calls-2] { t.Fatal("native collection modified source") }
+   marker := "CLP20_REVISION_A"
+   if expected[calls-2] == b { marker = "CLP20_REVISION_B" }
+   if !strings.Contains(o.Text, marker) { t.Fatal("native observation stale after external edit") }
+  }
+  if calls == 6 { return agentchat.ResponsesResult{ResponseID:"done", Text:"Verified the changing source."},nil }
+  if calls > 6 { t.Fatalf("unexpected provider call %d", calls) }
+  // Explicit fixture mutation between real native reads; this is NOT Patch.
+  if calls == 3 || calls == 5 {
+   if err := os.WriteFile(path, []byte(expected[calls-1]), 0600); err != nil { t.Fatal(err) }
+  }
+  args := fmt.Sprintf(`{"id":"mutation-%d","actions":[{"type":"range","path":"clp20_mutation.go","start_line":1,"end_line":2}]}`,calls)
+  return agentchat.ResponsesResult{ResponseID:fmt.Sprintf("reply-%d",calls),Calls:[]agentchat.FunctionCall{{CallID:fmt.Sprintf("mutation-read-%d",calls),Name:"taskdeck_collect_workspace",Arguments:args}}},nil
+ }
+ w := invokeAI(t,s.agentChatSessionItemAPI,"POST","/api/agent/sessions/"+id+"/messages",map[string]any{"message":"Audit the file read-only","confirm_external":true,"expected_revision":1})
+ if w.Code != 200 || calls != 6 || len(runs) != 5 { t.Fatalf("HTTP=%d calls=%d native runs=%d body=%s",w.Code,calls,len(runs),w.Body) }
+ if revisions[0] != revisions[1] || revisions[2] != revisions[3] || revisions[0] == revisions[2] || revisions[0] != revisions[4] {
+  t.Fatalf("source revision mismatch: %v",revisions)
+ }
+ store, err := s.agentChatStore()
+ if err != nil { t.Fatal(err) }
+ saved, err := store.Get(id,"local")
+ if err != nil { t.Fatal(err) }
+ g, ok := saved.ReadCollectionGuard()
+ if !ok || g.Counters.NativeReads != 5 || g.Counters.NewEvidence != 3 || g.Counters.DuplicateEvidence != 2 || g.Counters.UnknownEvidence != 0 || len(saved.ToolCalls) != 0 {
+  t.Fatalf("external mutation incorrectly classified: %+v",g)
+ }
+ n := 0
+ for _, item := range saved.History {
+  if item.Type == "function_call_output" {
+   n++
+   if item.Content != receipts[item.CallID] { t.Fatal("native receipt changed in journal") }
+  }
+ }
+ if n != 5 { t.Fatalf("canonical receipt count %d",n) }
+ artifacts, err := filepath.Glob(filepath.Join(s.Workspace,"artifacts","patch_tool_code_collections","CODE_COLLECTION_RESULT_*.zip"))
+ if err != nil || len(artifacts) != 5 { t.Fatalf("native artifact count %d: %v",len(artifacts),err) }
+}
