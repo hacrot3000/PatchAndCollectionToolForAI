@@ -30,7 +30,7 @@ func runCollectionObjective(owner string,spec agentchat.RunSpec,inputs AgentRunI
  })
 }
 func readRunCollectionProgress(owner string,spec agentchat.RunSpec,inputs AgentRunInputs)(runCollectionProgress,bool){
- if inputs.Snapshot.Policy==nil{return runCollectionProgress{},false}
+ if _,ok:=inputs.Snapshot.Policy.CollectionPolicy();!ok{return runCollectionProgress{},false}
  raw:=inputs.Snapshot.Policy.CollectionProgress
  binding,err:=runCollectionObjective(owner,spec,inputs)
  if err!=nil{return runCollectionProgress{},false}
@@ -54,7 +54,9 @@ func readRunCollectionProgress(owner string,spec agentchat.RunSpec,inputs AgentR
  return g,true
 }
 func runCollectionProgressUpdate(owner string,run agentrun.Record,inputs AgentRunInputs,identity patchtool.ProjectIdentity,call agentchat.HistoryItem,request []byte,receipt string,native bool)json.RawMessage{
+ if inputs.Snapshot.Policy==nil{return nil}
  raw:=inputs.Snapshot.Policy.CollectionProgress
+ policy,valid:=inputs.Snapshot.Policy.CollectionPolicy();if !valid{return raw}
  g,ok:=readRunCollectionProgress(owner,run.Spec,inputs)
  if !ok||len(run.History)<len(inputs.Snapshot.History)||len(run.History)==0{return raw}
  // Bind the projection to the exact canonical history prefix. A changed
@@ -78,9 +80,9 @@ func runCollectionProgressUpdate(owner string,run agentrun.Record,inputs AgentRu
  seq:=uint64(len(run.History))*2
  if seq<=g.Counters.LastSequence{return raw}
  id:=agentchat.ProviderPayloadDigest([]byte(run.Spec.RunID+"\x00"+call.CallID))
- c,_,applied,err:=cp.ApplyCounterEvent(cp.Defaults(),g.Counters,cp.CounterEvent{Sequence:seq,Identity:id,Kind:cp.CollectionRequested},false)
+ c,_,applied,err:=cp.ApplyCounterEvent(policy,g.Counters,cp.CounterEvent{Sequence:seq,Identity:id,Kind:cp.CollectionRequested},false)
  if err!=nil||!applied{return raw}
- c,d,applied,err:=cp.ApplyCounterEvent(cp.Defaults(),c,cp.CounterEvent{Sequence:seq+1,Identity:id,Kind:cp.CollectionObserved,Novelty:novelty,NativeRead:native},false)
+ c,d,applied,err:=cp.ApplyCounterEvent(policy,c,cp.CounterEvent{Sequence:seq+1,Identity:id,Kind:cp.CollectionObserved,Novelty:novelty,NativeRead:native},false)
  if err!=nil||!applied{return raw}
  g.Counters=c;g.Decision=d;g.LastHistorySize=len(run.History)+1
  out,err:=json.Marshal(g)
