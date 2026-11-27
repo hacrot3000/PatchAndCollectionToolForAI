@@ -265,16 +265,16 @@ func TestContinuationWorkReferenceMigrationDoesNotResetBrake(t *testing.T){
  original:=x
  prior:=VerifiedWorkSignature(original)
  if !x.BindCollectionGuard("Continue","",true){t.Fatal("bind")}
- if ContinuationWorkReference(original,x,prior)!=VerifiedWorkSignature(x){t.Fatal("first guard binding fabricated work")}
+ if ContinuationWorkReference(original,x,prior,0)!=VerifiedWorkSignature(x){t.Fatal("first guard binding fabricated work")}
  bound:=x
- if ContinuationWorkReference(bound,x,"old-unversioned-signature")!=VerifiedWorkSignature(x){t.Fatal("upgrade signature change fabricated work")}
+ if ContinuationWorkReference(bound,x,"old-unversioned-signature",0)!=VerifiedWorkSignature(x){t.Fatal("upgrade signature change fabricated work")}
  g,_:=x.ReadCollectionGuard()
  x.AppendEvent("clp_collection_observed",x.Status,"new-read","")
  g.Counters,_,_,err=cp.ApplyCounterEvent(g.Policy,g.Counters,cp.CounterEvent{Sequence:x.EventSeq,Identity:guardDigest("new-read"),Kind:cp.CollectionObserved,Novelty:cp.VerifiedNew,NativeRead:true},false)
  if err!=nil||!x.SetCollectionGuard(g){t.Fatal("new evidence")}
- if ContinuationWorkReference(original,x,prior)==VerifiedWorkSignature(x){t.Fatal("migration hid actual new work")}
- if ContinuationWorkReference(bound,x,VerifiedWorkSignature(bound))==VerifiedWorkSignature(x){t.Fatal("existing guard hid actual new work")}
+ if ContinuationWorkReference(original,x,prior,0)==VerifiedWorkSignature(x){t.Fatal("migration hid actual new work")}
+ if ContinuationWorkReference(bound,x,VerifiedWorkSignature(bound),1)==VerifiedWorkSignature(x){t.Fatal("existing guard hid actual new work")}
  beforeStep:=x
  if !x.BindCollectionGuard("Audit next step","next-step",true){t.Fatal("step")}
- if ContinuationWorkReference(beforeStep,x,VerifiedWorkSignature(beforeStep))!=VerifiedWorkSignature(x){t.Fatal("step rebinding fabricated work")}
+ if ContinuationWorkReference(beforeStep,x,VerifiedWorkSignature(beforeStep),1)!=VerifiedWorkSignature(x){t.Fatal("step rebinding fabricated work")}
 }
