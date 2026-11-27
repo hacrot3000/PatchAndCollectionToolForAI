@@ -177,3 +177,45 @@ func TestCollectionGuardArchiveMigrationBoundedCursorAndIsolation(t *testing.T){
  og,_:=other.ReadCollectionGuard()
  if og.Legacy.ArchivedCalls!=0||og.Legacy.ArchivedAcknowledgedPatches!=0{t.Fatal("cross-conversation migration")}
 }
+
+
+func TestCollectionGuardConcurrentLogicalReceiptCAS(t *testing.T){
+ dir:=filepath.Join(t.TempDir(),"private")
+ a,err:=NewStore(dir);if err!=nil{t.Fatal(err)}
+ b,err:=NewStore(dir);if err!=nil{t.Fatal(err)}
+ x,err:=NewSession("local","/workspace","project","provider","model",Stateless);if err!=nil{t.Fatal(err)}
+ x.History=[]HistoryItem{{Type:"user",Content:"Audit the source read-only"},{Type:"function_call",CallID:"read-once",Name:"taskdeck_collect_workspace",Arguments:`{"actions":[{"type":"file","path":"main.go"}]}`}}
+ if !x.BindCollectionGuard("Audit the source read-only","",false){t.Fatal("bind")}
+ g,_:=x.ReadCollectionGuard()
+ x.AppendEvent("clp_collection_requested",x.Status,"read-once","")
+ g.Counters,_,_,err=cp.ApplyCounterEvent(g.Policy,g.Counters,cp.CounterEvent{Sequence:x.EventSeq,Identity:guardDigest("read-once-request"),Kind:cp.CollectionRequested},false)
+ if err!=nil||!x.SetCollectionGuard(g){t.Fatal("request checkpoint")}
+ x,err=a.Save(x,0);if err!=nil{t.Fatal(err)}
+ // Two independently reopened journal candidates reduce the same exact
+ // logical receipt at the same sequence. Only one CAS may commit.
+ const receipt=`{"status":"PASS","run_id":"native-once"}`
+ prepare:=func(store *Store)Session{
+  t.Helper()
+  candidate,e:=store.Get(x.ID,x.Owner);if e!=nil{t.Fatal(e)}
+  state,ok:=candidate.ReadCollectionGuard();if !ok{t.Fatal("missing guard")}
+  candidate.History=append(candidate.History,HistoryItem{Type:"function_call_output",CallID:"read-once",Content:receipt})
+  candidate.AppendEvent("clp_collection_observed",candidate.Status,"read-once","")
+  state.Counters,_,_,e=cp.ApplyCounterEvent(state.Policy,state.Counters,cp.CounterEvent{Sequence:candidate.EventSeq,Identity:guardDigest("read-once-receipt"),Kind:cp.CollectionObserved,Novelty:cp.UnknownNovelty,NativeRead:true},false)
+  if e!=nil||!candidate.SetCollectionGuard(state){t.Fatal("receipt projection")}
+  return candidate
+ }
+ first,second:=prepare(a),prepare(b)
+ start:=make(chan struct{})
+ done:=make(chan error,2)
+ go func(){<-start;_,e:=a.Save(first,first.Revision);done<-e}()
+ go func(){<-start;_,e:=b.Save(second,second.Revision);done<-e}()
+ close(start)
+ committed,stale:=0,0
+ for i:=0;i<2;i++{e:=<-done;if e==nil{committed++}else if errors.Is(e,ErrStaleRevision){stale++}else{t.Fatal(e)}}
+ if committed!=1||stale!=1{t.Fatalf("committed=%d stale=%d",committed,stale)}
+ reopened,err:=NewStore(dir);if err!=nil{t.Fatal(err)}
+ got,err:=reopened.Get(x.ID,x.Owner);if err!=nil{t.Fatal(err)}
+ state,ok:=got.ReadCollectionGuard()
+ if !ok||got.Revision!=x.Revision+1||state.Counters.Requested!=1||state.Counters.Observed!=1||state.Counters.NativeReads!=1||state.Counters.UnknownEvidence!=1||len(got.History)!=3||got.History[2].Content!=receipt{t.Fatalf("receipt/counter atomicity violated: %+v",state)}
+ if _,err=reopened.Save(second,second.Revision);!errors.Is(err,ErrStaleRevision){t.Fatal("stale receipt replay accepted")}
+}
