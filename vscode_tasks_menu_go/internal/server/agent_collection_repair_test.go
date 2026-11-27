@@ -137,11 +137,12 @@ func TestAgentUnknownCollectionRecoveryPolicy(t *testing.T){
   func(x *agentchat.Session){x.Owner="other"},
   func(x *agentchat.Session){x.ToolCalls=[]agentchat.ToolCallRecord{{CallID:"patch",Status:"unknown"}}},
   func(x *agentchat.Session){x.History=x.History[:2]},
-  func(x *agentchat.Session){x.Continuation=&agentchat.TurnContinuation{NoProgressTurns:agentchat.MaxContinuationNoWorkTurns}},
  }{
   blocked:=fixture();mutate(&blocked)
   if agentUnknownCollectionResumeCandidate(blocked){t.Fatal("unsafe automatic recovery")}
  }
+ x.Continuation=&agentchat.TurnContinuation{NoProgressTurns:100}
+ if !agentUnknownCollectionResumeCandidate(x){t.Fatal("exact receipt recovery was blocked by diagnostic counter")}
  x.AppendEvent("collection_auto_resume_deferred","failed","read","r50-e61")
  if agentUnknownCollectionRecoveryState(x,now)!="retry_deferred"{t.Fatal("missing recovery backoff")}
  if agentUnknownCollectionRecoveryState(x,now.Add(time.Minute))!="ready"{t.Fatal("unlimited retry did not become eligible")}
