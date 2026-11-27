@@ -44,3 +44,58 @@ func TestNativeRangeCoverageBoundToReceipt(t *testing.T){
  if n:=observe("a.go","a",1,100,nil);n!=UnknownNovelty{t.Fatal("post-mutation absence incorrectly classified")}
  if n:=observe("a.go","a",1,100,nil);n!=VerifiedDuplicate{t.Fatal("fresh proof was not retained")}
 }
+
+ // Build only metadata: 150 MiB native source inspection is exercised by
+ // the server integration test. The guard must not open or hash source files.
+func boundedCoverageFixture(t testing.TB, scopes int)(ObjectiveBinding,EvidenceIndex,*CoverageIndex,ScopeDescriptor,[]byte,string){
+ t.Helper()
+ b,err:=BindObjective(ObjectiveScope{Owner:"local",ProjectID:"p",OwnerWorkspace:"w",ExecutionWorkspace:"w",ConversationID:"c",Goal:"Audit source read-only",Generation:1});if err!=nil{t.Fatal(err)}
+ index:=NewCoverageIndex(b)
+ for i:=0;i<scopes;i++{
+  key,ok:=NewCoverageKey(b,fmt.Sprintf("src/f%d.go",i),strings.Repeat("a",64));if !ok{t.Fatal("key")}
+  for j:=uint64(0);j<16;j++{index,_=ObserveCoverage(index,key,LineRange{1+j*2,1+j*2})}
+ }
+ if !ValidateCoverage(index,b){t.Fatal("invalid fixture")}
+ req:=[]byte(`{"project":{"key":"key","id":"id"},"actions":[{"type":"range","path":"src/f0.go","start_line":1,"end_line":1}]}`)
+ scope,err:=BindCollectionScope(b,"key","id",req,"");if err!=nil{t.Fatal(err)}
+ raw,err:=json.Marshal(map[string]any{"source":"native_patch_tool_collect","project":map[string]string{"key":"key","id":"id"},"native_session_id":"native","run_id":"read","status":"PASS","native_status":"PASS","rc":0,"evidence_verified":true,"text_excerpt_truncated":false,"native_line_reads":[]any{map[string]any{"path":"src/f0.go","type":"range","action_index":1,"total_lines":1228800,"start_line":1,"end_line":1,"source_revision_sha256":strings.Repeat("a",64),"report_sha256":strings.Repeat("f",64)}}});if err!=nil{t.Fatal(err)}
+ return b,NewEvidenceIndex(b),&index,scope,req,string(raw)
+}
+
+func TestNativeCoverageMetadataAggregateBoundAndRenameDelete(t *testing.T){
+ b,exact,index,scope,req,receipt:=boundedCoverageFixture(t,MaxCoverageScopes)
+ // Add a 1025th interval on an existing scope, which evicts only metadata.
+ req=[]byte(strings.Replace(string(req),`"start_line":1,"end_line":1`,`"start_line":100,"end_line":100`,1))
+ receipt=strings.Replace(receipt,`"start_line":1`,`"start_line":100`,1)
+ receipt=strings.Replace(receipt,`"end_line":1`,`"end_line":100`,1)
+ var err error
+ scope,err=BindCollectionScope(b,"key","id",req,"");if err!=nil{t.Fatal(err)}
+ _,next,n:=ObserveNativeRead(exact,index,b,scope,"key","id",req,receipt)
+ if n!=UnknownNovelty||next==nil||!next.Evicted||!ValidateCoverage(*next,b)||len(next.Entries)>=MaxCoverageScopes{t.Fatal("aggregate eviction must be conservative")}
+ raw,err:=json.Marshal(next);if err!=nil||len(raw)>64<<10{t.Fatalf("coverage metadata bytes=%d err=%v",len(raw),err)}
+ // Complete rename/delete paths invalidate both old and new names. The
+ // caller is responsible for proving completeness; unknown paths drop all.
+ renamed:=InvalidateCoverage(*index,[]string{"src/f0.go","src/f1.go","src/f2.go"},true)
+ if len(renamed.Entries)!=MaxCoverageScopes-3||!renamed.Evicted||!ValidateCoverage(renamed,b){t.Fatal("rename/delete path invalidation")}
+ for _,path:=range []string{"src/f0.go","src/f1.go","src/f2.go"}{
+  key,_:=NewCoverageKey(b,path,strings.Repeat("a",64))
+  if _,c:=ObserveCoverage(renamed,key,LineRange{1,1});c.Novelty!=UnknownNovelty{t.Fatal("stale rename/delete path proof reused")}
+ }
+ key,_:=NewCoverageKey(b,"src/f3.go",strings.Repeat("a",64))
+ if _,c:=ObserveCoverage(renamed,key,LineRange{1,1});c.Novelty!=VerifiedDuplicate{t.Fatal("unrelated complete proof discarded")}
+ t.Logf("bounded coverage projection: %d bytes, %d retained scopes",len(raw),len(next.Entries))
+}
+
+func BenchmarkNativeCoverageMetadata(b *testing.B){
+ for _,scopes:=range []int{1,MaxCoverageScopes}{
+  b.Run(fmt.Sprintf("scopes_%d",scopes),func(b *testing.B){
+   objective,exact,index,scope,req,receipt:=boundedCoverageFixture(b,scopes)
+   b.ReportAllocs()
+   b.ResetTimer()
+   for i:=0;i<b.N;i++{
+    _,next,n:=ObserveNativeRead(exact,index,objective,scope,"key","id",req,receipt)
+    if n!=VerifiedDuplicate||next==nil{b.Fatal("unexpected novelty")}
+   }
+  })
+ }
+}
