@@ -138,8 +138,8 @@ func HandoffMarkdown(x Session) string {
   fmt.Fprintf(&b,"## Last assistant-turn continuation advisory (not acceptance)\n\nDisposition: %s; reason: %s; automatic continuation (without plan): %t\n",
    handoffTrim(c.Disposition,32),handoffTrim(c.Reason,120),x.AutoContinueText&&x.TaskPlan==nil)
   if c.Disposition==TurnBlocked{
-   if StandaloneAutoContinueCandidate(x)&&RetiredPatchBlockerRecheck(x){
-    b.WriteString("Lifecycle decision: eligible for one fresh automatic recovery turn after exact acknowledged retirement. No old native execution will be replayed.\n")
+   if x.AutoContinueText&&x.TaskPlan==nil&&RetiredPatchBlockerRecheck(x){
+    b.WriteString("Lifecycle decision: candidate for one fresh automatic recovery turn after exact acknowledged retirement. Live scheduler rechecks consent, unresolved work, no-progress and admission fences. No old native execution will be replayed.\n")
    }else{
     b.WriteString("Lifecycle decision: model-reported blocker (advisory); automatic scheduling is paused unless an independent authorized recovery applies. This is not proof of a native planning refusal.\n")
    }
