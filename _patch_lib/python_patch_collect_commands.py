@@ -3,6 +3,10 @@
 from __future__ import annotations
 import os
 import re
+import json
+import hashlib
+import stat
+import shutil
 from pathlib import Path
 import signal
 import subprocess
@@ -21,13 +25,74 @@ class CollectCommandError(ValueError):
     pass
 
 
+# Virtual command, not an executable supplied by the model. The only
+# external receipt access is through the owner-pinned Nim gateway.
+NIM_READ_RUN = frozenset({"nim-build-status", "nim-build-log", "nim-build-result", "nim-artifacts"})
+NIM_READ_NOARG = frozenset({"nim-profiles", "nim-doctor", "nim-source-compare"})
+NIM_PROFILES = frozenset({"debug", "release", "server", "server-probe", "server-verbose", "battle", "pvp", "arenaserver", "arenaserver-fake-data", "local", "release-copy"})
+
+
+def _validate_nim_read_action(action: dict) -> None:
+    argv = action["argv"]
+    if action.get("transport", "local") != "local" or action.get("cwd", ".") != "." or action.get("profile_name") is not None:
+        raise CollectCommandError("Nim gateway receipt access requires local project root")
+    args = argv[1:]
+    if len(args) == 2 and args[0] in NIM_READ_RUN and re.fullmatch(r"[0-9a-f]{32}", args[1]):
+        return
+    if len(args) == 1 and args[0] in NIM_READ_NOARG:
+        return
+    if len(args) == 2 and args[0] == "nim-profile-info" and args[1] in NIM_PROFILES:
+        return
+    raise CollectCommandError("Nim gateway COLLECT permits only read-only actions; receipts require exact 32-hex RUN_ID")
+
+
+def _nim_read_argv(root: Path, action: dict) -> list[str]:
+    _validate_nim_read_action(action)
+    if os.environ.get("TASKDECK_NIM_GATEWAY_LOCAL") != "1":
+        raise CollectCommandError("Nim gateway is not enabled for this local native worker")
+    try:
+        root = root.resolve(strict=True)
+        cfg = Path.home() / ".config/taskdeck/nim-gateway.json"
+        st = cfg.lstat()
+        if not stat.S_ISREG(st.st_mode) or st.st_uid != os.getuid() or st.st_mode & 0o077 or st.st_size > 8192:
+            raise ValueError("unsafe owner registration")
+        g = json.loads(cfg.read_bytes())
+        identity_path = root / ".python_patch_tool.json"
+        st = identity_path.lstat()
+        if not stat.S_ISREG(st.st_mode) or st.st_size > 1024 * 1024:
+            raise ValueError("invalid project identity")
+        project = json.loads(identity_path.read_bytes())["project"]
+        rel = g["script"]
+        sha = g["sha256"]
+        if (g["project_root"] != str(root) or not isinstance(g["project_id"], str)
+                or not g["project_id"] or g["project_id"] != project["id"]
+                or not isinstance(rel, str) or not re.fullmatch(r"[A-Za-z0-9_./-]+", rel)
+                or rel.startswith(("/", "-")) or ".." in Path(rel).parts
+                or Path(rel).as_posix() != rel or Path(rel).name != "nim-agent.sh"
+                or not isinstance(sha, str) or not re.fullmatch(r"[0-9a-f]{64}", sha)):
+            raise ValueError("registration does not match project")
+        script = root / rel
+        st = script.lstat()
+        if (not stat.S_ISREG(st.st_mode) or st.st_size > 1024 * 1024
+                or script.resolve(strict=True) != script or hashlib.sha256(script.read_bytes()).hexdigest() != sha):
+            raise ValueError("gateway digest or path changed")
+        bash = shutil.which("bash")
+        if not bash:
+            raise ValueError("bash unavailable")
+        return [bash, str(script), *action["argv"][1:]]
+    except (OSError, ValueError, TypeError, KeyError, AttributeError) as exc:
+        raise CollectCommandError("Nim gateway owner registration or script digest invalid") from exc
+
+
 def validate_command_action(action: dict, label: str = "COLLECT command") -> None:
     argv = action.get("argv")
     if not isinstance(argv, list) or not argv or len(argv) > 24 or any(
         not isinstance(x, str) or not x or len(x) > 512 for x in argv
     ):
         raise CollectCommandError(f"{label}.argv must contain 1..24 bounded literal string tokens")
-    if argv[0] not in READONLY:
+    if argv[0] == "nim-gateway":
+        _validate_nim_read_action(action)
+    elif argv[0] not in READONLY:
         raise CollectCommandError(f"{label}: executable outside read-only whitelist; scripts and interpreters forbidden")
     transport = action.get("transport", "local")
     if transport not in {"local", "ssh"}:
@@ -179,12 +244,15 @@ def _capture_local(root: Path, action: dict, *, log_path: Path | None = None) ->
     cwd = root if cwd_raw == "." else resolve_project_path(root, cwd_raw)
     if not cwd.is_dir():
         raise CollectCommandError("local command cwd is not a project directory")
-    if argv[0] in {"pwd", "ls", "tree", "find"}:
-        _validate_collect_basic_args(cwd, argv)
-    try:
-        _check_legacy_strict_command(cwd, {"argv": argv, "cwd": "."}, 0)
-    except PatchSchemaError as exc:
-        raise CollectCommandError(f"local command denied: {exc}") from exc
+    if argv[0] == "nim-gateway":
+        argv = _nim_read_argv(root, action)
+    else:
+        if argv[0] in {"pwd", "ls", "tree", "find"}:
+            _validate_collect_basic_args(cwd, argv)
+        try:
+            _check_legacy_strict_command(cwd, {"argv": argv, "cwd": "."}, 0)
+        except PatchSchemaError as exc:
+            raise CollectCommandError(f"local command denied: {exc}") from exc
     cap = int(action.get("max_output_bytes", MAX_OUTPUT))
     data = bytearray()
     total = [0]
@@ -200,7 +268,7 @@ def _capture_local(root: Path, action: dict, *, log_path: Path | None = None) ->
     safe_env = dict(os.environ)
     for key in ("PTV_PATCH_RESULT_FILE", "PTV_COLLECT_RESULT_FILE",
                 "PTV_PATCH_COMMAND_LOG_DIR", "PTV_PARENT_MUTATION_LOCK_TOKEN",
-                "PTV_PARENT_MUTATION_LOCK_KEY"):
+                "PTV_PARENT_MUTATION_LOCK_KEY", "TASKDECK_NIM_GATEWAY_LOCAL"):
         safe_env.pop(key, None)
     kwargs["env"] = safe_env
     log_stream = None

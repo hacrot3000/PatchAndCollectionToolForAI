@@ -172,3 +172,60 @@ with tempfile.TemporaryDirectory(prefix="ptv_collect_command_v6200_") as td:
     assert "needle string" in (root / evidence["log_path"]).read_text(encoding="utf-8")
 
 print("PASS: COLLECT command schema, read-only local/SSH, result report and archive")
+
+
+# Explicit owner-registered Nim gateway: no Docker dependency in this test.
+# The stand-in records argv, demonstrating that the native collector invokes
+# only the allowed read action with an exact RUN_ID and no shell interpolation.
+if os.name != "nt" and shutil.which("bash"):
+    import hashlib
+    from unittest.mock import patch
+    with tempfile.TemporaryDirectory(prefix="ptv_nim_gateway_") as td:
+        home = Path(td).resolve()
+        root = home / "project"
+        root.mkdir()
+        script = root / "nim-agent.sh"
+        script.write_text('#!/bin/bash\nprintf "%s\\n" "$@"\n', encoding="utf-8")
+        project_id = "01234567-89ab-cdef-0123-456789abcdef"
+        (root / ".python_patch_tool.json").write_text(json.dumps({"project": {"key": "nim", "id": project_id}}))
+        cfg = home / ".config/taskdeck/nim-gateway.json"
+        cfg.parent.mkdir(parents=True)
+        cfg.write_text(json.dumps({"project_root": str(root), "project_id": project_id,
+                                   "script": "nim-agent.sh", "sha256": hashlib.sha256(script.read_bytes()).hexdigest()}))
+        cfg.chmod(0o600)
+        rid = "a" * 32
+        action = {"type": "command", "transport": "local", "argv": ["nim-gateway", "nim-build-result", rid]}
+        validate_request_data({"actions": [action]})
+        with patch.dict(os.environ, {"HOME": str(home), "TASKDECK_NIM_GATEWAY_LOCAL": "1"}):
+            result = execute_collect_command(root, action)
+            assert result["rc"] == 0 and result["output"] == "nim-build-result\n" + rid + "\n", result
+            for bad in (
+                {"argv": ["nim-gateway", "nim-build-result"]},
+                {"argv": ["nim-gateway", "nim-build-log", "latest"]},
+                {"argv": ["nim-gateway", "nim-build-log", "../receipt.json"]},
+                {"argv": ["nim-gateway", "nim-build", "server"]},
+                {"argv": ["nim-gateway", "nim-delete", "test.nim", rid]},
+                {"argv": ["nim-gateway", "nim-build-result", rid], "transport": "ssh", "profile_name": "Production"},
+                {"argv": ["nim-gateway", "nim-build-result", rid], "cwd": "other"},
+            ):
+                try:
+                    execute_collect_command(root, {"type": "command", **bad})
+                except CollectCommandError:
+                    pass
+                else:
+                    raise AssertionError("unsafe Nim gateway action accepted: " + repr(bad))
+            with patch.dict(os.environ, {"TASKDECK_NIM_GATEWAY_LOCAL": "0"}):
+                try:
+                    execute_collect_command(root, action)
+                except CollectCommandError:
+                    pass
+                else:
+                    raise AssertionError("non-local worker read Nim gateway")
+            script.write_text("exit 0\n")
+            try:
+                execute_collect_command(root, action)
+            except CollectCommandError:
+                pass
+            else:
+                raise AssertionError("changed Nim gateway accepted")
+    print("PASS: owner-bound read-only Nim gateway COLLECT")

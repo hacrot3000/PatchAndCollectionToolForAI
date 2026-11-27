@@ -22,6 +22,7 @@ func agentBuildContextRequest(x agentchat.Session,model agentchat.ModelConfig,p 
 func(s *Server) agentBuildCachedContextRequest(store *agentchat.Store,x agentchat.Session,model agentchat.ModelConfig,p agentchat.ProviderConfig,credential string,c agentchat.RequestConfig)([]byte,error){
  // Ask User is an interactive local legacy tool, not a Run Manager worker.
  c.EnableAskUserTool=c.EnablePatchTool&&x.Owner=="local"&&!s.Config.SharedServerEnabled
+ if x.Owner=="local"{c.Instructions+=s.agentNimGatewayInstructions(x.ProjectID)}
  if c.EnableAskUserTool{c.Instructions+=" "+agentchat.AskUserInstructions}
  if store==nil{return agentBuildContextRequest(x,model,p,c)}
  if c.Mode!=agentchat.Stateless{

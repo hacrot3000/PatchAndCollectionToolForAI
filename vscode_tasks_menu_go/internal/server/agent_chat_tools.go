@@ -225,14 +225,15 @@ func (s *Server) agentChatToolDecisionAPI(w http.ResponseWriter, r *http.Request
 	// The exact pending, never-dispatched legacy proposal can be refused
 	// durably before native side effects. The existing feedback scheduler
 	// sends this structured denial under the user's existing consent.
-	denyInvalidAutomatic := func() bool {
+	denyInvalidAutomatic := func(reason ...string) bool {
 		if !request.Automatic || x.ToolCalls[idx].AgentRunID != "" ||
 			!agentPatchHasNoNativeAttempt(x.ToolCalls[idx]) {
 			return false
 		}
 		x.ToolCalls[idx].Status = "rejected"
-		x.ToolCalls[idx].Result = agentRejectedPatchFeedback("INVALID_PATCH_ARGUMENTS",
-			"Native Patch contract validation refused the proposal before queueing. No Patch was queued or executed. Correct the project-bound arguments and produce a NEW proposal with a new call ID.", true)
+		message := "Native Patch contract validation refused the proposal before queueing. No Patch was queued or executed. Correct the project-bound arguments and produce a NEW proposal with a new call ID."
+		if len(reason)==1 {message += " " + reason[0]}
+		x.ToolCalls[idx].Result = agentRejectedPatchFeedback("INVALID_PATCH_ARGUMENTS",message,true)
 		x.ToolCalls[idx].AutoRunOnce = false
 		x.ToolCalls[idx].SendAfterRetry = false
 		x.Status = "tool_rejected"
@@ -275,6 +276,11 @@ func (s *Server) agentChatToolDecisionAPI(w http.ResponseWriter, r *http.Request
 		return
 	}
 	// Native validation checks BOTH identity headers against this workspace.
+	if err = s.validateAgentNimGatewayProposal(arguments, identity.ID); err != nil {
+		if denyInvalidAutomatic(err.Error()) { return }
+		http.Error(w, err.Error(), 400)
+		return
+	}
 	if _, err = agentPatchPackage(arguments, identity); err != nil {
 		if denyInvalidAutomatic() { return }
 		http.Error(w, "Patch Tool contract validation failed: "+err.Error(), 400)
@@ -378,6 +384,11 @@ func (s *Server) agentChatToolDecisionAPI(w http.ResponseWriter, r *http.Request
 		_, _ = store.Save(x, x.Revision)
 		http.Error(w, "workspace changed since review; approval is stale", 409)
 		return
+	}
+	// Owner may revoke or update the Nim registration while waiting for native admission.
+	if err = s.validateAgentNimGatewayProposal(arguments, identity.ID); err != nil {
+		if denyInvalidAutomatic(err.Error()) {return}
+		http.Error(w, err.Error(),409);return
 	}
 	// Commit a non-retryable QUEUING marker BEFORE the file-side effect.
 	// A crash after this point is explicitly UNKNOWN; no duplicate package or

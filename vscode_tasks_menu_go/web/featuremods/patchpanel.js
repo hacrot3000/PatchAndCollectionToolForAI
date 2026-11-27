@@ -670,6 +670,7 @@ function installPatchPanel(){
     ['plan','Plan','Inspect the execution plan without replacing the Python engine'],
     ['health','Health','Audit the active bundled Patch Tool runtime'],
     ['ai-pack','AI Pack','Package current docs + standard prompt for a new AI chat'],
+    ...(!app.sharedMode?[['nim-gateway','Nim Gateway','Install or register the existing Nim gateway and copy the AI prompt']]:[]),
   ];
   const buttons=[];
   const patchUploadInput=document.createElement('input');
@@ -795,6 +796,7 @@ function installPatchPanel(){
         pasteDialog.showModal();pasteSource.focus();return;
       }
       if(mode==='ai-pack'){prepareAIPack(button).catch(app.showError);return;}
+      if(mode==='nim-gateway'){openNimGateway().catch(app.showError);return;}
       start(mode,button).catch(app.showError);
     };
     actions.append(button);buttons.push(button);
@@ -2474,6 +2476,124 @@ function installPatchPanel(){
     renderParallelCollectRuns();
     if(parallelCollectRuns.size)void pollParallelCollectRuns();
   }
+
+  // Gateway setup is a separate dialog: it does not switch the active PATCH
+  // mode, consume a queue item, or send anything to a provider.
+  let nimGatewayView=null,nimGatewayBusy=false;
+  const nimGatewayDialog=document.createElement('dialog');
+  nimGatewayDialog.className='task-patch-paste-dialog';
+  nimGatewayDialog.style.cssText='width:min(760px,94vw);max-height:90vh;overflow:auto;padding:18px;background:#17202b;color:#f5f6f8;border:1px solid #66758d;border-radius:9px';
+  function nimElement(tag,text='',className=''){
+    const el=document.createElement(tag);el.textContent=text;if(className)el.className=className;return el;
+  }
+  function nimButton(label,fn){
+    const el=nimElement('button',label);el.type='button';el.onclick=()=>Promise.resolve().then(fn).catch(app.showError);return el;
+  }
+  const nimTitle=nimElement('h3','Nim Gateway');
+  const nimStatus=nimElement('p','');
+  nimStatus.setAttribute('role','status');nimStatus.setAttribute('aria-live','polite');
+  const nimMeta=nimElement('div','','task-patch-ai-pack-meta');
+  const nimSelect=nimElement('select');nimSelect.setAttribute('aria-label','Existing Nim gateway script');
+  nimSelect.style.cssText='max-width:100%;margin:6px 0';
+  const nimDigest=nimElement('div','','task-patch-ai-pack-meta');
+  const nimPath=nimElement('input');nimPath.type='text';nimPath.placeholder='e.g. nim-gateway-v4/nim-agent.sh';nimPath.maxLength=512;
+  nimPath.setAttribute('aria-label','Custom project-relative gateway path');
+  nimPath.style.cssText='width:min(360px,100%);box-sizing:border-box';
+  const nimFind=nimButton('Find script',()=>loadNimGateway(nimPath.value.trim()));
+  const nimRefresh=nimButton('Refresh',()=>loadNimGateway(nimSelect.value||nimPath.value.trim()));
+  const nimRegister=nimButton('Register / Update',()=>registerNimGateway());
+  const nimRevoke=nimButton('Revoke',()=>revokeNimGateway());
+  const nimFile=nimElement('input');nimFile.type='file';nimFile.accept='.sh,text/x-shellscript,text/plain';nimFile.hidden=true;
+  const nimInstall=nimButton('Install from file…',()=>{if(!patchUploadAllowed()||runningMode)throw new Error('Gateway installation requires a writable idle Patch Tool');nimFile.click();});
+  const nimPrompt=nimElement('textarea');nimPrompt.readOnly=true;nimPrompt.rows=10;nimPrompt.spellcheck=false;
+  nimPrompt.setAttribute('aria-label','Nim Gateway sample prompt');
+  nimPrompt.style.cssText='width:100%;box-sizing:border-box;resize:vertical;font:12px/1.45 monospace';
+  const nimCopy=nimButton('Copy AI Prompt',()=>copyNimGatewayPrompt());
+  const nimClose=nimButton('Close',()=>nimGatewayDialog.close());
+  const nimActions=nimElement('div','','task-patch-ai-pack-actions');
+  nimActions.append(nimRefresh,nimInstall,nimRegister,nimRevoke);
+  const nimPathActions=nimElement('div','','task-patch-ai-pack-actions');nimPathActions.append(nimPath,nimFind);
+  const nimFooter=nimElement('div','','task-patch-ai-pack-actions');nimFooter.append(nimCopy,nimClose);
+  nimGatewayDialog.append(nimTitle,nimStatus,nimMeta,
+    nimElement('p','TaskDeck detects existing gateway scripts and creates the project-bound registration automatically when you approve. No sudo, Docker installation or manual JSON required. Only register a script you trust and whose container mount matches this project.'),
+    nimElement('strong','Existing gateway'),nimSelect,nimDigest,nimPathActions,nimFile,nimActions,
+    nimElement('h4','Sample prompt for AI Agent'),nimPrompt,nimFooter);
+  document.body.append(nimGatewayDialog);
+  function updateNimGatewayControls(){
+    const c=nimGatewayView?.candidates?.find(x=>x.script===nimSelect.value);
+    const writable=patchUploadAllowed()&&!runningMode&&!nimGatewayBusy;
+    nimDigest.textContent=c?'SHA-256: '+c.sha256:'No gateway selected';
+    nimRegister.disabled=!writable||!c;
+    nimInstall.disabled=!writable;
+    nimRevoke.disabled=!writable||!nimGatewayView?.registration_present;
+    nimRefresh.disabled=nimGatewayBusy;nimFind.disabled=nimGatewayBusy;nimSelect.disabled=nimGatewayBusy;nimPath.disabled=nimGatewayBusy;
+    nimCopy.disabled=nimGatewayBusy||!nimGatewayView?.registered||!nimPrompt.value;
+  }
+  function renderNimGateway(v,preferred=''){
+    nimGatewayView=v;
+    nimStatus.textContent=String(v.status||'');
+    nimMeta.textContent='Project: '+String(v.project_root||'')+' · '+String(v.project_id||'Project ID will be initialized on registration');
+    nimSelect.replaceChildren();
+    for(const c of v.candidates||[]){
+      const opt=nimElement('option',c.script);opt.value=c.script;nimSelect.append(opt);
+    }
+    if((v.candidates||[]).some(c=>c.script===preferred))nimSelect.value=preferred;
+    else if(v.registered_script)nimSelect.value=v.registered_script;
+    nimPrompt.value=v.registered?String(v.prompt||''):'';
+    updateNimGatewayControls();
+  }
+  async function nimGatewayRequest(url,options,preferred=''){
+    if(nimGatewayBusy)return;
+    nimGatewayBusy=true;nimPrompt.value='';updateNimGatewayControls();nimStatus.textContent='Checking Nim Gateway…';
+    try{const v=await app.jsonFetch(url,options);renderNimGateway(v,preferred);}
+    catch(e){nimGatewayView=null;nimSelect.replaceChildren();nimMeta.textContent='';nimStatus.textContent=String(e?.message||e);throw e;}
+    finally{nimGatewayBusy=false;updateNimGatewayControls();}
+  }
+  function loadNimGateway(script=''){
+    return nimGatewayRequest('/api/patch/nim-gateway'+(script?'?script='+encodeURIComponent(script):''),undefined,script);
+  }
+  async function openNimGateway(){
+    if(app.sharedMode)throw new Error('Nim Gateway is local-only');
+    if(!nimGatewayDialog.open)nimGatewayDialog.showModal();
+    await loadNimGateway();
+  }
+  function nimGatewayMutation(payload,preferred=''){
+    if(!patchUploadAllowed()||runningMode||nimGatewayBusy||!nimGatewayView)throw new Error('Gateway setup requires a writable idle Patch Tool');
+    return nimGatewayRequest('/api/patch/nim-gateway',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...payload,project_root:nimGatewayView.project_root,confirm:true})},preferred);
+  }
+  async function registerNimGateway(){
+    const c=nimGatewayView?.candidates?.find(x=>x.script===nimSelect.value);
+    if(!c)return;
+    const replace=nimGatewayView.registration_present?' This replaces the existing account-wide gateway registration if necessary.':'';
+    if(!window.confirm('Authorize the reviewed gateway '+c.script+' for '+nimGatewayView.project_root+'? SHA-256: '+c.sha256+'.'+replace))return;
+    await nimGatewayMutation({action:'register',script:c.script,sha256:c.sha256},c.script);
+  }
+  async function revokeNimGateway(){
+    if(!window.confirm('Revoke future Nim gateway access for this project? Already queued work is not cancelled.'))return;
+    await nimGatewayMutation({action:'revoke'});
+  }
+  nimSelect.onchange=updateNimGatewayControls;
+  nimFile.onchange=async()=>{
+    const f=nimFile.files?.[0];nimFile.value='';
+    if(!f)return;
+    try{
+      if(f.name!=='nim-agent.sh'||f.size<1||f.size>1024*1024)throw new Error('Choose the reviewed nim-agent.sh file (at most 1 MiB)');
+      if(!window.confirm('Install this selected script as nim-agent.sh in '+nimGatewayView?.project_root+'? Existing files are never overwritten. Registration is a separate step.'))return;
+      const text=new TextDecoder('utf-8',{fatal:true}).decode(await f.arrayBuffer());
+      await nimGatewayMutation({action:'install',script:'nim-agent.sh',content:text},'nim-agent.sh');
+    }catch(e){app.showError(e);}
+  };
+  async function copyNimGatewayPrompt(){
+    // Revalidate before copying so a changed script cannot produce an old prompt.
+    await loadNimGateway(nimSelect.value);
+    if(!nimGatewayView?.registered||!nimPrompt.value)throw new Error('Register the current gateway before copying the prompt');
+    let copied=false;
+    if(navigator.clipboard&&window.isSecureContext){try{await navigator.clipboard.writeText(nimPrompt.value);copied=true;}catch{}}
+    if(!copied){nimPrompt.focus();nimPrompt.select();copied=document.execCommand('copy');}
+    if(!copied)throw new Error('Copy failed; select and copy the visible prompt manually');
+    nimStatus.textContent='Prompt copied. Paste into your current AI Agent conversation.';
+  }
+  updateNimGatewayControls();
 
   async function copyAIPackPrompt(button,full=false){
     if(!latestAIPack)throw new Error('Prepare AI Pack before copying');

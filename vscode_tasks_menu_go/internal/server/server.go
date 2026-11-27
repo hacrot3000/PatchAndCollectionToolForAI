@@ -240,6 +240,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/git/jobs", s.gitJobsAPI)
 	mux.HandleFunc("/api/git/jobs/control", s.gitJobsControl)
 	mux.HandleFunc("/api/patch/ai-pack", s.patchAIPack)
+	mux.HandleFunc("/api/patch/nim-gateway", s.patchNimGateway)
 	mux.HandleFunc("/api/patch/project-identity", s.patchProjectIdentity)
 	mux.HandleFunc("/api/patch/project-rules", s.patchProjectRules)
 	mux.HandleFunc("/api/patch/upload", s.patchUpload)
@@ -513,6 +514,11 @@ func (s *Server) sessionsRoot(w http.ResponseWriter, r *http.Request) {
 				http.Error(w, err.Error(), http.StatusBadRequest)
 				return
 			}
+			// Explicitly override the caller's environment: the registered Nim receipt
+			// reader is local-only. Shared sessions cannot opt in with req.Env.
+			nimLocal := "0"
+			if !s.Config.SharedServerEnabled {nimLocal = "1"}
+			if err := tasks.ApplyEnvironmentOverrides(&spec,map[string]string{"TASKDECK_NIM_GATEWAY_LOCAL":nimLocal});err!=nil{http.Error(w,err.Error(),500);return}
 			if fromAgent, _ := r.Context().Value(agentNativeRunOriginKey{}).(bool); fromAgent {
 				spec.Label += agentNativeRunLabelSuffix
 			}
@@ -2071,6 +2077,8 @@ func (s *Server) sessionItem(w http.ResponseWriter, r *http.Request) {
 				http.Error(w, err.Error(), http.StatusBadRequest)
 				return
 			}
+			nimLocal:="0";if !s.Config.SharedServerEnabled{nimLocal="1"}
+			if err:=tasks.ApplyEnvironmentOverrides(&spec,map[string]string{"TASKDECK_NIM_GATEWAY_LOCAL":nimLocal});err!=nil{http.Error(w,err.Error(),500);return}
 			if s.Config.SharedServerEnabled {
 				stampSharedSession(principal, &spec, tasks.SessionKindPatch)
 			}

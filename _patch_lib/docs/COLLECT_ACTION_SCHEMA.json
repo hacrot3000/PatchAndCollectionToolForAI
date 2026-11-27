@@ -610,7 +610,7 @@
       }
     },
     "command": {
-      "description": "Run one bounded whitelist-only read-only command to collect console evidence. transport=local uses project cwd; transport=ssh uses an exact saved TaskDeck SSH profile name (ask user when unknown). No shell, Python, scripts or mutating find flags. SSH absolute operands may use only these fixed data roots or descendants: /data, /srv, /opt, /var/log, /var/www, /var/data, /mnt, /media, /app, /apps, /logs, /storage, /backup, /backups. Relative operands retain login-directory semantics. Use only absolute whitelist operands or only relative operands in each command; no '..', prefix lookalikes or arbitrary shell. The SSH bridge resolves absolute targets remotely with realpath -e and rejects targets outside the whitelist; a missing target or missing realpath fails closed. File readers require regular files. This is not a filesystem sandbox; avoid collecting credentials or unrelated sensitive data. Local COLLECT stays project-relative. Example SSH argv: [\"grep\",\"-nriF\",\"--\",\"orderId=123\",\"/data/logs\"].",
+      "description": "Run one bounded whitelist-only read-only command to collect console evidence. transport=local uses project cwd; transport=ssh uses an exact saved TaskDeck SSH profile name (ask user when unknown). No general shell, Python, scripts or mutating find flags. Sole named local exception: argv [\"nim-gateway\",\"nim-build-result\",\"EXACT_32_HEX_RUN_ID\"] (actual lowercase hex ID), nim-build-status, nim-build-log, nim-artifacts; nim-profiles, nim-profile-info PROFILE, nim-doctor, nim-source-compare. Requires owner registration, exact project and gateway SHA; never SSH, latest, builds or source mutations. SSH absolute operands may use only these fixed data roots or descendants: /data, /srv, /opt, /var/log, /var/www, /var/data, /mnt, /media, /app, /apps, /logs, /storage, /backup, /backups. Relative operands retain login-directory semantics. Use only absolute whitelist operands or only relative operands in each command; no '..', prefix lookalikes or arbitrary shell. The SSH bridge resolves absolute targets remotely with realpath -e and rejects targets outside the whitelist; a missing target or missing realpath fails closed. File readers require regular files. This is not a filesystem sandbox; avoid collecting credentials or unrelated sensitive data. Local COLLECT stays project-relative. Example SSH argv: [\"grep\",\"-nriF\",\"--\",\"orderId=123\",\"/data/logs\"].",
       "required": [
         "type",
         "argv"
@@ -642,7 +642,8 @@
         "tail",
         "wc",
         "nl",
-        "sed"
+        "sed",
+        "nim-gateway"
       ],
       "forbidden": [
         "scripts",
