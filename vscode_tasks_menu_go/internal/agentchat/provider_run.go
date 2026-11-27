@@ -21,6 +21,7 @@ type ProviderRun struct {
  Kind string `json:"kind"` // message, collection, feedback
  Phase string `json:"phase"` // prepared, sending, acknowledged, unknown, completed, blocked
  CallID string `json:"call_id,omitempty"`
+ CollectionReplan bool `json:"collection_replan,omitempty"`
  PayloadSHA256 string `json:"payload_sha256"`
  ProviderFingerprint string `json:"provider_fingerprint"`
  EstimatedInputTokens uint64 `json:"estimated_input_tokens,omitempty"`
@@ -49,6 +50,7 @@ func validProviderRun(run *ProviderRun) bool {
  if len(run.ID)<1 || len(run.ID)>96 || len(run.CallID)>256 ||
   len(run.PayloadSHA256)!=64 || len(run.ProviderFingerprint)>128 ||
   run.CreatedAt.IsZero() || run.UpdatedAt.IsZero(){return false}
+ if run.CollectionReplan&&run.Kind!="collection"{return false}
  switch run.Kind{case "message","collection","feedback":default:return false}
  switch run.Phase{case "prepared","sending","acknowledged","unknown","completed","blocked":default:return false}
  return true
@@ -156,4 +158,49 @@ func (s *Store) DeleteProviderPayload(id string) error{
   }
   return nil
  })
+}
+
+
+// ErrCollectionReplanRevoked means the exact PREPARED request was parked
+// before crossing the durable SENDING boundary. It is not unknown egress.
+var ErrCollectionReplanRevoked=errors.New("automatic Collection replan no longer authorized")
+
+func CollectionReplanAllowed(x Session)bool{
+ if x.Owner!="local"||x.Archived||(x.AutoCollection!=nil&&!*x.AutoCollection){return false}
+ if x.TaskPlan!=nil{return x.TaskPlan.AutoContinue&&TaskPlanNext(x.TaskPlan)!=nil}
+ return x.AutoContinueText
+}
+
+// CommitProviderSending serializes the replan consent check with owner
+// metadata writes and the existing journal CAS. An opt-out that commits
+// first wins; after SENDING, the normal ambiguous-egress fence applies.
+// Return the durable blocked session together with the sentinel so the
+// caller cannot accidentally persist a stale in-memory SENDING candidate.
+func(s *Store) CommitProviderSending(candidate Session,expectedRevision uint64)(Session,error){
+ var saved Session
+ revoked:=false
+ err:=s.withLock(func()error{
+  current,e:=s.readLocked(candidate.ID);if e!=nil{return e}
+  if current.Revision!=expectedRevision{return ErrStaleRevision}
+  old,next:=current.ProviderRun,candidate.ProviderRun
+  if current.Owner!=candidate.Owner||current.Workspace!=candidate.Workspace||current.ProjectID!=candidate.ProjectID||
+   old==nil||next==nil||old.Phase!="prepared"||next.Phase!="sending"||
+   old.ID!=next.ID||old.Kind!=next.Kind||old.CallID!=next.CallID||old.PayloadSHA256!=next.PayloadSHA256||
+   old.ProviderFingerprint!=next.ProviderFingerprint||old.CollectionReplan!=next.CollectionReplan{return ErrInvalidSession}
+  if old.CollectionReplan&&!CollectionReplanAllowed(current){
+   current.Status="failed"
+   current.ProviderRun.Phase="blocked"
+   current.ProviderRun.UpdatedAt=time.Now().UTC()
+   current.PreviousResponseID="";current.ConversationID=""
+   current.AppendEvent("clp_checkpoint",current.Status,old.CallID,"recovery_not_authorized")
+   saved,e=s.saveSessionLocked(current,expectedRevision)
+   revoked=e==nil
+   return e
+  }
+  saved,e=s.saveSessionLocked(candidate,expectedRevision)
+  return e
+ })
+ if err!=nil{return Session{},err}
+ if revoked{return saved,ErrCollectionReplanRevoked}
+ return saved,nil
 }
