@@ -2252,7 +2252,11 @@ function openAgentTab(id){
 function closeAgentTab(id){
  agentTabs=agentTabs.filter(x=>x!==id);
  if(agentActive===id){
+  // Closing the tab is not deleting its unsent draft.
+  agentDrafts.set(id,prompt.value);
+  agentAttachmentDrafts.set(id,agentAttachments.map(a=>({...a})));
   agentActive=null;
+  agentAttachments=[];setAgentPromptValue('');renderAgentAttachments();
   if(agentTabs.length)selectAgentSession(agentTabs[agentTabs.length-1]).catch(showAgentError);
   else displayAgentSession(null);
  }
@@ -2296,13 +2300,21 @@ async function selectAgentSession(id){
   agentToolNoticeKey=toolStatus+':'+(sess.auto_patch?'auto':'manual');
  }
  toolNotice.hidden=false;
- agentActive=id;
- if(switched)await agentRunUI?.selectConversation(sess);
- if(generation!==agentSelectGeneration)return null;
+ // Restore the destination draft before yielding to any asynchronous UI
+ // work. A selection added during that work must never see the old draft.
  if(switched){
+  if(agentActive&&agentActive!==id){
+   agentDrafts.set(agentActive,prompt.value);
+   agentAttachmentDrafts.set(agentActive,agentAttachments.map(a=>({...a})));
+  }
+  agentActive=id;
   setAgentPromptValue(agentDrafts.get(id)||'');
   agentAttachments=(agentAttachmentDrafts.get(id)||[]).map(a=>({...a}));
   renderAgentAttachments();
+  await agentRunUI?.selectConversation(sess);
+ }
+ if(generation!==agentSelectGeneration)return null;
+ if(switched){
   if(!agentRunUI){
    const p=agentProviders.find(p=>p.id===sess.provider_id);
    if(p){providerSelect.value=p.id;updateAgentModels(sess.model_id,sess.reasoning_effort||'');}
@@ -2315,7 +2327,7 @@ async function selectAgentSession(id){
  const pendingToTransfer=agentPendingAttachments.slice();
  if(pendingToTransfer.length){
   try{
-   const staged=normalizeStagedAttachments([...agentAttachments,...pendingToTransfer]);
+   const staged=normalizeStagedAttachments(mergeStagedContexts(agentAttachments,pendingToTransfer));
    agentAttachments=staged;agentAttachmentDrafts.set(id,staged.map(a=>({...a})));
    agentPendingAttachments.splice(0,pendingToTransfer.length);renderAgentAttachments();
   }catch(error){setAgentStatusNotice('Pending attachments need room: '+String(error?.message||error));}
@@ -2564,7 +2576,7 @@ async function createSession(){
  await loadAgentSessions();
  await selectAgentSession(result.session.id);
  prompt.focus();
- if(agentPendingAttachments.length){const pending=agentPendingAttachments.slice();try{const merged=normalizeStagedAttachments([...agentAttachments,...pending]);agentAttachments=merged;agentAttachmentDrafts.set(result.session.id,merged.map(a=>({...a})));agentPendingAttachments.splice(0,pending.length);renderAgentAttachments();}catch(error){setAgentStatusNotice('Pending attachments need room in this session: '+String(error?.message||error));}}
+ if(agentPendingAttachments.length){const pending=agentPendingAttachments.slice();try{const merged=normalizeStagedAttachments(mergeStagedContexts(agentAttachments,pending));agentAttachments=merged;agentAttachmentDrafts.set(result.session.id,merged.map(a=>({...a})));agentPendingAttachments.splice(0,pending.length);renderAgentAttachments();}catch(error){setAgentStatusNotice('Pending attachments need room in this session: '+String(error?.message||error));}}
 }
 async function sendAgentMessage(resumeCollectionRunID=""){
  if(typeof resumeCollectionRunID!=="string")resumeCollectionRunID="";
@@ -2844,7 +2856,8 @@ function renderAgentAttachments(){
  const items=currentStagedAttachments();
  attachToggle.hidden=!items.length;
  attachToggle.textContent='Attachments ('+items.length+') '+(attachPopup.classList.contains('open')?'▾':'▸');
- attachToggle.setAttribute('aria-label','View '+items.length+' staged attachment'+(items.length===1?'':'s'));
+ const quoteCount=items.reduce((sum,item)=>sum+(item.kind==='file_selection'?quotesForContext(item).length:0),0);
+ attachToggle.setAttribute('aria-label','View '+items.length+' staged attachment'+(items.length===1?'':'s')+(quoteCount?' containing '+quoteCount+' selected excerpt'+(quoteCount===1?'':'s'):''));
  if(!attachPopup.classList.contains('open')){
   // Closed is genuinely lazy: no per-item cards, tooltips or previews exist.
   return;
@@ -2858,7 +2871,8 @@ function renderAgentAttachments(){
   const terminal=item.kind==='terminal_console'||item.kind==='terminal_selection';
   const label=terminal?(item.source?.terminal_title||item.name):item.name;
   const title=agentEl('div','agentchat-attachment-title',terminal?'▤':'📄');
-  title.append(agentEl('span','',label));
+  const quotes=item.kind==='file_selection'?quotesForContext(item):[];
+  title.append(agentEl('span','',label+(quotes.length>1?' · '+quotes.length+' selections':'')));
   const origin=terminal?'Terminal ID: '+(item.source?.terminal_id||'unknown'):(item.source?.path||item.name);
   const path=agentEl('div','agentchat-attachment-path',origin);
   path.title=origin;
@@ -2866,8 +2880,7 @@ function renderAgentAttachments(){
   const details=agentButton('ⓘ',()=>{});
   details.className='agentchat-attachment-info';
   details.setAttribute('aria-label','Attachment details: '+label);
-  const ranges=Array.isArray(item.source?.ranges)&&item.source.ranges.length?
-   item.source.ranges.map((r,i)=>'Quote '+(i+1)+': L'+r.start_line+':C'+(r.start_column||1)+'–L'+r.end_line+':C'+(r.end_column||1)).join('\n'):
+  const ranges=quotes.length?quotes.map((q,i)=>'Quote '+(i+1)+': '+(q.start_line===undefined?'Source position unavailable':'L'+q.start_line+':C'+(q.start_column||1)+'–L'+q.end_line+':C'+(q.end_column||1))).join('\n'):
    (item.source?.start_line!==undefined?'Lines '+item.source.start_line+'–'+item.source.end_line:'');
   const summary=['Name: '+item.name,'Source: '+origin,item.source?.cwd?'CWD: '+item.source.cwd:'',
    item.bytes+' bytes'+(item.source?.dirty?' · unsaved buffer':''),ranges,'Preview:',item.preview||''].filter(Boolean).join('\n');
@@ -2917,31 +2930,41 @@ function renderAgentAttachments(){
 // Quote excerpts are immutable snapshots. Separate selections from the
 // same local file occupy one attachment and retain every individual line range.
 function quotesForContext(context){
- if(Array.isArray(context.quotes)&&context.quotes.length)return context.quotes.map(q=>({...q}));
  const source=context.source||{};
- if(source.start_line===undefined)return [];
- return [{start_line:source.start_line,start_column:source.start_column||1,
-  end_line:source.end_line,end_column:source.end_column||1,text:context.rawText??context.text}];
+ const provenance={dirty:Boolean(source.dirty),content_source:source.content_source||'',captured_at:source.captured_at||''};
+ if(Array.isArray(context.quotes)&&context.quotes.length)return context.quotes.map(q=>({...provenance,...q}));
+ const text=context.rawText??context.text;
+ if(source.start_line===undefined)return [{...provenance,text}];
+ return [{...provenance,start_line:source.start_line,start_column:source.start_column||1,
+  end_line:source.end_line,end_column:source.end_column||1,text}];
 }
 function stageFileSelectionQuotes(current,item){
  if(item.kind!=='file_selection'||!item.source?.path)return [...current,item];
- const existingIndex=current.findIndex(old=>old.kind==='file_selection' &&
-  old.source?.path===item.source.path &&
-  Boolean(old.source?.dirty)===Boolean(item.source.dirty) &&
-  old.source?.content_source===item.source.content_source);
- const previous=existingIndex<0?[]:quotesForContext(current[existingIndex]);
- const incoming=quotesForContext(item);
- const all=[...previous,...incoming];
- if(!all.length)return [...current,item];
- const text=all.map((q,index)=>'QUOTE '+(index+1)+' · L'+q.start_line+
-  ':C'+q.start_column+'-L'+q.end_line+':C'+q.end_column+'\n'+q.text).join('\n\n');
- const source={...item.source,start_line:all[0].start_line,start_column:all[0].start_column,
-  end_line:all[all.length-1].end_line,end_column:all[all.length-1].end_column,
-  ranges:all.map(({start_line,start_column,end_line,end_column})=>
-   ({start_line,start_column,end_line,end_column}))};
+ // A file may be edited or saved between selections. Keep each immutable
+ // snapshot with its own provenance; never overwrite earlier excerpts.
+ const matches=current.map((old,index)=>old.kind==='file_selection'&&old.source?.path===item.source.path?index:-1).filter(index=>index>=0);
+ const all=[...matches.flatMap(index=>quotesForContext(current[index])),...quotesForContext(item)];
+ const text=all.map((q,index)=>{
+  const location=q.start_line===undefined?'source position unavailable':'L'+q.start_line+':C'+q.start_column+'-L'+q.end_line+':C'+q.end_column;
+  const provenance='CAPTURE '+(index+1)+': '+safeAttachmentMetadata(q.content_source||'selection')+'; unsaved='+Boolean(q.dirty)+(q.captured_at?'; '+safeAttachmentMetadata(q.captured_at):'');
+  return provenance+'\nQUOTE '+(index+1)+' · '+location+'\n'+q.text;
+ }).join('\n\n');
+ const source={...item.source,dirty:all.some(q=>q.dirty),content_source:new Set(all.map(q=>q.content_source)).size>1?'mixed_selection_snapshots':item.source.content_source};
+ // Do not imply a contiguous range or invent positions for preview text.
+ delete source.start_line;delete source.start_column;delete source.end_line;delete source.end_column;delete source.ranges;
+ source.source_line_unavailable=all.some(q=>q.start_line===undefined);
+ const known=all.filter(q=>q.start_line!==undefined);
+ if(known.length){
+  source.start_line=known[0].start_line;source.start_column=known[0].start_column;
+  source.end_line=known[known.length-1].end_line;source.end_column=known[known.length-1].end_column;
+  source.ranges=known.map(({start_line,start_column,end_line,end_column})=>({start_line,start_column,end_line,end_column}));
+ }
  const merged={...item,text,rawText:text,source,quotes:all};
- if(existingIndex<0)return [...current,merged];
- const next=current.slice();next[existingIndex]=merged;return next;
+ if(!matches.length)return [...current,merged];
+ return current.flatMap((old,index)=>index===matches[0]?[merged]:matches.includes(index)?[]:[old]);
+}
+function mergeStagedContexts(current,incoming){
+ return incoming.reduce((items,item)=>stageFileSelectionQuotes(items,item),current.slice());
 }
 async function stageContext(context,options={}){
  const targetSessionID=Object.prototype.hasOwnProperty.call(options,'session_id')?(options.session_id||null):agentSelectedChatSession();
@@ -2987,7 +3010,10 @@ async function stageContext(context,options={}){
   }
   if(options.focusComposer!==false)prompt.focus();
   const actualSession=targetSessionID||agentActive||null;
-  return {ok:true,session_id:actualSession,pending:!actualSession,attachment_count:current.length};
+  const actual=actualSession?(actualSession===agentActive?agentAttachments:(agentAttachmentDrafts.get(actualSession)||[])):agentPendingAttachments;
+  const quoteCount=kind==='file_selection'?actual.filter(a=>a.kind==='file_selection'&&a.source?.path===item.source?.path).reduce((n,a)=>n+quotesForContext(a).length,0):0;
+  if(quoteCount&&(!actualSession||actualSession===agentActive))setAgentStatusNotice('Selection added · '+item.name+' · '+quoteCount+' selected excerpt'+(quoteCount===1?'':'s')+' · Review attachments before Send.');
+  return {ok:true,session_id:actualSession,pending:!actualSession,attachment_count:actual.length,selection_count:quoteCount};
  }catch(error){return {ok:false,session_id:targetSessionID,error:String(error?.message||error)};}
 }
 // Editor documents are JavaScript strings (UTF-16), not raw UTF-8 bytes.
