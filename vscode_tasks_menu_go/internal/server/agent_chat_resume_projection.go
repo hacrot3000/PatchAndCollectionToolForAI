@@ -80,7 +80,7 @@ type patchFeedbackAutoResumeKey struct{}
 func agentPatchFeedbackResumeReceipt(x agentchat.Session)(int,bool){
  r:=x.ProviderRun
  if x.Owner!="local"||x.Archived||x.Status!="failed"||x.PendingUserTurn!=nil||
-  !x.AutoContinueText||x.TaskPlan!=nil||!x.AutoFeedback||!x.AutoFeedbackPersistent||
+  !agentchat.StandaloneContinuationGranted(x)||x.TaskPlan!=nil||!x.AutoFeedback||!x.AutoFeedbackPersistent||
   x.RetryMode!=agentchat.RetryUnlimited||agentchat.HasUnresolvedWork(x)||
   r==nil||r.Kind!="feedback"||r.Phase!="unknown"||r.UsageRecorded||r.CallID==""||
   len(r.PayloadSHA256)!=64||r.ProviderFingerprint==""||len(x.History)<2{return -1,false}
