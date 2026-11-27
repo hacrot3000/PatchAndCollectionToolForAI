@@ -1,5 +1,7 @@
 # HANDOFF 20 — Legacy / Unified pipeline trace map (CLP-00.01.02/.03/.04)
 
+> **Current local workflow (2026-11-27):** [20-coder-execution-contract.md](20-coder-execution-contract.md) supersedes historical process/stop instructions and completion claims below. Reference evidence only; use this audit to guide concrete source changes, not as a mandatory repeated audit or reason to stop. Local coder writes source/test fixes, operator runs CI/Git. Continue independent local work without external-only BLOCKED; no acceptance or safety relaxation.
+
 > Static trace from read-only native COLLECT. Symbols marked "verified" were read in
 > the current workspace; symbols marked "pinned" come from the master checklist's
 > pinned-source trace (recorded at commits a7cc2a1711… / fe4cc344f1…). No provider,
