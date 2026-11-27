@@ -2076,6 +2076,8 @@ func (s *Server) sessionItem(w http.ResponseWriter, r *http.Request) {
 				http.Error(w, err.Error(), http.StatusBadRequest)
 				return
 			}
+			nimLocal:="0";if !s.Config.SharedServerEnabled{nimLocal="1"}
+			if err:=tasks.ApplyEnvironmentOverrides(&spec,map[string]string{"TASKDECK_NIM_GATEWAY_LOCAL":nimLocal});err!=nil{http.Error(w,err.Error(),500);return}
 			if s.Config.SharedServerEnabled {
 				stampSharedSession(principal, &spec, tasks.SessionKindPatch)
 			}
