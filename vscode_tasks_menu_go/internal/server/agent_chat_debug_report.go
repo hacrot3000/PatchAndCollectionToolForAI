@@ -235,6 +235,7 @@ func agentSafeContinuationDiagnostic(x agentchat.Session)map[string]any{
   "auto_continue_text":x.AutoContinueText,
   "standalone_eligible":agentchat.StandaloneAutoContinueCandidate(x),
   "unknown_collection_recheck":agentchat.UnknownCollectionProgressRecheck(x),
+  "unknown_patch_correction_recheck":agentchat.UnknownPatchCorrectionRecheck(x),
   "task_plan_present":x.TaskPlan!=nil,
  }
  if c:=agentchat.EffectiveTurnContinuation(x);c!=nil{

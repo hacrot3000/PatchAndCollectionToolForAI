@@ -311,6 +311,12 @@ func (s *Server) agentDeliverToolResult(ctx context.Context, store *agentchat.St
 	toolAvailable := model.ToolCalling && s.agentToolCapabilityVerified(owner, p, model)
 	instructions,currentInstructions := agentChatInstructionsWithAutomationParts(x, toolAvailable, identity.Key)
 	currentInstructions += s.agentRetireKnownFailedPatches(ctx, &x, identity, call.CallID)
+	for _,i:=range indices{
+		if agentchat.PatchCorrectionRequired(x.ToolCalls[i]){
+			currentInstructions += " "+agentPatchCorrectionInstruction
+			break
+		}
+	}
 	failureProjection := s.agentFailureContextProjection(store, x, call.CallID, "")
 	reasoning:=agentProviderReasoningEffort(p,x.ReasoningEffort,model)
 	limit := agentInitialOutputBudget(model,reasoning,toolAvailable)
