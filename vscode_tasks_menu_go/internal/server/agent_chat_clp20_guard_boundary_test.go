@@ -17,7 +17,7 @@ func clp20GuardSession(t *testing.T, goal string) agentchat.Session {
 	if !x.BindCollectionGuard(goal, "", false) {
 		t.Fatal("bind guard")
 	}
-	return *x
+	return x
 }
 
 func clp20GuardFeed(t *testing.T, x *agentchat.Session, callID string, kind cp.EventKind, novelty cp.Novelty, native bool) {

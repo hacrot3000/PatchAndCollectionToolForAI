@@ -2171,3 +2171,48 @@ console.log('PASS: active Agent Rename persists once and updates tab and History
 // Tests have no authority to execute native Patch or contact the real provider.
 
 })().catch(error => { console.error(error); process.exitCode = 1; });
+
+
+// Exercise actual questionnaire rendering in an isolated minimal DOM. Do
+// not submit a fake answer to any external provider.
+(async()=>{
+ const start=source.indexOf('const agentQuestionDrafts=new Map();');
+ const end=source.indexOf('function renderAgentTool(session,item){',start);
+ assert.ok(start>=0&&end>start);
+ let posted=null;
+ const local={Map,Set,JSON,Array,String,Boolean,console,encodeURIComponent,
+  agentActive:'qsession',agentSessionBusy:()=>false,agentHasRecordedToolOutput:()=>false,
+  agentEl:(tag,cls,text)=>{const n=new FakeElement(tag);n.className=cls||'';n.textContent=text||'';return n;},
+  agentButton:(text,fn)=>{const n=new FakeElement('button');n.textContent=text;n.onclick=fn;return n;},
+  agentApp:{jsonFetch:async(url,opts)=>{posted={url,body:JSON.parse(opts.body)};return {};}},
+  markAgentSessionBusy:()=>{},agentStartProgressPoll:()=>{},agentStopProgressPoll:()=>{},
+  selectAgentSession:async()=>{},setAgentStatusNotice:()=>{},window:{confirm:()=>true},
+  showAgentError:e=>{throw e;},continueAgentTool:()=>Promise.resolve()};
+ vm.runInNewContext(source.slice(start,end)+'\nthis.render=renderAgentQuestionnaire;',local);
+ const questions=[{id:'one',prompt:'Single?',type:'single_choice',required:true,options:[{id:'a',label:'A'},{id:'b',label:'B'}],allow_comment:true},
+  {id:'many',prompt:'Multiple?',type:'multiple_choice',required:false,options:[{id:'x',label:'X'},{id:'y',label:'Y'}]},
+  {id:'text',prompt:'Describe',type:'text',required:true,options:[]}];
+ const item={call_id:'q1',arguments:JSON.stringify({questions})};
+ const record={status:'pending',name:'taskdeck_ask_user',call_id:'q1',arguments_sha256:'digest'};
+ const session={id:'qsession',status:'waiting_tool',tool_calls:[record],history:[]};
+ const make=()=>local.render(session,item,record,new FakeElement('div'));
+ const nodes=(n,p)=>[...(p(n)?[n]:[]),...n.children.flatMap(c=>nodes(c,p))];
+ let card=make(),controls=nodes(card,n=>n.tagName==='input'),texts=nodes(card,n=>n.tagName==='textarea');
+ let send=nodes(card,n=>n.tagName==='button'&&n.textContent==='Send answers')[0];
+ assert.equal(send.disabled,true);
+ controls[0].checked=true;controls[0].listeners.change[0]();
+ controls[2].checked=true;controls[2].listeners.change[0]();
+ controls[3].checked=true;controls[3].listeners.change[0]();
+ texts[0].value='Extra details';texts[0].listeners.input[0]();
+ texts[1].value='Tiếng Việt';texts[1].listeners.input[0]();
+ assert.equal(send.disabled,false);
+ assert.equal(posted,null,'No response may be sent until explicit click');
+ card=make();controls=nodes(card,n=>n.tagName==='input');texts=nodes(card,n=>n.tagName==='textarea');
+ assert.equal(controls[0].checked,true);assert.equal(controls[3].checked,true);
+ assert.equal(texts[1].value,'Tiếng Việt','Questionnaire draft survives redraw');
+ send=nodes(card,n=>n.tagName==='button'&&n.textContent==='Send answers')[0];
+ await send.onclick();
+ assert.equal(posted.url,'/api/agent/sessions/qsession/tools/q1/answer');
+ assert.deepEqual(posted.body.answers,[{question_id:'one',selected:['a'],text:'Extra details'},{question_id:'many',selected:['x','y'],text:''},{question_id:'text',selected:[],text:'Tiếng Việt'}]);
+ console.log('PASS: interactive questionnaire controls, retained drafts, exact explicit answer payload');
+})().catch(e=>{console.error(e);process.exitCode=1;});

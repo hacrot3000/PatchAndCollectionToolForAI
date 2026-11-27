@@ -45,7 +45,7 @@ func TestRecoveryNoContinuationStormAtReservedStall(t *testing.T) {
 			t.Fatalf("replayed stall reserved a second continuation: %+v %+v", again, d2)
 		}
 	}
-	replayed, applied, err := ApplyCounterEvent(Defaults(), s, e, true)
+	replayed, _, applied, err := ApplyCounterEvent(Defaults(), s, e, true)
 	if err != nil || applied || replayed != s {
 		t.Fatalf("duplicate committed observation re-counted: %+v %v", replayed, err)
 	}
