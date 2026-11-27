@@ -1,5 +1,7 @@
 # HANDOFF 20 — External verification queue
 
+> **ACTIVE INSTRUCTION (2026-11-27):** follow [20-coder-execution-contract.md](20-coder-execution-contract.md). Local coder owns source/test authoring and repair; operator owns execution/delivery. No external-only `BLOCKED`, no repeated completion audit, and no requirement to rewrite every document per PATCH. Historical claims below are retained as history, not current instructions. Latest reviewed source `9a9c350b`: core/Go FAIL; local source repair IN_PROGRESS. Technical acceptance, permissions and evidence requirements remain intact.
+
 > Operator-run worklist. This session may only author source/tests/docs via native COLLECT + PATCH.
 > Every item below is PENDING until the operator returns a real receipt (CI URL + conclusion + job/log or named test result).
 > No item is marked PASS from a PATCH receipt, a wrapper rc, or untrusted text.
@@ -155,3 +157,14 @@ Verified current state (native COLLECT, Coverage VERIFIED):
 - P1 native-pipeline integration tests (TestCLP20PipelineW1/W2/W3/W7 + StopRestart) are registered in V-BATCH-08 (receipt 1795774665546390_700887).
 
 All nine batch headers V-BATCH-00..08 are present, each with working directory, exact commands, dependencies and Status PENDING (as required — nothing executed by the authoring session). V-BATCH-00 remains the required compile preflight gate; V-BATCH-07 (Git/delivery) is operator-only and not a prerequisite for local test batches. Real per-test receipts still must be returned before any PENDING status, gate or checkbox is promoted; no runtime PASS is claimed from this note.
+
+## Latest operator evidence and priority preflight
+At 9a9c350b core 45985473641/Go 45985473473 FAIL; PHP 45985473638 PASS. Source repair FIX-01..05 is now active; see execution contract. After source repair run V-BATCH-00, then from vscode_tasks_menu_go:
+
+```sh
+go test -v -race -count=1 ./internal/agentchat -run '^TestCLP20ObservationCrash'
+go test -v -race -count=1 ./internal/agentchat/collectionprogress -run '^TestMutationProof'
+go test -v -count=1 ./internal/server -run '^TestFeedbackResume'
+```
+
+Capture real named results, exit codes and SHA; no-tests-to-run is not acceptance. Then remaining batches as appropriate. Operator-only; local coder does not wait for these results before other independent source changes.
