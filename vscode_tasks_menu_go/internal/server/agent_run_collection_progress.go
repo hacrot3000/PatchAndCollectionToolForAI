@@ -59,6 +59,12 @@ func runCollectionProgressUpdate(owner string,run agentrun.Record,inputs AgentRu
  policy,valid:=inputs.Snapshot.Policy.CollectionPolicy();if !valid{return raw}
  g,ok:=readRunCollectionProgress(owner,run.Spec,inputs)
  if !ok||len(run.History)<len(inputs.Snapshot.History)||len(run.History)==0{return raw}
+ // A counter update must correspond to the single exact unresolved call.
+ // Even if a stale worker presents a receipt after continuation committed,
+ // never manufacture a second observation from a resolved or foreign call.
+ pending,found:=pendingRunCollection(run.History)
+ if !found||pending!=call||call.CallID==""||call.OriginRunID!=run.Spec.RunID||
+  call.ProviderID!=run.Spec.ProviderID||call.ModelID!=run.Spec.ModelID||call.ParentTurnID!=run.Spec.ParentTurnID{return raw}
  // Bind the projection to the exact canonical history prefix. A changed
  // history or unknown metadata must not manufacture verified novelty.
  for i,it:=range inputs.Snapshot.History{if run.History[i]!=it{return raw}}
