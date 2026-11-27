@@ -314,11 +314,11 @@ func VerifiedWorkSignature(x Session)string{
  // receipt IDs, archive movement, or native PASS a second time as work.
  // New verified evidence is a read-progress signal, not task acceptance.
  if g,ok:=x.ReadCollectionGuard();ok{
-  return taskPlanDigest(fmt.Sprintf("clp-v1:%s:%d:%d:%d:%d/%d",g.Counters.Objective.Key,g.Counters.NewEvidence,g.Counters.VerifiedProgressEvents,g.Counters.AttestedProgressEvents,done,total))
+  return scopedWorkSignature(g.Counters.Objective.Key,g.Counters.NewEvidence,g.Counters.VerifiedProgressEvents,g.Counters.AttestedProgressEvents,done,total)
  }
  // An opaque guard cannot establish progress. Preserve old unguarded
  // compatibility only when no projection has been installed at all.
- if len(x.CollectionGuard)!=0{return taskPlanDigest(fmt.Sprintf("clp-unknown:%d/%d",done,total))}
+ if len(x.CollectionGuard)!=0{return "clp-unknown:"+taskPlanDigest(fmt.Sprintf("%d/%d",done,total))}
  fmt.Fprintf(&b,"done:%d/%d archive:%d/%d\n",done,total,x.ArchivedHistoryItems,x.ArchivedPatchCalls)
  for _,it:=range x.History{
   if it.Type!="function_call_output"{continue}
@@ -330,6 +330,34 @@ func VerifiedWorkSignature(x Session)string{
   }
  }
  return taskPlanDigest(b.String())
+}
+
+// Prefix versions the outer signature without altering the persisted guard.
+func scopedWorkSignature(key string,novel,verified,attested uint64,done,total int)string{
+ return "clp-v1:"+taskPlanDigest(fmt.Sprintf("%s:%d:%d:%d:%d/%d",key,novel,verified,attested,done,total))
+}
+
+// ContinuationWorkReference rebases only the signature format/objective,
+// not the no-work counter. First guard binding or a step change is not
+// evidence of new work. Compare actual new events and accepted plan changes
+// against a zero-event baseline for the newly bound objective.
+func ContinuationWorkReference(before,after Session,prior string)string{
+ old,oldOK:=before.ReadCollectionGuard()
+ next,nextOK:=after.ReadCollectionGuard()
+ if nextOK{
+  if !oldOK||old.Counters.Objective.Key!=next.Counters.Objective.Key{
+   done,total:=TaskPlanProgress(before.TaskPlan)
+   return scopedWorkSignature(next.Counters.Objective.Key,0,0,0,done,total)
+  }
+  if !strings.HasPrefix(prior,"clp-v1:"){return VerifiedWorkSignature(before)}
+ }else if len(after.CollectionGuard)!=0{
+  if !strings.HasPrefix(prior,"clp-unknown:"){
+   done,total:=TaskPlanProgress(before.TaskPlan)
+   return "clp-unknown:"+taskPlanDigest(fmt.Sprintf("%d/%d",done,total))
+  }
+ }
+ if prior==""{return VerifiedWorkSignature(before)}
+ return prior
 }
 
 // VerifyArchivedTaskPlanEvidence allows a milestone to reference an older
