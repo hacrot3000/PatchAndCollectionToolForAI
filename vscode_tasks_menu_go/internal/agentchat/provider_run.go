@@ -170,7 +170,7 @@ var ErrCollectionReplanRevoked=errors.New("automatic Collection replan no longer
 func CollectionReplanAllowed(x Session)bool{
  if x.Owner!="local"||x.Archived||(x.AutoCollection!=nil&&!*x.AutoCollection){return false}
  if x.TaskPlan!=nil{return x.TaskPlan.AutoContinue&&TaskPlanNext(x.TaskPlan)!=nil}
- return x.AutoContinueText
+ return StandaloneContinuationGranted(x)
 }
 
 // CommitProviderSending serializes the replan consent check with owner
@@ -186,7 +186,7 @@ func CollectionReplanAllowed(x Session)bool{
 func FeedbackAutoResumeAllowed(x Session)bool{
  if x.Owner!="local"||x.Archived||x.Status=="cancelled"||x.Status=="failed"{return false}
  if x.TaskPlan!=nil{return false}
- return x.AutoContinueText&&x.AutoFeedback&&x.AutoFeedbackPersistent&&x.RetryMode==RetryUnlimited
+ return StandaloneContinuationGranted(x)&&x.AutoFeedback&&x.AutoFeedbackPersistent&&x.RetryMode==RetryUnlimited
 }
 func(s *Store) CommitProviderSending(candidate Session,expectedRevision uint64)(Session,error){
  var saved Session
