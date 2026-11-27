@@ -151,19 +151,19 @@ func (e ownerBoundAgentRunExecutor) ResolveCompletedTurn(ctx context.Context, ru
 	if old := run.Continuation; old != nil {
 		progress.NoProgressTurns = old.NoProgressTurns
 		if old.LastWorkSignature == signature {
-			progress.NoProgressTurns++
+			if progress.NoProgressTurns<100{progress.NoProgressTurns++}
 		} else if progress.LastWorkSignatureVersion==1&&old.LastWorkSignature!=""&&old.LastWorkSignatureVersion!=1{
 			// Upgrade from an unversioned signature: the format change
 			// alone cannot prove work. Preserve the existing brake unless
 			// the old projection itself proves no change.
-			if old.LastWorkSignature==runVerifiedProgressSignature(run,x){progress.NoProgressTurns++}
+			if old.LastWorkSignature==runVerifiedProgressSignature(run,x)&&progress.NoProgressTurns<100{progress.NoProgressTurns++}
 		} else { progress.NoProgressTurns = 0 }
 		if old.ProgressSignature == progress.ProgressSignature {
 			progress.RepeatedTurns = old.RepeatedTurns+1
 			if progress.RepeatedTurns>100 { progress.RepeatedTurns=100 }
 		}
 	}
-	if progress.NoProgressTurns >= agentchat.MaxContinuationNoWorkTurns {
+	if mode == "plan" && progress.NoProgressTurns >= agentchat.MaxContinuationNoWorkTurns {
 		progress.NoProgressTurns = agentchat.MaxContinuationNoWorkTurns
 		progress.Reason = "stalled_without_verified_work"
 		return decision,nil
