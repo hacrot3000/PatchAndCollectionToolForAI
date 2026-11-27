@@ -340,6 +340,10 @@ func (s *Server) agentChatRunCollection(
 		if mode==agentchat.Stateless{contextModel,limit=agentAdaptiveRequestBudget(store,*x,provider,model,key,limit)}
 		instructions,currentInstructions := agentChatInstructionsWithAutomationParts(*x, toolAvailable, identity.Key)
 		currentInstructions += legacyCollectionProgressAdvisory(*x,guardDecision,toolAvailable) + requestAdvice + recoveryAdvice
+		// Retry only previously acknowledged local failures; item-finished can
+		// arrive before native History is durable. A COLLECT continuation is
+		// another chance to reconcile, without rerunning the failed command.
+		currentInstructions += s.agentRetireKnownFailedPatches(ctx,x,identity,"")
 		projection:=*x
 		if nextCommitted{
 			// Next must retain the exact just-saved output once, paired with
