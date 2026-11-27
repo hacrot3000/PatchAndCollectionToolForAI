@@ -385,6 +385,11 @@ func (s *Server) agentChatToolDecisionAPI(w http.ResponseWriter, r *http.Request
 		http.Error(w, "workspace changed since review; approval is stale", 409)
 		return
 	}
+	// Owner may revoke or update the Nim registration while waiting for native admission.
+	if err = s.validateAgentNimGatewayProposal(arguments, identity.ID); err != nil {
+		if denyInvalidAutomatic(err.Error()) {return}
+		http.Error(w, err.Error(),409);return
+	}
 	// Commit a non-retryable QUEUING marker BEFORE the file-side effect.
 	// A crash after this point is explicitly UNKNOWN; no duplicate package or
 	// execution is permitted through the same call_id.
