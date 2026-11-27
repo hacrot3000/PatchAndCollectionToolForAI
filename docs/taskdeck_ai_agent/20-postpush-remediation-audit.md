@@ -1,5 +1,7 @@
 # HANDOFF 20 — Post-push remediation audit (P2/P4 and P5 boundary)
 
+> **Current local workflow (2026-11-27):** [20-coder-execution-contract.md](20-coder-execution-contract.md) supersedes historical process/stop instructions and completion claims below. Newer source at 9a9c350b contains integration tests and a mutation-proof helper, but actual core/Go CI fails; FIX-01..05 reopen the source batch. Do not use external verification or delivery as a local BLOCKED condition. No acceptance or safety relaxation.
+
 > Static audit from native read-only COLLECT after the remote review of HEAD 9e4ca30.
 > No compile/test/git/CI executed. No gate promoted. P0/P1/P3 source changes are
 > recorded in the root checkpoint; this document covers the audit-only groups.
