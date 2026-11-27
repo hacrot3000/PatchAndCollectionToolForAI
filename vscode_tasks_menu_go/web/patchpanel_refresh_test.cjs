@@ -292,3 +292,52 @@ for(const contract of [
   assert.ok(source.includes(contract),'live command-console UI must wire scroll behavior: '+contract);
 }
 console.log('PASS: opening a RUNNING console jumps to its tail; live updates follow without stealing manual scroll-back');
+
+
+// Exercise production discovery with server snapshots, starting from an empty
+// browser map; no native execution or mutation is needed.
+(async()=>{
+ const start=source.indexOf('  function nativeRunDiscoveryVisible(){');
+ const end=source.indexOf('  function renderParallelCollectRuns(){',start);
+ assert.ok(start>=0&&end>start);
+ let sessions=[],states=new Map();
+ const ctx={console,Date,Set,Map,Number,String,Array,Boolean,Math,
+  panel:{classList:{contains:()=>true}},document:{visibilityState:'visible'},
+  lifecycleSuspended:false,patchUIMode:()=> 'native',activeSessionId:'queue',
+  nativeRunDiscoveryTimer:0,nativeRunDiscoveryBusy:false,nativeRunDiscoveryGeneration:0,
+  dismissedNativeRuns:new Set(),parallelCollectRuns:new Map(),setTimeout:()=>1,clearTimeout:()=>{},
+  patchItemKind:v=>String(v||'').trim().toUpperCase(),
+  sessionMetadataRunning:m=>m.status==='running',protocolRunFinished:s=>s?.last_event?.type==='run_finished',
+  renderParallelCollectRuns:()=>{},refreshActionDisabledState:()=>{},
+  app:{taskData:{workspace:'/project'},jsonFetch:async url=>url==='/api/sessions'?{sessions}:
+   states.get(url.split('/')[3])}};
+ vm.runInNewContext(source.slice(start,end)+'\nthis.refresh=refreshNativeRunDiscovery;this.status=parallelRunStatus;',ctx);
+ const meta=(id,label,status='running',cwd='/project')=>({id,label,status,cwd,task_id:-1,started_at:'2026-11-27T00:00:00Z'});
+ await ctx.refresh();
+ assert.equal(ctx.parallelCollectRuns.size,0);
+ sessions=[meta('queue','Patch Tool · Queue'),meta('patch','Patch Tool · Queue · AI Agent'),
+  meta('collect','Patch Tool · COLLECT · c.zip'),meta('foreign','Patch Tool · Queue · AI Agent','running','/other'),
+  meta('idle','Patch Tool · Queue'),meta('manual','Patch Tool · Queue')];
+ states.set('patch',{event_count:2,items:[{kind:'PATCH',name:'p.zip',status:'RUNNING'}]});
+ states.set('collect',{event_count:2,items:[{kind:'COLLECT',name:'c.zip',status:'RUNNING',run_id:'agent_collect_'+'a'.repeat(24)}]});
+ states.set('idle',{items:[]});
+ ctx.parallelCollectRuns.set('session:manual',{active:true,sessionId:'manual',name:'manual.zip'});
+ await ctx.refresh();
+ assert.equal(ctx.parallelCollectRuns.size,3);
+ assert.equal(ctx.parallelCollectRuns.get('session:patch').origin,'ai-agent');
+ assert.equal(ctx.parallelCollectRuns.get('session:collect').origin,'ai-agent');
+ assert.equal(ctx.parallelCollectRuns.get('session:manual').name,'manual.zip');
+ sessions[1].status='exited';
+ states.set('patch',{event_count:4,items:[{kind:'PATCH',name:'p.zip',status:'FAIL'}],last_event:{type:'run_finished'}});
+ await ctx.refresh();
+ const completed=ctx.parallelCollectRuns.get('session:patch');
+ assert.equal(completed.active,false);
+ assert.equal(ctx.status(completed),'FAIL');
+ ctx.dismissedNativeRuns.add('patch');ctx.parallelCollectRuns.delete('session:patch');
+ await ctx.refresh();
+ assert.equal(ctx.parallelCollectRuns.has('session:patch'),false);
+ sessions=sessions.filter(s=>s.id!=='collect');
+ await ctx.refresh();
+ assert.equal(ctx.status(ctx.parallelCollectRuns.get('session:collect')),'RESULT UNKNOWN');
+ console.log('PASS: server discovery, AI origin, exact session deduplication, final receipt and dismissal');
+})().catch(error=>{console.error(error);process.exitCode=1;});

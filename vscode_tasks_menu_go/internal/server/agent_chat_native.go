@@ -116,11 +116,15 @@ func agentExactPatchSelection(state session.ProtocolState, name string) (patchPr
  return agentExactQueueSelection(state,name,"PATCH")
 }
 
+// Internal dispatch marker; never accepted from browser JSON.
+type agentNativeRunOriginKey struct{}
+const agentNativeRunLabelSuffix = " · AI Agent"
+
 // agentStartNativePatch launches the PREEXISTING /api/sessions kind=patch
 // handler, retaining native owner/permission/session identity and locks.
 func (s *Server) agentStartNativePatch(r *http.Request) (string, error) {
 	data := []byte(`{"kind":"patch","patch_mode":"queue","patch_ui":"native"}`)
-	request, err := http.NewRequestWithContext(r.Context(), http.MethodPost, "/api/sessions", bytes.NewReader(data))
+	request, err := http.NewRequestWithContext(context.WithValue(r.Context(), agentNativeRunOriginKey{}, true), http.MethodPost, "/api/sessions", bytes.NewReader(data))
 	if err != nil {
 		return "", err
 	}

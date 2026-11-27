@@ -326,6 +326,7 @@ func (s *Server) agentRunNativeCollection(ctx context.Context,owner string,reque
  if err=tasks.ApplyEnvironmentOverrides(&spec,map[string]string{
   "TASKDECK_PATCH_PROGRESS_RUN_ID":expectedRunID,
  });err!=nil{return "",err}
+ spec.Label += agentNativeRunLabelSuffix
  meta,err:=s.startAgentNativeCollectDirect(spec)
  if err!=nil{return "",fmt.Errorf("native COLLECT not started for %s: %w",receipt.Name,err)}
  nativeID:=meta.ID
