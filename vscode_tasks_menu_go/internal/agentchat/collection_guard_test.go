@@ -219,3 +219,41 @@ func TestCollectionGuardConcurrentLogicalReceiptCAS(t *testing.T){
  if !ok||got.Revision!=x.Revision+1||state.Counters.Requested!=1||state.Counters.Observed!=1||state.Counters.NativeReads!=1||state.Counters.UnknownEvidence!=1||len(got.History)!=3||got.History[2].Content!=receipt{t.Fatalf("receipt/counter atomicity violated: %+v",state)}
  if _,err=reopened.Save(second,second.Revision);!errors.Is(err,ErrStaleRevision){t.Fatal("stale receipt replay accepted")}
 }
+
+
+func TestCollectionGuardOuterWorkSignatureUsesNoveltyNotReceiptIdentity(t *testing.T){
+ x,err:=NewSession("local","/workspace","project","provider","model",Stateless);if err!=nil{t.Fatal(err)}
+ if !x.BindCollectionGuard("Audit read-only","",false){t.Fatal("bind")}
+ initial:=VerifiedWorkSignature(x)
+ observe:=func(id string,novelty cp.Novelty,native bool){
+  t.Helper()
+  g,ok:=x.ReadCollectionGuard();if !ok{t.Fatal("guard")}
+  x.History=append(x.History,HistoryItem{Type:"function_call",Name:"taskdeck_collect_workspace",CallID:id,Arguments:"{}"},HistoryItem{Type:"function_call_output",CallID:id,Content:"receipt-"+id})
+  x.AppendEvent("clp_collection_observed",x.Status,id,"")
+  var e error
+  g.Counters,_,_,e=cp.ApplyCounterEvent(g.Policy,g.Counters,cp.CounterEvent{Sequence:x.EventSeq,Identity:guardDigest(id),Kind:cp.CollectionObserved,Novelty:novelty,NativeRead:native},false)
+  if e!=nil||!x.SetCollectionGuard(g){t.Fatal("observation")}
+ }
+ observe("a",cp.VerifiedNew,true)
+ first:=VerifiedWorkSignature(x)
+ if first==initial{t.Fatal("new evidence did not advance outer signature")}
+ observe("b",cp.VerifiedDuplicate,true)
+ observe("c",cp.ObservationError,false)
+ observe("d",cp.UnknownNovelty,true)
+ if VerifiedWorkSignature(x)!=first{t.Fatal("duplicate, error or unknown reset outer brake")}
+ x.ArchivedHistoryItems=20
+ x.ArchivedPatchCalls=3
+ x.History=nil
+ if VerifiedWorkSignature(x)!=first{t.Fatal("archive movement fabricated progress")}
+ observe("e",cp.VerifiedNew,true)
+ if VerifiedWorkSignature(x)==first{t.Fatal("changed source did not advance outer signature")}
+ g,_:=x.ReadCollectionGuard()
+ before:=VerifiedWorkSignature(x)
+ x.AppendEvent("clp_patch_executed",x.Status,"patch","")
+ g.Counters,_,_,err=cp.ApplyCounterEvent(g.Policy,g.Counters,cp.CounterEvent{Sequence:x.EventSeq,Identity:guardDigest("patch"),Kind:cp.PatchExecuted},false)
+ if err!=nil||!x.SetCollectionGuard(g)||VerifiedWorkSignature(x)!=before{t.Fatal("wrapper execution fabricated progress")}
+ x.CollectionGuard=json.RawMessage(`{"version":999}`)
+ opaque:=VerifiedWorkSignature(x)
+ x.History=append(x.History,HistoryItem{Type:"function_call_output",CallID:"opaque",Content:"PASS"})
+ if VerifiedWorkSignature(x)!=opaque{t.Fatal("opaque guard fabricated work")}
+}
