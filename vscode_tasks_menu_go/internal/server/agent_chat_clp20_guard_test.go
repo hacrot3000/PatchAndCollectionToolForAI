@@ -6,6 +6,7 @@ import (
  "fmt"
  "strings"
  "testing"
+ "time"
 
  "bletonfc/vscode_tasks_menu/internal/agentchat"
  cp "bletonfc/vscode_tasks_menu/internal/agentchat/collectionprogress"
@@ -168,4 +169,73 @@ func TestAgentCLP20RenamedReadIdentityRetainsVerifiedDuplicateAndTargetsMissingS
   }
  }
  if outputs != 5 { t.Fatalf("canonical receipt count %d", outputs) }
+}
+
+func TestAgentCLP20ObjectiveSurvivesProviderSwitchAndStop(t *testing.T) {
+ s,id:=newAgentConversationFixture(t,"stateless")
+ second:=agentProviderFixture()
+ second.ID="custom-objective-switch"
+ second.Name="Second test provider"
+ second.Models[0].ID="second-model"
+ registry,err:=s.agentChatProviders();if err!=nil{t.Fatal(err)}
+ if err=registry.Put("local",second);err!=nil{t.Fatal(err)}
+ if err=s.ConnectionSecrets.Put(agentProviderSecretID(s.Workspace,"local",second.ID),[]byte("SECOND-TEST-KEY"));err!=nil{t.Fatal(err)}
+ caps,err:=s.agentChatCapabilities();if err!=nil{t.Fatal(err)}
+ if err=caps.Put("local",agentchat.CapabilityRecord{ProviderID:second.ID,ModelID:second.Models[0].ID,
+  Fingerprint:agentchat.CapabilityFingerprint(second,second.Models[0]),Version:agentchat.CapabilityProbeVersion,
+  Capabilities:map[string]string{agentchat.ProbeToolCalling:agentchat.CapabilityVerified},ProbedAt:time.Now().UTC()});err!=nil{t.Fatal(err)}
+ store,err:=s.agentChatStore();if err!=nil{t.Fatal(err)}
+ calls,reads:=0,0
+ s.AgentCollectionCall=func(_ string,identity patchtool.ProjectIdentity,_ []byte)string{
+  reads++
+  raw,_:=json.Marshal(map[string]any{"source":"native_patch_tool_collect","project":identity,
+   "native_session_id":"synthetic","run_id":fmt.Sprintf("objective-read-%d",reads),
+   "status":"PASS","native_status":"PASS","rc":0,"evidence_verified":true,"text_excerpt_truncated":false,
+   "native_full_file_reads":[]map[string]any{{"path":"src/a.go","action_index":1,"total_lines":10,"report_sha256":strings.Repeat("a",64)}},
+  })
+  return string(raw)
+ }
+ s.AgentChatCall=func(ctx context.Context,p agentchat.ProviderConfig,key string,payload []byte)(agentchat.ResponsesResult,error){
+  calls++
+  if calls<=2 {
+   if p.ID==second.ID||key!="TEST-KEY"{t.Fatal("first provider changed")}
+  }else if p.ID!=second.ID||key!="SECOND-TEST-KEY"{t.Fatal("new provider not pinned")}
+  if calls==5{
+   if !cancelAgentRequest(s.Workspace,"local",id){t.Fatal("Stop failed to cancel registered request")}
+   <-ctx.Done()
+   return agentchat.ResponsesResult{},ctx.Err()
+  }
+  if calls==1||calls==3||calls==6{
+   return agentchat.ResponsesResult{ResponseID:fmt.Sprintf("reply-%d",calls),Calls:[]agentchat.FunctionCall{{CallID:fmt.Sprintf("objective-call-%d",calls),Name:"taskdeck_collect_workspace",Arguments:`{"actions":[{"type":"file","path":"src/a.go"}]}`}}},nil
+  }
+  return agentchat.ResponsesResult{ResponseID:fmt.Sprintf("done-%d",calls),Text:"Inspected the source."},nil
+ }
+ endpoint:="/api/agent/sessions/"+id+"/messages"
+ send:=func(message string,selectSecond bool,want int)agentchat.Session{
+  t.Helper()
+  x,e:=store.Get(id,"local");if e!=nil{t.Fatal(e)}
+  body:=map[string]any{"message":message,"confirm_external":true,"expected_revision":x.Revision}
+  if selectSecond{body["provider_id"]=second.ID;body["model_id"]=second.Models[0].ID}
+  w:=invokeAI(t,s.agentChatSessionItemAPI,"POST",endpoint,body)
+  if w.Code!=want{t.Fatalf("message %q HTTP=%d want %d %s",message,w.Code,want,w.Body)}
+  x,e=store.Get(id,"local");if e!=nil{t.Fatal(e)}
+  return x
+ }
+ first:=send("Fix the source",false,200)
+ g,ok:=first.ReadCollectionGuard()
+ if !ok||g.Counters.NativeReads!=1||g.Counters.NewEvidence!=1||g.Counters.Objective.Intent!=cp.Implementation{t.Fatal("first objective not bound")}
+ switched:=send("tiếp tục",true,200)
+ after,ok:=switched.ReadCollectionGuard()
+ if !ok||after.Generation!=g.Generation||after.Counters.Objective!=g.Counters.Objective||after.Counters.NativeReads!=2||after.Counters.DuplicateEvidence!=1||switched.ProviderID!=second.ID||switched.AutoPatch{t.Fatalf("provider switch reset guard or granted Patch: %+v",after)}
+ stopped:=send("Continue",false,409)
+ stopGuard,ok:=stopped.ReadCollectionGuard()
+ if !ok||stopped.Status!="cancelled"||stopGuard.Generation!=g.Generation||stopGuard.Counters.NativeReads!=2||stopGuard.Counters.Objective!=g.Counters.Objective||reads!=2{t.Fatalf("Stop reset objective: %+v",stopGuard)}
+ next:=send("Audit the source read-only",false,200)
+ ng,ok:=next.ReadCollectionGuard()
+ if !ok||ng.Generation!=g.Generation+1||ng.Counters.Objective.Key==g.Counters.Objective.Key||ng.Counters.Objective.Intent!=cp.ReadOnly||ng.Counters.NativeReads!=1||ng.Counters.NewEvidence!=1||next.AutoPatch||len(next.ToolCalls)!=0||calls!=7||reads!=3{
+  t.Fatalf("new objective reused old coverage or permission: %+v calls=%d reads=%d",ng,calls,reads)
+ }
+ n:=0
+ for _,item:=range next.History{if item.Type=="function_call_output"{n++}}
+ if n!=3{t.Fatal("objective switch rewrote canonical receipts")}
 }
