@@ -52,7 +52,7 @@ func runNextPromptOrderStage(x agentchat.Session, policy agentrun.AutomationSnap
 		}
 		return ""
 	}
-	if !policy.AutoContinueText || !x.AutoContinueText {
+	if !policy.AutoContinueText || !agentchat.StandaloneContinuationGranted(x) {
 		return "conversation_continuation_not_authorized"
 	}
 	return ""
