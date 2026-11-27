@@ -37,7 +37,7 @@ func TestAgentCLP20VerifiedStallPreservesReceiptAndBoundsReplan(t *testing.T){
  s.AgentChatCall=func(_ context.Context,_ agentchat.ProviderConfig,_ string,payload []byte)(agentchat.ResponsesResult,error){
   calls++
   if strings.Contains(string(payload),strings.TrimSpace(collectionReplanAdvice)){replans++}
-  if calls>1&&calls<=14{
+  if calls>1&&calls<=16{
    var wire struct{Input []map[string]any `json:"input"`}
    if err:=json.Unmarshal(payload,&wire);err!=nil{t.Fatal(err)}
    callID:=fmt.Sprintf("stall-%d",calls-1);count:=0
@@ -53,18 +53,13 @@ func TestAgentCLP20VerifiedStallPreservesReceiptAndBoundsReplan(t *testing.T){
   t.Fatalf("unexpected provider call %d",calls);return agentchat.ResponsesResult{},nil
  }
  w:=invokeAI(t,s.agentChatSessionItemAPI,"POST","/api/agent/sessions/"+id+"/messages",map[string]any{"message":"Fix the bug","confirm_external":true,"expected_revision":x.Revision})
- if w.Code<400||reads!=14||calls!=14||replans!=1{t.Fatalf("stall not bounded: HTTP %d reads=%d calls=%d replans=%d body=%s",w.Code,reads,calls,replans,w.Body)}
+ if w.Code!=200||reads!=15||calls!=16||replans!=1{t.Fatalf("no-plan continuation stopped at duplicate evidence: HTTP=%d reads=%d calls=%d replans=%d %s",w.Code,reads,calls,replans,w.Body)}
  saved,err:=store.Get(id,"local");if err!=nil{t.Fatal(err)}
  g,ok:=saved.ReadCollectionGuard()
- if !ok||g.Recovery.Attempts!=1||g.Counters.NewEvidence!=1||g.Counters.DuplicateEvidence!=13||saved.ProviderRun.Phase!="acknowledged"{t.Fatalf("wrong checkpoint: %+v %+v",g,saved.ProviderRun)}
+ if !ok||g.Recovery.Attempts!=1||g.Counters.NewEvidence!=2||g.Counters.DuplicateEvidence!=13||g.Counters.Progress.DuplicateStreak!=0||!saved.AutoContinueText{t.Fatalf("incorrect counters, recovery reservation or consent: %+v",g)}
  count:=0
  for _,it:=range saved.History{if it.Type=="function_call_output"{count++;if receipts[it.CallID]!=it.Content{t.Fatal("canonical receipt mutated")}}}
- if count!=14||len(saved.ToolCalls)!=0{t.Fatal("lost checkpoint or invented Patch")}
- w=invokeAI(t,s.agentChatSessionItemAPI,"POST","/api/agent/sessions/"+id+"/messages",map[string]any{"message":"Continue","confirm_external":true,"expected_revision":saved.Revision})
- if w.Code!=200||reads!=15||calls!=16||replans!=1{t.Fatalf("novel evidence did not resume: HTTP=%d reads=%d calls=%d replans=%d %s",w.Code,reads,calls,replans,w.Body)}
- saved,err=store.Get(id,"local");if err!=nil{t.Fatal(err)}
- after,ok:=saved.ReadCollectionGuard()
- if !ok||after.Generation!=g.Generation||after.Recovery.Attempts!=1||after.Counters.NewEvidence!=2||after.Counters.Progress.DuplicateStreak!=0{t.Fatalf("resume reset objective or recovery budget: %+v",after)}
+ if count!=15||len(saved.ToolCalls)!=0{t.Fatal("lost receipt or invented Patch")}
 }
 
 
