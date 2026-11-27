@@ -297,8 +297,49 @@ func UnknownPatchCorrectionRecheck(x Session)bool{
 // ordinary message is not feedback, so repeated narration cannot rearm it.
 func RetiredPatchBlockerRecheck(x Session)bool{
  c:=EffectiveTurnContinuation(x)
- return c!=nil&&c.Disposition==TurnBlocked&&
-  (c.Reason=="model_progress_metadata_unverified"||c.Reason=="model_blocker_unverified")&&exactPatchCorrectionFeedback(x,true)
+ if c==nil||c.Disposition!=TurnBlocked||
+  (c.Reason!="model_progress_metadata_unverified"&&c.Reason!="model_blocker_unverified"){return false}
+ if exactPatchCorrectionFeedback(x,true){return true}
+ // The model may ask COLLECT to inspect a failure and then declare BLOCKED.
+ // Require the exact final Collection pair and a specific earlier retired
+ // native run reference from this conversation's canonical assistant turn.
+ r:=x.ProviderRun
+ if r==nil||r.Kind!="collection"||r.Phase!="completed"||r.CallID==""||len(x.History)<3{return false}
+ n:=len(x.History)
+ last,output,source:=x.History[n-1],x.History[n-2],x.History[n-3]
+ if last.Type!="assistant"||last.OriginRunID!=""||turnHash(last.Content)!=c.ResponseDigest||
+  source.Type!="function_call"||source.Name!="taskdeck_collect_workspace"||source.CallID!=r.CallID||source.OriginRunID!=""||
+  output.Type!="function_call_output"||output.CallID!=r.CallID||output.OriginRunID!=""||output.Content==""{return false}
+ count:=0
+ for _,call:=range x.ToolCalls{
+  if len(call.RunID)<8||!strings.Contains(last.Content,call.RunID)||!exactRetiredFailureRecord(call){continue}
+  if exactRetiredFailureHistory(x,call){count++}
+ }
+ return count==1
+}
+
+func exactRetiredFailureRecord(call ToolCallRecord)bool{
+ receipt:=call.FailedQueueRetirement
+ if call.Name!="taskdeck_submit_patch"||call.Status!="error"||call.RunID==""||
+  call.AgentRunID!=""||call.TextFallback||!call.FeedbackSent||call.FeedbackStatus!="acknowledged"||
+  receipt==nil||receipt.Status!="retired"||receipt.RunID!=call.RunID||!validSHA256(call.PackageSHA256)||
+  receipt.PackageSHA256!=call.PackageSHA256||receipt.Archive!="patchs/ignore/agent-failed-"+call.PackageSHA256+".zip"{return false}
+ var native struct{Status string `json:"status"`;RunID string `json:"run_id"`}
+ return json.Unmarshal([]byte(call.Result),&native)==nil&&native.RunID==call.RunID&&
+  (native.Status=="FAIL"||native.Status=="PREFLIGHT_FAIL"||native.Status=="INCOMPLETE")
+}
+
+func exactRetiredFailureHistory(x Session,call ToolCallRecord)bool{
+ source,output:=0,0
+ for _,item:=range x.History{
+  if item.CallID!=call.CallID{continue}
+  switch{
+  case item.Type=="function_call"&&item.Name==call.Name&&item.OriginRunID==""&&turnHash(item.Arguments)==call.ArgumentsSHA256:source++
+  case item.Type=="function_call_output"&&item.OriginRunID==""&&item.Content==strings.TrimSpace(call.Result):output++
+  default:return false
+  }
+ }
+ return source==1&&output==1
 }
 
 func exactPatchCorrectionFeedback(x Session,retired bool)bool{
@@ -316,13 +357,7 @@ func exactPatchCorrectionFeedback(x Session,retired bool)bool{
   if record!=nil||call.AgentRunID!=""||call.TextFallback||!call.FeedbackSent||call.FeedbackStatus!="acknowledged"||
    strings.TrimSpace(call.Result)!=output.Content{return false}
   if retired{
-   receipt:=call.FailedQueueRetirement
-   if call.Name!="taskdeck_submit_patch"||call.Status!="error"||call.RunID==""||
-    receipt==nil||receipt.Status!="retired"||receipt.RunID!=call.RunID||!validSHA256(call.PackageSHA256)||
-    receipt.PackageSHA256!=call.PackageSHA256||receipt.Archive!="patchs/ignore/agent-failed-"+call.PackageSHA256+".zip"{return false}
-   var native struct{Status string `json:"status"`;RunID string `json:"run_id"`}
-   if json.Unmarshal([]byte(call.Result),&native)!=nil||native.RunID!=call.RunID||
-    (native.Status!="FAIL"&&native.Status!="PREFLIGHT_FAIL"&&native.Status!="INCOMPLETE"){return false}
+   if !exactRetiredFailureRecord(*call){return false}
   }else if !PatchCorrectionRequired(*call){return false}
   record=call
  }
