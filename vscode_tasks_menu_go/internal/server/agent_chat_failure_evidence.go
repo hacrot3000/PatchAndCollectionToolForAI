@@ -45,6 +45,7 @@ type agentFailureEvidence struct {
  Availability string `json:"availability"`
  Predecessor string `json:"predecessor_disposition"`
  PredecessorSource string `json:"predecessor_source,omitempty"`
+ ProposalKind string `json:"proposal_kind,omitempty"`
  Truncated bool `json:"truncated"`
 }
 
@@ -277,6 +278,7 @@ func (s *Server) agentResolveFailedPatchEvidence(store *agentchat.Store,x agentc
  if err!=nil||identity.ID!=x.ProjectID||!s.agentFailureVerifyPackage(call) {
   out.Availability="project_or_package_unverified";return out
  }
+ out.ProposalKind=s.agentFailurePackageKind(call,identity)
  row,patch,err:=s.agentFailureHistory(call,identity)
  if err!=nil {
   if !errors.Is(err,os.ErrNotExist){out.Availability="native_history_integrity_or_limit_refused"}
@@ -399,11 +401,19 @@ func agentSelectFailureCall(calls []agentchat.ToolCallRecord,currentCall,text st
 // The existing compactor accounts for this catalog entry in its token budget.
 func (s *Server) agentFailureContextProjection(store *agentchat.Store,x agentchat.Session,currentCall,text string) agentchat.Session {
  if s==nil||store==nil||x.Owner!="local"||s.Config.SharedServerEnabled||x.Workspace!=s.agentOwnerWorkspace(){return x}
+ // Collection/questionnaire feedback is not a new PATCH outcome. Preserve
+ // the relevant prior failure instead of using a non-PATCH call ID as a
+ // selector which can never match. Never replay its canonical tool output.
+ if currentCall!=""{
+  isPatch:=false
+  for _,c:=range x.ToolCalls{if c.CallID==currentCall&&c.Name=="taskdeck_submit_patch"&&c.AgentRunID==""{isPatch=true;break}}
+  if !isPatch{currentCall=""}
+ }
  // A user may simply say "continue" after the model named the failed run.
  // Only use the last assistant message as a selector into this ledger.
  // The text grants no filesystem path or execution permission.
  lower:=strings.ToLower(strings.TrimSpace(text))
- if currentCall==""&&!agentFailureRunIDInText(text)&&(strings.HasPrefix(lower,"continue")||strings.HasPrefix(lower,"resume")||strings.HasPrefix(lower,"tiếp")||x.Status=="failed"){
+ if currentCall==""&&!agentFailureRunIDInText(text)&&(strings.HasPrefix(lower,"continue")||strings.HasPrefix(lower,"resume")||strings.HasPrefix(lower,"tiếp")||lower==""||x.Status=="failed"){
   for i:=len(x.History)-1;i>=0;i--{
    if x.History[i].Type=="assistant"{
     if run:=agentFailureRunTextPattern.FindString(x.History[i].Content);run!=""{text+=" "+run}
@@ -529,4 +539,26 @@ func (s *Server) agentFailureVerifyPackage(call agentchat.ToolCallRecord) bool {
   if err==nil&&int64(len(data))==call.PackageSize&&agentFailureSHA(data)==call.PackageSHA256{return true}
  }
  return false
+}
+
+// Classify only the SHA-bound immutable archive, never a name or an
+// assistant claim. Command-only means no PATCH payload, NOT no side effects.
+func(s *Server)agentFailurePackageKind(call agentchat.ToolCallRecord,identity patchtool.ProjectIdentity)string{
+ name:=filepath.Base(call.QueuePath)
+ for _,rel:=range []string{call.QueuePath,"patchs/ignore/agent-failed-"+call.PackageSHA256+".zip","patchs/patched/"+name}{
+  raw,err:=agentFailureReadFile(s.Workspace,rel,2<<20)
+  if err!=nil||int64(len(raw))!=call.PackageSize||agentFailureSHA(raw)!=call.PackageSHA256{continue}
+  zr,err:=zip.NewReader(bytes.NewReader(raw),int64(len(raw)))
+  if err!=nil{return "unknown"}
+  if len(zr.File)!=1{return "not_verified_command_only"}
+  f:=zr.File[0]
+  if f.Name!="PATCH_TOOL_MANIFEST.json"||!f.Mode().IsRegular()||f.UncompressedSize64>64<<10{return "not_verified_command_only"}
+  rd,err:=f.Open();if err!=nil{return "unknown"}
+  body,err:=io.ReadAll(io.LimitReader(rd,(64<<10)+1));rd.Close()
+  if err!=nil||len(body)>64<<10{return "unknown"}
+  m,err:=parseCommandOnlyManifest(string(body))
+  if err==nil&&m.Project==identity{return "verified_command_only"}
+  return "not_verified_command_only"
+ }
+ return "unknown"
 }
