@@ -46,11 +46,20 @@ func markAgentProviderSending(store *agentchat.Store,x *agentchat.Session)error{
  if x==nil||x.ProviderRun==nil||x.ProviderRun.Phase!="prepared"{
   return agentchat.ErrInvalidSession
  }
- x.ProviderRun.Phase="sending"
- x.ProviderRun.UpdatedAt=time.Now().UTC()
- if x.ProviderRun.RequestAt!=""{x.ProviderRun.RequestAt=x.ProviderRun.UpdatedAt.Format(time.RFC3339Nano)}
- x.AppendEvent("provider_egress",x.Status,x.ProviderRun.CallID,x.ProviderRun.Kind)
- saved,err:=store.Save(*x,x.Revision)
+ candidate:=*x
+ run:=*x.ProviderRun
+ candidate.ProviderRun=&run
+ run.Phase="sending"
+ run.UpdatedAt=time.Now().UTC()
+ if run.RequestAt!=""{run.RequestAt=run.UpdatedAt.Format(time.RFC3339Nano)}
+ candidate.Events=append(x.Events[:0:0],x.Events...)
+ candidate.AppendEvent("provider_egress",candidate.Status,run.CallID,run.Kind)
+ saved,err:=store.CommitProviderSending(candidate,x.Revision)
+ if errors.Is(err,agentchat.ErrCollectionReplanRevoked){
+  *x=saved
+  _=store.DeleteProviderPayload(x.ID)
+  return err
+ }
  if err!=nil{return err}
  *x=saved
  // The exact payload is needed only while PREPARED. Once the durable
