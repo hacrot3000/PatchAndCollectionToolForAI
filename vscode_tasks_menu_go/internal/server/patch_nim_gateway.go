@@ -89,7 +89,7 @@ func(s *Server) patchNimGatewayView(root,extra string)patchNimGatewayView{
   v.RegisteredScript=g.Script
   v.Status="Registered (script SHA-256 verified). Container/test execution has not been checked."
   paths=append([]string{g.Script},paths...)
-  v.Prompt="The owner has registered Nim Gateway for this TaskDeck project. Use the native tools, not direct shell or manual user execution. First check the gateway via native COLLECT with action "+`{"type":"command","transport":"local","argv":["nim-gateway","nim-doctor"],"max_output_bytes":65536}`+". Continue the current task using the actual existing test files and requested profiles. "+s.agentNimGatewayInstructions(v.ProjectID)
+  v.Prompt=s.patchNimGatewayPrompt(identity,g)
  }
  if extra!=""{paths=append([]string{extra},paths...)}
  seen:=map[string]bool{}
@@ -100,6 +100,25 @@ func(s *Server) patchNimGatewayView(root,extra string)patchNimGatewayView{
  if !v.Registered&&v.RegistrationPresent{v.Status="Existing registration is stale or belongs to another project. Review the selected script before replacing it."}
  if len(v.Candidates)==0&&!v.Registered{v.Status="No gateway found in the standard locations. Select an existing relative path or install a reviewed nim-agent.sh file."}
  return v
+}
+
+func(s *Server) patchNimGatewayPrompt(identity patchtool.ProjectIdentity,g agentNimGatewayRegistration)string{
+ manifest:=map[string]any{
+  "schema_version":1,"project":identity,
+  "patch":map[string]string{"id":"nim-test-example"},
+  "preflight":map[string]any{"files":[]any{map[string]any{"path":g.Script,"exists":true,"sha256":g.SHA256}}},
+  "post_patch":map[string]any{"safety_profile":"legacy_strict","run_when_no_changes":true,
+   "no_change_reason":"Run the requested existing Nim test without editing project source.",
+   "commands":[]any{map[string]any{"name":"nim-test","argv":[]string{"bash",g.Script,"nim-test","actual/existing/test.nim","server"},"cwd":".","timeout_seconds":1800}}},
+ }
+ body,_:=json.Marshal(manifest)
+ args,_:=json.MarshalIndent(map[string]string{"name":"Run Nim test","patch_python":"","patch_manifest":string(body)},"","  ")
+ collect:=map[string]any{"id":"nim-gateway-doctor","project":identity,"actions":[]any{map[string]any{"type":"command","transport":"local","argv":[]string{"nim-gateway","nim-doctor"},"max_output_bytes":65536}}}
+ collectJSON,_:=json.MarshalIndent(collect,"","  ")
+ return "Nim Gateway đã được chủ project đăng ký chính thức trong TaskDeck. Hãy tiếp tục task hiện tại, tự chạy build/test và đọc receipt/log qua native tools thay vì yêu cầu tôi chạy tay.\n\n"+
+ s.agentNimGatewayInstructions(identity.ID)+"\n\nFirst use this native COLLECT request (use the advertised collection tool's actual argument schema):\n"+string(collectJSON)+
+ "\n\nExample taskdeck_submit_patch arguments (replace test path, profile and unique patch ID with the actual task; keep exact project and script SHA):\n"+string(args)+
+ "\n\nAfter native execution, collect nim-build-result and nim-build-log with the exact gateway RUN_ID. Never infer PASS from submission. Continue the original task using the verified result."
 }
 
 // Local browser owner only. No model tool advertises this endpoint. Existing
