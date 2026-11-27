@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"bletonfc/vscode_tasks_menu/internal/agentchat"
+ cp "bletonfc/vscode_tasks_menu/internal/agentchat/collectionprogress"
 	"bletonfc/vscode_tasks_menu/internal/patchtool"
 )
 
@@ -296,6 +297,12 @@ func (s *Server) agentChatRunCollection(
 				forceStateless=true
 				clearProviderRefs=true
 				recoveryAdvice=collectionReplanAdvice
+			}else if decision.Kind==cp.Continue&&decision.Reason==cp.RecoveryBudgetExhausted{
+				// Preserve the exact new receipt; use the existing live grant
+				// and PREPARED/SENDING consent checks for this continuation.
+				forceStateless=true
+				clearProviderRefs=true
+				recoveryAdvice=" Collection progress advisory: repeated verified evidence. The bounded replan reservation is spent. The owner allows continued no-plan work. Use the exact current receipt, change strategy or finish when appropriate; no replay or new permission."
 			}
 		}
 		if fallback {
