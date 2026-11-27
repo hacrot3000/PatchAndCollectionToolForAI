@@ -16,6 +16,7 @@ import (
  "time"
 
  "bletonfc/vscode_tasks_menu/internal/agentchat"
+ cp "bletonfc/vscode_tasks_menu/internal/agentchat/collectionprogress"
  "bletonfc/vscode_tasks_menu/internal/patchtool"
  sessionpkg "bletonfc/vscode_tasks_menu/internal/session"
 )
