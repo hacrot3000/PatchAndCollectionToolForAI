@@ -51,7 +51,7 @@ func (s *Server) saveAgentReceivedResponse(store *agentchat.Store, candidate age
    }
   }
   s.recordAgentResponseSaveDiagnostic(candidate,"response.save_failed",last)
-  if errors.Is(last,agentchat.ErrStaleRevision){break}
+  if errors.Is(last,agentchat.ErrStaleRevision)||errors.Is(last,agentchat.ErrInvalidSession){break}
   if attempt+1<agentResponseSaveAttempts{time.Sleep(time.Duration(attempt+1)*50*time.Millisecond)}
  }
  if current,e:=store.Get(candidate.ID,candidate.Owner);e==nil&&agentResponseAlreadyCommitted(current,candidate){
@@ -83,6 +83,17 @@ func (s *Server) recordAgentResponseSaveDiagnostic(x agentchat.Session,event str
 // The attempt ledger is telemetry, not a response body or replay authority.
 // With no checkpoint it can explain the loss, but cannot reconstruct content.
 func (s *Server) recoverAgentReceivedResponseLocked(store *agentchat.Store,x agentchat.Session,closeOrphan bool)(agentchat.Session,bool,error){
+ // Startup and explicit sync can recover the previously parked response of
+ // the SAME run, even after the old worker marked it failed.
+ if x.Status=="failed"{
+  saved,found,err:=store.RecoverClosedQuestionnaireResponse(x.ID,x.Owner)
+  if found&&err==nil{
+   s.recordAgentDebugEvent(x.Owner,x.ID,"","response_storage","response.recovered","questionnaire_snapshot_repaired","Restored saved questionnaire after removing PATCH-only Git metadata; no provider request replayed")
+   return saved,true,nil
+  }
+  if err!=nil{s.recordAgentResponseSaveDiagnostic(x,"response.recovery_failed",err)}
+  return x,false,nil
+ }
  if x.Status!="requesting_ai"||x.ProviderRun==nil||
   (x.ProviderRun.Phase!="sending"&&x.ProviderRun.Phase!="acknowledged"){return x,false,nil}
  // An exact checkpoint was produced only by the Legacy response path.
