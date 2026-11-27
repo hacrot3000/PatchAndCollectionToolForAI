@@ -50,9 +50,11 @@ func waitAgentNativeAdmission(ctx context.Context,attempt func()error)error{
   err:=attempt()
   if err==nil{return nil}
   var busy *patchWorkBusyError
-  if errors.As(err,&busy){setAgentNativeWait(ctx,"waiting_for_"+strings.ToLower(busy.running))}
-  else if errors.Is(err,errAgentWorkspaceContended){setAgentNativeWait(ctx,"waiting_for_workspace")}
-  else{return err}
+  if errors.As(err,&busy){
+   setAgentNativeWait(ctx,"waiting_for_"+strings.ToLower(busy.running))
+  } else if errors.Is(err,errAgentWorkspaceContended){
+   setAgentNativeWait(ctx,"waiting_for_workspace")
+  } else{return err}
   timer:=time.NewTimer(500*time.Millisecond)
   select{case <-ctx.Done():timer.Stop();return ctx.Err();case <-timer.C:}
  }
