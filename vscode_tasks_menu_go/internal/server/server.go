@@ -513,6 +513,11 @@ func (s *Server) sessionsRoot(w http.ResponseWriter, r *http.Request) {
 				http.Error(w, err.Error(), http.StatusBadRequest)
 				return
 			}
+			// Explicitly override the caller's environment: the registered Nim receipt
+			// reader is local-only. Shared sessions cannot opt in with req.Env.
+			nimLocal := "0"
+			if !s.Config.SharedServerEnabled {nimLocal = "1"}
+			if err := tasks.ApplyEnvironmentOverrides(&spec,map[string]string{"TASKDECK_NIM_GATEWAY_LOCAL":nimLocal});err!=nil{http.Error(w,err.Error(),500);return}
 			if fromAgent, _ := r.Context().Value(agentNativeRunOriginKey{}).(bool); fromAgent {
 				spec.Label += agentNativeRunLabelSuffix
 			}
