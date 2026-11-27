@@ -5,6 +5,7 @@ import (
  "errors"
  "os"
  "path/filepath"
+ "reflect"
  "strings"
 )
 
@@ -85,6 +86,10 @@ var ErrProviderResponseCheckpointTooLarge = errors.New("provider response checkp
 var ErrSessionSizeLimit = errors.New("agent session exceeds size limit")
 
 func (s *Store) readProviderResponseCheckpointLocked(base Session)(providerResponseCheckpoint,error){
+ return s.readResponseCheckpointLocked(base,false)
+}
+
+func (s *Store) readResponseCheckpointLocked(base Session,closed bool)(providerResponseCheckpoint,error){
  var record providerResponseCheckpoint
  if base.ProviderRun==nil{return record,ErrInvalidSession}
  path:=s.providerResponseCheckpointPath(base.ID,base.ProviderRun.ID)
@@ -94,7 +99,7 @@ func (s *Store) readProviderResponseCheckpointLocked(base Session)(providerRespo
  raw,err:=os.ReadFile(path)
  if err!=nil{return record,err}
  if json.Unmarshal(raw,&record)!=nil||record.Version!=1||
-  record.RunID!=base.ProviderRun.ID||record.BaseRevision!=base.Revision||
+  record.RunID!=base.ProviderRun.ID||(!closed&&record.BaseRevision!=base.Revision)||(closed&&(record.BaseRevision==0||record.BaseRevision>=base.Revision))||
   record.PayloadSHA256!=base.ProviderRun.PayloadSHA256||
   len(record.Candidate)==0||record.CandidateSHA256!=ProviderPayloadDigest(record.Candidate){
   return record,ErrInvalidSession
@@ -121,9 +126,87 @@ func (s *Store) RecoverProviderResponse(id,owner string)(Session,bool,error){
   if e!=nil{return e}
   var candidate Session
   if json.Unmarshal(record.Candidate,&candidate)!=nil||!validResponseProjection(base,candidate){return ErrInvalidSession}
+  repairReceivedQuestionnaireProjection(base,&candidate)
   saved,e=s.saveSessionLocked(candidate,base.Revision)
   if e!=nil{return e}
   // Derived cleanup cannot invalidate the already committed journal.
+  _=os.Remove(s.providerResponseCheckpointPath(id,record.RunID))
+  _=s.syncDirectory()
+  return nil
+ })
+ return saved,found,err
+}
+
+// A previous server version accidentally copied Git drift fields into a
+// newly returned ask_user record. They are PATCH-only metadata, not part of
+// the model's questionnaire. Repair only that newly added, still-pending
+// record, and only if the unchanged question schema passes strict validation.
+// Never sanitize arbitrary native execution, receipt or approval fields.
+func repairReceivedQuestionnaireProjection(base Session,candidate *Session)bool{
+ if candidate==nil||candidate.Status!="waiting_tool"||len(candidate.History)<=len(base.History){return false}
+ for i,it:=range base.History{if candidate.History[i]!=it{return false}}
+ existing:=map[string]bool{}
+ for _,c:=range base.ToolCalls{existing[c.CallID]=true}
+ repaired:=false
+ for i,c:=range candidate.ToolCalls{
+  if existing[c.CallID]||c.Name!=AskUserToolName||c.Status!="pending"{continue}
+  if c.ExpectedHead==""&&c.ExpectedBranch==""&&c.WorkspaceStatusSHA256==""&&!c.GitIsRepo{continue}
+  fixed:=c
+  fixed.ExpectedHead="";fixed.ExpectedBranch="";fixed.WorkspaceStatusSHA256="";fixed.GitIsRepo=false
+  if !ValidAskUserRecord(fixed,candidate.History){continue}
+  candidate.ToolCalls[i]=fixed
+  repaired=true
+ }
+ return repaired
+}
+
+// Recover a checkpoint already parked by the old recovery worker. The current
+// run must still be the same failed message and its canonical history and
+// prior tool records must be untouched. Do not revive a superseded response
+// or a failed native tool; only the specific known questionnaire bug can be
+// repaired here. The original private checkpoint remains until durable commit.
+func (s *Store) RecoverClosedQuestionnaireResponse(id,owner string)(Session,bool,error){
+ if !validID(id){return Session{},false,ErrNotFound}
+ var saved Session
+ found:=false
+ err:=s.withLock(func()error{
+  base,e:=s.readLocked(id);if e!=nil{return e}
+  if base.Owner!=owner||!s.matchesProject(base){return ErrNotFound}
+  if base.Archived||base.Status!="failed"||base.PendingUserTurn!=nil||
+   base.ProviderRun==nil||base.ProviderRun.Kind!="message"||base.ProviderRun.Phase!="unknown"{return nil}
+  interrupted:=false
+  for i:=len(base.Events)-1;i>=0;i--{
+   ev:=base.Events[i]
+   if ev.Kind=="turn_interrupted"{
+    interrupted=ev.Detail=="provider_response_save_failed";break
+   }
+   if ev.Kind=="provider_egress"||ev.Kind=="turn_started"{break}
+  }
+  if !interrupted{return nil}
+  record,e:=s.readResponseCheckpointLocked(base,true)
+  if os.IsNotExist(e){return nil}
+  if e!=nil{return e}
+  var candidate Session
+  if json.Unmarshal(record.Candidate,&candidate)!=nil{return ErrInvalidSession}
+  before:=base
+  run:=*base.ProviderRun;run.Phase="sending";before.ProviderRun=&run
+  before.Status="requesting_ai";before.Revision=record.BaseRevision
+  if !validResponseProjection(before,candidate)||len(candidate.ToolCalls)!=len(base.ToolCalls)+1||
+   candidate.HistoryArchiveParts!=base.HistoryArchiveParts||candidate.ArchivedHistoryItems!=base.ArchivedHistoryItems||
+   candidate.PatchArchiveParts!=base.PatchArchiveParts||candidate.ArchivedPatchCalls!=base.ArchivedPatchCalls{return nil}
+  for i,c:=range base.ToolCalls{if !reflect.DeepEqual(c,candidate.ToolCalls[i]){return nil}}
+  if !repairReceivedQuestionnaireProjection(base,&candidate){return nil}
+  question:=candidate.ToolCalls[len(base.ToolCalls)]
+  if question.Name!=AskUserToolName||question.Status!="pending"||!ValidAskUserRecord(question,candidate.History){return nil}
+  candidate.Revision=base.Revision
+  candidate.Events=append([]SessionEvent(nil),base.Events...)
+  candidate.EventSeq=base.EventSeq
+  candidate.CollectionGuard=base.CollectionGuard
+  candidate.AppendEvent("user_questions_pending","waiting_tool",question.CallID,"")
+  candidate.AppendEvent("response_recovered","waiting_tool",question.CallID,"questionnaire_snapshot_repaired")
+  found=true
+  saved,e=s.saveSessionLocked(candidate,base.Revision)
+  if e!=nil{return e}
   _=os.Remove(s.providerResponseCheckpointPath(id,record.RunID))
   _=s.syncDirectory()
   return nil
