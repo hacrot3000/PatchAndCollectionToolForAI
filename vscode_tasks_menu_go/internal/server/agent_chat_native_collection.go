@@ -327,7 +327,9 @@ func (s *Server) agentRunNativeCollection(ctx context.Context,owner string,reque
  var nonce [12]byte
  if _,err=rand.Read(nonce[:]);err!=nil{return "",err}
  expectedRunID:="agent_collect_"+hex.EncodeToString(nonce[:])
+ nimLocal:="0";if !s.Config.SharedServerEnabled{nimLocal="1"}
  if err=tasks.ApplyEnvironmentOverrides(&spec,map[string]string{
+  "TASKDECK_NIM_GATEWAY_LOCAL":nimLocal,
   "TASKDECK_PATCH_PROGRESS_RUN_ID":expectedRunID,
  });err!=nil{return "",err}
  spec.Label += agentNativeRunLabelSuffix
