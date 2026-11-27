@@ -31,21 +31,42 @@ type MutationProof struct {
 
 const MutationProofVersion = 1
 const maxMutationPaths = 4096
+const maxMutationPathsTotal = 8192
+
+// validMutationProofPath accepts only canonical, project-relative paths. It
+// mirrors collectionprogress.validEvidencePath (rejecting absolute paths,
+// traversal, backslash/ambiguous separators, dot components and NUL) and adds
+// rejection of other ASCII control characters. Keeping one path policy for
+// evidence and mutation proofs prevents a proof from naming scopes that the
+// coverage validator itself would refuse.
+func validMutationProofPath(p string) bool {
+	if !validEvidencePath(p) {
+		return false
+	}
+	for i := 0; i < len(p); i++ {
+		if p[i] < 0x20 || p[i] == 0x7f {
+			return false
+		}
+	}
+	return true
+}
 
 // mutationProofCanonical normalizes every path set so the integrity digest is
 // independent of slice order and rejects duplicate/empty/path-traversal values.
 func mutationProofCanonical(p MutationProof) ([][]string, error) {
 	sets := [][]string{p.Created, p.Deleted, p.Replaced, p.RenamedFrom, p.RenamedTo}
 	out := make([][]string, 0, len(sets))
+	total := 0
 	for _, set := range sets {
-		if len(set) > maxMutationPaths {
+		total += len(set)
+		if len(set) > maxMutationPaths || total > maxMutationPathsTotal {
 			return nil, errors.New("mutation proof path set too large")
 		}
 		clone := append([]string(nil), set...)
 		sort.Strings(clone)
 		seen := map[string]bool{}
 		for _, path := range clone {
-			if path == "" || seen[path] || path == "." || path == ".." {
+			if !validMutationProofPath(path) || seen[path] {
 				return nil, errors.New("invalid mutation path")
 			}
 			seen[path] = true
@@ -55,6 +76,9 @@ func mutationProofCanonical(p MutationProof) ([][]string, error) {
 	if len(out[3]) != len(out[4]) {
 		return nil, errors.New("rename source/destination arity mismatch")
 	}
+	// Rename source and destination are ordered independently on purpose: the
+	// affected-set semantics name BOTH sides as scopes, so pairing identity is
+	// not part of the digest. Arity above still bounds the overall rename set.
 	return out, nil
 }
 
@@ -133,4 +157,31 @@ func SelectiveMutationPaths(p MutationProof, ownerWorkspaceID, projectID, runID,
 		return nil, false
 	}
 	return paths, true
+}
+
+// InvalidateForMutation is the fail-closed consumer for a PATCH mutation. It
+// applies selective COVERAGE invalidation only when a server-owned, complete,
+// validated MutationProof supplies the exact affected path set. Evidence has no
+// per-path proof mapping, so a patch always broadly invalidates it. Any missing,
+// incomplete, foreign or tampered proof falls back to broad invalidation of both
+// indexes. The proof must be produced by trusted host verification of the exact
+// native execution: a UI changed-files report, model text, or a digest computed
+// by the caller is NOT authority. This is an additive primitive (like
+// adoptNativeRunReceipt): production mutating paths keep broad invalidation
+// until a trusted complete-proof producer is wired in, which is unsafe today
+// because the native run receipt carries no complete changed-files manifest.
+func InvalidateForMutation(evidence EvidenceIndex, coverage *CoverageIndex, proof *MutationProof, ownerWorkspaceID, projectID, runID, callID, receiptDigest string) (EvidenceIndex, *CoverageIndex) {
+	invalidatedEvidence := InvalidateEvidence(evidence, false)
+	if coverage == nil {
+		return invalidatedEvidence, nil
+	}
+	broad := InvalidateCoverage(*coverage, nil, false)
+	result := &broad
+	if proof != nil {
+		if paths, ok := SelectiveMutationPaths(*proof, ownerWorkspaceID, projectID, runID, callID, receiptDigest); ok {
+			selective := InvalidateCoverage(*coverage, paths, true)
+			result = &selective
+		}
+	}
+	return invalidatedEvidence, result
 }

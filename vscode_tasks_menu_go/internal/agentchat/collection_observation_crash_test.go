@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -103,7 +104,15 @@ func clp20CrashChild() {
 			candidate.ProviderRun = clp20ValidRun("acknowledged")
 		}
 	case "postcommit-prepared":
+		// A committed PREPARED journal must reference exact staged bytes; without
+		// the sidecar Save rejects the candidate before reaching the barrier.
+		payload := []byte(`{"model":"m","input":"prepared"}`)
 		candidate.ProviderRun = clp20ValidRun("prepared")
+		candidate.ProviderRun.PayloadSHA256 = ProviderPayloadDigest(payload)
+		if e := store.StageProviderPayload(candidate, payload); e != nil {
+			fmt.Fprintln(os.Stderr, "cannot stage prepared payload:", e)
+			os.Exit(2)
+		}
 	case "postcommit-sending":
 		candidate.ProviderRun = clp20ValidRun("sending")
 	default:
@@ -124,6 +133,10 @@ func clp20CrashChild() {
 		}
 		return syncAgentDirectory(store.dir)
 	}
+	// StageProviderPayload (W4) performs its own directory sync before Save.
+	// Count barrier calls from the canonical Save only so "second call" always
+	// means the post-rename, committed-journal boundary for every crash mode.
+	calls = 0
 	_, _ = store.Save(candidate, x.Revision)
 	fmt.Fprintln(os.Stderr, "unexpected return from postcommit barrier")
 	os.Exit(4)
@@ -138,15 +151,34 @@ func TestCLP20ObservationCrashWindows(t *testing.T) {
 	// The parent drives the individual windows through subtests below.
 }
 
-func clp20SpawnCrashChild(t *testing.T, mode, dir, id string) (*exec.Cmd, context.CancelFunc, *bytes.Buffer) {
+// clp20SyncBuffer is safe to read while os/exec's stderr copy goroutine is
+// still writing; an unsynchronized bytes.Buffer.String() races that writer.
+type clp20SyncBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *clp20SyncBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *clp20SyncBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
+}
+
+func clp20SpawnCrashChild(t *testing.T, mode, dir, id string) (*exec.Cmd, context.CancelFunc, *clp20SyncBuffer) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
 	cmd := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestCLP20ObservationCrashWindows$")
 	cmd.Env = append(os.Environ(),
 		clp20CrashChildEnv+"=1", clp20CrashModeEnv+"="+mode,
 		clp20CrashDirEnv+"="+dir, clp20CrashIDEnv+"="+id)
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
+	stderr := &clp20SyncBuffer{}
+	cmd.Stderr = stderr
 	out, err := cmd.StdoutPipe()
 	if err != nil {
 		cancel()
@@ -174,19 +206,25 @@ func clp20SpawnCrashChild(t *testing.T, mode, dir, id string) (*exec.Cmd, contex
 	if !seen {
 		t.Fatalf("child never reached barrier (%s): scan=%v stderr=%s", mode, scanner.Err(), stderr.String())
 	}
-	return cmd, cancel, &stderr
+	return cmd, cancel, stderr
 }
 
-func clp20KillAndAssert(t *testing.T, cmd *exec.Cmd, ctxErr func() error, stderr *bytes.Buffer) {
+func clp20KillAndAssert(t *testing.T, cmd *exec.Cmd, stderr *clp20SyncBuffer) {
 	t.Helper()
 	if err := cmd.Process.Kill(); err != nil {
-		t.Fatal(err)
+		t.Fatalf("cannot kill child at barrier: %v stderr=%s", err, stderr.String())
 	}
-	if err := cmd.Wait(); err == nil {
-		t.Fatal("child exited normally; forced kill barrier not exercised")
+	waitErr := cmd.Wait()
+	if waitErr == nil {
+		t.Fatalf("child exited normally; forced kill barrier not exercised stderr=%s", stderr.String())
 	}
-	if ctxErr() != nil {
-		t.Fatalf("child exited by deadline rather than intentional kill: %v stderr=%s", ctxErr(), stderr.String())
+	exitErr, ok := waitErr.(*exec.ExitError)
+	if !ok {
+		t.Fatalf("unexpected wait error %T: %v stderr=%s", waitErr, waitErr, stderr.String())
+	}
+	ws, ok := exitErr.Sys().(syscall.WaitStatus)
+	if !ok || !ws.Signaled() || ws.Signal() != syscall.SIGKILL {
+		t.Fatalf("child did not exit by intended SIGKILL: %v stderr=%s", exitErr, stderr.String())
 	}
 }
 
@@ -227,7 +265,7 @@ func TestCLP20ObservationCrashW1BeforeNative(t *testing.T) {
 		t.Fatal(err)
 	}
 	cmd, _, stderr := clp20SpawnCrashChild(t, "before-native", dir, x.ID)
-	clp20KillAndAssert(t, cmd, func() error { return nil }, stderr)
+	clp20KillAndAssert(t, cmd, stderr)
 	after, err := os.ReadFile(store.file(x.ID))
 	if err != nil || !bytes.Equal(before, after) {
 		t.Fatalf("W1 canonical journal changed before any native action: %v", err)
@@ -252,7 +290,7 @@ func TestCLP20ObservationCrashW2StagedNotCommitted(t *testing.T) {
 		t.Fatal(err)
 	}
 	cmd, _, stderr := clp20SpawnCrashChild(t, "staged-uncommitted", dir, x.ID)
-	clp20KillAndAssert(t, cmd, func() error { return nil }, stderr)
+	clp20KillAndAssert(t, cmd, stderr)
 	staged := filepath.Join(dir, x.ID+".clp20-staged-receipt")
 	if _, err := os.Stat(staged); err != nil {
 		t.Fatalf("W2 child never staged the receipt: %v", err)
@@ -281,7 +319,7 @@ func TestCLP20ObservationCrashW3CommittedBeforePrepared(t *testing.T) {
 		t.Fatal(err)
 	}
 	cmd, _, stderr := clp20SpawnCrashChild(t, "postcommit-observe", dir, x.ID)
-	clp20KillAndAssert(t, cmd, func() error { return nil }, stderr)
+	clp20KillAndAssert(t, cmd, stderr)
 	committed, err := os.ReadFile(store.file(x.ID))
 	if err != nil || bytes.Equal(committed, before) {
 		t.Fatalf("W3 postcommit barrier fired before authoritative commit: %v", err)
@@ -304,7 +342,7 @@ func TestCLP20ObservationCrashW4PreparedBeforeSending(t *testing.T) {
 	}
 	x := clp20BaseSession(t, store)
 	cmd, _, stderr := clp20SpawnCrashChild(t, "postcommit-prepared", dir, x.ID)
-	clp20KillAndAssert(t, cmd, func() error { return nil }, stderr)
+	clp20KillAndAssert(t, cmd, stderr)
 	restarted := clp20Reopen(t, dir, x.ID)
 	if restarted.ProviderRun == nil || restarted.ProviderRun.Phase != "prepared" {
 		t.Fatalf("W4 PREPARED state lost or auto-advanced: %+v", restarted.ProviderRun)
@@ -321,7 +359,7 @@ func TestCLP20ObservationCrashW5SendingBeforeAck(t *testing.T) {
 	}
 	x := clp20BaseSession(t, store)
 	cmd, _, stderr := clp20SpawnCrashChild(t, "postcommit-sending", dir, x.ID)
-	clp20KillAndAssert(t, cmd, func() error { return nil }, stderr)
+	clp20KillAndAssert(t, cmd, stderr)
 	restarted := clp20Reopen(t, dir, x.ID)
 	if restarted.ProviderRun == nil || restarted.ProviderRun.Phase != "sending" {
 		t.Fatalf("W5 UNKNOWN delivery not preserved: %+v", restarted.ProviderRun)
@@ -341,7 +379,7 @@ func TestCLP20ObservationCrashW6RestartAfterAck(t *testing.T) {
 	}
 	x := clp20BaseSession(t, store)
 	cmd, _, stderr := clp20SpawnCrashChild(t, "postcommit-ack", dir, x.ID)
-	clp20KillAndAssert(t, cmd, func() error { return nil }, stderr)
+	clp20KillAndAssert(t, cmd, stderr)
 	first := clp20Reopen(t, dir, x.ID)
 	if first.ProviderRun == nil || first.ProviderRun.Phase != "acknowledged" || clp20OutputCount(first) != 1 {
 		t.Fatalf("W6 ACK/observation not preserved once: %+v outputs=%d", first.ProviderRun, clp20OutputCount(first))
