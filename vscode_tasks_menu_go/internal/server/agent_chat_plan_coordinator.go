@@ -35,7 +35,6 @@ func (s *Server) autoContinueTaskPlanOne(ctx context.Context,store *agentchat.St
    "a specific read-only Collection if feasible; otherwise state a "+
    "precise blocker, not another general progress report."
  }
- before:=agentchat.VerifiedWorkSignature(original)
  requestID:=fmt.Sprintf("plan-%s-r%d",step.ID,original.Revision)
  message:=fmt.Sprintf(
   "TaskDeck user-authorized automatic continuation of the ORIGINAL task plan. "+
@@ -76,8 +75,9 @@ func (s *Server) autoContinueTaskPlanOne(ctx context.Context,store *agentchat.St
  // A verified read or Patch may have been adopted by the background
  // reconciler between scheduled turns. Compare to the previous durable
  // signature, not only the state immediately before this model call.
- reference:=p.LastWorkSignature
- if p.LastContinuationKey==""{reference=before}
+ prior:=p.LastWorkSignature
+ if p.LastContinuationKey==""{prior=""}
+ reference:=agentchat.ContinuationWorkReference(original,current,prior)
  if after==reference {
   p.NoProgressTurns++
  }else{
