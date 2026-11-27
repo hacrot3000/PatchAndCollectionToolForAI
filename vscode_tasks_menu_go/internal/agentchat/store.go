@@ -377,8 +377,14 @@ func (s *Store) withLock(fn func() error) error {
 	defer unlock()
 	return fn()
 }
+// Static field labels only; never include the provider's text or identifiers.
+type sessionFieldError struct{ field string }
+func (e sessionFieldError) Error()string{return "invalid agent session: "+e.field}
+func (e sessionFieldError) Unwrap()error{return ErrInvalidSession}
+func invalidSessionField(field string)error{return sessionFieldError{field:field}}
+
 func validateSession(x Session) error {
-	if !validProviderRun(x.ProviderRun) {return ErrInvalidSession}
+	if !validProviderRun(x.ProviderRun) {return invalidSessionField("provider_run")}
 	if !ValidTurnBinding(x.TurnBinding) || !ValidPendingUserTurn(x.PendingUserTurn) {
 		return ErrInvalidSession
 	}
@@ -387,7 +393,7 @@ func validateSession(x Session) error {
     x.TokenUsage.InputTokens>100000000000000||
     x.TokenUsage.OutputTokens>100000000000000{return ErrInvalidSession}
 	if err:=ValidateTaskPlan(x.TaskPlan);err!=nil{return err}
- if !ValidTurnContinuation(x.Continuation){return ErrInvalidSession}
+ if !ValidTurnContinuation(x.Continuation){return invalidSessionField("turn_continuation")}
 	if x.RetryMode != "" && x.RetryMode != RetryOff &&
 		x.RetryMode != RetryLimited && x.RetryMode != RetryUnlimited {
 		return ErrInvalidSession
@@ -416,18 +422,18 @@ func validateSession(x Session) error {
 		switch item.Type {
 		case "function_call":
 			if seenCallIDs[item.CallID] {
-				return ErrInvalidSession
+				return invalidSessionField("duplicate_history_call_id")
 			}
 			seenCallIDs[item.CallID] = true
 		case "function_call_output":
 			if !seenCallIDs[item.CallID] || completed[item.CallID] {
-				return ErrInvalidSession
+				return invalidSessionField("orphan_or_duplicate_tool_output")
 			}
 			completed[item.CallID] = true
 		}
 	}
-	if !validCollectionResumeHistory(x.CollectionResumeHistory){return ErrInvalidSession}
-	if len(x.ToolCalls) > 32 {return ErrInvalidSession}
+	if !validCollectionResumeHistory(x.CollectionResumeHistory){return invalidSessionField("collection_resume_history")}
+	if len(x.ToolCalls) > 32 {return invalidSessionField("tool_record_limit")}
  if len(x.PatchArchiveSummaries)>24 {return ErrInvalidSession}
  for _,summary:=range x.PatchArchiveSummaries {if len(summary)>220{return ErrInvalidSession}}
 	seenCalls := make(map[string]bool, len(x.ToolCalls))
@@ -439,7 +445,7 @@ func validateSession(x Session) error {
         // rejected protocol feedback record can be persisted. Any native
         // queue, approval, execution or retry fields invalidate the session.
         if call.Name==AskUserToolName&&call.Status!="rejected" {
-            if !ValidAskUserRecord(call,x.History){return ErrInvalidSession}
+            if !ValidAskUserRecord(call,x.History){return invalidSessionField("ask_user_record")}
         } else if call.Name!="taskdeck_submit_patch" {
             var feedback struct{
                 Status string `json:"status"`
@@ -502,7 +508,7 @@ func validateSession(x Session) error {
 			}
 		}
 		if !found {
-			return ErrInvalidSession
+			return invalidSessionField("tool_record_source_missing")
 		}
 	}
 	if len(x.PreviousResponseID) > 256 || len(x.ConversationID) > 256 || len(x.AIPackFingerprint) > 128 {
@@ -819,7 +825,7 @@ func (s *Store) saveSessionWithAdmissionLocked(x Session, expectedRevision uint6
 			return e
 		}
 		if len(raw) > maxSessionBytes {
-			return errors.New("agent session exceeds size limit")
+			return ErrSessionSizeLimit
 		}
 		temp, e := os.CreateTemp(s.dir, ".agent-session-*")
 		if e != nil {
@@ -930,6 +936,13 @@ func (s *Store) Delete(id, owner string, expectedRevision uint64) error {
 		if err:=os.Remove(s.file(id));err!=nil{return err}
 		if err:=os.Remove(s.handoffFile(id));err!=nil&&!os.IsNotExist(err){return err}
 		if err:=os.Remove(s.providerRunFile(id));err!=nil&&!os.IsNotExist(err){return err}
+        // Response checkpoints are private conversation evidence. Explicit
+        // owner deletion must remove failed as well as committed run files.
+        checkpoints,err:=filepath.Glob(filepath.Join(s.dir,id+".response.*.json"))
+        if err!=nil{return err}
+        for _,path:=range checkpoints{
+         if err=os.Remove(path);err!=nil&&!os.IsNotExist(err){return err}
+        }
         // Attempt IDs contain only metadata, but leaving an orphan owner
         // support ledger after explicit session deletion is still incorrect.
         if err:=os.Remove(s.providerAttemptsPath(id));err!=nil&&!os.IsNotExist(err){return err}
@@ -1106,7 +1119,7 @@ func (s *Store) writeSessionMetadataLocked(x Session) error {
   }
   raw, e := json.Marshal(onDisk)
   if e != nil { return e }
-  if len(raw) > maxSessionBytes { return errors.New("agent session exceeds size limit") }
+  if len(raw) > maxSessionBytes { return ErrSessionSizeLimit }
   temp, e := os.CreateTemp(s.dir, ".agent-session-rename-*")
   if e != nil { return e }
   defer os.Remove(temp.Name())

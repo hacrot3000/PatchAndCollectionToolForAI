@@ -2168,6 +2168,115 @@ console.log('PASS: active Agent Rename persists once and updates tab and History
  console.log('PASS: exact artifact bytes, Unicode split, limits, deduplication, session/workspace isolation, no provider request');
 }
 
+// Reload must reopen the selected conversation rather than the newest
+// conversation with potentially different automation consent.
+{
+ const start=source.indexOf('function agentSelectionKey(){');
+ const end=source.indexOf('function closeAgentTab(id){',start);
+ const loadStart=source.indexOf('let agentSelectionRestored=false;');
+ const loadEnd=source.indexOf('function agentDockKey(){',loadStart);
+ assert.ok(start>=0&&end>start&&loadStart>=0&&loadEnd>loadStart);
+ const storage=new Map();
+ const sessions=[{id:'newest',auto_continue_text:false},{id:'selected',auto_continue_text:true}];
+ const create=workspace=>{
+  const opened=[];
+  const ctx={agentApp:{taskData:{workspace}},agentActive:null,agentTabs:[],agentSessions:sessions,
+   localStorage:{getItem:k=>storage.get(k)||null,setItem:(k,v)=>storage.set(k,v)},
+   loadAgentProviders:async()=>{},loadAgentSessions:async()=>{},renderAgentTabs:()=>{},
+   renderAgentAttachments:()=>{},displayAgentSession:()=>{},
+   selectAgentSession:async id=>{ctx.agentActive=id;opened.push(sessions.find(s=>s.id===id));},
+  };
+  vm.runInNewContext(source.slice(start,end)+source.slice(loadStart,loadEnd)+'\nthis.restore=loadAgentState;this.save=saveAgentSelection;',ctx);
+  return {ctx,opened};
+ };
+ const initial=create('/workspace-a');
+ initial.ctx.agentActive='selected';initial.ctx.agentTabs=['newest','selected'];initial.ctx.save();
+ const reloaded=create('/workspace-a');
+ await reloaded.ctx.restore();
+ assert.equal(reloaded.ctx.agentActive,'selected');
+ assert.equal(reloaded.opened[0].auto_continue_text,true,'reload reads the selected conversation server preference');
+ assert.equal(JSON.stringify(reloaded.ctx.agentTabs),JSON.stringify(['newest','selected']));
+ const isolated=create('/workspace-b');await isolated.ctx.restore();
+ assert.equal(isolated.ctx.agentActive,'newest','navigation is isolated by workspace');
+ assert.equal(isolated.opened[0].auto_continue_text,false,'never copy consent to another conversation');
+ sessions.pop();
+ const deleted=create('/workspace-a');await deleted.ctx.restore();
+ assert.equal(deleted.ctx.agentActive,'newest','deleted selection falls back to available conversation');
+ assert.equal(JSON.stringify(deleted.ctx.agentTabs),JSON.stringify(['newest']));
+ console.log('PASS: reload restores selected conversation and authoritative per-conversation automation, workspace isolation and deleted-tab fallback');
+}
+
+// An HTTP success followed by failed local storage must not masquerade
+// as model thinking, and an interrupted journal must have a visible row.
+{
+ const begin=source.indexOf('function agentLivePhase(session){');
+ const end=source.indexOf('function agentFormatTokenCount(',begin);
+ assert.ok(begin>=0&&end>begin);
+ const turns=new Map();
+ const ctx={agentLiveTurns:turns,agentPendingQuestions:()=>null};
+ const live=vm.runInNewContext(source.slice(begin,end)+'\nagentLivePhase;',ctx);
+ const sess={id:'orphan',status:'requesting_ai',events:[],tool_calls:[]};
+ turns.set(sess.id,{baseEventSeq:0,error:'Provider responded; local response save failed (invalid_session_projection). Recovery will inspect the saved checkpoint; do not resend this request.'});
+ const status=live(sess);
+ assert.equal(status.error,true);
+ assert.ok(status.message.includes('local save failed'));
+ assert.ok(!status.message.includes('Thinking'));
+ const closed={...sess,status:'failed',events:[{seq:1,kind:'turn_interrupted',status:'failed',detail:'provider_response_save_failed'}]};
+ assert.equal(live(closed),null,'durable interruption replaces ephemeral error row');
+ assert.ok(source.includes("'turn_interrupted','collect_failed'"),'interrupted event appears in transcript activity rows');
+ console.log('PASS: response-storage failure is not Thinking; durable interruption replaces transient error');
+}
+
+// The resend action is attached only to the exact eligible canonical row.
+// It must disappear when provider recovery completes, including a reused
+// virtualized DOM row, and must not read or clear the composer draft.
+{
+ const start=source.indexOf('function agentReceiptResendMatches(');
+ const end=source.indexOf('function agentHistoryRow(',start);
+ const versionStart=source.indexOf('function agentToolRenderVersion(');
+ const versionEnd=source.indexOf('// Auto-follow recent activity',versionStart);
+ const sendStart=source.indexOf('async function resendAgentReceipt(');
+ const sendEnd=source.indexOf('async function continueAgentTool(',sendStart);
+ assert.ok(start>=0&&end>start&&versionStart>=0&&versionEnd>versionStart&&sendStart>=0&&sendEnd>sendStart);
+ const item={type:'function_call_output',call_id:'read',content:'exact result'};
+ const target={run_id:'r1-e2',history_index:1,kind:'collection',call_id:'read',sha256:'a'.repeat(64)};
+ const session={id:'selected',status:'failed',revision:10,provider_id:'provider',model_id:'model',
+  history:[{type:'user',content:'original'},item],receipt_resend:target};
+ const requests=[],busy=new Set(),selected=[];
+ const ctx={agentActive:session.id,agentCurrentSession:session,agentBusy:false,agentAbort:null,
+  agentSessionBusy:id=>busy.has(id),agentServerTurnBusy:()=>false,
+  agentLiveTurns:new Map(),markAgentSessionBusy:(id,on)=>on?busy.add(id):busy.delete(id),
+  agentStartProgressPoll:()=>{},agentStopProgressPoll:()=>{},agentUpdateLiveRow:()=>{},
+  AbortController:class{constructor(){this.signal={};}},window:{confirm:()=>true},
+  agentApp:{jsonFetch:async(url,opts)=>{requests.push({url,body:JSON.parse(opts.body)});return {status:'completed'};}},
+  selectAgentSession:async id=>{selected.push(id);},showAgentError:e=>{throw e;},
+  agentEl:()=>({children:[],append(...nodes){this.children.push(...nodes);}}),
+  agentButton:(label,click)=>({label,click}),agentToolIO:(label,content)=>({label,content}),
+  prompt:{value:'draft stays'},agentAttachments:[{text:'attachment stays'}],
+ };
+ vm.runInNewContext(source.slice(start,end)+source.slice(versionStart,versionEnd)+source.slice(sendStart,sendEnd)+
+  '\nthis.output=agentReceiptOutput;this.version=agentToolRenderVersion;this.resend=resendAgentReceipt;',ctx);
+ const row=ctx.output(session,item,'Collection result sent to AI');
+ assert.equal(row.children[1].label,'Resend to AI');
+ assert.ok(row.children[0].label.includes('delivery unconfirmed'));
+ assert.ok(ctx.version(item,new Map(),new Map(),session).startsWith('resend:'));
+ assert.equal(ctx.output(session,session.history[0],'ordinary').label,'ordinary');
+ await row.children[1].click();
+ assert.equal(requests.length,1);
+ assert.equal(requests[0].url,'/api/agent/sessions/selected/messages');
+ assert.equal(requests[0].body.resend_receipt.sha256,target.sha256);
+ assert.equal(requests[0].body.expected_revision,10);
+ assert.equal(requests[0].body.provider_id,'provider');
+ assert.equal(ctx.prompt.value,'draft stays');
+ assert.equal(ctx.agentAttachments[0].text,'attachment stays');
+ ctx.agentActive='other';await ctx.resend(session.id,target);
+ assert.equal(requests.length,1,'a stale card must not send to another conversation');
+ ctx.agentActive=session.id;session.receipt_resend=null;
+ assert.equal(ctx.version(item,new Map(),new Map(),session),'');
+ assert.equal(ctx.output(session,item,'sent').label,'sent');
+ console.log('PASS: exact receipt resend UI, stable session binding, draft preservation and stale eligibility');
+}
+
 // Tests have no authority to execute native Patch or contact the real provider.
 
 })().catch(error => { console.error(error); process.exitCode = 1; });

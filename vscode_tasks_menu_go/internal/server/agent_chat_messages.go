@@ -219,6 +219,7 @@ func (s *Server) agentChatAuthorizedMessage(w http.ResponseWriter, r *http.Reque
 		// contacting the provider a second time.
 		RequestID string `json:"request_id,omitempty"`
 		ResumeCollectionRunID string `json:"resume_collection_run_id,omitempty"`
+		ResendReceipt *agentReceiptResendTarget `json:"resend_receipt,omitempty"`
 		// Optional next-turn composer binding (UAG-02). Empty fields keep the
 		// persisted session selection.
 		ProviderID      string `json:"provider_id,omitempty"`
@@ -257,6 +258,12 @@ func (s *Server) agentChatAuthorizedMessage(w http.ResponseWriter, r *http.Reque
 	if req.ResumeCollectionRunID!=""{
 		if len(req.ResumeCollectionRunID)>96||len(req.Attachments)!=0||isCollectionContinuation(r.Context())||strings.TrimSpace(req.RequestID)==""{http.Error(w,"explicit collection resume requires a run ID, request ID and no attachments",400);return}
 		requestDigest=agentRequestDigest(requestDigest+"\x00collection-resume\x00"+req.ResumeCollectionRunID)
+	}
+	if req.ResendReceipt!=nil{
+		if req.ResumeCollectionRunID!=""||len(req.Attachments)!=0||admitPending||isCollectionContinuation(r.Context())||strings.TrimSpace(req.RequestID)==""{
+			http.Error(w,"receipt resend requires an explicit new request ID and no attachments",400);return
+		}
+		requestDigest=agentRequestDigest(requestDigest+"\x00receipt-resend\x00"+req.ResendReceipt.RunID+"\x00"+req.ResendReceipt.SHA256)
 	}
 	if attachmentContext != "" {
 		msg = msg + "\n\n" + attachmentContext
@@ -331,6 +338,18 @@ func (s *Server) agentChatAuthorizedMessage(w http.ResponseWriter, r *http.Reque
 	if err != nil {
 		http.Error(w, "Agent Run history unavailable; cannot build conversation context", http.StatusServiceUnavailable)
 		return
+	}
+	manualReceiptResend:=req.ResendReceipt!=nil
+	resendWireText:=""
+	if manualReceiptResend{
+		target:=agentReceiptResendCandidate(session)
+		if target==nil||*target!=*req.ResendReceipt||s.Config.SharedServerEnabled||len(runRecords)!=0{
+			http.Error(w,"Saved receipt is no longer eligible for resend; refresh conversation. No native tool was executed.",409);return
+		}
+		resendWireText=agentReceiptResendText(target.Kind,session.History[target.Index].Content)
+		// The original receipt remains in canonical history. Keep only a
+		// reference in the new user turn; the exact receipt is mandatory on wire.
+		msg=agentReceiptResendPrefix+"Kind: "+target.Kind+". Saved receipt SHA-256: "+target.SHA256+". Continue the original unfinished task."
 	}
 	patchResumeID,_:=r.Context().Value(patchFeedbackAutoResumeKey{}).(string)
 	autoResumePatchFeedback:=patchResumeID!=""
@@ -498,11 +517,11 @@ func (s *Server) agentChatAuthorizedMessage(w http.ResponseWriter, r *http.Reque
 	// The first consented turn performs a harmless, project-data-free tool
 	// schema probe when a configured model has not yet been verified.
 	patchToolAvailable := model.ToolCalling && s.agentToolCapabilityVerified(owner, p, model)
-	if !autoResumeCollection && !autoResumePatchFeedback && !patchToolAvailable && agentNeedsWorkspaceTools(msg) {
+	if !manualReceiptResend && !autoResumeCollection && !autoResumePatchFeedback && !patchToolAvailable && agentNeedsWorkspaceTools(msg) {
 		patchToolAvailable = s.agentChatEnsureTools(r.Context(), owner, p, model, string(secret))
 	}
 	instructions,currentInstructions := agentChatInstructionsWithAutomationParts(session, patchToolAvailable, identity.Key)
-	currentInstructions += s.agentRetireKnownFailedPatches(r.Context(), &session, identity, "")
+	if !manualReceiptResend {currentInstructions += s.agentRetireKnownFailedPatches(r.Context(), &session, identity, "")}
 	if newAfterCollection {
 		currentInstructions += " The previous read-only Collection provider delivery is UNKNOWN. This is a new user request, not a replay. Follow the latest actual user message. Local verified receipts are historical evidence only; do not claim prior provider acknowledgement, resend old feedback, or re-execute an earlier Patch. Request fresh native COLLECT only if necessary."
 	}
@@ -513,7 +532,7 @@ func (s *Server) agentChatAuthorizedMessage(w http.ResponseWriter, r *http.Reque
 	// session mode stays immutable for audit and a later verified retry.
 	currentContract := agentInstalledCollectionContract(s.Workspace)
 	mode := agentContextRequestMode(session,p.APIType,s.agentConversationCapabilityVerified(owner,p,model),currentContract)
-	if len(runRecords) != 0 || resumeCollection || autoResumePatchFeedback || newAfterCollection ||
+	if manualReceiptResend || len(runRecords) != 0 || resumeCollection || autoResumePatchFeedback || newAfterCollection ||
 		previousProvider != p.ID || previousModel != model.ID || len(failureProjection.History)>len(session.History) {
 		mode = agentchat.Stateless
 	}
@@ -522,6 +541,7 @@ func (s *Server) agentChatAuthorizedMessage(w http.ResponseWriter, r *http.Reque
 	contextModel := model
 	if mode==agentchat.Stateless{contextModel,limit=agentAdaptiveRequestBudget(store,session,p,model,string(secret),limit)}
 	requestNext:=[]agentchat.HistoryItem{next}
+	if manualReceiptResend{requestNext[0].Content=resendWireText}
 	if autoResumePatchFeedback{
 		var ok bool
 		failureProjection.History,requestNext,ok=agentPatchFeedbackResumeProjection(session,failureProjection.History,next)
@@ -552,7 +572,7 @@ func (s *Server) agentChatAuthorizedMessage(w http.ResponseWriter, r *http.Reque
 		if autoResumeCollection{kind="collection_auto_resume_new"}
 		session.AppendEvent(kind,session.Status,session.ProviderRun.CallID,session.ProviderRun.ID)
 	}else{
-		bindLegacyCollectionObjective(r.Context(), &session, strings.TrimSpace(req.Message))
+		if manualReceiptResend{bindLegacyCollectionObjective(collectionContinuationContext(r.Context()),&session,"Continue")}else{bindLegacyCollectionObjective(r.Context(), &session, strings.TrimSpace(req.Message))}
 		if newAfterCollection {
 			session.AppendEvent("collection_new_message",session.Status,session.ProviderRun.CallID,session.ProviderRun.ID)
 		}
@@ -576,6 +596,7 @@ func (s *Server) agentChatAuthorizedMessage(w http.ResponseWriter, r *http.Reque
 		w.WriteHeader(http.StatusAccepted)
 		return
 	}
+	if manualReceiptResend{session.AppendEvent("tool_receipt_resend",session.Status,req.ResendReceipt.CallID,req.ResendReceipt.SHA256)}
 	session.Status = "requesting_ai"
 	session.AppendEvent("turn_started", "requesting_ai", "", "")
 	// Write the EXACT future request to private disk before publishing
@@ -730,7 +751,7 @@ func (s *Server) agentChatAuthorizedMessage(w http.ResponseWriter, r *http.Reque
 	if len(session.ToolCalls) > 0 {
 		if snap, err := agentWorkspaceSnapshotOf(r.Context(), s.Workspace); err == nil {
 			for i := range session.ToolCalls {
-				if session.ToolCalls[i].Status == "pending" && session.ToolCalls[i].ExpectedHead == "" && !session.ToolCalls[i].GitIsRepo {
+				if session.ToolCalls[i].Name == "taskdeck_submit_patch" && session.ToolCalls[i].Status == "pending" && session.ToolCalls[i].ExpectedHead == "" && !session.ToolCalls[i].GitIsRepo {
 					session.ToolCalls[i].ExpectedHead = snap.Head
 					session.ToolCalls[i].ExpectedBranch = snap.Branch
 					session.ToolCalls[i].WorkspaceStatusSHA256 = snap.StatusSHA256
@@ -742,9 +763,9 @@ func (s *Server) agentChatAuthorizedMessage(w http.ResponseWriter, r *http.Reque
 	if requestKey != "" {
 		session.LastRequestCode = 200
 	}
-	session, err = store.Save(session, session.Revision)
+	session, err = s.saveAgentReceivedResponse(store, session)
 	if err != nil {
-		http.Error(w, "provider responded but durable session update failed; inspect session before retry", 409)
+		http.Error(w, "Provider responded; local response save failed ("+agentchat.ProviderResponseSaveErrorCode(err)+"). Recovery will inspect the saved checkpoint; do not resend this request.", 409)
 		return
 	}
 	w.Header().Set("Cache-Control", "no-store")

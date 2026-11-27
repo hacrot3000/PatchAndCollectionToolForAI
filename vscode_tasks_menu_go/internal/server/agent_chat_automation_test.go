@@ -398,3 +398,39 @@ func TestAgentPendingAutoPatchBlockIsDurableAndIdempotent(t *testing.T) {
  z,err:=store.Get(id,"local")
  if err!=nil||z.Revision!=y.Revision {t.Fatal("same refusal must not churn the journal")}
 }
+
+
+// A browser reload only lists/reads sessions. Both values must survive
+// independent Store instances and repeated GETs without a new owner grant.
+func TestAgentStandalonePreferenceSurvivesReload(t *testing.T) {
+ s,id:=newAgentConversationFixture(t,"stateless")
+ path:="/api/agent/sessions/"+id
+ for _,enabled:=range []bool{true,false,true} {
+  store,err:=s.agentChatStore()
+  if err!=nil{t.Fatal(err)}
+  x,err:=store.Get(id,"local")
+  if err!=nil{t.Fatal(err)}
+  w:=invokeAI(t,s.agentChatSessionItemAPI,http.MethodPost,path+"/automation",map[string]any{
+   "option":"continue","enabled":enabled,"expected_revision":x.Revision,"confirm_external":enabled,
+  })
+  if w.Code!=200{t.Fatalf("save preference: %d %s",w.Code,w.Body)}
+  for i:=0;i<3;i++{
+   list:=invokeAI(t,s.agentChatSessionsAPI,http.MethodGet,"/api/agent/sessions",nil)
+   if list.Code!=200{t.Fatalf("reload list: %d %s",list.Code,list.Body)}
+   got:=invokeAI(t,s.agentChatSessionItemAPI,http.MethodGet,path,nil)
+   if got.Code!=200{t.Fatalf("reload session: %d %s",got.Code,got.Body)}
+   var response struct{Session agentchat.Session `json:"session"`}
+   if err=json.Unmarshal(got.Body.Bytes(),&response);err!=nil{t.Fatal(err)}
+   if response.Session.ID!=id||response.Session.AutoContinueText!=enabled||response.Session.Revision!=x.Revision{
+    t.Fatalf("reload lost saved preference: want %v got %v",enabled,response.Session.AutoContinueText)
+   }
+   reopened,e:=s.agentChatStore()
+   if e!=nil{t.Fatal(e)}
+   persisted,e:=reopened.Get(id,"local")
+   if e!=nil{t.Fatal(e)}
+   if persisted.AutoContinueText!=enabled||persisted.AutomationRevision!=response.Session.AutomationRevision{
+    t.Fatal("stored preference differs from reload API")
+   }
+  }
+ }
+}

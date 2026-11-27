@@ -149,7 +149,7 @@ func (s *Server) resumePreparedAgentProviderRun(ctx context.Context,store *agent
   if snap,e:=agentWorkspaceSnapshotOf(turnCtx,s.Workspace);e==nil{
    for i:=range x.ToolCalls{
     call:=&x.ToolCalls[i]
-    if call.Status=="pending" && call.ExpectedHead=="" && !call.GitIsRepo{
+    if call.Name=="taskdeck_submit_patch" && call.Status=="pending" && call.ExpectedHead=="" && !call.GitIsRepo{
      call.ExpectedHead=snap.Head;call.ExpectedBranch=snap.Branch
      call.WorkspaceStatusSHA256=snap.StatusSHA256
      call.GitIsRepo=snap.IsRepo
@@ -159,7 +159,7 @@ func (s *Server) resumePreparedAgentProviderRun(ctx context.Context,store *agent
  }
  markAgentProviderOutcome(&x,"completed")
  x.AppendEvent("provider_resume_finished",x.Status,run.CallID,"prepared_only")
- if _,err=store.Save(x,x.Revision);err==nil{
+ if _,err=s.saveAgentReceivedResponse(store,x);err==nil{
   _=store.DeleteProviderPayload(id)
  }
  return true

@@ -1509,9 +1509,7 @@ function renderAgentTool(session,item){
  if(!record.feedback_sent&&['running','dispatching','queued','unknown','done','error'].includes(state)){
   if((agentFeedbackEnabled(session)||record.send_after_retry)&&['done','error'].includes(state)){
    box.append(agentEl('p','agentchat-tool-summary',agentFeedbackWaitMessage(session)));
-   if(session.auto_feedback_diagnostic?.eligible===false){
-    actions.append(agentButton('Send verified result to AI',()=>recoverAgentPatch(agentCurrentSession||session,item.call_id,'send_existing').catch(showAgentError)));
-   }
+   actions.append(agentButton('Send verified result to AI',()=>recoverAgentPatch(agentCurrentSession||session,item.call_id,'send_existing').catch(showAgentError)));
   }else{
    actions.append(agentButton('Get the last result and send to AI',
     ()=>recoverAgentPatch(agentCurrentSession||session,item.call_id,'send_existing').catch(showAgentError)));
@@ -1593,12 +1591,25 @@ function agentProviderBadge(row,item,session){
  row.prepend(badge);
  return row;
 }
+function agentReceiptResendMatches(session,item){
+ const target=session?.receipt_resend;
+ return Boolean(target&&Array.isArray(session.history)&&session.history[target.history_index]===item);
+}
+function agentReceiptOutput(session,item,label){
+ const target=session?.receipt_resend;
+ if(!agentReceiptResendMatches(session,item))return agentToolIO(label,String(item.content||''));
+ const box=agentEl('div','agentchat-bubble tool');
+ box.append(agentToolIO((target.kind==='patch'?'Native Patch':'Collection')+' result · delivery unconfirmed · view contents',String(item.content||'')),
+  agentButton('Resend to AI',()=>resendAgentReceipt(session.id,target).catch(showAgentError)));
+ return box;
+}
 function agentHistoryRow(session,item,callNames){
  if(item.type==='activity_event'){
   const name=item.kind==='collect_failed'?'Collection failed':
    item.kind==='collect_request_rejected'?'Collection request rejected':
    item.kind==='collect_native_failed'?'Native Collection failed':
    item.kind==='turn_failed'?'AI request failed':
+   item.kind==='turn_interrupted'?({provider_response_save_failed:'AI response received · local save failed (checkpoint retained if available)',provider_response_not_saved:'AI response returned · response body not saved',orphaned_provider_run:'Interrupted AI request · delivery unresolved'}[item.detail]||'AI request interrupted'):
    item.kind==='turn_cancelled'?'AI request cancelled':
    item.kind==='feedback_unknown'?'Patch result delivery unconfirmed':'Operation failed';
   const note=item.detail?' · '+item.detail:'';
@@ -1608,10 +1619,10 @@ function agentHistoryRow(session,item,callNames){
   const source=String(item.content||'');
   if(source.startsWith('TaskDeck local read-only Collection tool returned this VERIFIED observation')||
      source.startsWith('TaskDeck native Patch Tool COLLECT returned this observation')){
-   return agentToolIO('Collection result sent to AI · view contents',source);
+   return agentReceiptOutput(session,item,'Collection result sent to AI · view contents');
   }
   if(source.startsWith('TaskDeck native Patch Tool result for your prior text-only proposal')){
-   return agentToolIO('Sending native Patch result to AI · view contents',source);
+   return agentReceiptOutput(session,item,'Native Patch result sent to AI · view contents');
   }
   const parts=agentUserMessageParts(source);
   return agentProviderBadge(agentUserMessageNode(parts.message,parts.attachments),item,session); }
@@ -1648,7 +1659,7 @@ function agentHistoryRow(session,item,callNames){
  }
  if(item.type==='function_call_output'){
   const isCollection=callNames.get(item.call_id)==='taskdeck_collect_workspace';
-  return agentToolIO(callNames.get(item.call_id)==='taskdeck_ask_user'?'User answers sent to AI · view contents':isCollection?'Collection result sent to AI · view contents':'Native Patch result sent to AI · view contents',String(item.content||''));
+  return agentReceiptOutput(session,item,callNames.get(item.call_id)==='taskdeck_ask_user'?'User answers sent to AI · view contents':isCollection?'Collection result sent to AI · view contents':'Native Patch result sent to AI · view contents');
  }
  return null;
 }
@@ -1658,7 +1669,7 @@ function agentHistoryRow(session,item,callNames){
 function agentChronologicalHistory(session){
  const history=Array.isArray(session?.history)?session.history:[];
  const failures=(session?.events||[]).filter(e=>
-  ['turn_failed','collect_failed','collect_request_rejected','collect_native_failed','turn_cancelled','feedback_unknown'].includes(e.kind));
+  ['turn_failed','turn_interrupted','collect_failed','collect_request_rejected','collect_native_failed','turn_cancelled','feedback_unknown'].includes(e.kind));
  if(!failures.length)return history;
  const byIndex=new Map();
  for(const event of failures){
@@ -1722,6 +1733,7 @@ function agentLivePhase(session){
    (retry.mode==='unlimited'?' (unlimited)':' / 6 total attempts')+'…'+stagnationHint+(stagnant?' · Stop request to cancel':'')};
  }
  if(session.status==='requesting_ai'){
+  if(turn?.error&&/provider responded; local response save failed/i.test(turn.error))return {message:'AI response received · local save failed · checking recovery checkpoint. Do not resend.',error:true};
   if(!turn?.error&&turn?.phase==='sending'&&!turn.acknowledged&&!newer.some(e=>e.kind==='turn_started'||e.kind==='feedback_prepared'||e.kind==='provider_egress'))return {message:'Sending request…'};
   if(lastEvent?.kind==='collect_started')return {message:'Running native Patch Tool COLLECT… large-file extraction in progress. Stop to cancel.'};
   const preview=session.live_preview;
@@ -1738,7 +1750,7 @@ function agentLivePhase(session){
  if(['queued','dispatching','running'].includes(lastCall?.status))return {message:'Running native Patch…'};
  if(turn?.error){
   const persistedError=(session.events||[]).some(e=>Number(e.seq||0)>turn.baseEventSeq&&
-   ['turn_failed','collect_failed','turn_cancelled','feedback_unknown'].includes(e.kind));
+   ['turn_failed','turn_interrupted','collect_failed','turn_cancelled','feedback_unknown'].includes(e.kind));
   if(!persistedError)return {message:'Request failed · '+turn.error,error:true};
  }
  if(session.status==='failed')return null; // durable failure row in history
@@ -1865,7 +1877,7 @@ function agentStopProgressPoll(sessionID){
 // The retained transcript compares only the changed native tool card's
 // canonical evidence. Restore this helper independently of live activity UI.
 function agentToolRenderVersion(item,records,outputs,session){
- if(item.type!=='function_call')return '';
+ if(item.type!=='function_call')return agentReceiptResendMatches(session,item)?'resend:'+JSON.stringify(session.receipt_resend):'';
  if(item.name==='taskdeck_collect_workspace'){
   const output=outputs.get(item.call_id);
   return 'collect:'+String(output?.content||'');
@@ -1942,7 +1954,7 @@ function agentRenderHistoryWindow(start,end){
  }
  for(let i=start;i<end;i++){
   const item=history[i],entry=agentRenderedNodes.get(i);
-  const version=item.type==='function_call'?agentToolRenderVersion(item,records,outputs,session):'';
+  const version=agentToolRenderVersion(item,records,outputs,session);
   if(entry&&agentHistoryItemEqual(entry.item,item)&&entry.version===version){
    entry.item=item;continue;
   }
@@ -2081,7 +2093,7 @@ function renderAgentProviderEgressReview(session,review,attemptAudit=null,integr
  // without becoming a different warning or clearing a prior dismissal.
  const audit=attemptAudit?.run_id===review?.run_id?attemptAudit:null;
  const latest=audit&&Array.isArray(audit.attempts)?audit.attempts[audit.attempts.length-1]:null;
- const viewKey=[key,audit?.total??'',latest?.client_request_id??'',latest?.outcome??'',Boolean(integrityError),Boolean(session?.collection_resume_eligible),session?.collection_auto_recovery||''].join('|');
+ const viewKey=[key,audit?.total??'',latest?.client_request_id??'',latest?.outcome??'',Boolean(integrityError),Boolean(session?.collection_resume_eligible),session?.collection_auto_recovery||'',JSON.stringify(session?.receipt_resend||null)].join('|');
  if(viewKey===agentProviderReviewKey)return;
  agentProviderReviewKey=viewKey;
  agentProviderEgressNotice.replaceChildren();
@@ -2161,6 +2173,10 @@ function renderAgentProviderEgressReview(session,review,attemptAudit=null,integr
    return sendAgentMessage(String(review.run_id)).catch(showAgentError);
   });
   agentProviderEgressNotice.append(agentEl('div','','Previous PATCH acknowledgements remain intact. You can send any new message normally to the selected model or resume the original task. The previous provider request stays UNKNOWN.'),resume);
+ }
+ if(session.receipt_resend&&!integrityError){
+  const target=session.receipt_resend;
+  agentProviderEgressNotice.append(agentButton('Resend '+(target.kind==='patch'?'PATCH':'COLLECT')+' result to AI',()=>resendAgentReceipt(session.id,target).catch(showAgentError)));
  }
  agentProviderEgressNotice.append(
   agentEl('div','','Correlation is pre-send only; neither a retry key nor provider acknowledgement.'),
@@ -2350,6 +2366,27 @@ function openAgentTab(id){
  if(!agentTabs.includes(id))agentTabs.push(id);
  renderAgentTabs();
 }
+// Only persist navigation locally. Automation consent is authoritative on
+// the server; a browser reload must never grant or revoke it.
+function agentSelectionKey(){
+ const workspace=String(agentApp.taskData?.workspace||'').trim()||'default';
+ return 'vscode-tasks-menu:agent-chat-selection:v1:'+workspace;
+}
+function saveAgentSelection(){
+ try{localStorage.setItem(agentSelectionKey(),JSON.stringify({active:agentActive,tabs:agentTabs}));}catch{}
+}
+function restoreAgentSelection(){
+ let saved=null;
+ try{saved=JSON.parse(localStorage.getItem(agentSelectionKey())||'null');}catch{}
+ if(!saved||typeof saved!=='object')return null;
+ const available=new Set(agentSessions.map(s=>s.id));
+ const tabs=Array.isArray(saved.tabs)?saved.tabs.filter(id=>typeof id==='string'&&available.has(id)):[];
+ agentTabs=[...new Set(tabs)];
+ const active=typeof saved.active==='string'&&available.has(saved.active)?saved.active:null;
+ if(active&&!agentTabs.includes(active))agentTabs.push(active);
+ renderAgentTabs();
+ return active||agentTabs.at(-1)||null;
+}
 function closeAgentTab(id){
  agentTabs=agentTabs.filter(x=>x!==id);
  if(agentActive===id){
@@ -2357,10 +2394,12 @@ function closeAgentTab(id){
   agentDrafts.set(id,prompt.value);
   agentAttachmentDrafts.set(id,agentAttachments.map(a=>({...a})));
   agentActive=null;
+  ++agentSelectGeneration;
   agentAttachments=[];setAgentPromptValue('');renderAgentAttachments();
   if(agentTabs.length)selectAgentSession(agentTabs[agentTabs.length-1]).catch(showAgentError);
   else displayAgentSession(null);
  }
+ saveAgentSelection();
  renderAgentTabs();
 }
 async function selectAgentSession(id){
@@ -2375,7 +2414,7 @@ async function selectAgentSession(id){
   agentAttachmentDrafts.set(previousID,agentAttachments.map(a=>({...a})));
  }
  const generation=++agentSelectGeneration;
- const data=await agentApp.jsonFetch('/api/agent/sessions/'+encodeURIComponent(id));
+ const data=await agentApp.jsonFetch('/api/agent/sessions/'+encodeURIComponent(id),{cache:'no-store'});
  if(generation!==agentSelectGeneration)return null;
  const sess=data.session;
  sess.retry_runtime=data.retry_runtime||null;
@@ -2383,6 +2422,7 @@ async function selectAgentSession(id){
  sess.native_work_wait=data.native_work_wait||'';
  sess.auto_feedback_diagnostic=data.auto_feedback_diagnostic||null;
  sess.collection_resume_eligible=data.collection_resume_eligible===true;
+ sess.receipt_resend=data.receipt_resend||null;
  sess.collection_progress=data.collection_progress||null;
  sess.collection_auto_recovery=data.collection_auto_recovery||'';
  sess.auto_continue_monitor=data.auto_continue_monitor===true;
@@ -2443,6 +2483,7 @@ async function selectAgentSession(id){
   updateAgentSessionRows();
  }
  openAgentTab(id);
+ saveAgentSelection();
  displayAgentSession(sess);
   scheduleAgentMonitor(sess);
  return sess;
@@ -2569,6 +2610,39 @@ async function syncAgentPatch(id,{quiet=false}={}){
   return result;
  }finally{
   agentPatchSyncInFlight.delete(id);
+ }
+}
+// Resend never consumes the composer's unsent prompt or attachments.
+async function resendAgentReceipt(id,target){
+ if(agentActive!==id||agentSessionBusy(id))return;
+ const current=agentCurrentSession;
+ if(current?.id!==id||agentServerTurnBusy(current)||JSON.stringify(current.receipt_resend)!==JSON.stringify(target))return;
+ if(!window.confirm('Resend the exact saved '+(target.kind==='patch'?'PATCH':'COLLECT')+' result to '+current.provider_id+' / '+current.model_id+' as a NEW continuation? The old delivery is unconfirmed. No native tool will be re-executed to obtain this result.'))return;
+ const turn={message:'',phase:'feedback',error:'',baseHistoryLength:current.history?.length||0,
+  baseEventSeq:current.event_seq||0,optimisticNode:null,acknowledged:false};
+ agentLiveTurns.set(id,turn);
+ agentBusy=true;markAgentSessionBusy(id,true);
+ agentAbort=new AbortController();
+ agentStartProgressPoll(id);
+ if(agentActive===id)agentUpdateLiveRow(current);
+ try{
+  const result=await agentApp.jsonFetch('/api/agent/sessions/'+encodeURIComponent(id)+'/messages',{
+   method:'POST',headers:{'Content-Type':'application/json'},signal:agentAbort.signal,
+   body:JSON.stringify({message:'Resend saved native result and continue the original task.',confirm_external:true,
+    expected_revision:current.revision,request_id:'resend-'+target.run_id+'-'+target.sha256.slice(0,24),
+    resend_receipt:target,provider_id:current.provider_id,model_id:current.model_id,reasoning_effort:current.reasoning_effort||''})
+  });
+  agentLiveTurns.delete(id);
+  if(agentActive===id)await selectAgentSession(id);
+  return result;
+ }catch(error){
+  turn.error=String(error?.message||error).slice(0,450);
+  if(agentActive===id){try{await selectAgentSession(id);}catch{}}
+  throw error;
+ }finally{
+  agentStopProgressPoll(id);
+  agentAbort=null;agentBusy=false;markAgentSessionBusy(id,false);
+  if(agentActive===id&&agentCurrentSession)agentUpdateLiveRow(agentCurrentSession);
  }
 }
 async function continueAgentTool(session,callID){
@@ -3369,6 +3443,14 @@ function renderAgentAutomationControls(session){
  renderAgentFeedbackControl(session);
  autoContinueText.textContent='Auto continue (no plan): '+(session?.auto_continue_text?'ON':'OFF');
  autoContinueText.setAttribute('aria-pressed',String(Boolean(session?.auto_continue_text)));
+ const baseTitle='Allow additional AI requests for an unfinished conversation without a Task plan. No extra Patch permission.';
+ const reason=session?.continuation?.reason;
+ // Do not conceal a deliberate server-side safety stop as a lost preference.
+ const stopped=!session?.auto_continue_text&&(
+  reason==='stalled_without_verified_work'?'Stopped after repeated turns without verified work.':
+  reason==='nonretryable_admission_failure'?'Stopped after an admission error that requires review.':
+  session?.continuation?.disposition==='BLOCKED'?'The conversation reported a blocker.':'');
+ autoContinueText.title=stopped?baseTitle+' '+stopped+' Review the conversation before enabling again.':baseTitle;
 }
 function agentFeedbackEnabled(session){
  return Boolean(session?.auto_feedback&&(session.auto_feedback_persistent||
@@ -3936,10 +4018,12 @@ async function deleteAgentSession(id){
  for(const key of [...agentOpenReviewDetails])if(key.startsWith(id+':'))agentOpenReviewDetails.delete(key);
  if(agentActive===id){
   agentActive=null;agentCurrentSession=null;
+  ++agentSelectGeneration;
   agentExecutionPanel.classList.remove('visible');agentExecutionTarget=null;
   agentResetHistoryWindow();agentRenderedSessionID=null;
   setAgentPromptValue('');agentAttachments=[];renderAgentAttachments();
  }
+ saveAgentSelection();
  toggleAgentSessions(false);
  await loadAgentSessions();
  if(agentActive)await selectAgentSession(agentActive);
@@ -4016,9 +4100,16 @@ async function archiveAgentSession(){
  await loadAgentSessions();
  await selectAgentSession(result.session.id);
 }
+let agentSelectionRestored=false;
 async function loadAgentState(options={}){
  await loadAgentProviders();await loadAgentSessions();
+ let restored=null;
+ if(!agentSelectionRestored){
+  agentSelectionRestored=true;
+  if(!agentActive&&!agentTabs.length&&!options.preserveEmpty)restored=restoreAgentSelection();
+ }
  if(agentActive&&agentSessions.some(s=>s.id===agentActive))await selectAgentSession(agentActive);
+ else if(restored&&!options.preserveEmpty)await selectAgentSession(restored);
  else if(agentSessions.length&&!options.preserveEmpty)await selectAgentSession(agentSessions[0].id);
  else displayAgentSession(null);
  renderAgentAttachments();

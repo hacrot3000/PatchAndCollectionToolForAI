@@ -45,6 +45,10 @@ func (s *Server) agentChatSyncAPI(w http.ResponseWriter, r *http.Request, id str
 		http.Error(w, "workspace mismatch", 403)
 		return
 	}
+	if recovered,handled,recoveryErr:=s.recoverAgentReceivedResponseLocked(store,x,true);handled{
+		if recoveryErr!=nil{http.Error(w,"Local response recovery failed ("+agentchat.ProviderResponseSaveErrorCode(recoveryErr)+")",409);return}
+		x=recovered
+	}
 	// The same turn lease used by approval is held. A leftover QUEUING
 	// marker cannot still be owned by a live approval handler.
 	changed := agentRecoverAcknowledgedCollection(&x)
@@ -121,6 +125,7 @@ func (s *Server) agentReconcileOneStartupSession(ctx context.Context,store *agen
  sess,err:=store.Get(id,"local")
  if err!=nil||sess.Workspace!=s.Workspace||sess.Archived{return}
  if ctx.Err()!=nil{return}
+ if _,handled,_:=s.recoverAgentReceivedResponseLocked(store,sess,false);handled{return}
 	changed := agentRecoverAcknowledgedCollection(&sess)
 	if !s.agentConversationRequiresRunContinuation("local",id) {
 		if agentRestoreRejectedSession(&sess, "") {changed=true}

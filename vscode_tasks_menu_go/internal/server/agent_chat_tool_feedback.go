@@ -446,9 +446,9 @@ for _,i:=range indices{x.ToolCalls[i].FeedbackStatus="acknowledged"}
 	appendAgentTextPatchProposal(&x, result, identity)
 	markAgentProviderOutcome(&x,"completed")
 	x.AppendEvent("feedback_turn_finished", x.Status, call.CallID, "")
-	x, err = store.Save(x, x.Revision)
+	x, err = s.saveAgentReceivedResponse(store, x)
 	if err != nil {
-		return agentDeliverResult{}, agentContinueError{409, "provider responded but journal write failed; inspect history before retry"}
+		return agentDeliverResult{}, agentContinueError{409, "Provider responded; local response save failed ("+agentchat.ProviderResponseSaveErrorCode(err)+"). Recovery will inspect the checkpoint; do not resend tool feedback."}
 	}
 	s.recordAgentDebugEvent(owner, x.ID, call.CallID, "feedback", "feedback.acknowledged", "", "Provider response was persisted after tool-result continuation")
 	return agentDeliverResult{Session: x, Result: result}, nil
