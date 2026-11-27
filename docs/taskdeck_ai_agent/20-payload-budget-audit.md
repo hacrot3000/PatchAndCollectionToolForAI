@@ -1,5 +1,7 @@
 # HANDOFF 20 — Final payload budget audit (CLP-05.01.02)
 
+> **Current local workflow (2026-11-27):** [20-coder-execution-contract.md](20-coder-execution-contract.md) supersedes historical process/stop instructions and completion claims below. Reference evidence only; use this audit to guide concrete source changes, not as a mandatory repeated audit or reason to stop. Local coder writes source/test fixes, operator runs CI/Git. Continue independent local work without external-only BLOCKED; no acceptance or safety relaxation.
+
 > Static inspection audit. Produced by native read-only COLLECT + source PATCH only.
 > No Go toolchain, no provider, no real request was executed. Findings reference
 > SYMBOL and TEST names (stable) rather than line numbers (which drift).
