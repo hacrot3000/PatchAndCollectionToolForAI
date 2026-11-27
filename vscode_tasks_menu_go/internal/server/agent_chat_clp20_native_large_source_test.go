@@ -244,11 +244,14 @@ func TestAgentCLP20NativePatchMutationGuardMatrix(t *testing.T) {
  for _, tc := range []struct {
   name, body, decision, nativeStatus, finalSource string
   executed bool
+  finalPath string
  }{
-  {"rejected", "print('must not execute')\n", "reject", "", "package fixture\n// BEFORE\n", false},
-  {"noop", "print('no source change')\n", "approve", "PASS", "package fixture\n// BEFORE\n", true},
-  {"changed", "from pathlib import Path\nPath('clp20_patch.go').write_text('package fixture\\n// AFTER\\n')\n", "approve", "PASS", "package fixture\n// AFTER\n", true},
-  {"partial_failure", "from pathlib import Path\nPath('clp20_patch.go').write_text('package fixture\\n// PARTIAL\\n')\nraise RuntimeError('fixture failure after write')\n", "approve", "FAIL", "package fixture\n// PARTIAL\n", true},
+  {"rejected", "print('must not execute')\n", "reject", "", "package fixture\n// BEFORE\n", false, "clp20_patch.go"},
+  {"noop", "print('no source change')\n", "approve", "PASS", "package fixture\n// BEFORE\n", true, "clp20_patch.go"},
+  {"changed", "from pathlib import Path\nPath('clp20_patch.go').write_text('package fixture\\n// AFTER\\n')\n", "approve", "PASS", "package fixture\n// AFTER\n", true, "clp20_patch.go"},
+  {"partial_failure", "from pathlib import Path\nPath('clp20_patch.go').write_text('package fixture\\n// PARTIAL\\n')\nraise RuntimeError('fixture failure after write')\n", "approve", "FAIL", "package fixture\n// PARTIAL\n", true, "clp20_patch.go"},
+  {"rename", "from pathlib import Path\nPath('clp20_patch.go').rename('clp20_renamed.go')\n", "approve", "PASS", "package fixture\n// BEFORE\n", true, "clp20_renamed.go"},
+  {"delete_replace", "from pathlib import Path\nPath('clp20_patch.go').unlink()\nPath('clp20_replacement.go').write_text('package fixture\\n// AFTER\\n')\n", "approve", "PASS", "package fixture\n// AFTER\n", true, "clp20_replacement.go"},
  } {
   t.Run(tc.name, func(t *testing.T) {
    s, id := newAgentConversationFixture(t, "stateless")
@@ -301,11 +304,13 @@ func TestAgentCLP20NativePatchMutationGuardMatrix(t *testing.T) {
       Status string
       Verified bool `json:"evidence_verified"`
       RunID string `json:"run_id"`
-      Lines []struct{ Revision string `json:"source_revision_sha256"` } `json:"native_line_reads"`
+      Lines []struct{ Path string `json:"path"`; Revision string `json:"source_revision_sha256"` } `json:"native_line_reads"`
      }
      if json.Unmarshal([]byte(raw),&obs)!=nil||obs.Status!="PASS"||!obs.Verified||obs.RunID==""||nativeReads[obs.RunID]||len(obs.Lines)!=1 { t.Fatalf("bad native read: %s",raw) }
      expected:=before
-     if calls>=5 { expected=tc.finalSource }
+     expectedPath:="clp20_patch.go"
+     if calls>=5 { expected=tc.finalSource;expectedPath=tc.finalPath }
+     if obs.Lines[0].Path!=expectedPath{t.Fatalf("native proof path=%q want=%q",obs.Lines[0].Path,expectedPath)}
      digest:=fmt.Sprintf("%x",sha256.Sum256([]byte(expected)))
      if obs.Lines[0].Revision!=digest { t.Fatalf("unexpected native revision %s want %s",obs.Lines[0].Revision,digest) }
      revisions=append(revisions,obs.Lines[0].Revision)
@@ -317,7 +322,8 @@ func TestAgentCLP20NativePatchMutationGuardMatrix(t *testing.T) {
     if calls==3 { return agentchat.ResponsesResult{ResponseID:"proposal",Calls:[]agentchat.FunctionCall{{CallID:"matrix-patch",Name:"taskdeck_submit_patch",Arguments:string(args)}}},nil }
     if calls==6 { return agentchat.ResponsesResult{ResponseID:"done",Text:"Native observations inspected; no acceptance claim."},nil }
     if calls>6 { t.Fatalf("unexpected provider call %d",calls) }
-    return agentchat.ResponsesResult{ResponseID:fmt.Sprintf("reply-%d",calls),Calls:[]agentchat.FunctionCall{{CallID:fmt.Sprintf("read-%d",calls),Name:"taskdeck_collect_workspace",Arguments:`{"actions":[{"type":"range","path":"clp20_patch.go","start_line":1,"end_line":2}]}`}}},nil
+    readPath:="clp20_patch.go";if calls>=4{readPath=tc.finalPath}
+    return agentchat.ResponsesResult{ResponseID:fmt.Sprintf("reply-%d",calls),Calls:[]agentchat.FunctionCall{{CallID:fmt.Sprintf("read-%d",calls),Name:"taskdeck_collect_workspace",Arguments:fmt.Sprintf(`{"actions":[{"type":"range","path":%q,"start_line":1,"end_line":2}]}`,readPath)}}},nil
    }
    w:=invokeAI(t,s.agentChatSessionItemAPI,"POST",endpoint+"/messages",map[string]any{"message":"Fix the fixture defect","confirm_external":true,"expected_revision":1})
    if w.Code!=200||calls!=3 { t.Fatalf("proposal HTTP=%d calls=%d %s",w.Code,calls,w.Body) }
@@ -354,7 +360,8 @@ func TestAgentCLP20NativePatchMutationGuardMatrix(t *testing.T) {
    } else {
     if x.ToolCalls[0].Status!="rejected"||x.ToolCalls[0].PatchSessionID!=""||x.ToolCalls[0].QueuePath!="" { t.Fatal("rejected Patch executed") }
    }
-   contents,err:=os.ReadFile(path)
+   if tc.finalPath!="clp20_patch.go"{if _,e:=os.Stat(path);!os.IsNotExist(e){t.Fatalf("original source should be absent after mutation: %v",e)}}
+   contents,err:=os.ReadFile(filepath.Join(s.Workspace,tc.finalPath))
    if err!=nil||string(contents)!=tc.finalSource { t.Fatalf("actual fixture source=%q err=%v",contents,err) }
    g,ok=x.ReadCollectionGuard()
    if !ok||g.Counters.Progress.ReadsSinceProgress!=2||g.Counters.VerifiedProgressEvents!=0 { t.Fatal("native result falsely reset progress") }
@@ -372,6 +379,9 @@ func TestAgentCLP20NativePatchMutationGuardMatrix(t *testing.T) {
    if tc.executed {
     if g.Counters.PatchExecutions!=1||g.Counters.NewEvidence!=1||g.Counters.UnknownEvidence!=1||g.Counters.DuplicateEvidence!=2 { t.Fatalf("post-mutation proof was not conservative: %+v",g.Counters) }
    } else if g.Counters.PatchExecutions!=0||g.Counters.DuplicateEvidence!=3||g.Counters.NewEvidence!=1 { t.Fatalf("rejected Patch changed evidence: %+v",g.Counters) }
+   if g.Coverage==nil||len(g.Coverage.Entries)!=1{t.Fatal("expected only current path proof")}
+   key,ok:=cp.NewCoverageKey(g.Counters.Objective,tc.finalPath,fmt.Sprintf("%x",sha256.Sum256([]byte(tc.finalSource))))
+   if !ok||g.Coverage.Entries[0].Key!=key{t.Fatal("stale deleted or renamed path coverage retained")}
    n:=0
    for _,item:=range x.History {
     if item.Type=="function_call_output" {
