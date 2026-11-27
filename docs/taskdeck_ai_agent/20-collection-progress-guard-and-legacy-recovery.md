@@ -11,7 +11,7 @@
 | Baseline audit | `1c1e2ba0d5004bf5cee75b3fd8a2baa6be9c5422` (25/11/2026, 15:40:33 ICT) |
 | Vị trí tài liệu trong repo (đề xuất) | `docs/taskdeck_ai_agent/20-collection-progress-guard-and-legacy-recovery.md` |
 | Trạng thái hiện tại | `IN_PROGRESS` — native PATCH matrix core/PHP PASS at d5f4a510; objective switch regression pending CI; local checkout unavailable |
-| Tiến độ | **1/10 phase · 16/36 task · 96/144 subtask DONE** |
+| Tiến độ | **1/10 phase · 17/36 task · 98/144 subtask DONE** |
 | Phạm vi | Legacy Agent Chat, unified Agent Run, native COLLECT/PATCH, provider retry, compact context, journal, UI và migration |
 | Ưu tiên | P1: tránh lặp/gián đoạn và bảo toàn dữ liệu; P2: quan sát, tuning và vận hành |
 
@@ -200,12 +200,12 @@ Policy v1 là cấu hình nội bộ, không phải quota COLLECT và không ph�
     - [ ] **CLP-01.04.02** — Nối recovery generation/budget vào framework continuation, giữ stop/unknown là trạng thái riêng. (`VERIFY_PENDING` — Legacy verified receipt checkpoint/replan; CI and Unified pending)
     - [x] **CLP-01.04.03** — Định nghĩa cách đóng pending call thật khi checkpoint, không invent output hoặc mark task done. (`DONE` — exact native output committed before recovery and preserved at checkpoint; named test PASS 45587765715)
     - [ ] **CLP-01.04.04** — Test stall lặp, recovery tối đa, novelty xuất hiện lại, pending pair và no continuation storm. (`TODO`)
-- [ ] **CLP-01.05 — Policy configuration và compatibility** (`IN_PROGRESS`, P1)
+- [x] **CLP-01.05 — Policy configuration và compatibility** (`DONE` — pinned and invalid/future policy runtime matrix, restart, tuning and long reads verified; core 45925697952 PASS)
   - Central defaults + validate range; không rải magic numbers. Dùng internal config trước nếu UI không cần chỉnh. Policy version/snapshot phù hợp unified run; tránh thay policy giữa active immutable run.
   - **Acceptance:** legacy session thiếu config dùng defaults an toàn; invalid values không phá workflow; 55+ unique reads hợp lệ vẫn chạy.
     - [x] **CLP-01.05.01** — Đặt defaults tập trung, validate ranges/cooldown và version; ghi policy semantics. (`DONE` — central threshold validation and version; CI 45584362259 PASS; snapshot integration pending)
     - [x] **CLP-01.05.02** — Áp dụng defaults an toàn cho session cũ; cấu hình immutable snapshot cho Run. (`DONE` — pinned policy API/workflow and runtime consumption, legacy defaults, digest/reopen tests PASS core 45925300841/45925320426)
-    - [ ] **CLP-01.05.03** — Test invalid config, restart, policy change giữa active run và 55+ unique reads. (`VERIFY_PENDING` — snapshot reopen/legacy defaults/invalid metadata/digest PASS 45925320426; pinned threshold continuation PASS core 45925334567; invalid/future actual Unified read path at 4d1b7097 pending CI)
+    - [x] **CLP-01.05.03** — Test invalid config, restart, policy change giữa active run và 55+ unique reads. (`DONE` — snapshot reopen/digest 45925320426, pinned continuation 45925334567, invalid/future runtime 45925697952, 55+ unique reads 45809058385 PASS)
     - [x] **CLP-01.05.04** — Viết tài liệu tuning; không biến thresholds thành quota hoặc giới hạn tổng. (`DONE` — §4.x internal policy, compatibility, operator counters, permission/recovery boundaries)
 
 ### CLP-02 — Evidence novelty, overlap và invalidation (4 task, P1)
@@ -239,7 +239,7 @@ Policy v1 là cấu hình nội bộ, không phải quota COLLECT và không ph�
     - [ ] **CLP-02.04.01** — Nối invalidation với native PATCH receipt, changed files và external/worktree drift signal. (`VERIFY_PENDING` — Native range revision and broad PATCH invalidation connected; CI 45605499411 PASS; selective mutation-path proof pending)
     - [ ] **CLP-02.04.02** — Invalidate theo path khi proof đầy đủ, scope rộng khi partial/unknown mutation; xử lý rename/delete. (`VERIFY_PENDING` — pure invalidation; authoritative mutation adapter pending)
     - [x] **CLP-02.04.03** — Cài TTL/eviction/size cap và benchmark metadata; không scan/hash lại toàn source. (`DONE` — bounded 64 scopes/1024 intervals; aggregate eviction to 40141 bytes; benchmark 45925627155 job 140266154518 PASS: 17592/77594 ns/op, 12514/60323 B/op, 306/900 allocs/op for 1/64 scopes; no extra source scan)
-    - [ ] **CLP-02.04.04** — Test read-after-patch, failed partial patch, external edit, 150MB source và bounded overhead. (`VERIFY_PENDING` — native patch matrix 45924058798, external-edit 45923521173, 150 MiB 45755533750 PASS; pure rename/delete and bounded overhead benchmark PASS core 45925627155; real native rename/delete pending)
+    - [ ] **CLP-02.04.04** — Test read-after-patch, failed partial patch, external edit, 150MB source và bounded overhead. (`VERIFY_PENDING` — native patch matrix 45924058798, external-edit 45923521173, 150 MiB 45755533750 PASS; pure rename/delete and bounded overhead benchmark PASS core 45925627155; native rename/delete-replace cases at e2292209/137efdf8 pending CI)
 
 ### CLP-03 — Durable state, restart và cross-turn (3 task, P1)
 
@@ -264,8 +264,8 @@ Policy v1 là cấu hình nội bộ, không phải quota COLLECT và không ph�
   - **Acceptance:** fixture session 20/11, partial journal/archived pairs, migration idempotent, restart/self-update giữ counters và original history; nhiều conversations không lẫn state.
     - [x] **CLP-03.03.01** — Thiết kế bounded hydration từ journal/history/archive metadata hiện có. (`DONE` — bounded retained-history migration design and round-trip test PASS; archived detailed hydration still pending)
     - [x] **CLP-03.03.02** — Khôi phục known counters/ACKs; đánh dấu unknown history không đủ proof; không đoán novelty. (`DONE` — mixed typed/text retained counts, incomplete marker, independent current counters and existing ACK summary; core 45924681905 PASS)
-    - [ ] **CLP-03.03.03** — Persist migration marker và cursor; không rescan archive mỗi request, không sửa history. (`VERIFY_PENDING` — one-time retained summary PASS; b688705e/22961d62 implement fixed migration boundary, bounded cursors and same session CAS; 85035e57 regression pending CI)
-    - [ ] **CLP-03.03.04** — Test legacy fixture, partial archive, repeated migration, restart/self-update và isolation. (`VERIFY_PENDING` — actual archived segments, missing part, stale CAS, reopen, bounded cursor and owner isolation at 85035e57; real self-update still pending)
+    - [x] **CLP-03.03.03** — Persist migration marker và cursor; không rescan archive mỗi request, không sửa history. (`DONE` — fixed pre-bind migration boundary, cursor CAS, bounded I/O, missing part and restart regression core 45926131118 PASS)
+    - [ ] **CLP-03.03.04** — Test legacy fixture, partial archive, repeated migration, restart/self-update và isolation. (`VERIFY_PENDING` — actual archived segments, missing part, stale CAS, reopen, bounded cursor and owner isolation core 45926131118 PASS; real self-update still pending)
 
 ### CLP-04 — Tích hợp Agent Chat và Agent Run (4 task, P1)
 
@@ -540,7 +540,7 @@ Kiểm tra cả các Python/native Patch Tool test hiện có nếu sửa contra
 | Phase | Tổng | DONE | Trạng thái |
 |---|---:|---:|---|
 | CLP-00 Baseline | 3 | 2 | IN_PROGRESS |
-| CLP-01 Guard | 5 | 1 | IN_PROGRESS |
+| CLP-01 Guard | 5 | 2 | IN_PROGRESS |
 | CLP-02 Evidence | 4 | 2 | IN_PROGRESS |
 | CLP-03 Durability | 3 | 0 | IN_PROGRESS |
 | CLP-04 Integration | 4 | 2 | IN_PROGRESS |
@@ -549,23 +549,23 @@ Kiểm tra cả các Python/native Patch Tool test hiện có nếu sửa contra
 | CLP-07 Legacy recovery | 4 | 4 | DONE |
 | CLP-08 UI/Debug | 2 | 1 | IN_PROGRESS |
 | CLP-09 Validation | 3 | 0 | IN_PROGRESS |
-| **Total** | **36** | **16** | **IN_PROGRESS** |
+| **Total** | **36** | **17** | **IN_PROGRESS** |
 
 ### 8.0. Roll-up ba cấp (cập nhật cùng checklist)
 
 | Phase | Phase DONE | Task DONE / total | Subtask DONE / total |
 |---|---:|---:|---:|
 | CLP-00 | 0/1 | 2/3 | 8/12 |
-| CLP-01 | 0/1 | 1/5 | 15/20 |
+| CLP-01 | 0/1 | 2/5 | 16/20 |
 | CLP-02 | 0/1 | 2/4 | 12/16 |
-| CLP-03 | 0/1 | 0/3 | 4/12 |
+| CLP-03 | 0/1 | 0/3 | 5/12 |
 | CLP-04 | 0/1 | 2/4 | 10/16 |
 | CLP-05 | 0/1 | 1/4 | 9/16 |
 | CLP-06 | 0/1 | 3/4 | 15/16 |
 | CLP-07 | 1/1 | 4/4 | 16/16 |
 | CLP-08 | 0/1 | 1/2 | 7/8 |
 | CLP-09 | 0/1 | 0/3 | 0/12 |
-| **Total** | **1/10** | **16/36** | **96/144** |
+| **Total** | **1/10** | **17/36** | **98/144** |
 
 Regression gates: **20/28 PASS**. Mỗi lần cập nhật, ghi ID subtask cụ thể, file/test/receipt, trạng thái; chỉ roll up sau khi xác minh. Commit từng subtask có thay đổi độc lập hoặc nhóm nhỏ coherent, không để toàn phase mới commit. Không tạo commit rỗng chỉ để tick.
 
@@ -929,3 +929,5 @@ Incident: native run `1795598230725789_1225262`; historical diagnostics missing 
 - 2026-11-27: core 45925300841 (c65b2ee8) and 45925320426 (376e2198) PASS. CLP-01.05.02 DONE (95/144); .03 remains pending full Unified runtime matrix. Benchmark/aggregate bound CI step in corrected run 45925627155 job 140266154518 completed SUCCESS, whole job still running, log download returned BlobNotFound/404; no fabricated timings/allocations. Added 4d1b7097 TestAgentRunInvalidCollectionPolicyDoesNotBlockNativeRead: invalid thresholds and future version in actual Unified snapshot/drain loop, two synthetic native observations, exact output once, no guard/advisory, pinned provider, unchanged opaque policy. CI pending. Changed-files report is not complete mutation proof; broad invalidation retained. Next: fetch completed CI and actual benchmark logs, then native rename/delete and archived cursor. No live provider or production runtime claim.
 
 - 2026-11-27: immutable threshold continuation core 45925334567, aggregate coverage core 45925392972 and corrected benchmark/full core 45925627155 PASS. Benchmark job 140266154518 (Linux amd64 AMD EPYC 9V45): 1 scope 17592 ns/op, 12514 B/op, 306 allocs/op; 64 scopes 77594 ns/op, 60323 B/op, 900 allocs/op; aggregate eviction 40141 bytes/63 retained scopes. CLP-02.04.03 DONE (96/144). Invalid/future policy matrix 45925697952 still running, PHP 45925697910 PASS; .01.05.03 pending. Native rename/delete actual execution still open. Legacy migration b688705e/22961d62: new guard captures pre-bind history and Patch archive boundaries, one verified segment of each type per Save under existing CAS, lifetime cap four each, cursor advances on missing/corrupt parts with explicit error and incomplete marker; separate archived lower-bound counts, no current novelty or acceptance, no rescanning retained history on new goal. Existing guards lacking a trustworthy migration cut are not retroactively scanned. 85035e57 adds actual archive generation, missing part, reopen, restored part not rescanned, stale CAS, bounded cursor and owner isolation tests; CI 45926131118 pending. No archive is rewritten by migration. No production runtime or actual self-update verified. Next: verify CI, finish native rename/delete execution matrix and remaining crash/recovery gates.
+
+- 2026-11-27: core 45926131118 (85035e57 archive migration) and 45925697952 (4d1b7097 invalid/future policy) PASS. CLP-01.05.03 and .05 parent DONE; CLP-03.03.03 DONE; total 17/36 tasks, 98/144 subtasks. .03.03.04 remains pending real self-update. Concurrent main advanced to 56ec0040: native admission/workspace lock and patch panel changes. Core 45927387753 and remote Go 45927387751 failed Go syntax at patch_work_exclusivity.go:54-55; 6ae92fcb fixes only if/else layout, preserves conflict/wait semantics. UI 45926933086 failed stale static assertion of visibility refresh; b2759f32 asserts existing visible block and refresh + discovery call, no production JS change. e2292209/137efdf8 extend actual Legacy native PATCH mutation matrix with rename and delete/replacement, prove old path absent, exact new path/revision receipt, conservative UNKNOWN then duplicate, no stale old coverage, same ACK and permission fences. No complete native mutation path proof asserted; broad invalidation remains. New CI pending (137efdf8 core 45927784820). No local checkout, real provider, production self-update or browser verification. Next: verify latest main CI (including native admission change), then close bounded mutation proof tests and proceed to crash/recovery and opt-out gates.
