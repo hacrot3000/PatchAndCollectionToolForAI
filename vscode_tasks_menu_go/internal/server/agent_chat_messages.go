@@ -340,12 +340,16 @@ func (s *Server) agentChatAuthorizedMessage(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	manualReceiptResend:=req.ResendReceipt!=nil
+	resendWireText:=""
 	if manualReceiptResend{
 		target:=agentReceiptResendCandidate(session)
 		if target==nil||*target!=*req.ResendReceipt||s.Config.SharedServerEnabled||len(runRecords)!=0{
 			http.Error(w,"Saved receipt is no longer eligible for resend; refresh conversation. No native tool was executed.",409);return
 		}
-		msg=agentReceiptResendText(target.Kind,session.History[target.Index].Content)
+		resendWireText=agentReceiptResendText(target.Kind,session.History[target.Index].Content)
+		// The original receipt remains in canonical history. Keep only a
+		// reference in the new user turn; the exact receipt is mandatory on wire.
+		msg=agentReceiptResendPrefix+"Kind: "+target.Kind+". Saved receipt SHA-256: "+target.SHA256+". Continue the original unfinished task."
 	}
 	patchResumeID,_:=r.Context().Value(patchFeedbackAutoResumeKey{}).(string)
 	autoResumePatchFeedback:=patchResumeID!=""
@@ -537,6 +541,7 @@ func (s *Server) agentChatAuthorizedMessage(w http.ResponseWriter, r *http.Reque
 	contextModel := model
 	if mode==agentchat.Stateless{contextModel,limit=agentAdaptiveRequestBudget(store,session,p,model,string(secret),limit)}
 	requestNext:=[]agentchat.HistoryItem{next}
+	if manualReceiptResend{requestNext[0].Content=resendWireText}
 	if autoResumePatchFeedback{
 		var ok bool
 		failureProjection.History,requestNext,ok=agentPatchFeedbackResumeProjection(session,failureProjection.History,next)
