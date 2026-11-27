@@ -133,6 +133,7 @@ type TaskPlan struct {
  // is never replayed after the SENDING/UNKNOWN egress boundary.
  LastContinuationKey string `json:"last_continuation_key,omitempty"`
  LastWorkSignature string `json:"last_work_signature,omitempty"`
+ LastWorkSignatureVersion int `json:"last_work_signature_version,omitempty"`
  NoProgressTurns int `json:"no_progress_turns,omitempty"`
  RetryStreak int `json:"retry_streak,omitempty"`
  NextRetryAt *time.Time `json:"next_retry_at,omitempty"`
@@ -318,7 +319,7 @@ func VerifiedWorkSignature(x Session)string{
  }
  // An opaque guard cannot establish progress. Preserve old unguarded
  // compatibility only when no projection has been installed at all.
- if len(x.CollectionGuard)!=0{return "clp-unknown:"+taskPlanDigest(fmt.Sprintf("%d/%d",done,total))}
+ if len(x.CollectionGuard)!=0{return taskPlanDigest(fmt.Sprintf("clp-unknown:%d/%d",done,total))}
  fmt.Fprintf(&b,"done:%d/%d archive:%d/%d\n",done,total,x.ArchivedHistoryItems,x.ArchivedPatchCalls)
  for _,it:=range x.History{
   if it.Type!="function_call_output"{continue}
@@ -332,16 +333,19 @@ func VerifiedWorkSignature(x Session)string{
  return taskPlanDigest(b.String())
 }
 
-// Prefix versions the outer signature without altering the persisted guard.
+// Keep SHA-256 format compatible with older journal readers. The scheduler
+// stores a separate optional version marker, not a prefix in the digest.
+func WorkSignatureVersion(x Session)int{if len(x.CollectionGuard)!=0{return 1};return 0}
+
 func scopedWorkSignature(key string,novel,verified,attested uint64,done,total int)string{
- return "clp-v1:"+taskPlanDigest(fmt.Sprintf("%s:%d:%d:%d:%d/%d",key,novel,verified,attested,done,total))
+ return taskPlanDigest(fmt.Sprintf("clp-v1:%s:%d:%d:%d:%d/%d",key,novel,verified,attested,done,total))
 }
 
 // ContinuationWorkReference rebases only the signature format/objective,
 // not the no-work counter. First guard binding or a step change is not
 // evidence of new work. Compare actual new events and accepted plan changes
 // against a zero-event baseline for the newly bound objective.
-func ContinuationWorkReference(before,after Session,prior string)string{
+func ContinuationWorkReference(before,after Session,prior string,priorVersion int)string{
  old,oldOK:=before.ReadCollectionGuard()
  next,nextOK:=after.ReadCollectionGuard()
  if nextOK{
@@ -349,11 +353,11 @@ func ContinuationWorkReference(before,after Session,prior string)string{
    done,total:=TaskPlanProgress(before.TaskPlan)
    return scopedWorkSignature(next.Counters.Objective.Key,0,0,0,done,total)
   }
-  if !strings.HasPrefix(prior,"clp-v1:"){return VerifiedWorkSignature(before)}
+  if priorVersion!=1{return VerifiedWorkSignature(before)}
  }else if len(after.CollectionGuard)!=0{
-  if !strings.HasPrefix(prior,"clp-unknown:"){
+  if priorVersion!=1||len(before.CollectionGuard)==0||oldOK{
    done,total:=TaskPlanProgress(before.TaskPlan)
-   return "clp-unknown:"+taskPlanDigest(fmt.Sprintf("%d/%d",done,total))
+   return taskPlanDigest(fmt.Sprintf("clp-unknown:%d/%d",done,total))
   }
  }
  if prior==""{return VerifiedWorkSignature(before)}
