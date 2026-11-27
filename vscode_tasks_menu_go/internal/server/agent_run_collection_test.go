@@ -260,3 +260,55 @@ func TestAgentRunCollectionRepeatedShapeReadsChangedSource(t *testing.T){
 }
 
 
+
+
+ // Invalid advisory configuration is a compatibility condition, not a new
+ // authorization or execution gate. Keep the actual native receipt pipeline.
+func TestAgentRunInvalidCollectionPolicyDoesNotBlockNativeRead(t *testing.T){
+ for _,version:=range []int{1,999}{
+  t.Run(map[int]string{1:"invalid_thresholds",999:"future_version"}[version],func(t *testing.T){
+   s,_,_,spec:=providerToolRunFixture(t,"run-invalid-clp-policy")
+   spec,history:=enableRunAutomationFixture(t,s,spec,true,false)
+   journal,err:=s.agentChatStore();if err!=nil{t.Fatal(err)}
+   x,err:=journal.Get(spec.ConversationID,"local");if err!=nil{t.Fatal(err)}
+   snapshots,err:=s.agentContextSnapshotStore("local");if err!=nil{t.Fatal(err)}
+   initial,err:=snapshots.Get(spec.ContextSnapshotID,spec.OwnerWorkspaceID,spec.ConversationID,x.ProjectID);if err!=nil{t.Fatal(err)}
+   policy:=*initial.Policy
+   policy.CollectionGuardPolicy=agentrun.NewCollectionGuardPolicySnapshot()
+   policy.CollectionGuardPolicy.Version=version
+   if version==1{policy.CollectionGuardPolicy.Thresholds.DuplicateStreak=0}
+   pinned,err:=snapshots.CreateWithPolicy(spec.OwnerWorkspaceID,spec.ConversationID,x.ProjectID,history,initial.SourceRefs,&policy);if err!=nil{t.Fatal(err)}
+   spec.ContextSnapshotID=pinned.ID
+   var reads,calls atomic.Int32
+   receipts:=make(chan string,2)
+   s.AgentCollectionCall=func(_ string,identity patchtool.ProjectIdentity,_ []byte)string{
+    n:=reads.Add(1)
+    raw,_:=json.Marshal(map[string]any{"source":"native_patch_tool_collect","project":identity,"native_session_id":"fixture","run_id":"invalid-policy-"+string(rune('0'+n)),"status":"PASS","native_status":"PASS","rc":0,"evidence_verified":true,"text_excerpt_truncated":false,"native_full_file_reads":[]map[string]any{{"path":"main.go","action_index":1,"total_lines":1,"report_sha256":strings.Repeat("a",64)}}})
+    receipts<-string(raw);return string(raw)
+   }
+   s.AgentChatCall=func(_ context.Context,p agentchat.ProviderConfig,_ string,payload []byte)(agentchat.ResponsesResult,error){
+    n:=calls.Add(1)
+    if p.ID!=spec.ProviderID{t.Errorf("provider drift")}
+    if strings.Contains(string(payload),"Collection advisory metadata (not new evidence or authorization):"){t.Errorf("invalid policy emitted advisory")}
+    if n>1{
+     want:=<-receipts
+     var wire struct{Input []map[string]any}
+     if json.Unmarshal(payload,&wire)!=nil{t.Errorf("bad payload")}
+     count:=0;for _,item:=range wire.Input{if item["output"]==want{count++}}
+     if count!=1{t.Errorf("receipt missing or duplicated: %d",count)}
+    }
+    if n<=2{return agentchat.ResponsesResult{ResponseID:"read",Calls:[]agentchat.FunctionCall{{CallID:"invalid-policy-read-"+string(rune('0'+n)),Name:"taskdeck_collect_workspace",Arguments:`{"actions":[{"type":"file","path":"main.go"}]}`}}},nil}
+    return agentchat.ResponsesResult{ResponseID:"done",Text:"Inspected source."},nil
+   }
+   manager,err:=s.agentRunManager("local");if err!=nil{t.Fatal(err)}
+   defer manager.Close()
+   if _,err=manager.Submit(spec,history);err!=nil{t.Fatal(err)}
+   waitForAgentRunStatus(t,manager,spec.RunID,agentrun.Completed)
+   rec,_:=manager.Get(spec.RunID)
+   if reads.Load()!=2||calls.Load()!=3{t.Fatalf("invalid policy blocked read or caused replay: %d/%d",reads.Load(),calls.Load())}
+   inputs,err:=s.ResolveAgentRunInputs(agentrun.WithPrincipalOwner(context.Background(),"local"),rec.Spec);if err!=nil{t.Fatal(err)}
+   if _,ok:=readRunCollectionProgress("local",rec.Spec,inputs);ok||len(inputs.Snapshot.Policy.CollectionProgress)!=0{t.Fatal("invalid policy enabled guard")}
+   if inputs.Snapshot.Policy.CollectionGuardPolicy==nil||*inputs.Snapshot.Policy.CollectionGuardPolicy!=*pinned.Policy.CollectionGuardPolicy{t.Fatal("invalid/future policy was rewritten")}
+  })
+ }
+}
