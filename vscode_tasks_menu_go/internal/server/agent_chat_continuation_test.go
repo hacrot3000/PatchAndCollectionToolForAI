@@ -68,7 +68,7 @@ func TestAgentStandaloneUnfinishedAuditAutomaticallyContinuesThenStalls(t *testi
   s.autoContinueConversationOne(context.Background(),store,id)
  }
  got,err:=store.Get(id,"local");if err!=nil{t.Fatal(err)}
- if calls!=agentchat.MaxContinuationNoWorkTurns||got.AutoContinueText||
+ if calls!=agentchat.MaxContinuationNoWorkTurns||!got.AutoContinueText||
   got.Continuation==nil||got.Continuation.NoProgressTurns!=agentchat.MaxContinuationNoWorkTurns{
   t.Fatalf("text loop not stopped safely, calls=%d continuation=%+v",calls,got.Continuation)
  }
@@ -77,7 +77,14 @@ func TestAgentStandaloneUnfinishedAuditAutomaticallyContinuesThenStalls(t *testi
  if !stalled{t.Fatal("no durable stall event")}
  s.autoContinueConversationOne(context.Background(),store,id)
  if calls!=agentchat.MaxContinuationNoWorkTurns{t.Fatal("stalled conversation requested provider again")}
+ // A fresh store read and a scheduler pass do not revoke the saved setting.
+ got,err=store.Get(id,"local");if err!=nil{t.Fatal(err)}
+ if !got.AutoContinueText||agentchat.StandaloneContinuationGranted(got)||agentchat.StandaloneAutoContinueCandidate(got){t.Fatal("stall must preserve preference but fence scheduling")}
+ if _,err=store.UpdateAutomation(id,"local",got.Workspace,got.Revision,"continue",true,"");err!=nil{t.Fatal(err)}
+ s.autoContinueConversationOne(context.Background(),store,id)
+ if calls!=agentchat.MaxContinuationNoWorkTurns+1{t.Fatal("explicit rearm did not permit new turn")}
 }
+
 func TestAgentStandaloneContinuationRespectsNativeAndProviderFences(t *testing.T){
  s,store,id:=newStandaloneAutoContinueFixture(t)
  x,err:=store.Get(id,"local");if err!=nil{t.Fatal(err)}
@@ -185,4 +192,42 @@ func TestAgentStandaloneBlockerPausesWithoutRevokingPreference(t *testing.T){
  }
  s.autoContinueConversationOne(context.Background(),store,id)
  if calls!=1{t.Fatal("ordinary blocker repeatedly sent provider requests")}
+}
+
+
+func TestAgentStandaloneAdmissionFailurePausesWithoutRevokingPreference(t *testing.T){
+ s,store,id:=newStandaloneAutoContinueFixture(t)
+ x,err:=store.Get(id,"local");if err!=nil{t.Fatal(err)}
+ if _,err=store.UpdateAutomation(id,"local",x.Workspace,x.Revision,"continue",true,"");err!=nil{t.Fatal(err)}
+ s.deferStandaloneAdmission(store,id,http.StatusForbidden)
+ got,err:=store.Get(id,"local");if err!=nil{t.Fatal(err)}
+ if !got.AutoContinueText||got.Continuation==nil||got.Continuation.Reason!="nonretryable_admission_failure"||agentchat.StandaloneContinuationGranted(got)||agentchat.StandaloneAutoContinueCandidate(got){t.Fatalf("admission failure lost preference or did not pause: %+v",got.Continuation)}
+ calls:=0
+ s.AgentChatCall=func(_ context.Context,_ agentchat.ProviderConfig,_ string,_ []byte)(agentchat.ResponsesResult,error){
+  calls++;return agentchat.ResponsesResult{ResponseID:"after-owner-rearm",Text:auditProgress},nil
+ }
+ for i:=0;i<3;i++{s.autoContinueConversationOne(context.Background(),store,id)}
+ if calls!=0{t.Fatal("paused admission repeatedly contacted provider")}
+ got,err=store.UpdateAutomation(id,"local",got.Workspace,got.Revision,"continue",true,"");if err!=nil{t.Fatal(err)}
+ if !got.AutoContinueText||!agentchat.StandaloneAutoContinueCandidate(got){t.Fatal("explicit rearm did not clear admission pause")}
+ s.autoContinueConversationOne(context.Background(),store,id)
+ if calls!=1{t.Fatalf("expected one rearmed request, got %d",calls)}
+}
+
+func TestAgentStandalonePreferenceSurvivesSameGenerationJournalWrites(t *testing.T){
+ s,store,id:=newStandaloneAutoContinueFixture(t)
+ x,err:=store.Get(id,"local");if err!=nil{t.Fatal(err)}
+ for _,enabled:=range []bool{true,false,true}{
+  x,err=store.UpdateAutomation(id,"local",x.Workspace,x.Revision,"continue",enabled,"");if err!=nil{t.Fatal(err)}
+  stale:=x
+  stale.AutoContinueText=!enabled
+  stale.ContinuePreferenceRevision=0
+  x,err=store.Save(stale,stale.Revision);if err!=nil{t.Fatal(err)}
+  if x.AutoContinueText!=enabled||x.ContinuePreferenceRevision==0{t.Fatalf("same-generation journal write overwrote owner choice %v",enabled)}
+  // Re-open via the actual session endpoint, not just the in-memory candidate.
+  w:=invokeAI(t,s.agentChatSessionItemAPI,http.MethodGet,"/api/agent/sessions/"+id,nil)
+  if w.Code!=200{t.Fatalf("session reload failed: %d %s",w.Code,w.Body)}
+  fresh,err:=store.Get(id,"local");if err!=nil{t.Fatal(err)}
+  if fresh.AutoContinueText!=enabled{t.Fatal("preference not durable")}
+ }
 }
