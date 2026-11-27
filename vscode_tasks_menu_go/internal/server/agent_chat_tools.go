@@ -275,6 +275,11 @@ func (s *Server) agentChatToolDecisionAPI(w http.ResponseWriter, r *http.Request
 		return
 	}
 	// Native validation checks BOTH identity headers against this workspace.
+	if err = s.validateAgentNimGatewayProposal(arguments, identity.ID); err != nil {
+		if denyInvalidAutomatic() { return }
+		http.Error(w, err.Error(), 400)
+		return
+	}
 	if _, err = agentPatchPackage(arguments, identity); err != nil {
 		if denyInvalidAutomatic() { return }
 		http.Error(w, "Patch Tool contract validation failed: "+err.Error(), 400)
