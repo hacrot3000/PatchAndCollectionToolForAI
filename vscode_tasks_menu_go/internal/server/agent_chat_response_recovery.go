@@ -22,6 +22,8 @@ func (s *Server) saveAgentReceivedResponse(store *agentchat.Store, candidate age
  stageErr:=store.StageProviderResponse(candidate)
  if stageErr!=nil{
   s.recordAgentResponseSaveDiagnostic(candidate,"response.checkpoint_failed",stageErr)
+  // A binding or conflicting checkpoint error is not a storage retry.
+  if errors.Is(stageErr,agentchat.ErrInvalidSession)||errors.Is(stageErr,agentchat.ErrStaleRevision){return agentchat.Session{},stageErr}
  }
  var last error
  for attempt:=0;attempt<agentResponseSaveAttempts;attempt++{
@@ -65,7 +67,7 @@ func agentResponseAlreadyCommitted(current,candidate agentchat.Session)bool{
   current.Workspace==candidate.Workspace&&current.Revision==candidate.Revision+1&&
   current.ProviderRun!=nil&&candidate.ProviderRun!=nil&&current.ProviderRun.ID==candidate.ProviderRun.ID&&
   current.ProviderRun.PayloadSHA256==candidate.ProviderRun.PayloadSHA256&&current.ProviderRun.Phase=="completed"&&
-  current.Status==candidate.Status&&current.Status!="requesting_ai"&&current.EventSeq==candidate.EventSeq
+  current.Status==candidate.Status&&current.Status!="requesting_ai"&&current.EventSeq>=candidate.EventSeq
 }
 
 func (s *Server) recordAgentResponseSaveDiagnostic(x agentchat.Session,event string,err error){
@@ -94,7 +96,7 @@ func (s *Server) recoverAgentReceivedResponseLocked(store *agentchat.Store,x age
  code:="orphaned_provider_run"
  if found{
   code="provider_response_save_failed"
- }else if audit,auditErr:=store.ProviderAttempts(x.ID,x.Owner);auditErr==nil&&audit.RunID==x.ProviderRun.ID&&len(audit.Attempts)>0{
+ }else if audit,auditErr:=store.ProviderAttempts(x.ID,x.Owner);auditErr==nil&&audit!=nil&&audit.RunID==x.ProviderRun.ID&&len(audit.Attempts)>0{
   last:=audit.Attempts[len(audit.Attempts)-1]
   if last.Outcome==agentchat.AttemptResponse&&last.PayloadSHA256==x.ProviderRun.PayloadSHA256{
    code="provider_response_not_saved"
