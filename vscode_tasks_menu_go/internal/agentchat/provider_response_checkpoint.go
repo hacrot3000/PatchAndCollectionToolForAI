@@ -236,6 +236,8 @@ func (s *Store) ClearCommittedProviderResponse(id,owner,runID string)error{
 // Safe diagnostic categories only: never copy provider output or local
 // filesystem paths into the externally visible debug stream.
 func ProviderResponseSaveErrorCode(err error)string{
+ var field sessionFieldError
+ if errors.As(err,&field){return "invalid_session_projection:"+field.field}
  switch {
  case err==nil:return "none"
  case errors.Is(err,ErrStaleRevision):return "revision_conflict"
