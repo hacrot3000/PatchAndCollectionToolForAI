@@ -3445,16 +3445,15 @@ function renderAgentAutomationControls(session){
  autoContinueText.setAttribute('aria-pressed',String(Boolean(session?.auto_continue_text)));
  const baseTitle='Allow additional AI requests for an unfinished conversation without a Task plan. No extra Patch permission.';
  const reason=session?.continuation?.reason;
- // Saved owner preference and scheduler eligibility are different states.
- const pausedReason=reason==='stalled_without_verified_work'||Number(session?.continuation?.no_progress_turns||0)>=5
-  ?'Paused after repeated turns without verified work.':
-  reason==='nonretryable_admission_failure'?'Paused after an admission error that requires review.':'';
- const paused=Boolean(session?.auto_continue_text&&pausedReason);
+ // No-plan continuation is unlimited while the model requests more work.
+ // The counter is diagnostic; it never produces a paused toggle.
  const advisoryBlocker=Boolean(session?.auto_continue_text&&session?.continuation?.disposition==='BLOCKED');
- if(paused)autoContinueText.textContent='Auto continue (no plan): ON · paused';
+ const retrying=Boolean(session?.auto_continue_text&&session?.continuation?.next_retry_at&&Date.parse(session.continuation.next_retry_at)>Date.now());
+ if(retrying)autoContinueText.textContent='Auto continue (no plan): ON · retry scheduled';
  else if(advisoryBlocker)autoContinueText.textContent='Auto continue (no plan): ON · review/recovery';
- autoContinueText.title=paused?baseTitle+' '+pausedReason+' Your preference remains ON. Review the conversation and toggle OFF then ON to explicitly rearm.':
-  advisoryBlocker?baseTitle+' The model reported a blocker; TaskDeck checks exact native recovery evidence before scheduling another turn. Your preference remains ON.':baseTitle;
+ autoContinueText.title=retrying?baseTitle+' Admission will retry automatically; your preference remains ON.':
+  advisoryBlocker?baseTitle+' The model reported a blocker; TaskDeck checks exact native recovery evidence before scheduling another turn. Your preference remains ON.':
+  baseTitle+' No limit on unfinished AI turns. Turn OFF or Stop to interrupt.';
 }
 function agentFeedbackEnabled(session){
  return Boolean(session?.auto_feedback&&(session.auto_feedback_persistent||
@@ -3584,9 +3583,9 @@ function renderAgentTaskPlan(data){
  const autoWithoutPlan=Boolean(agentCurrentSession?.auto_continue_text);
  const waiting=Boolean(['waiting_tool','tool_queuing'].includes(agentCurrentSession?.status));
  const planCompleted=plan?.state==='completed';
- const stalled=turn?.reason==='stalled_without_verified_work'||Number(turn?.no_progress_turns||0)>=5||plan?.state==='paused'&&Number(plan?.no_progress_turns)>=5;
+ const stalled=Boolean(plan&&plan.state==='paused'&&Number(plan.no_progress_turns)>=5);
  const label=planCompleted?'Task completed':stalled?'Stalled':waiting?'Waiting for tool':
-  plan?.state==='paused'||turn?.disposition==='BLOCKED'||turn?.reason==='nonretryable_admission_failure'?'Needs review':
+  plan?.state==='paused'||turn?.disposition==='BLOCKED'?'Needs review':
   (plan?.auto_continue||autoWithoutPlan)?'Continuing':'Needs review';
  const summary=agentEl('div','agentchat-info',
   'Continuation: '+label+' · Last AI turn: '+String(turn?.disposition||'UNKNOWN')+
