@@ -70,6 +70,14 @@ class FakeElement {
       this.children.push(node);
     }
   }
+  insertBefore(node,reference) {
+    assert.ok(reference===null||this.children.includes(reference),'insertBefore reference must be attached');
+    if(node===reference)return node;
+    if(node.parentElement)node.parentElement.children=node.parentElement.children.filter(child=>child!==node);
+    const index=reference===null?this.children.length:this.children.indexOf(reference);
+    this.children.splice(index,0,node);node.parentElement=this;this.appendCount++;
+    return node;
+  }
   prepend(...nodes) {
     this.appendCount += nodes.length;
     for(const node of nodes){
@@ -984,9 +992,9 @@ console.log('PASS: safe Markdown, syntax-highlighted PHP/Python, per-block Copy,
   ]};
   vm.runInNewContext('displayAgentSession('+JSON.stringify(extended)+')',context);
   assert.equal(transcript.replaceCount,baselineReplace,'new message must not recreate transcript');
-  // The historical assistant row is appended once; the independent live
-  // status row is also moved to the bottom to remain after that new message.
-  assert.equal(transcript.appendCount,baselineAppend+2,'new assistant row plus relocated single live status are the only appends');
+  // Insert the new history row directly before the independent live status;
+  // no need to detach or relocate the existing spinner.
+  assert.equal(transcript.appendCount,baselineAppend+1,'one new assistant row, no spinner relocation');
   assert.equal(transcript.children[0],originalUser,'old user message must remain the same element');
   const assistantCreated=transcript.children.find(node=>node.className==='agentchat-bubble assistant'&&nodeText(node).startsWith('helloworld.php created'));
   assert.ok(assistantCreated,'new assistant message must be present exactly once');
@@ -1006,11 +1014,11 @@ console.log('PASS: safe Markdown, syntax-highlighted PHP/Python, per-block Copy,
   const edited={...patchDone,revision:202,history:[
     ...patchSession.history,{type:'assistant',content:'helloworld.php verified'}
   ]};
-  const removalBeforeEdit=transcript.removeCount;
+  const replacementBeforeEdit=transcript.replaceCount;
   vm.runInNewContext('displayAgentSession('+JSON.stringify(edited)+')',context);
   assert.equal(transcript.children[0],originalUser,'changing last answer must not redraw earlier history');
   assert.ok(nodeText(transcript.children.at(-1)).startsWith('helloworld.php verified'),'edited assistant reply remains visible');
-  assert.equal(transcript.removeCount,removalBeforeEdit+1,'only the changed assistant tail should be removed on this update');
+  assert.equal(transcript.replaceCount,replacementBeforeEdit+1,'only the changed assistant tail should be replaced');
 
   // The tab and conversation list should preserve keyed DOM nodes as their
   // labels or active state change.
@@ -1972,6 +1980,91 @@ assert.equal(vm.runInNewContext('agentRenameOverlay.classList.contains("visible"
 assert.equal(vm.runInNewContext('agentSessionBusy("rename-test")',context),true,
  'Rename metadata must not interrupt an active Agent turn');
 console.log('PASS: active Agent Rename persists once and updates tab and History');
+
+// Long conversation: use uneven deterministic row heights and a clamped
+// scroll model, including navigation controls. Exercise production display,
+// paging and scroll handlers, not a separate pagination implementation.
+{
+ const chat=vm.runInNewContext('transcript',context);
+ const history=Array.from({length:1200},(_,i)=>({type:i%2?'assistant':'user',content:'History item '+i}));
+ const long={id:'long-transcript-test',title:'Long transcript',status:'ready',provider_id:'composer',model_id:'composer-2.5',history,tool_calls:[],events:[]};
+ const rowHeight=node=>{
+  if(node.className==='agentchat-history-page')return 29;
+  const m=/History item (\d+)/.exec(nodeText(node));
+  return m?37+(Number(m[1])%7)*31:53;
+ };
+ const height=()=>chat.children.reduce((sum,node)=>sum+rowHeight(node)+9,0);
+ let top=0;
+ Object.defineProperties(chat,{
+  clientHeight:{configurable:true,get:()=>330},
+  scrollHeight:{configurable:true,get:height},
+  scrollTop:{configurable:true,get:()=>Math.max(0,Math.min(top,Math.max(0,height()-330))),set:v=>{top=Math.max(0,Math.min(Number(v)||0,Math.max(0,height()-330)));}},
+ });
+ chat.getBoundingClientRect=()=>({top:100,bottom:430});
+ const position=node=>100+chat.children.slice(0,chat.children.indexOf(node)).reduce((sum,n)=>sum+rowHeight(n)+9,0)-chat.scrollTop;
+ const originalRect=FakeElement.prototype.getBoundingClientRect;
+ FakeElement.prototype.getBoundingClientRect=function(){
+  const y=this.parentElement===chat?position(this):0;
+  return {top:y,bottom:y+rowHeight(this)};
+ };
+ const state=()=>vm.runInNewContext('({start:agentHistoryStart,end:agentHistoryEnd,count:agentRenderedNodes.size,history:agentRenderedHistory.length})',context);
+ const row=index=>vm.runInNewContext('agentRenderedNodes.get('+index+')?.node',context);
+ const paint=session=>{context.longTranscriptFixture=session;vm.runInNewContext('agentActive=longTranscriptFixture.id;displayAgentSession(longTranscriptFixture)',context);};
+ const scroll=value=>{chat.scrollTop=value;chat.listeners.scroll[0]({type:'scroll'});};
+ paint(long);
+ assert.equal(state().start,1140);
+ assert.equal(state().end,1200);
+ assert.equal(state().count,60);
+ assert.equal(row(0),undefined,'oldest history is not rendered or cached as DOM');
+ assert.ok(chat.children.length<=63,'DOM stays bounded independently of canonical history length');
+ const oldTail=row(1199),overlap=row(1140);
+ // Scroll to top: anchor row is visible just below the earlier-page control.
+ chat.scrollTop=0;
+ const before=position(overlap);
+ chat.listeners.scroll[0]({type:'scroll'});
+ assert.equal(state().start,1120);
+ assert.equal(state().end,1180);
+ assert.equal(row(1140),overlap,'overlap row keeps DOM identity');
+ assert.equal(position(overlap),before,'prepending and evicting unequal-height rows must not jump');
+ assert.equal(oldTail.parentElement,null,'evicted nodes are detached');
+ assert.equal(row(1199),undefined,'evicted node references are released');
+ chat.listeners.scroll[0]({type:'scroll'});
+ assert.equal(state().start,1120,'programmatic anchor scroll cannot trigger another page');
+ const snapshot=chat.children.slice(),savedTop=chat.scrollTop;
+ paint({...long,revision:2,history:[...history,{type:'assistant',content:'History item 1200'}]});
+ assert.equal(state().start,1120);
+ assert.equal(state().end,1180,'incoming response does not replace the old reading window');
+ assert.equal(chat.scrollTop,savedTop);
+ assert.equal(row(1140),overlap);
+ assert.ok(snapshot.every(node=>chat.children.includes(node)),'poll retains mounted rows and controls');
+ // Read towards newer history and keep the first visible overlapping row.
+ chat.scrollTop=chat.scrollHeight;
+ const lastVisible=[...chat.children].find(node=>node.className!=='agentchat-history-page'&&position(node)+rowHeight(node)>100);
+ const lastOffset=position(lastVisible);
+ chat.listeners.scroll[0]({type:'scroll'});
+ assert.equal(state().start,1140);
+ assert.equal(state().end,1200);
+ assert.equal(position(lastVisible),lastOffset,'forward page preserves the visible anchor too');
+ vm.runInNewContext('agentScrollToLatest(agentActive)',context);
+ assert.equal(state().end,1201);
+ assert.equal(state().count,60);
+ assert.equal(chat.scrollTop,chat.scrollHeight-chat.clientHeight);
+ const liveTail=row(1200);
+ paint({...long,revision:3,history:[...history,{type:'assistant',content:'History item 1200'},{type:'assistant',content:'History item 1201'}]});
+ assert.equal(state().end,1202);
+ assert.equal(state().count,60);
+ assert.equal(row(1200),liveTail,'live append at bottom preserves overlapping row identity');
+ assert.equal(chat.scrollTop,chat.scrollHeight-chat.clientHeight);
+ // Repeated page movements cannot increase the retained DOM window.
+ for(let i=0;i<5;i++){scroll(0);assert.equal(state().count,60);}
+ assert.equal(state().start,1042);
+ assert.equal(state().history,1202,'paging never truncates canonical history');
+ paint({...long,id:'short-transcript-test',history:history.slice(0,3)});
+ assert.equal(state().count,3);
+ assert.equal(row(1200),undefined,'tab switch releases the previous DOM');
+ FakeElement.prototype.getBoundingClientRect=originalRect;
+ console.log('PASS: bounded long transcript, bidirectional history paging, unequal-height scroll anchoring, live follow and tab isolation');
+}
 
 // Tests have no authority to execute native Patch or contact the real provider.
 
