@@ -4057,18 +4057,20 @@ function installPatchPanel(){
         return workspace&&id&&id!==String(activeSessionId||'')&&!dismissedNativeRuns.has(id)&&Number(meta.task_id)===-1&&
           String(meta.cwd||'').replace(/[\\/]+$/,'')===workspace&&String(meta.label||'').startsWith('Patch Tool');
       });
-      const recent=eligible.filter(meta=>!sessionMetadataRunning(meta)&&
-        (String(meta.label).endsWith(' · AI Agent')||String(meta.label).startsWith('Patch Tool · COLLECT ·')))
-        .sort((a,b)=>String(b.started_at||'').localeCompare(String(a.started_at||''))).slice(0,30);
-      const candidates=[...eligible.filter(sessionMetadataRunning),...recent,
-        ...eligible.filter(meta=>parallelCollectRuns.get('session:'+meta.id)?.discovered&&parallelCollectRuns.get('session:'+meta.id)?.active)];
+      // Discovery is a live-session view, not a second History browser.
+      // Completed Agent/native sessions already publish their durable results
+      // through the native History path. Do not fetch or re-add them on reload.
+      const candidates=eligible.filter(sessionMetadataRunning);
+      const liveIds=new Set(candidates.map(meta=>String(meta.id)));
+      for(const [key,run] of parallelCollectRuns.entries()){
+        if(run.discovered&&!liveIds.has(String(run.sessionId)))parallelCollectRuns.delete(key);
+      }
       const seen=new Set();
       for(const meta of candidates){
         const id=String(meta.id),key='session:'+id;
         if(seen.has(id))continue;seen.add(id);
         const existing=parallelCollectRuns.get(key);
         if(existing&&!existing.discovered)continue;
-        if(existing?.active===false&&existing.state&&!existing.protocolError&&!sessionMetadataRunning(meta))continue;
         let state;
         try{state=await app.jsonFetch('/api/sessions/'+encodeURIComponent(id)+'/protocol');}
         catch(error){
@@ -4079,12 +4081,17 @@ function installPatchPanel(){
         if(!current())return;
         if(id===String(activeSessionId||'')||dismissedNativeRuns.has(id))continue;
         if(parallelCollectRuns.has(key)&&!parallelCollectRuns.get(key).discovered)continue;
+        // A terminal protocol event can arrive before the session metadata
+        // reflects exit. Do not display it as active during that interval.
+        if(protocolRunFinished(state)){
+          parallelCollectRuns.delete(key);
+          continue;
+        }
         const origin=nativeRunOrigin(meta,state);
         const evidence=nativeRunEvidence(state);
         const direct=String(meta.label).startsWith('Patch Tool · COLLECT ·');
         // Ignore idle queue, plan and history prompts, not actual executions.
         if(!evidence.kinds.length&&!direct&&!existing)continue;
-        if(!sessionMetadataRunning(meta)&&!existing&&origin!=='ai-agent')continue;
         const names=evidence.names.length?evidence.names:(existing?.names||[String(meta.label).replace(/^Patch Tool · COLLECT · /,'').replace(/ · AI Agent$/,'')]);
         const kinds=evidence.kinds.length?evidence.kinds:(existing?.kinds||(direct?['COLLECT']:[]));
         const startedAt=Number(existing?.startedAt||Date.parse(meta.started_at)||Date.now());
@@ -4096,15 +4103,8 @@ function installPatchPanel(){
           completedAt:active?0:(existing?.completedAt||Date.parse(meta.ended_at)||Date.now()),
           lastEventCount:eventCount,lastEventAt:existing&&existing.lastEventCount===eventCount?existing.lastEventAt:Date.now(),protocolError:''});
       }
-      const ids=new Set(response.sessions.map(meta=>String(meta.id)));
-      for(const run of parallelCollectRuns.values()){
-        if(run.discovered&&run.active&&!ids.has(run.sessionId)){
-          run.active=false;run.completedAt=Date.now();run.protocolError='Native session is no longer available';
-        }
-      }
-      const finished=[...parallelCollectRuns.entries()].filter(([,run])=>run.discovered&&!run.active)
-        .sort((a,b)=>b[1].startedAt-a[1].startedAt);
-      for(const [key] of finished.slice(30))parallelCollectRuns.delete(key);
+      // Explicitly launched workers retain their in-page results; discovery
+      // must never retain a completed session in Active Runs.
       renderParallelCollectRuns();refreshActionDisabledState();
     }catch(error){console.warn('Native run discovery unavailable:',error);}
     finally{nativeRunDiscoveryBusy=false;scheduleNativeRunDiscovery();}
@@ -4125,7 +4125,7 @@ function installPatchPanel(){
   function renderParallelCollectRuns(){
     parallelCollectList.replaceChildren();
     const entries=[...parallelCollectRuns.entries()]
-      .filter(([_key,run])=>Boolean(run))
+      .filter(([_key,run])=>Boolean(run)&&(!run.discovered||run.active!==false))
       .sort((a,b)=>Number(b[1]?.startedAt||0)-Number(a[1]?.startedAt||0));
     parallelCollectTitle.textContent=runningMode?'Other runs':'Run results and active runs';
     for(const [key,run] of entries){
