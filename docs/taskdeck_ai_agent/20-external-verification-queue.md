@@ -58,11 +58,11 @@
 
 ## V-BATCH-03 — Durable exactly-once, crash and race matrix (CLP-03.01.04, CLP-03.02.03/.04; gates R10, R27, R28)
 - Source files: `vscode_tasks_menu_go/internal/agentchat` (store/CAS, attempt ledger, counters), `vscode_tasks_menu_go/internal/agentrun`, `vscode_tasks_menu_go/internal/server`.
-- Test functions: TestCollectionGuardSessionCASAndRestart, TestCollectionGuardReconcilesAttemptLedgerOnceAcrossRestart, TestCounterCursorRejectsConflictAndDoesNotCountOldReplay, TestAcquireRunFenceExcludesSecondOwner, TestAgentProviderRealSIGKILLAtEgressBoundaries, TestAgentCLP20MixedLegacyRestartMatrix, TestAgentCLP20InterruptedCollectionCheckpointProof, TestAgentCLP20StopDuringPreparedResumePreservesUnknown, TestAgentStopCancelsDurablePreparedRunBeforeEgress, TestStoppedWaitingToolCanContinueOnlyFromReconciledResult.
+- Test functions: TestCollectionGuardSessionCASAndRestart, TestCollectionGuardReconcilesAttemptLedgerOnceAcrossRestart, TestCounterCursorRejectsConflictAndDoesNotCountOldReplay, TestAcquireRunFenceExcludesSecondOwner, TestAgentProviderRealSIGKILLAtEgressBoundaries, TestAgentCLP20MixedLegacyRestartMatrix, TestAgentCLP20InterruptedCollectionCheckpointProof, TestAgentCLP20StopDuringPreparedResumePreservesUnknown, TestAgentStopCancelsDurablePreparedRunBeforeEgress, TestStoppedWaitingToolCanContinueOnlyFromReconciledResult; PLUS resume-fence predicates (new this audit): TestUnknownCollectionDeliveryMarkerIsTerminalAndNarrow, TestCollectionResumeReceiptRequiresExactCanonicalPair, TestCanSendAfterUnknownCollectionRequiresTerminalToolCalls, TestCollectionAutoResumeAllowedNeedsLiveOwnerConsent, TestCollectionResumeHistoryRejectsReplayAndConflictingProof.
 - Purpose: crash before native execution, after native execution before observation commit, after commit before PREPARED, PREPARED before SENDING, SENDING before ACK, restart after ACK, concurrent save/reconcile of one logical observation, explicit owner continuation after Stop/restart; count exactly once; no stale overwrite; no double count.
 - Working directory: `vscode_tasks_menu_go`.
 - Exact commands:
-  - `go test -race -count=1 ./internal/agentchat -run '^(TestCollectionGuardSessionCASAndRestart|TestCollectionGuardReconcilesAttemptLedgerOnceAcrossRestart|TestCounterCursorRejectsConflictAndDoesNotCountOldReplay)$'`
+  - `go test -race -count=1 ./internal/agentchat -run '^(TestCollectionGuardSessionCASAndRestart|TestCollectionGuardReconcilesAttemptLedgerOnceAcrossRestart|TestCounterCursorRejectsConflictAndDoesNotCountOldReplay|TestUnknownCollectionDeliveryMarkerIsTerminalAndNarrow|TestCollectionResumeReceiptRequiresExactCanonicalPair|TestCanSendAfterUnknownCollectionRequiresTerminalToolCalls|TestCollectionAutoResumeAllowedNeedsLiveOwnerConsent|TestCollectionResumeHistoryRejectsReplayAndConflictingProof)$'` (last five: resume-fence predicate regression, collection_resume_predicates_test.go)
   - `go test -race -count=1 ./internal/agentrun -run '^TestAcquireRunFenceExcludesSecondOwner$'`
   - `go test -v -race -count=1 ./internal/server -run '^(TestAgentProviderRealSIGKILLAtEgressBoundaries|TestAgentCLP20MixedLegacyRestartMatrix|TestAgentCLP20InterruptedCollectionCheckpointProof|TestAgentCLP20StopDuringPreparedResumePreservesUnknown|TestAgentStopCancelsDurablePreparedRunBeforeEgress|TestStoppedWaitingToolCanContinueOnlyFromReconciledResult)$'`
 - Expected result: all exit 0 under race detector; counter deltas exactly one; canonical receipt unchanged; no replayed native call; no ACK resend; isolation holds.
@@ -84,12 +84,13 @@
 
 ## V-BATCH-05 — Native mutation, selective invalidation and pipeline parity (CLP-02.04.01/.02, CLP-04.02.03/.04; gates R18, R25)
 - Source files: `vscode_tasks_menu_go/internal/agentchat/collectionprogress`, `vscode_tasks_menu_go/internal/server/agent_run_collection_test.go`, `agent_chat_collection_flow.go`.
-- Test functions: TestAgentCLP20NativePatchMutationGuardMatrix, TestAgentCLP20NativeRangeExternalMutationInvalidatesCoverage, TestAgentRunCollectionRepeatedShapeReadsChangedSource, TestAgentCLP20CrossPipelineRetryMatrix, TestConfiguredAdapterCLP20BoundedRecovery.
+- Test functions: TestAgentCLP20NativePatchMutationGuardMatrix, TestAgentCLP20NativeRangeExternalMutationInvalidatesCoverage, TestAgentRunCollectionRepeatedShapeReadsChangedSource, TestAgentCLP20CrossPipelineRetryMatrix, TestConfiguredAdapterCLP20BoundedRecovery (mutation/parity); R18 streamed function-call denial: TestChatCompletionsStreamRejectsMissingFinishAndInvalidFragments (agentchat/chat_completions_stream_test.go:42 — missing finish reason, malformed fragmented arguments, call-ID change).
 - Purpose: authoritative mutation proof, selective invalidation only with full proof, broad invalidation otherwise, rename/delete, external drift, partial PATCH failure, typed/text fallback, partial streamed function call denial, unsupported tool denial, native execution count, Legacy/Unified parity.
 - Working directory: `vscode_tasks_menu_go`.
 - Exact commands:
   - `go test -v -count=1 ./internal/server -run '^(TestAgentCLP20NativePatchMutationGuardMatrix|TestAgentCLP20NativeRangeExternalMutationInvalidatesCoverage|TestAgentRunCollectionRepeatedShapeReadsChangedSource|TestAgentCLP20CrossPipelineRetryMatrix)$'`
   - `go test -v -count=1 ./internal/agentchat -run '^TestConfiguredAdapterCLP20BoundedRecovery$'`
+  - `go test -v -count=1 ./internal/agentchat -run '^TestChatCompletionsStreamRejectsMissingFinishAndInvalidFragments$'` (R18 streamed denial)
 - Expected result: all exit 0; no selective invalidation without authoritative proof; UI changed-files report not treated as complete mutation evidence.
 - Evidence to return: CI URL + conclusion, per-test PASS lines, source SHA.
 - Safety conditions: native calls against synthetic workspace only; no production source mutation.
@@ -117,4 +118,5 @@
 
 ## Notes
 - This queue documents commands only. Nothing here was executed by the authoring session.
+- Audit refinements (see 20-source-completeness-audit.md §3): V-BATCH-03 needs a new narrowly scoped test-only Store commit-barrier hook for W1–W7 (existing task-plan crash fixtures do NOT cover the collection-observation boundary); V-BATCH-05 must include an explicit partial streamed function-call JSON denial assertion for R18. Compile/test batches (01/02/05) are non-destructive; SIGKILL/self-update/rollback (03/06) require isolated fixtures only; git (07) is operator-only and is not a prerequisite for local batches.
 - Return real receipts before changing any PENDING status or promoting a gate/checklist checkbox.

@@ -41,5 +41,7 @@
 ## 5. Operator verification batches
 See `20-external-verification-queue.md`: V-BATCH-01 (core suites), 02 (web/Node), 03 (crash/race), 04 (opt-out), 05 (native mutation/parity), 06 (upgrade/rollback), 07 (delivery). Exact commands come from `.github/workflows/taskdeck_agentchat_core.yml`, `taskdeck_remote_agent.yml`, `taskdeck_selfupdate_multi_instance.yml`.
 
+See also docs/taskdeck_ai_agent/20-source-completeness-audit.md (per-subtask and per-gate audit).
+
 ## 6. Honest status
 No gate is promoted by this document, by a PATCH receipt, or by the operator-supplied CI text. A gate moves to PASS only when the operator returns a real per-test receipt matching the exact missing evidence in §2. The 20/28 count is unchanged.
