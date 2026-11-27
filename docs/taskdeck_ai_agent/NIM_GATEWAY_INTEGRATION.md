@@ -3,7 +3,17 @@
 ## Status
 Implemented source for local Agent Chat, using existing native PATCH approval and COLLECT workers. No direct Docker or shell tool, no general external filesystem access. Actual Docker/Nim execution and full CI remain unverified.
 
-## One-time owner registration (not an AI PATCH)
+## Recommended setup: PATCH TOOL → Nim Gateway
+
+1. Open **PATCH TOOL → Nim Gateway** in the local project. Existing valid registration is recognized automatically; no reinstall or re-registration is necessary.
+2. If unregistered, select a detected script (root `nim-agent.sh`, `nim-gateway-v4/nim-agent.sh`, `tools/nim-agent.sh`) or enter its project-relative path and click **Find script**. If no gateway exists, choose **Install from file…** and select the reviewed `nim-agent.sh` supplied by the owner. Installation never overwrites a file and does not run it.
+3. Click **Register / Update**, verify the displayed script and digest, and approve. TaskDeck initializes/reads the correct Project ID and writes the private registration automatically. No manual Python, chmod, JSON or sudo needed. Existing single-account registration can be replaced only by an explicit owner action.
+4. Click **Copy AI Prompt** and paste into the existing Agent Chat. The prompt contains actual project identity, approved path, SHA-256, native COLLECT doctor request and command-only PATCH example. Refresh checks registration and digest without executing Docker.
+5. The AI should perform `nim-doctor` using native COLLECT and verify the matching bind mount before executing builds. Registration status is not evidence of a successful container test.
+
+**Revoke** removes this project's registration only, not its script or previously queued native packages. A changed script requires explicit review and re-registration, never automatic authorization of changed bytes. The setup endpoint is local-only, behind existing browser lease and same-origin controls.
+
+## Alternative: one-time terminal registration (not an AI PATCH)
 
 Use the reviewed `nim-agent.sh` v4 selected by the operator. It must reside within the actual bound host project, at its existing relative path, and must already exist. Its configured host/container root must agree with the TaskDeck project. For the supplied v4 that root is `$HOME/568E/Naruto/server-patching`. Do not register a copy in an unrelated worktree; the gateway operates on its configured project, not TaskDeck cwd.
 
