@@ -2350,6 +2350,27 @@ function openAgentTab(id){
  if(!agentTabs.includes(id))agentTabs.push(id);
  renderAgentTabs();
 }
+// Only persist navigation locally. Automation consent is authoritative on
+// the server; a browser reload must never grant or revoke it.
+function agentSelectionKey(){
+ const workspace=String(agentApp.taskData?.workspace||'').trim()||'default';
+ return 'vscode-tasks-menu:agent-chat-selection:v1:'+workspace;
+}
+function saveAgentSelection(){
+ try{localStorage.setItem(agentSelectionKey(),JSON.stringify({active:agentActive,tabs:agentTabs}));}catch{}
+}
+function restoreAgentSelection(){
+ let saved=null;
+ try{saved=JSON.parse(localStorage.getItem(agentSelectionKey())||'null');}catch{}
+ if(!saved||typeof saved!=='object')return null;
+ const available=new Set(agentSessions.map(s=>s.id));
+ const tabs=Array.isArray(saved.tabs)?saved.tabs.filter(id=>typeof id==='string'&&available.has(id)):[];
+ agentTabs=[...new Set(tabs)];
+ const active=typeof saved.active==='string'&&available.has(saved.active)?saved.active:null;
+ if(active&&!agentTabs.includes(active))agentTabs.push(active);
+ renderAgentTabs();
+ return active||agentTabs.at(-1)||null;
+}
 function closeAgentTab(id){
  agentTabs=agentTabs.filter(x=>x!==id);
  if(agentActive===id){
@@ -2357,10 +2378,12 @@ function closeAgentTab(id){
   agentDrafts.set(id,prompt.value);
   agentAttachmentDrafts.set(id,agentAttachments.map(a=>({...a})));
   agentActive=null;
+  ++agentSelectGeneration;
   agentAttachments=[];setAgentPromptValue('');renderAgentAttachments();
   if(agentTabs.length)selectAgentSession(agentTabs[agentTabs.length-1]).catch(showAgentError);
   else displayAgentSession(null);
  }
+ saveAgentSelection();
  renderAgentTabs();
 }
 async function selectAgentSession(id){
@@ -2375,7 +2398,7 @@ async function selectAgentSession(id){
   agentAttachmentDrafts.set(previousID,agentAttachments.map(a=>({...a})));
  }
  const generation=++agentSelectGeneration;
- const data=await agentApp.jsonFetch('/api/agent/sessions/'+encodeURIComponent(id));
+ const data=await agentApp.jsonFetch('/api/agent/sessions/'+encodeURIComponent(id),{cache:'no-store'});
  if(generation!==agentSelectGeneration)return null;
  const sess=data.session;
  sess.retry_runtime=data.retry_runtime||null;
@@ -2443,6 +2466,7 @@ async function selectAgentSession(id){
   updateAgentSessionRows();
  }
  openAgentTab(id);
+ saveAgentSelection();
  displayAgentSession(sess);
   scheduleAgentMonitor(sess);
  return sess;
@@ -3369,6 +3393,14 @@ function renderAgentAutomationControls(session){
  renderAgentFeedbackControl(session);
  autoContinueText.textContent='Auto continue (no plan): '+(session?.auto_continue_text?'ON':'OFF');
  autoContinueText.setAttribute('aria-pressed',String(Boolean(session?.auto_continue_text)));
+ const baseTitle='Allow additional AI requests for an unfinished conversation without a Task plan. No extra Patch permission.';
+ const reason=session?.continuation?.reason;
+ // Do not conceal a deliberate server-side safety stop as a lost preference.
+ const stopped=!session?.auto_continue_text&&(
+  reason==='stalled_without_verified_work'?'Stopped after repeated turns without verified work.':
+  reason==='nonretryable_admission_failure'?'Stopped after an admission error that requires review.':
+  session?.continuation?.disposition==='BLOCKED'?'The conversation reported a blocker.':'');
+ autoContinueText.title=stopped?baseTitle+' '+stopped+' Review the conversation before enabling again.':baseTitle;
 }
 function agentFeedbackEnabled(session){
  return Boolean(session?.auto_feedback&&(session.auto_feedback_persistent||
@@ -3936,10 +3968,12 @@ async function deleteAgentSession(id){
  for(const key of [...agentOpenReviewDetails])if(key.startsWith(id+':'))agentOpenReviewDetails.delete(key);
  if(agentActive===id){
   agentActive=null;agentCurrentSession=null;
+  ++agentSelectGeneration;
   agentExecutionPanel.classList.remove('visible');agentExecutionTarget=null;
   agentResetHistoryWindow();agentRenderedSessionID=null;
   setAgentPromptValue('');agentAttachments=[];renderAgentAttachments();
  }
+ saveAgentSelection();
  toggleAgentSessions(false);
  await loadAgentSessions();
  if(agentActive)await selectAgentSession(agentActive);
@@ -4016,9 +4050,16 @@ async function archiveAgentSession(){
  await loadAgentSessions();
  await selectAgentSession(result.session.id);
 }
+let agentSelectionRestored=false;
 async function loadAgentState(options={}){
  await loadAgentProviders();await loadAgentSessions();
+ let restored=null;
+ if(!agentSelectionRestored){
+  agentSelectionRestored=true;
+  if(!agentActive&&!agentTabs.length&&!options.preserveEmpty)restored=restoreAgentSelection();
+ }
  if(agentActive&&agentSessions.some(s=>s.id===agentActive))await selectAgentSession(agentActive);
+ else if(restored&&!options.preserveEmpty)await selectAgentSession(restored);
  else if(agentSessions.length&&!options.preserveEmpty)await selectAgentSession(agentSessions[0].id);
  else displayAgentSession(null);
  renderAgentAttachments();
