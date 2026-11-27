@@ -9875,9 +9875,20 @@ def _retire_failed_agent_package(root: Path, project_key: str, project_id: str,
     if queue.is_symlink() or not queue.is_dir() or queue.resolve().parent != root.resolve():
         raise QueueSafetyError("unsafe queue directory")
     source = queue / name
-    if not source.exists() and not source.is_symlink():
-        return {"status": "not_queued", "name": name, "sha256": digest}
-    if source.is_symlink() or not source.is_file() or source.stat().st_size > 2 * 1024 * 1024 or _sha256_file(source) != digest:
+    source_absent = not source.exists() and not source.is_symlink()
+    ignore = queue / "ignore"
+    archive = ignore / ("agent-failed-" + digest + ".zip")
+    if source_absent:
+        # A crash can occur after queue unlink but before registry commit or
+        # before TaskDeck saves the retirement receipt. Reconcile only when
+        # the exact archived bytes exist; absence alone proves nothing.
+        if not archive.exists() and not archive.is_symlink():
+            return {"status": "not_queued", "name": name, "sha256": digest}
+        if (ignore.is_symlink() or not ignore.is_dir() or archive.is_symlink()
+                or not archive.is_file() or archive.stat().st_size > 2 * 1024 * 1024
+                or _sha256_file(archive) != digest):
+            raise QueueSafetyError("retirement archive changed or is unsafe")
+    elif source.is_symlink() or not source.is_file() or source.stat().st_size > 2 * 1024 * 1024 or _sha256_file(source) != digest:
         raise QueueSafetyError("queued package changed or is unsafe")
     patched = queue / "patched"
     if patched.exists() or patched.is_symlink():
@@ -9942,6 +9953,28 @@ def _retire_failed_agent_package(root: Path, project_key: str, project_id: str,
         if not isinstance(data, dict) or data.get("format") != "python-patch-tool-unresolved-failures" or not isinstance(data.get("entries"), list):
             raise QueueSafetyError("invalid failure registry")
 
+    # An existing registry entry must refer to this exact native run. A
+    # newer failed attempt with the same bytes is not ours to retire.
+    # If a verified failure never made it into the registry (e.g. a crash),
+    # reconstruct just that row from the unique matching native History.
+    registry_data = _load_unresolved_registry(root)
+    entries = [entry for entry in registry_data.get("entries", [])
+               if isinstance(entry, dict) and isinstance(entry.get("row"), dict)
+               and _failure_identity(entry["row"]) == _failure_identity(matched[0])]
+    if len(entries) > 1:
+        raise QueueSafetyError("ambiguous failure registry identity")
+    if entries:
+        entry = entries[0]
+        if entry.get("last_run_id") != run_id:
+            raise QueueSafetyError("failure registry belongs to another native run")
+        if entry.get("resolved") is True and entry.get("resolution") != "agent_retired_failed_queue_item":
+            raise QueueSafetyError("failure registry already resolved by another lifecycle action")
+    else:
+        if source_absent:
+            # An archive without an exact registry entry could be an older,
+            # pruned or manually moved package: do not fabricate retirement.
+            return {"status": "not_queued", "name": name, "sha256": digest}
+        _update_unresolved_registry(root, {"run_id": run_id, "results": matched})
     # Publish an immutable recovery copy first, then retire ONLY the same
     # input bytes using the existing native COLLECT archive lifecycle helper.
     # Never touch source files, result archives, FAIL_HANDOFF or History.
@@ -9953,13 +9986,18 @@ def _retire_failed_agent_package(root: Path, project_key: str, project_id: str,
         raise QueueSafetyError("ignore escapes queue")
     archive = ignore / ("agent-failed-" + digest + ".zip")
     from python_patch_collect_compat import _publish_request_snapshot, _remove_request_if_executed
-    _publish_request_snapshot(source, archive, digest)
+    if not source_absent:
+        _publish_request_snapshot(source, archive, digest)
     # A concurrent PASS can have archived the package since the first check.
     if (patched / name).exists() or (patched / name).is_symlink():
         raise QueueSafetyError("native archive appeared; preserve queue")
-    lifecycle = _remove_request_if_executed(source, digest)
-    if lifecycle != "removed_executed_input":
-        raise QueueSafetyError("queue changed during retirement: " + lifecycle)
+    if source_absent:
+        if source.exists() or source.is_symlink() or _sha256_file(archive) != digest:
+            raise QueueSafetyError("queue or retirement archive changed during reconciliation")
+    else:
+        lifecycle = _remove_request_if_executed(source, digest)
+        if lifecycle != "removed_executed_input":
+            raise QueueSafetyError("queue changed during retirement: " + lifecycle)
     # Resolve exactly the retired identity. Retained History is not rewritten.
     if registry.exists() or registry.is_symlink():
         if registry.is_symlink() or not registry.is_file():
