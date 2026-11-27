@@ -254,11 +254,71 @@ func UnknownCollectionProgressRecheck(x Session)bool{
   call.Type=="function_call"&&call.Name=="taskdeck_collect_workspace"&&call.CallID==r.CallID
 }
 
+// PatchCorrectionRequired classifies verified, terminal feedback that asks
+// the model for a corrected proposal, not a native retry. A generic
+// patch_payload_failed is not proof of a syntax error or unchanged files.
+func PatchCorrectionRequired(call ToolCallRecord)bool{
+ if call.Name!="taskdeck_submit_patch"||strings.TrimSpace(call.Result)==""{return false}
+ var receipt struct{
+  Status string `json:"status"`
+  Reason string `json:"reason_code"`
+  Diagnosis string `json:"diagnosis_kind"`
+  RC *int `json:"rc"`
+  RunID string `json:"run_id"`
+  Retryable bool `json:"retryable_by_ai"`
+  Queued bool `json:"patch_queued"`
+  Executed bool `json:"patch_executed"`
+ }
+ if json.Unmarshal([]byte(call.Result),&receipt)!=nil{return false}
+ if call.Status=="rejected"{
+  return receipt.Status=="REJECTED"&&receipt.Reason=="INVALID_PATCH_ARGUMENTS"&&receipt.Retryable&&!receipt.Queued&&!receipt.Executed
+ }
+ if call.Status!="error"||receipt.Status!="FAIL"||receipt.RC==nil||*receipt.RC==0||
+  call.RunID==""||receipt.RunID!=call.RunID{return false}
+ switch receipt.Diagnosis{
+ case "patch_payload_failed","python_exception","python_syntax_error","syntax_error","anchor_mismatch","source_drift":
+  return true
+ }
+ return false
+}
+
+// A completed, acknowledged PATCH failure followed by UNKNOWN narration
+// is not a completed task. Ask for a corrected proposal once per exact
+// feedback turn, without replaying the failed native operation. A fresh
+// message changes the run kind and cannot itself satisfy this predicate.
+func UnknownPatchCorrectionRecheck(x Session)bool{
+ c:=EffectiveTurnContinuation(x)
+ r:=x.ProviderRun
+ if c==nil||c.Disposition!=TurnUnknown||c.Reason!="unknown_model_turn"||
+  r==nil||r.Kind!="feedback"||r.Phase!="completed"||r.CallID==""||len(x.History)<3{return false}
+ n:=len(x.History)
+ last,output:=x.History[n-1],x.History[n-2]
+ if last.Type!="assistant"||last.OriginRunID!=""||turnHash(last.Content)!=c.ResponseDigest||
+  output.Type!="function_call_output"||output.OriginRunID!=""||output.CallID!=r.CallID{return false}
+ var record *ToolCallRecord
+ for i:=range x.ToolCalls{
+  call:=&x.ToolCalls[i]
+  if call.CallID!=r.CallID{continue}
+  if record!=nil||call.AgentRunID!=""||call.TextFallback||!call.FeedbackSent||call.FeedbackStatus!="acknowledged"||
+   strings.TrimSpace(call.Result)!=output.Content||!PatchCorrectionRequired(*call){return false}
+  record=call
+ }
+ if record==nil{return false}
+ // Require a unique source and output in canonical history. No arbitrary
+ // assistant text or older failed call can authorize correction.
+ source,receipts:=0,0
+ for _,item:=range x.History{
+  if item.CallID!=r.CallID{continue}
+  if item.Type=="function_call"&&item.Name==record.Name&&item.OriginRunID==""&&turnHash(item.Arguments)==record.ArgumentsSHA256{source++}else if item.Type=="function_call_output"&&item.OriginRunID==""{receipts++}else{return false}
+ }
+ return source==1&&receipts==1
+}
+
 func StandaloneAutoContinueCandidate(x Session)bool{
  c:=EffectiveTurnContinuation(x)
  if !x.AutoContinueText||x.TaskPlan!=nil||x.Owner!="local"||x.Archived||
   x.Status!="completed"||c==nil||c.NoProgressTurns>=MaxContinuationNoWorkTurns||
-  (c.Disposition!=TurnNeedsContinuation&&c.Disposition!=TurnInProgress&&!UnknownCollectionProgressRecheck(x))||
+  (c.Disposition!=TurnNeedsContinuation&&c.Disposition!=TurnInProgress&&!UnknownCollectionProgressRecheck(x)&&!UnknownPatchCorrectionRecheck(x))||
   x.PendingUserTurn!=nil||HasUnresolvedWork(x){return false}
  if c.NextRetryAt!=nil&&time.Now().UTC().Before(*c.NextRetryAt){return false}
  if x.ProviderRun!=nil{

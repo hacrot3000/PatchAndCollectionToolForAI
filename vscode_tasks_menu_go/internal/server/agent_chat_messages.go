@@ -332,6 +332,13 @@ func (s *Server) agentChatAuthorizedMessage(w http.ResponseWriter, r *http.Reque
 		http.Error(w, "Agent Run history unavailable; cannot build conversation context", http.StatusServiceUnavailable)
 		return
 	}
+	patchResumeID,_:=r.Context().Value(patchFeedbackAutoResumeKey{}).(string)
+	autoResumePatchFeedback:=patchResumeID!=""
+	if autoResumePatchFeedback&&(s.Config.SharedServerEnabled||owner!="local"||len(runRecords)!=0||
+		!agentPatchFeedbackAutoResumeReady(session)||session.ProviderRun.ID!=patchResumeID||
+		msg!=agentPatchFeedbackResumeInstruction||req.ResumeCollectionRunID!=""){
+		http.Error(w,"automatic PATCH feedback recovery no longer authorized or eligible",409);return
+	}
 	resumeCollection:=req.ResumeCollectionRunID!=""
 	autoResumeID:=collectionAutoResumeRunID(r.Context())
 	autoResumeCollection:=autoResumeID!=""
@@ -412,12 +419,12 @@ func (s *Server) agentChatAuthorizedMessage(w http.ResponseWriter, r *http.Reque
 	}
 	// Automatic recovery may not silently route prior project context through
 	// a changed endpoint or credential. Explicit Send may choose a new agent.
-	if autoResumeCollection&&(session.ProviderRun.ProviderFingerprint!=agentchat.CapabilityFingerprint(p,model)||
+	if (autoResumeCollection||autoResumePatchFeedback)&&(session.ProviderRun.ProviderFingerprint!=agentchat.CapabilityFingerprint(p,model)||
 		(session.TurnBinding!=nil&&(session.TurnBinding.ProviderID!=p.ID||
 		 session.TurnBinding.ModelID!=model.ID||
 		 session.TurnBinding.ProviderConfigVersion!=agentchat.RunProviderConfigVersion(p,model)||
 		 session.TurnBinding.CredentialFingerprint!=agentchat.RunCredentialFingerprint(secret)))){
-		http.Error(w,"automatic Collection recovery provider binding changed; send a new message to confirm the selection",409)
+		http.Error(w,"automatic recovery provider binding changed; send a new message to confirm the selection",409)
 		return
 	}
 	identity, err := patchtool.EnsureProjectIdentity(s.Workspace)
@@ -491,7 +498,7 @@ func (s *Server) agentChatAuthorizedMessage(w http.ResponseWriter, r *http.Reque
 	// The first consented turn performs a harmless, project-data-free tool
 	// schema probe when a configured model has not yet been verified.
 	patchToolAvailable := model.ToolCalling && s.agentToolCapabilityVerified(owner, p, model)
-	if !autoResumeCollection && !patchToolAvailable && agentNeedsWorkspaceTools(msg) {
+	if !autoResumeCollection && !autoResumePatchFeedback && !patchToolAvailable && agentNeedsWorkspaceTools(msg) {
 		patchToolAvailable = s.agentChatEnsureTools(r.Context(), owner, p, model, string(secret))
 	}
 	instructions,currentInstructions := agentChatInstructionsWithAutomationParts(session, patchToolAvailable, identity.Key)
@@ -506,7 +513,7 @@ func (s *Server) agentChatAuthorizedMessage(w http.ResponseWriter, r *http.Reque
 	// session mode stays immutable for audit and a later verified retry.
 	currentContract := agentInstalledCollectionContract(s.Workspace)
 	mode := agentContextRequestMode(session,p.APIType,s.agentConversationCapabilityVerified(owner,p,model),currentContract)
-	if len(runRecords) != 0 || resumeCollection || newAfterCollection ||
+	if len(runRecords) != 0 || resumeCollection || autoResumePatchFeedback || newAfterCollection ||
 		previousProvider != p.ID || previousModel != model.ID || len(failureProjection.History)>len(session.History) {
 		mode = agentchat.Stateless
 	}
@@ -515,6 +522,11 @@ func (s *Server) agentChatAuthorizedMessage(w http.ResponseWriter, r *http.Reque
 	contextModel := model
 	if mode==agentchat.Stateless{contextModel,limit=agentAdaptiveRequestBudget(store,session,p,model,string(secret),limit)}
 	requestNext:=[]agentchat.HistoryItem{next}
+	if autoResumePatchFeedback{
+		var ok bool
+		failureProjection.History,requestNext,ok=agentPatchFeedbackResumeProjection(session,failureProjection.History,next)
+		if !ok{http.Error(w,"cannot project exact saved PATCH receipt; canonical history retained",409);return}
+	}
 	if resumeCollection{
 		var ok bool
 		failureProjection.History,requestNext,ok=agentCollectionResumeProjection(session,failureProjection.History,next)
@@ -533,6 +545,7 @@ func (s *Server) agentChatAuthorizedMessage(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	oldRevision := session.Revision
+	if autoResumePatchFeedback{session.AppendEvent("patch_feedback_resume_new",session.Status,session.ProviderRun.CallID,session.ProviderRun.ID)}
 	if resumeCollection{
 		bindLegacyCollectionObjective(collectionContinuationContext(r.Context()),&session,"Continue")
 		kind:="collection_resume_new"

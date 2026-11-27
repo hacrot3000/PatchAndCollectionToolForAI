@@ -327,17 +327,73 @@ console.log('PASS: opening a RUNNING console jumps to its tail; live updates fol
  assert.equal(ctx.parallelCollectRuns.get('session:patch').origin,'ai-agent');
  assert.equal(ctx.parallelCollectRuns.get('session:collect').origin,'ai-agent');
  assert.equal(ctx.parallelCollectRuns.get('session:manual').name,'manual.zip');
- sessions[1].status='exited';
+ // Metadata can lag behind the terminal protocol receipt.
  states.set('patch',{event_count:4,items:[{kind:'PATCH',name:'p.zip',status:'FAIL'}],last_event:{type:'run_finished'}});
  await ctx.refresh();
- const completed=ctx.parallelCollectRuns.get('session:patch');
- assert.equal(completed.active,false);
- assert.equal(ctx.status(completed),'FAIL');
- ctx.dismissedNativeRuns.add('patch');ctx.parallelCollectRuns.delete('session:patch');
+ assert.equal(ctx.parallelCollectRuns.has('session:patch'),false,'terminal run leaves Active even before metadata exit');
+ sessions[1].status='exited';
+ for(const status of ['PASS','INCOMPLETE','FAIL','STOPPED']){
+  const id='old-'+status;
+  sessions.push(meta(id,'Patch Tool · COLLECT · '+id+' · AI Agent','exited'));
+  states.set(id,{items:[{kind:'COLLECT',name:id,status}],last_event:{type:'run_finished'}});
+ }
  await ctx.refresh();
- assert.equal(ctx.parallelCollectRuns.has('session:patch'),false);
- sessions=sessions.filter(s=>s.id!=='collect');
+ assert.equal(ctx.parallelCollectRuns.has('session:patch'),false,'completed PATCH is not rediscovered');
+ for(const status of ['PASS','INCOMPLETE','FAIL','STOPPED']){
+  assert.equal(ctx.parallelCollectRuns.has('session:old-'+status),false,'historical '+status+' is not an active run');
+ }
+ states.set('collect',{items:[{kind:'COLLECT',name:'c.zip',status:'PASS'}],last_event:{type:'run_finished'}});
  await ctx.refresh();
- assert.equal(ctx.status(ctx.parallelCollectRuns.get('session:collect')),'RESULT UNKNOWN');
- console.log('PASS: server discovery, AI origin, exact session deduplication, final receipt and dismissal');
+ assert.equal(ctx.parallelCollectRuns.has('session:collect'),false,'successful COLLECT leaves Active automatically');
+ // A missing or exited discovered session is pruned on an authoritative list.
+ sessions.push(meta('missing','Patch Tool · COLLECT · missing.zip · AI Agent'));
+ states.set('missing',{items:[{kind:'COLLECT',name:'missing.zip',status:'RUNNING'}]});
+ await ctx.refresh();
+ assert.equal(ctx.parallelCollectRuns.has('session:missing'),true);
+ sessions=sessions.filter(s=>s.id!=='missing');
+ await ctx.refresh();
+ assert.equal(ctx.parallelCollectRuns.has('session:missing'),false);
+ ctx.parallelCollectRuns.get('session:manual').active=false;
+ await ctx.refresh();
+ assert.equal(ctx.parallelCollectRuns.size,1,'manual in-page run results are retained');
+ console.log('PASS: live discovery, AI origin, deduplication, terminal pruning, no historical resurrection, manual result retention');
+})().catch(error=>{console.error(error);process.exitCode=1;});
+
+
+ // Exercise the same action shared by History and live artifact renderers.
+(async()=>{
+ const start=source.indexOf('  function appendSendArtifactToAgent(');
+ const end=source.indexOf('  function appendHistoryFiles(',start);
+ assert.ok(start>=0&&end>start);
+ const calls=[],errors=[];
+ const ctx={
+  document:{createElement:()=>({disabled:false,isConnected:true})},
+  historyTextFile:path=>/\.txt$/i.test(path),
+  TaskMenuAgentChat:{selectedSessionID:'conversation-a',attachPatchArtifact:async(path,options)=>{
+   calls.push({path,options});return {ok:true};
+  }},
+  app:{showError:error=>errors.push(error.message)},setTimeout:()=>1,
+ };
+ const append=vm.runInNewContext(source.slice(start,end)+'\nappendSendArtifactToAgent;',ctx);
+ const host={children:[],append(node){this.children.push(node);}};
+ append(host,'artifacts/result.zip');
+ assert.equal(host.children.length,0,'binary ZIP is not an attachment');
+ append(host,'artifacts/result.txt');
+ assert.equal(host.children.length,1);
+ const button=host.children[0];
+ assert.equal(button.textContent,'Send to AI Agent Chat');
+ await button.onclick();
+ assert.equal(calls.length,1);
+ assert.equal(calls[0].path,'artifacts/result.txt');
+ assert.equal(calls[0].options.session_id,'conversation-a');
+ assert.equal(button.textContent,'✓ Attached');
+ assert.equal(button.disabled,false);
+ ctx.TaskMenuAgentChat.selectedSessionID='conversation-b';
+ ctx.TaskMenuAgentChat.attachPatchArtifact=async()=>{throw Error('file unavailable');};
+ await button.onclick();
+ assert.equal(errors[0],'file unavailable');
+ assert.equal(button.disabled,false);
+ assert.ok(source.includes('appendSendArtifactToAgent(actionsNode,textFile.path)'),'History result action');
+ assert.ok(source.includes('appendSendArtifactToAgent(actionsNode,textVariant.path)'),'Live result action');
+ console.log('PASS: History/live Send to AI Agent Chat action targets the selected draft and reports errors');
 })().catch(error=>{console.error(error);process.exitCode=1;});

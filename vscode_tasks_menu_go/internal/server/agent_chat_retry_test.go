@@ -286,3 +286,21 @@ func TestAgentCLP20SmallContextRecoveryPreservesFullInput(t *testing.T){
  effective,limit:=agentAdaptiveRequestBudget(store,x,p,model,"key",32768)
  if effective.MaxInputTokens!=model.MaxInputTokens||limit!=16384{t.Fatal("output-only recovery falsely reduced input cap")}
 }
+
+func TestAgentEmptyResponseUnlimitedRetryPreservesExactReceipt(t *testing.T){
+ s,id:=newAgentConversationFixture(t,"stateless")
+ store,err:=s.agentChatStore();if err!=nil{t.Fatal(err)}
+ x,err:=store.Get(id,"local");if err!=nil{t.Fatal(err)}
+ x.RetryMode=agentchat.RetryUnlimited
+ if _,err=store.Save(x,x.Revision);err!=nil{t.Fatal(err)}
+ original:=[]byte(`{"model":"model","store":false,"input":[{"type":"function_call","call_id":"p","name":"taskdeck_submit_patch","arguments":"{}"},{"type":"function_call_output","call_id":"p","output":"PASS"}]}`)
+ attempts:=0
+ s.AgentChatCall=func(_ context.Context,_ agentchat.ProviderConfig,_ string,payload []byte)(agentchat.ResponsesResult,error){
+  attempts++
+  if string(payload)!=string(original){t.Fatal("empty response changed original request")}
+  if attempts==1{return agentchat.ResponsesResult{},&agentchat.ProviderError{Code:"RESPONSE_EMPTY",Stage:"provider_parse",HTTPStatus:200,Retryable:true,Ambiguous:true}}
+  return agentchat.ResponsesResult{ResponseID:"r2",Text:"Continue from saved PASS"},nil
+ }
+ result,err,_:=s.agentChatProviderWithRetryUsingWait(context.Background(),"local",id,agentchat.ProviderConfig{ID:"fake",APIType:"responses"},"key",original,func(context.Context,time.Duration)error{return nil})
+ if err!=nil||attempts!=2||result.Text!="Continue from saved PASS"{t.Fatalf("empty response recovery failed: %d %+v %v",attempts,result,err)}
+}

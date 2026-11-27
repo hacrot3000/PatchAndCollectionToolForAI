@@ -139,6 +139,7 @@ func agentAutoFeedbackDiagnostic(x agentchat.Session)map[string]any{
  if x.AutoFeedbackUntil!=nil{out["grant_until"]=x.AutoFeedbackUntil}
  if x.ProviderRun!=nil{out["provider_phase"]=x.ProviderRun.Phase}
  if reason==""{out["call_id"]=x.ToolCalls[idx].CallID}
+ if _,ok:=agentPatchFeedbackResumeReceipt(x);ok{out["patch_feedback_recovery_ready"]=agentPatchFeedbackAutoResumeReady(x)}
  return out
 }
 
@@ -197,6 +198,7 @@ func (s *Server) processAgentAutoFeedbackSession(ctx context.Context, store *age
 	// Adopt verified native final results without requiring a browser poll.
 	s.reconcileAgentSession(ctx, store, id)
 	if s.autoResumeRecoveredCollectionOne(ctx,store,id){return}
+	if s.autoResumePatchFeedbackOne(ctx,store,id){return}
 	fresh, err := store.Get(id, "local")
 	if err != nil { return }
 	if _, ok := agentAutoFeedbackCandidate(fresh); ok {
@@ -215,7 +217,7 @@ func (s *Server) processAgentAutoFeedbackSession(ctx context.Context, store *age
 func agentAutoFeedbackNeedsWork(x agentchat.Session) bool {
 	if x.Owner != "local" || x.Archived { return false }
 	if x.Status=="requesting_ai" && x.ProviderRun!=nil && x.ProviderRun.Phase=="prepared"{return true}
-	if agentRecoveredCollectionResumeCandidate(x)||agentUnknownCollectionResumeCandidate(x){return true}
+	if agentRecoveredCollectionResumeCandidate(x)||agentUnknownCollectionResumeCandidate(x)||agentPatchFeedbackAutoResumeReady(x){return true}
 	if agentchat.TaskPlanAutoContinueCandidate(x){return true}
 	if agentchat.StandaloneAutoContinueCandidate(x){return true}
 	if agentchat.TaskAutoCheckReady(x){return true}

@@ -310,6 +310,10 @@ type ResponsesResult struct {
 	Model          string
 }
 
+// ErrEmptyProviderResponse identifies a parsed response with no usable
+// assistant output. It is not a successful turn or a native tool result.
+var ErrEmptyProviderResponse = errors.New("provider returned no text or tool calls")
+
 // ParseResponsesResult extracts text and function_call items without accepting
 // arbitrary output text as an executable tool call.
 func ParseResponsesResult(body []byte) (ResponsesResult, error) {
@@ -385,7 +389,7 @@ func ParseResponsesResult(body []byte) (ResponsesResult, error) {
 	}
 	res.Text = strings.Join(textParts, "\n")
 	if len(res.Calls) == 0 && strings.TrimSpace(res.Text) == "" {
-		return ResponsesResult{}, errors.New("provider returned no text or tool calls")
+		return ResponsesResult{}, ErrEmptyProviderResponse
 	}
 	return res, nil
 }

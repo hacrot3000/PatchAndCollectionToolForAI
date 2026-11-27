@@ -183,3 +183,45 @@ func TestTurnProgressOversizeActionKeepsDisposition(t *testing.T){
  got:=AnalyzeTurnText("\x60\x60\x60taskdeck-progress\n"+string(raw)+"\n\x60\x60\x60")
  if got.Disposition!=TurnNeedsContinuation||!ValidTurnContinuation(got)||!utf8.ValidString(got.NextAction)||!strings.Contains(got.NextAction,"truncated; consult the original"){t.Fatalf("oversize advisory discarded status: %+v",got)}
 }
+
+func TestUnknownPatchCorrectionRequiresExactAcknowledgedFailure(t *testing.T){
+ text:="I reviewed the previous result."
+ output:=`{"status":"FAIL","rc":2,"run_id":"native-run","diagnosis_kind":"patch_payload_failed","mutation_state":"UNKNOWN"}`
+ x:=Session{Owner:"local",Status:"completed",AutoContinueText:true,
+  ProviderRun:&ProviderRun{Kind:"feedback",Phase:"completed",CallID:"patch"},
+  History:[]HistoryItem{{Type:"user",Content:"Fix the document"},{Type:"function_call",Name:"taskdeck_submit_patch",CallID:"patch",Arguments:"{}"},{Type:"function_call_output",CallID:"patch",Content:output},{Type:"assistant",Content:text}},
+  ToolCalls:[]ToolCallRecord{{Name:"taskdeck_submit_patch",CallID:"patch",Status:"error",Result:output,RunID:"native-run",ArgumentsSHA256:turnHash("{}"),FeedbackSent:true,FeedbackStatus:"acknowledged"}}}
+ RecordTurnDisposition(&x,text)
+ if !UnknownPatchCorrectionRecheck(x)||!StandaloneAutoContinueCandidate(x){t.Fatal("valid failure must request correction")}
+ for _,mutate:=range []func(*Session){
+  func(y *Session){y.AutoContinueText=false},
+  func(y *Session){y.ProviderRun.Kind="message"},
+  func(y *Session){y.ProviderRun.Phase="unknown"},
+  func(y *Session){y.ToolCalls[0].FeedbackStatus="unknown"},
+  func(y *Session){y.ToolCalls[0].RunID="other"},
+  func(y *Session){y.ToolCalls[0].Status="done"},
+  func(y *Session){y.History[2].Content="different"},
+  func(y *Session){y.History[1].Arguments="different"},
+  func(y *Session){y.Continuation.NoProgressTurns=MaxContinuationNoWorkTurns},
+  func(y *Session){y.Continuation.Disposition=TurnBlocked},
+ }{
+  y:=x;r:=*x.ProviderRun;y.ProviderRun=&r;d:=*x.Continuation;y.Continuation=&d
+  y.History=append([]HistoryItem(nil),x.History...);y.ToolCalls=append([]ToolCallRecord(nil),x.ToolCalls...)
+  mutate(&y)
+  if StandaloneAutoContinueCandidate(y){t.Fatal("unsafe or repeated correction admitted")}
+ }
+}
+func TestPatchCorrectionClassification(t *testing.T){
+ for _,tc:=range []struct{status,result string;want bool}{
+  {"error",`{"status":"FAIL","rc":2,"run_id":"r","diagnosis_kind":"patch_payload_failed"}`,true},
+  {"error",`{"status":"FAIL","rc":1,"run_id":"r","diagnosis_kind":"anchor_mismatch"}`,true},
+  {"error",`{"status":"FAIL","rc":2,"run_id":"r","diagnosis_kind":"patch_payload_timeout"}`,false},
+  {"error",`{"status":"PREFLIGHT_FAIL","rc":2,"run_id":"r","diagnosis_kind":"insufficient_disk_space"}`,false},
+  {"done",`{"status":"PASS","rc":0,"run_id":"r"}`,false},
+  {"rejected",`{"status":"REJECTED","reason_code":"INVALID_PATCH_ARGUMENTS","retryable_by_ai":true,"patch_queued":false,"patch_executed":false}`,true},
+  {"rejected",`{"status":"REJECTED","reason_code":"USER_REJECTED","retryable_by_ai":true}`,false},
+ }{
+  call:=ToolCallRecord{Name:"taskdeck_submit_patch",Status:tc.status,RunID:"r",Result:tc.result}
+  if PatchCorrectionRequired(call)!=tc.want{t.Fatalf("wrong correction classification: %s",tc.result)}
+ }
+}

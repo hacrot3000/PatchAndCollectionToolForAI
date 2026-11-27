@@ -13,6 +13,11 @@ import (
  "bletonfc/vscode_tasks_menu/internal/agentchat"
 )
 
+// Shared by initial failed-PATCH feedback and the exact UNKNOWN recovery.
+// The receipt is authoritative evidence; these instructions do not grant
+// native execution or waive predecessor and mutation-state checks.
+const agentPatchCorrectionInstruction = "PATCH CORRECTION REQUIRED: The preceding Patch was rejected or failed. Continue the ORIGINAL user task. Read the exact failure reason and native output; do not treat FAIL as completion. If mutation state is UNKNOWN or PARTIAL, first use targeted native read-only COLLECT to inspect the affected files and any predecessor failure evidence. Never assume the workspace is unchanged. Produce ONE fresh, corrected taskdeck_submit_patch proposal using the advertised schema: nonempty name, exactly one nonempty patch_python or patch_manifest and the other empty; use the exact project-bound text JSON envelope only if native function tools are unavailable. Python must be complete, syntactically valid, correctly escaped in JSON, preserve UTF-8, and use current verified anchors. Do not wrap Python in Markdown inside tool arguments, replay the failed package, or bypass native validation, approval or predecessor rules. If the same error recurs, narrow the Patch and change the defective construction instead of repeating it. Do not stop at a narrative about the error. Submit the corrected proposal or perform the necessary bounded COLLECT first; if genuinely blocked, return taskdeck-progress BLOCKED with the precise missing prerequisite."
+
 // This is the no-plan companion to the user-owned Task plan coordinator.
 // The user must separately opt in from the conversation Automation menu.
 // Provider narration is scheduling advice only: the existing message API
@@ -43,7 +48,10 @@ func (s *Server) autoContinueConversationOne(ctx context.Context,store *agentcha
  if agentchat.UnknownCollectionProgressRecheck(original){
   message="TaskDeck user-authorized task status check for the ORIGINAL conversation. The last native COLLECT result has already been delivered and the provider reply did not establish task completion or a next action. Do not repeat the COLLECT or execute any tool in this status check. Review the original user goal and existing evidence, then return exactly one fenced taskdeck-progress JSON block. If work remains, use IN_PROGRESS or NEEDS_CONTINUATION with a concrete next_action. If the goal is fully satisfied, use CLAIMED_COMPLETE. If genuinely blocked, use BLOCKED with the precise reason in next_action. Do not invent evidence or claim completion from transport success."
  }
- if c.NoProgressTurns>=2&&!agentchat.UnknownCollectionProgressRecheck(original){
+ if agentchat.UnknownPatchCorrectionRecheck(original){
+  message="TaskDeck user-authorized NEW continuation after acknowledged failed PATCH feedback. "+agentPatchCorrectionInstruction
+ }
+ if c.NoProgressTurns>=2&&!agentchat.UnknownCollectionProgressRecheck(original)&&!agentchat.UnknownPatchCorrectionRecheck(original){
   message+=" No independently verified work has been recorded in the last "+
    "two automatic turns. Prioritize a specific read-only Collection now; "+
    "if one is impossible, report the precise blocker. Do not recycle "+

@@ -70,6 +70,14 @@ class FakeElement {
       this.children.push(node);
     }
   }
+  insertBefore(node,reference) {
+    assert.ok(reference===null||this.children.includes(reference),'insertBefore reference must be attached');
+    if(node===reference)return node;
+    if(node.parentElement)node.parentElement.children=node.parentElement.children.filter(child=>child!==node);
+    const index=reference===null?this.children.length:this.children.indexOf(reference);
+    this.children.splice(index,0,node);node.parentElement=this;this.appendCount++;
+    return node;
+  }
   prepend(...nodes) {
     this.appendCount += nodes.length;
     for(const node of nodes){
@@ -984,9 +992,9 @@ console.log('PASS: safe Markdown, syntax-highlighted PHP/Python, per-block Copy,
   ]};
   vm.runInNewContext('displayAgentSession('+JSON.stringify(extended)+')',context);
   assert.equal(transcript.replaceCount,baselineReplace,'new message must not recreate transcript');
-  // The historical assistant row is appended once; the independent live
-  // status row is also moved to the bottom to remain after that new message.
-  assert.equal(transcript.appendCount,baselineAppend+2,'new assistant row plus relocated single live status are the only appends');
+  // Insert the new history row directly before the independent live status;
+  // no need to detach or relocate the existing spinner.
+  assert.equal(transcript.appendCount,baselineAppend+1,'one new assistant row, no spinner relocation');
   assert.equal(transcript.children[0],originalUser,'old user message must remain the same element');
   const assistantCreated=transcript.children.find(node=>node.className==='agentchat-bubble assistant'&&nodeText(node).startsWith('helloworld.php created'));
   assert.ok(assistantCreated,'new assistant message must be present exactly once');
@@ -1006,11 +1014,11 @@ console.log('PASS: safe Markdown, syntax-highlighted PHP/Python, per-block Copy,
   const edited={...patchDone,revision:202,history:[
     ...patchSession.history,{type:'assistant',content:'helloworld.php verified'}
   ]};
-  const removalBeforeEdit=transcript.removeCount;
+  const replacementBeforeEdit=transcript.replaceCount;
   vm.runInNewContext('displayAgentSession('+JSON.stringify(edited)+')',context);
   assert.equal(transcript.children[0],originalUser,'changing last answer must not redraw earlier history');
   assert.ok(nodeText(transcript.children.at(-1)).startsWith('helloworld.php verified'),'edited assistant reply remains visible');
-  assert.equal(transcript.removeCount,removalBeforeEdit+1,'only the changed assistant tail should be removed on this update');
+  assert.equal(transcript.replaceCount,replacementBeforeEdit+1,'only the changed assistant tail should be replaced');
 
   // The tab and conversation list should preserve keyed DOM nodes as their
   // labels or active state change.
@@ -1972,6 +1980,162 @@ assert.equal(vm.runInNewContext('agentRenameOverlay.classList.contains("visible"
 assert.equal(vm.runInNewContext('agentSessionBusy("rename-test")',context),true,
  'Rename metadata must not interrupt an active Agent turn');
 console.log('PASS: active Agent Rename persists once and updates tab and History');
+
+// Long conversation: use uneven deterministic row heights and a clamped
+// scroll model, including navigation controls. Exercise production display,
+// paging and scroll handlers, not a separate pagination implementation.
+{
+ const chat=vm.runInNewContext('transcript',context);
+ const history=Array.from({length:1200},(_,i)=>({type:i%2?'assistant':'user',content:'History item '+i}));
+ const long={id:'long-transcript-test',title:'Long transcript',status:'ready',provider_id:'composer',model_id:'composer-2.5',history,tool_calls:[],events:[]};
+ const rowHeight=node=>{
+  if(node.className==='agentchat-history-page')return 29;
+  const m=/History item (\d+)/.exec(nodeText(node));
+  return m?37+(Number(m[1])%7)*31:53;
+ };
+ const height=()=>chat.children.reduce((sum,node)=>sum+rowHeight(node)+9,0);
+ let top=0;
+ Object.defineProperties(chat,{
+  clientHeight:{configurable:true,get:()=>330},
+  scrollHeight:{configurable:true,get:height},
+  scrollTop:{configurable:true,get:()=>Math.max(0,Math.min(top,Math.max(0,height()-330))),set:v=>{top=Math.max(0,Math.min(Number(v)||0,Math.max(0,height()-330)));}},
+ });
+ chat.getBoundingClientRect=()=>({top:100,bottom:430});
+ const position=node=>100+chat.children.slice(0,chat.children.indexOf(node)).reduce((sum,n)=>sum+rowHeight(n)+9,0)-chat.scrollTop;
+ const originalRect=FakeElement.prototype.getBoundingClientRect;
+ FakeElement.prototype.getBoundingClientRect=function(){
+  const y=this.parentElement===chat?position(this):0;
+  return {top:y,bottom:y+rowHeight(this)};
+ };
+ const state=()=>vm.runInNewContext('({start:agentHistoryStart,end:agentHistoryEnd,count:agentRenderedNodes.size,history:agentRenderedHistory.length})',context);
+ const row=index=>vm.runInNewContext('agentRenderedNodes.get('+index+')?.node',context);
+ const paint=session=>{context.longTranscriptFixture=session;vm.runInNewContext('agentActive=longTranscriptFixture.id;displayAgentSession(longTranscriptFixture)',context);};
+ const scroll=value=>{chat.scrollTop=value;chat.listeners.scroll[0]({type:'scroll'});};
+ paint(long);
+ assert.equal(state().start,1140);
+ assert.equal(state().end,1200);
+ assert.equal(state().count,60);
+ assert.equal(row(0),undefined,'oldest history is not rendered or cached as DOM');
+ assert.ok(chat.children.length<=63,'DOM stays bounded independently of canonical history length');
+ const oldTail=row(1199),overlap=row(1140);
+ // Scroll to top: anchor row is visible just below the earlier-page control.
+ chat.scrollTop=0;
+ const before=position(overlap);
+ chat.listeners.scroll[0]({type:'scroll'});
+ assert.equal(state().start,1120);
+ assert.equal(state().end,1180);
+ assert.equal(row(1140),overlap,'overlap row keeps DOM identity');
+ assert.equal(position(overlap),before,'prepending and evicting unequal-height rows must not jump');
+ assert.equal(oldTail.parentElement,null,'evicted nodes are detached');
+ assert.equal(row(1199),undefined,'evicted node references are released');
+ chat.listeners.scroll[0]({type:'scroll'});
+ assert.equal(state().start,1120,'programmatic anchor scroll cannot trigger another page');
+ const snapshot=chat.children.slice(),savedTop=chat.scrollTop;
+ paint({...long,revision:2,history:[...history,{type:'assistant',content:'History item 1200'}]});
+ assert.equal(state().start,1120);
+ assert.equal(state().end,1180,'incoming response does not replace the old reading window');
+ assert.equal(chat.scrollTop,savedTop);
+ assert.equal(row(1140),overlap);
+ assert.ok(snapshot.every(node=>chat.children.includes(node)),'poll retains mounted rows and controls');
+ // Read towards newer history and keep the first visible overlapping row.
+ chat.scrollTop=chat.scrollHeight;
+ const lastVisible=[...chat.children].find(node=>node.className!=='agentchat-history-page'&&position(node)+rowHeight(node)>100);
+ const lastOffset=position(lastVisible);
+ chat.listeners.scroll[0]({type:'scroll'});
+ assert.equal(state().start,1140);
+ assert.equal(state().end,1200);
+ assert.equal(position(lastVisible),lastOffset,'forward page preserves the visible anchor too');
+ vm.runInNewContext('agentScrollToLatest(agentActive)',context);
+ assert.equal(state().end,1201);
+ assert.equal(state().count,60);
+ assert.equal(chat.scrollTop,chat.scrollHeight-chat.clientHeight);
+ const liveTail=row(1200);
+ paint({...long,revision:3,history:[...history,{type:'assistant',content:'History item 1200'},{type:'assistant',content:'History item 1201'}]});
+ assert.equal(state().end,1202);
+ assert.equal(state().count,60);
+ assert.equal(row(1200),liveTail,'live append at bottom preserves overlapping row identity');
+ assert.equal(chat.scrollTop,chat.scrollHeight-chat.clientHeight);
+ // Repeated page movements cannot increase the retained DOM window.
+ for(let i=0;i<5;i++){scroll(0);assert.equal(state().count,60);}
+ assert.equal(state().start,1042);
+ assert.equal(state().history,1202,'paging never truncates canonical history');
+ paint({...long,id:'short-transcript-test',history:history.slice(0,3)});
+ assert.equal(state().count,3);
+ assert.equal(row(1200),undefined,'tab switch releases the previous DOM');
+ FakeElement.prototype.getBoundingClientRect=originalRect;
+ console.log('PASS: bounded long transcript, bidirectional history paging, unequal-height scroll anchoring, live follow and tab isolation');
+}
+
+// Exercise exact artifact staging separately from the provider and summary
+// paths. Mock the authenticated download stream, including an in-flight tab
+// switch, and use the real attachment validation and staging implementation.
+{
+ const begin=source.indexOf('async function stagePatchArtifact(');
+ const end=source.indexOf('function editorSourceContext(',begin);
+ const normalizeBegin=source.indexOf('function safeAttachmentMetadata(');
+ const normalizeEnd=source.indexOf('function currentStagedAttachments()',normalizeBegin);
+ const validBegin=source.indexOf('function isValidUTF8Text(');
+ const validEnd=source.indexOf('function editorContextActions(',validBegin);
+ assert.ok(begin>=0&&end>begin&&normalizeBegin>=0&&normalizeEnd>normalizeBegin&&validBegin>=0&&validEnd>validBegin);
+ const encode=new TextEncoder();
+ let input=encode.encode('COLLECT result — nguyên văn 🔍\n');
+ let onRead=null,fetchCalls=[],cancelled=false,focusCount=0,renderCount=0,busy=false;
+ const ctx={
+  TextEncoder,TextDecoder,Uint8Array,agentMaxAttachmentBytes:32*1024,agentMaxAttachmentTotal:64*1024,agentMaxAttachmentCount:4,
+  agentActive:'a',agentSessions:[{id:'a'},{id:'b'}],agentAttachments:[],agentPendingAttachments:[],
+  agentAttachmentDrafts:new Map(),agentRequestIDs:new Map(),agentDock:{expanded:true},agentDebugView:'chat',
+  agentApp:{taskData:{workspace:'/project'}},
+  agentSelectedChatSession:()=>ctx.agentActive,agentSessionBusy:()=>busy,
+  renderAgentAttachments:()=>renderCount++,prompt:{focus:()=>focusCount++},
+  setAgentStatusNotice:()=>{},setAgentDebugView:()=>{},openAgentPanel:async()=>{throw Error('already open')},
+  fetch:async(url,options)=>{
+   fetchCalls.push([url,options]);let offset=0;
+   return {ok:true,headers:{get:()=>null},body:{getReader:()=>({
+    read:async()=>{if(onRead){const fn=onRead;onRead=null;fn();}
+     if(offset>=input.length)return {done:true};
+     const value=input.slice(offset,offset+4096);offset+=value.length;return {done:false,value};},
+    cancel:async()=>{cancelled=true;},releaseLock:()=>{},
+   })}};
+  },
+ };
+ vm.runInNewContext(source.slice(normalizeBegin,normalizeEnd)+source.slice(validBegin,validEnd)+
+  source.slice(begin,end)+'\nthis.attach=stagePatchArtifact;',ctx);
+ const path='artifacts/patch_tool/result.txt';
+ const result=await ctx.attach(path,{session_id:'a'});
+ assert.equal(result.ok,true);
+ assert.equal(ctx.agentAttachments[0].rawText,new TextDecoder().decode(input));
+ assert.equal(ctx.agentAttachments[0].name,'result.txt');
+ assert.ok(ctx.agentAttachments[0].text.includes('ATTACHED CONTENT (UNTRUSTED)'));
+ assert.equal(fetchCalls[0][0],'/api/files/download?path='+encodeURIComponent(path));
+ assert.equal(fetchCalls[0][1].credentials,'same-origin');
+ assert.equal((await ctx.attach(path,{session_id:'a'})).duplicate,true);
+ assert.equal(ctx.agentAttachments.length,1);
+ input=encode.encode('é🔍'.repeat(7000));
+ await ctx.attach('artifacts/patch_tool/large.txt',{session_id:'a'});
+ assert.equal(ctx.agentAttachments.length,3);
+ assert.equal(ctx.agentAttachments.slice(1).map(item=>item.rawText).join(''),new TextDecoder().decode(input));
+ const before=ctx.agentAttachments.slice();
+ input=encode.encode('x'.repeat(65537));
+ await assert.rejects(ctx.attach('artifacts/patch_tool/oversize.txt',{session_id:'a'}),/64 KiB/);
+ assert.equal(cancelled,true);
+ assert.deepEqual(ctx.agentAttachments,before,'oversize must not alter the draft');
+ input=encode.encode('another native result');
+ onRead=()=>{ctx.agentActive='b';ctx.agentAttachments=[];};
+ const focusedBefore=focusCount;
+ await ctx.attach('artifacts/patch_tool/another.txt',{session_id:'a'});
+ assert.equal(ctx.agentAttachments.length,0,'in-flight tab switch must not attach to B');
+ assert.equal(ctx.agentAttachmentDrafts.get('a').length,4);
+ assert.equal(focusCount,focusedBefore,'must not steal the newly selected tab');
+ await assert.rejects(ctx.attach('../outside.txt',{session_id:'b'}),/project-relative/);
+ await assert.rejects(ctx.attach('artifacts/archive.zip',{session_id:'b'}),/text artifact/);
+ busy=true;
+ await assert.rejects(ctx.attach(path,{session_id:'b'}),/local Send/);
+ busy=false;
+ onRead=()=>{ctx.agentApp.taskData.workspace='/different';};
+ await assert.rejects(ctx.attach(path,{session_id:'b'}),/Workspace changed/);
+ assert.equal(ctx.agentAttachments.length,0);
+ console.log('PASS: exact artifact bytes, Unicode split, limits, deduplication, session/workspace isolation, no provider request');
+}
 
 // Tests have no authority to execute native Patch or contact the real provider.
 

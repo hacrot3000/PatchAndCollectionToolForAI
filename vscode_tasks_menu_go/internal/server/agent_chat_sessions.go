@@ -329,6 +329,9 @@ func (s *Server) agentChatSessionItemAPI(w http.ResponseWriter, r *http.Request)
 	// Poll through the gap between completed and the next Auto Continue.
 	// This is a read-only monitoring hint, not execution admission.
 	autoContinueMonitor:=false
+	if !s.Config.SharedServerEnabled&&attemptErr==nil&&!s.agentConversationRequiresRunContinuation(item.Owner,id){
+		_,autoContinueMonitor=agentPatchFeedbackResumeReceipt(item)
+	}
 	if !s.Config.SharedServerEnabled && attemptErr==nil && item.Status=="completed" {
 		candidate:=item
 		if item.Continuation!=nil{

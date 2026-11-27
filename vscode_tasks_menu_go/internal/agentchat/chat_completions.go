@@ -208,7 +208,7 @@ func ParseChatCompletionsResult(body []byte) (ResponsesResult, error) {
 		return ResponsesResult{}, errors.New("tool_calls finish reason without tool calls")
 	}
 	if len(result.Calls) == 0 && strings.TrimSpace(result.Text) == "" {
-		return ResponsesResult{}, errors.New("provider returned no text or tool calls")
+		return ResponsesResult{}, ErrEmptyProviderResponse
 	}
 	return result, nil
 }
@@ -275,10 +275,13 @@ func doChatCompletionsWithClient(ctx context.Context, p ProviderConfig, key stri
 	if parseErr != nil {
 		diagnostic.Level = "error"
 		diagnostic.Stage = "provider_parse"
-		diagnostic.Code = "JSON_PARSE_FAILED"
-		diagnostic.SafeMessage = SafeProviderText(parseErr.Error())
-		RecordProviderDiagnostic(ctx, diagnostic)
-		return ResponsesResult{}, &ProviderError{Code: diagnostic.Code, Stage: diagnostic.Stage, Message: diagnostic.SafeMessage}
+		pe:=classifyProviderResponseParseError(raw,parseErr)
+		pe.HTTPStatus=resp.StatusCode
+		diagnostic.Code=pe.Code
+		diagnostic.Event="response.parse_error"
+		diagnostic.SafeMessage=pe.Message
+		RecordProviderDiagnostic(ctx,diagnostic)
+		return ResponsesResult{},pe
 	}
 	RecordProviderDiagnostic(ctx, diagnostic)
 	return result, nil

@@ -1519,8 +1519,8 @@ func TestPatchActiveRunsRetainCompletedWorkerResultsAndPruneFinishedForeground(t
 	if !strings.Contains(renderBlock,"const entries=[...parallelCollectRuns.entries()]") {
 		t.Fatal("Run results must retain finished worker entries alongside active runs")
 	}
-	if !strings.Contains(renderBlock,".filter(([_key,run])=>Boolean(run))") {
-		t.Fatal("Run results must not hide completed entries")
+	if !strings.Contains(renderBlock,".filter(([_key,run])=>Boolean(run)&&(!run.discovered||run.active!==false))") {
+		t.Fatal("Run results must retain explicit worker results, not finished discovered sessions")
 	}
 }
 
@@ -1579,8 +1579,8 @@ func TestPatchForegroundRunStaysAboveBackgroundActiveRuns(t *testing.T) {
 		}
 	}
 	for _, want:=range []string{
-		"activeRunningEntries().sort((a,b)=>Number(b[1]?.startedAt||0)-Number(a[1]?.startedAt||0))",
-		"parallelCollectTitle.textContent=runningMode?'Other active runs':'Active runs'",
+		".sort((a,b)=>Number(b[1]?.startedAt||0)-Number(a[1]?.startedAt||0))",
+		"parallelCollectTitle.textContent=runningMode?'Other runs':'Run results and active runs'",
 	} {
 		if !strings.Contains(block,want) { t.Fatalf("background Active runs hierarchy missing %q",want) }
 	}
