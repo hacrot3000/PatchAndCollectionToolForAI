@@ -118,7 +118,7 @@ func CollectionAutoResumeAllowed(x Session) bool {
   return x.TaskPlan.State=="active"&&x.TaskPlan.AutoContinue&&TaskPlanNext(x.TaskPlan)!=nil&&
    x.TaskPlan.NoProgressTurns<MaxContinuationNoWorkTurns
  }
- return x.AutoContinueText&&(x.Continuation==nil||x.Continuation.NoProgressTurns<MaxContinuationNoWorkTurns)
+ return StandaloneContinuationGranted(x)
 }
 
 // retainCollectionResumeCheckpoint must run under the existing store lock
