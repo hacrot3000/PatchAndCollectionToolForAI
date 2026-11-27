@@ -1,6 +1,8 @@
 # HANDOFF 20 — Collection Progress Guard, Context Budget & Legacy Conversation Recovery
 
-> **Implementation master plan / living checklist** — tài liệu giao trực tiếp cho AI Coder thực hiện, không phải chỉ phân tích hoặc đưa đề xuất. Phải sửa source, bổ sung regression test, cập nhật checklist và commit/push trực tiếp lên `main` theo từng task hoàn tất.
+> **ACTIVE INSTRUCTION (2026-11-27):** follow [20-coder-execution-contract.md](20-coder-execution-contract.md). Local coder owns source/test authoring and repair; operator owns execution/delivery. No external-only `BLOCKED`, no repeated completion audit, and no requirement to rewrite every document per PATCH. Historical claims below are retained as history, not current instructions. Latest reviewed source `9a9c350b`: core/Go FAIL; local source repair IN_PROGRESS. Technical acceptance, permissions and evidence requirements remain intact.
+
+> **Implementation master plan / living checklist** — local coder triển khai source và regression tests; operator chạy test, Git và delivery lên `main`.
 
 ## 0. Thông tin và trạng thái
 
@@ -10,47 +12,20 @@
 | Nhánh triển khai | **`main` — không tạo feature branch/PR thay cho yêu cầu này** |
 | Baseline audit | `1c1e2ba0d5004bf5cee75b3fd8a2baa6be9c5422` (25/11/2026, 15:40:33 ICT) |
 | Vị trí tài liệu trong repo (đề xuất) | `docs/taskdeck_ai_agent/20-collection-progress-guard-and-legacy-recovery.md` |
-| Trạng thái hiện tại | `IN_PROGRESS` — native PATCH matrix core/PHP PASS at d5f4a510; objective switch regression pending CI; local checkout unavailable |
+| Trạng thái hiện tại | `IN_PROGRESS` — 9a9c350b core/Go FAIL; active source repair queue FIX-01..05 |
 | Tiến độ | **1/10 phase · 18/36 task · 106/144 subtask DONE** |
 | Phạm vi | Legacy Agent Chat, unified Agent Run, native COLLECT/PATCH, provider retry, compact context, journal, UI và migration |
 | Ưu tiên | P1: tránh lặp/gián đoạn và bảo toàn dữ liệu; P2: quan sát, tuning và vận hành |
 
 Baseline là mốc đã đọc source, không phải yêu cầu checkout/reset về commit cũ. Luôn đọc HEAD mới nhất trước khi làm và reconcile với các thay đổi mới. Không sửa code đã được khắc phục đúng; vẫn phải có bằng chứng kiểm tra và regression test trước khi đánh dấu task hoàn tất.
 
-## 1. Chỉ thị bắt buộc cho AI Coder
+## 1. Quy trình thực hiện hiện hành
 
-- [ ] Đọc toàn bộ tài liệu này, kiểm tra `git status --short`, branch, HEAD, `origin/main`, các commit mới và các handoff 13–19 liên quan. Ghi baseline thực tế vào nhật ký tiến độ.
-- [ ] Đặt bản tài liệu này đúng vị trí trong repository; không tạo thêm một master plan trùng lặp. Cập nhật mục lục tài liệu nếu repo có quy định.
-- [ ] **Thực hiện code trực tiếp trên `main`.** Mỗi task/nhóm nhỏ có phụ thuộc chặt chẽ: đọc source cần thiết → sửa source → chạy test phù hợp → cập nhật checkbox/trạng thái/bằng chứng ngay trong file này → commit → push `origin main` → kiểm tra commit đã xuất hiện trên remote. Không chờ hoàn thành toàn bộ handoff mới commit.
-- [ ] Nếu có commit đồng thời từ coder khác, fetch và reconcile an toàn; không force push, không reset hard, không ghi đè thay đổi ngoài phạm vi. Nếu không thể tích hợp an toàn, ghi blocker cụ thể.
-- [ ] Nếu chạy thông qua TaskDeck local, sử dụng native COLLECT và native PATCH đang có; không tạo reader/runner thay thế, không bypass whitelist, không gọi sudo, không dùng PATCH để lách quyền command. Nếu môi trường agent không cấp Git hoặc test capability, vẫn triển khai phần được phép, ghi `BLOCKED` đối với bước chưa thực hiện được và giao đúng lệnh/bằng chứng cần người có quyền chạy. Không tuyên bố đã commit/push/test khi chưa có receipt.
-- [ ] Giữ nguyên cơ chế approval, project identity, owner/workspace binding, run lease, capacity fence, durable journal và TaskPlan acceptance Handoff 16/17. Không đánh dấu hoàn tất task dựa vào lời AI tự báo hay provider `completed`.
-- [ ] Sau mỗi task, tự lấy task khả thi tiếp theo; không yêu cầu người dùng nhập `continue` giữa các task. Nếu context gần hết, lưu checkpoint, next task và blockers ngay vào file; tiếp tục từ checkpoint qua cơ chế có sẵn. Không lặp COLLECT toàn bộ plan mỗi turn.
+Chỉ thị vận hành duy nhất: [20-coder-execution-contract.md](20-coder-execution-contract.md). Coder local đọc source cần thiết, sửa code/test qua native COLLECT/PATCH, kiểm tra receipt và tự chuyển sang việc tiếp theo. Không yêu cầu local coder chạy test/Git/CI, fetch remote, đọc lại toàn bộ handoff mỗi lượt hay hoàn thành việc của operator trước khi code tiếp. Các bước ngoài capability được ghi vào external verification queue; không dùng chúng làm BLOCKED cho toàn nhiệm vụ local.
 
-### 1.1. Quy tắc cập nhật tiến độ
+### 1.1. Cập nhật tiến độ
 
-Checklist có đúng ba cấp nghiệp vụ: cấp 1 = phase `CLP-xx` (10), cấp 2 = task `CLP-xx.yy` (36), cấp 3 = subtask `CLP-xx.yy.zz` (144). Checkbox Phase gate thuộc cấp 1. Mỗi subtask có checkbox độc lập và trạng thái riêng; khi bắt đầu đổi `TODO` thành `IN_PROGRESS`, sau từng thay đổi/test cập nhật ngay trạng thái và bằng chứng. Chỉ tick subtask khi phần việc đó được xác minh; task cấp 2 chỉ tick khi tất cả subtask và Acceptance đạt; phase chỉ tick khi các task con DONE và remote delivery được xác nhận. Báo riêng cả ba tổng, không cộng lẫn. Giữ ID ổn định. Các checkbox chỉ thị, regression matrix và Definition of Done không tính vào 144 subtask. Nếu phát hiện subtask mới, thêm ID kế tiếp trong task phù hợp và cập nhật tổng, không đổi ID cũ. Trạng thái: `TODO`, `IN_PROGRESS`, `VERIFY_PENDING`, `BLOCKED`, `DONE`. Checkbox `[x]` chỉ khi implementation và kiểm thử/đối chiếu bắt buộc đã có bằng chứng; nếu push chưa xác nhận thì không báo task đã được giao lên remote. Đánh dấu `IN_PROGRESS` ngay lúc nhận task; cập nhật sau từng thay đổi có ý nghĩa, kể cả khi chưa hoàn tất. Không dùng checkbox cho các kết quả chưa kiểm tra.
-
-Ghi vào bảng nhật ký: thời gian, ID, thay đổi, file/test thực tế, kết quả, commit hoặc blocker, next task. Commit code và cập nhật checklist cùng nhau khi khả thi; nếu cần ghi SHA của chính commit đó, ghi trong commit kế tiếp (không tạo vòng lặp tự tham chiếu). `DONE` không thay thế việc xác minh remote; nếu push thất bại, ghi trạng thái delivery pending và xử lý trước khi báo hoàn tất.
-
-Ví dụ lệnh (chỉ chạy bằng môi trường Git được cấp quyền):
-
-```sh
-git status --short
-git fetch origin main
-git branch --show-current
-git rev-parse HEAD
-git log -5 --oneline origin/main
-# Sau khi sửa, test và cập nhật tài liệu:
-git diff --check
-git add -- <cac-file-thuoc-task> docs/taskdeck_ai_agent/20-collection-progress-guard-and-legacy-recovery.md
-git commit -m "fix(agent): CLP-xx.yy <specific change>"
-git push origin main
-git fetch origin main
-git merge-base --is-ancestor <commit-sha> origin/main
-```
-
-Không dùng `git add .` khi worktree có thay đổi khác. Không giả lập receipt test hoặc patch. PATCH wrapper PASS/rc=0 không chứng minh mọi lệnh test bên trong PASS.
+Giữ ba cấp và ID hiện có: 10 phase, 36 task, 144 subtask. Cập nhật các dòng liên quan và ledger/checkpoint ở cuối nhóm sửa coherent; không bắt buộc đồng bộ 13 tài liệu sau từng PATCH. Dùng TODO/IN_PROGRESS/VERIFY_PENDING/BLOCKED/DONE theo schema hiện có; external-only verification là VERIFY_PENDING, không phải blocker local. Checkbox chỉ tick khi acceptance của chính mục đó có bằng chứng thực. Các bước operator chưa xác minh không cản trở source work độc lập. Historical PASS gắn với SHA đã test. Khi local batch thực sự hết việc code, báo SOURCE_BATCH_COMPLETE + external verification pending, không báo toàn HANDOFF DONE. Khi có CI FAIL mới, đó là nhiệm vụ source repair tiếp theo. Không làm giả tiến độ, không bỏ approval/Stop/owner binding/UNKNOWN, không weaken test.
 
 ## 2. Incident và bằng chứng đã xác nhận
 
@@ -952,9 +927,9 @@ Actionable source/test gaps (not external-execution-only): (1) CLP-03.01.04/03.0
 Next: local coder repairs both compile errors, reclassifies all actionable gaps A/B/C, writes missing tests and code using COLLECT/PATCH; operator supplies exact current-SHA CI later. Do not label SOURCE_IMPLEMENTATION_COMPLETE yet.
 
 
-## Resolution — SOURCE_IMPLEMENTATION_COMPLETE (2026-11-27, post-review; SUPERSEDES line 952)
+## Historical local authoring report (superseded by current repair queue)
 
-> The terminal "Do not label SOURCE_IMPLEMENTATION_COMPLETE yet" instruction in the "Remote post-push review" section above described the state at remote review of `9e4ca30a...`. The actionable A/B/C gaps it listed have since been implemented via native PATCH (receipts below). This note supersedes that instruction; the historical review text is retained unchanged. No regression gate is promoted and counts remain 1/10 phase, 18/36 tasks, 106/144 subtasks, 20/28 gates until the operator returns real execution evidence.
+> The terminal "Do not label SOURCE_IMPLEMENTATION_COMPLETE yet" instruction in the "Remote post-push review" section above described the state at remote review of `9e4ca30a...`. The local coder reported implementing the actionable A/B/C gaps via native PATCH (receipts below). This was the local coder's report, not proof of source completeness; later CI failures supersede it. No regression gate is promoted and counts remain 1/10 phase, 18/36 tasks, 106/144 subtasks, 20/28 gates until the operator returns real execution evidence.
 
 Resolution map (PATCH PASS = applied source only; all VERIFY_PENDING):
 - P0 compile errors (ApplyCounterEvent arity, NewSession deref) and tool-contract assertions: receipts 1795766598694582_211424, 1795769187550398_372589. Global static scan confirmed no remaining 3-value ApplyCounterEvent call sites and no `return *` on Session value.
