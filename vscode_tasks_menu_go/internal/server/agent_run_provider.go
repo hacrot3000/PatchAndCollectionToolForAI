@@ -57,6 +57,25 @@ func (r ownerAgentRunProviderResolver) Resolve(ctx context.Context, spec agentch
 	}, nil
 }
 
+// AdmitProviderAttempt rechecks the immutable automatic-turn grant at the
+// last transport admission point, after expensive prompt assembly and before
+// each retry. The current owner journal is authoritative, not the prior
+// prompt-builder snapshot. No journal lock is held over network I/O.
+func(r ownerAgentRunProviderResolver) AdmitProviderAttempt(ctx context.Context,spec agentchat.RunSpec)error{
+ if err:=ctx.Err();err!=nil{return err}
+ inputs,err:=r.server.ResolveAgentRunInputs(agentrun.WithPrincipalOwner(ctx,r.owner),spec)
+ if err!=nil{return err}
+ if inputs.Snapshot.Policy==nil{return errors.New("run policy unavailable at provider admission")}
+ policy:=inputs.Snapshot.Policy.Automation
+ if policy.ContinuationMode==""{return nil} // explicit owner turn or receipt reconciliation
+ store,err:=r.server.agentChatStore();if err!=nil{return err}
+ x,err:=store.Get(spec.ConversationID,r.owner)
+ if err!=nil||x.ProjectID!=inputs.ProjectID||runAutoContinueMode(x,policy)!=policy.ContinuationMode{
+  return &agentchat.ProviderError{Code:"AUTOMATIC_CONTINUATION_REVOKED",Stage:"provider_admission",Message:"Automatic run continuation is no longer authorized; no new provider attempt was sent."}
+ }
+ return ctx.Err()
+}
+
 // serverAgentRunProviderInvoker reuses the existing Agent Chat transport seam
 // so tests can inject a provider double without a second production HTTP path.
 // Production behavior is identical to the hardened HTTP invoker.
