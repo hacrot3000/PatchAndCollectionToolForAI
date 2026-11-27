@@ -310,6 +310,15 @@ func TaskPlanAutoContinueCandidate(x Session)bool{
 func VerifiedWorkSignature(x Session)string{
  var b strings.Builder
  done,total:=TaskPlanProgress(x.TaskPlan)
+ // Once CLP has a scoped reducer, the outer scheduler must not count
+ // receipt IDs, archive movement, or native PASS a second time as work.
+ // New verified evidence is a read-progress signal, not task acceptance.
+ if g,ok:=x.ReadCollectionGuard();ok{
+  return taskPlanDigest(fmt.Sprintf("clp-v1:%s:%d:%d:%d:%d/%d",g.Counters.Objective.Key,g.Counters.NewEvidence,g.Counters.VerifiedProgressEvents,g.Counters.AttestedProgressEvents,done,total))
+ }
+ // An opaque guard cannot establish progress. Preserve old unguarded
+ // compatibility only when no projection has been installed at all.
+ if len(x.CollectionGuard)!=0{return taskPlanDigest(fmt.Sprintf("clp-unknown:%d/%d",done,total))}
  fmt.Fprintf(&b,"done:%d/%d archive:%d/%d\n",done,total,x.ArchivedHistoryItems,x.ArchivedPatchCalls)
  for _,it:=range x.History{
   if it.Type!="function_call_output"{continue}
