@@ -2066,6 +2066,77 @@ console.log('PASS: active Agent Rename persists once and updates tab and History
  console.log('PASS: bounded long transcript, bidirectional history paging, unequal-height scroll anchoring, live follow and tab isolation');
 }
 
+// Exercise exact artifact staging separately from the provider and summary
+// paths. Mock the authenticated download stream, including an in-flight tab
+// switch, and use the real attachment validation and staging implementation.
+{
+ const begin=source.indexOf('async function stagePatchArtifact(');
+ const end=source.indexOf('function editorSourceContext(',begin);
+ const normalizeBegin=source.indexOf('function safeAttachmentMetadata(');
+ const normalizeEnd=source.indexOf('function currentStagedAttachments()',normalizeBegin);
+ const validBegin=source.indexOf('function isValidUTF8Text(');
+ const validEnd=source.indexOf('function editorContextActions(',validBegin);
+ assert.ok(begin>=0&&end>begin&&normalizeBegin>=0&&normalizeEnd>normalizeBegin&&validBegin>=0&&validEnd>validBegin);
+ const encode=new TextEncoder();
+ let input=encode.encode('COLLECT result — nguyên văn 🔍\n');
+ let onRead=null,fetchCalls=[],cancelled=false,focusCount=0,renderCount=0,busy=false;
+ const ctx={
+  TextEncoder,TextDecoder,Uint8Array,agentMaxAttachmentBytes:32*1024,agentMaxAttachmentTotal:64*1024,agentMaxAttachmentCount:4,
+  agentActive:'a',agentSessions:[{id:'a'},{id:'b'}],agentAttachments:[],agentPendingAttachments:[],
+  agentAttachmentDrafts:new Map(),agentRequestIDs:new Map(),agentDock:{expanded:true},agentDebugView:'chat',
+  agentApp:{taskData:{workspace:'/project'}},
+  agentSelectedChatSession:()=>ctx.agentActive,agentSessionBusy:()=>busy,
+  renderAgentAttachments:()=>renderCount++,prompt:{focus:()=>focusCount++},
+  setAgentStatusNotice:()=>{},setAgentDebugView:()=>{},openAgentPanel:async()=>{throw Error('already open')},
+  fetch:async(url,options)=>{
+   fetchCalls.push([url,options]);let offset=0;
+   return {ok:true,headers:{get:()=>null},body:{getReader:()=>({
+    read:async()=>{if(onRead){const fn=onRead;onRead=null;fn();}
+     if(offset>=input.length)return {done:true};
+     const value=input.slice(offset,offset+4096);offset+=value.length;return {done:false,value};},
+    cancel:async()=>{cancelled=true;},releaseLock:()=>{},
+   })}};
+  },
+ };
+ vm.runInNewContext(source.slice(normalizeBegin,normalizeEnd)+source.slice(validBegin,validEnd)+
+  source.slice(begin,end)+'\nthis.attach=stagePatchArtifact;',ctx);
+ const path='artifacts/patch_tool/result.txt';
+ const result=await ctx.attach(path,{session_id:'a'});
+ assert.equal(result.ok,true);
+ assert.equal(ctx.agentAttachments[0].rawText,new TextDecoder().decode(input));
+ assert.equal(ctx.agentAttachments[0].name,'result.txt');
+ assert.ok(ctx.agentAttachments[0].text.includes('ATTACHED CONTENT (UNTRUSTED)'));
+ assert.equal(fetchCalls[0][0],'/api/files/download?path='+encodeURIComponent(path));
+ assert.equal(fetchCalls[0][1].credentials,'same-origin');
+ assert.equal((await ctx.attach(path,{session_id:'a'})).duplicate,true);
+ assert.equal(ctx.agentAttachments.length,1);
+ input=encode.encode('é🔍'.repeat(7000));
+ await ctx.attach('artifacts/patch_tool/large.txt',{session_id:'a'});
+ assert.equal(ctx.agentAttachments.length,3);
+ assert.equal(ctx.agentAttachments.slice(1).map(item=>item.rawText).join(''),new TextDecoder().decode(input));
+ const before=ctx.agentAttachments.slice();
+ input=encode.encode('x'.repeat(65537));
+ await assert.rejects(ctx.attach('artifacts/patch_tool/oversize.txt',{session_id:'a'}),/64 KiB/);
+ assert.equal(cancelled,true);
+ assert.deepEqual(ctx.agentAttachments,before,'oversize must not alter the draft');
+ input=encode.encode('another native result');
+ onRead=()=>{ctx.agentActive='b';ctx.agentAttachments=[];};
+ const focusedBefore=focusCount;
+ await ctx.attach('artifacts/patch_tool/another.txt',{session_id:'a'});
+ assert.equal(ctx.agentAttachments.length,0,'in-flight tab switch must not attach to B');
+ assert.equal(ctx.agentAttachmentDrafts.get('a').length,4);
+ assert.equal(focusCount,focusedBefore,'must not steal the newly selected tab');
+ await assert.rejects(ctx.attach('../outside.txt',{session_id:'b'}),/project-relative/);
+ await assert.rejects(ctx.attach('artifacts/archive.zip',{session_id:'b'}),/text artifact/);
+ busy=true;
+ await assert.rejects(ctx.attach(path,{session_id:'b'}),/local Send/);
+ busy=false;
+ onRead=()=>{ctx.agentApp.taskData.workspace='/different';};
+ await assert.rejects(ctx.attach(path,{session_id:'b'}),/Workspace changed/);
+ assert.equal(ctx.agentAttachments.length,0);
+ console.log('PASS: exact artifact bytes, Unicode split, limits, deduplication, session/workspace isolation, no provider request');
+}
+
 // Tests have no authority to execute native Patch or contact the real provider.
 
 })().catch(error => { console.error(error); process.exitCode = 1; });
