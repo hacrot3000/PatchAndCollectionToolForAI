@@ -33,7 +33,7 @@ func runAutoContinueMode(x agentchat.Session, policy agentrun.AutomationSnapshot
 		}
 		return ""
 	}
-	if policy.AutoContinueText && x.AutoContinueText { return "conversation" }
+	if policy.AutoContinueText && agentchat.StandaloneContinuationGranted(x) { return "conversation" }
 	return ""
 }
 
