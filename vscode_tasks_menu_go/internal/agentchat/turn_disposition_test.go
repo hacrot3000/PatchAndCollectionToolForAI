@@ -225,3 +225,37 @@ func TestPatchCorrectionClassification(t *testing.T){
   if PatchCorrectionRequired(call)!=tc.want{t.Fatalf("wrong correction classification: %s",tc.result)}
  }
 }
+
+func TestRetiredPatchBlockerRecheckIsOneFreshTurn(t *testing.T){
+ digest:=strings.Repeat("a",64)
+ output:=`{"status":"FAIL","rc":1,"run_id":"native-run","diagnosis_kind":"post_patch_command_failed"}`
+ text:="Blocked by missing predecessor disposition."
+ fixture:=func()Session{
+  x:=Session{Owner:"local",Status:"completed",AutoContinueText:true,
+   ProviderRun:&ProviderRun{Kind:"feedback",Phase:"completed",CallID:"patch"},
+   History:[]HistoryItem{{Type:"user",Content:"Fix test"},{Type:"function_call",Name:"taskdeck_submit_patch",CallID:"patch",Arguments:"{}"},{Type:"function_call_output",CallID:"patch",Content:output},{Type:"assistant",Content:text}},
+   ToolCalls:[]ToolCallRecord{{Name:"taskdeck_submit_patch",CallID:"patch",Status:"error",Result:output,RunID:"native-run",ArgumentsSHA256:turnHash("{}"),PackageSHA256:digest,FeedbackSent:true,FeedbackStatus:"acknowledged",
+    FailedQueueRetirement:&FailedQueueRetirement{Status:"retired",RunID:"native-run",PackageSHA256:digest,Archive:"patchs/ignore/agent-failed-"+digest+".zip"}}}}
+  RecordTurnDisposition(&x,text)
+  return x
+ }
+ x:=fixture()
+ if !RetiredPatchBlockerRecheck(x)||!StandaloneAutoContinueCandidate(x){t.Fatal("verified retired failure should get one fresh recovery turn")}
+ for _,tc:=range []struct{name string;mutate func(*Session)}{
+  {"revoked",func(y *Session){y.AutoContinueText=false}},
+  {"new message",func(y *Session){y.ProviderRun.Kind="message"}},
+  {"unknown egress",func(y *Session){y.ProviderRun.Phase="unknown"}},
+  {"unacknowledged",func(y *Session){y.ToolCalls[0].FeedbackStatus="unknown"}},
+  {"wrong archive",func(y *Session){y.ToolCalls[0].FailedQueueRetirement.Archive="other"}},
+  {"wrong digest",func(y *Session){y.ToolCalls[0].FailedQueueRetirement.PackageSHA256=strings.Repeat("b",64)}},
+  {"wrong run",func(y *Session){y.ToolCalls[0].FailedQueueRetirement.RunID="other"}},
+  {"no retirement",func(y *Session){y.ToolCalls[0].FailedQueueRetirement=nil}},
+  {"stale response",func(y *Session){y.History[3].Content+=" stale"}},
+  {"different output",func(y *Session){y.History[2].Content="other"}},
+  {"different proposal",func(y *Session){y.History[1].Arguments="other"}},
+  {"no progress",func(y *Session){y.Continuation.NoProgressTurns=MaxContinuationNoWorkTurns}},
+  {"pending user question",func(y *Session){y.Status="waiting_tool"}},
+ }{
+  t.Run(tc.name,func(t *testing.T){y:=fixture();tc.mutate(&y);if StandaloneAutoContinueCandidate(y){t.Fatal("unsafe recovery admitted")}})
+ }
+}
