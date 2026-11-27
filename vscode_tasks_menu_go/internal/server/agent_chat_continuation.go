@@ -51,7 +51,10 @@ func (s *Server) autoContinueConversationOne(ctx context.Context,store *agentcha
  if agentchat.UnknownPatchCorrectionRecheck(original){
   message="TaskDeck user-authorized NEW continuation after acknowledged failed PATCH feedback. "+agentPatchCorrectionInstruction
  }
- if c.NoProgressTurns>=2&&!agentchat.UnknownCollectionProgressRecheck(original)&&!agentchat.UnknownPatchCorrectionRecheck(original){
+ if agentchat.RetiredPatchBlockerRecheck(original){
+  message="TaskDeck user-authorized fresh recovery after a model-reported blocker and exact acknowledged native failure retirement. The old package is retired in the journal, not rolled back; use current verified predecessor evidence and inspect source before a corrective proposal. Do not require separate human planning confirmation; native planning decides. Do not replay the failed operation. If an actual owner decision is necessary, use the advertised questionnaire or report the specific verified constraint. "+agentPatchCorrectionInstruction
+ }
+ if c.NoProgressTurns>=2&&!agentchat.UnknownCollectionProgressRecheck(original)&&!agentchat.UnknownPatchCorrectionRecheck(original)&&!agentchat.RetiredPatchBlockerRecheck(original){
   message+=" No independently verified work has been recorded in the last "+
    "two automatic turns. Prioritize a specific read-only Collection now; "+
    "if one is impossible, report the precise blocker. Do not recycle "+
@@ -92,8 +95,9 @@ func (s *Server) autoContinueConversationOne(ctx context.Context,store *agentcha
   current.AutoContinueText=false
   c.Reason="stalled_without_verified_work"
   current.AppendEvent("continuation_stalled",current.Status,"","no_verified_work_after_recovery")
- }else if c.Disposition==agentchat.TurnBlocked{
-  current.AutoContinueText=false
+ }else if c.Disposition==agentchat.TurnBlocked&&!agentchat.RetiredPatchBlockerRecheck(current){
+  // A model blocker pauses scheduling through the disposition predicate;
+  // it must not silently revoke the user's persisted Auto continue grant.
   current.AppendEvent("continuation_blocked",current.Status,"","model_reported_blocker_requires_review")
  }else{
   current.AppendEvent("continuation_advanced",current.Status,"",c.Disposition)
