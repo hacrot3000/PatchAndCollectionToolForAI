@@ -10,6 +10,7 @@ import (
  "time"
 
 	"bletonfc/vscode_tasks_menu/internal/agentchat"
+ cp "bletonfc/vscode_tasks_menu/internal/agentchat/collectionprogress"
 	"bletonfc/vscode_tasks_menu/internal/agentrun"
 	"bletonfc/vscode_tasks_menu/internal/patchtool"
 )
@@ -311,4 +312,45 @@ func TestAgentRunInvalidCollectionPolicyDoesNotBlockNativeRead(t *testing.T){
    if inputs.Snapshot.Policy.CollectionGuardPolicy==nil||*inputs.Snapshot.Policy.CollectionGuardPolicy!=*pinned.Policy.CollectionGuardPolicy{t.Fatal("invalid/future policy was rewritten")}
   })
  }
+}
+
+func TestAgentRunCollectionProjectionRequiresExactPendingCallAcrossSnapshots(t *testing.T){
+ s,_,_,spec:=providerToolRunFixture(t,"run-clp-exact-projection")
+ spec,history:=enableRunAutomationFixture(t,s,spec,true,false)
+ ctx:=agentrun.WithPrincipalOwner(context.Background(),"local")
+ inputs,err:=s.ResolveAgentRunInputs(ctx,spec);if err!=nil{t.Fatal(err)}
+ identity,err:=patchtool.ReadProjectIdentity(inputs.ExecutionWorkspacePath);if err!=nil{t.Fatal(err)}
+ call:=agentchat.HistoryItem{Type:"function_call",Name:"taskdeck_collect_workspace",CallID:"logical-read",Arguments:`{"actions":[{"type":"file","path":"main.go"}]}`,OriginRunID:spec.RunID,ProviderID:spec.ProviderID,ModelID:spec.ModelID,ParentTurnID:spec.ParentTurnID}
+ request,err:=agentNativeCollectionRequest(call.Arguments,identity,false);if err!=nil{t.Fatal(err)}
+ raw,err:=json.Marshal(map[string]any{"source":"native_patch_tool_collect","project":identity,"status":"PASS","native_status":"PASS","rc":0,"evidence_verified":true,"native_session_id":"native","run_id":"logical-receipt","text_excerpt_truncated":false,"native_full_file_reads":[]any{map[string]any{"path":"main.go","action_index":1,"total_lines":1,"report_sha256":strings.Repeat("a",64)}}});if err!=nil{t.Fatal(err)}
+ run:=agentrun.Record{Spec:spec,History:append(append([]agentchat.HistoryItem(nil),history...),call)}
+ // Different call/owner/worktree/provenance cannot mint a progress event.
+ wrong:=call;wrong.CallID="another-call"
+ if got:=runCollectionProgressUpdate("local",run,inputs,identity,wrong,request,string(raw),true);len(got)!=0{t.Fatal("foreign call counted")}
+ wrong=call;wrong.ProviderID="other-provider"
+ foreign:=run;foreign.History=append(append([]agentchat.HistoryItem(nil),history...),wrong)
+ if got:=runCollectionProgressUpdate("local",foreign,inputs,identity,wrong,request,string(raw),true);len(got)!=0{t.Fatal("foreign provider counted")}
+ // First projection is deterministic even if an uncommitted snapshot is
+ // staged twice. It is not a second native execution or observation.
+ projected:=runCollectionProgressUpdate("local",run,inputs,identity,call,request,string(raw),true)
+ again:=runCollectionProgressUpdate("local",run,inputs,identity,call,request,string(raw),true)
+ if len(projected)==0||string(again)!=string(projected){t.Fatal("projection not deterministic")}
+ var g runCollectionProgress
+ if json.Unmarshal(projected,&g)!=nil||g.Counters.Requested!=1||g.Counters.Observed!=1||g.Counters.NativeReads!=1||g.Counters.NewEvidence!=1||g.Decision.Kind!=cp.Continue{t.Fatalf("unexpected counters: %+v",g)}
+ result:=agentchat.HistoryItem{Type:"function_call_output",CallID:call.CallID,Content:string(raw),OriginRunID:spec.RunID,ProviderID:spec.ProviderID,ModelID:spec.ModelID,ParentTurnID:spec.ParentTurnID}
+ committed:=append(append([]agentchat.HistoryItem(nil),run.History...),result)
+ snapshots,err:=s.agentContextSnapshotStore("local");if err!=nil{t.Fatal(err)}
+ policy:=*inputs.Snapshot.Policy;policy.CollectionProgress=projected
+ snap,err:=snapshots.CreateWithPolicy(spec.OwnerWorkspaceID,spec.ConversationID,inputs.ProjectID,committed,inputs.Snapshot.SourceRefs,&policy);if err!=nil{t.Fatal(err)}
+ reopened,err:=snapshots.Get(snap.ID,spec.OwnerWorkspaceID,spec.ConversationID,inputs.ProjectID);if err!=nil{t.Fatal(err)}
+ derived:=inputs;derived.Snapshot=reopened
+ run.Spec.ContextSnapshotID=snap.ID
+ run.History=committed
+ if got:=runCollectionProgressUpdate("local",run,derived,identity,call,request,string(raw),true);string(got)!=string(projected){t.Fatal("resolved observation changed counters")}
+ // Old snapshot prefix cannot be used to attribute a second count to a
+ // completed call even if history has subsequently grown.
+ run.History=append(run.History,agentchat.HistoryItem{Type:"assistant",Content:"Read complete."})
+ if got:=runCollectionProgressUpdate("local",run,derived,identity,call,request,string(raw),true);string(got)!=string(projected){t.Fatal("stale observation counted again")}
+ got,ok:=readRunCollectionProgress("local",run.Spec,derived)
+ if !ok||got.Counters!=g.Counters{t.Fatal("committed counters changed on reopen")}
 }
