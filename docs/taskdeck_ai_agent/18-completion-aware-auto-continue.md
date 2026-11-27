@@ -100,3 +100,10 @@ Earlier failures were fixed, not ignored: Go regexp repeat limit/Go fixture
 concatenation, a neutral text fixture accidentally containing "unfinished",
 and a synthetic final Native Patch record that canonical Store rightly rejected.
 The final core workflow validated the corrected code.
+
+
+## Owner preference is durable — 2026-11-27
+
+`Auto continue (no plan)` is an explicit per-conversation owner preference, not scheduler status. Previous code in `autoContinueConversationOne` and `deferStandaloneAdmission` silently wrote false after the no-work brake or a nonretryable admission failure. Those paths now persist only a scheduling pause/reason, leaving ON/OFF unchanged. `StandaloneContinuationGranted` checks the brake independently across automatic continuation/recovery admission; explicit AutoFeedback permission remains separate. `ContinuePreferenceRevision` protects both owner ON and owner OFF against same-generation journal saves; existing ContinueResetRevision and legacy saved ON are preserved. Explicit opt-in rearms the bounded scheduler; no automatic reenable of historically OFF conversations because prior manual revocation is indistinguishable from legacy automatic OFF. UI renders ON · paused with reason, and allows explicit OFF then ON to rearm after review. Ordinary Stop, unresolved native work and UNKNOWN provider delivery remain fenced; no change to default OFF for new conversations or TaskPlan authorization.
+
+Regression source: TestAgentStandaloneUnfinishedAuditAutomaticallyContinuesThenStalls now asserts ON is preserved and no sixth request occurs before explicit rearm; TestAgentStandaloneAdmissionFailurePausesWithoutRevokingPreference; TestAgentStandalonePreferenceSurvivesSameGenerationJournalWrites; web/agentchat_bootstrap_test.cjs checks ON · paused and explicit OFF. Source commits 0eec717e through 2fe16d6e; current combined CI pending. No runtime/deployment claim.
