@@ -751,7 +751,7 @@ func (s *Server) agentChatAuthorizedMessage(w http.ResponseWriter, r *http.Reque
 	if len(session.ToolCalls) > 0 {
 		if snap, err := agentWorkspaceSnapshotOf(r.Context(), s.Workspace); err == nil {
 			for i := range session.ToolCalls {
-				if session.ToolCalls[i].Status == "pending" && session.ToolCalls[i].ExpectedHead == "" && !session.ToolCalls[i].GitIsRepo {
+				if session.ToolCalls[i].Name == "taskdeck_submit_patch" && session.ToolCalls[i].Status == "pending" && session.ToolCalls[i].ExpectedHead == "" && !session.ToolCalls[i].GitIsRepo {
 					session.ToolCalls[i].ExpectedHead = snap.Head
 					session.ToolCalls[i].ExpectedBranch = snap.Branch
 					session.ToolCalls[i].WorkspaceStatusSHA256 = snap.StatusSHA256
