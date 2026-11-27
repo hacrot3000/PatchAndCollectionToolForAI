@@ -416,7 +416,13 @@ func (s *Server) agentFailureContextProjection(store *agentchat.Store,x agentcha
  if currentCall==""&&!agentFailureRunIDInText(text)&&(strings.HasPrefix(lower,"continue")||strings.HasPrefix(lower,"resume")||strings.HasPrefix(lower,"tiếp")||lower==""||x.Status=="failed"){
   for i:=len(x.History)-1;i>=0;i--{
    if x.History[i].Type=="assistant"{
-    if run:=agentFailureRunTextPattern.FindString(x.History[i].Content);run!=""{text+=" "+run}
+    // A Nim gateway/Collection run ID in the last message is not a
+    // PATCH selector. Only adopt a reference which actually binds to
+    // this conversation's failure ledger; otherwise use the newest failure.
+    for _,run:=range agentFailureRunTextPattern.FindAllString(x.History[i].Content,8){
+     candidates,_:=agentFailureCandidates(store,x)
+     if _,ok:=agentSelectFailureCall(candidates,"",run);ok{text+=" "+run;break}
+    }
     break
    }
   }
