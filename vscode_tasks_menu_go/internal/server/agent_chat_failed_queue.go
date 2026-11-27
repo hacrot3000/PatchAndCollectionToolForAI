@@ -97,17 +97,29 @@ func agentRecordFailedRetirement(call *agentchat.ToolCallRecord,status,archive s
 func(s *Server)agentRetireKnownFailedPatches(ctx context.Context,x *agentchat.Session,identity patchtool.ProjectIdentity,currentCall string)string{
  if x.Owner!="local"||s.Config.SharedServerEnabled{return ""}
  var notes []string
- for i:=len(x.ToolCalls)-1;i>=0&&len(notes)<12;i--{
+ attempts:=0
+ for i:=len(x.ToolCalls)-1;i>=0&&attempts<3;i--{
+  if ctx.Err()!=nil{break}
   call:=x.ToolCalls[i]
   if !agentFailedPatchRetirementEligible(call)||!(call.CallID==currentCall||(call.FeedbackSent&&call.FeedbackStatus=="acknowledged")){continue}
   name:=filepath.Base(call.QueuePath)
   if call.QueuePath!="patchs/"+name{continue}
   if _,err:=os.Lstat(filepath.Join(s.Workspace,"patchs",name));os.IsNotExist(err){
-   agentRecordFailedRetirement(&x.ToolCalls[i],"not_queued","");continue
+   // A missing queue file alone is not a retirement receipt. Recover an
+   // interrupted native retirement only from the exact archived bytes.
+   if disposition,_:=s.agentFailurePredecessor(call);disposition=="retired"{
+    agentRecordFailedRetirement(&x.ToolCalls[i],"retired","patchs/ignore/agent-failed-"+call.PackageSHA256+".zip");continue
+   }
+   archive:="patchs/ignore/agent-failed-"+call.PackageSHA256+".zip"
+   data,e:=agentFailureReadFile(s.Workspace,archive,2<<20)
+   if e!=nil||int64(len(data))!=call.PackageSize||agentFailureSHA(data)!=call.PackageSHA256{
+    agentRecordFailedRetirement(&x.ToolCalls[i],"not_queued","");continue
+   }
   }else if err!=nil {
    agentRecordFailedRetirement(&x.ToolCalls[i],"unknown","");continue
   }
   if s.agentNativePatchActive(call){agentRecordFailedRetirement(&x.ToolCalls[i],"retained","");continue}
+  attempts++
   out,err:=s.agentRetireFailedQueue(ctx,x.Owner,identity,patchUploadResult{Name:name,QueuePath:call.QueuePath,SHA256:call.PackageSHA256,Size:call.PackageSize},"PATCH",call.RunID)
   if err!=nil{
    disposition:="unknown"
