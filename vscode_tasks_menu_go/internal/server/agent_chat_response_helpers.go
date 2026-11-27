@@ -155,7 +155,7 @@ func agentRejectedPatchFeedback(code, message string, retryable bool) string {
 // This is a denial receipt, not an execution request. Command arguments are
 // intentionally excluded. The model receives its original call_id separately.
 func agentRejectedUnsupportedToolFeedback(name, code string) string {
- message:=fmt.Sprintf("Tool %q was rejected by TaskDeck. It was NOT executed. Use only advertised TaskDeck tools: taskdeck_collect_workspace, taskdeck_submit_patch, or taskdeck_ask_user. If no function schema is advertised, use the documented exact project-bound text JSON fallback instead. Choose an allowed path or explain the limitation; continue the original task.",name)
+ message:=fmt.Sprintf("Tool %q was rejected by TaskDeck. It was NOT executed. Use only advertised TaskDeck tools: taskdeck_collect_workspace, taskdeck_submit_patch, or taskdeck_ask_user. If no function schema is advertised, use the documented exact project-bound text JSON fallback instead. For an eligible existing project-local script, use the documented native command-only PATCH (patch_python empty, patch_manifest JSON string) instead of direct shell or asking the user to run it manually. Choose an allowed path or explain the precise limitation; continue the original task.",name)
  if code=="MULTIPLE_TOOL_CALLS"{
   message="TaskDeck rejected every function call in this batch. No tool was executed. Request ONE supported tool at a time and continue the original task."
  }
