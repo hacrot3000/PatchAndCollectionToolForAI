@@ -84,7 +84,7 @@ func agentRecoveredCollectionResumeCandidate(x agentchat.Session)bool{
   (x.AutoCollection!=nil&&!*x.AutoCollection)||agentchat.HasUnresolvedWork(x){return false}
  if x.TaskPlan!=nil{
   if !x.TaskPlan.AutoContinue||agentchat.TaskPlanNext(x.TaskPlan)==nil||x.TaskPlan.NoProgressTurns>=agentchat.MaxContinuationNoWorkTurns{return false}
- }else if !x.AutoContinueText||(x.Continuation!=nil&&x.Continuation.NoProgressTurns>=agentchat.MaxContinuationNoWorkTurns){return false}
+ }else if !agentchat.StandaloneContinuationGranted(x){return false}
  for _,call:=range x.ToolCalls{
   if !call.FeedbackSent||call.FeedbackStatus!="acknowledged"{return false}
  }
