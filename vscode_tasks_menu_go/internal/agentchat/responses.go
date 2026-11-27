@@ -266,7 +266,7 @@ func BuildResponsesRequest(c RequestConfig) ([]byte, error) {
 		req["tools"] = append(tools, map[string]any{
 			"type":        "function",
 			"name":        "taskdeck_submit_patch",
-			"description": "Submit a Python Patch or a strict native command-only manifest. Set exactly one of patch_python and patch_manifest nonempty; set the other to an empty string. TaskDeck validates the project identity and executes only via Native Patch Tool with either a user-enabled per-conversation Auto apply grant or explicit per-Patch approval. Never claim that submission means execution.",
+			"description": "Submit a Python Patch OR run an eligible existing project-local build/test/diagnostic script via native command-only PATCH. Prefer the command-only lane to asking the user to run an eligible script manually. Set exactly one of patch_python and patch_manifest nonempty; set the other to an empty string. A command-only manifest contains one structured argv command (for example bash scripts/check.sh), never inline shell. Native validation, project identity, script origin and approval gates still apply. Never claim submission means execution.",
 			"strict":      true,
 			"parameters": map[string]any{
 				"type": "object",
