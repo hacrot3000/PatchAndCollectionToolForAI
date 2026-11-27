@@ -3450,7 +3450,9 @@ function renderAgentAutomationControls(session){
   reason==='stalled_without_verified_work'?'Stopped after repeated turns without verified work.':
   reason==='nonretryable_admission_failure'?'Stopped after an admission error that requires review.':
   session?.continuation?.disposition==='BLOCKED'?'The conversation reported a blocker.':'');
- autoContinueText.title=stopped?baseTitle+' '+stopped+' Review the conversation before enabling again.':baseTitle;
+ const advisoryBlocker=Boolean(session?.auto_continue_text&&session?.continuation?.disposition==='BLOCKED');
+ if(advisoryBlocker)autoContinueText.textContent='Auto continue (no plan): ON · review/recovery';
+ autoContinueText.title=stopped?baseTitle+' '+stopped+' Review the conversation before enabling again.':advisoryBlocker?baseTitle+' The model reported a blocker; TaskDeck checks exact native recovery evidence before scheduling another turn. Your preference remains ON.':baseTitle;
 }
 function agentFeedbackEnabled(session){
  return Boolean(session?.auto_feedback&&(session.auto_feedback_persistent||
