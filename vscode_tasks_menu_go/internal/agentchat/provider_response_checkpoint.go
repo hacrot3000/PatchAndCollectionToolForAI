@@ -140,7 +140,10 @@ func (s *Store) ClearCommittedProviderResponse(id,owner,runID string)error{
   if e!=nil{return e}
   if base.Owner!=owner||!s.matchesProject(base){return ErrNotFound}
   if base.ProviderRun==nil||base.ProviderRun.ID!=runID||base.ProviderRun.Phase!="completed"{return ErrInvalidSession}
-  e=os.Remove(s.providerResponseCheckpointPath(id,runID))
+  // Confirm the canonical journal directory entry before removing the last
+ // recovery copy (especially after an ambiguous prior directory fsync).
+ if e=s.syncDirectory();e!=nil{return e}
+ e=os.Remove(s.providerResponseCheckpointPath(id,runID))
   if os.IsNotExist(e){return nil}
   if e!=nil{return e}
   return s.syncDirectory()
